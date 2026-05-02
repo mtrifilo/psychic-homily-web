@@ -1,10 +1,11 @@
-package handlers
+package catalog
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -13,8 +14,8 @@ import (
 // ============================================================================
 
 func TestListScenes_Success(t *testing.T) {
-	mock := &mockSceneService{
-		listScenesFn: func() ([]*contracts.SceneListResponse, error) {
+	mock := &testhelpers.MockSceneService{
+		ListScenesFn: func() ([]*contracts.SceneListResponse, error) {
 			return []*contracts.SceneListResponse{
 				{City: "Phoenix", State: "AZ", Slug: "phoenix-az", VenueCount: 5, UpcomingShowCount: 12},
 			}, nil
@@ -34,8 +35,8 @@ func TestListScenes_Success(t *testing.T) {
 }
 
 func TestListScenes_Empty(t *testing.T) {
-	mock := &mockSceneService{
-		listScenesFn: func() ([]*contracts.SceneListResponse, error) {
+	mock := &testhelpers.MockSceneService{
+		ListScenesFn: func() ([]*contracts.SceneListResponse, error) {
 			return nil, nil
 		},
 	}
@@ -50,14 +51,14 @@ func TestListScenes_Empty(t *testing.T) {
 }
 
 func TestListScenes_ServiceError(t *testing.T) {
-	mock := &mockSceneService{
-		listScenesFn: func() ([]*contracts.SceneListResponse, error) {
+	mock := &testhelpers.MockSceneService{
+		ListScenesFn: func() ([]*contracts.SceneListResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
 	h := NewSceneHandler(mock)
 	_, err := h.ListScenesHandler(context.Background(), &ListScenesRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -65,11 +66,11 @@ func TestListScenes_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestGetSceneDetail_Success(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
+		GetSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
 			return &contracts.SceneDetailResponse{
 				City:  city,
 				State: state,
@@ -104,45 +105,45 @@ func TestGetSceneDetail_Success(t *testing.T) {
 }
 
 func TestGetSceneDetail_SlugNotFound(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneDetailRequest{Slug: "nonexistent-xx"}
 	_, err := h.GetSceneDetailHandler(context.Background(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetSceneDetail_SceneNotFound(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Tiny", "XX", nil
 		},
-		getSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
+		GetSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
 			return nil, fmt.Errorf("scene not found: %s, %s", city, state)
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneDetailRequest{Slug: "tiny-xx"}
 	_, err := h.GetSceneDetailHandler(context.Background(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetSceneDetail_ServiceError(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
+		GetSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
 			return nil, fmt.Errorf("database connection lost")
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneDetailRequest{Slug: "phoenix-az"}
 	_, err := h.GetSceneDetailHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -152,11 +153,11 @@ func TestGetSceneDetail_ServiceError(t *testing.T) {
 func TestGetSceneActiveArtists_Success(t *testing.T) {
 	phoenix := "Phoenix"
 	az := "AZ"
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 			return []*contracts.SceneArtistResponse{
 				{ID: 1, Slug: "band-a", Name: "Band A", City: &phoenix, State: &az, ShowCount: 5},
 				{ID: 2, Slug: "band-b", Name: "Band B", City: &phoenix, State: &az, ShowCount: 3},
@@ -178,39 +179,39 @@ func TestGetSceneActiveArtists_Success(t *testing.T) {
 }
 
 func TestGetSceneActiveArtists_SlugNotFound(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneActiveArtistsRequest{Slug: "nonexistent-xx"}
 	_, err := h.GetSceneActiveArtistsHandler(context.Background(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetSceneActiveArtists_SceneNotFound(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Tiny", "XX", nil
 		},
-		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 			return nil, 0, fmt.Errorf("scene not found: %s, %s", city, state)
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneActiveArtistsRequest{Slug: "tiny-xx"}
 	_, err := h.GetSceneActiveArtistsHandler(context.Background(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetSceneActiveArtists_DefaultPeriodAndLimit(t *testing.T) {
 	var capturedPeriod, capturedLimit int
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 			capturedPeriod = periodDays
 			capturedLimit = limit
 			return []*contracts.SceneArtistResponse{}, 0, nil
@@ -231,18 +232,18 @@ func TestGetSceneActiveArtists_DefaultPeriodAndLimit(t *testing.T) {
 }
 
 func TestGetSceneActiveArtists_ServiceError(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
+		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
 			return nil, 0, fmt.Errorf("database connection lost")
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneActiveArtistsRequest{Slug: "phoenix-az", Period: 90, Limit: 20}
 	_, err := h.GetSceneActiveArtistsHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -269,17 +270,17 @@ func TestIsSceneNotFoundErr(t *testing.T) {
 // ============================================================================
 
 func TestGetSceneGenres_Success(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
+		GetSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
 			return []contracts.GenreCount{
 				{TagID: 1, Name: "punk", Slug: "punk", Count: 20},
 				{TagID: 2, Name: "indie rock", Slug: "indie-rock", Count: 15},
 			}, nil
 		},
-		getGenreDiversityIndexFn: func(city, state string) (float64, error) {
+		GetGenreDiversityIndexFn: func(city, state string) (float64, error) {
 			return 0.85, nil
 		},
 	}
@@ -301,26 +302,26 @@ func TestGetSceneGenres_Success(t *testing.T) {
 }
 
 func TestGetSceneGenres_SlugNotFound(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneGenresRequest{Slug: "nonexistent-xx"}
 	_, err := h.GetSceneGenresHandler(context.Background(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetSceneGenres_Empty(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
+		GetSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
 			return nil, nil
 		},
-		getGenreDiversityIndexFn: func(city, state string) (float64, error) {
+		GetGenreDiversityIndexFn: func(city, state string) (float64, error) {
 			return -1, nil
 		},
 	}
@@ -342,16 +343,16 @@ func TestGetSceneGenres_Empty(t *testing.T) {
 }
 
 func TestGetSceneGenres_ServiceError(t *testing.T) {
-	mock := &mockSceneService{
-		parseSceneSlugFn: func(slug string) (string, string, error) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
 			return "Phoenix", "AZ", nil
 		},
-		getSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
+		GetSceneGenreDistributionFn: func(city, state string) ([]contracts.GenreCount, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
 	h := NewSceneHandler(mock)
 	req := &GetSceneGenresRequest{Slug: "phoenix-az"}
 	_, err := h.GetSceneGenresHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }

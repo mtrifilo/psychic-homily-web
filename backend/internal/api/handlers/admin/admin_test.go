@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -7,6 +7,9 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/pipeline"
+	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -19,8 +22,8 @@ func testAdminShowHandler() *AdminShowHandler {
 	return NewAdminShowHandler(nil, nil, nil, nil, nil, nil, nil)
 }
 
-func testAdminDiscoveryHandler() *AdminDiscoveryHandler {
-	return NewAdminDiscoveryHandler(nil)
+func testAdminDiscoveryHandler() *pipeline.AdminDiscoveryHandler {
+	return pipeline.NewAdminDiscoveryHandler(nil)
 }
 
 func testAdminVenueHandler() *AdminVenueHandler {
@@ -44,7 +47,7 @@ func testAdminStatsHandler() *AdminStatsHandler {
 }
 
 func adminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 }
 
 // ============================================================================
@@ -114,11 +117,11 @@ func TestAdminHandler_RequiresAdmin(t *testing.T) {
 			return err
 		}},
 		{"DiscoveryImport", func(ctx context.Context) error {
-			_, err := discoveryH.DiscoveryImportHandler(ctx, &DiscoveryImportRequest{})
+			_, err := discoveryH.DiscoveryImportHandler(ctx, &pipeline.DiscoveryImportRequest{})
 			return err
 		}},
 		{"DiscoveryCheck", func(ctx context.Context) error {
-			_, err := discoveryH.DiscoveryCheckHandler(ctx, &DiscoveryCheckRequest{})
+			_, err := discoveryH.DiscoveryCheckHandler(ctx, &pipeline.DiscoveryCheckRequest{})
 			return err
 		}},
 		{"CreateAPIToken", func(ctx context.Context) error {
@@ -170,12 +173,12 @@ func TestAdminHandler_RequiresAdmin(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name+"_NoUser", func(t *testing.T) {
 			err := tc.fn(context.Background())
-			assertHumaError(t, err, 403)
+			testhelpers.AssertHumaError(t, err, 403)
 		})
 		t.Run(tc.name+"_NonAdmin", func(t *testing.T) {
-			ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+			ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 			err := tc.fn(ctx)
-			assertHumaError(t, err, 403)
+			testhelpers.AssertHumaError(t, err, 403)
 		})
 	}
 }
@@ -190,7 +193,7 @@ func TestApproveShowHandler_InvalidID(t *testing.T) {
 	req := &ApproveShowRequest{ShowID: "abc"}
 
 	_, err := h.ApproveShowHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // RejectShowHandler — invalid show ID
@@ -199,7 +202,7 @@ func TestRejectShowHandler_InvalidID(t *testing.T) {
 	req := &RejectShowRequest{ShowID: "abc"}
 
 	_, err := h.RejectShowHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // RejectShowHandler — empty reason
@@ -209,7 +212,7 @@ func TestRejectShowHandler_EmptyReason(t *testing.T) {
 	// Body.Reason is empty
 
 	_, err := h.RejectShowHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // VerifyVenueHandler — invalid venue ID
@@ -218,7 +221,7 @@ func TestVerifyVenueHandler_InvalidID(t *testing.T) {
 	req := &VerifyVenueRequest{VenueID: "abc"}
 
 	_, err := h.VerifyVenueHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // ImportShowPreviewHandler — invalid base64
@@ -228,7 +231,7 @@ func TestImportShowPreviewHandler_InvalidBase64(t *testing.T) {
 	req.Body.Content = "not-valid-base64!!!"
 
 	_, err := h.ImportShowPreviewHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // ImportShowConfirmHandler — invalid base64
@@ -238,7 +241,7 @@ func TestImportShowConfirmHandler_InvalidBase64(t *testing.T) {
 	req.Body.Content = "not-valid-base64!!!"
 
 	_, err := h.ImportShowConfirmHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // BulkExportShowsHandler — empty show IDs
@@ -248,7 +251,7 @@ func TestBulkExportShowsHandler_EmptyIDs(t *testing.T) {
 	// Body.ShowIDs is nil
 
 	_, err := h.BulkExportShowsHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // BulkExportShowsHandler — too many show IDs
@@ -258,7 +261,7 @@ func TestBulkExportShowsHandler_TooMany(t *testing.T) {
 	req.Body.ShowIDs = make([]uint, 51)
 
 	_, err := h.BulkExportShowsHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // BulkImportPreviewHandler — empty shows
@@ -267,7 +270,7 @@ func TestBulkImportPreviewHandler_EmptyShows(t *testing.T) {
 	req := &BulkImportPreviewRequest{}
 
 	_, err := h.BulkImportPreviewHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // BulkImportPreviewHandler — too many shows
@@ -277,7 +280,7 @@ func TestBulkImportPreviewHandler_TooMany(t *testing.T) {
 	req.Body.Shows = make([]string, 51)
 
 	_, err := h.BulkImportPreviewHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // BulkImportConfirmHandler — empty shows
@@ -286,7 +289,7 @@ func TestBulkImportConfirmHandler_EmptyShows(t *testing.T) {
 	req := &BulkImportConfirmRequest{}
 
 	_, err := h.BulkImportConfirmHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // BulkImportConfirmHandler — too many shows
@@ -296,46 +299,13 @@ func TestBulkImportConfirmHandler_TooMany(t *testing.T) {
 	req.Body.Shows = make([]string, 51)
 
 	_, err := h.BulkImportConfirmHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
-// DiscoveryImportHandler — empty events
-func TestDiscoveryImportHandler_EmptyEvents(t *testing.T) {
-	h := testAdminDiscoveryHandler()
-	req := &DiscoveryImportRequest{}
-
-	_, err := h.DiscoveryImportHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
-}
-
-// DiscoveryImportHandler — too many events
-func TestDiscoveryImportHandler_TooMany(t *testing.T) {
-	h := testAdminDiscoveryHandler()
-	req := &DiscoveryImportRequest{}
-	req.Body.Events = make([]DiscoveryImportEventInput, 101)
-
-	_, err := h.DiscoveryImportHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
-}
-
-// DiscoveryCheckHandler — empty events
-func TestDiscoveryCheckHandler_EmptyEvents(t *testing.T) {
-	h := testAdminDiscoveryHandler()
-	req := &DiscoveryCheckRequest{}
-
-	_, err := h.DiscoveryCheckHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
-}
-
-// DiscoveryCheckHandler — too many events
-func TestDiscoveryCheckHandler_TooMany(t *testing.T) {
-	h := testAdminDiscoveryHandler()
-	req := &DiscoveryCheckRequest{}
-	req.Body.Events = make([]DiscoveryCheckEventInput, 201)
-
-	_, err := h.DiscoveryCheckHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
-}
+// Discovery handler tests live in pipeline/admin_discovery_test.go; the
+// admin-guard checks for DiscoveryImport/DiscoveryCheck remain here in the
+// TestAdminHandler_RequiresAdmin sweep above, since the admin gate is the
+// shared concern.
 
 // CreateAPITokenHandler — expiration too long
 func TestCreateAPITokenHandler_ExpirationTooLong(t *testing.T) {
@@ -344,7 +314,7 @@ func TestCreateAPITokenHandler_ExpirationTooLong(t *testing.T) {
 	req.Body.ExpirationDays = 400
 
 	_, err := h.CreateAPITokenHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // RevokeAPITokenHandler — invalid token ID
@@ -353,7 +323,7 @@ func TestRevokeAPITokenHandler_InvalidID(t *testing.T) {
 	req := &RevokeAPITokenRequest{TokenID: "abc"}
 
 	_, err := h.RevokeAPITokenHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // DataImportHandler — empty items
@@ -363,7 +333,7 @@ func TestDataImportHandler_EmptyItems(t *testing.T) {
 	// All slices are nil/empty, totalItems == 0
 
 	_, err := h.DataImportHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // DataImportHandler — too many items
@@ -373,7 +343,7 @@ func TestDataImportHandler_TooMany(t *testing.T) {
 	req.Body.Shows = make([]contracts.ExportedShow, 501)
 
 	_, err := h.DataImportHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // ExportShowsHandler — invalid date format
@@ -382,7 +352,7 @@ func TestExportShowsHandler_InvalidDate(t *testing.T) {
 	req := &ExportShowsRequest{FromDate: "not-a-date"}
 
 	_, err := h.ExportShowsHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // ============================================================================
@@ -391,9 +361,9 @@ func TestExportShowsHandler_InvalidDate(t *testing.T) {
 
 func adminShowHandler(opts ...func(*AdminShowHandler)) *AdminShowHandler {
 	h := &AdminShowHandler{
-		discordService:        &mockDiscordService{},
-		auditLogService:       &mockAuditLogService{},
-		musicDiscoveryService: &mockMusicDiscoveryService{},
+		discordService:        &testhelpers.MockDiscordService{},
+		auditLogService:       &testhelpers.MockAuditLogService{},
+		musicDiscoveryService: &testhelpers.MockMusicDiscoveryService{},
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -401,17 +371,15 @@ func adminShowHandler(opts ...func(*AdminShowHandler)) *AdminShowHandler {
 	return h
 }
 
-func adminDiscoveryHandler(opts ...func(*AdminDiscoveryHandler)) *AdminDiscoveryHandler {
-	h := &AdminDiscoveryHandler{}
-	for _, opt := range opts {
-		opt(h)
-	}
-	return h
-}
+// AdminDiscoveryHandler factory + Mock-driven tests live in
+// pipeline/admin_discovery_test.go (PSY-420 sub-package split). Constructing
+// pipeline.AdminDiscoveryHandler with mocked services requires assigning to
+// its unexported `discoveryService` field, which is only legal from inside
+// the pipeline package.
 
 func adminVenueHandler(opts ...func(*AdminVenueHandler)) *AdminVenueHandler {
 	h := &AdminVenueHandler{
-		auditLogService: &mockAuditLogService{},
+		auditLogService: &testhelpers.MockAuditLogService{},
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -457,8 +425,8 @@ func adminStatsHandler(opts ...func(*AdminStatsHandler)) *AdminStatsHandler {
 
 func TestGetPendingShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				if limit != 50 {
 					t.Errorf("expected limit=50, got %d", limit)
 				}
@@ -483,20 +451,20 @@ func TestGetPendingShowsHandler_Success(t *testing.T) {
 
 func TestGetPendingShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getPendingShowsFn: func(_, _ int, _ *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetPendingShowsFn: func(_, _ int, _ *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.GetPendingShowsHandler(adminCtx(), &GetPendingShowsRequest{Limit: 50})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetRejectedShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getRejectedShowsFn: func(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetRejectedShowsFn: func(limit, offset int, search string) ([]*contracts.ShowResponse, int64, error) {
 				if limit != 50 {
 					t.Errorf("expected limit=50, got %d", limit)
 				}
@@ -518,20 +486,20 @@ func TestGetRejectedShowsHandler_Success(t *testing.T) {
 
 func TestGetRejectedShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getRejectedShowsFn: func(_, _ int, _ string) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetRejectedShowsFn: func(_, _ int, _ string) ([]*contracts.ShowResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.GetRejectedShowsHandler(adminCtx(), &GetRejectedShowsRequest{Limit: 50})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetUnverifiedVenuesHandler_Success(t *testing.T) {
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			getUnverifiedVenuesFn: func(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
+		ah.venueService = &testhelpers.MockVenueService{
+			GetUnverifiedVenuesFn: func(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
 				if limit != 50 {
 					t.Errorf("expected limit=50, got %d", limit)
 				}
@@ -553,21 +521,20 @@ func TestGetUnverifiedVenuesHandler_Success(t *testing.T) {
 
 func TestGetUnverifiedVenuesHandler_ServiceError(t *testing.T) {
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			getUnverifiedVenuesFn: func(_, _ int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
+		ah.venueService = &testhelpers.MockVenueService{
+			GetUnverifiedVenuesFn: func(_, _ int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.GetUnverifiedVenuesHandler(adminCtx(), &GetUnverifiedVenuesRequest{Limit: 50})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
-
 
 func TestGetAdminShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getAdminShowsFn: func(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetAdminShowsFn: func(limit, offset int, filters contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
 				if limit != 50 {
 					t.Errorf("expected limit=50, got %d", limit)
 				}
@@ -589,20 +556,20 @@ func TestGetAdminShowsHandler_Success(t *testing.T) {
 
 func TestGetAdminShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getAdminShowsFn: func(_, _ int, _ contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetAdminShowsFn: func(_, _ int, _ contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.GetAdminShowsHandler(adminCtx(), &GetAdminShowsRequest{Limit: 50})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestListAPITokensHandler_Success(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
-		ah.apiTokenService = &mockAPITokenService{
-			listTokensFn: func(userID uint) ([]contracts.APITokenResponse, error) {
+		ah.apiTokenService = &testhelpers.MockAPITokenService{
+			ListTokensFn: func(userID uint) ([]contracts.APITokenResponse, error) {
 				if userID != 1 {
 					t.Errorf("expected userID=1, got %d", userID)
 				}
@@ -621,20 +588,20 @@ func TestListAPITokensHandler_Success(t *testing.T) {
 
 func TestListAPITokensHandler_ServiceError(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
-		ah.apiTokenService = &mockAPITokenService{
-			listTokensFn: func(_ uint) ([]contracts.APITokenResponse, error) {
+		ah.apiTokenService = &testhelpers.MockAPITokenService{
+			ListTokensFn: func(_ uint) ([]contracts.APITokenResponse, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.ListAPITokensHandler(adminCtx(), &ListAPITokensRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestExportShowsHandler_Success(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportShowsFn: func(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportShowsFn: func(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
 				if params.Limit != 50 {
 					t.Errorf("expected params.Limit=50, got %d", params.Limit)
 				}
@@ -653,20 +620,20 @@ func TestExportShowsHandler_Success(t *testing.T) {
 
 func TestExportShowsHandler_ServiceError(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportShowsFn: func(_ contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportShowsFn: func(_ contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.ExportShowsHandler(adminCtx(), &ExportShowsRequest{Limit: 50})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestExportArtistsHandler_Success(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportArtistsFn: func(params contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportArtistsFn: func(params contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error) {
 				return &contracts.ExportArtistsResult{Total: 3}, nil
 			},
 		}
@@ -682,20 +649,20 @@ func TestExportArtistsHandler_Success(t *testing.T) {
 
 func TestExportArtistsHandler_ServiceError(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportArtistsFn: func(_ contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportArtistsFn: func(_ contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.ExportArtistsHandler(adminCtx(), &ExportArtistsRequest{Limit: 50})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestExportVenuesHandler_Success(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportVenuesFn: func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportVenuesFn: func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
 				return &contracts.ExportVenuesResult{Total: 2}, nil
 			},
 		}
@@ -711,20 +678,20 @@ func TestExportVenuesHandler_Success(t *testing.T) {
 
 func TestExportVenuesHandler_ServiceError(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportVenuesFn: func(_ contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportVenuesFn: func(_ contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.ExportVenuesHandler(adminCtx(), &ExportVenuesRequest{Limit: 50})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetAdminUsersHandler_Success(t *testing.T) {
 	h := adminUserHandler(func(ah *AdminUserHandler) {
-		ah.userService = &mockUserService{
-			listUsersFn: func(limit, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
+		ah.userService = &testhelpers.MockUserService{
+			ListUsersFn: func(limit, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
 				if limit != 50 {
 					t.Errorf("expected limit=50, got %d", limit)
 				}
@@ -746,20 +713,20 @@ func TestGetAdminUsersHandler_Success(t *testing.T) {
 
 func TestGetAdminUsersHandler_ServiceError(t *testing.T) {
 	h := adminUserHandler(func(ah *AdminUserHandler) {
-		ah.userService = &mockUserService{
-			listUsersFn: func(_, _ int, _ contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
+		ah.userService = &testhelpers.MockUserService{
+			ListUsersFn: func(_, _ int, _ contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
 				return nil, 0, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.GetAdminUsersHandler(adminCtx(), &GetAdminUsersRequest{Limit: 50})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetAdminStatsHandler_Success(t *testing.T) {
 	h := adminStatsHandler(func(ah *AdminStatsHandler) {
-		ah.adminStatsService = &mockAdminStatsService{
-			getDashboardStatsFn: func() (*contracts.AdminDashboardStats, error) {
+		ah.adminStatsService = &testhelpers.MockAdminStatsService{
+			GetDashboardStatsFn: func() (*contracts.AdminDashboardStats, error) {
 				return &contracts.AdminDashboardStats{
 					PendingShows: 5,
 					TotalShows:   42,
@@ -785,14 +752,14 @@ func TestGetAdminStatsHandler_Success(t *testing.T) {
 
 func TestGetAdminStatsHandler_ServiceError(t *testing.T) {
 	h := adminStatsHandler(func(ah *AdminStatsHandler) {
-		ah.adminStatsService = &mockAdminStatsService{
-			getDashboardStatsFn: func() (*contracts.AdminDashboardStats, error) {
+		ah.adminStatsService = &testhelpers.MockAdminStatsService{
+			GetDashboardStatsFn: func() (*contracts.AdminDashboardStats, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
 	_, err := h.GetAdminStatsHandler(adminCtx(), &GetAdminStatsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -802,16 +769,16 @@ func TestGetAdminStatsHandler_ServiceError(t *testing.T) {
 func TestApproveShowHandler_Success(t *testing.T) {
 	var auditCalled bool
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			approveShowFn: func(showID uint, verifyVenues bool) (*contracts.ShowResponse, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			ApproveShowFn: func(showID uint, verifyVenues bool) (*contracts.ShowResponse, error) {
 				if showID != 42 {
 					t.Errorf("expected showID=42, got %d", showID)
 				}
 				return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
 			},
 		}
-		ah.auditLogService = &mockAuditLogService{
-			logActionFn: func(actorID uint, action string, _ string, entityID uint, _ map[string]interface{}) {
+		ah.auditLogService = &testhelpers.MockAuditLogService{
+			LogActionFn: func(actorID uint, action string, _ string, entityID uint, _ map[string]interface{}) {
 				auditCalled = true
 				if action != "approve_show" {
 					t.Errorf("expected action='approve_show', got %q", action)
@@ -836,21 +803,21 @@ func TestApproveShowHandler_Success(t *testing.T) {
 
 func TestApproveShowHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			approveShowFn: func(_ uint, _ bool) (*contracts.ShowResponse, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			ApproveShowFn: func(_ uint, _ bool) (*contracts.ShowResponse, error) {
 				return nil, fmt.Errorf("not found")
 			},
 		}
 	})
 	_, err := h.ApproveShowHandler(adminCtx(), &ApproveShowRequest{ShowID: "42"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestRejectShowHandler_Success(t *testing.T) {
 	var auditCalled bool
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			rejectShowFn: func(showID uint, reason string) (*contracts.ShowResponse, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			RejectShowFn: func(showID uint, reason string) (*contracts.ShowResponse, error) {
 				if showID != 42 {
 					t.Errorf("expected showID=42, got %d", showID)
 				}
@@ -860,8 +827,8 @@ func TestRejectShowHandler_Success(t *testing.T) {
 				return &contracts.ShowResponse{ID: showID, Status: "rejected"}, nil
 			},
 		}
-		ah.auditLogService = &mockAuditLogService{
-			logActionFn: func(_ uint, action string, _ string, entityID uint, _ map[string]interface{}) {
+		ah.auditLogService = &testhelpers.MockAuditLogService{
+			LogActionFn: func(_ uint, action string, _ string, entityID uint, _ map[string]interface{}) {
 				auditCalled = true
 				if action != "reject_show" {
 					t.Errorf("expected action='reject_show', got %q", action)
@@ -888,8 +855,8 @@ func TestRejectShowHandler_Success(t *testing.T) {
 
 func TestRejectShowHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			rejectShowFn: func(_ uint, _ string) (*contracts.ShowResponse, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			RejectShowFn: func(_ uint, _ string) (*contracts.ShowResponse, error) {
 				return nil, fmt.Errorf("not found")
 			},
 		}
@@ -897,22 +864,22 @@ func TestRejectShowHandler_ServiceError(t *testing.T) {
 	req := &RejectShowRequest{ShowID: "42"}
 	req.Body.Reason = "spam"
 	_, err := h.RejectShowHandler(adminCtx(), req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestVerifyVenueHandler_Success(t *testing.T) {
 	var auditCalled bool
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			verifyVenueFn: func(venueID uint) (*contracts.VenueDetailResponse, error) {
+		ah.venueService = &testhelpers.MockVenueService{
+			VerifyVenueFn: func(venueID uint) (*contracts.VenueDetailResponse, error) {
 				if venueID != 10 {
 					t.Errorf("expected venueID=10, got %d", venueID)
 				}
 				return &contracts.VenueDetailResponse{ID: venueID, Verified: true}, nil
 			},
 		}
-		ah.auditLogService = &mockAuditLogService{
-			logActionFn: func(_ uint, action string, _ string, entityID uint, _ map[string]interface{}) {
+		ah.auditLogService = &testhelpers.MockAuditLogService{
+			LogActionFn: func(_ uint, action string, _ string, entityID uint, _ map[string]interface{}) {
 				auditCalled = true
 				if action != "verify_venue" {
 					t.Errorf("expected action='verify_venue', got %q", action)
@@ -937,21 +904,20 @@ func TestVerifyVenueHandler_Success(t *testing.T) {
 
 func TestVerifyVenueHandler_ServiceError(t *testing.T) {
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			verifyVenueFn: func(_ uint) (*contracts.VenueDetailResponse, error) {
+		ah.venueService = &testhelpers.MockVenueService{
+			VerifyVenueFn: func(_ uint) (*contracts.VenueDetailResponse, error) {
 				return nil, fmt.Errorf("not found")
 			},
 		}
 	})
 	_, err := h.VerifyVenueHandler(adminCtx(), &VerifyVenueRequest{VenueID: "10"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
-
 
 func TestCreateAPITokenHandler_Success(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
-		ah.apiTokenService = &mockAPITokenService{
-			createTokenFn: func(userID uint, description *string, expirationDays int) (*contracts.APITokenCreateResponse, error) {
+		ah.apiTokenService = &testhelpers.MockAPITokenService{
+			CreateTokenFn: func(userID uint, description *string, expirationDays int) (*contracts.APITokenCreateResponse, error) {
 				if userID != 1 {
 					t.Errorf("expected userID=1, got %d", userID)
 				}
@@ -975,8 +941,8 @@ func TestCreateAPITokenHandler_Success(t *testing.T) {
 
 func TestCreateAPITokenHandler_ServiceError(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
-		ah.apiTokenService = &mockAPITokenService{
-			createTokenFn: func(_ uint, _ *string, _ int) (*contracts.APITokenCreateResponse, error) {
+		ah.apiTokenService = &testhelpers.MockAPITokenService{
+			CreateTokenFn: func(_ uint, _ *string, _ int) (*contracts.APITokenCreateResponse, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
@@ -984,13 +950,13 @@ func TestCreateAPITokenHandler_ServiceError(t *testing.T) {
 	req := &CreateAPITokenRequest{}
 	req.Body.ExpirationDays = 90
 	_, err := h.CreateAPITokenHandler(adminCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestRevokeAPITokenHandler_Success(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
-		ah.apiTokenService = &mockAPITokenService{
-			revokeTokenFn: func(userID, tokenID uint) error {
+		ah.apiTokenService = &testhelpers.MockAPITokenService{
+			RevokeTokenFn: func(userID, tokenID uint) error {
 				if tokenID != 42 {
 					t.Errorf("expected tokenID=42, got %d", tokenID)
 				}
@@ -1012,20 +978,20 @@ func TestRevokeAPITokenHandler_Success(t *testing.T) {
 
 func TestRevokeAPITokenHandler_ServiceError(t *testing.T) {
 	h := adminTokenHandler(func(ah *AdminTokenHandler) {
-		ah.apiTokenService = &mockAPITokenService{
-			revokeTokenFn: func(_, _ uint) error {
+		ah.apiTokenService = &testhelpers.MockAPITokenService{
+			RevokeTokenFn: func(_, _ uint) error {
 				return fmt.Errorf("not found")
 			},
 		}
 	})
 	_, err := h.RevokeAPITokenHandler(adminCtx(), &RevokeAPITokenRequest{TokenID: "42"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestDataImportHandler_Success(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			importDataFn: func(req contracts.DataImportRequest) (*contracts.DataImportResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ImportDataFn: func(req contracts.DataImportRequest) (*contracts.DataImportResult, error) {
 				result := &contracts.DataImportResult{}
 				result.Shows.Total = 1
 				result.Shows.Imported = 1
@@ -1049,8 +1015,8 @@ func TestDataImportHandler_Success(t *testing.T) {
 
 func TestDataImportHandler_ServiceError(t *testing.T) {
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			importDataFn: func(_ contracts.DataImportRequest) (*contracts.DataImportResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ImportDataFn: func(_ contracts.DataImportRequest) (*contracts.DataImportResult, error) {
 				return nil, fmt.Errorf("import failed")
 			},
 		}
@@ -1058,71 +1024,13 @@ func TestDataImportHandler_ServiceError(t *testing.T) {
 	req := &DataImportRequest{}
 	req.Body.Shows = []contracts.ExportedShow{{}}
 	_, err := h.DataImportHandler(adminCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
-func TestDiscoveryImportHandler_Success(t *testing.T) {
-	h := adminDiscoveryHandler(func(ah *AdminDiscoveryHandler) {
-		ah.discoveryService = &mockDiscoveryService{
-			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
-				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
-			},
-		}
-	})
-	req := &DiscoveryImportRequest{}
-	req.Body.Events = []DiscoveryImportEventInput{{ID: "ev1", VenueSlug: "test"}}
-	resp, err := h.DiscoveryImportHandler(adminCtx(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Imported != 1 {
-		t.Errorf("expected imported=1, got %d", resp.Body.Imported)
-	}
-}
-
-func TestDiscoveryImportHandler_ServiceError(t *testing.T) {
-	h := adminDiscoveryHandler(func(ah *AdminDiscoveryHandler) {
-		ah.discoveryService = &mockDiscoveryService{
-			importEventsFn: func(_ []contracts.DiscoveredEvent, _, _ bool, _ models.ShowStatus) (*contracts.ImportResult, error) {
-				return nil, fmt.Errorf("import failed")
-			},
-		}
-	})
-	req := &DiscoveryImportRequest{}
-	req.Body.Events = []DiscoveryImportEventInput{{ID: "ev1"}}
-	_, err := h.DiscoveryImportHandler(adminCtx(), req)
-	assertHumaError(t, err, 500)
-}
-
-func TestDiscoveryCheckHandler_Success(t *testing.T) {
-	h := adminDiscoveryHandler(func(ah *AdminDiscoveryHandler) {
-		ah.discoveryService = &mockDiscoveryService{
-			checkEventsFn: func(events []contracts.CheckEventInput) (*contracts.CheckEventsResult, error) {
-				return &contracts.CheckEventsResult{}, nil
-			},
-		}
-	})
-	req := &DiscoveryCheckRequest{}
-	req.Body.Events = []DiscoveryCheckEventInput{{ID: "ev1", VenueSlug: "test"}}
-	_, err := h.DiscoveryCheckHandler(adminCtx(), req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-}
-
-func TestDiscoveryCheckHandler_ServiceError(t *testing.T) {
-	h := adminDiscoveryHandler(func(ah *AdminDiscoveryHandler) {
-		ah.discoveryService = &mockDiscoveryService{
-			checkEventsFn: func(_ []contracts.CheckEventInput) (*contracts.CheckEventsResult, error) {
-				return nil, fmt.Errorf("db error")
-			},
-		}
-	})
-	req := &DiscoveryCheckRequest{}
-	req.Body.Events = []DiscoveryCheckEventInput{{ID: "ev1"}}
-	_, err := h.DiscoveryCheckHandler(adminCtx(), req)
-	assertHumaError(t, err, 500)
-}
+// Discovery success/error tests for AdminDiscoveryHandler now live in
+// pipeline/admin_discovery_test.go — they construct the handler via its
+// unexported `discoveryService` field, which is only addressable inside the
+// pipeline package.
 
 // ============================================================================
 // Mock-based tests: Complex multi-service handlers
@@ -1130,8 +1038,8 @@ func TestDiscoveryCheckHandler_ServiceError(t *testing.T) {
 
 func TestImportShowPreviewHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			previewShowImportFn: func(content []byte) (*contracts.ImportPreviewResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			PreviewShowImportFn: func(content []byte) (*contracts.ImportPreviewResponse, error) {
 				return &contracts.ImportPreviewResponse{CanImport: true}, nil
 			},
 		}
@@ -1149,8 +1057,8 @@ func TestImportShowPreviewHandler_Success(t *testing.T) {
 
 func TestImportShowPreviewHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			previewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			PreviewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
 				return nil, fmt.Errorf("parse error")
 			},
 		}
@@ -1158,13 +1066,13 @@ func TestImportShowPreviewHandler_ServiceError(t *testing.T) {
 	req := &ImportShowPreviewRequest{}
 	req.Body.Content = base64.StdEncoding.EncodeToString([]byte("bad"))
 	_, err := h.ImportShowPreviewHandler(adminCtx(), req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestImportShowConfirmHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			confirmShowImportFn: func(content []byte, verifyVenues bool) (*contracts.ShowResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			ConfirmShowImportFn: func(content []byte, verifyVenues bool) (*contracts.ShowResponse, error) {
 				return &contracts.ShowResponse{ID: 100, Title: "Imported Show"}, nil
 			},
 		}
@@ -1182,8 +1090,8 @@ func TestImportShowConfirmHandler_Success(t *testing.T) {
 
 func TestImportShowConfirmHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			confirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			ConfirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
 				return nil, fmt.Errorf("import failed")
 			},
 		}
@@ -1191,13 +1099,13 @@ func TestImportShowConfirmHandler_ServiceError(t *testing.T) {
 	req := &ImportShowConfirmRequest{}
 	req.Body.Content = base64.StdEncoding.EncodeToString([]byte("bad"))
 	_, err := h.ImportShowConfirmHandler(adminCtx(), req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestBulkExportShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			exportShowToMarkdownFn: func(showID uint) ([]byte, string, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			ExportShowToMarkdownFn: func(showID uint) ([]byte, string, error) {
 				return []byte("# Show"), "show.md", nil
 			},
 		}
@@ -1216,8 +1124,8 @@ func TestBulkExportShowsHandler_Success(t *testing.T) {
 func TestBulkExportShowsHandler_PartialFail(t *testing.T) {
 	callCount := 0
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			exportShowToMarkdownFn: func(showID uint) ([]byte, string, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			ExportShowToMarkdownFn: func(showID uint) ([]byte, string, error) {
 				callCount++
 				if callCount == 2 {
 					return nil, "", fmt.Errorf("not found")
@@ -1229,13 +1137,13 @@ func TestBulkExportShowsHandler_PartialFail(t *testing.T) {
 	req := &BulkExportShowsRequest{}
 	req.Body.ShowIDs = []uint{1, 2, 3}
 	_, err := h.BulkExportShowsHandler(adminCtx(), req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestBulkImportPreviewHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			previewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			PreviewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
 				return &contracts.ImportPreviewResponse{CanImport: true}, nil
 			},
 		}
@@ -1256,8 +1164,8 @@ func TestBulkImportPreviewHandler_Success(t *testing.T) {
 
 func TestBulkImportConfirmHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			confirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			ConfirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
 				return &contracts.ShowResponse{ID: 1}, nil
 			},
 		}
@@ -1276,8 +1184,8 @@ func TestBulkImportConfirmHandler_Success(t *testing.T) {
 func TestBulkImportConfirmHandler_MixedResults(t *testing.T) {
 	callCount := 0
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			confirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			ConfirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
 				callCount++
 				if callCount == 2 {
 					return nil, fmt.Errorf("import error")
@@ -1310,8 +1218,8 @@ func TestBulkImportConfirmHandler_MixedResults(t *testing.T) {
 
 func TestBatchApproveShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			batchApproveShowsFn: func(showIDs []uint) (*contracts.BatchShowResult, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			BatchApproveShowsFn: func(showIDs []uint) (*contracts.BatchShowResult, error) {
 				if len(showIDs) != 3 {
 					t.Errorf("expected 3 show IDs, got %d", len(showIDs))
 				}
@@ -1347,18 +1255,18 @@ func TestBatchApproveShowsHandler_AdminRequired(t *testing.T) {
 
 	// No user context
 	_, err := h.BatchApproveShowsHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 
 	// Non-admin user
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	_, err = h.BatchApproveShowsHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestBatchRejectShowsHandler_Success(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			batchRejectShowsFn: func(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			BatchRejectShowsFn: func(showIDs []uint, reason string, category string) (*contracts.BatchShowResult, error) {
 				if len(showIDs) != 2 {
 					t.Errorf("expected 2 show IDs, got %d", len(showIDs))
 				}
@@ -1403,17 +1311,17 @@ func TestBatchRejectShowsHandler_AdminRequired(t *testing.T) {
 
 	// No user context
 	_, err := h.BatchRejectShowsHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 
 	// Non-admin user
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	_, err = h.BatchRejectShowsHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{}
+		ah.showAdminService = &testhelpers.MockShowAdminService{}
 	})
 
 	req := &BatchRejectShowsRequest{}
@@ -1421,7 +1329,7 @@ func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {
 	req.Body.Reason = ""
 
 	_, err := h.BatchRejectShowsHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // ============================================================================
@@ -1431,8 +1339,8 @@ func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {
 func TestGetPendingShowsHandler_WithVenueIDFilter(t *testing.T) {
 	var capturedFilter *contracts.PendingShowsFilter
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedFilter = filters
 				return []*contracts.ShowResponse{}, 0, nil
 			},
@@ -1457,8 +1365,8 @@ func TestGetPendingShowsHandler_WithVenueIDFilter(t *testing.T) {
 func TestGetPendingShowsHandler_WithSourceFilter(t *testing.T) {
 	var capturedFilter *contracts.PendingShowsFilter
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedFilter = filters
 				return []*contracts.ShowResponse{}, 0, nil
 			},
@@ -1479,8 +1387,8 @@ func TestGetPendingShowsHandler_WithSourceFilter(t *testing.T) {
 func TestGetPendingShowsHandler_WithBothFilters(t *testing.T) {
 	var capturedFilter *contracts.PendingShowsFilter
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedFilter = filters
 				return []*contracts.ShowResponse{}, 0, nil
 			},
@@ -1504,8 +1412,8 @@ func TestGetPendingShowsHandler_WithBothFilters(t *testing.T) {
 func TestGetPendingShowsHandler_NoFilters(t *testing.T) {
 	var capturedFilter *contracts.PendingShowsFilter
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetPendingShowsFn: func(limit, offset int, filters *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedFilter = filters
 				return []*contracts.ShowResponse{}, 0, nil
 			},
@@ -1527,8 +1435,8 @@ func TestGetPendingShowsHandler_NoFilters(t *testing.T) {
 func TestGetPendingShowsHandler_LimitClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getPendingShowsFn: func(limit, offset int, _ *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetPendingShowsFn: func(limit, offset int, _ *contracts.PendingShowsFilter) ([]*contracts.ShowResponse, int64, error) {
 				capturedLimit = limit
 				capturedOffset = offset
 				return []*contracts.ShowResponse{}, 0, nil
@@ -1567,8 +1475,8 @@ func TestGetPendingShowsHandler_LimitClamping(t *testing.T) {
 func TestGetRejectedShowsHandler_LimitClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getRejectedShowsFn: func(limit, offset int, _ string) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetRejectedShowsFn: func(limit, offset int, _ string) ([]*contracts.ShowResponse, int64, error) {
 				capturedLimit = limit
 				capturedOffset = offset
 				return []*contracts.ShowResponse{}, 0, nil
@@ -1607,8 +1515,8 @@ func TestGetRejectedShowsHandler_LimitClamping(t *testing.T) {
 func TestGetAdminShowsHandler_LimitClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			getAdminShowsFn: func(limit, offset int, _ contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			GetAdminShowsFn: func(limit, offset int, _ contracts.AdminShowFilters) ([]*contracts.ShowResponse, int64, error) {
 				capturedLimit = limit
 				capturedOffset = offset
 				return []*contracts.ShowResponse{}, 0, nil
@@ -1647,8 +1555,8 @@ func TestGetAdminShowsHandler_LimitClamping(t *testing.T) {
 
 func TestBatchApproveShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			batchApproveShowsFn: func(_ []uint) (*contracts.BatchShowResult, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			BatchApproveShowsFn: func(_ []uint) (*contracts.BatchShowResult, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
@@ -1656,13 +1564,13 @@ func TestBatchApproveShowsHandler_ServiceError(t *testing.T) {
 	req := &BatchApproveShowsRequest{}
 	req.Body.ShowIDs = []uint{1, 2}
 	_, err := h.BatchApproveShowsHandler(adminCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestBatchRejectShowsHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showAdminService = &mockShowAdminService{
-			batchRejectShowsFn: func(_ []uint, _ string, _ string) (*contracts.BatchShowResult, error) {
+		ah.showAdminService = &testhelpers.MockShowAdminService{
+			BatchRejectShowsFn: func(_ []uint, _ string, _ string) (*contracts.BatchShowResult, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
@@ -1671,7 +1579,7 @@ func TestBatchRejectShowsHandler_ServiceError(t *testing.T) {
 	req.Body.ShowIDs = []uint{1}
 	req.Body.Reason = "test reason"
 	_, err := h.BatchRejectShowsHandler(adminCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -1680,18 +1588,18 @@ func TestBatchRejectShowsHandler_ServiceError(t *testing.T) {
 
 func TestBulkImportPreviewHandler_InvalidBase64(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{}
+		ah.showImportService = &testhelpers.MockShowImportService{}
 	})
 	req := &BulkImportPreviewRequest{}
 	req.Body.Shows = []string{"not-valid-base64!!!"}
 	_, err := h.BulkImportPreviewHandler(adminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestBulkImportPreviewHandler_ServiceError(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			previewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			PreviewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
 				return nil, fmt.Errorf("parse error")
 			},
 		}
@@ -1699,14 +1607,14 @@ func TestBulkImportPreviewHandler_ServiceError(t *testing.T) {
 	req := &BulkImportPreviewRequest{}
 	req.Body.Shows = []string{base64.StdEncoding.EncodeToString([]byte("# Show"))}
 	_, err := h.BulkImportPreviewHandler(adminCtx(), req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestBulkImportPreviewHandler_SummaryAccumulation(t *testing.T) {
 	callCount := 0
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			previewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			PreviewShowImportFn: func(_ []byte) (*contracts.ImportPreviewResponse, error) {
 				callCount++
 				if callCount == 1 {
 					return &contracts.ImportPreviewResponse{
@@ -1763,8 +1671,8 @@ func TestBulkImportPreviewHandler_SummaryAccumulation(t *testing.T) {
 
 func TestBulkImportConfirmHandler_InvalidBase64InArray(t *testing.T) {
 	h := adminShowHandler(func(ah *AdminShowHandler) {
-		ah.showImportService = &mockShowImportService{
-			confirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
+		ah.showImportService = &testhelpers.MockShowImportService{
+			ConfirmShowImportFn: func(_ []byte, _ bool) (*contracts.ShowResponse, error) {
 				return &contracts.ShowResponse{ID: 1}, nil
 			},
 		}
@@ -1803,8 +1711,8 @@ func TestBulkImportConfirmHandler_InvalidBase64InArray(t *testing.T) {
 func TestExportVenuesHandler_VerifiedFilterTrue(t *testing.T) {
 	var capturedParams contracts.ExportVenuesParams
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportVenuesFn: func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportVenuesFn: func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
 				capturedParams = params
 				return &contracts.ExportVenuesResult{Total: 1}, nil
 			},
@@ -1822,8 +1730,8 @@ func TestExportVenuesHandler_VerifiedFilterTrue(t *testing.T) {
 func TestExportVenuesHandler_VerifiedFilterFalse(t *testing.T) {
 	var capturedParams contracts.ExportVenuesParams
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportVenuesFn: func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportVenuesFn: func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
 				capturedParams = params
 				return &contracts.ExportVenuesResult{Total: 1}, nil
 			},
@@ -1841,8 +1749,8 @@ func TestExportVenuesHandler_VerifiedFilterFalse(t *testing.T) {
 func TestExportVenuesHandler_NegativeOffset(t *testing.T) {
 	var capturedOffset int
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportVenuesFn: func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportVenuesFn: func(params contracts.ExportVenuesParams) (*contracts.ExportVenuesResult, error) {
 				capturedOffset = params.Offset
 				return &contracts.ExportVenuesResult{Total: 0}, nil
 			},
@@ -1864,8 +1772,8 @@ func TestExportVenuesHandler_NegativeOffset(t *testing.T) {
 func TestExportShowsHandler_WithValidDate(t *testing.T) {
 	var capturedParams contracts.ExportShowsParams
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportShowsFn: func(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportShowsFn: func(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
 				capturedParams = params
 				return &contracts.ExportShowsResult{Total: 0}, nil
 			},
@@ -1887,8 +1795,8 @@ func TestExportShowsHandler_WithValidDate(t *testing.T) {
 func TestExportShowsHandler_NegativeOffset(t *testing.T) {
 	var capturedOffset int
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportShowsFn: func(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportShowsFn: func(params contracts.ExportShowsParams) (*contracts.ExportShowsResult, error) {
 				capturedOffset = params.Offset
 				return &contracts.ExportShowsResult{Total: 0}, nil
 			},
@@ -1906,8 +1814,8 @@ func TestExportShowsHandler_NegativeOffset(t *testing.T) {
 func TestExportArtistsHandler_NegativeOffset(t *testing.T) {
 	var capturedOffset int
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			exportArtistsFn: func(params contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ExportArtistsFn: func(params contracts.ExportArtistsParams) (*contracts.ExportArtistsResult, error) {
 				capturedOffset = params.Offset
 				return &contracts.ExportArtistsResult{Total: 0}, nil
 			},
@@ -1929,8 +1837,8 @@ func TestExportArtistsHandler_NegativeOffset(t *testing.T) {
 func TestGetUnverifiedVenuesHandler_LimitClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	h := adminVenueHandler(func(ah *AdminVenueHandler) {
-		ah.venueService = &mockVenueService{
-			getUnverifiedVenuesFn: func(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
+		ah.venueService = &testhelpers.MockVenueService{
+			GetUnverifiedVenuesFn: func(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
 				capturedLimit = limit
 				capturedOffset = offset
 				return []*contracts.UnverifiedVenueResponse{}, 0, nil
@@ -1963,7 +1871,6 @@ func TestGetUnverifiedVenuesHandler_LimitClamping(t *testing.T) {
 	}
 }
 
-
 // ============================================================================
 // User handler limit clamping tests (admin_users.go)
 // ============================================================================
@@ -1971,8 +1878,8 @@ func TestGetUnverifiedVenuesHandler_LimitClamping(t *testing.T) {
 func TestGetAdminUsersHandler_LimitClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
 	h := adminUserHandler(func(ah *AdminUserHandler) {
-		ah.userService = &mockUserService{
-			listUsersFn: func(limit, offset int, _ contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
+		ah.userService = &testhelpers.MockUserService{
+			ListUsersFn: func(limit, offset int, _ contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
 				capturedLimit = limit
 				capturedOffset = offset
 				return []*contracts.AdminUserResponse{}, 0, nil
@@ -2010,7 +1917,7 @@ func TestGetAdminUsersHandler_LimitClamping(t *testing.T) {
 // ============================================================================
 
 func TestParseDate_Valid(t *testing.T) {
-	d, err := parseDate("2025-06-15")
+	d, err := shared.ParseDate("2025-06-15")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -2020,28 +1927,28 @@ func TestParseDate_Valid(t *testing.T) {
 }
 
 func TestParseDate_Invalid(t *testing.T) {
-	_, err := parseDate("not-a-date")
+	_, err := shared.ParseDate("not-a-date")
 	if err == nil {
 		t.Error("expected error for invalid date")
 	}
 }
 
 func TestGetUserID_Nil(t *testing.T) {
-	id := getUserID(nil)
+	id := shared.GetUserID(nil)
 	if id != 0 {
 		t.Errorf("expected 0, got %d", id)
 	}
 }
 
 func TestGetUserID_NonNil(t *testing.T) {
-	id := getUserID(&models.User{ID: 42})
+	id := shared.GetUserID(&models.User{ID: 42})
 	if id != 42 {
 		t.Errorf("expected 42, got %d", id)
 	}
 }
 
 func TestPtrString(t *testing.T) {
-	p := ptrString("hello")
+	p := shared.PtrString("hello")
 	if p == nil || *p != "hello" {
 		t.Errorf("expected pointer to 'hello', got %v", p)
 	}
@@ -2054,8 +1961,8 @@ func TestPtrString(t *testing.T) {
 func TestDataImportHandler_DryRun(t *testing.T) {
 	var capturedDryRun bool
 	h := adminDataHandler(func(ah *AdminDataHandler) {
-		ah.dataSyncService = &mockDataSyncService{
-			importDataFn: func(req contracts.DataImportRequest) (*contracts.DataImportResult, error) {
+		ah.dataSyncService = &testhelpers.MockDataSyncService{
+			ImportDataFn: func(req contracts.DataImportRequest) (*contracts.DataImportResult, error) {
 				capturedDryRun = req.DryRun
 				return &contracts.DataImportResult{}, nil
 			},

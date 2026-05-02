@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
@@ -41,7 +42,7 @@ type SearchLabelsRequest struct {
 type SearchLabelsResponse struct {
 	Body struct {
 		Labels []*contracts.LabelListResponse `json:"labels" doc:"Matching labels"`
-		Count  int                           `json:"count" doc:"Number of results"`
+		Count  int                            `json:"count" doc:"Number of results"`
 	}
 }
 
@@ -76,7 +77,7 @@ type ListLabelsRequest struct {
 type ListLabelsResponse struct {
 	Body struct {
 		Labels []*contracts.LabelListResponse `json:"labels" doc:"List of labels"`
-		Count  int                           `json:"count" doc:"Number of labels"`
+		Count  int                            `json:"count" doc:"Number of labels"`
 	}
 }
 
@@ -181,7 +182,7 @@ type CreateLabelResponse struct {
 func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelRequest) (*CreateLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -271,7 +272,7 @@ type UpdateLabelResponse struct {
 func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelRequest) (*UpdateLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +424,7 @@ type DeleteLabelRequest struct {
 func (h *LabelHandler) DeleteLabelHandler(ctx context.Context, req *DeleteLabelRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -479,7 +480,7 @@ type GetLabelRosterRequest struct {
 type GetLabelRosterResponse struct {
 	Body struct {
 		Artists []*contracts.LabelArtistResponse `json:"artists" doc:"List of artists"`
-		Count   int                             `json:"count" doc:"Number of artists"`
+		Count   int                              `json:"count" doc:"Number of artists"`
 	}
 }
 
@@ -571,7 +572,7 @@ type AddArtistToLabelResponse struct {
 func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArtistToLabelRequest) (*AddArtistToLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -646,7 +647,7 @@ type AddReleaseToLabelResponse struct {
 func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddReleaseToLabelRequest) (*AddReleaseToLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

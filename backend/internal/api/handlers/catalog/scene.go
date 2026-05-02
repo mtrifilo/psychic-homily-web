@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -6,8 +6,8 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // SceneHandler handles scene (city aggregation) endpoints.
@@ -33,7 +33,7 @@ type ListScenesRequest struct{}
 type ListScenesResponse struct {
 	Body struct {
 		Scenes []*contracts.SceneListResponse `json:"scenes" doc:"List of city scenes"`
-		Count  int                           `json:"count" doc:"Number of scenes"`
+		Count  int                            `json:"count" doc:"Number of scenes"`
 	}
 }
 
@@ -103,7 +103,7 @@ type GetSceneActiveArtistsRequest struct {
 type GetSceneActiveArtistsResponse struct {
 	Body struct {
 		Artists []*contracts.SceneArtistResponse `json:"artists" doc:"List of active artists"`
-		Total   int64                           `json:"total" doc:"Total number of active artists"`
+		Total   int64                            `json:"total" doc:"Total number of active artists"`
 	}
 }
 

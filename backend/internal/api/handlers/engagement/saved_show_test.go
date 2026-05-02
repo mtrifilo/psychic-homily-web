@@ -1,10 +1,11 @@
-package handlers
+package engagement
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -20,21 +21,21 @@ func TestSaveShowHandler_NoAuth(t *testing.T) {
 	req := &SaveShowRequest{ShowID: "1"}
 
 	_, err := h.SaveShowHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestSaveShowHandler_InvalidID(t *testing.T) {
 	h := testSavedShowHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SaveShowRequest{ShowID: "abc"}
 
 	_, err := h.SaveShowHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestSaveShowHandler_Success(t *testing.T) {
-	mock := &mockSavedShowService{
-		saveShowFn: func(userID, showID uint) error {
+	mock := &testhelpers.MockSavedShowService{
+		SaveShowFn: func(userID, showID uint) error {
 			if userID != 1 || showID != 42 {
 				t.Errorf("unexpected args: userID=%d, showID=%d", userID, showID)
 			}
@@ -42,7 +43,7 @@ func TestSaveShowHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.SaveShowHandler(ctx, &SaveShowRequest{ShowID: "42"})
 	if err != nil {
@@ -54,16 +55,16 @@ func TestSaveShowHandler_Success(t *testing.T) {
 }
 
 func TestSaveShowHandler_ServiceError(t *testing.T) {
-	mock := &mockSavedShowService{
-		saveShowFn: func(_, _ uint) error {
+	mock := &testhelpers.MockSavedShowService{
+		SaveShowFn: func(_, _ uint) error {
 			return fmt.Errorf("already saved")
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.SaveShowHandler(ctx, &SaveShowRequest{ShowID: "42"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- UnsaveShowHandler ---
@@ -73,21 +74,21 @@ func TestUnsaveShowHandler_NoAuth(t *testing.T) {
 	req := &UnsaveShowRequest{ShowID: "1"}
 
 	_, err := h.UnsaveShowHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestUnsaveShowHandler_InvalidID(t *testing.T) {
 	h := testSavedShowHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnsaveShowRequest{ShowID: "abc"}
 
 	_, err := h.UnsaveShowHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUnsaveShowHandler_Success(t *testing.T) {
-	mock := &mockSavedShowService{
-		unsaveShowFn: func(userID, showID uint) error {
+	mock := &testhelpers.MockSavedShowService{
+		UnsaveShowFn: func(userID, showID uint) error {
 			if userID != 1 || showID != 42 {
 				t.Errorf("unexpected args: userID=%d, showID=%d", userID, showID)
 			}
@@ -95,7 +96,7 @@ func TestUnsaveShowHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.UnsaveShowHandler(ctx, &UnsaveShowRequest{ShowID: "42"})
 	if err != nil {
@@ -107,16 +108,16 @@ func TestUnsaveShowHandler_Success(t *testing.T) {
 }
 
 func TestUnsaveShowHandler_ServiceError(t *testing.T) {
-	mock := &mockSavedShowService{
-		unsaveShowFn: func(_, _ uint) error {
+	mock := &testhelpers.MockSavedShowService{
+		UnsaveShowFn: func(_, _ uint) error {
 			return fmt.Errorf("not saved")
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.UnsaveShowHandler(ctx, &UnsaveShowRequest{ShowID: "42"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- GetSavedShowsHandler ---
@@ -126,13 +127,13 @@ func TestGetSavedShowsHandler_NoAuth(t *testing.T) {
 	req := &GetSavedShowsRequest{}
 
 	_, err := h.GetSavedShowsHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestGetSavedShowsHandler_Success(t *testing.T) {
 	shows := []*contracts.SavedShowResponse{{}}
-	mock := &mockSavedShowService{
-		getUserSavedShowsFn: func(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
+	mock := &testhelpers.MockSavedShowService{
+		GetUserSavedShowsFn: func(userID uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -140,7 +141,7 @@ func TestGetSavedShowsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 10, Offset: 0})
 	if err != nil {
@@ -155,29 +156,29 @@ func TestGetSavedShowsHandler_Success(t *testing.T) {
 }
 
 func TestGetSavedShowsHandler_ServiceError(t *testing.T) {
-	mock := &mockSavedShowService{
-		getUserSavedShowsFn: func(_ uint, _, _ int) ([]*contracts.SavedShowResponse, int64, error) {
+	mock := &testhelpers.MockSavedShowService{
+		GetUserSavedShowsFn: func(_ uint, _, _ int) ([]*contracts.SavedShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 10})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetSavedShowsHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
-	mock := &mockSavedShowService{
-		getUserSavedShowsFn: func(_ uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
+	mock := &testhelpers.MockSavedShowService{
+		GetUserSavedShowsFn: func(_ uint, limit, offset int) ([]*contracts.SavedShowResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	// limit=0 should be clamped to 50, offset=-1 should be clamped to 0
 	resp, err := h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 0, Offset: -1})
@@ -208,26 +209,26 @@ func TestCheckSavedHandler_NoAuth(t *testing.T) {
 	req := &CheckSavedRequest{ShowID: "1"}
 
 	_, err := h.CheckSavedHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestCheckSavedHandler_InvalidID(t *testing.T) {
 	h := testSavedShowHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &CheckSavedRequest{ShowID: "abc"}
 
 	_, err := h.CheckSavedHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCheckSavedHandler_Saved(t *testing.T) {
-	mock := &mockSavedShowService{
-		isShowSavedFn: func(userID, showID uint) (bool, error) {
+	mock := &testhelpers.MockSavedShowService{
+		IsShowSavedFn: func(userID, showID uint) (bool, error) {
 			return true, nil
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.CheckSavedHandler(ctx, &CheckSavedRequest{ShowID: "42"})
 	if err != nil {
@@ -239,13 +240,13 @@ func TestCheckSavedHandler_Saved(t *testing.T) {
 }
 
 func TestCheckSavedHandler_NotSaved(t *testing.T) {
-	mock := &mockSavedShowService{
-		isShowSavedFn: func(_, _ uint) (bool, error) {
+	mock := &testhelpers.MockSavedShowService{
+		IsShowSavedFn: func(_, _ uint) (bool, error) {
 			return false, nil
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.CheckSavedHandler(ctx, &CheckSavedRequest{ShowID: "42"})
 	if err != nil {
@@ -257,16 +258,16 @@ func TestCheckSavedHandler_NotSaved(t *testing.T) {
 }
 
 func TestCheckSavedHandler_ServiceError(t *testing.T) {
-	mock := &mockSavedShowService{
-		isShowSavedFn: func(_, _ uint) (bool, error) {
+	mock := &testhelpers.MockSavedShowService{
+		IsShowSavedFn: func(_, _ uint) (bool, error) {
 			return false, fmt.Errorf("db error")
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.CheckSavedHandler(ctx, &CheckSavedRequest{ShowID: "42"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- CheckBatchSavedHandler ---
@@ -277,12 +278,12 @@ func TestCheckBatchSavedHandler_NoAuth(t *testing.T) {
 	req.Body.ShowIDs = []int{1, 2}
 
 	_, err := h.CheckBatchSavedHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestCheckBatchSavedHandler_EmptyList(t *testing.T) {
-	h := NewSavedShowHandler(&mockSavedShowService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewSavedShowHandler(&testhelpers.MockSavedShowService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &CheckBatchSavedRequest{}
 	req.Body.ShowIDs = []int{}
 
@@ -296,13 +297,13 @@ func TestCheckBatchSavedHandler_EmptyList(t *testing.T) {
 }
 
 func TestCheckBatchSavedHandler_Success(t *testing.T) {
-	mock := &mockSavedShowService{
-		getSavedShowIDsFn: func(userID uint, showIDs []uint) (map[uint]bool, error) {
+	mock := &testhelpers.MockSavedShowService{
+		GetSavedShowIDsFn: func(userID uint, showIDs []uint) (map[uint]bool, error) {
 			return map[uint]bool{1: true, 3: true}, nil
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &CheckBatchSavedRequest{}
 	req.Body.ShowIDs = []int{1, 2, 3}
 
@@ -316,27 +317,27 @@ func TestCheckBatchSavedHandler_Success(t *testing.T) {
 }
 
 func TestCheckBatchSavedHandler_NegativeID(t *testing.T) {
-	mock := &mockSavedShowService{}
+	mock := &testhelpers.MockSavedShowService{}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &CheckBatchSavedRequest{}
 	req.Body.ShowIDs = []int{1, -5, 3}
 
 	_, err := h.CheckBatchSavedHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCheckBatchSavedHandler_ServiceError(t *testing.T) {
-	mock := &mockSavedShowService{
-		getSavedShowIDsFn: func(_ uint, _ []uint) (map[uint]bool, error) {
+	mock := &testhelpers.MockSavedShowService{
+		GetSavedShowIDsFn: func(_ uint, _ []uint) (map[uint]bool, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &CheckBatchSavedRequest{}
 	req.Body.ShowIDs = []int{1, 2}
 
 	_, err := h.CheckBatchSavedHandler(ctx, req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }

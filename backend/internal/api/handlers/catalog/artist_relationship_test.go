@@ -1,9 +1,10 @@
-package handlers
+package catalog
 
 import (
 	"context"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -19,14 +20,14 @@ func TestGetArtistGraph_InvalidID(t *testing.T) {
 	req := &GetArtistGraphRequest{ArtistID: "abc"}
 
 	_, err := h.GetArtistGraphHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetArtistGraph_TypesParsing(t *testing.T) {
 	var capturedTypes []string
 	h := NewArtistRelationshipHandler(
-		&mockArtistRelationshipService{
-			getArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
+		&testhelpers.MockArtistRelationshipService{
+			GetArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
 				capturedTypes = types
 				return &contracts.ArtistGraph{}, nil
 			},
@@ -65,8 +66,8 @@ func TestGetArtistGraph_FestivalCobillTypePassedThrough(t *testing.T) {
 		},
 	}
 	h := NewArtistRelationshipHandler(
-		&mockArtistRelationshipService{
-			getArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
+		&testhelpers.MockArtistRelationshipService{
+			GetArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
 				capturedTypes = types
 				return mockGraph, nil
 			},
@@ -94,8 +95,8 @@ func TestGetArtistGraph_FestivalCobillTypePassedThrough(t *testing.T) {
 func TestGetArtistGraph_FestivalCobillCombinedWithOtherTypes(t *testing.T) {
 	var capturedTypes []string
 	h := NewArtistRelationshipHandler(
-		&mockArtistRelationshipService{
-			getArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
+		&testhelpers.MockArtistRelationshipService{
+			GetArtistGraphFn: func(artistID uint, types []string, userID uint) (*contracts.ArtistGraph, error) {
 				capturedTypes = types
 				return &contracts.ArtistGraph{}, nil
 			},
@@ -126,7 +127,7 @@ func TestGetRelatedArtists_InvalidID(t *testing.T) {
 	req := &GetRelatedArtistsRequest{ArtistID: "abc"}
 
 	_, err := h.GetRelatedArtistsHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- CreateRelationshipHandler ---
@@ -139,29 +140,29 @@ func TestCreateRelationship_NoAuth(t *testing.T) {
 	req.Body.Type = "similar"
 
 	_, err := h.CreateRelationshipHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestCreateRelationship_MissingSourceID(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &CreateRelationshipRequest{}
 	req.Body.TargetArtistID = 2
 	req.Body.Type = "similar"
 
 	_, err := h.CreateRelationshipHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCreateRelationship_MissingType(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &CreateRelationshipRequest{}
 	req.Body.SourceArtistID = 1
 	req.Body.TargetArtistID = 2
 
 	_, err := h.CreateRelationshipHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- VoteHandler ---
@@ -173,36 +174,36 @@ func TestVote_NoAuth(t *testing.T) {
 	req.Body.IsUpvote = true
 
 	_, err := h.VoteHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestVote_InvalidSourceID(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteRelationshipRequest{SourceID: "abc", TargetID: "2"}
 	req.Body.Type = "similar"
 
 	_, err := h.VoteHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestVote_InvalidTargetID(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteRelationshipRequest{SourceID: "1", TargetID: "abc"}
 	req.Body.Type = "similar"
 
 	_, err := h.VoteHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestVote_MissingType(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteRelationshipRequest{SourceID: "1", TargetID: "2"}
 
 	_, err := h.VoteHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- RemoveVoteHandler ---
@@ -212,16 +213,16 @@ func TestRemoveVote_NoAuth(t *testing.T) {
 	req := &RemoveRelationshipVoteRequest{SourceID: "1", TargetID: "2", Type: "similar"}
 
 	_, err := h.RemoveVoteHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestRemoveVote_MissingType(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &RemoveRelationshipVoteRequest{SourceID: "1", TargetID: "2"}
 
 	_, err := h.RemoveVoteHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- DeleteRelationshipHandler ---
@@ -231,16 +232,16 @@ func TestDeleteRelationship_NoAuth(t *testing.T) {
 	req := &DeleteRelationshipRequest{SourceID: "1", TargetID: "2", Type: "similar"}
 
 	_, err := h.DeleteRelationshipHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestDeleteRelationship_NonAdmin(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &DeleteRelationshipRequest{SourceID: "1", TargetID: "2", Type: "similar"}
 
 	_, err := h.DeleteRelationshipHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 // --- splitAndTrim ---

@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -34,7 +35,7 @@ type GetAuditLogsRequest struct {
 type GetAuditLogsResponse struct {
 	Body struct {
 		Logs  []*contracts.AuditLogResponse `json:"logs"`
-		Total int64                        `json:"total"`
+		Total int64                         `json:"total"`
 	}
 }
 
@@ -42,7 +43,7 @@ type GetAuditLogsResponse struct {
 func (h *AuditLogHandler) GetAuditLogsHandler(ctx context.Context, req *GetAuditLogsRequest) (*GetAuditLogsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -89,7 +90,7 @@ func (h *AuditLogHandler) GetAuditLogsHandler(ctx context.Context, req *GetAudit
 	return &GetAuditLogsResponse{
 		Body: struct {
 			Logs  []*contracts.AuditLogResponse `json:"logs"`
-			Total int64                        `json:"total"`
+			Total int64                         `json:"total"`
 		}{
 			Logs:  logs,
 			Total: total,

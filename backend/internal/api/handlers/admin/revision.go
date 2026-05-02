@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -245,7 +246,7 @@ type RollbackRevisionResponse struct {
 
 // RollbackRevisionHandler handles POST /admin/revisions/{revision_id}/rollback
 func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *RollbackRevisionRequest) (*RollbackRevisionResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

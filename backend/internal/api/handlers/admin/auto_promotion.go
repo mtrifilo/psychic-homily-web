@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -36,7 +37,7 @@ type EvaluateAllUsersResponse struct {
 func (h *AutoPromotionHandler) EvaluateAllUsersHandler(ctx context.Context, req *EvaluateAllUsersRequest) (*EvaluateAllUsersResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +82,7 @@ type EvaluateUserResponse struct {
 func (h *AutoPromotionHandler) EvaluateUserHandler(ctx context.Context, req *EvaluateUserRequest) (*EvaluateUserResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
@@ -43,7 +44,7 @@ type SearchFestivalsRequest struct {
 type SearchFestivalsResponse struct {
 	Body struct {
 		Festivals []*contracts.FestivalListResponse `json:"festivals" doc:"Matching festivals"`
-		Count     int                              `json:"count" doc:"Number of results"`
+		Count     int                               `json:"count" doc:"Number of results"`
 	}
 }
 
@@ -80,7 +81,7 @@ type ListFestivalsRequest struct {
 type ListFestivalsResponse struct {
 	Body struct {
 		Festivals []*contracts.FestivalListResponse `json:"festivals" doc:"List of festivals"`
-		Count     int                              `json:"count" doc:"Number of festivals"`
+		Count     int                               `json:"count" doc:"Number of festivals"`
 	}
 }
 
@@ -190,7 +191,7 @@ type CreateFestivalResponse struct {
 func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *CreateFestivalRequest) (*CreateFestivalResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -290,7 +291,7 @@ type UpdateFestivalResponse struct {
 func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *UpdateFestivalRequest) (*UpdateFestivalResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -387,7 +388,7 @@ type DeleteFestivalRequest struct {
 func (h *FestivalHandler) DeleteFestivalHandler(ctx context.Context, req *DeleteFestivalRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -443,7 +444,7 @@ type GetFestivalArtistsRequest struct {
 type GetFestivalArtistsResponse struct {
 	Body struct {
 		Artists []*contracts.FestivalArtistResponse `json:"artists" doc:"List of artists in lineup"`
-		Count   int                                `json:"count" doc:"Number of artists"`
+		Count   int                                 `json:"count" doc:"Number of artists"`
 	}
 }
 
@@ -498,7 +499,7 @@ type AddFestivalArtistHandlerResponse struct {
 func (h *FestivalHandler) AddFestivalArtistHandler(ctx context.Context, req *AddFestivalArtistHandlerRequest) (*AddFestivalArtistHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -574,7 +575,7 @@ type UpdateFestivalArtistHandlerResponse struct {
 func (h *FestivalHandler) UpdateFestivalArtistHandler(ctx context.Context, req *UpdateFestivalArtistHandlerRequest) (*UpdateFestivalArtistHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -634,7 +635,7 @@ type RemoveFestivalArtistRequest struct {
 func (h *FestivalHandler) RemoveFestivalArtistHandler(ctx context.Context, req *RemoveFestivalArtistRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -688,7 +689,7 @@ type GetFestivalVenuesRequest struct {
 type GetFestivalVenuesResponse struct {
 	Body struct {
 		Venues []*contracts.FestivalVenueResponse `json:"venues" doc:"List of venues"`
-		Count  int                               `json:"count" doc:"Number of venues"`
+		Count  int                                `json:"count" doc:"Number of venues"`
 	}
 }
 
@@ -733,7 +734,7 @@ type AddFestivalVenueHandlerResponse struct {
 func (h *FestivalHandler) AddFestivalVenueHandler(ctx context.Context, req *AddFestivalVenueHandlerRequest) (*AddFestivalVenueHandlerResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -791,7 +792,7 @@ type RemoveFestivalVenueRequest struct {
 func (h *FestivalHandler) RemoveFestivalVenueHandler(ctx context.Context, req *RemoveFestivalVenueRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -845,7 +846,7 @@ type GetArtistFestivalsRequest struct {
 type GetArtistFestivalsResponse struct {
 	Body struct {
 		Festivals []*contracts.ArtistFestivalListResponse `json:"festivals" doc:"List of festivals"`
-		Count     int                                    `json:"count" doc:"Number of festivals"`
+		Count     int                                     `json:"count" doc:"Number of festivals"`
 	}
 }
 

@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -24,15 +25,15 @@ func testCalendarConfig() *config.Config {
 // =============================================================================
 
 func TestCreateCalendarTokenHandler_NoAuth(t *testing.T) {
-	h := NewCalendarHandler(&mockCalendarService{}, testCalendarConfig())
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
 	_, err := h.CreateCalendarTokenHandler(context.Background(), &CreateCalendarTokenRequest{})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 	now := time.Now()
-	mock := &mockCalendarService{
-		createTokenFn: func(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
+	mock := &testhelpers.MockCalendarService{
+		CreateTokenFn: func(userID uint, apiBaseURL string) (*contracts.CalendarTokenCreateResponse, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -44,7 +45,7 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 	if err != nil {
@@ -59,16 +60,16 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 }
 
 func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
-	mock := &mockCalendarService{
-		createTokenFn: func(_ uint, _ string) (*contracts.CalendarTokenCreateResponse, error) {
+	mock := &testhelpers.MockCalendarService{
+		CreateTokenFn: func(_ uint, _ string) (*contracts.CalendarTokenCreateResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // =============================================================================
@@ -76,15 +77,15 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 // =============================================================================
 
 func TestGetCalendarTokenStatusHandler_NoAuth(t *testing.T) {
-	h := NewCalendarHandler(&mockCalendarService{}, testCalendarConfig())
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
 	_, err := h.GetCalendarTokenStatusHandler(context.Background(), &GetCalendarTokenStatusRequest{})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 	now := time.Now()
-	mock := &mockCalendarService{
-		getTokenStatusFn: func(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
+	mock := &testhelpers.MockCalendarService{
+		GetTokenStatusFn: func(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
 			return &contracts.CalendarTokenStatusResponse{
 				HasToken:  true,
 				CreatedAt: &now,
@@ -92,7 +93,7 @@ func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
 	if err != nil {
@@ -104,13 +105,13 @@ func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 }
 
 func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
-	mock := &mockCalendarService{
-		getTokenStatusFn: func(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
+	mock := &testhelpers.MockCalendarService{
+		GetTokenStatusFn: func(userID uint) (*contracts.CalendarTokenStatusResponse, error) {
 			return &contracts.CalendarTokenStatusResponse{HasToken: false}, nil
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
 	if err != nil {
@@ -122,16 +123,16 @@ func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 }
 
 func TestGetCalendarTokenStatusHandler_ServiceError(t *testing.T) {
-	mock := &mockCalendarService{
-		getTokenStatusFn: func(_ uint) (*contracts.CalendarTokenStatusResponse, error) {
+	mock := &testhelpers.MockCalendarService{
+		GetTokenStatusFn: func(_ uint) (*contracts.CalendarTokenStatusResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // =============================================================================
@@ -139,14 +140,14 @@ func TestGetCalendarTokenStatusHandler_ServiceError(t *testing.T) {
 // =============================================================================
 
 func TestDeleteCalendarTokenHandler_NoAuth(t *testing.T) {
-	h := NewCalendarHandler(&mockCalendarService{}, testCalendarConfig())
+	h := NewCalendarHandler(&testhelpers.MockCalendarService{}, testCalendarConfig())
 	_, err := h.DeleteCalendarTokenHandler(context.Background(), &DeleteCalendarTokenRequest{})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestDeleteCalendarTokenHandler_Success(t *testing.T) {
-	mock := &mockCalendarService{
-		deleteTokenFn: func(userID uint) error {
+	mock := &testhelpers.MockCalendarService{
+		DeleteTokenFn: func(userID uint) error {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -154,7 +155,7 @@ func TestDeleteCalendarTokenHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.DeleteCalendarTokenHandler(ctx, &DeleteCalendarTokenRequest{})
 	if err != nil {
@@ -166,16 +167,16 @@ func TestDeleteCalendarTokenHandler_Success(t *testing.T) {
 }
 
 func TestDeleteCalendarTokenHandler_ServiceError(t *testing.T) {
-	mock := &mockCalendarService{
-		deleteTokenFn: func(_ uint) error {
+	mock := &testhelpers.MockCalendarService{
+		DeleteTokenFn: func(_ uint) error {
 			return fmt.Errorf("no calendar token found")
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.DeleteCalendarTokenHandler(ctx, &DeleteCalendarTokenRequest{})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // =============================================================================

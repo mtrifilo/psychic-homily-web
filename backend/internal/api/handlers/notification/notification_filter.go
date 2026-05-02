@@ -1,4 +1,4 @@
-package handlers
+package notification
 
 import (
 	"context"
@@ -69,7 +69,7 @@ type CreateFilterResponse struct {
 
 // UpdateFilterRequest is the request for PATCH /me/notification-filters/{id}
 type UpdateFilterRequest struct {
-	ID string `path:"id" doc:"Filter ID"`
+	ID   string `path:"id" doc:"Filter ID"`
 	Body struct {
 		Name          *string          `json:"name,omitempty" required:"false" doc:"Filter name"`
 		IsActive      *bool            `json:"is_active,omitempty" required:"false" doc:"Enable/disable filter"`
@@ -126,13 +126,13 @@ type GetNotificationsRequest struct {
 type GetNotificationsResponse struct {
 	Body struct {
 		Notifications []contracts.NotificationLogEntry `json:"notifications"`
-		UnreadCount   int64                           `json:"unread_count"`
+		UnreadCount   int64                            `json:"unread_count"`
 	}
 }
 
 // UnsubscribeFilterRequest is the request for POST /unsubscribe/filter/{id}
 type UnsubscribeFilterRequest struct {
-	ID  string `path:"id" doc:"Filter ID"`
+	ID   string `path:"id" doc:"Filter ID"`
 	Body struct {
 		Sig string `json:"sig" doc:"HMAC signature"`
 	}

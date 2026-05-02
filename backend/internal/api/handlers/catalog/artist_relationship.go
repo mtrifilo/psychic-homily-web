@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -351,8 +351,8 @@ type DeriveRelationshipsRequest struct{}
 
 type DeriveRelationshipsResponse struct {
 	Body struct {
-		Success            bool  `json:"success"`
-		SharedBillsUpserted int64 `json:"shared_bills_upserted"`
+		Success              bool  `json:"success"`
+		SharedBillsUpserted  int64 `json:"shared_bills_upserted"`
 		SharedLabelsUpserted int64 `json:"shared_labels_upserted"`
 	}
 }

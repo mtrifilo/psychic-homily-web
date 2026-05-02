@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"fmt"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -18,21 +19,21 @@ import (
 // applies the months time filter consistently across stats and aggregation.
 type ArtistBillCompositionIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *ArtistRelationshipHandler
 }
 
 func (s *ArtistBillCompositionIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewArtistRelationshipHandler(s.deps.artistRelationshipService, s.deps.auditLogService)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewArtistRelationshipHandler(s.deps.ArtistRelationshipService, s.deps.AuditLogService)
 }
 
 func (s *ArtistBillCompositionIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *ArtistBillCompositionIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestArtistBillCompositionIntegration(t *testing.T) {
@@ -45,22 +46,22 @@ func TestArtistBillCompositionIntegration(t *testing.T) {
 // seedShowWithBill creates an approved show on `eventDate` where each (artistID, position, setType)
 // triple becomes a row in show_artists. Returns the show ID.
 func (s *ArtistBillCompositionIntegrationSuite) seedShowWithBill(title string, eventDate time.Time, lineup []billLineupEntry) uint {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, fmt.Sprintf("Venue for %s", title), "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, fmt.Sprintf("Venue for %s", title), "Phoenix", "AZ")
 
 	show := &models.Show{
 		Title:       title,
 		EventDate:   eventDate,
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 
 	for _, entry := range lineup {
-		s.deps.db.Exec(
+		s.deps.DB.Exec(
 			"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, ?, ?)",
 			show.ID, entry.artistID, entry.position, entry.setType,
 		)
@@ -77,7 +78,7 @@ type billLineupEntry struct {
 // --- Below threshold ---
 
 func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_BelowThreshold_HidesContent() {
-	a := s.deps.artistRelationshipService
+	a := s.deps.ArtistRelationshipService
 	headliner := s.createArtist("Headliner")
 	opener := s.createArtist("Opener")
 
@@ -103,7 +104,7 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_BelowThresho
 // --- Pure headliner: opens-with populated, closes-with empty ---
 
 func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_PureHeadliner_OpensWithOnly() {
-	a := s.deps.artistRelationshipService
+	a := s.deps.ArtistRelationshipService
 	headliner := s.createArtist("HL")
 	opener1 := s.createArtist("Opener1")
 	opener2 := s.createArtist("Opener2")
@@ -148,7 +149,7 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_PureHeadline
 // --- Mixed roles: both opens-with and closes-with populated, plus cross-connection ---
 
 func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_MixedRoles_BothTablesAndCrossConnection() {
-	a := s.deps.artistRelationshipService
+	a := s.deps.ArtistRelationshipService
 	center := s.createArtist("Center")
 	opener := s.createArtist("CenterOpener") // opens for Center
 	bigger := s.createArtist("BiggerAct")    // headlines above Center
@@ -206,7 +207,7 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_MixedRoles_B
 // --- Time filter excludes old shows ---
 
 func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_TimeFilter_ExcludesOldShows() {
-	a := s.deps.artistRelationshipService
+	a := s.deps.ArtistRelationshipService
 	headliner := s.createArtist("HL2")
 	opener := s.createArtist("Opener3")
 
@@ -247,7 +248,7 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_TimeFilter_E
 // --- Artist not found ---
 
 func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_ArtistNotFound() {
-	a := s.deps.artistRelationshipService
+	a := s.deps.ArtistRelationshipService
 	_, err := a.GetArtistBillComposition(99999, 0)
 	s.Error(err)
 }
@@ -256,8 +257,8 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_ArtistNotFou
 
 func (s *ArtistBillCompositionIntegrationSuite) createArtist(name string) uint {
 	artist := &models.Artist{Name: name}
-	s.deps.db.Create(artist)
+	s.deps.DB.Create(artist)
 	slug := fmt.Sprintf("%s-slug-%d", name, artist.ID)
-	s.deps.db.Model(artist).Update("slug", slug)
+	s.deps.DB.Model(artist).Update("slug", slug)
 	return artist.ID
 }

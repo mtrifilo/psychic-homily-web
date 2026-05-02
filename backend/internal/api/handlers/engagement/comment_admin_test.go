@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -19,11 +20,11 @@ func testCommentAdminHandler() *CommentAdminHandler {
 }
 
 func commentAdminAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 }
 
 func commentAdminUserCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 10, IsAdmin: false})
+	return testhelpers.CtxWithUser(&models.User{ID: 10, IsAdmin: false})
 }
 
 // ============================================================================
@@ -37,13 +38,13 @@ func TestAdminHideComment_RequiresAdmin(t *testing.T) {
 		req := &AdminHideCommentRequest{CommentID: "1"}
 		req.Body.Reason = "spam"
 		_, err := h.AdminHideCommentHandler(context.Background(), req)
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		req := &AdminHideCommentRequest{CommentID: "1"}
 		req.Body.Reason = "spam"
 		_, err := h.AdminHideCommentHandler(commentAdminUserCtx(), req)
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -52,7 +53,7 @@ func TestAdminHideComment_InvalidID(t *testing.T) {
 	req := &AdminHideCommentRequest{CommentID: "abc"}
 	req.Body.Reason = "spam"
 	_, err := h.AdminHideCommentHandler(commentAdminAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminHideComment_EmptyReason(t *testing.T) {
@@ -60,13 +61,13 @@ func TestAdminHideComment_EmptyReason(t *testing.T) {
 	req := &AdminHideCommentRequest{CommentID: "1"}
 	req.Body.Reason = ""
 	_, err := h.AdminHideCommentHandler(commentAdminAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminHideComment_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			hideCommentFn: func(adminUserID, commentID uint, reason string) error {
+		&testhelpers.MockCommentAdminService{
+			HideCommentFn: func(adminUserID, commentID uint, reason string) error {
 				return fmt.Errorf("comment not found")
 			},
 		},
@@ -75,20 +76,20 @@ func TestAdminHideComment_NotFound(t *testing.T) {
 	req := &AdminHideCommentRequest{CommentID: "99"}
 	req.Body.Reason = "spam"
 	_, err := h.AdminHideCommentHandler(commentAdminAdminCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminHideComment_Success(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			hideCommentFn: func(adminUserID, commentID uint, reason string) error {
+		&testhelpers.MockCommentAdminService{
+			HideCommentFn: func(adminUserID, commentID uint, reason string) error {
 				if adminUserID != 1 || commentID != 5 || reason != "violates guidelines" {
 					t.Errorf("unexpected params: admin=%d, comment=%d, reason=%s", adminUserID, commentID, reason)
 				}
 				return nil
 			},
 		},
-		&mockAuditLogService{},
+		&testhelpers.MockAuditLogService{},
 	)
 	req := &AdminHideCommentRequest{CommentID: "5"}
 	req.Body.Reason = "violates guidelines"
@@ -107,57 +108,57 @@ func TestAdminRestoreComment_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.AdminRestoreCommentHandler(context.Background(), &AdminRestoreCommentRequest{CommentID: "1"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.AdminRestoreCommentHandler(commentAdminUserCtx(), &AdminRestoreCommentRequest{CommentID: "1"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
 func TestAdminRestoreComment_InvalidID(t *testing.T) {
 	h := testCommentAdminHandler()
 	_, err := h.AdminRestoreCommentHandler(commentAdminAdminCtx(), &AdminRestoreCommentRequest{CommentID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminRestoreComment_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			restoreCommentFn: func(adminUserID, commentID uint) error {
+		&testhelpers.MockCommentAdminService{
+			RestoreCommentFn: func(adminUserID, commentID uint) error {
 				return fmt.Errorf("comment not found")
 			},
 		},
 		nil,
 	)
 	_, err := h.AdminRestoreCommentHandler(commentAdminAdminCtx(), &AdminRestoreCommentRequest{CommentID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminRestoreComment_AlreadyVisible(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			restoreCommentFn: func(adminUserID, commentID uint) error {
+		&testhelpers.MockCommentAdminService{
+			RestoreCommentFn: func(adminUserID, commentID uint) error {
 				return fmt.Errorf("comment is already visible")
 			},
 		},
 		nil,
 	)
 	_, err := h.AdminRestoreCommentHandler(commentAdminAdminCtx(), &AdminRestoreCommentRequest{CommentID: "1"})
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 func TestAdminRestoreComment_Success(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			restoreCommentFn: func(adminUserID, commentID uint) error {
+		&testhelpers.MockCommentAdminService{
+			RestoreCommentFn: func(adminUserID, commentID uint) error {
 				if adminUserID != 1 || commentID != 5 {
 					t.Errorf("unexpected params: admin=%d, comment=%d", adminUserID, commentID)
 				}
 				return nil
 			},
 		},
-		&mockAuditLogService{},
+		&testhelpers.MockAuditLogService{},
 	)
 	_, err := h.AdminRestoreCommentHandler(commentAdminAdminCtx(), &AdminRestoreCommentRequest{CommentID: "5"})
 	if err != nil {
@@ -174,11 +175,11 @@ func TestAdminListPendingComments_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.AdminListPendingCommentsHandler(context.Background(), &AdminListPendingCommentsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.AdminListPendingCommentsHandler(commentAdminUserCtx(), &AdminListPendingCommentsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -197,8 +198,8 @@ func TestAdminListPendingComments_Success(t *testing.T) {
 		},
 	}
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			listPendingCommentsFn: func(limit, offset int) ([]*contracts.CommentResponse, int64, error) {
+		&testhelpers.MockCommentAdminService{
+			ListPendingCommentsFn: func(limit, offset int) ([]*contracts.CommentResponse, int64, error) {
 				if limit != 20 || offset != 0 {
 					t.Errorf("unexpected pagination: limit=%d, offset=%d", limit, offset)
 				}
@@ -221,15 +222,15 @@ func TestAdminListPendingComments_Success(t *testing.T) {
 
 func TestAdminListPendingComments_ServiceError(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			listPendingCommentsFn: func(limit, offset int) ([]*contracts.CommentResponse, int64, error) {
+		&testhelpers.MockCommentAdminService{
+			ListPendingCommentsFn: func(limit, offset int) ([]*contracts.CommentResponse, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
 		nil,
 	)
 	_, err := h.AdminListPendingCommentsHandler(commentAdminAdminCtx(), &AdminListPendingCommentsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -241,57 +242,57 @@ func TestAdminApproveComment_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.AdminApproveCommentHandler(context.Background(), &AdminApproveCommentRequest{CommentID: "1"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.AdminApproveCommentHandler(commentAdminUserCtx(), &AdminApproveCommentRequest{CommentID: "1"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
 func TestAdminApproveComment_InvalidID(t *testing.T) {
 	h := testCommentAdminHandler()
 	_, err := h.AdminApproveCommentHandler(commentAdminAdminCtx(), &AdminApproveCommentRequest{CommentID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminApproveComment_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			approveCommentFn: func(adminUserID, commentID uint) error {
+		&testhelpers.MockCommentAdminService{
+			ApproveCommentFn: func(adminUserID, commentID uint) error {
 				return fmt.Errorf("comment not found")
 			},
 		},
 		nil,
 	)
 	_, err := h.AdminApproveCommentHandler(commentAdminAdminCtx(), &AdminApproveCommentRequest{CommentID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminApproveComment_NotPending(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			approveCommentFn: func(adminUserID, commentID uint) error {
+		&testhelpers.MockCommentAdminService{
+			ApproveCommentFn: func(adminUserID, commentID uint) error {
 				return fmt.Errorf("comment is not pending review")
 			},
 		},
 		nil,
 	)
 	_, err := h.AdminApproveCommentHandler(commentAdminAdminCtx(), &AdminApproveCommentRequest{CommentID: "1"})
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 func TestAdminApproveComment_Success(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			approveCommentFn: func(adminUserID, commentID uint) error {
+		&testhelpers.MockCommentAdminService{
+			ApproveCommentFn: func(adminUserID, commentID uint) error {
 				if adminUserID != 1 || commentID != 5 {
 					t.Errorf("unexpected params: admin=%d, comment=%d", adminUserID, commentID)
 				}
 				return nil
 			},
 		},
-		&mockAuditLogService{},
+		&testhelpers.MockAuditLogService{},
 	)
 	_, err := h.AdminApproveCommentHandler(commentAdminAdminCtx(), &AdminApproveCommentRequest{CommentID: "5"})
 	if err != nil {
@@ -310,13 +311,13 @@ func TestAdminRejectComment_RequiresAdmin(t *testing.T) {
 		req := &AdminRejectCommentRequest{CommentID: "1"}
 		req.Body.Reason = "spam"
 		_, err := h.AdminRejectCommentHandler(context.Background(), req)
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		req := &AdminRejectCommentRequest{CommentID: "1"}
 		req.Body.Reason = "spam"
 		_, err := h.AdminRejectCommentHandler(commentAdminUserCtx(), req)
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -325,7 +326,7 @@ func TestAdminRejectComment_InvalidID(t *testing.T) {
 	req := &AdminRejectCommentRequest{CommentID: "abc"}
 	req.Body.Reason = "spam"
 	_, err := h.AdminRejectCommentHandler(commentAdminAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminRejectComment_EmptyReason(t *testing.T) {
@@ -333,13 +334,13 @@ func TestAdminRejectComment_EmptyReason(t *testing.T) {
 	req := &AdminRejectCommentRequest{CommentID: "1"}
 	req.Body.Reason = ""
 	_, err := h.AdminRejectCommentHandler(commentAdminAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminRejectComment_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			rejectCommentFn: func(adminUserID, commentID uint, reason string) error {
+		&testhelpers.MockCommentAdminService{
+			RejectCommentFn: func(adminUserID, commentID uint, reason string) error {
 				return fmt.Errorf("comment not found")
 			},
 		},
@@ -348,13 +349,13 @@ func TestAdminRejectComment_NotFound(t *testing.T) {
 	req := &AdminRejectCommentRequest{CommentID: "99"}
 	req.Body.Reason = "spam"
 	_, err := h.AdminRejectCommentHandler(commentAdminAdminCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminRejectComment_NotPending(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			rejectCommentFn: func(adminUserID, commentID uint, reason string) error {
+		&testhelpers.MockCommentAdminService{
+			RejectCommentFn: func(adminUserID, commentID uint, reason string) error {
 				return fmt.Errorf("comment is not pending review")
 			},
 		},
@@ -363,20 +364,20 @@ func TestAdminRejectComment_NotPending(t *testing.T) {
 	req := &AdminRejectCommentRequest{CommentID: "1"}
 	req.Body.Reason = "spam"
 	_, err := h.AdminRejectCommentHandler(commentAdminAdminCtx(), req)
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 func TestAdminRejectComment_Success(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			rejectCommentFn: func(adminUserID, commentID uint, reason string) error {
+		&testhelpers.MockCommentAdminService{
+			RejectCommentFn: func(adminUserID, commentID uint, reason string) error {
 				if adminUserID != 1 || commentID != 5 || reason != "spam" {
 					t.Errorf("unexpected params: admin=%d, comment=%d, reason=%s", adminUserID, commentID, reason)
 				}
 				return nil
 			},
 		},
-		&mockAuditLogService{},
+		&testhelpers.MockAuditLogService{},
 	)
 	req := &AdminRejectCommentRequest{CommentID: "5"}
 	req.Body.Reason = "spam"
@@ -391,8 +392,8 @@ func TestAdminRejectComment_Success(t *testing.T) {
 // ============================================================================
 
 func TestCreateComment_RateLimitError(t *testing.T) {
-	mock := &mockCommentService{
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("please wait 60 seconds between comments on the same entity")
 		},
 	}
@@ -400,12 +401,12 @@ func TestCreateComment_RateLimitError(t *testing.T) {
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 429)
+	testhelpers.AssertHumaError(t, err, 429)
 }
 
 func TestCreateComment_HourlyLimitError(t *testing.T) {
-	mock := &mockCommentService{
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("you've reached your hourly comment limit (5/hour for new users)")
 		},
 	}
@@ -413,7 +414,7 @@ func TestCreateComment_HourlyLimitError(t *testing.T) {
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 429)
+	testhelpers.AssertHumaError(t, err, 429)
 }
 
 // ============================================================================
@@ -425,52 +426,52 @@ func TestAdminGetCommentEditHistory_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.AdminGetCommentEditHistoryHandler(context.Background(), &AdminGetCommentEditHistoryRequest{CommentID: "1"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.AdminGetCommentEditHistoryHandler(commentAdminUserCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "1"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
 func TestAdminGetCommentEditHistory_InvalidID(t *testing.T) {
 	h := testCommentAdminHandler()
 	_, err := h.AdminGetCommentEditHistoryHandler(commentAdminAdminCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "not-a-number"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminGetCommentEditHistory_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			getCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+		&testhelpers.MockCommentAdminService{
+			GetCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
 				return nil, fmt.Errorf("comment not found")
 			},
 		},
 		nil,
 	)
 	_, err := h.AdminGetCommentEditHistoryHandler(commentAdminAdminCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminGetCommentEditHistory_ServiceAdminRejection(t *testing.T) {
 	// Service should be able to bubble up an admin-access error and we map it to 403.
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			getCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+		&testhelpers.MockCommentAdminService{
+			GetCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
 				return nil, fmt.Errorf("admin access required")
 			},
 		},
 		nil,
 	)
 	_, err := h.AdminGetCommentEditHistoryHandler(commentAdminAdminCtx(), &AdminGetCommentEditHistoryRequest{CommentID: "5"})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminGetCommentEditHistory_Success(t *testing.T) {
 	editorID := uint(42)
 	h := NewCommentAdminHandler(
-		&mockCommentAdminService{
-			getCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
+		&testhelpers.MockCommentAdminService{
+			GetCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
 				if requesterID != 1 || commentID != 7 {
 					t.Errorf("unexpected params: requester=%d, comment=%d", requesterID, commentID)
 				}

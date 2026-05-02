@@ -1,7 +1,8 @@
-package handlers
+package engagement
 
 import (
 	"fmt"
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -9,21 +10,21 @@ import (
 
 type SavedShowHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *SavedShowHandler
 }
 
 func (s *SavedShowHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewSavedShowHandler(s.deps.savedShowService)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewSavedShowHandler(s.deps.SavedShowService)
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestSavedShowHandlerIntegration(t *testing.T) {
@@ -36,10 +37,10 @@ func TestSavedShowHandlerIntegration(t *testing.T) {
 // --- SaveShowHandler ---
 
 func (s *SavedShowHandlerIntegrationSuite) TestSaveShow_Success() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &SaveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
 	resp, err := s.handler.SaveShowHandler(ctx, req)
@@ -50,10 +51,10 @@ func (s *SavedShowHandlerIntegrationSuite) TestSaveShow_Success() {
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TestSaveShow_AlreadySaved_Idempotent() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &SaveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
 	// Save once
@@ -67,8 +68,8 @@ func (s *SavedShowHandlerIntegrationSuite) TestSaveShow_AlreadySaved_Idempotent(
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TestSaveShow_ShowNotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &SaveShowRequest{ShowID: "99999"}
 
 	_, err := s.handler.SaveShowHandler(ctx, req)
@@ -78,10 +79,10 @@ func (s *SavedShowHandlerIntegrationSuite) TestSaveShow_ShowNotFound() {
 // --- UnsaveShowHandler ---
 
 func (s *SavedShowHandlerIntegrationSuite) TestUnsaveShow_Success() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Save first
 	saveReq := &SaveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
@@ -97,10 +98,10 @@ func (s *SavedShowHandlerIntegrationSuite) TestUnsaveShow_Success() {
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TestUnsaveShow_NotSaved() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &UnsaveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
 	_, err := s.handler.UnsaveShowHandler(ctx, req)
@@ -110,8 +111,8 @@ func (s *SavedShowHandlerIntegrationSuite) TestUnsaveShow_NotSaved() {
 // --- GetSavedShowsHandler ---
 
 func (s *SavedShowHandlerIntegrationSuite) TestGetSavedShows_Empty() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &GetSavedShowsRequest{Limit: 50, Offset: 0}
 
 	resp, err := s.handler.GetSavedShowsHandler(ctx, req)
@@ -122,12 +123,12 @@ func (s *SavedShowHandlerIntegrationSuite) TestGetSavedShows_Empty() {
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TestGetSavedShows_WithShows() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create and save 3 shows
 	for i := 0; i < 3; i++ {
-		show := createApprovedShow(s.deps.db, user.ID, fmt.Sprintf("Show %d", i))
+		show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, fmt.Sprintf("Show %d", i))
 		saveReq := &SaveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 		_, err := s.handler.SaveShowHandler(ctx, saveReq)
 		s.NoError(err)
@@ -142,12 +143,12 @@ func (s *SavedShowHandlerIntegrationSuite) TestGetSavedShows_WithShows() {
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TestGetSavedShows_Pagination() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create and save 3 shows
 	for i := 0; i < 3; i++ {
-		show := createApprovedShow(s.deps.db, user.ID, fmt.Sprintf("Show %d", i))
+		show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, fmt.Sprintf("Show %d", i))
 		saveReq := &SaveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 		_, err := s.handler.SaveShowHandler(ctx, saveReq)
 		s.NoError(err)
@@ -171,9 +172,9 @@ func (s *SavedShowHandlerIntegrationSuite) TestGetSavedShows_Pagination() {
 // --- CheckSavedHandler ---
 
 func (s *SavedShowHandlerIntegrationSuite) TestCheckSaved_True() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Save it
 	saveReq := &SaveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
@@ -189,9 +190,9 @@ func (s *SavedShowHandlerIntegrationSuite) TestCheckSaved_True() {
 }
 
 func (s *SavedShowHandlerIntegrationSuite) TestCheckSaved_False() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
+	ctx := testhelpers.CtxWithUser(user)
 
 	checkReq := &CheckSavedRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	resp, err := s.handler.CheckSavedHandler(ctx, checkReq)

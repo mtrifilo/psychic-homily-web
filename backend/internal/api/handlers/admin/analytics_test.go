@@ -1,10 +1,11 @@
-package handlers
+package admin
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -14,15 +15,15 @@ import (
 // ============================================================================
 
 func testAnalyticsHandler() *AnalyticsHandler {
-	return NewAnalyticsHandler(&mockAnalyticsService{})
+	return NewAnalyticsHandler(&testhelpers.MockAnalyticsService{})
 }
 
 func analyticsAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 }
 
 func analyticsNonAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 2, IsAdmin: false})
+	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false})
 }
 
 // ============================================================================
@@ -34,11 +35,11 @@ func TestAnalyticsHandler_Growth_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.GetGrowthMetricsHandler(context.Background(), &GetGrowthMetricsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.GetGrowthMetricsHandler(analyticsNonAdminCtx(), &GetGrowthMetricsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -51,11 +52,11 @@ func TestAnalyticsHandler_Engagement_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.GetEngagementMetricsHandler(context.Background(), &GetEngagementMetricsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.GetEngagementMetricsHandler(analyticsNonAdminCtx(), &GetEngagementMetricsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -68,11 +69,11 @@ func TestAnalyticsHandler_Community_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.GetCommunityHealthHandler(context.Background(), &GetCommunityHealthRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.GetCommunityHealthHandler(analyticsNonAdminCtx(), &GetCommunityHealthRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -85,11 +86,11 @@ func TestAnalyticsHandler_DataQuality_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.GetDataQualityTrendsHandler(context.Background(), &GetDataQualityTrendsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.GetDataQualityTrendsHandler(analyticsNonAdminCtx(), &GetDataQualityTrendsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -98,8 +99,8 @@ func TestAnalyticsHandler_DataQuality_RequiresAdmin(t *testing.T) {
 // ============================================================================
 
 func TestAnalyticsHandler_Growth_Success(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getGrowthMetricsFn: func(months int) (*contracts.GrowthMetricsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetGrowthMetricsFn: func(months int) (*contracts.GrowthMetricsResponse, error) {
 			if months != 6 {
 				t.Errorf("expected months=6, got %d", months)
 			}
@@ -131,8 +132,8 @@ func TestAnalyticsHandler_Growth_Success(t *testing.T) {
 
 func TestAnalyticsHandler_Growth_DefaultMonths(t *testing.T) {
 	var receivedMonths int
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getGrowthMetricsFn: func(months int) (*contracts.GrowthMetricsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetGrowthMetricsFn: func(months int) (*contracts.GrowthMetricsResponse, error) {
 			receivedMonths = months
 			return &contracts.GrowthMetricsResponse{
 				Shows: []contracts.MonthlyCount{}, Artists: []contracts.MonthlyCount{},
@@ -153,8 +154,8 @@ func TestAnalyticsHandler_Growth_DefaultMonths(t *testing.T) {
 
 func TestAnalyticsHandler_Growth_CustomMonths(t *testing.T) {
 	var receivedMonths int
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getGrowthMetricsFn: func(months int) (*contracts.GrowthMetricsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetGrowthMetricsFn: func(months int) (*contracts.GrowthMetricsResponse, error) {
 			receivedMonths = months
 			return &contracts.GrowthMetricsResponse{
 				Shows: []contracts.MonthlyCount{}, Artists: []contracts.MonthlyCount{},
@@ -174,14 +175,14 @@ func TestAnalyticsHandler_Growth_CustomMonths(t *testing.T) {
 }
 
 func TestAnalyticsHandler_Growth_ServiceError(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getGrowthMetricsFn: func(months int) (*contracts.GrowthMetricsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetGrowthMetricsFn: func(months int) (*contracts.GrowthMetricsResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetGrowthMetricsHandler(analyticsAdminCtx(), &GetGrowthMetricsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -189,8 +190,8 @@ func TestAnalyticsHandler_Growth_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestAnalyticsHandler_Engagement_Success(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getEngagementMetricsFn: func(months int) (*contracts.EngagementMetricsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetEngagementMetricsFn: func(months int) (*contracts.EngagementMetricsResponse, error) {
 			return &contracts.EngagementMetricsResponse{
 				Bookmarks:       []contracts.EngagementMetric{{Month: "2026-03", Count: 15}},
 				TagsAdded:       []contracts.EngagementMetric{{Month: "2026-03", Count: 8}},
@@ -218,14 +219,14 @@ func TestAnalyticsHandler_Engagement_Success(t *testing.T) {
 }
 
 func TestAnalyticsHandler_Engagement_ServiceError(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getEngagementMetricsFn: func(months int) (*contracts.EngagementMetricsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetEngagementMetricsFn: func(months int) (*contracts.EngagementMetricsResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetEngagementMetricsHandler(analyticsAdminCtx(), &GetEngagementMetricsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -233,8 +234,8 @@ func TestAnalyticsHandler_Engagement_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestAnalyticsHandler_Community_Success(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getCommunityHealthFn: func() (*contracts.CommunityHealthResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetCommunityHealthFn: func() (*contracts.CommunityHealthResponse, error) {
 			return &contracts.CommunityHealthResponse{
 				ActiveContributors30d:  42,
 				RequestFulfillmentRate: 0.75,
@@ -282,19 +283,19 @@ func TestAnalyticsHandler_Community_Success(t *testing.T) {
 }
 
 func TestAnalyticsHandler_Community_ServiceError(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getCommunityHealthFn: func() (*contracts.CommunityHealthResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetCommunityHealthFn: func() (*contracts.CommunityHealthResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetCommunityHealthHandler(analyticsAdminCtx(), &GetCommunityHealthRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestAnalyticsHandler_Community_Empty(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getCommunityHealthFn: func() (*contracts.CommunityHealthResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetCommunityHealthFn: func() (*contracts.CommunityHealthResponse, error) {
 			return &contracts.CommunityHealthResponse{
 				ContributionsPerWeek: []contracts.WeeklyContributions{},
 				TopContributors:      []contracts.TopContributor{},
@@ -322,8 +323,8 @@ func TestAnalyticsHandler_Community_Empty(t *testing.T) {
 // ============================================================================
 
 func TestAnalyticsHandler_DataQuality_Success(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getDataQualityTrendsFn: func(months int) (*contracts.DataQualityTrendsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetDataQualityTrendsFn: func(months int) (*contracts.DataQualityTrendsResponse, error) {
 			return &contracts.DataQualityTrendsResponse{
 				ShowsApproved:          []contracts.MonthlyCount{{Month: "2026-03", Count: 20}},
 				ShowsRejected:          []contracts.MonthlyCount{{Month: "2026-03", Count: 5}},
@@ -356,20 +357,20 @@ func TestAnalyticsHandler_DataQuality_Success(t *testing.T) {
 }
 
 func TestAnalyticsHandler_DataQuality_ServiceError(t *testing.T) {
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getDataQualityTrendsFn: func(months int) (*contracts.DataQualityTrendsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetDataQualityTrendsFn: func(months int) (*contracts.DataQualityTrendsResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetDataQualityTrendsHandler(analyticsAdminCtx(), &GetDataQualityTrendsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestAnalyticsHandler_DataQuality_DefaultMonths(t *testing.T) {
 	var receivedMonths int
-	h := NewAnalyticsHandler(&mockAnalyticsService{
-		getDataQualityTrendsFn: func(months int) (*contracts.DataQualityTrendsResponse, error) {
+	h := NewAnalyticsHandler(&testhelpers.MockAnalyticsService{
+		GetDataQualityTrendsFn: func(months int) (*contracts.DataQualityTrendsResponse, error) {
 			receivedMonths = months
 			return &contracts.DataQualityTrendsResponse{
 				ShowsApproved: []contracts.MonthlyCount{},

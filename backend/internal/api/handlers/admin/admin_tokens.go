@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -42,7 +43,7 @@ type CreateAPITokenResponse struct {
 func (h *AdminTokenHandler) CreateAPITokenHandler(ctx context.Context, req *CreateAPITokenRequest) (*CreateAPITokenResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -103,7 +104,7 @@ type ListAPITokensResponse struct {
 func (h *AdminTokenHandler) ListAPITokensHandler(ctx context.Context, req *ListAPITokensRequest) (*ListAPITokensResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -153,7 +154,7 @@ type RevokeAPITokenResponse struct {
 func (h *AdminTokenHandler) RevokeAPITokenHandler(ctx context.Context, req *RevokeAPITokenRequest) (*RevokeAPITokenResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

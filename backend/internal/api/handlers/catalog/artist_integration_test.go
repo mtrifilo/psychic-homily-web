@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"fmt"
@@ -7,27 +7,28 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 type ArtistHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *ArtistHandler
 }
 
 func (s *ArtistHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewArtistHandler(s.deps.artistService, s.deps.auditLogService, nil)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewArtistHandler(s.deps.ArtistService, s.deps.AuditLogService, nil)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestArtistHandlerIntegration(t *testing.T) {
@@ -39,7 +40,7 @@ func TestArtistHandlerIntegration(t *testing.T) {
 
 // createArtistWithSlug creates an artist using the service (which generates a slug)
 func (s *ArtistHandlerIntegrationSuite) createArtistViaService(name string) uint {
-	resp, err := s.deps.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
+	resp, err := s.deps.ArtistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
 	s.Require().NoError(err)
 	return resp.ID
 }
@@ -51,10 +52,10 @@ func (s *ArtistHandlerIntegrationSuite) createArtistWithCity(name, city, state s
 		City:  &city,
 		State: &state,
 	}
-	s.deps.db.Create(artist)
+	s.deps.DB.Create(artist)
 	// Set a slug so slug-based lookups work
 	slug := fmt.Sprintf("%s-slug", name)
-	s.deps.db.Model(artist).Update("slug", slug)
+	s.deps.DB.Model(artist).Update("slug", slug)
 	return artist
 }
 
@@ -66,7 +67,7 @@ func (s *ArtistHandlerIntegrationSuite) TestSearchArtists_Success() {
 	s.createArtistViaService("Unrelated Band")
 
 	req := &SearchArtistsRequest{Query: "radio"}
-	resp, err := s.handler.SearchArtistsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(resp.Body.Count, 2)
@@ -76,7 +77,7 @@ func (s *ArtistHandlerIntegrationSuite) TestSearchArtists_NoResults() {
 	s.createArtistViaService("Radiohead")
 
 	req := &SearchArtistsRequest{Query: "zzzznonexistent"}
-	resp, err := s.handler.SearchArtistsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
@@ -85,20 +86,20 @@ func (s *ArtistHandlerIntegrationSuite) TestSearchArtists_NoResults() {
 // createArtistWithUpcomingShow creates an artist and gives it an upcoming approved show
 func (s *ArtistHandlerIntegrationSuite) createArtistWithUpcomingShow(name string) uint {
 	artistID := s.createArtistViaService(name)
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, fmt.Sprintf("Venue for %s", name), "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, fmt.Sprintf("Venue for %s", name), "Phoenix", "AZ")
 
 	show := &models.Show{
 		Title:       fmt.Sprintf("Show for %s", name),
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
 	return artistID
 }
 
@@ -110,7 +111,7 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_Success() {
 	s.createArtistWithUpcomingShow("Artist C")
 
 	req := &ListArtistsRequest{}
-	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(resp.Body.Count, 3)
@@ -123,7 +124,7 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_Empty() {
 	s.createArtistViaService("No Shows Artist")
 
 	req := &ListArtistsRequest{}
-	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
@@ -135,22 +136,22 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_CityFilter() {
 	s.createArtistWithCity("Tucson Band", "Tucson", "AZ")
 
 	// Give Phoenix Band an upcoming show
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "PHX Venue", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "PHX Venue", "Phoenix", "AZ")
 	show := &models.Show{
 		Title:       "PHX Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
 
 	req := &ListArtistsRequest{City: "Phoenix"}
-	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -166,17 +167,17 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_CityFilter() {
 func (s *ArtistHandlerIntegrationSuite) tagArtist(artistID uint, tagSlug string) {
 	// upsert tag
 	var tag models.Tag
-	if err := s.deps.db.Where("slug = ?", tagSlug).First(&tag).Error; err != nil {
+	if err := s.deps.DB.Where("slug = ?", tagSlug).First(&tag).Error; err != nil {
 		tag = models.Tag{
 			Name:     tagSlug,
 			Slug:     tagSlug,
 			Category: models.TagCategoryGenre,
 		}
-		s.Require().NoError(s.deps.db.Create(&tag).Error)
+		s.Require().NoError(s.deps.DB.Create(&tag).Error)
 	}
 
 	// need an AddedByUserID: grab or create a throwaway user
-	adder := createTestUser(s.deps.db)
+	adder := testhelpers.CreateTestUser(s.deps.DB)
 
 	entityTag := models.EntityTag{
 		TagID:         tag.ID,
@@ -184,7 +185,7 @@ func (s *ArtistHandlerIntegrationSuite) tagArtist(artistID uint, tagSlug string)
 		EntityID:      artistID,
 		AddedByUserID: adder.ID,
 	}
-	s.Require().NoError(s.deps.db.Create(&entityTag).Error)
+	s.Require().NoError(s.deps.DB.Create(&entityTag).Error)
 }
 
 // TestListArtists_TagFilter_DropsActivityGate is the PSY-495 contract.
@@ -206,14 +207,14 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_TagFilter_DropsActivityG
 
 	// With no tag filter: default activity gate applies → only the active
 	// punk band and the rock band show up (2 total)
-	unfiltered, err := s.handler.ListArtistsHandler(s.deps.ctx, &ListArtistsRequest{})
+	unfiltered, err := s.handler.ListArtistsHandler(s.deps.Ctx, &ListArtistsRequest{})
 	s.Require().NoError(err)
 	s.Equal(2, unfiltered.Body.Count, "unfiltered list should exclude dormant artists")
 
 	// With tags=punk: activity gate drops → all 3 punk-tagged artists
 	// surface regardless of upcoming-show status (facet count parity)
 	req := &ListArtistsRequest{Tags: "punk"}
-	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, req)
 	s.Require().NoError(err)
 	s.Equal(3, resp.Body.Count, "tag-filtered list must return all 3 punk artists")
 
@@ -233,23 +234,23 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_TagFilter_DropsActivityG
 func (s *ArtistHandlerIntegrationSuite) TestListArtists_TagFilter_SurfacesLastShowDate() {
 	dormantID := s.createArtistViaService("Old Shoegaze Band")
 	// Give the dormant artist a past approved show 400 days ago
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Past Venue", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Past Venue", "Phoenix", "AZ")
 	pastShow := &models.Show{
 		Title:       "Past Gig",
 		EventDate:   time.Now().UTC().AddDate(0, 0, -400),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(pastShow)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", pastShow.ID, venue.ID)
-	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", pastShow.ID, dormantID)
+	s.deps.DB.Create(pastShow)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", pastShow.ID, venue.ID)
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", pastShow.ID, dormantID)
 
 	s.tagArtist(dormantID, "shoegaze")
 
-	resp, err := s.handler.ListArtistsHandler(s.deps.ctx, &ListArtistsRequest{Tags: "shoegaze"})
+	resp, err := s.handler.ListArtistsHandler(s.deps.Ctx, &ListArtistsRequest{Tags: "shoegaze"})
 	s.Require().NoError(err)
 	s.Equal(1, resp.Body.Count)
 	s.Equal("Old Shoegaze Band", resp.Body.Artists[0].Name)
@@ -263,7 +264,7 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtist_ByID() {
 	id := s.createArtistViaService("The National")
 
 	req := &GetArtistRequest{ArtistID: fmt.Sprintf("%d", id)}
-	resp, err := s.handler.GetArtistHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("The National", resp.Body.Name)
@@ -273,7 +274,7 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtist_BySlug() {
 	s.createArtistViaService("The National")
 
 	req := &GetArtistRequest{ArtistID: "the-national"}
-	resp, err := s.handler.GetArtistHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("The National", resp.Body.Name)
@@ -281,15 +282,15 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtist_BySlug() {
 
 func (s *ArtistHandlerIntegrationSuite) TestGetArtist_NotFound() {
 	req := &GetArtistRequest{ArtistID: "99999"}
-	_, err := s.handler.GetArtistHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetArtistHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- GetArtistShowsHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_Success() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Test Venue", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Test Venue", "Phoenix", "AZ")
 
 	artistID := s.createArtistViaService("Show Artist")
 
@@ -297,17 +298,17 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_Success() {
 	show := &models.Show{
 		Title:       "Future Gig",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
 
 	req := &GetArtistShowsRequest{ArtistID: fmt.Sprintf("%d", artistID), TimeFilter: "upcoming"}
-	resp, err := s.handler.GetArtistShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(int64(1), resp.Body.Total)
@@ -318,32 +319,32 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_Empty() {
 	artistID := s.createArtistViaService("Lonely Artist")
 
 	req := &GetArtistShowsRequest{ArtistID: fmt.Sprintf("%d", artistID), TimeFilter: "upcoming"}
-	resp, err := s.handler.GetArtistShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(int64(0), resp.Body.Total)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_BySlug() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Slug Venue", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Slug Venue", "Phoenix", "AZ")
 
 	artistID := s.createArtistViaService("Slug Artist")
 
 	show := &models.Show{
 		Title:       "Slug Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
 
 	req := &GetArtistShowsRequest{ArtistID: "slug-artist", TimeFilter: "upcoming"}
-	resp, err := s.handler.GetArtistShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(int64(1), resp.Body.Total)
@@ -351,66 +352,66 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_BySlug() {
 
 func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_NotFound() {
 	req := &GetArtistShowsRequest{ArtistID: "99999", TimeFilter: "upcoming"}
-	_, err := s.handler.GetArtistShowsHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetArtistShowsHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- DeleteArtistHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestDeleteArtist_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	artistID := s.createArtistViaService("Deletable Artist")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteArtistRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	_, err := s.handler.DeleteArtistHandler(ctx, req)
 	s.NoError(err)
 
 	// Verify artist is gone
 	getReq := &GetArtistRequest{ArtistID: fmt.Sprintf("%d", artistID)}
-	_, err = s.handler.GetArtistHandler(s.deps.ctx, getReq)
-	assertHumaError(s.T(), err, 404)
+	_, err = s.handler.GetArtistHandler(s.deps.Ctx, getReq)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestDeleteArtist_HasShows() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Show Venue", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Show Venue", "Phoenix", "AZ")
 	artistID := s.createArtistViaService("Busy Artist")
 
 	show := &models.Show{
 		Title:       "Active Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artistID)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteArtistRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	_, err := s.handler.DeleteArtistHandler(ctx, req)
-	assertHumaError(s.T(), err, 409)
+	testhelpers.AssertHumaError(s.T(), err, 409)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestDeleteArtist_NotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteArtistRequest{ArtistID: "99999"}
 
 	_, err := s.handler.DeleteArtistHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- AdminUpdateArtistHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestAdminUpdateArtist_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	artistID := s.createArtistViaService("Original Name")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	newName := "Updated Name"
 	req := &AdminUpdateArtistRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	req.Body.Name = &newName
@@ -422,10 +423,10 @@ func (s *ArtistHandlerIntegrationSuite) TestAdminUpdateArtist_Success() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestAdminUpdateArtist_SocialLinks() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	artistID := s.createArtistViaService("Social Artist")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	instagram := "https://instagram.com/artist"
 	website := "https://artist.com"
 	req := &AdminUpdateArtistRequest{ArtistID: fmt.Sprintf("%d", artistID)}
@@ -442,23 +443,23 @@ func (s *ArtistHandlerIntegrationSuite) TestAdminUpdateArtist_SocialLinks() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestAdminUpdateArtist_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	newName := "New Name"
 	req := &AdminUpdateArtistRequest{ArtistID: "99999"}
 	req.Body.Name = &newName
 
 	_, err := s.handler.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- UpdateArtistBandcampHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestUpdateBandcamp_AdminSuccess() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	artistID := s.createArtistViaService("Bandcamp Artist")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	url := "https://artist.bandcamp.com/album/cool-album"
 	req := &UpdateArtistBandcampRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	req.Body.BandcampEmbedURL = &url
@@ -474,11 +475,11 @@ func (s *ArtistHandlerIntegrationSuite) TestUpdateBandcamp_AdminSuccess() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestUpdateBandcamp_ClearURL() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	artistID := s.createArtistViaService("Clearable Artist")
 
 	// First set a bandcamp URL
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	url := "https://artist.bandcamp.com/album/cool-album"
 	setReq := &UpdateArtistBandcampRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	setReq.Body.BandcampEmbedURL = &url
@@ -497,23 +498,23 @@ func (s *ArtistHandlerIntegrationSuite) TestUpdateBandcamp_ClearURL() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestUpdateBandcamp_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	url := "https://artist.bandcamp.com/album/cool-album"
 	req := &UpdateArtistBandcampRequest{ArtistID: "99999"}
 	req.Body.BandcampEmbedURL = &url
 
 	_, err := s.handler.UpdateArtistBandcampHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- UpdateArtistSpotifyHandler ---
 
 func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_AdminSuccess() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	artistID := s.createArtistViaService("Spotify Artist")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	url := "https://open.spotify.com/artist/abc123"
 	req := &UpdateArtistSpotifyRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	req.Body.SpotifyURL = &url
@@ -526,10 +527,10 @@ func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_AdminSuccess() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_ClearURL() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	artistID := s.createArtistViaService("Spotify Clear Artist")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	url := "https://open.spotify.com/artist/abc123"
 	setReq := &UpdateArtistSpotifyRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	setReq.Body.SpotifyURL = &url
@@ -548,12 +549,12 @@ func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_ClearURL() {
 }
 
 func (s *ArtistHandlerIntegrationSuite) TestUpdateSpotify_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	url := "https://open.spotify.com/artist/abc123"
 	req := &UpdateArtistSpotifyRequest{ArtistID: "99999"}
 	req.Body.SpotifyURL = &url
 
 	_, err := s.handler.UpdateArtistSpotifyHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }

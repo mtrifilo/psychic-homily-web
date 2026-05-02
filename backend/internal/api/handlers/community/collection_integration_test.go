@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/contracts"
@@ -19,21 +20,21 @@ const MinPublicCollectionItems = services.MinPublicCollectionItems
 
 type CollectionHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *CollectionHandler
 }
 
 func (s *CollectionHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewCollectionHandler(s.deps.collectionService, s.deps.auditLogService)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewCollectionHandler(s.deps.CollectionService, s.deps.AuditLogService)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestCollectionHandlerIntegration(t *testing.T) {
@@ -52,7 +53,7 @@ func TestCollectionHandlerIntegration(t *testing.T) {
 // private collection — most tests that only need a slug should call with
 // false to keep item counts predictable.
 func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *models.User, title string, isPublic bool) *contracts.CollectionDetailResponse {
-	priv, err := s.deps.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+	priv, err := s.deps.CollectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
 		Title:    title,
 		IsPublic: false,
 	})
@@ -64,8 +65,8 @@ func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *mod
 
 	// PSY-356 publish-gate dance: private → seed items + description → flip public.
 	for i := 0; i < MinPublicCollectionItems; i++ {
-		artist := createArtist(s.deps.db, fmt.Sprintf("%s seed %d-%d", title, i, time.Now().UnixNano()))
-		_, err = s.deps.collectionService.AddItem(priv.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		artist := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("%s seed %d-%d", title, i, time.Now().UnixNano()))
+		_, err = s.deps.CollectionService.AddItem(priv.Slug, user.ID, &contracts.AddCollectionItemRequest{
 			EntityType: "artist",
 			EntityID:   artist.ID,
 		})
@@ -74,7 +75,7 @@ func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *mod
 
 	desc := fmt.Sprintf("Quality-gate description for %s — long enough to satisfy the 50-char minimum.", title)
 	pub := true
-	resp, err := s.deps.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, err := s.deps.CollectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Description: &desc,
 		IsPublic:    &pub,
 	})
@@ -87,8 +88,8 @@ func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *mod
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_Success() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// PSY-356: created private — public-at-create is rejected by the gate.
 	req := &CreateCollectionHandlerRequest{}
@@ -105,8 +106,8 @@ func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_Success() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_WithDescription() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	desc := "A curated list of favorites"
 	req := &CreateCollectionHandlerRequest{}
@@ -128,18 +129,18 @@ func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_NoAuth() {
 	req.Body.Title = "Unauthorized Collection"
 
 	_, err := s.handler.CreateCollectionHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_EmptyTitle() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateCollectionHandlerRequest{}
 	req.Body.Title = ""
 
 	_, err := s.handler.CreateCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 // ============================================================================
@@ -147,7 +148,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_EmptyTitle() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollection_BySlug() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Get By Slug", true)
 
 	req := &GetCollectionHandlerRequest{Slug: coll.Slug}
@@ -161,19 +162,19 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollection_BySlug() {
 func (s *CollectionHandlerIntegrationSuite) TestGetCollection_NotFound() {
 	req := &GetCollectionHandlerRequest{Slug: "nonexistent-slug"}
 	_, err := s.handler.GetCollectionHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollection_AuthenticatedViewerSeesSubscription() {
-	owner := createTestUser(s.deps.db)
-	viewer := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	viewer := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Sub Check", true)
 
 	// Subscribe the viewer
-	err := s.deps.collectionService.Subscribe(coll.Slug, viewer.ID)
+	err := s.deps.CollectionService.Subscribe(coll.Slug, viewer.ID)
 	s.Require().NoError(err)
 
-	ctx := ctxWithUser(viewer)
+	ctx := testhelpers.CtxWithUser(viewer)
 	req := &GetCollectionHandlerRequest{Slug: coll.Slug}
 	resp, err := s.handler.GetCollectionHandler(ctx, req)
 	s.NoError(err)
@@ -186,14 +187,14 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollection_AuthenticatedViewe
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	// Private — the test asserts a precise ItemCount=1 and the gate dance
 	// would seed 3 extra items. Visibility is incidental here.
 	coll := s.createCollectionViaService(user, "Stats Collection", false)
 
 	// Add an artist item
-	artist := createArtist(s.deps.db, "Stats Artist")
-	_, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	artist := testhelpers.CreateArtist(s.deps.DB, "Stats Artist")
+	_, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
@@ -209,7 +210,7 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
 func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_NotFound() {
 	req := &GetCollectionStatsHandlerRequest{Slug: "nonexistent"}
 	_, err := s.handler.GetCollectionStatsHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // ============================================================================
@@ -217,7 +218,7 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_NotFound() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.createCollectionViaService(user, "List A", true)
 	s.createCollectionViaService(user, "List B", true)
 	s.createCollectionViaService(user, "List C", true)
@@ -238,7 +239,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_Empty() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_DefaultLimit() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	// Create more than 0 collections so we see results
 	s.createCollectionViaService(user, "Default Limit A", true)
 
@@ -250,7 +251,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_DefaultLimit() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_WithLimit() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.createCollectionViaService(user, "Limited A", true)
 	s.createCollectionViaService(user, "Limited B", true)
 	s.createCollectionViaService(user, "Limited C", true)
@@ -264,7 +265,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_WithLimit() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_OnlyPublic() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.createCollectionViaService(user, "Public One", true)
 	s.createCollectionViaService(user, "Private One", false)
 
@@ -281,7 +282,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_OnlyPublic() {
 // PSY-352: sort=popular orders by HN gravity at the service layer; the
 // handler's job is just to forward the value and reject unknowns.
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_PopularSort_Accepted() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.createCollectionViaService(user, "Popular Sort A", true)
 
 	req := &ListCollectionsHandlerRequest{Sort: "popular"}
@@ -292,16 +293,16 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_PopularSort_Acce
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_UnknownSort_Rejected() {
 	req := &ListCollectionsHandlerRequest{Sort: "bogus"}
 	_, err := s.handler.ListCollectionsHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Featured Coll", true)
 	s.createCollectionViaService(user, "Not Featured", true)
 
 	// Set one as featured
-	err := s.deps.collectionService.SetFeatured(coll.Slug, true)
+	err := s.deps.CollectionService.SetFeatured(coll.Slug, true)
 	s.Require().NoError(err)
 
 	req := &ListCollectionsHandlerRequest{Featured: 1}
@@ -317,10 +318,10 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter()
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Original Title", true)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	newTitle := "Updated Title"
 	req := &UpdateCollectionHandlerRequest{Slug: coll.Slug}
 	req.Body.Title = &newTitle
@@ -332,10 +333,10 @@ func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_Success() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_ChangeVisibility() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Visibility Test", true)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	isPublic := false
 	req := &UpdateCollectionHandlerRequest{Slug: coll.Slug}
 	req.Body.IsPublic = &isPublic
@@ -347,7 +348,7 @@ func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_ChangeVisibilit
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_NoAuth() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "No Auth Update", true)
 
 	newTitle := "Hacked"
@@ -355,29 +356,29 @@ func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_NoAuth() {
 	req.Body.Title = &newTitle
 
 	_, err := s.handler.UpdateCollectionHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_NotOwner() {
-	owner := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Not Mine", true)
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	newTitle := "Hacked"
 	req := &UpdateCollectionHandlerRequest{Slug: coll.Slug}
 	req.Body.Title = &newTitle
 
 	_, err := s.handler.UpdateCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_AdminCanUpdate() {
-	owner := createTestUser(s.deps.db)
-	admin := createAdminUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Admin Update", true)
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	newTitle := "Admin Updated"
 	req := &UpdateCollectionHandlerRequest{Slug: coll.Slug}
 	req.Body.Title = &newTitle
@@ -389,15 +390,15 @@ func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_AdminCanUpdate(
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_NotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	newTitle := "Ghost"
 	req := &UpdateCollectionHandlerRequest{Slug: "nonexistent-slug"}
 	req.Body.Title = &newTitle
 
 	_, err := s.handler.UpdateCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // ============================================================================
@@ -405,10 +406,10 @@ func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_NotFound() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestDeleteCollection_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Deletable", true)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteCollectionHandlerRequest{Slug: coll.Slug}
 	_, err := s.handler.DeleteCollectionHandler(ctx, req)
 	s.NoError(err)
@@ -416,35 +417,35 @@ func (s *CollectionHandlerIntegrationSuite) TestDeleteCollection_Success() {
 	// Verify deleted
 	getReq := &GetCollectionHandlerRequest{Slug: coll.Slug}
 	_, err = s.handler.GetCollectionHandler(context.Background(), getReq)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestDeleteCollection_NoAuth() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "NoAuth Delete", true)
 
 	req := &DeleteCollectionHandlerRequest{Slug: coll.Slug}
 	_, err := s.handler.DeleteCollectionHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestDeleteCollection_NotOwner() {
-	owner := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Not My Delete", true)
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	req := &DeleteCollectionHandlerRequest{Slug: coll.Slug}
 	_, err := s.handler.DeleteCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestDeleteCollection_AdminCanDelete() {
-	owner := createTestUser(s.deps.db)
-	admin := createAdminUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Admin Deletable", true)
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &DeleteCollectionHandlerRequest{Slug: coll.Slug}
 	_, err := s.handler.DeleteCollectionHandler(ctx, req)
 	s.NoError(err)
@@ -452,16 +453,16 @@ func (s *CollectionHandlerIntegrationSuite) TestDeleteCollection_AdminCanDelete(
 	// Verify deleted
 	getReq := &GetCollectionHandlerRequest{Slug: coll.Slug}
 	_, err = s.handler.GetCollectionHandler(context.Background(), getReq)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestDeleteCollection_NotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &DeleteCollectionHandlerRequest{Slug: "nonexistent-slug"}
 	_, err := s.handler.DeleteCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // ============================================================================
@@ -469,11 +470,11 @@ func (s *CollectionHandlerIntegrationSuite) TestDeleteCollection_NotFound() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Add Item Coll", true)
-	artist := createArtist(s.deps.db, "Item Artist")
+	artist := testhelpers.CreateArtist(s.deps.DB, "Item Artist")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &AddItemHandlerRequest{Slug: coll.Slug}
 	req.Body.EntityType = "artist"
 	req.Body.EntityID = artist.ID
@@ -486,11 +487,11 @@ func (s *CollectionHandlerIntegrationSuite) TestAddItem_Success() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_WithNotes() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Notes Coll", true)
-	artist := createArtist(s.deps.db, "Notes Artist")
+	artist := testhelpers.CreateArtist(s.deps.DB, "Notes Artist")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	notes := "Great live performances"
 	req := &AddItemHandlerRequest{Slug: coll.Slug}
 	req.Body.EntityType = "artist"
@@ -505,11 +506,11 @@ func (s *CollectionHandlerIntegrationSuite) TestAddItem_WithNotes() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_VenueEntity() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Venue Coll", true)
-	venue := createVerifiedVenue(s.deps.db, "Item Venue", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Item Venue", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &AddItemHandlerRequest{Slug: coll.Slug}
 	req.Body.EntityType = "venue"
 	req.Body.EntityID = venue.ID
@@ -522,7 +523,7 @@ func (s *CollectionHandlerIntegrationSuite) TestAddItem_VenueEntity() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_NoAuth() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "NoAuth Item", true)
 
 	req := &AddItemHandlerRequest{Slug: coll.Slug}
@@ -530,68 +531,68 @@ func (s *CollectionHandlerIntegrationSuite) TestAddItem_NoAuth() {
 	req.Body.EntityID = 1
 
 	_, err := s.handler.AddItemHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_MissingEntityType() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Missing Type", true)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &AddItemHandlerRequest{Slug: coll.Slug}
 	req.Body.EntityType = ""
 	req.Body.EntityID = 1
 
 	_, err := s.handler.AddItemHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_MissingEntityID() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Missing ID", true)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &AddItemHandlerRequest{Slug: coll.Slug}
 	req.Body.EntityType = "artist"
 	req.Body.EntityID = 0
 
 	_, err := s.handler.AddItemHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_NotOwner() {
-	owner := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Not My Add", true)
-	artist := createArtist(s.deps.db, "Blocked Artist")
+	artist := testhelpers.CreateArtist(s.deps.DB, "Blocked Artist")
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	req := &AddItemHandlerRequest{Slug: coll.Slug}
 	req.Body.EntityType = "artist"
 	req.Body.EntityID = artist.ID
 
 	_, err := s.handler.AddItemHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_CollectionNotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &AddItemHandlerRequest{Slug: "nonexistent"}
 	req.Body.EntityType = "artist"
 	req.Body.EntityID = 1
 
 	_, err := s.handler.AddItemHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_DuplicateItem() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Dup Item", true)
-	artist := createArtist(s.deps.db, "Dup Artist")
+	artist := testhelpers.CreateArtist(s.deps.DB, "Dup Artist")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Add the item first
 	req := &AddItemHandlerRequest{Slug: coll.Slug}
@@ -605,7 +606,7 @@ func (s *CollectionHandlerIntegrationSuite) TestAddItem_DuplicateItem() {
 	req2.Body.EntityType = "artist"
 	req2.Body.EntityID = artist.ID
 	_, err = s.handler.AddItemHandler(ctx, req2)
-	assertHumaError(s.T(), err, 409)
+	testhelpers.AssertHumaError(s.T(), err, 409)
 }
 
 // ============================================================================
@@ -613,18 +614,18 @@ func (s *CollectionHandlerIntegrationSuite) TestAddItem_DuplicateItem() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Remove Item", true)
-	artist := createArtist(s.deps.db, "Removable Artist")
+	artist := testhelpers.CreateArtist(s.deps.DB, "Removable Artist")
 
 	// Add item via service
-	item, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
 	s.Require().NoError(err)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &RemoveItemHandlerRequest{
 		Slug:   coll.Slug,
 		ItemID: fmt.Sprintf("%d", item.ID),
@@ -636,46 +637,46 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_Success() {
 func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_NoAuth() {
 	req := &RemoveItemHandlerRequest{Slug: "some-slug", ItemID: "1"}
 	_, err := s.handler.RemoveItemHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_InvalidItemID() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &RemoveItemHandlerRequest{Slug: "some-slug", ItemID: "not-a-number"}
 	_, err := s.handler.RemoveItemHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_NotOwner() {
-	owner := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Not My Remove", true)
-	artist := createArtist(s.deps.db, "Not My Artist")
+	artist := testhelpers.CreateArtist(s.deps.DB, "Not My Artist")
 
-	item, err := s.deps.collectionService.AddItem(coll.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	item, err := s.deps.CollectionService.AddItem(coll.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist.ID,
 	})
 	s.Require().NoError(err)
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	req := &RemoveItemHandlerRequest{
 		Slug:   coll.Slug,
 		ItemID: fmt.Sprintf("%d", item.ID),
 	}
 	_, err = s.handler.RemoveItemHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_CollectionNotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &RemoveItemHandlerRequest{Slug: "nonexistent", ItemID: "1"}
 	_, err := s.handler.RemoveItemHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // ============================================================================
@@ -683,24 +684,24 @@ func (s *CollectionHandlerIntegrationSuite) TestRemoveItem_CollectionNotFound() 
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestReorderItems_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Reorder Coll", true)
-	artist1 := createArtist(s.deps.db, "Reorder Artist 1")
-	artist2 := createArtist(s.deps.db, "Reorder Artist 2")
+	artist1 := testhelpers.CreateArtist(s.deps.DB, "Reorder Artist 1")
+	artist2 := testhelpers.CreateArtist(s.deps.DB, "Reorder Artist 2")
 
-	item1, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item1, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist1.ID,
 	})
 	s.Require().NoError(err)
 
-	item2, err := s.deps.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+	item2, err := s.deps.CollectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist",
 		EntityID:   artist2.ID,
 	})
 	s.Require().NoError(err)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &ReorderItemsHandlerRequest{Slug: coll.Slug}
 	req.Body.Items = []contracts.ReorderItem{
 		{ItemID: item1.ID, Position: 2},
@@ -714,22 +715,22 @@ func (s *CollectionHandlerIntegrationSuite) TestReorderItems_Success() {
 func (s *CollectionHandlerIntegrationSuite) TestReorderItems_NoAuth() {
 	req := &ReorderItemsHandlerRequest{Slug: "some-slug"}
 	_, err := s.handler.ReorderItemsHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestReorderItems_NotOwner() {
-	owner := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Not My Reorder", true)
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	req := &ReorderItemsHandlerRequest{Slug: coll.Slug}
 	req.Body.Items = []contracts.ReorderItem{
 		{ItemID: 1, Position: 1},
 	}
 
 	_, err := s.handler.ReorderItemsHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // ============================================================================
@@ -737,11 +738,11 @@ func (s *CollectionHandlerIntegrationSuite) TestReorderItems_NotOwner() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestSubscribe_Success() {
-	owner := createTestUser(s.deps.db)
-	subscriber := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	subscriber := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Subscribable", true)
 
-	ctx := ctxWithUser(subscriber)
+	ctx := testhelpers.CtxWithUser(subscriber)
 	req := &SubscribeHandlerRequest{Slug: coll.Slug}
 	_, err := s.handler.SubscribeHandler(ctx, req)
 	s.NoError(err)
@@ -756,16 +757,16 @@ func (s *CollectionHandlerIntegrationSuite) TestSubscribe_Success() {
 func (s *CollectionHandlerIntegrationSuite) TestSubscribe_NoAuth() {
 	req := &SubscribeHandlerRequest{Slug: "some-slug"}
 	_, err := s.handler.SubscribeHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestSubscribe_CollectionNotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &SubscribeHandlerRequest{Slug: "nonexistent"}
 	_, err := s.handler.SubscribeHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // ============================================================================
@@ -773,15 +774,15 @@ func (s *CollectionHandlerIntegrationSuite) TestSubscribe_CollectionNotFound() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_Success() {
-	owner := createTestUser(s.deps.db)
-	subscriber := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	subscriber := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(owner, "Unsubscribable", true)
 
 	// Subscribe first
-	err := s.deps.collectionService.Subscribe(coll.Slug, subscriber.ID)
+	err := s.deps.CollectionService.Subscribe(coll.Slug, subscriber.ID)
 	s.Require().NoError(err)
 
-	ctx := ctxWithUser(subscriber)
+	ctx := testhelpers.CtxWithUser(subscriber)
 	req := &UnsubscribeHandlerRequest{Slug: coll.Slug}
 	_, err = s.handler.UnsubscribeHandler(ctx, req)
 	s.NoError(err)
@@ -796,16 +797,16 @@ func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_Success() {
 func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_NoAuth() {
 	req := &UnsubscribeHandlerRequest{Slug: "some-slug"}
 	_, err := s.handler.UnsubscribeHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_CollectionNotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UnsubscribeHandlerRequest{Slug: "nonexistent"}
 	_, err := s.handler.UnsubscribeHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // ============================================================================
@@ -813,11 +814,11 @@ func (s *CollectionHandlerIntegrationSuite) TestUnsubscribe_CollectionNotFound()
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_AdminSuccess() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Featureable", true)
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &SetFeaturedHandlerRequest{Slug: coll.Slug}
 	req.Body.Featured = true
 
@@ -832,15 +833,15 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_AdminSuccess() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_Unfeature() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Unfeature Me", true)
 
 	// Feature first
-	err := s.deps.collectionService.SetFeatured(coll.Slug, true)
+	err := s.deps.CollectionService.SetFeatured(coll.Slug, true)
 	s.Require().NoError(err)
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &SetFeaturedHandlerRequest{Slug: coll.Slug}
 	req.Body.Featured = false
 
@@ -855,15 +856,15 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_Unfeature() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	coll := s.createCollectionViaService(user, "Not Your Feature", true)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &SetFeaturedHandlerRequest{Slug: coll.Slug}
 	req.Body.Featured = true
 
 	_, err := s.handler.SetFeaturedHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NoAuth() {
@@ -871,18 +872,18 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NoAuth() {
 	req.Body.Featured = true
 
 	_, err := s.handler.SetFeaturedHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &SetFeaturedHandlerRequest{Slug: "nonexistent"}
 	req.Body.Featured = true
 
 	_, err := s.handler.SetFeaturedHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // ============================================================================
@@ -890,11 +891,11 @@ func (s *CollectionHandlerIntegrationSuite) TestSetFeatured_NotFound() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_Success() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.createCollectionViaService(user, "My Coll A", true)
 	s.createCollectionViaService(user, "My Coll B", false)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &GetUserCollectionsHandlerRequest{}
 	resp, err := s.handler.GetUserCollectionsHandler(ctx, req)
 	s.NoError(err)
@@ -903,8 +904,8 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_Success() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_Empty() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &GetUserCollectionsHandlerRequest{}
 	resp, err := s.handler.GetUserCollectionsHandler(ctx, req)
@@ -916,16 +917,16 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_Empty() {
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_NoAuth() {
 	req := &GetUserCollectionsHandlerRequest{}
 	_, err := s.handler.GetUserCollectionsHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_DoesNotIncludeOtherUsers() {
-	user1 := createTestUser(s.deps.db)
-	user2 := createTestUser(s.deps.db)
+	user1 := testhelpers.CreateTestUser(s.deps.DB)
+	user2 := testhelpers.CreateTestUser(s.deps.DB)
 	s.createCollectionViaService(user1, "User1 Coll", true)
 	s.createCollectionViaService(user2, "User2 Coll", true)
 
-	ctx := ctxWithUser(user1)
+	ctx := testhelpers.CtxWithUser(user1)
 	req := &GetUserCollectionsHandlerRequest{}
 	resp, err := s.handler.GetUserCollectionsHandler(ctx, req)
 	s.NoError(err)
@@ -935,12 +936,12 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_DoesNotInclud
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_WithLimit() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.createCollectionViaService(user, "Limit A", true)
 	s.createCollectionViaService(user, "Limit B", true)
 	s.createCollectionViaService(user, "Limit C", true)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &GetUserCollectionsHandlerRequest{Limit: 2}
 	resp, err := s.handler.GetUserCollectionsHandler(ctx, req)
 	s.NoError(err)
@@ -963,30 +964,30 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_WithLimit() {
 // test-added items are at positions 3..5. The assertions index relative to
 // the start of the test-added range.
 func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_CopiesItemsNotesAndPositions() {
-	owner := createTestUser(s.deps.db)
-	cloner := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	cloner := testhelpers.CreateTestUser(s.deps.DB)
 	src := s.createCollectionViaService(owner, "Source Collection", true)
 
 	// Add three items with notes; reorder to confirm position is preserved.
-	a1 := createArtist(s.deps.db, "Artist One")
-	a2 := createArtist(s.deps.db, "Artist Two")
-	a3 := createArtist(s.deps.db, "Artist Three")
+	a1 := testhelpers.CreateArtist(s.deps.DB, "Artist One")
+	a2 := testhelpers.CreateArtist(s.deps.DB, "Artist Two")
+	a3 := testhelpers.CreateArtist(s.deps.DB, "Artist Three")
 	notes1 := "first note"
 	notes3 := "third note"
-	_, err := s.deps.collectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, err := s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a1.ID, Notes: &notes1,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.collectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a2.ID,
 	})
 	s.Require().NoError(err)
-	_, err = s.deps.collectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+	_, err = s.deps.CollectionService.AddItem(src.Slug, owner.ID, &contracts.AddCollectionItemRequest{
 		EntityType: "artist", EntityID: a3.ID, Notes: &notes3,
 	})
 	s.Require().NoError(err)
 
-	ctx := ctxWithUser(cloner)
+	ctx := testhelpers.CtxWithUser(cloner)
 	req := &CloneCollectionHandlerRequest{Slug: src.Slug}
 	resp, err := s.handler.CloneCollectionHandler(ctx, req)
 	s.Require().NoError(err)
@@ -1027,44 +1028,44 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_CopiesItemsNotes
 // TestCloneCollection_NoAuth covers the authn boundary — the endpoint
 // must reject anonymous callers.
 func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_NoAuth() {
-	owner := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
 	src := s.createCollectionViaService(owner, "No Auth Clone", true)
 
 	req := &CloneCollectionHandlerRequest{Slug: src.Slug}
 	_, err := s.handler.CloneCollectionHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // TestCloneCollection_PrivateSourceForbidden ensures the visibility check
 // matches GetBySlug — non-owners cannot clone a private collection.
 func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_PrivateSourceForbidden() {
-	owner := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
 	private := s.createCollectionViaService(owner, "Private Source", false)
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	req := &CloneCollectionHandlerRequest{Slug: private.Slug}
 	_, err := s.handler.CloneCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // TestCloneCollection_SourceNotFound ensures unknown slugs return 404.
 func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_SourceNotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &CloneCollectionHandlerRequest{Slug: "nope-not-real"}
 	_, err := s.handler.CloneCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // TestCloneCollection_OwnerCanCloneOwnPrivate ensures the visibility check
 // allows owners to clone their own private collections (matching GetBySlug
 // — public OR owner). UI can still hide the button per the ticket.
 func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OwnerCanCloneOwnPrivate() {
-	owner := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
 	src := s.createCollectionViaService(owner, "Mine Private", false)
 
-	ctx := ctxWithUser(owner)
+	ctx := testhelpers.CtxWithUser(owner)
 	req := &CloneCollectionHandlerRequest{Slug: src.Slug}
 	resp, err := s.handler.CloneCollectionHandler(ctx, req)
 	s.Require().NoError(err)
@@ -1079,19 +1080,19 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OwnerCanCloneOwn
 // FK reset and ForkedFrom = nil so the frontend renders fallback copy.
 // This is the explicit user requirement for the FK semantics.
 func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_DeletingOriginalSetsForkedFromNull() {
-	owner := createTestUser(s.deps.db)
-	cloner := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	cloner := testhelpers.CreateTestUser(s.deps.DB)
 	src := s.createCollectionViaService(owner, "Doomed Source", true)
 
 	// Clone first.
-	ctx := ctxWithUser(cloner)
+	ctx := testhelpers.CtxWithUser(cloner)
 	cloneReq := &CloneCollectionHandlerRequest{Slug: src.Slug}
 	cloneResp, err := s.handler.CloneCollectionHandler(ctx, cloneReq)
 	s.Require().NoError(err)
 	cloneSlug := cloneResp.Body.Slug
 
 	// Delete the source.
-	delErr := s.deps.collectionService.DeleteCollection(src.Slug, owner.ID, false)
+	delErr := s.deps.CollectionService.DeleteCollection(src.Slug, owner.ID, false)
 	s.Require().NoError(delErr)
 
 	// Clone still exists; ForkedFromCollectionID must be NULL post-cascade.
@@ -1109,14 +1110,14 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_DeletingOriginal
 // count on the original collection. After two clones, the source's
 // `forks_count` should be 2.
 func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OriginalShowsForksCount() {
-	owner := createTestUser(s.deps.db)
-	cloner1 := createTestUser(s.deps.db)
-	cloner2 := createTestUser(s.deps.db)
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	cloner1 := testhelpers.CreateTestUser(s.deps.DB)
+	cloner2 := testhelpers.CreateTestUser(s.deps.DB)
 	src := s.createCollectionViaService(owner, "Forky Source", true)
 
 	// Two clones from different users.
 	for _, c := range []*models.User{cloner1, cloner2} {
-		ctx := ctxWithUser(c)
+		ctx := testhelpers.CtxWithUser(c)
 		req := &CloneCollectionHandlerRequest{Slug: src.Slug}
 		_, err := s.handler.CloneCollectionHandler(ctx, req)
 		s.Require().NoError(err)
@@ -1135,28 +1136,28 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OriginalShowsFor
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_PublicAtCreateRejectedAs400() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateCollectionHandlerRequest{}
 	req.Body.Title = "Public At Create"
 	req.Body.IsPublic = true
 
 	_, err := s.handler.CreateCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_FlipPublicBelowGateRejectedAs400() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	priv := s.createCollectionViaService(user, "Flip Below Gate", false)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	pub := true
 	req := &UpdateCollectionHandlerRequest{Slug: priv.Slug}
 	req.Body.IsPublic = &pub
 
 	_, err := s.handler.UpdateCollectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 // ============================================================================

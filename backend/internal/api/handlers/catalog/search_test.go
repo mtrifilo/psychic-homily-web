@@ -1,10 +1,11 @@
-package handlers
+package catalog
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -14,8 +15,8 @@ import (
 
 func TestSearchReleases_Success(t *testing.T) {
 	year := 1991
-	mock := &mockReleaseService{
-		searchReleasesFn: func(query string) ([]*contracts.ReleaseListResponse, error) {
+	mock := &testhelpers.MockReleaseService{
+		SearchReleasesFn: func(query string) ([]*contracts.ReleaseListResponse, error) {
 			if query != "nevermind" {
 				t.Errorf("expected query='nevermind', got %q", query)
 			}
@@ -39,8 +40,8 @@ func TestSearchReleases_Success(t *testing.T) {
 }
 
 func TestSearchReleases_EmptyQuery(t *testing.T) {
-	mock := &mockReleaseService{
-		searchReleasesFn: func(query string) ([]*contracts.ReleaseListResponse, error) {
+	mock := &testhelpers.MockReleaseService{
+		SearchReleasesFn: func(query string) ([]*contracts.ReleaseListResponse, error) {
 			return []*contracts.ReleaseListResponse{}, nil
 		},
 	}
@@ -56,8 +57,8 @@ func TestSearchReleases_EmptyQuery(t *testing.T) {
 }
 
 func TestSearchReleases_ServiceError(t *testing.T) {
-	mock := &mockReleaseService{
-		searchReleasesFn: func(_ string) ([]*contracts.ReleaseListResponse, error) {
+	mock := &testhelpers.MockReleaseService{
+		SearchReleasesFn: func(_ string) ([]*contracts.ReleaseListResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -74,8 +75,8 @@ func TestSearchReleases_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestSearchLabels_Success(t *testing.T) {
-	mock := &mockLabelService{
-		searchLabelsFn: func(query string) ([]*contracts.LabelListResponse, error) {
+	mock := &testhelpers.MockLabelService{
+		SearchLabelsFn: func(query string) ([]*contracts.LabelListResponse, error) {
 			if query != "sub pop" {
 				t.Errorf("expected query='sub pop', got %q", query)
 			}
@@ -99,8 +100,8 @@ func TestSearchLabels_Success(t *testing.T) {
 }
 
 func TestSearchLabels_EmptyQuery(t *testing.T) {
-	mock := &mockLabelService{
-		searchLabelsFn: func(query string) ([]*contracts.LabelListResponse, error) {
+	mock := &testhelpers.MockLabelService{
+		SearchLabelsFn: func(query string) ([]*contracts.LabelListResponse, error) {
 			return []*contracts.LabelListResponse{}, nil
 		},
 	}
@@ -116,8 +117,8 @@ func TestSearchLabels_EmptyQuery(t *testing.T) {
 }
 
 func TestSearchLabels_ServiceError(t *testing.T) {
-	mock := &mockLabelService{
-		searchLabelsFn: func(_ string) ([]*contracts.LabelListResponse, error) {
+	mock := &testhelpers.MockLabelService{
+		SearchLabelsFn: func(_ string) ([]*contracts.LabelListResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -134,8 +135,8 @@ func TestSearchLabels_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestSearchFestivals_Success(t *testing.T) {
-	mock := &mockFestivalService{
-		searchFestivalsFn: func(query string) ([]*contracts.FestivalListResponse, error) {
+	mock := &testhelpers.MockFestivalService{
+		SearchFestivalsFn: func(query string) ([]*contracts.FestivalListResponse, error) {
 			if query != "m3f" {
 				t.Errorf("expected query='m3f', got %q", query)
 			}
@@ -159,8 +160,8 @@ func TestSearchFestivals_Success(t *testing.T) {
 }
 
 func TestSearchFestivals_EmptyQuery(t *testing.T) {
-	mock := &mockFestivalService{
-		searchFestivalsFn: func(query string) ([]*contracts.FestivalListResponse, error) {
+	mock := &testhelpers.MockFestivalService{
+		SearchFestivalsFn: func(query string) ([]*contracts.FestivalListResponse, error) {
 			return []*contracts.FestivalListResponse{}, nil
 		},
 	}
@@ -176,8 +177,8 @@ func TestSearchFestivals_EmptyQuery(t *testing.T) {
 }
 
 func TestSearchFestivals_ServiceError(t *testing.T) {
-	mock := &mockFestivalService{
-		searchFestivalsFn: func(_ string) ([]*contracts.FestivalListResponse, error) {
+	mock := &testhelpers.MockFestivalService{
+		SearchFestivalsFn: func(_ string) ([]*contracts.FestivalListResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -197,14 +198,14 @@ func TestSearchFestivals_ServiceError(t *testing.T) {
 // service wired — every other dependency is nil because the search handler
 // only touches showService. Mirrors the minimal setup used in
 // TestSearchReleases_* etc.
-func newShowHandlerWithSearchMock(mock *mockShowService) *ShowHandler {
+func newShowHandlerWithSearchMock(mock *testhelpers.MockShowService) *ShowHandler {
 	return NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 }
 
 func TestSearchShows_Success(t *testing.T) {
 	called := false
-	mock := &mockShowService{
-		searchShowsFn: func(query string) ([]*contracts.ShowSearchResult, error) {
+	mock := &testhelpers.MockShowService{
+		SearchShowsFn: func(query string) ([]*contracts.ShowSearchResult, error) {
 			called = true
 			if query != "valley" {
 				t.Errorf("expected query='valley', got %q", query)
@@ -234,8 +235,8 @@ func TestSearchShows_Success(t *testing.T) {
 func TestSearchShows_EmptyQuery(t *testing.T) {
 	// Empty query must short-circuit at the handler — service should not
 	// be invoked at all (avoids unnecessary DB round-trip).
-	mock := &mockShowService{
-		searchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
+	mock := &testhelpers.MockShowService{
+		SearchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
 			t.Error("service should not be called on empty query")
 			return nil, nil
 		},
@@ -259,8 +260,8 @@ func TestSearchShows_EmptyQuery(t *testing.T) {
 func TestSearchShows_WhitespaceQuery(t *testing.T) {
 	// Whitespace-only queries must short-circuit identically to empty
 	// queries: no DB call, [] result.
-	mock := &mockShowService{
-		searchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
+	mock := &testhelpers.MockShowService{
+		SearchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
 			t.Error("service should not be called on whitespace-only query")
 			return nil, nil
 		},
@@ -277,8 +278,8 @@ func TestSearchShows_WhitespaceQuery(t *testing.T) {
 }
 
 func TestSearchShows_ServiceError(t *testing.T) {
-	mock := &mockShowService{
-		searchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
+	mock := &testhelpers.MockShowService{
+		SearchShowsFn: func(_ string) ([]*contracts.ShowSearchResult, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}

@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -39,7 +40,7 @@ type SearchVenuesRequest struct {
 type SearchVenuesResponse struct {
 	Body struct {
 		Venues []*contracts.VenueDetailResponse `json:"venues" doc:"Matching venues"`
-		Count  int                             `json:"count" doc:"Number of results"`
+		Count  int                              `json:"count" doc:"Number of results"`
 	}
 }
 
@@ -71,9 +72,9 @@ type ListVenuesRequest struct {
 type ListVenuesResponse struct {
 	Body struct {
 		Venues []*contracts.VenueWithShowCountResponse `json:"venues" doc:"List of venues with show counts"`
-		Total  int64                                  `json:"total" doc:"Total number of venues"`
-		Limit  int                                    `json:"limit" doc:"Limit used in query"`
-		Offset int                                    `json:"offset" doc:"Offset used in query"`
+		Total  int64                                   `json:"total" doc:"Total number of venues"`
+		Limit  int                                     `json:"limit" doc:"Limit used in query"`
+		Offset int                                     `json:"offset" doc:"Offset used in query"`
 	}
 }
 
@@ -173,8 +174,8 @@ type GetVenueShowsRequest struct {
 type GetVenueShowsResponse struct {
 	Body struct {
 		Shows   []*contracts.VenueShowResponse `json:"shows" doc:"List of upcoming shows"`
-		VenueID uint                          `json:"venue_id" doc:"Venue ID"`
-		Total   int64                         `json:"total" doc:"Total number of upcoming shows"`
+		VenueID uint                           `json:"venue_id" doc:"Venue ID"`
+		Total   int64                          `json:"total" doc:"Total number of upcoming shows"`
 	}
 }
 
@@ -285,7 +286,7 @@ type AdminCreateVenueResponse struct {
 func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCreateVenueRequest) (*AdminCreateVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -351,19 +352,19 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 type UpdateVenueRequest struct {
 	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
 	Body    struct {
-		Name       *string `json:"name,omitempty" required:"false" doc:"Venue name"`
-		Address    *string `json:"address,omitempty" required:"false" doc:"Venue address"`
-		City       *string `json:"city,omitempty" required:"false" doc:"Venue city"`
-		State      *string `json:"state,omitempty" required:"false" doc:"Venue state"`
-		Country    *string `json:"country,omitempty" required:"false" doc:"Venue country"`
-		Zipcode    *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
-		Instagram  *string `json:"instagram,omitempty" required:"false" doc:"Instagram handle or URL"`
-		Facebook   *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
-		Twitter    *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
-		YouTube    *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
-		Spotify    *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
-		SoundCloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
-		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
+		Name        *string `json:"name,omitempty" required:"false" doc:"Venue name"`
+		Address     *string `json:"address,omitempty" required:"false" doc:"Venue address"`
+		City        *string `json:"city,omitempty" required:"false" doc:"Venue city"`
+		State       *string `json:"state,omitempty" required:"false" doc:"Venue state"`
+		Country     *string `json:"country,omitempty" required:"false" doc:"Venue country"`
+		Zipcode     *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
+		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram handle or URL"`
+		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
+		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
+		YouTube     *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
+		Spotify     *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
+		SoundCloud  *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
+		Bandcamp    *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
 		Website     *string `json:"website,omitempty" required:"false" doc:"Website URL"`
 		Description *string `json:"description,omitempty" required:"false" doc:"Markdown description (max 5000 chars)"`
 		Summary     *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
@@ -381,7 +382,7 @@ type UpdateVenueResponse struct {
 func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueRequest) (*UpdateVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -50,9 +50,9 @@ type GetContributionHistoryRequest struct {
 type GetContributionHistoryResponse struct {
 	Body struct {
 		Contributions []*contracts.ContributionEntry `json:"contributions"`
-		Total         int64                         `json:"total"`
-		Limit         int                           `json:"limit"`
-		Offset        int                           `json:"offset"`
+		Total         int64                          `json:"total"`
+		Limit         int                            `json:"limit"`
+		Offset        int                            `json:"offset"`
 	}
 }
 
@@ -69,9 +69,9 @@ type GetOwnContributionsRequest struct {
 type GetOwnContributionsResponse struct {
 	Body struct {
 		Contributions []*contracts.ContributionEntry `json:"contributions"`
-		Total         int64                         `json:"total"`
-		Limit         int                           `json:"limit"`
-		Offset        int                           `json:"offset"`
+		Total         int64                          `json:"total"`
+		Limit         int                            `json:"limit"`
+		Offset        int                            `json:"offset"`
 	}
 }
 
@@ -94,7 +94,7 @@ type UpdatePrivacySettingsRequest struct {
 
 type UpdatePrivacySettingsResponse struct {
 	Body struct {
-		Success  bool                     `json:"success"`
+		Success  bool                      `json:"success"`
 		Settings contracts.PrivacySettings `json:"privacy_settings"`
 	}
 }
@@ -128,7 +128,7 @@ type CreateSectionResponse struct {
 }
 
 type UpdateSectionRequest struct {
-	SectionID string  `path:"section_id" doc:"Section ID to update"`
+	SectionID string `path:"section_id" doc:"Section ID to update"`
 	Body      struct {
 		Title     *string `json:"title,omitempty" required:"false" doc:"Section title"`
 		Content   *string `json:"content,omitempty" required:"false" doc:"Section content (markdown)"`
@@ -252,9 +252,9 @@ func (h *ContributorProfileHandler) GetContributionHistoryHandler(ctx context.Co
 			return &GetContributionHistoryResponse{
 				Body: struct {
 					Contributions []*contracts.ContributionEntry `json:"contributions"`
-					Total         int64                         `json:"total"`
-					Limit         int                           `json:"limit"`
-					Offset        int                           `json:"offset"`
+					Total         int64                          `json:"total"`
+					Limit         int                            `json:"limit"`
+					Offset        int                            `json:"offset"`
 				}{
 					Contributions: []*contracts.ContributionEntry{},
 					Total:         stats.TotalContributions,
@@ -280,9 +280,9 @@ func (h *ContributorProfileHandler) GetContributionHistoryHandler(ctx context.Co
 	return &GetContributionHistoryResponse{
 		Body: struct {
 			Contributions []*contracts.ContributionEntry `json:"contributions"`
-			Total         int64                         `json:"total"`
-			Limit         int                           `json:"limit"`
-			Offset        int                           `json:"offset"`
+			Total         int64                          `json:"total"`
+			Limit         int                            `json:"limit"`
+			Offset        int                            `json:"offset"`
 		}{
 			Contributions: contributions,
 			Total:         total,
@@ -344,9 +344,9 @@ func (h *ContributorProfileHandler) GetOwnContributionsHandler(ctx context.Conte
 	return &GetOwnContributionsResponse{
 		Body: struct {
 			Contributions []*contracts.ContributionEntry `json:"contributions"`
-			Total         int64                         `json:"total"`
-			Limit         int                           `json:"limit"`
-			Offset        int                           `json:"offset"`
+			Total         int64                          `json:"total"`
+			Limit         int                            `json:"limit"`
+			Offset        int                            `json:"offset"`
 		}{
 			Contributions: contributions,
 			Total:         total,
@@ -424,7 +424,7 @@ func (h *ContributorProfileHandler) UpdatePrivacySettingsHandler(ctx context.Con
 
 	return &UpdatePrivacySettingsResponse{
 		Body: struct {
-			Success  bool                     `json:"success"`
+			Success  bool                      `json:"success"`
 			Settings contracts.PrivacySettings `json:"privacy_settings"`
 		}{
 			Success:  true,

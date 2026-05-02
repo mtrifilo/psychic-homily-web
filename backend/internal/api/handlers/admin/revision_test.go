@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -19,11 +20,11 @@ func testRevisionHandler() *RevisionHandler {
 }
 
 func revisionAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 }
 
 func revisionNonAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 2, IsAdmin: false})
+	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false})
 }
 
 func makeTestRevision(id uint) models.Revision {
@@ -59,11 +60,11 @@ func TestRevisionHandler_Rollback_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.RollbackRevisionHandler(context.Background(), &RollbackRevisionRequest{RevisionID: "1"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.RollbackRevisionHandler(revisionNonAdminCtx(), &RollbackRevisionRequest{RevisionID: "1"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -74,8 +75,8 @@ func TestRevisionHandler_Rollback_RequiresAdmin(t *testing.T) {
 func TestRevisionHandler_GetEntityHistory_Success(t *testing.T) {
 	rev := makeTestRevision(1)
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
+		&testhelpers.MockRevisionService{
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
 				if entityType != "artist" || entityID != 10 {
 					t.Errorf("unexpected params: type=%s, id=%d", entityType, entityID)
 				}
@@ -121,29 +122,29 @@ func TestRevisionHandler_GetEntityHistory_Success(t *testing.T) {
 }
 
 func TestRevisionHandler_GetEntityHistory_InvalidEntityType(t *testing.T) {
-	h := NewRevisionHandler(&mockRevisionService{}, nil)
+	h := NewRevisionHandler(&testhelpers.MockRevisionService{}, nil)
 
 	_, err := h.GetEntityHistoryHandler(context.Background(), &GetEntityHistoryRequest{
 		EntityType: "invalid",
 		EntityID:   "1",
 	})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRevisionHandler_GetEntityHistory_InvalidEntityID(t *testing.T) {
-	h := NewRevisionHandler(&mockRevisionService{}, nil)
+	h := NewRevisionHandler(&testhelpers.MockRevisionService{}, nil)
 
 	_, err := h.GetEntityHistoryHandler(context.Background(), &GetEntityHistoryRequest{
 		EntityType: "artist",
 		EntityID:   "not-a-number",
 	})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRevisionHandler_GetEntityHistory_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
+		&testhelpers.MockRevisionService{
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
@@ -154,14 +155,14 @@ func TestRevisionHandler_GetEntityHistory_ServiceError(t *testing.T) {
 		EntityType: "artist",
 		EntityID:   "1",
 	})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestRevisionHandler_GetEntityHistory_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
+		&testhelpers.MockRevisionService{
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
 				receivedLimit = limit
 				return nil, 0, nil
 			},
@@ -182,7 +183,7 @@ func TestRevisionHandler_GetEntityHistory_DefaultLimit(t *testing.T) {
 }
 
 func TestRevisionHandler_GetEntityHistory_AllEntityTypes(t *testing.T) {
-	h := NewRevisionHandler(&mockRevisionService{}, nil)
+	h := NewRevisionHandler(&testhelpers.MockRevisionService{}, nil)
 
 	for _, entityType := range []string{"artist", "venue", "show", "release", "label", "festival"} {
 		t.Run(entityType, func(t *testing.T) {
@@ -207,8 +208,8 @@ func TestRevisionHandler_GetEntityHistory_AllEntityTypes(t *testing.T) {
 func TestRevisionHandler_GetRevision_Success(t *testing.T) {
 	rev := makeTestRevision(42)
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getRevisionFn: func(revisionID uint) (*models.Revision, error) {
+		&testhelpers.MockRevisionService{
+			GetRevisionFn: func(revisionID uint) (*models.Revision, error) {
 				if revisionID != 42 {
 					t.Errorf("expected revisionID=42, got %d", revisionID)
 				}
@@ -232,8 +233,8 @@ func TestRevisionHandler_GetRevision_Success(t *testing.T) {
 
 func TestRevisionHandler_GetRevision_NotFound(t *testing.T) {
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getRevisionFn: func(revisionID uint) (*models.Revision, error) {
+		&testhelpers.MockRevisionService{
+			GetRevisionFn: func(revisionID uint) (*models.Revision, error) {
 				return nil, nil // not found
 			},
 		},
@@ -241,20 +242,20 @@ func TestRevisionHandler_GetRevision_NotFound(t *testing.T) {
 	)
 
 	_, err := h.GetRevisionHandler(context.Background(), &GetRevisionRequest{RevisionID: "999"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestRevisionHandler_GetRevision_InvalidID(t *testing.T) {
-	h := NewRevisionHandler(&mockRevisionService{}, nil)
+	h := NewRevisionHandler(&testhelpers.MockRevisionService{}, nil)
 
 	_, err := h.GetRevisionHandler(context.Background(), &GetRevisionRequest{RevisionID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRevisionHandler_GetRevision_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getRevisionFn: func(revisionID uint) (*models.Revision, error) {
+		&testhelpers.MockRevisionService{
+			GetRevisionFn: func(revisionID uint) (*models.Revision, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
@@ -262,7 +263,7 @@ func TestRevisionHandler_GetRevision_ServiceError(t *testing.T) {
 	)
 
 	_, err := h.GetRevisionHandler(context.Background(), &GetRevisionRequest{RevisionID: "1"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -272,8 +273,8 @@ func TestRevisionHandler_GetRevision_ServiceError(t *testing.T) {
 func TestRevisionHandler_GetUserRevisions_Success(t *testing.T) {
 	rev := makeTestRevision(1)
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
+		&testhelpers.MockRevisionService{
+			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
 				if userID != 5 {
 					t.Errorf("expected userID=5, got %d", userID)
 				}
@@ -296,16 +297,16 @@ func TestRevisionHandler_GetUserRevisions_Success(t *testing.T) {
 }
 
 func TestRevisionHandler_GetUserRevisions_InvalidUserID(t *testing.T) {
-	h := NewRevisionHandler(&mockRevisionService{}, nil)
+	h := NewRevisionHandler(&testhelpers.MockRevisionService{}, nil)
 
 	_, err := h.GetUserRevisionsHandler(context.Background(), &GetUserRevisionsRequest{UserID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRevisionHandler_GetUserRevisions_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
+		&testhelpers.MockRevisionService{
+			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
@@ -313,14 +314,14 @@ func TestRevisionHandler_GetUserRevisions_ServiceError(t *testing.T) {
 	)
 
 	_, err := h.GetUserRevisionsHandler(context.Background(), &GetUserRevisionsRequest{UserID: "1"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestRevisionHandler_GetUserRevisions_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			getUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
+		&testhelpers.MockRevisionService{
+			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
 				receivedLimit = limit
 				return nil, 0, nil
 			},
@@ -345,14 +346,14 @@ func TestRevisionHandler_Rollback_Success(t *testing.T) {
 	var receivedRevisionID uint
 	var receivedAdminID uint
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			rollbackFn: func(revisionID uint, adminUserID uint) error {
+		&testhelpers.MockRevisionService{
+			RollbackFn: func(revisionID uint, adminUserID uint) error {
 				receivedRevisionID = revisionID
 				receivedAdminID = adminUserID
 				return nil
 			},
 		},
-		&mockAuditLogService{},
+		&testhelpers.MockAuditLogService{},
 	)
 
 	resp, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "42"})
@@ -371,16 +372,16 @@ func TestRevisionHandler_Rollback_Success(t *testing.T) {
 }
 
 func TestRevisionHandler_Rollback_InvalidID(t *testing.T) {
-	h := NewRevisionHandler(&mockRevisionService{}, nil)
+	h := NewRevisionHandler(&testhelpers.MockRevisionService{}, nil)
 
 	_, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRevisionHandler_Rollback_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
-		&mockRevisionService{
-			rollbackFn: func(revisionID uint, adminUserID uint) error {
+		&testhelpers.MockRevisionService{
+			RollbackFn: func(revisionID uint, adminUserID uint) error {
 				return fmt.Errorf("revision not found")
 			},
 		},
@@ -388,13 +389,13 @@ func TestRevisionHandler_Rollback_ServiceError(t *testing.T) {
 	)
 
 	_, err := h.RollbackRevisionHandler(revisionAdminCtx(), &RollbackRevisionRequest{RevisionID: "999"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestRevisionHandler_Rollback_NilAuditLog(t *testing.T) {
 	// Ensure rollback works even when auditLogService is nil
 	h := NewRevisionHandler(
-		&mockRevisionService{},
+		&testhelpers.MockRevisionService{},
 		nil,
 	)
 

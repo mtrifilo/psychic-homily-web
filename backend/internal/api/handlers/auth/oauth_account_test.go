@@ -1,9 +1,10 @@
-package handlers
+package auth
 
 import (
 	"context"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -18,7 +19,7 @@ func TestGetOAuthAccountsHandler_NoAuth(t *testing.T) {
 	req := &GetOAuthAccountsRequest{}
 
 	_, err := h.GetOAuthAccountsHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 // --- UnlinkOAuthAccountHandler ---
@@ -28,14 +29,14 @@ func TestUnlinkOAuthAccountHandler_NoAuth(t *testing.T) {
 	req := &UnlinkOAuthAccountRequest{Provider: "google"}
 
 	_, err := h.UnlinkOAuthAccountHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestUnlinkOAuthAccountHandler_InvalidProvider(t *testing.T) {
 	h := testOAuthAccountHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnlinkOAuthAccountRequest{Provider: "facebook"}
 
 	_, err := h.UnlinkOAuthAccountHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }

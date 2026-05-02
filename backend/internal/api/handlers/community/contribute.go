@@ -1,10 +1,11 @@
-package handlers
+package community
 
 import (
 	"context"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/admin"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -31,8 +32,8 @@ type GetOpportunitiesRequest struct{}
 // GetOpportunitiesResponse is the Huma response for GET /contribute/opportunities
 type GetOpportunitiesResponse struct {
 	Body struct {
-		Categories []DataQualityCategoryResponse `json:"categories"`
-		TotalItems int                           `json:"total_items"`
+		Categories []admin.DataQualityCategoryResponse `json:"categories"`
+		TotalItems int                                 `json:"total_items"`
 	}
 }
 
@@ -48,9 +49,9 @@ func (h *ContributeHandler) GetOpportunitiesHandler(ctx context.Context, _ *GetO
 
 	resp := &GetOpportunitiesResponse{}
 	resp.Body.TotalItems = summary.TotalItems
-	categories := make([]DataQualityCategoryResponse, 0, len(summary.Categories))
+	categories := make([]admin.DataQualityCategoryResponse, 0, len(summary.Categories))
 	for _, c := range summary.Categories {
-		categories = append(categories, DataQualityCategoryResponse{
+		categories = append(categories, admin.DataQualityCategoryResponse{
 			Key:         c.Key,
 			Label:       c.Label,
 			EntityType:  c.EntityType,
@@ -74,8 +75,8 @@ type GetOpportunityCategoryRequest struct {
 // GetOpportunityCategoryResponse is the Huma response for GET /contribute/opportunities/{category}
 type GetOpportunityCategoryResponse struct {
 	Body struct {
-		Items []DataQualityItemResponse `json:"items"`
-		Total int64                     `json:"total"`
+		Items []admin.DataQualityItemResponse `json:"items"`
+		Total int64                           `json:"total"`
 	}
 }
 
@@ -101,9 +102,9 @@ func (h *ContributeHandler) GetOpportunityCategoryHandler(ctx context.Context, r
 
 	resp := &GetOpportunityCategoryResponse{}
 	resp.Body.Total = total
-	respItems := make([]DataQualityItemResponse, 0, len(items))
+	respItems := make([]admin.DataQualityItemResponse, 0, len(items))
 	for _, item := range items {
-		respItems = append(respItems, DataQualityItemResponse{
+		respItems = append(respItems, admin.DataQualityItemResponse{
 			EntityType: item.EntityType,
 			EntityID:   item.EntityID,
 			Name:       item.Name,

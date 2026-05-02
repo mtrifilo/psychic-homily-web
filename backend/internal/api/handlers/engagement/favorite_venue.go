@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -60,9 +60,9 @@ type GetFavoriteVenuesRequest struct {
 type GetFavoriteVenuesResponse struct {
 	Body struct {
 		Venues []*contracts.FavoriteVenueResponse `json:"venues"`
-		Total  int64                             `json:"total"`
-		Limit  int                               `json:"limit"`
-		Offset int                               `json:"offset"`
+		Total  int64                              `json:"total"`
+		Limit  int                                `json:"limit"`
+		Offset int                                `json:"offset"`
 	}
 }
 
@@ -89,10 +89,10 @@ type GetFavoriteVenueShowsRequest struct {
 type GetFavoriteVenueShowsResponse struct {
 	Body struct {
 		Shows    []*contracts.FavoriteVenueShowResponse `json:"shows"`
-		Total    int64                                 `json:"total"`
-		Limit    int                                   `json:"limit"`
-		Offset   int                                   `json:"offset"`
-		Timezone string                                `json:"timezone"`
+		Total    int64                                  `json:"total"`
+		Limit    int                                    `json:"limit"`
+		Offset   int                                    `json:"offset"`
+		Timezone string                                 `json:"timezone"`
 	}
 }
 
@@ -260,9 +260,9 @@ func (h *FavoriteVenueHandler) GetFavoriteVenuesHandler(ctx context.Context, req
 	return &GetFavoriteVenuesResponse{
 		Body: struct {
 			Venues []*contracts.FavoriteVenueResponse `json:"venues"`
-			Total  int64                             `json:"total"`
-			Limit  int                               `json:"limit"`
-			Offset int                               `json:"offset"`
+			Total  int64                              `json:"total"`
+			Limit  int                                `json:"limit"`
+			Offset int                                `json:"offset"`
 		}{
 			Venues: venues,
 			Total:  total,
@@ -373,10 +373,10 @@ func (h *FavoriteVenueHandler) GetFavoriteVenueShowsHandler(ctx context.Context,
 	return &GetFavoriteVenueShowsResponse{
 		Body: struct {
 			Shows    []*contracts.FavoriteVenueShowResponse `json:"shows"`
-			Total    int64                                 `json:"total"`
-			Limit    int                                   `json:"limit"`
-			Offset   int                                   `json:"offset"`
-			Timezone string                                `json:"timezone"`
+			Total    int64                                  `json:"total"`
+			Limit    int                                    `json:"limit"`
+			Offset   int                                    `json:"offset"`
+			Timezone string                                 `json:"timezone"`
 		}{
 			Shows:    shows,
 			Total:    total,

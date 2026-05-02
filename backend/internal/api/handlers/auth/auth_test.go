@@ -1,4 +1,4 @@
-package handlers
+package auth
 
 import (
 	"context"
@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
@@ -36,10 +36,6 @@ func testConfig() *config.Config {
 
 func testAuthHandler() *AuthHandler {
 	return NewAuthHandler(nil, nil, nil, nil, nil, nil, testConfig())
-}
-
-func ctxWithUser(user *models.User) context.Context {
-	return context.WithValue(context.Background(), middleware.UserContextKey, user)
 }
 
 func strPtr(s string) *string {
@@ -146,7 +142,7 @@ func TestLogoutHandler_Success(t *testing.T) {
 
 func TestLogoutHandler_WithUser(t *testing.T) {
 	h := testAuthHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.LogoutHandler(ctx, &struct{}{})
 	if err != nil {
@@ -350,7 +346,7 @@ func TestSendVerificationEmailHandler_NoUserContext(t *testing.T) {
 func TestSendVerificationEmailHandler_AlreadyVerified(t *testing.T) {
 	h := testAuthHandler()
 	user := &models.User{ID: 1, EmailVerified: true}
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
 	if err != nil {
@@ -474,7 +470,7 @@ func TestChangePasswordHandler_NoUserContext(t *testing.T) {
 
 func TestChangePasswordHandler_EmptyPasswords(t *testing.T) {
 	h := testAuthHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	input := &ChangePasswordRequest{}
 
 	resp, err := h.ChangePasswordHandler(ctx, input)
@@ -491,7 +487,7 @@ func TestChangePasswordHandler_EmptyPasswords(t *testing.T) {
 
 func TestChangePasswordHandler_SamePassword(t *testing.T) {
 	h := testAuthHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	input := &ChangePasswordRequest{}
 	input.Body.CurrentPassword = "samepassword123"
 	input.Body.NewPassword = "samepassword123"
@@ -550,7 +546,7 @@ func TestDeleteAccountHandler_OAuthOnlyUser(t *testing.T) {
 	h := testAuthHandler()
 	// User with nil PasswordHash (OAuth-only)
 	user := &models.User{ID: 1, PasswordHash: nil, IsActive: true}
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	input := &DeleteAccountRequest{}
 
 	resp, err := h.DeleteAccountHandler(ctx, input)
@@ -572,7 +568,7 @@ func TestDeleteAccountHandler_EmptyPassword(t *testing.T) {
 	h := testAuthHandler()
 	hash := "$2a$10$fakehashvalue"
 	user := &models.User{ID: 1, PasswordHash: &hash, IsActive: true}
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	input := &DeleteAccountRequest{}
 	// password is empty
 
@@ -697,7 +693,7 @@ func TestGenerateCLITokenHandler_NoUserContext(t *testing.T) {
 func TestGenerateCLITokenHandler_NonAdmin(t *testing.T) {
 	h := testAuthHandler()
 	user := &models.User{ID: 1, IsAdmin: false}
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	resp, err := h.GenerateCLITokenHandler(ctx, &struct{}{})
 	if err != nil {
@@ -721,12 +717,12 @@ func TestGenerateCLITokenHandler_NonAdmin(t *testing.T) {
 // authHandler builds an AuthHandler with mock services and optional overrides.
 func authHandler(opts ...func(*AuthHandler)) *AuthHandler {
 	h := &AuthHandler{
-		authService:       &mockAuthService{},
-		jwtService:        &mockJWTService{},
-		userService:       &mockUserService{},
-		emailService:      &mockEmailService{},
-		discordService:    &mockDiscordService{},
-		passwordValidator: &mockPasswordValidator{},
+		authService:       &testhelpers.MockAuthService{},
+		jwtService:        &testhelpers.MockJWTService{},
+		userService:       &testhelpers.MockUserService{},
+		emailService:      &testhelpers.MockEmailService{},
+		discordService:    &testhelpers.MockDiscordService{},
+		passwordValidator: &testhelpers.MockPasswordValidator{},
 		config:            testConfig(),
 	}
 	for _, opt := range opts {
@@ -740,13 +736,13 @@ func authHandler(opts ...func(*AuthHandler)) *AuthHandler {
 func TestLoginHandler_Success(t *testing.T) {
 	user := &models.User{ID: 1, Email: strPtr("test@example.com")}
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			authenticateUserWithPasswordFn: func(email, password string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			AuthenticateUserWithPasswordFn: func(email, password string) (*models.User, error) {
 				return user, nil
 			},
 		}
-		ah.jwtService = &mockJWTService{
-			createTokenFn: func(u *models.User) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "jwt-token-123", nil
 			},
 		}
@@ -776,8 +772,8 @@ func TestLoginHandler_Success(t *testing.T) {
 
 func TestLoginHandler_InvalidCredentials(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			authenticateUserWithPasswordFn: func(email, password string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			AuthenticateUserWithPasswordFn: func(email, password string) (*models.User, error) {
 				return nil, autherrors.ErrInvalidCredentials(nil)
 			},
 		}
@@ -801,8 +797,8 @@ func TestLoginHandler_InvalidCredentials(t *testing.T) {
 
 func TestLoginHandler_AccountLocked(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			authenticateUserWithPasswordFn: func(email, password string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			AuthenticateUserWithPasswordFn: func(email, password string) (*models.User, error) {
 				return nil, autherrors.ErrAccountLockedWithMinutes(15)
 			},
 		}
@@ -826,13 +822,13 @@ func TestLoginHandler_AccountLocked(t *testing.T) {
 
 func TestLoginHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			authenticateUserWithPasswordFn: func(email, password string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			AuthenticateUserWithPasswordFn: func(email, password string) (*models.User, error) {
 				return &models.User{ID: 1}, nil
 			},
 		}
-		ah.jwtService = &mockJWTService{
-			createTokenFn: func(u *models.User) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "", fmt.Errorf("jwt error")
 			},
 		}
@@ -862,18 +858,18 @@ func TestRegisterHandler_Success(t *testing.T) {
 	user := &models.User{ID: 10, Email: strPtr("new@example.com")}
 	var discordCalled bool
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
 				return user, nil
 			},
 		}
-		ah.jwtService = &mockJWTService{
-			createTokenFn: func(u *models.User) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "reg-token", nil
 			},
 		}
-		ah.discordService = &mockDiscordService{
-			notifyNewUserFn: func(u *models.User) {
+		ah.discordService = &testhelpers.MockDiscordService{
+			NotifyNewUserFn: func(u *models.User) {
 				discordCalled = true
 			},
 		}
@@ -905,8 +901,8 @@ func TestRegisterHandler_Success(t *testing.T) {
 
 func TestRegisterHandler_UserExists(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
 				return nil, autherrors.ErrUserExists(email)
 			},
 		}
@@ -932,8 +928,8 @@ func TestRegisterHandler_UserExists(t *testing.T) {
 
 func TestRegisterHandler_WeakPasswordMock(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.passwordValidator = &mockPasswordValidator{
-			validatePasswordFn: func(password string) (*contracts.PasswordValidationResult, error) {
+		ah.passwordValidator = &testhelpers.MockPasswordValidator{
+			ValidatePasswordFn: func(password string) (*contracts.PasswordValidationResult, error) {
 				return &contracts.PasswordValidationResult{
 					Valid:  false,
 					Errors: []string{"Password must be at least 12 characters"},
@@ -965,13 +961,13 @@ func TestRegisterHandler_WeakPasswordMock(t *testing.T) {
 
 func TestRegisterHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			createUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
 				return &models.User{ID: 1}, nil
 			},
 		}
-		ah.jwtService = &mockJWTService{
-			createTokenFn: func(u *models.User) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "", fmt.Errorf("jwt error")
 			},
 		}
@@ -1000,13 +996,13 @@ func TestRegisterHandler_TokenFails(t *testing.T) {
 func TestGetProfileHandler_Success(t *testing.T) {
 	user := &models.User{ID: 1, Email: strPtr("test@example.com")}
 	h := authHandler(func(ah *AuthHandler) {
-		ah.authService = &mockAuthService{
-			getUserProfileFn: func(userID uint) (*models.User, error) {
+		ah.authService = &testhelpers.MockAuthService{
+			GetUserProfileFn: func(userID uint) (*models.User, error) {
 				return user, nil
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetProfileHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1022,13 +1018,13 @@ func TestGetProfileHandler_Success(t *testing.T) {
 
 func TestGetProfileHandler_ServiceError(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.authService = &mockAuthService{
-			getUserProfileFn: func(userID uint) (*models.User, error) {
+		ah.authService = &testhelpers.MockAuthService{
+			GetUserProfileFn: func(userID uint) (*models.User, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetProfileHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1046,16 +1042,16 @@ func TestGetProfileHandler_ServiceError(t *testing.T) {
 
 func TestRefreshTokenHandler_Success(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.authService = &mockAuthService{
-			getUserProfileFn: func(userID uint) (*models.User, error) {
+		ah.authService = &testhelpers.MockAuthService{
+			GetUserProfileFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: userID}, nil
 			},
-			refreshUserTokenFn: func(user *models.User) (string, error) {
+			RefreshUserTokenFn: func(user *models.User) (string, error) {
 				return "new-token", nil
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1071,13 +1067,13 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 
 func TestRefreshTokenHandler_ProfileFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.authService = &mockAuthService{
-			getUserProfileFn: func(userID uint) (*models.User, error) {
+		ah.authService = &testhelpers.MockAuthService{
+			GetUserProfileFn: func(userID uint) (*models.User, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1093,16 +1089,16 @@ func TestRefreshTokenHandler_ProfileFails(t *testing.T) {
 
 func TestRefreshTokenHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.authService = &mockAuthService{
-			getUserProfileFn: func(userID uint) (*models.User, error) {
+		ah.authService = &testhelpers.MockAuthService{
+			GetUserProfileFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: userID}, nil
 			},
-			refreshUserTokenFn: func(user *models.User) (string, error) {
+			RefreshUserTokenFn: func(user *models.User) (string, error) {
 				return "", fmt.Errorf("token error")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1121,19 +1117,19 @@ func TestRefreshTokenHandler_TokenFails(t *testing.T) {
 func TestSendVerificationEmailHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &mockEmailService{
-			isConfiguredFn: func() bool { return true },
-			sendVerificationEmailFn: func(toEmail, token string) error {
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
+			SendVerificationEmailFn: func(toEmail, token string) error {
 				return nil
 			},
 		}
-		ah.jwtService = &mockJWTService{
-			createVerificationTokenFn: func(userID uint, e string) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateVerificationTokenFn: func(userID uint, e string) (string, error) {
 				return "verify-token", nil
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, Email: &email, EmailVerified: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, Email: &email, EmailVerified: false})
 
 	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1147,11 +1143,11 @@ func TestSendVerificationEmailHandler_Success(t *testing.T) {
 func TestSendVerificationEmailHandler_EmailNotConfigured(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &mockEmailService{
-			isConfiguredFn: func() bool { return false },
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return false },
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, Email: &email, EmailVerified: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, Email: &email, EmailVerified: false})
 
 	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1167,11 +1163,11 @@ func TestSendVerificationEmailHandler_EmailNotConfigured(t *testing.T) {
 
 func TestSendVerificationEmailHandler_NoEmail(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &mockEmailService{
-			isConfiguredFn: func() bool { return true },
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, Email: nil, EmailVerified: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, Email: nil, EmailVerified: false})
 
 	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1188,16 +1184,16 @@ func TestSendVerificationEmailHandler_NoEmail(t *testing.T) {
 func TestSendVerificationEmailHandler_TokenFails(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &mockEmailService{
-			isConfiguredFn: func() bool { return true },
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
 		}
-		ah.jwtService = &mockJWTService{
-			createVerificationTokenFn: func(userID uint, e string) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateVerificationTokenFn: func(userID uint, e string) (string, error) {
 				return "", fmt.Errorf("token error")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, Email: &email, EmailVerified: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, Email: &email, EmailVerified: false})
 
 	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1216,16 +1212,16 @@ func TestSendVerificationEmailHandler_TokenFails(t *testing.T) {
 func TestConfirmVerificationHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
 				return &contracts.VerificationTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, EmailVerified: false}, nil
 			},
-			setEmailVerifiedFn: func(userID uint, verified bool) error {
+			SetEmailVerifiedFn: func(userID uint, verified bool) error {
 				return nil
 			},
 		}
@@ -1245,13 +1241,13 @@ func TestConfirmVerificationHandler_Success(t *testing.T) {
 
 func TestConfirmVerificationHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
 				return &contracts.VerificationTokenClaims{UserID: 999, Email: "test@example.com"}, nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return nil, fmt.Errorf("not found")
 			},
 		}
@@ -1275,13 +1271,13 @@ func TestConfirmVerificationHandler_UserNotFound(t *testing.T) {
 func TestConfirmVerificationHandler_AlreadyVerified(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
 				return &contracts.VerificationTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, EmailVerified: true}, nil
 			},
 		}
@@ -1305,16 +1301,16 @@ func TestConfirmVerificationHandler_AlreadyVerified(t *testing.T) {
 func TestConfirmVerificationHandler_SetVerifiedFails(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
 				return &contracts.VerificationTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, EmailVerified: false}, nil
 			},
-			setEmailVerifiedFn: func(userID uint, verified bool) error {
+			SetEmailVerifiedFn: func(userID uint, verified bool) error {
 				return fmt.Errorf("db error")
 			},
 		}
@@ -1340,17 +1336,17 @@ func TestConfirmVerificationHandler_SetVerifiedFails(t *testing.T) {
 func TestSendMagicLinkHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &mockEmailService{
-			isConfiguredFn:       func() bool { return true },
-			sendMagicLinkEmailFn: func(toEmail, token string) error { return nil },
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn:       func() bool { return true },
+			SendMagicLinkEmailFn: func(toEmail, token string) error { return nil },
 		}
-		ah.userService = &mockUserService{
-			getUserByEmailFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, EmailVerified: true}, nil
 			},
 		}
-		ah.jwtService = &mockJWTService{
-			createMagicLinkTokenFn: func(userID uint, e string) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateMagicLinkTokenFn: func(userID uint, e string) (string, error) {
 				return "magic-token", nil
 			},
 		}
@@ -1370,11 +1366,11 @@ func TestSendMagicLinkHandler_Success(t *testing.T) {
 
 func TestSendMagicLinkHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &mockEmailService{
-			isConfiguredFn: func() bool { return true },
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
 		}
-		ah.userService = &mockUserService{
-			getUserByEmailFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailFn: func(e string) (*models.User, error) {
 				return nil, nil // user not found
 			},
 		}
@@ -1396,11 +1392,11 @@ func TestSendMagicLinkHandler_UserNotFound(t *testing.T) {
 func TestSendMagicLinkHandler_EmailNotVerified(t *testing.T) {
 	email := "unverified@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &mockEmailService{
-			isConfiguredFn: func() bool { return true },
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
 		}
-		ah.userService = &mockUserService{
-			getUserByEmailFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, EmailVerified: false}, nil
 			},
 		}
@@ -1426,16 +1422,16 @@ func TestSendMagicLinkHandler_EmailNotVerified(t *testing.T) {
 func TestVerifyMagicLinkHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
 				return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
 			},
-			createTokenFn: func(u *models.User) (string, error) {
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "session-token", nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, IsActive: true}, nil
 			},
 		}
@@ -1461,13 +1457,13 @@ func TestVerifyMagicLinkHandler_Success(t *testing.T) {
 
 func TestVerifyMagicLinkHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
 				return &contracts.MagicLinkTokenClaims{UserID: 999, Email: "test@example.com"}, nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return nil, fmt.Errorf("not found")
 			},
 		}
@@ -1491,13 +1487,13 @@ func TestVerifyMagicLinkHandler_UserNotFound(t *testing.T) {
 func TestVerifyMagicLinkHandler_InactiveUser(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
 				return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, IsActive: false}, nil
 			},
 		}
@@ -1522,13 +1518,13 @@ func TestVerifyMagicLinkHandler_InactiveUser(t *testing.T) {
 
 func TestChangePasswordHandler_Success(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			updatePasswordFn: func(userID uint, currentPassword, newPassword string) error {
+		ah.userService = &testhelpers.MockUserService{
+			UpdatePasswordFn: func(userID uint, currentPassword, newPassword string) error {
 				return nil
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	input := &ChangePasswordRequest{}
 	input.Body.CurrentPassword = "old-password-123"
@@ -1545,13 +1541,13 @@ func TestChangePasswordHandler_Success(t *testing.T) {
 
 func TestChangePasswordHandler_InvalidCurrent(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			updatePasswordFn: func(userID uint, currentPassword, newPassword string) error {
+		ah.userService = &testhelpers.MockUserService{
+			UpdatePasswordFn: func(userID uint, currentPassword, newPassword string) error {
 				return autherrors.ErrInvalidCredentials(nil)
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	input := &ChangePasswordRequest{}
 	input.Body.CurrentPassword = "wrong-password"
@@ -1571,13 +1567,13 @@ func TestChangePasswordHandler_InvalidCurrent(t *testing.T) {
 
 func TestChangePasswordHandler_NoPasswordSet(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			updatePasswordFn: func(userID uint, currentPassword, newPassword string) error {
+		ah.userService = &testhelpers.MockUserService{
+			UpdatePasswordFn: func(userID uint, currentPassword, newPassword string) error {
 				return autherrors.ErrNoPasswordSet()
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	input := &ChangePasswordRequest{}
 	input.Body.CurrentPassword = "anything"
@@ -1600,8 +1596,8 @@ func TestChangePasswordHandler_NoPasswordSet(t *testing.T) {
 func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getDeletionSummaryFn: func(userID uint) (*contracts.DeletionSummary, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetDeletionSummaryFn: func(userID uint) (*contracts.DeletionSummary, error) {
 				return &contracts.DeletionSummary{
 					ShowsCount:      5,
 					SavedShowsCount: 12,
@@ -1610,7 +1606,7 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, PasswordHash: &hash})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, PasswordHash: &hash})
 
 	resp, err := h.GetDeletionSummaryHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1635,13 +1631,13 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 
 func TestGetDeletionSummaryHandler_ServiceError(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getDeletionSummaryFn: func(userID uint) (*contracts.DeletionSummary, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetDeletionSummaryFn: func(userID uint) (*contracts.DeletionSummary, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetDeletionSummaryHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1660,16 +1656,16 @@ func TestGetDeletionSummaryHandler_ServiceError(t *testing.T) {
 func TestDeleteAccountHandler_Success(t *testing.T) {
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			verifyPasswordFn: func(hashedPassword, password string) error {
+		ah.userService = &testhelpers.MockUserService{
+			VerifyPasswordFn: func(hashedPassword, password string) error {
 				return nil
 			},
-			softDeleteAccountFn: func(userID uint, reason *string) error {
+			SoftDeleteAccountFn: func(userID uint, reason *string) error {
 				return nil
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, PasswordHash: &hash})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, PasswordHash: &hash})
 
 	input := &DeleteAccountRequest{}
 	input.Body.Password = "correct-password"
@@ -1692,13 +1688,13 @@ func TestDeleteAccountHandler_Success(t *testing.T) {
 func TestDeleteAccountHandler_WrongPassword(t *testing.T) {
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			verifyPasswordFn: func(hashedPassword, password string) error {
+		ah.userService = &testhelpers.MockUserService{
+			VerifyPasswordFn: func(hashedPassword, password string) error {
 				return fmt.Errorf("mismatch")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, PasswordHash: &hash})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, PasswordHash: &hash})
 
 	input := &DeleteAccountRequest{}
 	input.Body.Password = "wrong"
@@ -1718,16 +1714,16 @@ func TestDeleteAccountHandler_WrongPassword(t *testing.T) {
 func TestDeleteAccountHandler_SoftDeleteFails(t *testing.T) {
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			verifyPasswordFn: func(hashedPassword, password string) error {
+		ah.userService = &testhelpers.MockUserService{
+			VerifyPasswordFn: func(hashedPassword, password string) error {
 				return nil
 			},
-			softDeleteAccountFn: func(userID uint, reason *string) error {
+			SoftDeleteAccountFn: func(userID uint, reason *string) error {
 				return fmt.Errorf("db error")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, PasswordHash: &hash})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, PasswordHash: &hash})
 
 	input := &DeleteAccountRequest{}
 	input.Body.Password = "correct"
@@ -1749,13 +1745,13 @@ func TestDeleteAccountHandler_SoftDeleteFails(t *testing.T) {
 func TestExportDataHandler_Success(t *testing.T) {
 	exportData := []byte(`{"user":{"id":1},"shows":[]}`)
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			exportUserDataJSONFn: func(userID uint) ([]byte, error) {
+		ah.userService = &testhelpers.MockUserService{
+			ExportUserDataJSONFn: func(userID uint) ([]byte, error) {
 				return exportData, nil
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.ExportDataHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1774,13 +1770,13 @@ func TestExportDataHandler_Success(t *testing.T) {
 
 func TestExportDataHandler_ServiceError(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			exportUserDataJSONFn: func(userID uint) ([]byte, error) {
+		ah.userService = &testhelpers.MockUserService{
+			ExportUserDataJSONFn: func(userID uint) ([]byte, error) {
 				return nil, fmt.Errorf("db error")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.ExportDataHandler(ctx, &struct{}{})
 	if err != nil {
@@ -1797,25 +1793,25 @@ func TestRecoverAccountHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, PasswordHash: &hash, IsActive: false}, nil
 			},
-			isAccountRecoverableFn: func(user *models.User) bool {
+			IsAccountRecoverableFn: func(user *models.User) bool {
 				return true
 			},
-			verifyPasswordFn: func(hashedPassword, password string) error {
+			VerifyPasswordFn: func(hashedPassword, password string) error {
 				return nil
 			},
-			restoreAccountFn: func(userID uint) error {
+			RestoreAccountFn: func(userID uint) error {
 				return nil
 			},
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, IsActive: true}, nil
 			},
 		}
-		ah.jwtService = &mockJWTService{
-			createTokenFn: func(u *models.User) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "recover-token", nil
 			},
 		}
@@ -1842,8 +1838,8 @@ func TestRecoverAccountHandler_Success(t *testing.T) {
 
 func TestRecoverAccountHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return nil, nil // user not found
 			},
 		}
@@ -1868,8 +1864,8 @@ func TestRecoverAccountHandler_UserNotFound(t *testing.T) {
 func TestRecoverAccountHandler_AccountActive(t *testing.T) {
 	email := "active@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, IsActive: true}, nil
 			},
 		}
@@ -1895,11 +1891,11 @@ func TestRecoverAccountHandler_NotRecoverable(t *testing.T) {
 	email := "expired@example.com"
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, PasswordHash: &hash, IsActive: false}, nil
 			},
-			isAccountRecoverableFn: func(user *models.User) bool {
+			IsAccountRecoverableFn: func(user *models.User) bool {
 				return false
 			},
 		}
@@ -1927,25 +1923,25 @@ func TestRequestAccountRecoveryHandler_Success(t *testing.T) {
 	email := "deleted@example.com"
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, PasswordHash: &hash, IsActive: false}, nil
 			},
-			isAccountRecoverableFn: func(user *models.User) bool {
+			IsAccountRecoverableFn: func(user *models.User) bool {
 				return true
 			},
-			getDaysUntilPermanentDeletionFn: func(user *models.User) int {
+			GetDaysUntilPermanentDeletionFn: func(user *models.User) int {
 				return 20
 			},
 		}
-		ah.emailService = &mockEmailService{
-			isConfiguredFn: func() bool { return true },
-			sendAccountRecoveryEmailFn: func(toEmail, token string, daysRemaining int) error {
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
+			SendAccountRecoveryEmailFn: func(toEmail, token string, daysRemaining int) error {
 				return nil
 			},
 		}
-		ah.jwtService = &mockJWTService{
-			createAccountRecoveryTokenFn: func(userID uint, e string) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateAccountRecoveryTokenFn: func(userID uint, e string) (string, error) {
 				return "recovery-token", nil
 			},
 		}
@@ -1968,8 +1964,8 @@ func TestRequestAccountRecoveryHandler_Success(t *testing.T) {
 
 func TestRequestAccountRecoveryHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return nil, nil
 			},
 		}
@@ -1991,8 +1987,8 @@ func TestRequestAccountRecoveryHandler_UserNotFound(t *testing.T) {
 func TestRequestAccountRecoveryHandler_AccountActive(t *testing.T) {
 	email := "active@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, IsActive: true}, nil
 			},
 		}
@@ -2018,25 +2014,25 @@ func TestRequestAccountRecoveryHandler_AccountActive(t *testing.T) {
 func TestConfirmAccountRecoveryHandler_Success(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
 				return &contracts.AccountRecoveryTokenClaims{UserID: 1, Email: email}, nil
 			},
-			createTokenFn: func(u *models.User) (string, error) {
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "session-token", nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, IsActive: false}, nil
 			},
-			isAccountRecoverableFn: func(user *models.User) bool {
+			IsAccountRecoverableFn: func(user *models.User) bool {
 				return true
 			},
-			restoreAccountFn: func(userID uint) error {
+			RestoreAccountFn: func(userID uint) error {
 				return nil
 			},
-			getUserByIDFn: func(userID uint) (*models.User, error) {
+			GetUserByIDFn: func(userID uint) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, IsActive: true}, nil
 			},
 		}
@@ -2062,13 +2058,13 @@ func TestConfirmAccountRecoveryHandler_Success(t *testing.T) {
 
 func TestConfirmAccountRecoveryHandler_UserNotFound(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
 				return &contracts.AccountRecoveryTokenClaims{UserID: 999, Email: "test@example.com"}, nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return nil, fmt.Errorf("not found")
 			},
 		}
@@ -2092,13 +2088,13 @@ func TestConfirmAccountRecoveryHandler_UserNotFound(t *testing.T) {
 func TestConfirmAccountRecoveryHandler_AlreadyActive(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			validateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateAccountRecoveryTokenFn: func(tokenString string) (*contracts.AccountRecoveryTokenClaims, error) {
 				return &contracts.AccountRecoveryTokenClaims{UserID: 1, Email: email}, nil
 			},
 		}
-		ah.userService = &mockUserService{
-			getUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*models.User, error) {
 				return &models.User{ID: 1, Email: &email, IsActive: true}, nil
 			},
 		}
@@ -2123,13 +2119,13 @@ func TestConfirmAccountRecoveryHandler_AlreadyActive(t *testing.T) {
 
 func TestGenerateCLITokenHandler_Success(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			createTokenFn: func(u *models.User) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "cli-token-123", nil
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GenerateCLITokenHandler(ctx, &struct{}{})
 	if err != nil {
@@ -2148,13 +2144,13 @@ func TestGenerateCLITokenHandler_Success(t *testing.T) {
 
 func TestGenerateCLITokenHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
-		ah.jwtService = &mockJWTService{
-			createTokenFn: func(u *models.User) (string, error) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *models.User) (string, error) {
 				return "", fmt.Errorf("jwt error")
 			},
 		}
 	})
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GenerateCLITokenHandler(ctx, &struct{}{})
 	if err != nil {

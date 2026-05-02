@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"fmt"
@@ -6,26 +6,27 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 type ReleaseHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *ReleaseHandler
 }
 
 func (s *ReleaseHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewReleaseHandler(s.deps.releaseService, s.deps.artistService, s.deps.auditLogService, nil)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewReleaseHandler(s.deps.ReleaseService, s.deps.ArtistService, s.deps.AuditLogService, nil)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestReleaseHandlerIntegration(t *testing.T) {
@@ -38,13 +39,13 @@ func TestReleaseHandlerIntegration(t *testing.T) {
 // --- Helpers ---
 
 func (s *ReleaseHandlerIntegrationSuite) createReleaseViaService(title string) *contracts.ReleaseDetailResponse {
-	resp, err := s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: title})
+	resp, err := s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: title})
 	s.Require().NoError(err)
 	return resp
 }
 
 func (s *ReleaseHandlerIntegrationSuite) createArtistViaService(name string) uint {
-	resp, err := s.deps.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
+	resp, err := s.deps.ArtistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
 	s.Require().NoError(err)
 	return resp.ID
 }
@@ -57,7 +58,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestListReleases_Success() {
 	s.createReleaseViaService("Album C")
 
 	req := &ListReleasesRequest{}
-	resp, err := s.handler.ListReleasesHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListReleasesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(resp.Body.Total, int64(3))
@@ -65,18 +66,18 @@ func (s *ReleaseHandlerIntegrationSuite) TestListReleases_Success() {
 
 func (s *ReleaseHandlerIntegrationSuite) TestListReleases_Empty() {
 	req := &ListReleasesRequest{}
-	resp, err := s.handler.ListReleasesHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListReleasesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(int64(0), resp.Body.Total)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestListReleases_FilterByType() {
-	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "LP Album", ReleaseType: "lp"})
-	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
+	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "LP Album", ReleaseType: "lp"})
+	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
 
 	req := &ListReleasesRequest{ReleaseType: "ep"}
-	resp, err := s.handler.ListReleasesHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListReleasesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(int64(1), resp.Body.Total)
@@ -89,7 +90,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetRelease_ByID() {
 	release := s.createReleaseViaService("Test Album")
 
 	req := &GetReleaseRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-	resp, err := s.handler.GetReleaseHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetReleaseHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("Test Album", resp.Body.Title)
@@ -99,7 +100,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetRelease_BySlug() {
 	s.createReleaseViaService("Slug Album")
 
 	req := &GetReleaseRequest{ReleaseID: "slug-album"}
-	resp, err := s.handler.GetReleaseHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetReleaseHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("Slug Album", resp.Body.Title)
@@ -107,15 +108,15 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetRelease_BySlug() {
 
 func (s *ReleaseHandlerIntegrationSuite) TestGetRelease_NotFound() {
 	req := &GetReleaseRequest{ReleaseID: "99999"}
-	_, err := s.handler.GetReleaseHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetReleaseHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- CreateReleaseHandler ---
 
 func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_AdminSuccess() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	year := 2024
 	req := &CreateReleaseRequest{}
@@ -132,8 +133,8 @@ func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_AdminSuccess() {
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_WithArtists() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	artistID := s.createArtistViaService("Test Artist")
 
@@ -151,42 +152,42 @@ func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_WithArtists() {
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateReleaseRequest{}
 	req.Body.Title = "Forbidden Album"
 
 	_, err := s.handler.CreateReleaseHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_NoAuth() {
 	req := &CreateReleaseRequest{}
 	req.Body.Title = "No Auth Album"
 
-	_, err := s.handler.CreateReleaseHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 403)
+	_, err := s.handler.CreateReleaseHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_EmptyTitle() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &CreateReleaseRequest{}
 	req.Body.Title = ""
 
 	_, err := s.handler.CreateReleaseHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 // --- UpdateReleaseHandler ---
 
 func (s *ReleaseHandlerIntegrationSuite) TestUpdateRelease_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	release := s.createReleaseViaService("Original Title")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	newTitle := "Updated Title"
 	req := &UpdateReleaseRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
 	req.Body.Title = &newTitle
@@ -198,10 +199,10 @@ func (s *ReleaseHandlerIntegrationSuite) TestUpdateRelease_Success() {
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestUpdateRelease_BySlug() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	s.createReleaseViaService("Slug Update Album")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	newType := "ep"
 	req := &UpdateReleaseRequest{ReleaseID: "slug-update-album"}
 	req.Body.ReleaseType = &newType
@@ -213,64 +214,64 @@ func (s *ReleaseHandlerIntegrationSuite) TestUpdateRelease_BySlug() {
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestUpdateRelease_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	newTitle := "New Title"
 	req := &UpdateReleaseRequest{ReleaseID: "99999"}
 	req.Body.Title = &newTitle
 
 	_, err := s.handler.UpdateReleaseHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestUpdateRelease_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	release := s.createReleaseViaService("Forbidden Update")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	newTitle := "Hacked Title"
 	req := &UpdateReleaseRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
 	req.Body.Title = &newTitle
 
 	_, err := s.handler.UpdateReleaseHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- DeleteReleaseHandler ---
 
 func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	release := s.createReleaseViaService("Deletable Album")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &DeleteReleaseRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
 	_, err := s.handler.DeleteReleaseHandler(ctx, req)
 	s.NoError(err)
 
 	// Verify release is gone
 	getReq := &GetReleaseRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
-	_, err = s.handler.GetReleaseHandler(s.deps.ctx, getReq)
-	assertHumaError(s.T(), err, 404)
+	_, err = s.handler.GetReleaseHandler(s.deps.Ctx, getReq)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &DeleteReleaseRequest{ReleaseID: "99999"}
 
 	_, err := s.handler.DeleteReleaseHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	release := s.createReleaseViaService("Protected Album")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteReleaseRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
 
 	_, err := s.handler.DeleteReleaseHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- GetArtistReleasesHandler ---
@@ -278,17 +279,17 @@ func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_NonAdminForbidden() {
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Success() {
 	artistID := s.createArtistViaService("Discography Artist")
 
-	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Album One",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
 	})
-	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Album Two",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "featured"}},
 	})
 
 	req := &GetArtistReleasesRequest{ArtistID: fmt.Sprintf("%d", artistID)}
-	resp, err := s.handler.GetArtistReleasesHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistReleasesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(2, resp.Body.Count)
@@ -305,13 +306,13 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Success() {
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_BySlug() {
 	artistID := s.createArtistViaService("Slug Discography Artist")
 
-	s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Slug Album",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
 	})
 
 	req := &GetArtistReleasesRequest{ArtistID: "slug-discography-artist"}
-	resp, err := s.handler.GetArtistReleasesHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistReleasesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -319,15 +320,15 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_BySlug() {
 
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_ArtistNotFound() {
 	req := &GetArtistReleasesRequest{ArtistID: "99999"}
-	_, err := s.handler.GetArtistReleasesHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetArtistReleasesHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Empty() {
 	artistID := s.createArtistViaService("Empty Discography")
 
 	req := &GetArtistReleasesRequest{ArtistID: fmt.Sprintf("%d", artistID)}
-	resp, err := s.handler.GetArtistReleasesHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistReleasesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
@@ -336,10 +337,10 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Empty() {
 // --- AddExternalLinkHandler ---
 
 func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	release := s.createReleaseViaService("Link Album")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
 	req.Body.Platform = "bandcamp"
 	req.Body.URL = "https://test.bandcamp.com/album/test"
@@ -352,34 +353,34 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_Success() {
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_ReleaseNotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &AddExternalLinkRequest{ReleaseID: "99999"}
 	req.Body.Platform = "bandcamp"
 	req.Body.URL = "https://test.bandcamp.com"
 
 	_, err := s.handler.AddExternalLinkHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	release := s.createReleaseViaService("Protected Link Album")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
 	req.Body.Platform = "bandcamp"
 	req.Body.URL = "https://test.bandcamp.com"
 
 	_, err := s.handler.AddExternalLinkHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- RemoveExternalLinkHandler ---
 
 func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
-	admin := createAdminUser(s.deps.db)
-	release, err := s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	release, err := s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Remove Link Album",
 		ExternalLinks: []contracts.CreateReleaseLinkEntry{
 			{Platform: "spotify", URL: "https://open.spotify.com/album/abc"},
@@ -388,7 +389,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
 	s.Require().NoError(err)
 	s.Require().Len(release.ExternalLinks, 1)
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &RemoveExternalLinkRequest{
 		ReleaseID: fmt.Sprintf("%d", release.ID),
 		LinkID:    fmt.Sprintf("%d", release.ExternalLinks[0].ID),
@@ -398,14 +399,14 @@ func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
 	s.NoError(err)
 
 	// Verify link is gone
-	refreshed, err := s.deps.releaseService.GetRelease(release.ID)
+	refreshed, err := s.deps.ReleaseService.GetRelease(release.ID)
 	s.Require().NoError(err)
 	s.Empty(refreshed.ExternalLinks)
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
-	release, err := s.deps.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	release, err := s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Protected Remove Link",
 		ExternalLinks: []contracts.CreateReleaseLinkEntry{
 			{Platform: "spotify", URL: "https://open.spotify.com/album/abc"},
@@ -413,12 +414,12 @@ func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_NonAdminForbidde
 	})
 	s.Require().NoError(err)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &RemoveExternalLinkRequest{
 		ReleaseID: fmt.Sprintf("%d", release.ID),
 		LinkID:    fmt.Sprintf("%d", release.ExternalLinks[0].ID),
 	}
 
 	_, err = s.handler.RemoveExternalLinkHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }

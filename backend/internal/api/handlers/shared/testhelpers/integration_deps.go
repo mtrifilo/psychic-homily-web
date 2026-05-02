@@ -1,4 +1,4 @@
-package handlers
+package testhelpers
 
 import (
 	"context"
@@ -20,78 +20,83 @@ import (
 	"psychic-homily-backend/internal/testutil"
 )
 
-// handlerIntegrationDeps holds all services + DB for handler integration tests
-type handlerIntegrationDeps struct {
-	db                    *gorm.DB
-	testDB                *testutil.TestDatabase
-	ctx                   context.Context
-	showService           *catalog.ShowService
-	venueService          *catalog.VenueService
-	savedShowService      *engagement.SavedShowService
-	favoriteVenueService  *engagement.FavoriteVenueService
-	showReportService     *adminsvc.ShowReportService
-	userService           *usersvc.UserService
-	auditLogService       *adminsvc.AuditLogService
-	discordService        *notification.DiscordService
-	musicDiscoveryService *pipeline.MusicDiscoveryService
-	extractionService     *pipeline.ExtractionService
-	apiTokenService       *adminsvc.APITokenService
-	dataSyncService       *adminsvc.DataSyncService
-	adminStatsService     *adminsvc.AdminStatsService
-	discoveryService      *pipeline.DiscoveryService
-	artistService         *catalog.ArtistService
-	festivalService       *catalog.FestivalService
-	labelService          *catalog.LabelService
-	releaseService        *catalog.ReleaseService
-	collectionService          *services.CollectionService
-	requestService             *services.RequestService
-	tagService                 *catalog.TagService
-	artistRelationshipService  *catalog.ArtistRelationshipService
-	sceneService               *catalog.SceneService
+// IntegrationDeps holds all services + DB for handler integration tests.
+// Fields are exported so tests in any handler sub-package can reach them.
+type IntegrationDeps struct {
+	DB                        *gorm.DB
+	TestDB                    *testutil.TestDatabase
+	Ctx                       context.Context
+	ShowService               *catalog.ShowService
+	VenueService              *catalog.VenueService
+	SavedShowService          *engagement.SavedShowService
+	FavoriteVenueService      *engagement.FavoriteVenueService
+	ShowReportService         *adminsvc.ShowReportService
+	UserService               *usersvc.UserService
+	AuditLogService           *adminsvc.AuditLogService
+	DiscordService            *notification.DiscordService
+	MusicDiscoveryService     *pipeline.MusicDiscoveryService
+	ExtractionService         *pipeline.ExtractionService
+	APITokenService           *adminsvc.APITokenService
+	DataSyncService           *adminsvc.DataSyncService
+	AdminStatsService         *adminsvc.AdminStatsService
+	DiscoveryService          *pipeline.DiscoveryService
+	ArtistService             *catalog.ArtistService
+	FestivalService           *catalog.FestivalService
+	LabelService              *catalog.LabelService
+	ReleaseService            *catalog.ReleaseService
+	CollectionService         *services.CollectionService
+	RequestService            *services.RequestService
+	TagService                *catalog.TagService
+	ArtistRelationshipService *catalog.ArtistRelationshipService
+	SceneService              *catalog.SceneService
 }
 
-func setupHandlerIntegrationDeps(t *testing.T) *handlerIntegrationDeps {
+// SetupIntegrationDeps spins up a Postgres test database and constructs the
+// services every handler integration test reaches for. Mirrors what the
+// production server's container.go does, scoped to what handler tests need.
+func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 	t.Helper()
 
 	testDB := testutil.SetupTestPostgres(t)
 	db := testDB.DB
 
-	// Construct services
 	emptyCfg := &config.Config{}
 
-	deps := &handlerIntegrationDeps{
-		db:                    db,
-		testDB:                testDB,
-		ctx:                   context.Background(),
-		showService:           catalog.NewShowService(db),
-		venueService:          catalog.NewVenueService(db),
-		savedShowService:      engagement.NewSavedShowService(db),
-		favoriteVenueService:  engagement.NewFavoriteVenueService(db),
-		showReportService:     adminsvc.NewShowReportService(db),
-		userService:           usersvc.NewUserService(db),
-		auditLogService:       adminsvc.NewAuditLogService(db),
-		discordService:        notification.NewDiscordService(emptyCfg),
-		musicDiscoveryService: pipeline.NewMusicDiscoveryService(emptyCfg),
-		extractionService:     pipeline.NewExtractionService(db, emptyCfg, catalog.NewArtistService(db), catalog.NewVenueService(db)),
-		apiTokenService:       adminsvc.NewAPITokenService(db),
-		dataSyncService:       adminsvc.NewDataSyncService(db),
-		adminStatsService:     adminsvc.NewAdminStatsService(db),
-		discoveryService:      pipeline.NewDiscoveryService(db, catalog.NewVenueService(db)),
-		artistService:         catalog.NewArtistService(db),
-		festivalService:       catalog.NewFestivalService(db),
-		labelService:          catalog.NewLabelService(db),
-		releaseService:        catalog.NewReleaseService(db),
-		collectionService:         services.NewCollectionService(db),
-		requestService:            services.NewRequestService(db),
-		tagService:                catalog.NewTagService(db),
-		artistRelationshipService: catalog.NewArtistRelationshipService(db),
-		sceneService:              catalog.NewSceneService(db),
+	deps := &IntegrationDeps{
+		DB:                        db,
+		TestDB:                    testDB,
+		Ctx:                       context.Background(),
+		ShowService:               catalog.NewShowService(db),
+		VenueService:              catalog.NewVenueService(db),
+		SavedShowService:          engagement.NewSavedShowService(db),
+		FavoriteVenueService:      engagement.NewFavoriteVenueService(db),
+		ShowReportService:         adminsvc.NewShowReportService(db),
+		UserService:               usersvc.NewUserService(db),
+		AuditLogService:           adminsvc.NewAuditLogService(db),
+		DiscordService:            notification.NewDiscordService(emptyCfg),
+		MusicDiscoveryService:     pipeline.NewMusicDiscoveryService(emptyCfg),
+		ExtractionService:         pipeline.NewExtractionService(db, emptyCfg, catalog.NewArtistService(db), catalog.NewVenueService(db)),
+		APITokenService:           adminsvc.NewAPITokenService(db),
+		DataSyncService:           adminsvc.NewDataSyncService(db),
+		AdminStatsService:         adminsvc.NewAdminStatsService(db),
+		DiscoveryService:          pipeline.NewDiscoveryService(db, catalog.NewVenueService(db)),
+		ArtistService:             catalog.NewArtistService(db),
+		FestivalService:           catalog.NewFestivalService(db),
+		LabelService:              catalog.NewLabelService(db),
+		ReleaseService:            catalog.NewReleaseService(db),
+		CollectionService:         services.NewCollectionService(db),
+		RequestService:            services.NewRequestService(db),
+		TagService:                catalog.NewTagService(db),
+		ArtistRelationshipService: catalog.NewArtistRelationshipService(db),
+		SceneService:              catalog.NewSceneService(db),
 	}
 
 	return deps
 }
 
-func cleanupTables(db *gorm.DB) {
+// CleanupTables truncates all tables touched by handler integration tests
+// in dependency order. Call from TearDownTest.
+func CleanupTables(db *gorm.DB) {
 	sqlDB, _ := db.DB()
 	// Order respects FK constraints
 	_, _ = sqlDB.Exec("DELETE FROM request_votes")
@@ -125,11 +130,13 @@ func cleanupTables(db *gorm.DB) {
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
-func createTestUser(db *gorm.DB) *models.User {
+// CreateTestUser inserts a normal (non-admin) verified user with a unique
+// email and returns it.
+func CreateTestUser(db *gorm.DB) *models.User {
 	user := &models.User{
-		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
-		FirstName:     stringPtr("Test"),
-		LastName:      stringPtr("User"),
+		Email:         StringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
+		FirstName:     StringPtr("Test"),
+		LastName:      StringPtr("User"),
 		IsActive:      true,
 		EmailVerified: true,
 	}
@@ -137,11 +144,12 @@ func createTestUser(db *gorm.DB) *models.User {
 	return user
 }
 
-func createAdminUser(db *gorm.DB) *models.User {
+// CreateAdminUser inserts an admin user with a unique email and returns it.
+func CreateAdminUser(db *gorm.DB) *models.User {
 	user := &models.User{
-		Email:         stringPtr(fmt.Sprintf("admin-%d@test.com", time.Now().UnixNano())),
-		FirstName:     stringPtr("Admin"),
-		LastName:      stringPtr("User"),
+		Email:         StringPtr(fmt.Sprintf("admin-%d@test.com", time.Now().UnixNano())),
+		FirstName:     StringPtr("Admin"),
+		LastName:      StringPtr("User"),
 		IsActive:      true,
 		IsAdmin:       true,
 		EmailVerified: true,
@@ -150,7 +158,8 @@ func createAdminUser(db *gorm.DB) *models.User {
 	return user
 }
 
-func createVerifiedVenue(db *gorm.DB, name, city, state string) *models.Venue {
+// CreateVerifiedVenue inserts a verified venue and returns it.
+func CreateVerifiedVenue(db *gorm.DB, name, city, state string) *models.Venue {
 	venue := &models.Venue{
 		Name:     name,
 		City:     city,
@@ -161,7 +170,8 @@ func createVerifiedVenue(db *gorm.DB, name, city, state string) *models.Venue {
 	return venue
 }
 
-func createUnverifiedVenue(db *gorm.DB, name, city, state string) *models.Venue {
+// CreateUnverifiedVenue inserts an unverified venue and returns it.
+func CreateUnverifiedVenue(db *gorm.DB, name, city, state string) *models.Venue {
 	venue := &models.Venue{
 		Name:     name,
 		City:     city,
@@ -172,7 +182,8 @@ func createUnverifiedVenue(db *gorm.DB, name, city, state string) *models.Venue 
 	return venue
 }
 
-func createArtist(db *gorm.DB, name string) *models.Artist {
+// CreateArtist inserts an artist by name and returns it.
+func CreateArtist(db *gorm.DB, name string) *models.Artist {
 	artist := &models.Artist{
 		Name: name,
 	}
@@ -180,20 +191,22 @@ func createArtist(db *gorm.DB, name string) *models.Artist {
 	return artist
 }
 
-func createApprovedShow(db *gorm.DB, userID uint, title string) *models.Show {
+// CreateApprovedShow inserts a show in the approved state, with a venue +
+// artist association, dated 7 days from now. Returns the show.
+func CreateApprovedShow(db *gorm.DB, userID uint, title string) *models.Show {
 	show := &models.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        StringPtr("Phoenix"),
+		State:       StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	db.Create(show)
 
 	// Create venue and artist associations
-	venue := createVerifiedVenue(db, title+" Venue", "Phoenix", "AZ")
-	artist := createArtist(db, title+" Artist")
+	venue := CreateVerifiedVenue(db, title+" Venue", "Phoenix", "AZ")
+	artist := CreateArtist(db, title+" Artist")
 
 	db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 	db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
@@ -201,19 +214,21 @@ func createApprovedShow(db *gorm.DB, userID uint, title string) *models.Show {
 	return show
 }
 
-func createPendingShow(db *gorm.DB, userID uint, title string) *models.Show {
+// CreatePendingShow inserts a show in the pending state, with a venue +
+// artist association, dated 7 days from now. Returns the show.
+func CreatePendingShow(db *gorm.DB, userID uint, title string) *models.Show {
 	show := &models.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        StringPtr("Phoenix"),
+		State:       StringPtr("AZ"),
 		Status:      models.ShowStatusPending,
 		SubmittedBy: &userID,
 	}
 	db.Create(show)
 
-	venue := createVerifiedVenue(db, title+" Venue", "Phoenix", "AZ")
-	artist := createArtist(db, title+" Artist")
+	venue := CreateVerifiedVenue(db, title+" Venue", "Phoenix", "AZ")
+	artist := CreateArtist(db, title+" Artist")
 
 	db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 	db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
@@ -221,19 +236,21 @@ func createPendingShow(db *gorm.DB, userID uint, title string) *models.Show {
 	return show
 }
 
-func createFutureApprovedShow(db *gorm.DB, userID uint, title string, daysFromNow int) *models.Show {
+// CreateFutureApprovedShow inserts an approved show daysFromNow into the
+// future, with a venue + artist association.
+func CreateFutureApprovedShow(db *gorm.DB, userID uint, title string, daysFromNow int) *models.Show {
 	show := &models.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, daysFromNow),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        StringPtr("Phoenix"),
+		State:       StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	db.Create(show)
 
-	venue := createVerifiedVenue(db, title+" Venue", "Phoenix", "AZ")
-	artist := createArtist(db, title+" Artist")
+	venue := CreateVerifiedVenue(db, title+" Venue", "Phoenix", "AZ")
+	artist := CreateArtist(db, title+" Artist")
 
 	db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 	db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
@@ -241,19 +258,21 @@ func createFutureApprovedShow(db *gorm.DB, userID uint, title string, daysFromNo
 	return show
 }
 
-func createPastApprovedShow(db *gorm.DB, userID uint, title string, daysAgo int) *models.Show {
+// CreatePastApprovedShow inserts an approved show daysAgo days in the past,
+// with a venue + artist association.
+func CreatePastApprovedShow(db *gorm.DB, userID uint, title string, daysAgo int) *models.Show {
 	show := &models.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, -daysAgo),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        StringPtr("Phoenix"),
+		State:       StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	db.Create(show)
 
-	venue := createVerifiedVenue(db, title+" Venue", "Phoenix", "AZ")
-	artist := createArtist(db, title+" Artist")
+	venue := CreateVerifiedVenue(db, title+" Venue", "Phoenix", "AZ")
+	artist := CreateArtist(db, title+" Artist")
 
 	db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 	db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
@@ -261,19 +280,14 @@ func createPastApprovedShow(db *gorm.DB, userID uint, title string, daysAgo int)
 	return show
 }
 
-// stringPtr is already defined in auth_test.go as strPtr - add alias for consistency
-func stringPtr(s string) *string {
-	return &s
-}
+// StringPtr returns a pointer to s.
+func StringPtr(s string) *string { return &s }
 
-func boolPtr(b bool) *bool {
-	return &b
-}
+// BoolPtr returns a pointer to b.
+func BoolPtr(b bool) *bool { return &b }
 
-func uintPtr(u uint) *uint {
-	return &u
-}
+// UintPtr returns a pointer to u.
+func UintPtr(u uint) *uint { return &u }
 
-func float64Ptr(f float64) *float64 {
-	return &f
-}
+// Float64Ptr returns a pointer to f.
+func Float64Ptr(f float64) *float64 { return &f }

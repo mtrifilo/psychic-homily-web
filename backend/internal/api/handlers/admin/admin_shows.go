@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -57,7 +58,7 @@ type GetPendingShowsRequest struct {
 type GetPendingShowsResponse struct {
 	Body struct {
 		Shows []*contracts.ShowResponse `json:"shows"`
-		Total int64                    `json:"total"`
+		Total int64                     `json:"total"`
 	}
 }
 
@@ -72,7 +73,7 @@ type GetRejectedShowsRequest struct {
 type GetRejectedShowsResponse struct {
 	Body struct {
 		Shows []*contracts.ShowResponse `json:"shows"`
-		Total int64                    `json:"total"`
+		Total int64                     `json:"total"`
 	}
 }
 
@@ -112,7 +113,7 @@ type BatchApproveShowsRequest struct {
 // BatchApproveShowsResponse represents the HTTP response for batch approving shows
 type BatchApproveShowsResponse struct {
 	Body struct {
-		Approved int                      `json:"approved"`
+		Approved int                        `json:"approved"`
 		Errors   []contracts.BatchShowError `json:"errors"`
 	}
 }
@@ -129,7 +130,7 @@ type BatchRejectShowsRequest struct {
 // BatchRejectShowsResponse represents the HTTP response for batch rejecting shows
 type BatchRejectShowsResponse struct {
 	Body struct {
-		Rejected int                      `json:"rejected"`
+		Rejected int                        `json:"rejected"`
 		Errors   []contracts.BatchShowError `json:"errors"`
 	}
 }
@@ -138,7 +139,7 @@ type BatchRejectShowsResponse struct {
 func (h *AdminShowHandler) GetPendingShowsHandler(ctx context.Context, req *GetPendingShowsRequest) (*GetPendingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -205,7 +206,7 @@ func (h *AdminShowHandler) GetPendingShowsHandler(ctx context.Context, req *GetP
 	return &GetPendingShowsResponse{
 		Body: struct {
 			Shows []*contracts.ShowResponse `json:"shows"`
-			Total int64                    `json:"total"`
+			Total int64                     `json:"total"`
 		}{
 			Shows: shows,
 			Total: total,
@@ -217,7 +218,7 @@ func (h *AdminShowHandler) GetPendingShowsHandler(ctx context.Context, req *GetP
 func (h *AdminShowHandler) GetRejectedShowsHandler(ctx context.Context, req *GetRejectedShowsRequest) (*GetRejectedShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -262,7 +263,7 @@ func (h *AdminShowHandler) GetRejectedShowsHandler(ctx context.Context, req *Get
 	return &GetRejectedShowsResponse{
 		Body: struct {
 			Shows []*contracts.ShowResponse `json:"shows"`
-			Total int64                    `json:"total"`
+			Total int64                     `json:"total"`
 		}{
 			Shows: shows,
 			Total: total,
@@ -274,7 +275,7 @@ func (h *AdminShowHandler) GetRejectedShowsHandler(ctx context.Context, req *Get
 func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveShowRequest) (*ApproveShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -317,7 +318,7 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 	// Fire-and-forget: match notification filters for this newly approved show
 	if h.notificationFilterService != nil {
 		go func() {
-			showModel := &models.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: ptrString(show.Slug)}
+			showModel := &models.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
 			if show.City != nil {
 				showModel.City = show.City
 			}
@@ -345,7 +346,7 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 func (h *AdminShowHandler) RejectShowHandler(ctx context.Context, req *RejectShowRequest) (*RejectShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -398,7 +399,7 @@ func (h *AdminShowHandler) RejectShowHandler(ctx context.Context, req *RejectSho
 
 // BatchApproveShowsHandler handles POST /admin/shows/batch-approve
 func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *BatchApproveShowsRequest) (*BatchApproveShowsResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +424,7 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 				if err != nil || show == nil {
 					continue
 				}
-				showModel := &models.Show{ID: showID, Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: ptrString(show.Slug)}
+				showModel := &models.Show{ID: showID, Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
 				if show.City != nil {
 					showModel.City = show.City
 				}
@@ -448,7 +449,7 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 
 	return &BatchApproveShowsResponse{
 		Body: struct {
-			Approved int                      `json:"approved"`
+			Approved int                        `json:"approved"`
 			Errors   []contracts.BatchShowError `json:"errors"`
 		}{
 			Approved: len(result.Succeeded),
@@ -459,7 +460,7 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 
 // BatchRejectShowsHandler handles POST /admin/shows/batch-reject
 func (h *AdminShowHandler) BatchRejectShowsHandler(ctx context.Context, req *BatchRejectShowsRequest) (*BatchRejectShowsResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -491,7 +492,7 @@ func (h *AdminShowHandler) BatchRejectShowsHandler(ctx context.Context, req *Bat
 
 	return &BatchRejectShowsResponse{
 		Body: struct {
-			Rejected int                      `json:"rejected"`
+			Rejected int                        `json:"rejected"`
 			Errors   []contracts.BatchShowError `json:"errors"`
 		}{
 			Rejected: len(result.Succeeded),
@@ -521,7 +522,7 @@ type ImportShowPreviewResponse struct {
 func (h *AdminShowHandler) ImportShowPreviewHandler(ctx context.Context, req *ImportShowPreviewRequest) (*ImportShowPreviewResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -580,7 +581,7 @@ type ImportShowConfirmResponse struct {
 func (h *AdminShowHandler) ImportShowConfirmHandler(ctx context.Context, req *ImportShowConfirmRequest) (*ImportShowConfirmResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -650,7 +651,7 @@ type GetAdminShowsRequest struct {
 type GetAdminShowsResponse struct {
 	Body struct {
 		Shows []*contracts.ShowResponse `json:"shows"`
-		Total int64                    `json:"total"`
+		Total int64                     `json:"total"`
 	}
 }
 
@@ -659,7 +660,7 @@ type GetAdminShowsResponse struct {
 func (h *AdminShowHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdminShowsRequest) (*GetAdminShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -715,7 +716,7 @@ func (h *AdminShowHandler) GetAdminShowsHandler(ctx context.Context, req *GetAdm
 	return &GetAdminShowsResponse{
 		Body: struct {
 			Shows []*contracts.ShowResponse `json:"shows"`
-			Total int64                    `json:"total"`
+			Total int64                     `json:"total"`
 		}{
 			Shows: shows,
 			Total: total,
@@ -742,7 +743,7 @@ type BulkExportShowsResponse struct {
 func (h *AdminShowHandler) BulkExportShowsHandler(ctx context.Context, req *BulkExportShowsRequest) (*BulkExportShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -814,7 +815,7 @@ type BulkImportPreviewSummary struct {
 type BulkImportPreviewResponse struct {
 	Body struct {
 		Previews []contracts.ImportPreviewResponse `json:"previews"`
-		Summary  BulkImportPreviewSummary         `json:"summary"`
+		Summary  BulkImportPreviewSummary          `json:"summary"`
 	}
 }
 
@@ -823,7 +824,7 @@ type BulkImportPreviewResponse struct {
 func (h *AdminShowHandler) BulkImportPreviewHandler(ctx context.Context, req *BulkImportPreviewRequest) (*BulkImportPreviewResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -904,7 +905,7 @@ func (h *AdminShowHandler) BulkImportPreviewHandler(ctx context.Context, req *Bu
 	return &BulkImportPreviewResponse{
 		Body: struct {
 			Previews []contracts.ImportPreviewResponse `json:"previews"`
-			Summary  BulkImportPreviewSummary         `json:"summary"`
+			Summary  BulkImportPreviewSummary          `json:"summary"`
 		}{
 			Previews: previews,
 			Summary:  summary,
@@ -921,9 +922,9 @@ type BulkImportConfirmRequest struct {
 
 // BulkImportResult represents the result of importing a single show
 type BulkImportResult struct {
-	Success bool                   `json:"success"`
+	Success bool                    `json:"success"`
 	Show    *contracts.ShowResponse `json:"show,omitempty"`
-	Error   string                 `json:"error,omitempty"`
+	Error   string                  `json:"error,omitempty"`
 }
 
 // BulkImportConfirmResponse represents the HTTP response for bulk import confirmation
@@ -940,7 +941,7 @@ type BulkImportConfirmResponse struct {
 func (h *AdminShowHandler) BulkImportConfirmHandler(ctx context.Context, req *BulkImportConfirmRequest) (*BulkImportConfirmResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1024,4 +1025,3 @@ func (h *AdminShowHandler) BulkImportConfirmHandler(ctx context.Context, req *Bu
 		},
 	}, nil
 }
-

@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"testing"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -25,19 +26,19 @@ import (
 //     (`TestIsolatesAndUpcomingCount`).
 type VenueBillNetworkIntegrationSuite struct {
 	suite.Suite
-	deps *handlerIntegrationDeps
+	deps *testhelpers.IntegrationDeps
 }
 
 func (s *VenueBillNetworkIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 }
 
 func (s *VenueBillNetworkIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *VenueBillNetworkIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestVenueBillNetworkIntegration(t *testing.T) {
@@ -53,32 +54,32 @@ func TestVenueBillNetworkIntegration(t *testing.T) {
 // the response payload looks complete.
 func (s *VenueBillNetworkIntegrationSuite) seedArtist(name string) *models.Artist {
 	a := &models.Artist{Name: name}
-	s.deps.db.Create(a)
+	s.deps.DB.Create(a)
 	slug := name + "-slug"
-	s.deps.db.Model(a).Update("slug", slug)
+	s.deps.DB.Model(a).Update("slug", slug)
 	return a
 }
 
 // seedShowAtVenue mirrors the scene_graph_test helper — one approved show on
 // `eventDate` at `venue` with the given artist IDs in lineup order.
 func (s *VenueBillNetworkIntegrationSuite) seedShowAtVenue(eventDate time.Time, venue *models.Venue, artistIDs ...uint) uint {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	show := &models.Show{
 		Title:       "Show",
 		EventDate:   eventDate,
-		City:        stringPtr(venue.City),
-		State:       stringPtr(venue.State),
+		City:        testhelpers.StringPtr(venue.City),
+		State:       testhelpers.StringPtr(venue.State),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 	for i, aid := range artistIDs {
 		setType := "opener"
 		if i == 0 {
 			setType = "headliner"
 		}
-		s.deps.db.Exec(
+		s.deps.DB.Exec(
 			"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, ?, ?)",
 			show.ID, aid, i, setType,
 		)
@@ -92,16 +93,16 @@ func (s *VenueBillNetworkIntegrationSuite) seedShowAtVenue(eventDate time.Time, 
 // the handler can map it to huma.Error404NotFound consistently with the
 // other venue endpoints.
 func (s *VenueBillNetworkIntegrationSuite) TestVenueNotFound() {
-	_, err := s.deps.venueService.GetVenueBillNetwork(999_999, "all", nil)
+	_, err := s.deps.VenueService.GetVenueBillNetwork(999_999, "all", nil)
 	s.Require().Error(err)
 }
 
 // TestEmptyVenue: a venue with zero approved shows still resolves; the
 // payload arrays are non-nil empty so JSON is contract-stable.
 func (s *VenueBillNetworkIntegrationSuite) TestEmptyVenue() {
-	venue := createVerifiedVenue(s.deps.db, "Empty Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Empty Bar", "Phoenix", "AZ")
 
-	graph, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	graph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(venue.ID, graph.Venue.ID)
 	s.Equal("Phoenix", graph.Venue.City)
@@ -120,11 +121,11 @@ func (s *VenueBillNetworkIntegrationSuite) TestEmptyVenue() {
 // TestSingleShowNoCoBills: a venue with one show + one artist surfaces the
 // artist as an isolate (no co-bills). No edges, AtVenueShowCount=1.
 func (s *VenueBillNetworkIntegrationSuite) TestSingleShowNoCoBills() {
-	venue := createVerifiedVenue(s.deps.db, "Solo Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Solo Bar", "Phoenix", "AZ")
 	a := s.seedArtist("Solo")
 	s.seedShowAtVenue(time.Now().UTC().AddDate(0, -1, 0), venue, a.ID)
 
-	graph, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	graph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(1, graph.Venue.ArtistCount)
 	s.Equal(1, graph.Venue.ShowCount)
@@ -138,7 +139,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestSingleShowNoCoBills() {
 // shows at the venue (= 2) for an edge to surface. One shared show → no edge,
 // both artists are isolates. Two shared shows → edge surfaces.
 func (s *VenueBillNetworkIntegrationSuite) TestThreshold() {
-	venue := createVerifiedVenue(s.deps.db, "Threshold Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Threshold Bar", "Phoenix", "AZ")
 	a := s.seedArtist("Threshold-A")
 	b := s.seedArtist("Threshold-B")
 
@@ -146,7 +147,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestThreshold() {
 	// One shared show — below threshold.
 	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, a.ID, b.ID)
 
-	graph, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	graph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(0, graph.Venue.EdgeCount, "single shared show should not surface an edge (min=2)")
 	s.Empty(graph.Links)
@@ -156,7 +157,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestThreshold() {
 
 	// Add a second shared show — now above threshold.
 	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, a.ID, b.ID)
-	graph2, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	graph2, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(1, graph2.Venue.EdgeCount)
 	s.Require().Len(graph2.Links, 1)
@@ -177,8 +178,8 @@ func (s *VenueBillNetworkIntegrationSuite) TestThreshold() {
 // different venues. The bill-network for venue A must only count the shows
 // AT venue A in the edge weight — not the global pair count.
 func (s *VenueBillNetworkIntegrationSuite) TestCrossVenueLeakagePrevented() {
-	venueA := createVerifiedVenue(s.deps.db, "Venue A", "Phoenix", "AZ")
-	venueB := createVerifiedVenue(s.deps.db, "Venue B", "Phoenix", "AZ")
+	venueA := testhelpers.CreateVerifiedVenue(s.deps.DB, "Venue A", "Phoenix", "AZ")
+	venueB := testhelpers.CreateVerifiedVenue(s.deps.DB, "Venue B", "Phoenix", "AZ")
 
 	a := s.seedArtist("Cross-A")
 	b := s.seedArtist("Cross-B")
@@ -192,14 +193,14 @@ func (s *VenueBillNetworkIntegrationSuite) TestCrossVenueLeakagePrevented() {
 	s.seedShowAtVenue(now.AddDate(0, -4, 0), venueB, a.ID, b.ID)
 	s.seedShowAtVenue(now.AddDate(0, -5, 0), venueB, a.ID, b.ID)
 
-	graphA, err := s.deps.venueService.GetVenueBillNetwork(venueA.ID, "all", nil)
+	graphA, err := s.deps.VenueService.GetVenueBillNetwork(venueA.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(2, graphA.Venue.ShowCount)
 	s.Require().Len(graphA.Links, 1)
 	detailA := graphA.Links[0].Detail.(map[string]any)
 	s.Equal(2, detailA["shared_count"], "edge weight at venue A is AT-A count, not global")
 
-	graphB, err := s.deps.venueService.GetVenueBillNetwork(venueB.ID, "all", nil)
+	graphB, err := s.deps.VenueService.GetVenueBillNetwork(venueB.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(3, graphB.Venue.ShowCount)
 	s.Require().Len(graphB.Links, 1)
@@ -211,7 +212,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestCrossVenueLeakagePrevented() {
 // edge counts. A pair with two shared shows OUTSIDE the window must not
 // surface as an edge in the windowed view.
 func (s *VenueBillNetworkIntegrationSuite) TestWindowFilter() {
-	venue := createVerifiedVenue(s.deps.db, "Window Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Window Bar", "Phoenix", "AZ")
 	a := s.seedArtist("Win-A")
 	b := s.seedArtist("Win-B")
 
@@ -220,11 +221,11 @@ func (s *VenueBillNetworkIntegrationSuite) TestWindowFilter() {
 	s.seedShowAtVenue(now.AddDate(-2, 0, 0), venue, a.ID, b.ID)
 	s.seedShowAtVenue(now.AddDate(-2, -1, 0), venue, a.ID, b.ID)
 
-	all, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	all, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(1, all.Venue.EdgeCount, "all-time should surface the edge")
 
-	last12m, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "12m", nil)
+	last12m, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "12m", nil)
 	s.Require().NoError(err)
 	s.Equal("last_12m", last12m.Venue.Window)
 	s.Equal(0, last12m.Venue.EdgeCount, "12m window should exclude shows from 2 years ago")
@@ -234,7 +235,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestWindowFilter() {
 	// later than them — both scopes should be zero.
 	currentYear := now.Year()
 	yr := currentYear
-	currentYrGraph, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "year", &yr)
+	currentYrGraph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "year", &yr)
 	s.Require().NoError(err)
 	s.Equal("year", currentYrGraph.Venue.Window)
 	s.Require().NotNil(currentYrGraph.Venue.Year)
@@ -243,7 +244,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestWindowFilter() {
 
 	// The actual seeded year (2 years ago) should surface the edge.
 	twoYearsAgo := now.AddDate(-2, 0, 0).Year()
-	twoAgoGraph, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "year", &twoYearsAgo)
+	twoAgoGraph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "year", &twoYearsAgo)
 	s.Require().NoError(err)
 	s.Equal(1, twoAgoGraph.Venue.EdgeCount, "year=%d should surface the seeded edge", twoYearsAgo)
 }
@@ -252,7 +253,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestWindowFilter() {
 // gracefully to "all" rather than 500ing or returning empty — same posture
 // as the scene-graph types allowlist.
 func (s *VenueBillNetworkIntegrationSuite) TestUnknownWindowFallsBackToAll() {
-	venue := createVerifiedVenue(s.deps.db, "Unknown Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Unknown Bar", "Phoenix", "AZ")
 	a := s.seedArtist("Unk-A")
 	b := s.seedArtist("Unk-B")
 
@@ -260,7 +261,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestUnknownWindowFallsBackToAll() {
 	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, a.ID, b.ID)
 	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, a.ID, b.ID)
 
-	graph, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "garbage", nil)
+	graph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "garbage", nil)
 	s.Require().NoError(err)
 	s.Equal("all_time", graph.Venue.Window, "unknown window should normalize to all-time")
 	s.Equal(1, graph.Venue.EdgeCount)
@@ -270,20 +271,20 @@ func (s *VenueBillNetworkIntegrationSuite) TestUnknownWindowFallsBackToAll() {
 // distinct co-bill pairs (k(k-1)/2). With one show, none of those pairs hit
 // the threshold; with two shows they all do.
 func (s *VenueBillNetworkIntegrationSuite) TestMultiArtistShow() {
-	venue := createVerifiedVenue(s.deps.db, "Trio Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Trio Bar", "Phoenix", "AZ")
 	a := s.seedArtist("Trio-A")
 	b := s.seedArtist("Trio-B")
 	c := s.seedArtist("Trio-C")
 
 	now := time.Now().UTC()
 	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, a.ID, b.ID, c.ID)
-	graph, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	graph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(3, graph.Venue.ArtistCount)
 	s.Equal(0, graph.Venue.EdgeCount, "one show below threshold (=2)")
 
 	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, a.ID, b.ID, c.ID)
-	graph2, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	graph2, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Equal(3, graph2.Venue.EdgeCount, "k(k-1)/2 = 3 pairs all above threshold after 2 shared shows")
 	for _, n := range graph2.Nodes {
@@ -295,8 +296,8 @@ func (s *VenueBillNetworkIntegrationSuite) TestMultiArtistShow() {
 // (single-headliner shows) is an isolate; UpcomingShowCount tracks future
 // approved shows globally (not just at this venue).
 func (s *VenueBillNetworkIntegrationSuite) TestIsolatesAndUpcomingCount() {
-	venue := createVerifiedVenue(s.deps.db, "Iso Bar", "Phoenix", "AZ")
-	otherVenue := createVerifiedVenue(s.deps.db, "Other Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Iso Bar", "Phoenix", "AZ")
+	otherVenue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Other Bar", "Phoenix", "AZ")
 	a := s.seedArtist("Iso")
 
 	now := time.Now().UTC()
@@ -306,7 +307,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestIsolatesAndUpcomingCount() {
 	// not the at-venue count.
 	s.seedShowAtVenue(now.AddDate(0, 1, 0), otherVenue, a.ID)
 
-	graph, err := s.deps.venueService.GetVenueBillNetwork(venue.ID, "all", nil)
+	graph, err := s.deps.VenueService.GetVenueBillNetwork(venue.ID, "all", nil)
 	s.Require().NoError(err)
 	s.Require().Len(graph.Nodes, 1)
 	s.True(graph.Nodes[0].IsIsolate)

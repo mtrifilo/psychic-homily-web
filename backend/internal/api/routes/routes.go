@@ -13,7 +13,14 @@ import (
 	"github.com/go-chi/httprate"
 
 	appdb "psychic-homily-backend/db"
-	"psychic-homily-backend/internal/api/handlers"
+	adminh "psychic-homily-backend/internal/api/handlers/admin"
+	authh "psychic-homily-backend/internal/api/handlers/auth"
+	catalogh "psychic-homily-backend/internal/api/handlers/catalog"
+	communityh "psychic-homily-backend/internal/api/handlers/community"
+	engagementh "psychic-homily-backend/internal/api/handlers/engagement"
+	notificationh "psychic-homily-backend/internal/api/handlers/notification"
+	pipelineh "psychic-homily-backend/internal/api/handlers/pipeline"
+	systemh "psychic-homily-backend/internal/api/handlers/system"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
@@ -60,7 +67,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupAuthRoutes(rc)
 
 	// Add protected auth routes
-	authHandler := handlers.NewAuthHandler(sc.Auth, sc.JWT, sc.User, sc.Email, sc.Discord, sc.PasswordValidator, cfg)
+	authHandler := authh.NewAuthHandler(sc.Auth, sc.JWT, sc.User, sc.Email, sc.Discord, sc.PasswordValidator, cfg)
 	huma.Get(protectedGroup, "/auth/profile", authHandler.GetProfileHandler)
 	huma.Patch(protectedGroup, "/auth/profile", authHandler.UpdateProfileHandler)
 	huma.Post(protectedGroup, "/auth/verify-email/send", authHandler.SendVerificationEmailHandler)
@@ -82,12 +89,12 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	huma.Post(protectedGroup, "/auth/cli-token", authHandler.GenerateCLITokenHandler)
 
 	// OAuth account management endpoints
-	oauthAccountHandler := handlers.NewOAuthAccountHandler(sc.User)
+	oauthAccountHandler := authh.NewOAuthAccountHandler(sc.User)
 	huma.Get(protectedGroup, "/auth/oauth/accounts", oauthAccountHandler.GetOAuthAccountsHandler)
 	huma.Delete(protectedGroup, "/auth/oauth/accounts/{provider}", oauthAccountHandler.UnlinkOAuthAccountHandler)
 
 	// User preferences endpoints
-	userPrefsHandler := handlers.NewUserPreferencesHandler(sc.User, cfg.JWT.SecretKey)
+	userPrefsHandler := authh.NewUserPreferencesHandler(sc.User, cfg.JWT.SecretKey)
 	huma.Put(protectedGroup, "/auth/preferences/favorite-cities", userPrefsHandler.SetFavoriteCitiesHandler)
 	huma.Patch(protectedGroup, "/auth/preferences/show-reminders", userPrefsHandler.SetShowRemindersHandler)
 	// PSY-296: default reply permission applied to new top-level comments.
@@ -166,8 +173,8 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 
 // setupAuthRoutes configures all authentication-related endpoints
 func setupAuthRoutes(rc RouteContext) {
-	authHandler := handlers.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
-	oauthHTTPHandler := handlers.NewOAuthHTTPHandler(rc.SC.Auth, rc.Cfg)
+	authHandler := authh.NewAuthHandler(rc.SC.Auth, rc.SC.JWT, rc.SC.User, rc.SC.Email, rc.SC.Discord, rc.SC.PasswordValidator, rc.Cfg)
+	oauthHTTPHandler := authh.NewOAuthHTTPHandler(rc.SC.Auth, rc.Cfg)
 
 	// Create rate limiter for auth endpoints: 10 requests per minute per IP
 	// This helps prevent:
@@ -215,7 +222,7 @@ func setupAuthRoutes(rc RouteContext) {
 		huma.Post(rateLimitedAPI, "/auth/magic-link/verify", authHandler.VerifyMagicLinkHandler)
 
 		// Sign in with Apple (public, rate-limited)
-		appleAuthHandler := handlers.NewAppleAuthHandler(rc.SC.AppleAuth, rc.SC.Discord, rc.Cfg)
+		appleAuthHandler := authh.NewAppleAuthHandler(rc.SC.AppleAuth, rc.SC.Discord, rc.Cfg)
 		huma.Post(rateLimitedAPI, "/auth/apple/callback", appleAuthHandler.AppleCallbackHandler)
 
 		// Account recovery endpoints (public, rate-limited)
@@ -231,7 +238,7 @@ func setupAuthRoutes(rc RouteContext) {
 // setupSystemRoutes configures system/infrastructure endpoints
 func setupSystemRoutes(rc RouteContext) {
 	// Health check endpoint
-	huma.Get(rc.API, "/health", handlers.HealthHandler)
+	huma.Get(rc.API, "/health", systemh.HealthHandler)
 
 	// OpenAPI specification endpoint
 	api := rc.API
@@ -248,7 +255,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 		return
 	}
 
-	passkeyHandler := handlers.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.Cfg)
+	passkeyHandler := authh.NewPasskeyHandler(rc.SC.WebAuthn, rc.SC.JWT, rc.SC.User, rc.Cfg)
 
 	// Create rate limiter for passkey endpoints: 20 requests per minute per IP
 	// Slightly more lenient than auth due to multi-step WebAuthn flow.
@@ -292,7 +299,7 @@ func setupPasskeyRoutes(rc RouteContext) {
 
 // setupShowRoutes configures all show-related endpoints
 func setupShowRoutes(rc RouteContext) {
-	showHandler := handlers.NewShowHandler(rc.SC.Show, rc.SC.Show, rc.SC.Show, rc.SC.SavedShow, rc.SC.Discord, rc.SC.MusicDiscovery, rc.SC.Extraction)
+	showHandler := catalogh.NewShowHandler(rc.SC.Show, rc.SC.Show, rc.SC.Show, rc.SC.SavedShow, rc.SC.Discord, rc.SC.MusicDiscovery, rc.SC.Extraction)
 
 	// Public show endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -352,7 +359,7 @@ func setupShowRoutes(rc RouteContext) {
 }
 
 func setupArtistRoutes(rc RouteContext) {
-	artistHandler := handlers.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
+	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
 
 	// Public artist endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -374,7 +381,7 @@ func setupArtistRoutes(rc RouteContext) {
 }
 
 func setupReleaseRoutes(rc RouteContext) {
-	releaseHandler := handlers.NewReleaseHandler(rc.SC.Release, rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
+	releaseHandler := catalogh.NewReleaseHandler(rc.SC.Release, rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
 
 	// Public release endpoints
 	// Note: Static routes must come before parameterized routes
@@ -392,7 +399,7 @@ func setupReleaseRoutes(rc RouteContext) {
 }
 
 func setupLabelRoutes(rc RouteContext) {
-	labelHandler := handlers.NewLabelHandler(rc.SC.Label, rc.SC.AuditLog, rc.SC.Revision)
+	labelHandler := catalogh.NewLabelHandler(rc.SC.Label, rc.SC.AuditLog, rc.SC.Revision)
 
 	// Public label endpoints
 	// Note: Static routes must come before parameterized routes
@@ -411,7 +418,7 @@ func setupLabelRoutes(rc RouteContext) {
 }
 
 func setupFestivalRoutes(rc RouteContext) {
-	festivalHandler := handlers.NewFestivalHandler(rc.SC.Festival, rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
+	festivalHandler := catalogh.NewFestivalHandler(rc.SC.Festival, rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
 
 	// Public festival endpoints
 	// Note: Static routes must come before parameterized routes
@@ -423,7 +430,7 @@ func setupFestivalRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/artists/{artist_id}/festivals", festivalHandler.GetArtistFestivalsHandler)
 
 	// Festival intelligence endpoints (public, computed from existing data)
-	intelHandler := handlers.NewFestivalIntelligenceHandler(rc.SC.FestivalIntelligence, rc.SC.Festival, rc.SC.Artist)
+	intelHandler := catalogh.NewFestivalIntelligenceHandler(rc.SC.FestivalIntelligence, rc.SC.Festival, rc.SC.Artist)
 	huma.Get(rc.API, "/festivals/{festival_id}/similar", intelHandler.GetSimilarFestivalsHandler)
 	huma.Get(rc.API, "/festivals/{festival_a_id}/overlap/{festival_b_id}", intelHandler.GetFestivalOverlapHandler)
 	huma.Get(rc.API, "/festivals/{festival_id}/breakouts", intelHandler.GetFestivalBreakoutsHandler)
@@ -442,7 +449,7 @@ func setupFestivalRoutes(rc RouteContext) {
 }
 
 func setupVenueRoutes(rc RouteContext) {
-	venueHandler := handlers.NewVenueHandler(rc.SC.Venue, rc.SC.Discord, rc.SC.AuditLog, rc.SC.Revision)
+	venueHandler := catalogh.NewVenueHandler(rc.SC.Venue, rc.SC.Discord, rc.SC.AuditLog, rc.SC.Revision)
 
 	// Public venue endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
@@ -462,7 +469,7 @@ func setupVenueRoutes(rc RouteContext) {
 
 // setupCalendarRoutes configures calendar feed and token management endpoints
 func setupCalendarRoutes(rc RouteContext) {
-	calendarHandler := handlers.NewCalendarHandler(rc.SC.Calendar, rc.Cfg)
+	calendarHandler := engagementh.NewCalendarHandler(rc.SC.Calendar, rc.Cfg)
 
 	// Public Chi route for ICS feed (token-authenticated, not JWT)
 	rc.Router.Get("/calendar/{token}", calendarHandler.GetCalendarFeedHandler)
@@ -476,7 +483,7 @@ func setupCalendarRoutes(rc RouteContext) {
 // setupSavedShowRoutes configures saved show endpoints (user's personal "My List")
 // All endpoints require authentication via protected group
 func setupSavedShowRoutes(rc RouteContext) {
-	savedShowHandler := handlers.NewSavedShowHandler(rc.SC.SavedShow)
+	savedShowHandler := engagementh.NewSavedShowHandler(rc.SC.SavedShow)
 
 	// Protected saved show endpoints
 	huma.Post(rc.Protected, "/saved-shows/{show_id}", savedShowHandler.SaveShowHandler)
@@ -489,7 +496,7 @@ func setupSavedShowRoutes(rc RouteContext) {
 // setupFavoriteVenueRoutes configures favorite venue endpoints
 // All endpoints require authentication via protected group
 func setupFavoriteVenueRoutes(rc RouteContext) {
-	favoriteVenueHandler := handlers.NewFavoriteVenueHandler(rc.SC.FavoriteVenue)
+	favoriteVenueHandler := engagementh.NewFavoriteVenueHandler(rc.SC.FavoriteVenue)
 
 	// Protected favorite venue endpoints
 	huma.Post(rc.Protected, "/favorite-venues/{venue_id}", favoriteVenueHandler.FavoriteVenueHandler)
@@ -502,7 +509,7 @@ func setupFavoriteVenueRoutes(rc RouteContext) {
 // setupShowReportRoutes configures show report endpoints
 // All endpoints require authentication via protected group
 func setupShowReportRoutes(rc RouteContext) {
-	showReportHandler := handlers.NewShowReportHandler(rc.SC.ShowReport, rc.SC.Discord, rc.SC.User, rc.SC.AuditLog)
+	showReportHandler := communityh.NewShowReportHandler(rc.SC.ShowReport, rc.SC.Discord, rc.SC.User, rc.SC.AuditLog)
 
 	// Rate-limited report submission: 5 requests per minute per IP
 	// Prevents spamming admins with reports
@@ -530,7 +537,7 @@ func setupShowReportRoutes(rc RouteContext) {
 
 // setupArtistReportRoutes configures artist report endpoints
 func setupArtistReportRoutes(rc RouteContext) {
-	artistReportHandler := handlers.NewArtistReportHandler(rc.SC.ArtistReport, rc.SC.Discord, rc.SC.User, rc.SC.AuditLog)
+	artistReportHandler := communityh.NewArtistReportHandler(rc.SC.ArtistReport, rc.SC.Discord, rc.SC.User, rc.SC.AuditLog)
 
 	// Rate-limited report submission: 5 requests per minute per IP
 	rc.Router.Group(func(r chi.Router) {
@@ -559,19 +566,19 @@ func setupArtistReportRoutes(rc RouteContext) {
 // Note: Admin check is performed inside handlers, JWT auth is required via protected group
 func setupAdminRoutes(rc RouteContext) {
 	// Domain-specific admin handlers
-	statsHandler := handlers.NewAdminStatsHandler(rc.SC.AdminStats)
-	showHandler := handlers.NewAdminShowHandler(
+	statsHandler := adminh.NewAdminStatsHandler(rc.SC.AdminStats)
+	showHandler := adminh.NewAdminShowHandler(
 		rc.SC.Show, rc.SC.Show, rc.SC.Show, rc.SC.Discord, rc.SC.AuditLog, rc.SC.NotificationFilter,
 		rc.SC.MusicDiscovery,
 	)
-	venueHandler := handlers.NewAdminVenueHandler(rc.SC.Venue, rc.SC.AuditLog)
-	userHandler := handlers.NewAdminUserHandler(rc.SC.User)
-	tokenHandler := handlers.NewAdminTokenHandler(rc.SC.APIToken)
-	dataHandler := handlers.NewAdminDataHandler(rc.SC.DataSync)
-	discoveryHandler := handlers.NewAdminDiscoveryHandler(rc.SC.Discovery)
+	venueHandler := adminh.NewAdminVenueHandler(rc.SC.Venue, rc.SC.AuditLog)
+	userHandler := adminh.NewAdminUserHandler(rc.SC.User)
+	tokenHandler := adminh.NewAdminTokenHandler(rc.SC.APIToken)
+	dataHandler := adminh.NewAdminDataHandler(rc.SC.DataSync)
+	discoveryHandler := pipelineh.NewAdminDiscoveryHandler(rc.SC.Discovery)
 
-	artistHandler := handlers.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
-	auditLogHandler := handlers.NewAuditLogHandler(rc.SC.AuditLog)
+	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
+	auditLogHandler := adminh.NewAuditLogHandler(rc.SC.AuditLog)
 
 	// Admin dashboard stats endpoint
 	huma.Get(rc.Protected, "/admin/stats", statsHandler.GetAdminStatsHandler)
@@ -629,17 +636,17 @@ func setupAdminRoutes(rc RouteContext) {
 	huma.Get(rc.Protected, "/admin/users", userHandler.GetAdminUsersHandler)
 
 	// Admin data quality endpoints
-	dataQualityHandler := handlers.NewDataQualityHandler(rc.SC.DataQuality)
+	dataQualityHandler := adminh.NewDataQualityHandler(rc.SC.DataQuality)
 	huma.Get(rc.Protected, "/admin/data-quality", dataQualityHandler.GetDataQualitySummaryHandler)
 	huma.Get(rc.Protected, "/admin/data-quality/{category}", dataQualityHandler.GetDataQualityCategoryHandler)
 
 	// Admin auto-promotion endpoints (manual trigger for tier evaluation)
-	autoPromotionHandler := handlers.NewAutoPromotionHandler(rc.SC.AutoPromotion)
+	autoPromotionHandler := adminh.NewAutoPromotionHandler(rc.SC.AutoPromotion)
 	huma.Post(rc.Protected, "/admin/auto-promotion/evaluate", autoPromotionHandler.EvaluateAllUsersHandler)
 	huma.Get(rc.Protected, "/admin/auto-promotion/evaluate/{user_id}", autoPromotionHandler.EvaluateUserHandler)
 
 	// Admin analytics endpoints
-	analyticsHandler := handlers.NewAnalyticsHandler(rc.SC.Analytics)
+	analyticsHandler := adminh.NewAnalyticsHandler(rc.SC.Analytics)
 	huma.Get(rc.Protected, "/admin/analytics/growth", analyticsHandler.GetGrowthMetricsHandler)
 	huma.Get(rc.Protected, "/admin/analytics/engagement", analyticsHandler.GetEngagementMetricsHandler)
 	huma.Get(rc.Protected, "/admin/analytics/community", analyticsHandler.GetCommunityHealthHandler)
@@ -648,7 +655,7 @@ func setupAdminRoutes(rc RouteContext) {
 
 // setupContributorProfileRoutes configures contributor profile endpoints
 func setupContributorProfileRoutes(rc RouteContext) {
-	profileHandler := handlers.NewContributorProfileHandler(rc.SC.ContributorProfile, rc.SC.User)
+	profileHandler := communityh.NewContributorProfileHandler(rc.SC.ContributorProfile, rc.SC.User)
 
 	// Public profile endpoints with optional auth (so profile owner can see their own private profile)
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -673,7 +680,7 @@ func setupContributorProfileRoutes(rc RouteContext) {
 // setupPipelineRoutes configures AI extraction pipeline admin endpoints.
 // Admin check is performed inside handlers, JWT auth is required via protected group.
 func setupPipelineRoutes(rc RouteContext) {
-	pipelineHandler := handlers.NewPipelineHandler(rc.SC.Pipeline, rc.SC.VenueSourceConfig, rc.SC.Enrichment)
+	pipelineHandler := pipelineh.NewPipelineHandler(rc.SC.Pipeline, rc.SC.VenueSourceConfig, rc.SC.Enrichment)
 
 	huma.Post(rc.Protected, "/admin/pipeline/extract/{venue_id}", pipelineHandler.ExtractVenueHandler)
 	huma.Get(rc.Protected, "/admin/pipeline/imports", pipelineHandler.GetImportHistoryHandler)
@@ -692,7 +699,7 @@ func setupPipelineRoutes(rc RouteContext) {
 // Public endpoints use optional auth (for private collection access checks).
 // CRUD, item management, and subscription endpoints require authentication.
 func setupCollectionRoutes(rc RouteContext) {
-	collectionHandler := handlers.NewCollectionHandler(rc.SC.Collection, rc.SC.AuditLog)
+	collectionHandler := communityh.NewCollectionHandler(rc.SC.Collection, rc.SC.AuditLog)
 
 	// Public collection endpoints with optional auth
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -744,7 +751,7 @@ func setupCollectionRoutes(rc RouteContext) {
 	// PSY-352: collection like/unlike. Idempotent — POST creates or no-ops if
 	// already liked, DELETE removes or no-ops if not liked. Returns the
 	// post-mutation aggregate count + caller's like state.
-	collectionLikeHandler := handlers.NewCollectionLikeHandler(rc.SC.Collection)
+	collectionLikeHandler := communityh.NewCollectionLikeHandler(rc.SC.Collection)
 	huma.Post(rc.Protected, "/collections/{slug}/like", collectionLikeHandler.LikeCollectionHandler)
 	huma.Delete(rc.Protected, "/collections/{slug}/like", collectionLikeHandler.UnlikeCollectionHandler)
 	huma.Post(rc.Protected, "/crates/{slug}/like", collectionLikeHandler.LikeCollectionHandler)
@@ -775,7 +782,7 @@ func setupCollectionRoutes(rc RouteContext) {
 // Public endpoints use optional auth (so authenticated users see their vote).
 // CRUD, voting, fulfillment, and closing require authentication.
 func setupRequestRoutes(rc RouteContext) {
-	requestHandler := handlers.NewRequestHandler(rc.SC.Request, rc.SC.AuditLog)
+	requestHandler := communityh.NewRequestHandler(rc.SC.Request, rc.SC.AuditLog)
 
 	// Public request endpoints with optional auth (to include user's vote)
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -796,7 +803,7 @@ func setupRequestRoutes(rc RouteContext) {
 // setupRevisionRoutes configures revision history endpoints.
 // Public endpoints for viewing history; admin endpoint for rollback.
 func setupRevisionRoutes(rc RouteContext) {
-	revisionHandler := handlers.NewRevisionHandler(rc.SC.Revision, rc.SC.AuditLog)
+	revisionHandler := adminh.NewRevisionHandler(rc.SC.Revision, rc.SC.AuditLog)
 
 	// Public revision endpoints
 	huma.Get(rc.API, "/revisions/{entity_type}/{entity_id}", revisionHandler.GetEntityHistoryHandler)
@@ -811,7 +818,7 @@ func setupRevisionRoutes(rc RouteContext) {
 // Public endpoints for browsing tags. Optional auth for entity tags (user's vote).
 // Protected endpoints for tagging and voting. Admin endpoints for tag CRUD and aliases.
 func setupTagRoutes(rc RouteContext) {
-	tagHandler := handlers.NewTagHandler(rc.SC.Tag, rc.SC.AuditLog)
+	tagHandler := catalogh.NewTagHandler(rc.SC.Tag, rc.SC.AuditLog)
 
 	// Public tag endpoints
 	huma.Get(rc.API, "/tags", tagHandler.ListTagsHandler)
@@ -885,7 +892,7 @@ func setupTagRoutes(rc RouteContext) {
 
 // setupArtistRelationshipRoutes configures artist relationship and similar artist endpoints.
 func setupArtistRelationshipRoutes(rc RouteContext) {
-	relHandler := handlers.NewArtistRelationshipHandler(rc.SC.ArtistRelationship, rc.SC.AuditLog)
+	relHandler := catalogh.NewArtistRelationshipHandler(rc.SC.ArtistRelationship, rc.SC.AuditLog)
 
 	// Public: get related artists with optional auth (for user's votes)
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -909,7 +916,7 @@ func setupArtistRelationshipRoutes(rc RouteContext) {
 // setupSceneRoutes configures scene (city aggregation) endpoints.
 // All endpoints are public — no authentication required.
 func setupSceneRoutes(rc RouteContext) {
-	sceneHandler := handlers.NewSceneHandler(rc.SC.Scene)
+	sceneHandler := catalogh.NewSceneHandler(rc.SC.Scene)
 
 	huma.Get(rc.API, "/scenes", sceneHandler.ListScenesHandler)
 	huma.Get(rc.API, "/scenes/{slug}", sceneHandler.GetSceneDetailHandler)
@@ -922,7 +929,7 @@ func setupSceneRoutes(rc RouteContext) {
 // Public endpoints use optional auth (counts always available; user status if authenticated).
 // Set/remove attendance requires authentication.
 func setupAttendanceRoutes(rc RouteContext) {
-	attendanceHandler := handlers.NewAttendanceHandler(rc.SC.Attendance)
+	attendanceHandler := engagementh.NewAttendanceHandler(rc.SC.Attendance)
 
 	// Public endpoints with optional auth (counts + user status if authenticated)
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -940,7 +947,7 @@ func setupAttendanceRoutes(rc RouteContext) {
 // Follow/unfollow requires authentication. Follower counts use optional auth
 // (counts always available; user follow status if authenticated).
 func setupFollowRoutes(rc RouteContext) {
-	followHandler := handlers.NewFollowHandler(rc.SC.Follow)
+	followHandler := engagementh.NewFollowHandler(rc.SC.Follow)
 
 	// Optional auth group for public follower counts/lists
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -966,7 +973,7 @@ func setupFollowRoutes(rc RouteContext) {
 // setupNotificationFilterRoutes configures notification filter and notification log endpoints.
 // CRUD and notifications require authentication. Unsubscribe is public (HMAC-signed).
 func setupNotificationFilterRoutes(rc RouteContext) {
-	filterHandler := handlers.NewNotificationFilterHandler(rc.SC.NotificationFilter, rc.Cfg.JWT.SecretKey)
+	filterHandler := notificationh.NewNotificationFilterHandler(rc.SC.NotificationFilter, rc.Cfg.JWT.SecretKey)
 
 	// Protected: filter CRUD
 	huma.Get(rc.Protected, "/me/notification-filters", filterHandler.ListFiltersHandler)
@@ -985,7 +992,7 @@ func setupNotificationFilterRoutes(rc RouteContext) {
 // setupChartsRoutes configures public top charts endpoints.
 // All endpoints are public — no authentication required.
 func setupChartsRoutes(rc RouteContext) {
-	chartsHandler := handlers.NewChartsHandler(rc.SC.Charts)
+	chartsHandler := catalogh.NewChartsHandler(rc.SC.Charts)
 
 	huma.Get(rc.API, "/charts/trending-shows", chartsHandler.GetTrendingShowsHandler)
 	huma.Get(rc.API, "/charts/popular-artists", chartsHandler.GetPopularArtistsHandler)
@@ -1041,7 +1048,7 @@ func rateLimitHandler(w http.ResponseWriter, r *http.Request) {
 // Protected endpoints for suggesting edits and managing own edits.
 // Admin endpoints for reviewing, approving, and rejecting edits.
 func setupPendingEditRoutes(rc RouteContext) {
-	pendingEditHandler := handlers.NewPendingEditHandler(rc.SC.PendingEdit, rc.SC.AuditLog)
+	pendingEditHandler := adminh.NewPendingEditHandler(rc.SC.PendingEdit, rc.SC.AuditLog)
 
 	// Protected: suggest edits (creates pending or auto-applies for trusted users)
 	huma.Put(rc.Protected, "/artists/{entity_id}/suggest-edit", pendingEditHandler.SuggestArtistEditHandler)
@@ -1066,7 +1073,7 @@ func setupPendingEditRoutes(rc RouteContext) {
 // Protected endpoints for submitting reports.
 // Admin endpoints for reviewing, resolving, and dismissing reports.
 func setupEntityReportRoutes(rc RouteContext) {
-	entityReportHandler := handlers.NewEntityReportHandler(rc.SC.EntityReport, rc.SC.AuditLog)
+	entityReportHandler := communityh.NewEntityReportHandler(rc.SC.EntityReport, rc.SC.AuditLog)
 
 	// Rate-limited report submission: 5 requests per minute per IP
 	rc.Router.Group(func(r chi.Router) {
@@ -1098,7 +1105,7 @@ func setupEntityReportRoutes(rc RouteContext) {
 
 // setupContributeRoutes configures public contribution opportunity endpoints.
 func setupContributeRoutes(rc RouteContext) {
-	contributeHandler := handlers.NewContributeHandler(rc.SC.DataQuality)
+	contributeHandler := communityh.NewContributeHandler(rc.SC.DataQuality)
 	huma.Get(rc.API, "/contribute/opportunities", contributeHandler.GetOpportunitiesHandler)
 	huma.Get(rc.API, "/contribute/opportunities/{category}", contributeHandler.GetOpportunityCategoryHandler)
 }
@@ -1106,7 +1113,7 @@ func setupContributeRoutes(rc RouteContext) {
 // setupLeaderboardRoutes configures public contributor leaderboard endpoints.
 // Uses optional auth to include the requesting user's rank when authenticated.
 func setupLeaderboardRoutes(rc RouteContext) {
-	leaderboardHandler := handlers.NewLeaderboardHandler(rc.SC.Leaderboard)
+	leaderboardHandler := communityh.NewLeaderboardHandler(rc.SC.Leaderboard)
 
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
 	optionalAuthGroup.UseMiddleware(middleware.OptionalHumaJWTMiddleware(rc.SC.JWT))
@@ -1116,13 +1123,13 @@ func setupLeaderboardRoutes(rc RouteContext) {
 
 // setupDataGapsRoutes configures entity data-gap detection endpoints (protected).
 func setupDataGapsRoutes(rc RouteContext) {
-	dataGapsHandler := handlers.NewDataGapsHandler(rc.SC.Artist, rc.SC.Venue, rc.SC.Festival, rc.SC.Release, rc.SC.Label)
+	dataGapsHandler := adminh.NewDataGapsHandler(rc.SC.Artist, rc.SC.Venue, rc.SC.Festival, rc.SC.Release, rc.SC.Label)
 	huma.Get(rc.Protected, "/entities/{entity_type}/{id_or_slug}/data-gaps", dataGapsHandler.GetDataGapsHandler)
 }
 
 // setupRadioRoutes configures radio entity endpoints (stations, shows, episodes, plays).
 func setupRadioRoutes(rc RouteContext) {
-	radioHandler := handlers.NewRadioHandler(rc.SC.Radio, rc.SC.Artist, rc.SC.Release, rc.SC.AuditLog)
+	radioHandler := catalogh.NewRadioHandler(rc.SC.Radio, rc.SC.Artist, rc.SC.Release, rc.SC.AuditLog)
 
 	// Public radio station endpoints
 	huma.Get(rc.API, "/radio-stations", radioHandler.ListRadioStationsHandler)
@@ -1174,8 +1181,8 @@ func setupRadioRoutes(rc RouteContext) {
 // Protected routes require authentication.
 // Admin routes require admin privileges.
 func setupCommentRoutes(rc RouteContext) {
-	commentHandler := handlers.NewCommentHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.CommentVote, rc.SC.AuditLog)
-	commentAdminHandler := handlers.NewCommentAdminHandler(rc.SC.Comment, rc.SC.AuditLog)
+	commentHandler := engagementh.NewCommentHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.CommentVote, rc.SC.AuditLog)
+	commentAdminHandler := engagementh.NewCommentAdminHandler(rc.SC.Comment, rc.SC.AuditLog)
 
 	// Public: list comments, get comment, get thread
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -1206,7 +1213,7 @@ func setupCommentRoutes(rc RouteContext) {
 
 // setupCommentVoteRoutes configures comment voting endpoints.
 func setupCommentVoteRoutes(rc RouteContext) {
-	commentVoteHandler := handlers.NewCommentVoteHandler(rc.SC.CommentVote)
+	commentVoteHandler := engagementh.NewCommentVoteHandler(rc.SC.CommentVote)
 
 	// Protected: vote and unvote on comments
 	huma.Post(rc.Protected, "/comments/{comment_id}/vote", commentVoteHandler.VoteCommentHandler)
@@ -1215,7 +1222,7 @@ func setupCommentVoteRoutes(rc RouteContext) {
 
 // setupCommentSubscriptionRoutes configures comment subscription and unread tracking endpoints.
 func setupCommentSubscriptionRoutes(rc RouteContext) {
-	subHandler := handlers.NewCommentSubscriptionHandler(rc.SC.CommentSubscription, rc.SC.AuditLog)
+	subHandler := engagementh.NewCommentSubscriptionHandler(rc.SC.CommentSubscription, rc.SC.AuditLog)
 
 	// Protected: subscribe, unsubscribe, check status, mark read
 	huma.Post(rc.Protected, "/entities/{entity_type}/{entity_id}/subscribe", subHandler.SubscribeHandler)
@@ -1226,7 +1233,7 @@ func setupCommentSubscriptionRoutes(rc RouteContext) {
 
 // setupFieldNoteRoutes configures field note endpoints on shows.
 func setupFieldNoteRoutes(rc RouteContext) {
-	fieldNoteHandler := handlers.NewFieldNoteHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.AuditLog)
+	fieldNoteHandler := engagementh.NewFieldNoteHandler(rc.SC.Comment, rc.SC.Comment, rc.SC.AuditLog)
 
 	// Public: list field notes for a show
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -1241,15 +1248,15 @@ func setupFieldNoteRoutes(rc RouteContext) {
 // endpoint ONLY when ENABLE_TEST_FIXTURES=1. In any other environment the
 // route is not registered at all — requests return 404, not 403.
 // cmd/server/main.go additionally refuses to boot if the flag is set in a
-// non-allowed ENVIRONMENT (handlers.ValidateTestFixturesEnvironment).
+// non-allowed ENVIRONMENT (adminh.ValidateTestFixturesEnvironment).
 func setupTestFixtureRoutes(rc RouteContext) {
-	if !handlers.IsTestFixturesEnabled(os.Getenv) {
+	if !adminh.IsTestFixturesEnabled(os.Getenv) {
 		return
 	}
 	database := appdb.GetDB()
 	if database == nil {
 		return
 	}
-	h := handlers.NewTestFixtureHandler(database)
+	h := adminh.NewTestFixtureHandler(database)
 	huma.Post(rc.Protected, "/admin/test-fixtures/reset", h.Reset)
 }

@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -47,7 +48,7 @@ type ExportShowsResponse struct {
 func (h *AdminDataHandler) ExportShowsHandler(ctx context.Context, req *ExportShowsRequest) (*ExportShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +69,7 @@ func (h *AdminDataHandler) ExportShowsHandler(ctx context.Context, req *ExportSh
 
 	// Parse date filter
 	if req.FromDate != "" {
-		fromDate, err := parseDate(req.FromDate)
+		fromDate, err := shared.ParseDate(req.FromDate)
 		if err != nil {
 			return nil, huma.Error400BadRequest("Invalid from_date format, expected YYYY-MM-DD")
 		}
@@ -116,7 +117,7 @@ type ExportArtistsResponse struct {
 func (h *AdminDataHandler) ExportArtistsHandler(ctx context.Context, req *ExportArtistsRequest) (*ExportArtistsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +177,7 @@ type ExportVenuesResponse struct {
 func (h *AdminDataHandler) ExportVenuesHandler(ctx context.Context, req *ExportVenuesRequest) (*ExportVenuesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -242,7 +243,7 @@ type DataImportResponse struct {
 func (h *AdminDataHandler) DataImportHandler(ctx context.Context, req *DataImportRequest) (*DataImportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

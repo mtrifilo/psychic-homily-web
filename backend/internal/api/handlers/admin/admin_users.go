@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -35,7 +36,7 @@ type GetAdminUsersRequest struct {
 type GetAdminUsersResponse struct {
 	Body struct {
 		Users []*contracts.AdminUserResponse `json:"users"`
-		Total int64                         `json:"total"`
+		Total int64                          `json:"total"`
 	}
 }
 
@@ -43,7 +44,7 @@ type GetAdminUsersResponse struct {
 func (h *AdminUserHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdminUsersRequest) (*GetAdminUsersResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -93,7 +94,7 @@ func (h *AdminUserHandler) GetAdminUsersHandler(ctx context.Context, req *GetAdm
 	return &GetAdminUsersResponse{
 		Body: struct {
 			Users []*contracts.AdminUserResponse `json:"users"`
-			Total int64                         `json:"total"`
+			Total int64                          `json:"total"`
 		}{
 			Users: users,
 			Total: total,

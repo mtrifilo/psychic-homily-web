@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -21,30 +22,30 @@ func TestFollowEntityHandler_NoAuth(t *testing.T) {
 	req := &FollowRequest{EntityType: "artists", EntityID: "1"}
 
 	_, err := h.FollowEntityHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestFollowEntityHandler_InvalidEntityType(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &FollowRequest{EntityType: "shows", EntityID: "1"}
 
 	_, err := h.FollowEntityHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestFollowEntityHandler_InvalidID(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &FollowRequest{EntityType: "artists", EntityID: "abc"}
 
 	_, err := h.FollowEntityHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestFollowEntityHandler_Success(t *testing.T) {
-	mock := &mockFollowService{
-		followFn: func(userID uint, entityType string, entityID uint) error {
+	mock := &testhelpers.MockFollowService{
+		FollowFn: func(userID uint, entityType string, entityID uint) error {
 			if userID != 1 || entityType != "artist" || entityID != 42 {
 				t.Errorf("unexpected args: userID=%d, entityType=%s, entityID=%d", userID, entityType, entityID)
 			}
@@ -52,7 +53,7 @@ func TestFollowEntityHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &FollowRequest{EntityType: "artists", EntityID: "42"}
 
 	resp, err := h.FollowEntityHandler(ctx, req)
@@ -65,31 +66,31 @@ func TestFollowEntityHandler_Success(t *testing.T) {
 }
 
 func TestFollowEntityHandler_ServiceError(t *testing.T) {
-	mock := &mockFollowService{
-		followFn: func(_ uint, _ string, _ uint) error {
+	mock := &testhelpers.MockFollowService{
+		FollowFn: func(_ uint, _ string, _ uint) error {
 			return fmt.Errorf("db error")
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &FollowRequest{EntityType: "artists", EntityID: "42"}
 
 	_, err := h.FollowEntityHandler(ctx, req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestFollowEntityHandler_AllEntityTypes(t *testing.T) {
 	for _, entityType := range []string{"artists", "venues", "labels", "festivals"} {
 		t.Run(entityType, func(t *testing.T) {
 			var capturedType string
-			mock := &mockFollowService{
-				followFn: func(_ uint, et string, _ uint) error {
+			mock := &testhelpers.MockFollowService{
+				FollowFn: func(_ uint, et string, _ uint) error {
 					capturedType = et
 					return nil
 				},
 			}
 			h := NewFollowHandler(mock)
-			ctx := ctxWithUser(&models.User{ID: 1})
+			ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 			req := &FollowRequest{EntityType: entityType, EntityID: "1"}
 
 			_, err := h.FollowEntityHandler(ctx, req)
@@ -112,30 +113,30 @@ func TestUnfollowEntityHandler_NoAuth(t *testing.T) {
 	req := &UnfollowRequest{EntityType: "artists", EntityID: "1"}
 
 	_, err := h.UnfollowEntityHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestUnfollowEntityHandler_InvalidEntityType(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnfollowRequest{EntityType: "bananas", EntityID: "1"}
 
 	_, err := h.UnfollowEntityHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUnfollowEntityHandler_InvalidID(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnfollowRequest{EntityType: "artists", EntityID: "xyz"}
 
 	_, err := h.UnfollowEntityHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUnfollowEntityHandler_Success(t *testing.T) {
-	mock := &mockFollowService{
-		unfollowFn: func(userID uint, entityType string, entityID uint) error {
+	mock := &testhelpers.MockFollowService{
+		UnfollowFn: func(userID uint, entityType string, entityID uint) error {
 			if userID != 1 || entityType != "venue" || entityID != 42 {
 				t.Errorf("unexpected args: userID=%d, entityType=%s, entityID=%d", userID, entityType, entityID)
 			}
@@ -143,7 +144,7 @@ func TestUnfollowEntityHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnfollowRequest{EntityType: "venues", EntityID: "42"}
 
 	resp, err := h.UnfollowEntityHandler(ctx, req)
@@ -156,40 +157,40 @@ func TestUnfollowEntityHandler_Success(t *testing.T) {
 }
 
 func TestUnfollowEntityHandler_ServiceError(t *testing.T) {
-	mock := &mockFollowService{
-		unfollowFn: func(_ uint, _ string, _ uint) error {
+	mock := &testhelpers.MockFollowService{
+		UnfollowFn: func(_ uint, _ string, _ uint) error {
 			return fmt.Errorf("db error")
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnfollowRequest{EntityType: "artists", EntityID: "42"}
 
 	_, err := h.UnfollowEntityHandler(ctx, req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- GetFollowersHandler ---
 
 func TestGetFollowersHandler_InvalidEntityType(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &GetFollowersRequest{EntityType: "shows", EntityID: "1"}
 
 	_, err := h.GetFollowersHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetFollowersHandler_InvalidID(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &GetFollowersRequest{EntityType: "artists", EntityID: "abc"}
 
 	_, err := h.GetFollowersHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetFollowersHandler_Success_NoAuth(t *testing.T) {
-	mock := &mockFollowService{
-		getFollowerCountFn: func(entityType string, entityID uint) (int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetFollowerCountFn: func(entityType string, entityID uint) (int64, error) {
 			return 42, nil
 		},
 	}
@@ -212,16 +213,16 @@ func TestGetFollowersHandler_Success_NoAuth(t *testing.T) {
 }
 
 func TestGetFollowersHandler_Success_WithAuth(t *testing.T) {
-	mock := &mockFollowService{
-		getFollowerCountFn: func(_ string, _ uint) (int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetFollowerCountFn: func(_ string, _ uint) (int64, error) {
 			return 10, nil
 		},
-		isFollowingFn: func(userID uint, _ string, _ uint) (bool, error) {
+		IsFollowingFn: func(userID uint, _ string, _ uint) (bool, error) {
 			return true, nil
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetFollowersRequest{EntityType: "artists", EntityID: "5"}
 
 	resp, err := h.GetFollowersHandler(ctx, req)
@@ -237,8 +238,8 @@ func TestGetFollowersHandler_Success_WithAuth(t *testing.T) {
 }
 
 func TestGetFollowersHandler_CountError(t *testing.T) {
-	mock := &mockFollowService{
-		getFollowerCountFn: func(_ string, _ uint) (int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetFollowerCountFn: func(_ string, _ uint) (int64, error) {
 			return 0, fmt.Errorf("db error")
 		},
 	}
@@ -246,20 +247,20 @@ func TestGetFollowersHandler_CountError(t *testing.T) {
 	req := &GetFollowersRequest{EntityType: "artists", EntityID: "5"}
 
 	_, err := h.GetFollowersHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetFollowersHandler_IsFollowingError_GracefulDegradation(t *testing.T) {
-	mock := &mockFollowService{
-		getFollowerCountFn: func(_ string, _ uint) (int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetFollowerCountFn: func(_ string, _ uint) (int64, error) {
 			return 7, nil
 		},
-		isFollowingFn: func(_ uint, _ string, _ uint) (bool, error) {
+		IsFollowingFn: func(_ uint, _ string, _ uint) (bool, error) {
 			return false, fmt.Errorf("is_following query failed")
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetFollowersRequest{EntityType: "artists", EntityID: "5"}
 
 	resp, err := h.GetFollowersHandler(ctx, req)
@@ -277,7 +278,7 @@ func TestGetFollowersHandler_IsFollowingError_GracefulDegradation(t *testing.T) 
 // --- BatchFollowHandler ---
 
 func TestBatchFollowHandler_EmptyList(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = []int{}
@@ -292,7 +293,7 @@ func TestBatchFollowHandler_EmptyList(t *testing.T) {
 }
 
 func TestBatchFollowHandler_TooMany(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = make([]int, 101)
@@ -301,32 +302,32 @@ func TestBatchFollowHandler_TooMany(t *testing.T) {
 	}
 
 	_, err := h.BatchFollowHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestBatchFollowHandler_InvalidEntityType(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "banana"
 	req.Body.EntityIDs = []int{1}
 
 	_, err := h.BatchFollowHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestBatchFollowHandler_NegativeID(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = []int{1, -5, 3}
 
 	_, err := h.BatchFollowHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestBatchFollowHandler_Success_NoAuth(t *testing.T) {
-	mock := &mockFollowService{
-		getBatchFollowerCountsFn: func(entityType string, entityIDs []uint) (map[uint]int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetBatchFollowerCountsFn: func(entityType string, entityIDs []uint) (map[uint]int64, error) {
 			result := make(map[uint]int64)
 			for _, id := range entityIDs {
 				result[id] = 5
@@ -359,20 +360,20 @@ func TestBatchFollowHandler_Success_NoAuth(t *testing.T) {
 }
 
 func TestBatchFollowHandler_Success_WithAuth(t *testing.T) {
-	mock := &mockFollowService{
-		getBatchFollowerCountsFn: func(_ string, entityIDs []uint) (map[uint]int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetBatchFollowerCountsFn: func(_ string, entityIDs []uint) (map[uint]int64, error) {
 			result := make(map[uint]int64)
 			for _, id := range entityIDs {
 				result[id] = 0
 			}
 			return result, nil
 		},
-		getBatchUserFollowingFn: func(userID uint, _ string, _ []uint) (map[uint]bool, error) {
+		GetBatchUserFollowingFn: func(userID uint, _ string, _ []uint) (map[uint]bool, error) {
 			return map[uint]bool{1: true, 3: true}, nil
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = []int{1, 2, 3}
@@ -394,8 +395,8 @@ func TestBatchFollowHandler_Success_WithAuth(t *testing.T) {
 
 func TestBatchFollowHandler_AcceptsPluralForm(t *testing.T) {
 	var capturedType string
-	mock := &mockFollowService{
-		getBatchFollowerCountsFn: func(entityType string, entityIDs []uint) (map[uint]int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetBatchFollowerCountsFn: func(entityType string, entityIDs []uint) (map[uint]int64, error) {
 			capturedType = entityType
 			result := make(map[uint]int64)
 			for _, id := range entityIDs {
@@ -419,20 +420,20 @@ func TestBatchFollowHandler_AcceptsPluralForm(t *testing.T) {
 }
 
 func TestBatchFollowHandler_UserFollowingError_GracefulDegradation(t *testing.T) {
-	mock := &mockFollowService{
-		getBatchFollowerCountsFn: func(_ string, entityIDs []uint) (map[uint]int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetBatchFollowerCountsFn: func(_ string, entityIDs []uint) (map[uint]int64, error) {
 			result := make(map[uint]int64)
 			for _, id := range entityIDs {
 				result[id] = 3
 			}
 			return result, nil
 		},
-		getBatchUserFollowingFn: func(_ uint, _ string, _ []uint) (map[uint]bool, error) {
+		GetBatchUserFollowingFn: func(_ uint, _ string, _ []uint) (map[uint]bool, error) {
 			return nil, fmt.Errorf("user following query failed")
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = []int{1, 2}
@@ -452,18 +453,18 @@ func TestBatchFollowHandler_UserFollowingError_GracefulDegradation(t *testing.T)
 }
 
 func TestBatchFollowHandler_ZeroEntityID(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = []int{1, 0, 3}
 
 	_, err := h.BatchFollowHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestBatchFollowHandler_CountsError(t *testing.T) {
-	mock := &mockFollowService{
-		getBatchFollowerCountsFn: func(_ string, _ []uint) (map[uint]int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetBatchFollowerCountsFn: func(_ string, _ []uint) (map[uint]int64, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -473,7 +474,7 @@ func TestBatchFollowHandler_CountsError(t *testing.T) {
 	req.Body.EntityIDs = []int{1}
 
 	_, err := h.BatchFollowHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- GetMyFollowingHandler ---
@@ -483,16 +484,16 @@ func TestGetMyFollowingHandler_NoAuth(t *testing.T) {
 	req := &GetMyFollowingRequest{}
 
 	_, err := h.GetMyFollowingHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestGetMyFollowingHandler_InvalidType(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetMyFollowingRequest{Type: "banana"}
 
 	_, err := h.GetMyFollowingHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetMyFollowingHandler_Success(t *testing.T) {
@@ -506,8 +507,8 @@ func TestGetMyFollowingHandler_Success(t *testing.T) {
 			FollowedAt: now,
 		},
 	}
-	mock := &mockFollowService{
-		getUserFollowingFn: func(userID uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetUserFollowingFn: func(userID uint, entityType string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -518,7 +519,7 @@ func TestGetMyFollowingHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetMyFollowingRequest{Type: "all", Limit: 20, Offset: 0}
 
 	resp, err := h.GetMyFollowingHandler(ctx, req)
@@ -535,14 +536,14 @@ func TestGetMyFollowingHandler_Success(t *testing.T) {
 
 func TestGetMyFollowingHandler_WithTypeFilter(t *testing.T) {
 	var capturedType string
-	mock := &mockFollowService{
-		getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			capturedType = entityType
 			return nil, 0, nil
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetMyFollowingRequest{Type: "venue", Limit: 20}
 
 	_, err := h.GetMyFollowingHandler(ctx, req)
@@ -555,30 +556,30 @@ func TestGetMyFollowingHandler_WithTypeFilter(t *testing.T) {
 }
 
 func TestGetMyFollowingHandler_ServiceError(t *testing.T) {
-	mock := &mockFollowService{
-		getUserFollowingFn: func(_ uint, _ string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetUserFollowingFn: func(_ uint, _ string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetMyFollowingRequest{Type: "all", Limit: 20}
 
 	_, err := h.GetMyFollowingHandler(ctx, req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetMyFollowingHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
-	mock := &mockFollowService{
-		getUserFollowingFn: func(_ uint, _ string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetUserFollowingFn: func(_ uint, _ string, limit, offset int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	// limit=0 -> 20, offset=-1 -> 0
 	_, err := h.GetMyFollowingHandler(ctx, &GetMyFollowingRequest{Type: "all", Limit: 0, Offset: -1})
@@ -603,14 +604,14 @@ func TestGetMyFollowingHandler_AllValidTypeFilters(t *testing.T) {
 	for _, typeFilter := range []string{"artist", "venue", "label", "festival"} {
 		t.Run(typeFilter, func(t *testing.T) {
 			var capturedType string
-			mock := &mockFollowService{
-				getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
+			mock := &testhelpers.MockFollowService{
+				GetUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
 					capturedType = entityType
 					return nil, 0, nil
 				},
 			}
 			h := NewFollowHandler(mock)
-			ctx := ctxWithUser(&models.User{ID: 1})
+			ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 			req := &GetMyFollowingRequest{Type: typeFilter, Limit: 20}
 
 			_, err := h.GetMyFollowingHandler(ctx, req)
@@ -626,14 +627,14 @@ func TestGetMyFollowingHandler_AllValidTypeFilters(t *testing.T) {
 
 func TestGetMyFollowingHandler_DefaultType(t *testing.T) {
 	var capturedType string
-	mock := &mockFollowService{
-		getUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetUserFollowingFn: func(_ uint, entityType string, _, _ int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			capturedType = entityType
 			return nil, 0, nil
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	// Empty type defaults to "" (all)
 	_, err := h.GetMyFollowingHandler(ctx, &GetMyFollowingRequest{Type: "", Limit: 20})
@@ -648,19 +649,19 @@ func TestGetMyFollowingHandler_DefaultType(t *testing.T) {
 // --- GetFollowersListHandler ---
 
 func TestGetFollowersListHandler_InvalidEntityType(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &GetFollowersListRequest{EntityType: "shows", EntityID: "1", Limit: 20}
 
 	_, err := h.GetFollowersListHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetFollowersListHandler_InvalidID(t *testing.T) {
-	h := NewFollowHandler(&mockFollowService{})
+	h := NewFollowHandler(&testhelpers.MockFollowService{})
 	req := &GetFollowersListRequest{EntityType: "artists", EntityID: "abc", Limit: 20}
 
 	_, err := h.GetFollowersListHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetFollowersListHandler_Success(t *testing.T) {
@@ -668,8 +669,8 @@ func TestGetFollowersListHandler_Success(t *testing.T) {
 		{UserID: 1, Username: "user1", DisplayName: "User One"},
 		{UserID: 2, Username: "user2"},
 	}
-	mock := &mockFollowService{
-		getFollowersFn: func(entityType string, entityID uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetFollowersFn: func(entityType string, entityID uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
 			if entityType != "artist" || entityID != 5 {
 				t.Errorf("unexpected args: entityType=%s, entityID=%d", entityType, entityID)
 			}
@@ -692,8 +693,8 @@ func TestGetFollowersListHandler_Success(t *testing.T) {
 }
 
 func TestGetFollowersListHandler_ServiceError(t *testing.T) {
-	mock := &mockFollowService{
-		getFollowersFn: func(_ string, _ uint, _, _ int) ([]*contracts.FollowerResponse, int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetFollowersFn: func(_ string, _ uint, _, _ int) ([]*contracts.FollowerResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
@@ -701,13 +702,13 @@ func TestGetFollowersListHandler_ServiceError(t *testing.T) {
 	req := &GetFollowersListRequest{EntityType: "artists", EntityID: "5", Limit: 20}
 
 	_, err := h.GetFollowersListHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetFollowersListHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
-	mock := &mockFollowService{
-		getFollowersFn: func(_ string, _ uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
+	mock := &testhelpers.MockFollowService{
+		GetFollowersFn: func(_ string, _ uint, limit, offset int) ([]*contracts.FollowerResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil

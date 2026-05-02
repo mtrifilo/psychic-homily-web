@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -10,6 +10,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -50,7 +51,7 @@ type SearchArtistsRequest struct {
 type SearchArtistsResponse struct {
 	Body struct {
 		Artists []*contracts.ArtistDetailResponse `json:"artists" doc:"Matching artists"`
-		Count   int                              `json:"count" doc:"Number of results"`
+		Count   int                               `json:"count" doc:"Number of results"`
 	}
 }
 
@@ -81,7 +82,7 @@ type ListArtistsRequest struct {
 type ListArtistsResponse struct {
 	Body struct {
 		Artists []*contracts.ArtistWithShowCountResponse `json:"artists" doc:"List of artists with upcoming show counts"`
-		Count   int                                     `json:"count" doc:"Number of artists"`
+		Count   int                                      `json:"count" doc:"Number of artists"`
 	}
 }
 
@@ -208,8 +209,8 @@ type GetArtistShowsRequest struct {
 type GetArtistShowsResponse struct {
 	Body struct {
 		Shows    []*contracts.ArtistShowResponse `json:"shows" doc:"List of shows"`
-		ArtistID uint                           `json:"artist_id" doc:"Artist ID (resolved from slug if provided)"`
-		Total    int64                          `json:"total" doc:"Total number of shows matching filter"`
+		ArtistID uint                            `json:"artist_id" doc:"Artist ID (resolved from slug if provided)"`
+		Total    int64                           `json:"total" doc:"Total number of shows matching filter"`
 	}
 }
 
@@ -277,7 +278,7 @@ type GetArtistLabelsRequest struct {
 type GetArtistLabelsResponse struct {
 	Body struct {
 		Labels []*contracts.ArtistLabelResponse `json:"labels" doc:"List of labels"`
-		Count  int                             `json:"count" doc:"Number of labels"`
+		Count  int                              `json:"count" doc:"Number of labels"`
 	}
 }
 
@@ -349,7 +350,7 @@ type AdminCreateArtistResponse struct {
 func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *AdminCreateArtistRequest) (*AdminCreateArtistResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -737,17 +738,17 @@ func (h *ArtistHandler) DeleteArtistHandler(ctx context.Context, req *DeleteArti
 type AdminUpdateArtistRequest struct {
 	ArtistID string `path:"artist_id" validate:"required" doc:"Artist ID"`
 	Body     struct {
-		Name       *string `json:"name,omitempty" required:"false" doc:"Artist name"`
-		City       *string `json:"city,omitempty" required:"false" doc:"City"`
-		State      *string `json:"state,omitempty" required:"false" doc:"State"`
-		Country    *string `json:"country,omitempty" required:"false" doc:"Country"`
-		Instagram  *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
-		Facebook   *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
-		Twitter    *string `json:"twitter,omitempty" required:"false" doc:"Twitter/X URL"`
-		Youtube    *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
-		Spotify    *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
-		Soundcloud *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
-		Bandcamp   *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
+		Name        *string `json:"name,omitempty" required:"false" doc:"Artist name"`
+		City        *string `json:"city,omitempty" required:"false" doc:"City"`
+		State       *string `json:"state,omitempty" required:"false" doc:"State"`
+		Country     *string `json:"country,omitempty" required:"false" doc:"Country"`
+		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
+		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
+		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter/X URL"`
+		Youtube     *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
+		Spotify     *string `json:"spotify,omitempty" required:"false" doc:"Spotify URL"`
+		Soundcloud  *string `json:"soundcloud,omitempty" required:"false" doc:"SoundCloud URL"`
+		Bandcamp    *string `json:"bandcamp,omitempty" required:"false" doc:"Bandcamp URL"`
 		Website     *string `json:"website,omitempty" required:"false" doc:"Website URL"`
 		Description *string `json:"description,omitempty" required:"false" doc:"Markdown description (max 5000 chars)"`
 		Summary     *string `json:"summary,omitempty" required:"false" doc:"Revision summary describing the change"`
@@ -764,7 +765,7 @@ type AdminUpdateArtistResponse struct {
 func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *AdminUpdateArtistRequest) (*AdminUpdateArtistResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -960,7 +961,7 @@ type GetArtistAliasesRequest struct {
 type GetArtistAliasesResponse struct {
 	Body struct {
 		Aliases []*contracts.ArtistAliasResponse `json:"aliases" doc:"List of aliases"`
-		Count   int                             `json:"count" doc:"Number of aliases"`
+		Count   int                              `json:"count" doc:"Number of aliases"`
 	}
 }
 
@@ -1004,7 +1005,7 @@ type AddArtistAliasResponse struct {
 func (h *ArtistHandler) AddArtistAliasHandler(ctx context.Context, req *AddArtistAliasRequest) (*AddArtistAliasResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1057,7 +1058,7 @@ type DeleteArtistAliasRequest struct {
 func (h *ArtistHandler) DeleteArtistAliasHandler(ctx context.Context, req *DeleteArtistAliasRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1114,7 +1115,7 @@ type MergeArtistsResponse struct {
 func (h *ArtistHandler) MergeArtistsHandler(ctx context.Context, req *MergeArtistsRequest) (*MergeArtistsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

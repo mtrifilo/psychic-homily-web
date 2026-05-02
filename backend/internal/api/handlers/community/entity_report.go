@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
@@ -150,7 +151,7 @@ type AdminListEntityReportsResponse struct {
 
 // AdminListEntityReportsHandler handles GET /admin/entity-reports
 func (h *EntityReportHandler) AdminListEntityReportsHandler(ctx context.Context, req *AdminListEntityReportsRequest) (*AdminListEntityReportsResponse, error) {
-	if _, err := requireAdmin(ctx); err != nil {
+	if _, err := shared.RequireAdmin(ctx); err != nil {
 		return nil, err
 	}
 
@@ -187,7 +188,7 @@ type AdminGetEntityReportResponse struct {
 
 // AdminGetEntityReportHandler handles GET /admin/entity-reports/{report_id}
 func (h *EntityReportHandler) AdminGetEntityReportHandler(ctx context.Context, req *AdminGetEntityReportRequest) (*AdminGetEntityReportResponse, error) {
-	if _, err := requireAdmin(ctx); err != nil {
+	if _, err := shared.RequireAdmin(ctx); err != nil {
 		return nil, err
 	}
 
@@ -227,7 +228,7 @@ type AdminResolveEntityReportResponse struct {
 
 // AdminResolveEntityReportHandler handles POST /admin/entity-reports/{report_id}/resolve
 func (h *EntityReportHandler) AdminResolveEntityReportHandler(ctx context.Context, req *AdminResolveEntityReportRequest) (*AdminResolveEntityReportResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -293,7 +294,7 @@ type AdminDismissEntityReportResponse struct {
 
 // AdminDismissEntityReportHandler handles POST /admin/entity-reports/{report_id}/dismiss
 func (h *EntityReportHandler) AdminDismissEntityReportHandler(ctx context.Context, req *AdminDismissEntityReportRequest) (*AdminDismissEntityReportResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

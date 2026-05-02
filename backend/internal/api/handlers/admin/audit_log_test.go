@@ -1,10 +1,11 @@
-package handlers
+package admin
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -20,27 +21,27 @@ func TestGetAuditLogsHandler_NoAuth(t *testing.T) {
 	req := &GetAuditLogsRequest{}
 
 	_, err := h.GetAuditLogsHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestGetAuditLogsHandler_NonAdmin(t *testing.T) {
 	h := testAuditLogHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &GetAuditLogsRequest{}
 
 	_, err := h.GetAuditLogsHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestGetAuditLogsHandler_Success(t *testing.T) {
 	logs := []*contracts.AuditLogResponse{{ID: 1, Action: "approve_show"}}
-	mock := &mockAuditLogService{
-		getAuditLogsFn: func(limit, offset int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
+	mock := &testhelpers.MockAuditLogService{
+		GetAuditLogsFn: func(limit, offset int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 			return logs, 1, nil
 		},
 	}
 	h := NewAuditLogHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 10})
 	if err != nil {
@@ -55,28 +56,28 @@ func TestGetAuditLogsHandler_Success(t *testing.T) {
 }
 
 func TestGetAuditLogsHandler_ServiceError(t *testing.T) {
-	mock := &mockAuditLogService{
-		getAuditLogsFn: func(_, _ int, _ contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
+	mock := &testhelpers.MockAuditLogService{
+		GetAuditLogsFn: func(_, _ int, _ contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewAuditLogHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	_, err := h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 10})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetAuditLogsHandler_LimitClamping(t *testing.T) {
 	var capturedLimit int
-	mock := &mockAuditLogService{
-		getAuditLogsFn: func(limit, _ int, _ contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
+	mock := &testhelpers.MockAuditLogService{
+		GetAuditLogsFn: func(limit, _ int, _ contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 			capturedLimit = limit
 			return nil, 0, nil
 		},
 	}
 	h := NewAuditLogHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	// limit=0 → 50
 	h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 0})
@@ -93,14 +94,14 @@ func TestGetAuditLogsHandler_LimitClamping(t *testing.T) {
 
 func TestGetAuditLogsHandler_FiltersPassedThrough(t *testing.T) {
 	var capturedFilters contracts.AuditLogFilters
-	mock := &mockAuditLogService{
-		getAuditLogsFn: func(_ int, _ int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
+	mock := &testhelpers.MockAuditLogService{
+		GetAuditLogsFn: func(_ int, _ int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 			capturedFilters = filters
 			return nil, 0, nil
 		},
 	}
 	h := NewAuditLogHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{
 		Limit:      10,

@@ -1,4 +1,4 @@
-package handlers
+package auth
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -21,7 +22,7 @@ import (
 
 type AuthHandlerIntegrationSuite struct {
 	suite.Suite
-	deps *handlerIntegrationDeps
+	deps *testhelpers.IntegrationDeps
 	cfg  *config.Config
 }
 
@@ -33,7 +34,7 @@ func TestAuthHandlerIntegration(t *testing.T) {
 }
 
 func (s *AuthHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 	s.cfg = &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-at-least-32-characters-long",
@@ -51,11 +52,11 @@ func (s *AuthHandlerIntegrationSuite) SetupSuite() {
 }
 
 func (s *AuthHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *AuthHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 // --- Helpers ---
@@ -74,8 +75,8 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *Auth
 		}
 	}
 
-	authSvc := auth.NewAuthService(s.deps.db, emailCfg, s.deps.userService)
-	jwtSvc := auth.NewJWTService(s.deps.db, emailCfg, s.deps.userService)
+	authSvc := auth.NewAuthService(s.deps.DB, emailCfg, s.deps.UserService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, emailCfg, s.deps.UserService)
 	emailSvc := notification.NewEmailService(emailCfg)
 	discordSvc := notification.NewDiscordService(emailCfg)
 	pv := auth.NewPasswordValidator()
@@ -83,7 +84,7 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *Auth
 	return NewAuthHandler(
 		authSvc,
 		jwtSvc,
-		s.deps.userService,
+		s.deps.UserService,
 		emailSvc,
 		discordSvc,
 		pv,
@@ -92,7 +93,7 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *Auth
 }
 
 func (s *AuthHandlerIntegrationSuite) createUserWithPassword(email, password string) *models.User {
-	user, err := s.deps.userService.CreateUserWithPassword(email, password, "Test", "User")
+	user, err := s.deps.UserService.CreateUserWithPassword(email, password, "Test", "User")
 	s.Require().NoError(err)
 	return user
 }
@@ -102,7 +103,7 @@ func (s *AuthHandlerIntegrationSuite) ctxWithUser(user *models.User) context.Con
 }
 
 func (s *AuthHandlerIntegrationSuite) softDeleteUser(userID uint) {
-	err := s.deps.db.Model(&models.User{}).Where("id = ?", userID).
+	err := s.deps.DB.Model(&models.User{}).Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"is_active":  false,
 			"deleted_at": time.Now(),
@@ -111,7 +112,7 @@ func (s *AuthHandlerIntegrationSuite) softDeleteUser(userID uint) {
 }
 
 func (s *AuthHandlerIntegrationSuite) softDeleteUserExpired(userID uint) {
-	err := s.deps.db.Model(&models.User{}).Where("id = ?", userID).
+	err := s.deps.DB.Model(&models.User{}).Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"is_active":  false,
 			"deleted_at": time.Now().AddDate(0, 0, -31),
@@ -120,7 +121,7 @@ func (s *AuthHandlerIntegrationSuite) softDeleteUserExpired(userID uint) {
 }
 
 func (s *AuthHandlerIntegrationSuite) lockAccount(userID uint) {
-	err := s.deps.db.Model(&models.User{}).Where("id = ?", userID).
+	err := s.deps.DB.Model(&models.User{}).Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"failed_login_attempts": 5,
 			"locked_until":          time.Now().Add(15 * time.Minute),
@@ -129,12 +130,12 @@ func (s *AuthHandlerIntegrationSuite) lockAccount(userID uint) {
 }
 
 func (s *AuthHandlerIntegrationSuite) verifyEmail(userID uint) {
-	err := s.deps.userService.SetEmailVerified(userID, true)
+	err := s.deps.UserService.SetEmailVerified(userID, true)
 	s.Require().NoError(err)
 }
 
 func (s *AuthHandlerIntegrationSuite) reloadUser(userID uint) *models.User {
-	user, err := s.deps.userService.GetUserByID(userID)
+	user, err := s.deps.UserService.GetUserByID(userID)
 	s.Require().NoError(err)
 	return user
 }
@@ -208,8 +209,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	input := &RegisterRequest{}
 	input.Body.Email = "new-user@test.com"
 	input.Body.Password = "very-strong-password-123!"
-	input.Body.FirstName = stringPtr("Jane")
-	input.Body.LastName = stringPtr("Doe")
+	input.Body.FirstName = testhelpers.StringPtr("Jane")
+	input.Body.LastName = testhelpers.StringPtr("Doe")
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
 	input.Body.PrivacyVersion = "2026-02-15"
@@ -275,7 +276,7 @@ func (s *AuthHandlerIntegrationSuite) TestRefreshToken_UserDeletedFromDB() {
 	ctx := s.ctxWithUser(user)
 
 	// Hard-delete the user (must clean FKs first)
-	sqlDB, _ := s.deps.db.DB()
+	sqlDB, _ := s.deps.DB.DB()
 	_, _ = sqlDB.Exec("DELETE FROM user_preferences WHERE user_id = $1", user.ID)
 	_, _ = sqlDB.Exec("DELETE FROM oauth_accounts WHERE user_id = $1", user.ID)
 	_, _ = sqlDB.Exec("DELETE FROM users WHERE id = $1", user.ID)
@@ -334,7 +335,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmVerification_Success() {
 	user := s.createUserWithPassword("confirm-v@test.com", "strong-password-123!")
 
 	// Generate a real verification token
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateVerificationToken(user.ID, "confirm-v@test.com")
 	s.Require().NoError(err)
 
@@ -355,7 +356,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmVerification_AlreadyVerified() 
 	user := s.createUserWithPassword("already-v@test.com", "strong-password-123!")
 	s.verifyEmail(user.ID)
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateVerificationToken(user.ID, "already-v@test.com")
 	s.Require().NoError(err)
 
@@ -373,7 +374,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmVerification_EmailMismatch() {
 	user := s.createUserWithPassword("mismatch@test.com", "strong-password-123!")
 
 	// Token generated with a different email
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateVerificationToken(user.ID, "different@test.com")
 	s.Require().NoError(err)
 
@@ -390,7 +391,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmVerification_UserNotFound() {
 	h := s.newAuthHandler(false)
 
 	// Token for a user ID that doesn't exist
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateVerificationToken(99999, "ghost@test.com")
 	s.Require().NoError(err)
 
@@ -462,7 +463,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_Success() {
 	user := s.createUserWithPassword("ml-ok@test.com", "strong-password-123!")
 	s.verifyEmail(user.ID)
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "ml-ok@test.com")
 	s.Require().NoError(err)
 
@@ -480,7 +481,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_Success() {
 func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_UserNotFound() {
 	h := s.newAuthHandler(false)
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateMagicLinkToken(99999, "ghost@test.com")
 	s.Require().NoError(err)
 
@@ -497,7 +498,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_EmailMismatch() {
 	h := s.newAuthHandler(false)
 	user := s.createUserWithPassword("ml-mm@test.com", "strong-password-123!")
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "different@test.com")
 	s.Require().NoError(err)
 
@@ -516,7 +517,7 @@ func (s *AuthHandlerIntegrationSuite) TestVerifyMagicLink_InactiveUser() {
 	s.verifyEmail(user.ID)
 	s.softDeleteUser(user.ID)
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateMagicLinkToken(user.ID, "ml-inactive@test.com")
 	s.Require().NoError(err)
 
@@ -574,7 +575,7 @@ func (s *AuthHandlerIntegrationSuite) TestChangePassword_WrongCurrent() {
 func (s *AuthHandlerIntegrationSuite) TestChangePassword_NoPasswordSet() {
 	h := s.newAuthHandler(false)
 	// Create an OAuth-only user (no password hash)
-	user := createTestUser(s.deps.db) // EmailVerified=true, no password
+	user := testhelpers.CreateTestUser(s.deps.DB) // EmailVerified=true, no password
 	ctx := s.ctxWithUser(user)
 
 	input := &ChangePasswordRequest{}
@@ -611,7 +612,7 @@ func (s *AuthHandlerIntegrationSuite) TestGetDeletionSummary_Success() {
 	user = s.reloadUser(user.ID)
 
 	// Create a show for the user
-	createApprovedShow(s.deps.db, user.ID, "Test Show")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 	ctx := s.ctxWithUser(user)
 
 	resp, err := h.GetDeletionSummaryHandler(ctx, &struct{}{})
@@ -623,7 +624,7 @@ func (s *AuthHandlerIntegrationSuite) TestGetDeletionSummary_Success() {
 
 func (s *AuthHandlerIntegrationSuite) TestGetDeletionSummary_FreshUser() {
 	h := s.newAuthHandler(false)
-	user := createTestUser(s.deps.db) // no password, no data
+	user := testhelpers.CreateTestUser(s.deps.DB) // no password, no data
 	ctx := s.ctxWithUser(user)
 
 	resp, err := h.GetDeletionSummaryHandler(ctx, &struct{}{})
@@ -654,7 +655,7 @@ func (s *AuthHandlerIntegrationSuite) TestExportData_WithShows() {
 	h := s.newAuthHandler(false)
 	user := s.createUserWithPassword("export-shows@test.com", "strong-password-123!")
 	user = s.reloadUser(user.ID)
-	createApprovedShow(s.deps.db, user.ID, "Export Show")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Export Show")
 	ctx := s.ctxWithUser(user)
 
 	resp, err := h.ExportDataHandler(ctx, &struct{}{})
@@ -737,7 +738,7 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_WrongPassword() {
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_NoPassword() {
 	h := s.newAuthHandler(false)
 	// Create an OAuth-only user, then soft-delete
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.softDeleteUser(user.ID)
 
 	input := &RecoverAccountRequest{}
@@ -839,7 +840,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_Success() {
 	user := s.createUserWithPassword("confirm-r@test.com", "strong-password-123!")
 	s.softDeleteUser(user.ID)
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateAccountRecoveryToken(user.ID, "confirm-r@test.com")
 	s.Require().NoError(err)
 
@@ -861,7 +862,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_AccountActive() {
 	h := s.newAuthHandler(false)
 	user := s.createUserWithPassword("confirm-act@test.com", "strong-password-123!")
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateAccountRecoveryToken(user.ID, "confirm-act@test.com")
 	s.Require().NoError(err)
 
@@ -879,7 +880,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_Expired() {
 	user := s.createUserWithPassword("confirm-exp@test.com", "strong-password-123!")
 	s.softDeleteUserExpired(user.ID)
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateAccountRecoveryToken(user.ID, "confirm-exp@test.com")
 	s.Require().NoError(err)
 
@@ -895,7 +896,7 @@ func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_Expired() {
 func (s *AuthHandlerIntegrationSuite) TestConfirmRecovery_UserNotFound() {
 	h := s.newAuthHandler(false)
 
-	jwtSvc := auth.NewJWTService(s.deps.db, s.cfg, s.deps.userService)
+	jwtSvc := auth.NewJWTService(s.deps.DB, s.cfg, s.deps.UserService)
 	token, err := jwtSvc.CreateAccountRecoveryToken(99999, fmt.Sprintf("ghost-%d@test.com", time.Now().UnixNano()))
 	s.Require().NoError(err)
 

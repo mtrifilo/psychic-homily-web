@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"psychic-homily-backend/internal/services/catalog"

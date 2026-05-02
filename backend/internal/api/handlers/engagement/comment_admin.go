@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -54,7 +55,7 @@ type AdminHideCommentRequest struct {
 
 // AdminHideCommentHandler handles POST /admin/comments/{comment_id}/hide
 func (h *CommentAdminHandler) AdminHideCommentHandler(ctx context.Context, req *AdminHideCommentRequest) (*struct{}, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +103,7 @@ type AdminRestoreCommentRequest struct {
 
 // AdminRestoreCommentHandler handles POST /admin/comments/{comment_id}/restore
 func (h *CommentAdminHandler) AdminRestoreCommentHandler(ctx context.Context, req *AdminRestoreCommentRequest) (*struct{}, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +156,7 @@ type AdminListPendingCommentsResponse struct {
 
 // AdminListPendingCommentsHandler handles GET /admin/comments/pending
 func (h *CommentAdminHandler) AdminListPendingCommentsHandler(ctx context.Context, req *AdminListPendingCommentsRequest) (*AdminListPendingCommentsResponse, error) {
-	if _, err := requireAdmin(ctx); err != nil {
+	if _, err := shared.RequireAdmin(ctx); err != nil {
 		return nil, err
 	}
 
@@ -197,7 +198,7 @@ type AdminApproveCommentRequest struct {
 
 // AdminApproveCommentHandler handles POST /admin/comments/{comment_id}/approve
 func (h *CommentAdminHandler) AdminApproveCommentHandler(ctx context.Context, req *AdminApproveCommentRequest) (*struct{}, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -244,7 +245,7 @@ type AdminRejectCommentRequest struct {
 
 // AdminRejectCommentHandler handles POST /admin/comments/{comment_id}/reject
 func (h *CommentAdminHandler) AdminRejectCommentHandler(ctx context.Context, req *AdminRejectCommentRequest) (*struct{}, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -301,7 +302,7 @@ type AdminGetCommentEditHistoryResponse struct {
 // AdminGetCommentEditHistoryHandler handles GET /admin/comments/{comment_id}/edits.
 // Returns the chronological edit history (oldest first) plus the current body.
 func (h *CommentAdminHandler) AdminGetCommentEditHistoryHandler(ctx context.Context, req *AdminGetCommentEditHistoryRequest) (*AdminGetCommentEditHistoryResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

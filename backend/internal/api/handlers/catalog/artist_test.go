@@ -1,10 +1,11 @@
-package handlers
+package catalog
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -21,16 +22,16 @@ func TestDeleteArtist_NoAuth(t *testing.T) {
 	req := &DeleteArtistRequest{ArtistID: "1"}
 
 	_, err := h.DeleteArtistHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestDeleteArtist_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &DeleteArtistRequest{ArtistID: "abc"}
 
 	_, err := h.DeleteArtistHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- AdminUpdateArtistHandler ---
@@ -40,45 +41,45 @@ func TestAdminUpdateArtist_NoUser(t *testing.T) {
 	req := &AdminUpdateArtistRequest{ArtistID: "1"}
 
 	_, err := h.AdminUpdateArtistHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminUpdateArtist_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &AdminUpdateArtistRequest{ArtistID: "1"}
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminUpdateArtist_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "abc"}
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminUpdateArtist_EmptyName(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "1"}
 	empty := "   "
 	req.Body.Name = &empty
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminUpdateArtist_NoFields(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "1"}
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- UpdateArtistBandcampHandler ---
@@ -88,47 +89,47 @@ func TestUpdateBandcamp_NoUser(t *testing.T) {
 	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
 
 	_, err := h.UpdateArtistBandcampHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUpdateBandcamp_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
 
 	_, err := h.UpdateArtistBandcampHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUpdateBandcamp_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &UpdateArtistBandcampRequest{ArtistID: "abc"}
 
 	_, err := h.UpdateArtistBandcampHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUpdateBandcamp_InvalidURL(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	url := "https://example.com/music"
 	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
 	req.Body.BandcampEmbedURL = &url
 
 	_, err := h.UpdateArtistBandcampHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUpdateBandcamp_ProfileOnlyURL(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	url := "https://artist.bandcamp.com"
 	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
 	req.Body.BandcampEmbedURL = &url
 
 	_, err := h.UpdateArtistBandcampHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- UpdateArtistSpotifyHandler ---
@@ -138,36 +139,36 @@ func TestUpdateSpotify_NoUser(t *testing.T) {
 	req := &UpdateArtistSpotifyRequest{ArtistID: "1"}
 
 	_, err := h.UpdateArtistSpotifyHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUpdateSpotify_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &UpdateArtistSpotifyRequest{ArtistID: "1"}
 
 	_, err := h.UpdateArtistSpotifyHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUpdateSpotify_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &UpdateArtistSpotifyRequest{ArtistID: "abc"}
 
 	_, err := h.UpdateArtistSpotifyHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUpdateSpotify_InvalidURL(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	url := "https://example.com/music"
 	req := &UpdateArtistSpotifyRequest{ArtistID: "1"}
 	req.Body.SpotifyURL = &url
 
 	_, err := h.UpdateArtistSpotifyHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // --- Helper function tests ---
@@ -241,8 +242,8 @@ func TestNilIfEmpty(t *testing.T) {
 // ============================================================================
 
 func TestSearchArtists_Success(t *testing.T) {
-	mock := &mockArtistService{
-		searchArtistsFn: func(query string) ([]*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		SearchArtistsFn: func(query string) ([]*contracts.ArtistDetailResponse, error) {
 			if query != "radio" {
 				t.Errorf("expected query='radio', got %q", query)
 			}
@@ -264,8 +265,8 @@ func TestSearchArtists_Success(t *testing.T) {
 }
 
 func TestSearchArtists_ServiceError(t *testing.T) {
-	mock := &mockArtistService{
-		searchArtistsFn: func(_ string) ([]*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		SearchArtistsFn: func(_ string) ([]*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -282,8 +283,8 @@ func TestSearchArtists_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestListArtists_Success(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			return []*contracts.ArtistWithShowCountResponse{
 				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 1, Name: "Artist A"}, UpcomingShowCount: 3},
 				{ArtistDetailResponse: contracts.ArtistDetailResponse{ID: 2, Name: "Artist B"}, UpcomingShowCount: 1},
@@ -305,8 +306,8 @@ func TestListArtists_Success(t *testing.T) {
 }
 
 func TestListArtists_WithFilters(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			if filters["state"] != "AZ" {
 				t.Errorf("expected state='AZ', got %v", filters["state"])
 			}
@@ -330,15 +331,15 @@ func TestListArtists_WithFilters(t *testing.T) {
 }
 
 func TestListArtists_ServiceError(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(_ map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(_ map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
 
 	_, err := h.ListArtistsHandler(context.Background(), &ListArtistsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -346,8 +347,8 @@ func TestListArtists_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestGetArtist_ByID(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistFn: func(artistID uint) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistFn: func(artistID uint) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -366,8 +367,8 @@ func TestGetArtist_ByID(t *testing.T) {
 }
 
 func TestGetArtist_BySlug(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			if slug != "the-national" {
 				t.Errorf("expected slug='the-national', got %q", slug)
 			}
@@ -386,27 +387,27 @@ func TestGetArtist_BySlug(t *testing.T) {
 }
 
 func TestGetArtist_NotFound(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistFn: func(_ uint) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistFn: func(_ uint) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(99)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
 
 	_, err := h.GetArtistHandler(context.Background(), &GetArtistRequest{ArtistID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetArtist_ServiceError(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistFn: func(_ uint) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistFn: func(_ uint) (*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
 
 	_, err := h.GetArtistHandler(context.Background(), &GetArtistRequest{ArtistID: "42"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -414,8 +415,8 @@ func TestGetArtist_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestGetArtistShows_ByID(t *testing.T) {
-	mock := &mockArtistService{
-		getShowsForArtistFn: func(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
+	mock := &testhelpers.MockArtistService{
+		GetShowsForArtistFn: func(artistID uint, timezone string, limit int, timeFilter string) ([]*contracts.ArtistShowResponse, int64, error) {
 			if artistID != 5 {
 				t.Errorf("expected artistID=5, got %d", artistID)
 			}
@@ -437,11 +438,11 @@ func TestGetArtistShows_ByID(t *testing.T) {
 }
 
 func TestGetArtistShows_BySlug(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 10}, nil
 		},
-		getShowsForArtistFn: func(artistID uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
+		GetShowsForArtistFn: func(artistID uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
 			if artistID != 10 {
 				t.Errorf("expected resolved artistID=10, got %d", artistID)
 			}
@@ -460,27 +461,27 @@ func TestGetArtistShows_BySlug(t *testing.T) {
 }
 
 func TestGetArtistShows_ArtistNotFound(t *testing.T) {
-	mock := &mockArtistService{
-		getShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
+	mock := &testhelpers.MockArtistService{
+		GetShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
 			return nil, 0, apperrors.ErrArtistNotFound(99)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
 
 	_, err := h.GetArtistShowsHandler(context.Background(), &GetArtistShowsRequest{ArtistID: "99", Limit: 20})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetArtistShows_ServiceError(t *testing.T) {
-	mock := &mockArtistService{
-		getShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
+	mock := &testhelpers.MockArtistService{
+		GetShowsForArtistFn: func(_ uint, _ string, _ int, _ string) ([]*contracts.ArtistShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
 
 	_, err := h.GetArtistShowsHandler(context.Background(), &GetArtistShowsRequest{ArtistID: "5", Limit: 20})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -488,8 +489,8 @@ func TestGetArtistShows_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestDeleteArtist_Success(t *testing.T) {
-	mock := &mockArtistService{
-		deleteArtistFn: func(artistID uint) error {
+	mock := &testhelpers.MockArtistService{
+		DeleteArtistFn: func(artistID uint) error {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -497,7 +498,7 @@ func TestDeleteArtist_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "42"})
 	if err != nil {
@@ -506,42 +507,42 @@ func TestDeleteArtist_Success(t *testing.T) {
 }
 
 func TestDeleteArtist_NotFound(t *testing.T) {
-	mock := &mockArtistService{
-		deleteArtistFn: func(_ uint) error {
+	mock := &testhelpers.MockArtistService{
+		DeleteArtistFn: func(_ uint) error {
 			return apperrors.ErrArtistNotFound(99)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestDeleteArtist_HasShows(t *testing.T) {
-	mock := &mockArtistService{
-		deleteArtistFn: func(_ uint) error {
+	mock := &testhelpers.MockArtistService{
+		DeleteArtistFn: func(_ uint) error {
 			return apperrors.ErrArtistHasShows(42, 3)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "42"})
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 func TestDeleteArtist_ServiceError(t *testing.T) {
-	mock := &mockArtistService{
-		deleteArtistFn: func(_ uint) error {
+	mock := &testhelpers.MockArtistService{
+		DeleteArtistFn: func(_ uint) error {
 			return fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "42"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -549,8 +550,8 @@ func TestDeleteArtist_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestAdminUpdateArtist_Success(t *testing.T) {
-	mock := &mockArtistService{
-		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		UpdateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -558,7 +559,7 @@ func TestAdminUpdateArtist_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	name := "Updated"
 	req := &AdminUpdateArtistRequest{ArtistID: "42"}
 	req.Body.Name = &name
@@ -573,30 +574,30 @@ func TestAdminUpdateArtist_Success(t *testing.T) {
 }
 
 func TestAdminUpdateArtist_NotFound(t *testing.T) {
-	mock := &mockArtistService{
-		updateArtistFn: func(_ uint, _ map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		UpdateArtistFn: func(_ uint, _ map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(99)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	name := "Test"
 	req := &AdminUpdateArtistRequest{ArtistID: "99"}
 	req.Body.Name = &name
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 	var auditCalled bool
-	artistMock := &mockArtistService{
-		updateArtistFn: func(_ uint, _ map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+	artistMock := &testhelpers.MockArtistService{
+		UpdateArtistFn: func(_ uint, _ map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
 	}
-	auditMock := &mockAuditLogService{
-		logActionFn: func(actorID uint, action string, entityType string, entityID uint, _ map[string]interface{}) {
+	auditMock := &testhelpers.MockAuditLogService{
+		LogActionFn: func(actorID uint, action string, entityType string, entityID uint, _ map[string]interface{}) {
 			auditCalled = true
 			if actorID != 1 {
 				t.Errorf("expected actorID=1, got %d", actorID)
@@ -613,7 +614,7 @@ func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(artistMock, auditMock, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	name := "New Name"
 	req := &AdminUpdateArtistRequest{ArtistID: "42"}
 	req.Body.Name = &name
@@ -632,8 +633,8 @@ func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 // ============================================================================
 
 func TestUpdateBandcamp_Success(t *testing.T) {
-	mock := &mockArtistService{
-		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		UpdateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -649,7 +650,7 @@ func TestUpdateBandcamp_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	url := "https://artist.bandcamp.com/album/cool-album"
 	req := &UpdateArtistBandcampRequest{ArtistID: "42"}
 	req.Body.BandcampEmbedURL = &url
@@ -664,8 +665,8 @@ func TestUpdateBandcamp_Success(t *testing.T) {
 }
 
 func TestUpdateBandcamp_ClearURL(t *testing.T) {
-	mock := &mockArtistService{
-		updateArtistFn: func(_ uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		UpdateArtistFn: func(_ uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			// When clearing, bandcamp_embed_url should be a nil *string
 			if v, ok := updates["bandcamp_embed_url"]; ok {
 				if sp, isStr := v.(*string); isStr && sp != nil {
@@ -676,7 +677,7 @@ func TestUpdateBandcamp_ClearURL(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	empty := ""
 	req := &UpdateArtistBandcampRequest{ArtistID: "42"}
 	req.Body.BandcampEmbedURL = &empty
@@ -692,8 +693,8 @@ func TestUpdateBandcamp_ClearURL(t *testing.T) {
 // ============================================================================
 
 func TestUpdateSpotify_Success(t *testing.T) {
-	mock := &mockArtistService{
-		updateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		UpdateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -704,7 +705,7 @@ func TestUpdateSpotify_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	url := "https://open.spotify.com/artist/abc123"
 	req := &UpdateArtistSpotifyRequest{ArtistID: "42"}
 	req.Body.SpotifyURL = &url
@@ -723,8 +724,8 @@ func TestUpdateSpotify_Success(t *testing.T) {
 // ============================================================================
 
 func TestGetArtistCities_Success(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
 			return []*contracts.ArtistCityResponse{
 				{City: "Phoenix", State: "AZ", ArtistCount: 10},
 				{City: "Mesa", State: "AZ", ArtistCount: 5},
@@ -749,20 +750,20 @@ func TestGetArtistCities_Success(t *testing.T) {
 }
 
 func TestGetArtistCities_ServiceError(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
 
 	_, err := h.GetArtistCitiesHandler(context.Background(), &GetArtistCitiesRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetArtistCities_Empty(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistCitiesFn: func() ([]*contracts.ArtistCityResponse, error) {
 			return []*contracts.ArtistCityResponse{}, nil
 		},
 	}
@@ -782,8 +783,8 @@ func TestGetArtistCities_Empty(t *testing.T) {
 // ============================================================================
 
 func TestListArtists_WithCitiesFilter(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			cities, ok := filters["cities"].([]map[string]string)
 			if !ok {
 				t.Error("expected cities filter to be []map[string]string")
@@ -811,8 +812,8 @@ func TestListArtists_WithCitiesFilter(t *testing.T) {
 }
 
 func TestListArtists_CitiesOverridesLegacy(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistsWithShowCountsFn: func(filters map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error) {
 			// When Cities param is set, legacy city/state should not be in filters
 			if _, ok := filters["city"]; ok {
 				t.Error("legacy city filter should not be set when Cities param is provided")
@@ -842,12 +843,12 @@ func TestListArtists_CitiesOverridesLegacy(t *testing.T) {
 func TestGetArtistAliases_InvalidID(t *testing.T) {
 	h := testArtistHandler()
 	_, err := h.GetArtistAliasesHandler(context.Background(), &GetArtistAliasesRequest{ArtistID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetArtistAliases_Success(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistAliasesFn: func(artistID uint) ([]*contracts.ArtistAliasResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistAliasesFn: func(artistID uint) ([]*contracts.ArtistAliasResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -869,15 +870,15 @@ func TestGetArtistAliases_Success(t *testing.T) {
 }
 
 func TestGetArtistAliases_NotFound(t *testing.T) {
-	mock := &mockArtistService{
-		getArtistAliasesFn: func(artistID uint) ([]*contracts.ArtistAliasResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistAliasesFn: func(artistID uint) ([]*contracts.ArtistAliasResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
 
 	_, err := h.GetArtistAliasesHandler(context.Background(), &GetArtistAliasesRequest{ArtistID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -890,42 +891,42 @@ func TestAddArtistAlias_NoUser(t *testing.T) {
 	req.Body.Alias = "test"
 
 	_, err := h.AddArtistAliasHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAddArtistAlias_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &AddArtistAliasRequest{ArtistID: "1"}
 	req.Body.Alias = "test"
 
 	_, err := h.AddArtistAliasHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAddArtistAlias_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AddArtistAliasRequest{ArtistID: "abc"}
 	req.Body.Alias = "test"
 
 	_, err := h.AddArtistAliasHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAddArtistAlias_EmptyAlias(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AddArtistAliasRequest{ArtistID: "1"}
 	req.Body.Alias = "   "
 
 	_, err := h.AddArtistAliasHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAddArtistAlias_Success(t *testing.T) {
-	mock := &mockArtistService{
-		addArtistAliasFn: func(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		AddArtistAliasFn: func(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -933,7 +934,7 @@ func TestAddArtistAlias_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AddArtistAliasRequest{ArtistID: "42"}
 	req.Body.Alias = "New Alias"
 
@@ -947,18 +948,18 @@ func TestAddArtistAlias_Success(t *testing.T) {
 }
 
 func TestAddArtistAlias_Conflict(t *testing.T) {
-	mock := &mockArtistService{
-		addArtistAliasFn: func(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		AddArtistAliasFn: func(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
 			return nil, fmt.Errorf("alias 'Test' already exists")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AddArtistAliasRequest{ArtistID: "42"}
 	req.Body.Alias = "Test"
 
 	_, err := h.AddArtistAliasHandler(ctx, req)
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 // ============================================================================
@@ -968,26 +969,26 @@ func TestAddArtistAlias_Conflict(t *testing.T) {
 func TestDeleteArtistAlias_NoUser(t *testing.T) {
 	h := testArtistHandler()
 	_, err := h.DeleteArtistAliasHandler(context.Background(), &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "1"})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestDeleteArtistAlias_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "1"})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestDeleteArtistAlias_InvalidAliasID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestDeleteArtistAlias_Success(t *testing.T) {
-	mock := &mockArtistService{
-		removeArtistAliasFn: func(aliasID uint) error {
+	mock := &testhelpers.MockArtistService{
+		RemoveArtistAliasFn: func(aliasID uint) error {
 			if aliasID != 5 {
 				t.Errorf("expected aliasID=5, got %d", aliasID)
 			}
@@ -995,7 +996,7 @@ func TestDeleteArtistAlias_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "5"})
 	if err != nil {
@@ -1004,16 +1005,16 @@ func TestDeleteArtistAlias_Success(t *testing.T) {
 }
 
 func TestDeleteArtistAlias_NotFound(t *testing.T) {
-	mock := &mockArtistService{
-		removeArtistAliasFn: func(aliasID uint) error {
+	mock := &testhelpers.MockArtistService{
+		RemoveArtistAliasFn: func(aliasID uint) error {
 			return fmt.Errorf("alias not found")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -1027,50 +1028,50 @@ func TestMergeArtists_NoUser(t *testing.T) {
 	req.Body.MergeFromArtistID = 2
 
 	_, err := h.MergeArtistsHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestMergeArtists_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 1
 	req.Body.MergeFromArtistID = 2
 
 	_, err := h.MergeArtistsHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestMergeArtists_MissingIDs(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 1
 	req.Body.MergeFromArtistID = 0
 
 	_, err := h.MergeArtistsHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestMergeArtists_SelfMerge(t *testing.T) {
-	mock := &mockArtistService{
-		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
+	mock := &testhelpers.MockArtistService{
+		MergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 			return nil, fmt.Errorf("cannot merge an artist with itself")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 5
 	req.Body.MergeFromArtistID = 5
 
 	_, err := h.MergeArtistsHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestMergeArtists_Success(t *testing.T) {
-	mock := &mockArtistService{
-		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
+	mock := &testhelpers.MockArtistService{
+		MergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 			if canonicalID != 1 {
 				t.Errorf("expected canonicalID=1, got %d", canonicalID)
 			}
@@ -1087,7 +1088,7 @@ func TestMergeArtists_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 1
 	req.Body.MergeFromArtistID = 2
@@ -1105,19 +1106,19 @@ func TestMergeArtists_Success(t *testing.T) {
 }
 
 func TestMergeArtists_NotFound(t *testing.T) {
-	mock := &mockArtistService{
-		mergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
+	mock := &testhelpers.MockArtistService{
+		MergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
 			return nil, apperrors.ErrArtistNotFound(canonicalID)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 99
 	req.Body.MergeFromArtistID = 2
 
 	_, err := h.MergeArtistsHandler(ctx, req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -1130,32 +1131,32 @@ func TestAdminCreateArtist_NoUser(t *testing.T) {
 	req.Body.Name = "Test Artist"
 
 	_, err := h.AdminCreateArtistHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminCreateArtist_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Test Artist"
 
 	_, err := h.AdminCreateArtistHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminCreateArtist_EmptyName(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "   "
 
 	_, err := h.AdminCreateArtistHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminCreateArtist_Success(t *testing.T) {
-	mock := &mockArtistService{
-		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if req.Name != "New Artist" {
 				t.Errorf("expected name='New Artist', got %q", req.Name)
 			}
@@ -1163,7 +1164,7 @@ func TestAdminCreateArtist_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "New Artist"
 
@@ -1183,8 +1184,8 @@ func TestAdminCreateArtist_Success(t *testing.T) {
 }
 
 func TestAdminCreateArtist_WithSocials(t *testing.T) {
-	mock := &mockArtistService{
-		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if req.Name != "Social Artist" {
 				t.Errorf("expected name='Social Artist', got %q", req.Name)
 			}
@@ -1204,7 +1205,7 @@ func TestAdminCreateArtist_WithSocials(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Social Artist"
 	city := "Phoenix"
@@ -1226,44 +1227,44 @@ func TestAdminCreateArtist_WithSocials(t *testing.T) {
 }
 
 func TestAdminCreateArtist_Conflict(t *testing.T) {
-	mock := &mockArtistService{
-		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("artist with name 'Existing' already exists")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Existing"
 
 	_, err := h.AdminCreateArtistHandler(ctx, req)
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 func TestAdminCreateArtist_ServiceError(t *testing.T) {
-	mock := &mockArtistService{
-		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Test"
 
 	_, err := h.AdminCreateArtistHandler(ctx, req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
 	var auditCalled bool
-	artistMock := &mockArtistService{
-		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+	artistMock := &testhelpers.MockArtistService{
+		CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 42, Name: req.Name}, nil
 		},
 	}
-	auditMock := &mockAuditLogService{
-		logActionFn: func(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{}) {
+	auditMock := &testhelpers.MockAuditLogService{
+		LogActionFn: func(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{}) {
 			auditCalled = true
 			if actorID != 1 {
 				t.Errorf("expected actorID=1, got %d", actorID)
@@ -1283,7 +1284,7 @@ func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(artistMock, auditMock, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Audit Test Artist"
 
@@ -1301,67 +1302,67 @@ func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
 // ============================================================================
 
 func TestDeleteArtist_ZeroID(t *testing.T) {
-	mock := &mockArtistService{
-		deleteArtistFn: func(id uint) error {
+	mock := &testhelpers.MockArtistService{
+		DeleteArtistFn: func(id uint) error {
 			return apperrors.ErrArtistNotFound(id)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "0"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestDeleteArtist_OverflowID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "99999999999"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminUpdateArtist_ZeroID(t *testing.T) {
-	mock := &mockArtistService{
-		updateArtistFn: func(id uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		UpdateArtistFn: func(id uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(id)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "0"}
 	name := "Test Name"
 	req.Body.Name = &name
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminUpdateArtist_VeryLargeID(t *testing.T) {
-	mock := &mockArtistService{
-		updateArtistFn: func(id uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		UpdateArtistFn: func(id uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(id)
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "4294967295"}
 	name := "Test Name"
 	req.Body.Name = &name
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminUpdateArtist_OverflowID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "99999999999"}
 	name := "Test"
 	req.Body.Name = &name
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminCreateArtist_NameTrimmed(t *testing.T) {
-	mock := &mockArtistService{
-		createArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+	mock := &testhelpers.MockArtistService{
+		CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if req.Name != "Trimmed Name" {
 				t.Errorf("expected trimmed name='Trimmed Name', got %q", req.Name)
 			}
@@ -1369,7 +1370,7 @@ func TestAdminCreateArtist_NameTrimmed(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "  Trimmed Name  "
 

@@ -1,10 +1,11 @@
-package handlers
+package community
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -20,22 +21,22 @@ func TestReportArtistHandler_NoAuth(t *testing.T) {
 	req := &ReportArtistRequest{ArtistID: "1"}
 
 	_, err := h.ReportArtistHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestReportArtistHandler_InvalidID(t *testing.T) {
 	h := testArtistReportHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &ReportArtistRequest{ArtistID: "abc"}
 
 	_, err := h.ReportArtistHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestReportArtistHandler_Success(t *testing.T) {
 	report := &contracts.ArtistReportResponse{ID: 10, ArtistID: 7, ReportType: "inaccurate", Status: "pending"}
-	mock := &mockArtistReportService{
-		createReportFn: func(userID, artistID uint, reportType string, details *string) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		CreateReportFn: func(userID, artistID uint, reportType string, details *string) (*contracts.ArtistReportResponse, error) {
 			if userID != 1 || artistID != 7 {
 				t.Errorf("unexpected args: userID=%d, artistID=%d", userID, artistID)
 			}
@@ -44,13 +45,13 @@ func TestReportArtistHandler_Success(t *testing.T) {
 			}
 			return report, nil
 		},
-		getReportByIDFn: func(reportID uint) (*models.ArtistReport, error) {
+		GetReportByIDFn: func(reportID uint) (*models.ArtistReport, error) {
 			return &models.ArtistReport{ID: reportID}, nil
 		},
 	}
 	email := "user@test.com"
-	h := NewArtistReportHandler(mock, &mockDiscordService{}, &mockUserService{}, &mockAuditLogService{})
-	ctx := ctxWithUser(&models.User{ID: 1, Email: &email})
+	h := NewArtistReportHandler(mock, &testhelpers.MockDiscordService{}, &testhelpers.MockUserService{}, &testhelpers.MockAuditLogService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, Email: &email})
 
 	req := &ReportArtistRequest{ArtistID: "7"}
 	req.Body.ReportType = "inaccurate"
@@ -64,18 +65,18 @@ func TestReportArtistHandler_Success(t *testing.T) {
 }
 
 func TestReportArtistHandler_ServiceError(t *testing.T) {
-	mock := &mockArtistReportService{
-		createReportFn: func(_, _ uint, _ string, _ *string) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		CreateReportFn: func(_, _ uint, _ string, _ *string) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("duplicate report")
 		},
 	}
-	h := NewArtistReportHandler(mock, &mockDiscordService{}, &mockUserService{}, &mockAuditLogService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewArtistReportHandler(mock, &testhelpers.MockDiscordService{}, &testhelpers.MockUserService{}, &testhelpers.MockAuditLogService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	req := &ReportArtistRequest{ArtistID: "7"}
 	req.Body.ReportType = "inaccurate"
 	_, err := h.ReportArtistHandler(ctx, req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- GetMyArtistReportHandler ---
@@ -85,22 +86,22 @@ func TestGetMyArtistReportHandler_NoAuth(t *testing.T) {
 	req := &GetMyArtistReportRequest{ArtistID: "1"}
 
 	_, err := h.GetMyArtistReportHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestGetMyArtistReportHandler_InvalidID(t *testing.T) {
 	h := testArtistReportHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetMyArtistReportRequest{ArtistID: "abc"}
 
 	_, err := h.GetMyArtistReportHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetMyArtistReportHandler_Success(t *testing.T) {
 	report := &contracts.ArtistReportResponse{ID: 10, ArtistID: 7}
-	mock := &mockArtistReportService{
-		getUserReportForArtistFn: func(userID, artistID uint) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		GetUserReportForArtistFn: func(userID, artistID uint) (*contracts.ArtistReportResponse, error) {
 			if userID != 1 || artistID != 7 {
 				t.Errorf("unexpected args: userID=%d, artistID=%d", userID, artistID)
 			}
@@ -108,7 +109,7 @@ func TestGetMyArtistReportHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistReportHandler(mock, nil, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetMyArtistReportHandler(ctx, &GetMyArtistReportRequest{ArtistID: "7"})
 	if err != nil {
@@ -123,13 +124,13 @@ func TestGetMyArtistReportHandler_Success(t *testing.T) {
 }
 
 func TestGetMyArtistReportHandler_NoReport(t *testing.T) {
-	mock := &mockArtistReportService{
-		getUserReportForArtistFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		GetUserReportForArtistFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
 			return nil, nil
 		},
 	}
 	h := NewArtistReportHandler(mock, nil, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetMyArtistReportHandler(ctx, &GetMyArtistReportRequest{ArtistID: "7"})
 	if err != nil {
@@ -141,16 +142,16 @@ func TestGetMyArtistReportHandler_NoReport(t *testing.T) {
 }
 
 func TestGetMyArtistReportHandler_ServiceError(t *testing.T) {
-	mock := &mockArtistReportService{
-		getUserReportForArtistFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		GetUserReportForArtistFn: func(_, _ uint) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistReportHandler(mock, nil, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.GetMyArtistReportHandler(ctx, &GetMyArtistReportRequest{ArtistID: "7"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- GetPendingArtistReportsHandler ---
@@ -160,27 +161,27 @@ func TestGetPendingArtistReportsHandler_NoAuth(t *testing.T) {
 	req := &GetPendingArtistReportsRequest{}
 
 	_, err := h.GetPendingArtistReportsHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestGetPendingArtistReportsHandler_NonAdmin(t *testing.T) {
 	h := testArtistReportHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &GetPendingArtistReportsRequest{}
 
 	_, err := h.GetPendingArtistReportsHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestGetPendingArtistReportsHandler_Success(t *testing.T) {
 	reports := []*contracts.ArtistReportResponse{{ID: 1}, {ID: 2}}
-	mock := &mockArtistReportService{
-		getPendingReportsFn: func(limit, offset int) ([]*contracts.ArtistReportResponse, int64, error) {
+	mock := &testhelpers.MockArtistReportService{
+		GetPendingReportsFn: func(limit, offset int) ([]*contracts.ArtistReportResponse, int64, error) {
 			return reports, 2, nil
 		},
 	}
 	h := NewArtistReportHandler(mock, nil, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GetPendingArtistReportsHandler(ctx, &GetPendingArtistReportsRequest{Limit: 10})
 	if err != nil {
@@ -195,16 +196,16 @@ func TestGetPendingArtistReportsHandler_Success(t *testing.T) {
 }
 
 func TestGetPendingArtistReportsHandler_ServiceError(t *testing.T) {
-	mock := &mockArtistReportService{
-		getPendingReportsFn: func(_, _ int) ([]*contracts.ArtistReportResponse, int64, error) {
+	mock := &testhelpers.MockArtistReportService{
+		GetPendingReportsFn: func(_, _ int) ([]*contracts.ArtistReportResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewArtistReportHandler(mock, nil, nil, nil)
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	_, err := h.GetPendingArtistReportsHandler(ctx, &GetPendingArtistReportsRequest{Limit: 10})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- DismissArtistReportHandler ---
@@ -214,40 +215,40 @@ func TestDismissArtistReportHandler_NoAuth(t *testing.T) {
 	req := &DismissArtistReportRequest{ReportID: "1"}
 
 	_, err := h.DismissArtistReportHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestDismissArtistReportHandler_NonAdmin(t *testing.T) {
 	h := testArtistReportHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &DismissArtistReportRequest{ReportID: "1"}
 
 	_, err := h.DismissArtistReportHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestDismissArtistReportHandler_InvalidID(t *testing.T) {
 	h := testArtistReportHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &DismissArtistReportRequest{ReportID: "abc"}
 
 	_, err := h.DismissArtistReportHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestDismissArtistReportHandler_Success(t *testing.T) {
 	report := &contracts.ArtistReportResponse{ID: 5, ArtistID: 7, Status: "dismissed"}
 	var auditLogged bool
-	mock := &mockArtistReportService{
-		dismissReportFn: func(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		DismissReportFn: func(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
 			if reportID != 5 || adminID != 99 {
 				t.Errorf("unexpected args: reportID=%d, adminID=%d", reportID, adminID)
 			}
 			return report, nil
 		},
 	}
-	auditMock := &mockAuditLogService{
-		logActionFn: func(actorID uint, action, entityType string, entityID uint, metadata map[string]interface{}) {
+	auditMock := &testhelpers.MockAuditLogService{
+		LogActionFn: func(actorID uint, action, entityType string, entityID uint, metadata map[string]interface{}) {
 			auditLogged = true
 			if action != "dismiss_artist_report" {
 				t.Errorf("expected action=dismiss_artist_report, got %s", action)
@@ -258,7 +259,7 @@ func TestDismissArtistReportHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistReportHandler(mock, nil, nil, auditMock)
-	ctx := ctxWithUser(&models.User{ID: 99, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 99, IsAdmin: true})
 
 	resp, err := h.DismissArtistReportHandler(ctx, &DismissArtistReportRequest{ReportID: "5"})
 	if err != nil {
@@ -273,16 +274,16 @@ func TestDismissArtistReportHandler_Success(t *testing.T) {
 }
 
 func TestDismissArtistReportHandler_ServiceError(t *testing.T) {
-	mock := &mockArtistReportService{
-		dismissReportFn: func(_, _ uint, _ *string) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		DismissReportFn: func(_, _ uint, _ *string) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewArtistReportHandler(mock, nil, nil, &mockAuditLogService{})
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	h := NewArtistReportHandler(mock, nil, nil, &testhelpers.MockAuditLogService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DismissArtistReportHandler(ctx, &DismissArtistReportRequest{ReportID: "5"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- ResolveArtistReportHandler ---
@@ -292,45 +293,45 @@ func TestResolveArtistReportHandler_NoAuth(t *testing.T) {
 	req := &ResolveArtistReportRequest{ReportID: "1"}
 
 	_, err := h.ResolveArtistReportHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestResolveArtistReportHandler_NonAdmin(t *testing.T) {
 	h := testArtistReportHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 	req := &ResolveArtistReportRequest{ReportID: "1"}
 
 	_, err := h.ResolveArtistReportHandler(ctx, req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestResolveArtistReportHandler_InvalidID(t *testing.T) {
 	h := testArtistReportHandler()
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 	req := &ResolveArtistReportRequest{ReportID: "abc"}
 
 	_, err := h.ResolveArtistReportHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestResolveArtistReportHandler_Success(t *testing.T) {
 	report := &contracts.ArtistReportResponse{ID: 5, ArtistID: 7, Status: "resolved"}
 	var auditAction string
-	mock := &mockArtistReportService{
-		resolveReportFn: func(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		ResolveReportFn: func(reportID, adminID uint, notes *string) (*contracts.ArtistReportResponse, error) {
 			if reportID != 5 || adminID != 99 {
 				t.Errorf("unexpected args: reportID=%d, adminID=%d", reportID, adminID)
 			}
 			return report, nil
 		},
 	}
-	auditMock := &mockAuditLogService{
-		logActionFn: func(_ uint, action, _ string, _ uint, _ map[string]interface{}) {
+	auditMock := &testhelpers.MockAuditLogService{
+		LogActionFn: func(_ uint, action, _ string, _ uint, _ map[string]interface{}) {
 			auditAction = action
 		},
 	}
 	h := NewArtistReportHandler(mock, nil, nil, auditMock)
-	ctx := ctxWithUser(&models.User{ID: 99, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 99, IsAdmin: true})
 
 	resp, err := h.ResolveArtistReportHandler(ctx, &ResolveArtistReportRequest{ReportID: "5"})
 	if err != nil {
@@ -345,14 +346,14 @@ func TestResolveArtistReportHandler_Success(t *testing.T) {
 }
 
 func TestResolveArtistReportHandler_ServiceError(t *testing.T) {
-	mock := &mockArtistReportService{
-		resolveReportFn: func(_, _ uint, _ *string) (*contracts.ArtistReportResponse, error) {
+	mock := &testhelpers.MockArtistReportService{
+		ResolveReportFn: func(_, _ uint, _ *string) (*contracts.ArtistReportResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewArtistReportHandler(mock, nil, nil, &mockAuditLogService{})
-	ctx := ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	h := NewArtistReportHandler(mock, nil, nil, &testhelpers.MockAuditLogService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 
 	_, err := h.ResolveArtistReportHandler(ctx, &ResolveArtistReportRequest{ReportID: "5"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }

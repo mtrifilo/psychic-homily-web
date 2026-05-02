@@ -1,10 +1,11 @@
-package handlers
+package auth
 
 import (
 	"context"
 	"errors"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/engagement"
 )
@@ -12,24 +13,24 @@ import (
 // --- SetFavoriteCitiesHandler ---
 
 func TestSetFavoriteCitiesHandler_NoAuth(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 	req := &SetFavoriteCitiesRequest{}
 
 	_, err := h.SetFavoriteCitiesHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestSetFavoriteCitiesHandler_Success(t *testing.T) {
 	var calledWith []models.FavoriteCity
-	mock := &mockUserService{
-		setFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
+	mock := &testhelpers.MockUserService{
+		SetFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
 			calledWith = cities
 			return nil
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
 	user := &models.User{ID: 1, IsActive: true}
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &SetFavoriteCitiesRequest{}
 	req.Body.Cities = []models.FavoriteCity{{City: "Phoenix", State: "AZ"}}
@@ -47,8 +48,8 @@ func TestSetFavoriteCitiesHandler_Success(t *testing.T) {
 }
 
 func TestSetFavoriteCitiesHandler_NilCities(t *testing.T) {
-	mock := &mockUserService{
-		setFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
+	mock := &testhelpers.MockUserService{
+		SetFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
 			if cities == nil {
 				return errors.New("expected non-nil slice")
 			}
@@ -56,7 +57,7 @@ func TestSetFavoriteCitiesHandler_NilCities(t *testing.T) {
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	req := &SetFavoriteCitiesRequest{}
 	// Body.Cities is nil — handler should default to empty slice
@@ -71,39 +72,39 @@ func TestSetFavoriteCitiesHandler_NilCities(t *testing.T) {
 }
 
 func TestSetFavoriteCitiesHandler_ServiceError(t *testing.T) {
-	mock := &mockUserService{
-		setFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
+	mock := &testhelpers.MockUserService{
+		SetFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
 			return errors.New("db error")
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetFavoriteCitiesRequest{}
 
 	_, err := h.SetFavoriteCitiesHandler(ctx, req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- SetShowRemindersHandler ---
 
 func TestSetShowRemindersHandler_NoAuth(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 	req := &SetShowRemindersRequest{}
 
 	_, err := h.SetShowRemindersHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestSetShowRemindersHandler_Success_Enable(t *testing.T) {
 	var calledEnabled bool
-	mock := &mockUserService{
-		setShowRemindersFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetShowRemindersFn: func(userID uint, enabled bool) error {
 			calledEnabled = enabled
 			return nil
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetShowRemindersRequest{}
 	req.Body.Enabled = true
 
@@ -120,13 +121,13 @@ func TestSetShowRemindersHandler_Success_Enable(t *testing.T) {
 }
 
 func TestSetShowRemindersHandler_Success_Disable(t *testing.T) {
-	mock := &mockUserService{
-		setShowRemindersFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetShowRemindersFn: func(userID uint, enabled bool) error {
 			return nil
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetShowRemindersRequest{}
 	req.Body.Enabled = false
 
@@ -140,30 +141,30 @@ func TestSetShowRemindersHandler_Success_Disable(t *testing.T) {
 }
 
 func TestSetShowRemindersHandler_ServiceError(t *testing.T) {
-	mock := &mockUserService{
-		setShowRemindersFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetShowRemindersFn: func(userID uint, enabled bool) error {
 			return errors.New("db error")
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetShowRemindersRequest{}
 	req.Body.Enabled = true
 
 	_, err := h.SetShowRemindersHandler(ctx, req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- UnsubscribeShowRemindersHandler ---
 
 func TestUnsubscribeShowRemindersHandler_InvalidSignature(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 	req := &UnsubscribeShowRemindersRequest{}
 	req.Body.UID = 1
 	req.Body.Sig = "invalid-sig"
 
 	_, err := h.UnsubscribeShowRemindersHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUnsubscribeShowRemindersHandler_ServiceError(t *testing.T) {
@@ -172,8 +173,8 @@ func TestUnsubscribeShowRemindersHandler_ServiceError(t *testing.T) {
 	uid := uint(42)
 	sig := computeTestUnsubscribeSig(uid, secret)
 
-	mock := &mockUserService{
-		setShowRemindersFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetShowRemindersFn: func(userID uint, enabled bool) error {
 			return errors.New("db error")
 		},
 	}
@@ -183,7 +184,7 @@ func TestUnsubscribeShowRemindersHandler_ServiceError(t *testing.T) {
 	req.Body.Sig = sig
 
 	_, err := h.UnsubscribeShowRemindersHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // computeTestUnsubscribeSig generates a valid HMAC signature for testing
@@ -196,36 +197,36 @@ func computeTestUnsubscribeSig(uid uint, secret string) string {
 // ──────────────────────────────────────────────
 
 func TestSetCommentNotificationsHandler_NoAuth(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 	req := &SetCommentNotificationsRequest{}
 	enabled := false
 	req.Body.NotifyOnMention = &enabled
 	_, err := h.SetCommentNotificationsHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestSetCommentNotificationsHandler_NoFieldsBadRequest(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetCommentNotificationsRequest{}
 	_, err := h.SetCommentNotificationsHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestSetCommentNotificationsHandler_Success(t *testing.T) {
 	var commentEnabled, mentionEnabled *bool
-	mock := &mockUserService{
-		setNotifyOnCommentSubscriptionFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCommentSubscriptionFn: func(userID uint, enabled bool) error {
 			e := enabled
 			commentEnabled = &e
 			return nil
 		},
-		setNotifyOnMentionFn: func(userID uint, enabled bool) error {
+		SetNotifyOnMentionFn: func(userID uint, enabled bool) error {
 			e := enabled
 			mentionEnabled = &e
 			return nil
 		},
-		getUserByIDFn: func(uid uint) (*models.User, error) {
+		GetUserByIDFn: func(uid uint) (*models.User, error) {
 			return &models.User{
 				ID: uid,
 				Preferences: &models.UserPreferences{
@@ -237,7 +238,7 @@ func TestSetCommentNotificationsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	no := false
 	yes := true
@@ -268,14 +269,14 @@ func TestSetCommentNotificationsHandler_Success(t *testing.T) {
 }
 
 func TestUnsubscribeCommentSubscriptionHandler_InvalidSignature(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 	req := &UnsubscribeCommentSubscriptionRequest{}
 	req.Body.UID = 1
 	req.Body.EntityType = "artist"
 	req.Body.EntityID = 1
 	req.Body.Sig = "nope"
 	_, err := h.UnsubscribeCommentSubscriptionHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUnsubscribeCommentSubscriptionHandler_Success(t *testing.T) {
@@ -287,8 +288,8 @@ func TestUnsubscribeCommentSubscriptionHandler_Success(t *testing.T) {
 
 	var called bool
 	var receivedEnabled *bool
-	mock := &mockUserService{
-		setNotifyOnCommentSubscriptionFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCommentSubscriptionFn: func(userID uint, enabled bool) error {
 			called = true
 			e := enabled
 			receivedEnabled = &e
@@ -315,12 +316,12 @@ func TestUnsubscribeCommentSubscriptionHandler_Success(t *testing.T) {
 }
 
 func TestUnsubscribeMentionHandler_InvalidSignature(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 	req := &UnsubscribeMentionRequest{}
 	req.Body.UID = 1
 	req.Body.Sig = "bad"
 	_, err := h.UnsubscribeMentionHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUnsubscribeMentionHandler_Success(t *testing.T) {
@@ -329,8 +330,8 @@ func TestUnsubscribeMentionHandler_Success(t *testing.T) {
 	sig := engagement.ComputeMentionUnsubscribeSignature(uid, secret)
 
 	var called bool
-	mock := &mockUserService{
-		setNotifyOnMentionFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnMentionFn: func(userID uint, enabled bool) error {
 			if enabled {
 				t.Fatalf("expected enabled=false, got true")
 			}

@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -183,7 +184,7 @@ type GetPendingReportsRequest struct {
 type GetPendingReportsResponse struct {
 	Body struct {
 		Reports []*contracts.ShowReportResponse `json:"reports"`
-		Total   int64                          `json:"total"`
+		Total   int64                           `json:"total"`
 	}
 }
 
@@ -191,7 +192,7 @@ type GetPendingReportsResponse struct {
 func (h *ShowReportHandler) GetPendingReportsHandler(ctx context.Context, req *GetPendingReportsRequest) (*GetPendingReportsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -230,7 +231,7 @@ func (h *ShowReportHandler) GetPendingReportsHandler(ctx context.Context, req *G
 	return &GetPendingReportsResponse{
 		Body: struct {
 			Reports []*contracts.ShowReportResponse `json:"reports"`
-			Total   int64                          `json:"total"`
+			Total   int64                           `json:"total"`
 		}{
 			Reports: reports,
 			Total:   total,
@@ -255,7 +256,7 @@ type DismissReportResponse struct {
 func (h *ShowReportHandler) DismissReportHandler(ctx context.Context, req *DismissReportRequest) (*DismissReportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -318,7 +319,7 @@ type ResolveReportResponse struct {
 func (h *ShowReportHandler) ResolveReportHandler(ctx context.Context, req *ResolveReportRequest) (*ResolveReportResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

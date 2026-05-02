@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"encoding/json"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -20,19 +21,19 @@ import (
 // `is_isolate` derivation, and the type filter.
 type SceneGraphIntegrationSuite struct {
 	suite.Suite
-	deps *handlerIntegrationDeps
+	deps *testhelpers.IntegrationDeps
 }
 
 func (s *SceneGraphIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 }
 
 func (s *SceneGraphIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *SceneGraphIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestSceneGraphIntegration(t *testing.T) {
@@ -48,39 +49,39 @@ func TestSceneGraphIntegration(t *testing.T) {
 // requires `sceneMinVenues` (= 2) verified venues to consider a scene valid;
 // most tests below seed at least two even when only one carries activity.
 func (s *SceneGraphIntegrationSuite) seedSceneVenue(name, city, state string) *models.Venue {
-	return createVerifiedVenue(s.deps.db, name, city, state)
+	return testhelpers.CreateVerifiedVenue(s.deps.DB, name, city, state)
 }
 
 // seedSceneArtist creates a bare artist row. Slug doesn't matter for graph
 // computation but the response payload surfaces it.
 func (s *SceneGraphIntegrationSuite) seedSceneArtist(name string) *models.Artist {
 	a := &models.Artist{Name: name}
-	s.deps.db.Create(a)
+	s.deps.DB.Create(a)
 	slug := fmt.Sprintf("artist-%d", a.ID)
-	s.deps.db.Model(a).Update("slug", slug)
+	s.deps.DB.Model(a).Update("slug", slug)
 	return a
 }
 
 // seedShowAtVenue creates one approved show on `eventDate` at `venue` with the
 // given artists in lineup order (position 0 = headliner). Returns the show ID.
 func (s *SceneGraphIntegrationSuite) seedShowAtVenue(eventDate time.Time, venue *models.Venue, artistIDs ...uint) uint {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	show := &models.Show{
 		Title:       fmt.Sprintf("Show at %s on %s", venue.Name, eventDate.Format("2006-01-02")),
 		EventDate:   eventDate,
-		City:        stringPtr(venue.City),
-		State:       stringPtr(venue.State),
+		City:        testhelpers.StringPtr(venue.City),
+		State:       testhelpers.StringPtr(venue.State),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 	for i, aid := range artistIDs {
 		setType := "opener"
 		if i == 0 {
 			setType = "headliner"
 		}
-		s.deps.db.Exec(
+		s.deps.DB.Exec(
 			"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, ?, ?)",
 			show.ID, aid, i, setType,
 		)
@@ -110,7 +111,7 @@ func (s *SceneGraphIntegrationSuite) seedSharedBillsRel(a, b uint, sharedCount i
 		AutoDerived:      true,
 		Detail:           &raw,
 	}
-	s.deps.db.Create(&rel)
+	s.deps.DB.Create(&rel)
 }
 
 // seedTypedRel inserts a relationship of the given type between two artists.
@@ -124,7 +125,7 @@ func (s *SceneGraphIntegrationSuite) seedTypedRel(a, b uint, relType string) {
 		Score:            0.5,
 		AutoDerived:      true,
 	}
-	s.deps.db.Create(&rel)
+	s.deps.DB.Create(&rel)
 }
 
 // --- Tests ---
@@ -132,7 +133,7 @@ func (s *SceneGraphIntegrationSuite) seedTypedRel(a, b uint, relType string) {
 // TestSceneGraph_NotFound: scene with no verified venues returns the same
 // "scene not found" error path as the other scene endpoints.
 func (s *SceneGraphIntegrationSuite) TestSceneGraph_NotFound() {
-	_, err := s.deps.sceneService.GetSceneGraph("Nowhere", "ZZ", nil)
+	_, err := s.deps.SceneService.GetSceneGraph("Nowhere", "ZZ", nil)
 	s.Require().Error(err)
 }
 
@@ -143,7 +144,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_NoArtists() {
 	s.seedSceneVenue("Empty Venue 1", "Phoenix", "AZ")
 	s.seedSceneVenue("Empty Venue 2", "Phoenix", "AZ")
 
-	graph, err := s.deps.sceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
 	s.Require().NoError(err)
 	s.Equal(0, graph.Scene.ArtistCount)
 	s.Equal(0, graph.Scene.EdgeCount)
@@ -172,7 +173,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_IsolatedNodes() {
 	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, a2.ID)
 	s.seedShowAtVenue(now.AddDate(0, -3, 0), venue, a3.ID)
 
-	graph, err := s.deps.sceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
 	s.Require().NoError(err)
 	s.Equal(3, graph.Scene.ArtistCount)
 	s.Equal(0, graph.Scene.EdgeCount)
@@ -216,7 +217,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_PrimaryVenueClusters() {
 	// Cross-cluster edge: Valley ↔ Crescent.
 	s.seedSharedBillsRel(valleyArtists[0].ID, crescentArtists[0].ID, 3)
 
-	graph, err := s.deps.sceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
 	s.Require().NoError(err)
 	s.Equal(12, graph.Scene.ArtistCount)
 	s.Equal(2, graph.Scene.EdgeCount)
@@ -273,7 +274,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_OtherClusterRollup() {
 		a := s.seedSceneArtist(fmt.Sprintf("Tiny-A%d", i))
 		s.seedShowAtVenue(now.AddDate(0, 0, -i), tiny, a.ID)
 	}
-	graph, err := s.deps.sceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	graph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
 	s.Require().NoError(err)
 	s.Equal(5, graph.Scene.ArtistCount)
 	s.Require().Len(graph.Clusters, 1)
@@ -303,7 +304,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_CrossSceneLeakagePrevented()
 	// Cross-scene shared_bills — should not appear in either scene's response.
 	s.seedSharedBillsRel(phxArtist.ID, tusArtist.ID, 3)
 
-	phxGraph, err := s.deps.sceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	phxGraph, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
 	s.Require().NoError(err)
 	s.Equal(1, phxGraph.Scene.ArtistCount)
 	s.Equal(0, phxGraph.Scene.EdgeCount)
@@ -312,7 +313,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_CrossSceneLeakagePrevented()
 	s.Equal(phxArtist.ID, phxGraph.Nodes[0].ID)
 	s.True(phxGraph.Nodes[0].IsIsolate)
 
-	tusGraph, err := s.deps.sceneService.GetSceneGraph("Tucson", "AZ", nil)
+	tusGraph, err := s.deps.SceneService.GetSceneGraph("Tucson", "AZ", nil)
 	s.Require().NoError(err)
 	s.Equal(1, tusGraph.Scene.ArtistCount)
 	s.Equal(0, tusGraph.Scene.EdgeCount)
@@ -334,18 +335,18 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_TypeFilter() {
 	s.seedTypedRel(a.ID, b.ID, models.RelationshipTypeSharedBills)
 	s.seedTypedRel(a.ID, b.ID, models.RelationshipTypeSharedLabel)
 
-	all, err := s.deps.sceneService.GetSceneGraph("Phoenix", "AZ", nil)
+	all, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
 	s.Require().NoError(err)
 	s.Equal(2, all.Scene.EdgeCount)
 
-	onlyShared, err := s.deps.sceneService.GetSceneGraph("Phoenix", "AZ", []string{models.RelationshipTypeSharedLabel})
+	onlyShared, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{models.RelationshipTypeSharedLabel})
 	s.Require().NoError(err)
 	s.Equal(1, onlyShared.Scene.EdgeCount)
 	s.Require().Len(onlyShared.Links, 1)
 	s.Equal(models.RelationshipTypeSharedLabel, onlyShared.Links[0].Type)
 
 	// Unknown type silently drops to allowlist; result is zero edges, not an error.
-	bogus, err := s.deps.sceneService.GetSceneGraph("Phoenix", "AZ", []string{"definitely_not_a_type"})
+	bogus, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{"definitely_not_a_type"})
 	s.Require().NoError(err)
 	s.Equal(0, bogus.Scene.EdgeCount)
 }

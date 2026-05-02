@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
@@ -326,7 +327,7 @@ type AdminListPendingEditsResponse struct {
 
 // AdminListPendingEditsHandler handles GET /admin/pending-edits
 func (h *PendingEditHandler) AdminListPendingEditsHandler(ctx context.Context, req *AdminListPendingEditsRequest) (*AdminListPendingEditsResponse, error) {
-	if _, err := requireAdmin(ctx); err != nil {
+	if _, err := shared.RequireAdmin(ctx); err != nil {
 		return nil, err
 	}
 
@@ -361,7 +362,7 @@ type AdminGetPendingEditResponse struct {
 
 // AdminGetPendingEditHandler handles GET /admin/pending-edits/{edit_id}
 func (h *PendingEditHandler) AdminGetPendingEditHandler(ctx context.Context, req *AdminGetPendingEditRequest) (*AdminGetPendingEditResponse, error) {
-	if _, err := requireAdmin(ctx); err != nil {
+	if _, err := shared.RequireAdmin(ctx); err != nil {
 		return nil, err
 	}
 
@@ -396,7 +397,7 @@ type AdminApprovePendingEditResponse struct {
 
 // AdminApprovePendingEditHandler handles POST /admin/pending-edits/{edit_id}/approve
 func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context, req *AdminApprovePendingEditRequest) (*AdminApprovePendingEditResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -460,7 +461,7 @@ type AdminRejectPendingEditResponse struct {
 
 // AdminRejectPendingEditHandler handles POST /admin/pending-edits/{edit_id}/reject
 func (h *PendingEditHandler) AdminRejectPendingEditHandler(ctx context.Context, req *AdminRejectPendingEditRequest) (*AdminRejectPendingEditResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -526,7 +527,7 @@ type AdminGetEntityPendingEditsResponse struct {
 
 // AdminGetEntityPendingEditsHandler handles GET /admin/pending-edits/entity/{entity_type}/{entity_id}
 func (h *PendingEditHandler) AdminGetEntityPendingEditsHandler(ctx context.Context, req *AdminGetEntityPendingEditsRequest) (*AdminGetEntityPendingEditsResponse, error) {
-	if _, err := requireAdmin(ctx); err != nil {
+	if _, err := shared.RequireAdmin(ctx); err != nil {
 		return nil, err
 	}
 

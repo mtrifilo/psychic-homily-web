@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -8,34 +8,35 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
 type ShowHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *ShowHandler
 }
 
 func (s *ShowHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 	s.handler = NewShowHandler(
-		s.deps.showService,
-		s.deps.showService,
-		s.deps.showService,
-		s.deps.savedShowService,
-		s.deps.discordService,
-		s.deps.musicDiscoveryService,
-		s.deps.extractionService,
+		s.deps.ShowService,
+		s.deps.ShowService,
+		s.deps.ShowService,
+		s.deps.SavedShowService,
+		s.deps.DiscordService,
+		s.deps.MusicDiscoveryService,
+		s.deps.ExtractionService,
 	)
 }
 
 func (s *ShowHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *ShowHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestShowHandlerIntegration(t *testing.T) {
@@ -48,10 +49,10 @@ func TestShowHandlerIntegration(t *testing.T) {
 // --- CreateShowHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestCreateShow_Success() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	title := "New Show"
 	req := &CreateShowRequest{}
 	req.Body.Title = &title
@@ -59,7 +60,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_Success() {
 	req.Body.City = "Phoenix"
 	req.Body.State = "AZ"
 	req.Body.Venues = []Venue{{ID: &venue.ID}}
-	req.Body.Artists = []Artist{{Name: stringPtr("Test Artist")}}
+	req.Body.Artists = []Artist{{Name: testhelpers.StringPtr("Test Artist")}}
 
 	resp, err := s.handler.CreateShowHandler(ctx, req)
 	s.NoError(err)
@@ -70,10 +71,10 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_Success() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestCreateShow_AdminAutoApproved() {
-	admin := createAdminUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	title := "Admin Show"
 	req := &CreateShowRequest{}
 	req.Body.Title = &title
@@ -81,7 +82,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_AdminAutoApproved() {
 	req.Body.City = "Phoenix"
 	req.Body.State = "AZ"
 	req.Body.Venues = []Venue{{ID: &venue.ID}}
-	req.Body.Artists = []Artist{{Name: stringPtr("Test Artist")}}
+	req.Body.Artists = []Artist{{Name: testhelpers.StringPtr("Test Artist")}}
 
 	resp, err := s.handler.CreateShowHandler(ctx, req)
 	s.NoError(err)
@@ -91,23 +92,23 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_AdminAutoApproved() {
 
 func (s *ShowHandlerIntegrationSuite) TestCreateShow_UnverifiedEmailBlocked() {
 	user := &models.User{
-		Email:         stringPtr("unverified@test.com"),
-		FirstName:     stringPtr("Test"),
-		LastName:      stringPtr("User"),
+		Email:         testhelpers.StringPtr("unverified@test.com"),
+		FirstName:     testhelpers.StringPtr("Test"),
+		LastName:      testhelpers.StringPtr("User"),
 		IsActive:      true,
 		EmailVerified: false,
 	}
-	s.deps.db.Create(user)
+	s.deps.DB.Create(user)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	title := "Blocked Show"
 	req := &CreateShowRequest{}
 	req.Body.Title = &title
 	req.Body.EventDate = time.Now().UTC().AddDate(0, 0, 14)
 	req.Body.City = "Phoenix"
 	req.Body.State = "AZ"
-	req.Body.Venues = []Venue{{Name: stringPtr("Some Venue")}}
-	req.Body.Artists = []Artist{{Name: stringPtr("Some Artist")}}
+	req.Body.Venues = []Venue{{Name: testhelpers.StringPtr("Some Venue")}}
+	req.Body.Artists = []Artist{{Name: testhelpers.StringPtr("Some Artist")}}
 
 	_, err := s.handler.CreateShowHandler(ctx, req)
 	s.Error(err)
@@ -116,8 +117,8 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_UnverifiedEmailBlocked() {
 // --- GetShowHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetShow_ByID() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
 	req := &GetShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	resp, err := s.handler.GetShowHandler(context.Background(), req)
@@ -133,10 +134,10 @@ func (s *ShowHandlerIntegrationSuite) TestGetShow_NotFound() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestGetShow_PendingShowSubmitterCanView() {
-	user := createTestUser(s.deps.db)
-	show := createPendingShow(s.deps.db, user.ID, "Pending Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Pending Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &GetShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	resp, err := s.handler.GetShowHandler(ctx, req)
 	s.NoError(err)
@@ -145,11 +146,11 @@ func (s *ShowHandlerIntegrationSuite) TestGetShow_PendingShowSubmitterCanView() 
 }
 
 func (s *ShowHandlerIntegrationSuite) TestGetShow_PendingShowOtherUserDenied() {
-	submitter := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
-	show := createPendingShow(s.deps.db, submitter.ID, "Pending Show")
+	submitter := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreatePendingShow(s.deps.DB, submitter.ID, "Pending Show")
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	req := &GetShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	_, err := s.handler.GetShowHandler(ctx, req)
 	s.Error(err)
@@ -158,9 +159,9 @@ func (s *ShowHandlerIntegrationSuite) TestGetShow_PendingShowOtherUserDenied() {
 // --- GetShowsHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetShows_Success() {
-	user := createTestUser(s.deps.db)
-	createApprovedShow(s.deps.db, user.ID, "Show 1")
-	createApprovedShow(s.deps.db, user.ID, "Show 2")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Show 1")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Show 2")
 
 	req := &GetShowsRequest{}
 	resp, err := s.handler.GetShowsHandler(context.Background(), req)
@@ -180,8 +181,8 @@ func (s *ShowHandlerIntegrationSuite) TestGetShows_Empty() {
 // --- GetUpcomingShowsHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetUpcomingShows_Success() {
-	user := createTestUser(s.deps.db)
-	createFutureApprovedShow(s.deps.db, user.ID, "Future Show", 7)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	testhelpers.CreateFutureApprovedShow(s.deps.DB, user.ID, "Future Show", 7)
 
 	req := &GetUpcomingShowsRequest{Timezone: "UTC", Limit: 50}
 	resp, err := s.handler.GetUpcomingShowsHandler(context.Background(), req)
@@ -191,8 +192,8 @@ func (s *ShowHandlerIntegrationSuite) TestGetUpcomingShows_Success() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestGetUpcomingShows_ExcludesPast() {
-	user := createTestUser(s.deps.db)
-	createPastApprovedShow(s.deps.db, user.ID, "Past Show", 30)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	testhelpers.CreatePastApprovedShow(s.deps.DB, user.ID, "Past Show", 30)
 
 	req := &GetUpcomingShowsRequest{Timezone: "UTC", Limit: 50}
 	resp, err := s.handler.GetUpcomingShowsHandler(context.Background(), req)
@@ -213,10 +214,10 @@ func (s *ShowHandlerIntegrationSuite) TestGetUpcomingShows_Empty() {
 // --- UpdateShowHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_OwnerSuccess() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Original Title")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Original Title")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	newTitle := "Updated Title"
 	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Title = &newTitle
@@ -228,11 +229,11 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_OwnerSuccess() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_AdminSuccess() {
-	user := createTestUser(s.deps.db)
-	admin := createAdminUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Original Title")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Original Title")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	newTitle := "Admin Updated"
 	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Title = &newTitle
@@ -243,11 +244,11 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_AdminSuccess() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_NotOwnerForbidden() {
-	submitter := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, submitter.ID, "Test Show")
+	submitter := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, submitter.ID, "Test Show")
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	newTitle := "Hacked Title"
 	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Title = &newTitle
@@ -257,8 +258,8 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_NotOwnerForbidden() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_NotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	newTitle := "Updated"
 	req := &UpdateShowRequest{ShowID: "99999"}
@@ -271,10 +272,10 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_NotFound() {
 // --- DeleteShowHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestDeleteShow_OwnerSuccess() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Delete Me")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Delete Me")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
 	_, err := s.handler.DeleteShowHandler(ctx, req)
@@ -282,11 +283,11 @@ func (s *ShowHandlerIntegrationSuite) TestDeleteShow_OwnerSuccess() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestDeleteShow_NotOwnerForbidden() {
-	submitter := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, submitter.ID, "Test Show")
+	submitter := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, submitter.ID, "Test Show")
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	req := &DeleteShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
 	_, err := s.handler.DeleteShowHandler(ctx, req)
@@ -294,8 +295,8 @@ func (s *ShowHandlerIntegrationSuite) TestDeleteShow_NotOwnerForbidden() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestDeleteShow_NotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &DeleteShowRequest{ShowID: "99999"}
 	_, err := s.handler.DeleteShowHandler(ctx, req)
@@ -305,10 +306,10 @@ func (s *ShowHandlerIntegrationSuite) TestDeleteShow_NotFound() {
 // --- CreateShowHandler with InstagramHandle ---
 
 func (s *ShowHandlerIntegrationSuite) TestCreateShow_WithInstagramHandle() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "IG Test Venue", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "IG Test Venue", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	title := "IG Show"
 	igHandle := "@new_ig"
 	req := &CreateShowRequest{}
@@ -317,7 +318,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_WithInstagramHandle() {
 	req.Body.City = "Phoenix"
 	req.Body.State = "AZ"
 	req.Body.Venues = []Venue{{ID: &venue.ID}}
-	req.Body.Artists = []Artist{{Name: stringPtr("New IG Artist"), InstagramHandle: &igHandle}}
+	req.Body.Artists = []Artist{{Name: testhelpers.StringPtr("New IG Artist"), InstagramHandle: &igHandle}}
 
 	resp, err := s.handler.CreateShowHandler(ctx, req)
 	s.NoError(err)
@@ -328,20 +329,20 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_WithInstagramHandle() {
 
 	// Verify in DB
 	var artist models.Artist
-	s.NoError(s.deps.db.Where("name = ?", "New IG Artist").First(&artist).Error)
+	s.NoError(s.deps.DB.Where("name = ?", "New IG Artist").First(&artist).Error)
 	s.Require().NotNil(artist.Social.Instagram)
 	s.Equal("@new_ig", *artist.Social.Instagram)
 }
 
 func (s *ShowHandlerIntegrationSuite) TestUpdateShow_WithInstagramOnNewArtist() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Update IG Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Update IG Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	igHandle := "@updated_ig"
 	req := &UpdateShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Artists = []Artist{
-		{Name: stringPtr("Updated IG Artist"), InstagramHandle: &igHandle},
+		{Name: testhelpers.StringPtr("Updated IG Artist"), InstagramHandle: &igHandle},
 	}
 
 	resp, err := s.handler.UpdateShowHandler(ctx, req)
@@ -353,7 +354,7 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_WithInstagramOnNewArtist() 
 
 	// Verify in DB
 	var artist models.Artist
-	s.NoError(s.deps.db.Where("name = ?", "Updated IG Artist").First(&artist).Error)
+	s.NoError(s.deps.DB.Where("name = ?", "Updated IG Artist").First(&artist).Error)
 	s.Require().NotNil(artist.Social.Instagram)
 	s.Equal("@updated_ig", *artist.Social.Instagram)
 }
@@ -361,11 +362,11 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_WithInstagramOnNewArtist() 
 // --- GetMySubmissionsHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetMySubmissions_Success() {
-	user := createTestUser(s.deps.db)
-	createApprovedShow(s.deps.db, user.ID, "My Show 1")
-	createPendingShow(s.deps.db, user.ID, "My Show 2")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "My Show 1")
+	testhelpers.CreatePendingShow(s.deps.DB, user.ID, "My Show 2")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &GetMySubmissionsRequest{Limit: 50, Offset: 0}
 	resp, err := s.handler.GetMySubmissionsHandler(ctx, req)
 	s.NoError(err)
@@ -375,8 +376,8 @@ func (s *ShowHandlerIntegrationSuite) TestGetMySubmissions_Success() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestGetMySubmissions_Empty() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &GetMySubmissionsRequest{Limit: 50, Offset: 0}
 	resp, err := s.handler.GetMySubmissionsHandler(ctx, req)
@@ -387,8 +388,8 @@ func (s *ShowHandlerIntegrationSuite) TestGetMySubmissions_Empty() {
 // --- GetShowCitiesHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestGetShowCities_Success() {
-	user := createTestUser(s.deps.db)
-	createFutureApprovedShow(s.deps.db, user.ID, "Phoenix Show", 7)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	testhelpers.CreateFutureApprovedShow(s.deps.DB, user.ID, "Phoenix Show", 7)
 
 	req := &GetShowCitiesRequest{Timezone: "UTC"}
 	resp, err := s.handler.GetShowCitiesHandler(context.Background(), req)
@@ -399,10 +400,10 @@ func (s *ShowHandlerIntegrationSuite) TestGetShowCities_Success() {
 // --- UnpublishShowHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestUnpublishShow_OwnerSuccess() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Approved Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Approved Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &UnpublishShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	resp, err := s.handler.UnpublishShowHandler(ctx, req)
 	s.NoError(err)
@@ -411,8 +412,8 @@ func (s *ShowHandlerIntegrationSuite) TestUnpublishShow_OwnerSuccess() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestUnpublishShow_NotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UnpublishShowRequest{ShowID: "99999"}
 	_, err := s.handler.UnpublishShowHandler(ctx, req)
@@ -422,10 +423,10 @@ func (s *ShowHandlerIntegrationSuite) TestUnpublishShow_NotFound() {
 // --- SetShowSoldOutHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestSetShowSoldOut_OwnerSuccess() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &SetShowSoldOutRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Value = true
 
@@ -435,11 +436,11 @@ func (s *ShowHandlerIntegrationSuite) TestSetShowSoldOut_OwnerSuccess() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestSetShowSoldOut_NonOwnerForbidden() {
-	submitter := createTestUser(s.deps.db)
-	other := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, submitter.ID, "Test Show")
+	submitter := testhelpers.CreateTestUser(s.deps.DB)
+	other := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, submitter.ID, "Test Show")
 
-	ctx := ctxWithUser(other)
+	ctx := testhelpers.CtxWithUser(other)
 	req := &SetShowSoldOutRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Value = true
 
@@ -450,10 +451,10 @@ func (s *ShowHandlerIntegrationSuite) TestSetShowSoldOut_NonOwnerForbidden() {
 // --- SetShowCancelledHandler ---
 
 func (s *ShowHandlerIntegrationSuite) TestSetShowCancelled_OwnerSuccess() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &SetShowCancelledRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Value = true
 
@@ -478,35 +479,35 @@ func (s *ShowHandlerIntegrationSuite) createShowForSearch(
 	venueName string,
 	eventDate time.Time,
 ) *models.Show {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, venueName, "Phoenix", "AZ")
-	headliner := createArtist(s.deps.db, headlinerName)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, venueName, "Phoenix", "AZ")
+	headliner := testhelpers.CreateArtist(s.deps.DB, headlinerName)
 
 	show := &models.Show{
 		Title:       title,
 		EventDate:   eventDate,
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
+	s.deps.DB.Create(show)
 	// Slug — required to mirror the production format (auto-set in
 	// CreateShow but raw inserts skip that).
 	slug := fmt.Sprintf("show-%d", show.ID)
-	s.deps.db.Model(show).Update("slug", slug)
+	s.deps.DB.Model(show).Update("slug", slug)
 
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.db.Exec(
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Exec(
 		"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')",
 		show.ID, headliner.ID,
 	)
 
 	for i, name := range supportingArtistNames {
-		support := createArtist(s.deps.db, name)
+		support := testhelpers.CreateArtist(s.deps.DB, name)
 		// Position starts at 1 for openers; set_type='opener' so headliner
 		// resolution doesn't pick up support artists.
-		s.deps.db.Exec(
+		s.deps.DB.Exec(
 			"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, ?, 'opener')",
 			show.ID, support.ID, i+1,
 		)
@@ -521,7 +522,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_TitleMatch() {
 	s.createShowForSearch("Crescent Ballroom Night", "Other Band", nil, "Crescent Ballroom", now.AddDate(0, 0, 14))
 
 	req := &SearchShowsRequest{Query: "Valley"}
-	resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -536,7 +537,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_HeadlinerMatch() {
 	s.createShowForSearch("Another Show", "Different Band", nil, "Other Venue", now.AddDate(0, 0, 14))
 
 	req := &SearchShowsRequest{Query: "radiohead"}
-	resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -557,7 +558,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_SupportArtistMatch() {
 	)
 
 	req := &SearchShowsRequest{Query: "Sleater"}
-	resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -573,7 +574,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_NoMatch() {
 	s.createShowForSearch("Some Show", "Some Band", nil, "Some Venue", now.AddDate(0, 0, 7))
 
 	req := &SearchShowsRequest{Query: "zzznonexistent"}
-	resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
@@ -588,7 +589,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_EmptyQuery() {
 	s.createShowForSearch("Whatever Show", "Whatever Band", nil, "Whatever Venue", now.AddDate(0, 0, 7))
 
 	req := &SearchShowsRequest{Query: ""}
-	resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
@@ -599,7 +600,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_WhitespaceQuery() {
 	s.createShowForSearch("Whatever Show", "Whatever Band", nil, "Whatever Venue", now.AddDate(0, 0, 7))
 
 	req := &SearchShowsRequest{Query: "   "}
-	resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
@@ -618,7 +619,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_DedupesTitleAndArtistMatch
 	)
 
 	req := &SearchShowsRequest{Query: "radiohead"}
-	resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count, "show matching both title and artist should appear exactly once")
@@ -635,7 +636,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_OrderingByEventDateDesc() 
 	middle := s.createShowForSearch("Middle Festival Show", "Headliner Middle", nil, "Venue C", now.AddDate(0, 0, 30))
 
 	req := &SearchShowsRequest{Query: "Festival"}
-	resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(3, resp.Body.Count)
@@ -652,7 +653,7 @@ func (s *ShowHandlerIntegrationSuite) TestSearchShows_CaseInsensitive() {
 
 	for _, query := range []string{"mixed", "MIXED", "MiXeD", "allcaps", "AllCaps"} {
 		req := &SearchShowsRequest{Query: query}
-		resp, err := s.handler.SearchShowsHandler(s.deps.ctx, req)
+		resp, err := s.handler.SearchShowsHandler(s.deps.Ctx, req)
 		s.NoError(err, "query %q failed", query)
 		s.Equal(1, resp.Body.Count, "query %q should return 1 result", query)
 	}

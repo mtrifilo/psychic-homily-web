@@ -1,10 +1,11 @@
-package handlers
+package admin
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -14,15 +15,15 @@ import (
 // ============================================================================
 
 func testDataQualityHandler() *DataQualityHandler {
-	return NewDataQualityHandler(&mockDataQualityService{})
+	return NewDataQualityHandler(&testhelpers.MockDataQualityService{})
 }
 
 func dataQualityAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 }
 
 func dataQualityNonAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 2, IsAdmin: false})
+	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false})
 }
 
 // ============================================================================
@@ -34,11 +35,11 @@ func TestDataQualityHandler_Summary_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.GetDataQualitySummaryHandler(context.Background(), &GetDataQualitySummaryRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.GetDataQualitySummaryHandler(dataQualityNonAdminCtx(), &GetDataQualitySummaryRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -47,11 +48,11 @@ func TestDataQualityHandler_Category_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.GetDataQualityCategoryHandler(context.Background(), &GetDataQualityCategoryRequest{Category: "artists_missing_links"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.GetDataQualityCategoryHandler(dataQualityNonAdminCtx(), &GetDataQualityCategoryRequest{Category: "artists_missing_links"})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
@@ -60,8 +61,8 @@ func TestDataQualityHandler_Category_RequiresAdmin(t *testing.T) {
 // ============================================================================
 
 func TestDataQualityHandler_Summary_Success(t *testing.T) {
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getSummaryFn: func() (*contracts.DataQualitySummary, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
 			return &contracts.DataQualitySummary{
 				Categories: []contracts.DataQualityCategory{
 					{
@@ -103,19 +104,19 @@ func TestDataQualityHandler_Summary_Success(t *testing.T) {
 }
 
 func TestDataQualityHandler_Summary_ServiceError(t *testing.T) {
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getSummaryFn: func() (*contracts.DataQualitySummary, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetDataQualitySummaryHandler(dataQualityAdminCtx(), &GetDataQualitySummaryRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestDataQualityHandler_Summary_Empty(t *testing.T) {
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getSummaryFn: func() (*contracts.DataQualitySummary, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
 			return &contracts.DataQualitySummary{
 				Categories: []contracts.DataQualityCategory{},
 				TotalItems: 0,
@@ -140,8 +141,8 @@ func TestDataQualityHandler_Summary_Empty(t *testing.T) {
 // ============================================================================
 
 func TestDataQualityHandler_Category_Success(t *testing.T) {
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			if category != "artists_missing_links" {
 				t.Errorf("expected category=artists_missing_links, got %s", category)
 			}
@@ -187,8 +188,8 @@ func TestDataQualityHandler_Category_Success(t *testing.T) {
 }
 
 func TestDataQualityHandler_Category_InvalidCategory(t *testing.T) {
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return nil, 0, fmt.Errorf("unknown category: %s", category)
 		},
 	})
@@ -196,12 +197,12 @@ func TestDataQualityHandler_Category_InvalidCategory(t *testing.T) {
 	_, err := h.GetDataQualityCategoryHandler(dataQualityAdminCtx(), &GetDataQualityCategoryRequest{
 		Category: "nonexistent",
 	})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestDataQualityHandler_Category_ServiceError(t *testing.T) {
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return nil, 0, fmt.Errorf("database error")
 		},
 	})
@@ -209,13 +210,13 @@ func TestDataQualityHandler_Category_ServiceError(t *testing.T) {
 	_, err := h.GetDataQualityCategoryHandler(dataQualityAdminCtx(), &GetDataQualityCategoryRequest{
 		Category: "artists_missing_links",
 	})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestDataQualityHandler_Category_DefaultLimit(t *testing.T) {
 	var receivedLimit int
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			receivedLimit = limit
 			return nil, 0, nil
 		},
@@ -234,8 +235,8 @@ func TestDataQualityHandler_Category_DefaultLimit(t *testing.T) {
 
 func TestDataQualityHandler_Category_CustomLimit(t *testing.T) {
 	var receivedLimit, receivedOffset int
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			receivedLimit = limit
 			receivedOffset = offset
 			return nil, 0, nil
@@ -259,8 +260,8 @@ func TestDataQualityHandler_Category_CustomLimit(t *testing.T) {
 }
 
 func TestDataQualityHandler_Category_Empty(t *testing.T) {
-	h := NewDataQualityHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return []*contracts.DataQualityItem{}, 0, nil
 		},
 	})

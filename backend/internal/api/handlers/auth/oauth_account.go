@@ -1,4 +1,4 @@
-package handlers
+package auth
 
 import (
 	"context"
@@ -24,11 +24,11 @@ func NewOAuthAccountHandler(userService contracts.UserServiceInterface) *OAuthAc
 
 // OAuthAccountResponse represents a connected OAuth account
 type OAuthAccountResponse struct {
-	Provider   string  `json:"provider" example:"google" doc:"OAuth provider name"`
-	Email      *string `json:"email,omitempty" example:"user@gmail.com" doc:"Email from OAuth provider"`
-	Name       *string `json:"name,omitempty" example:"John Doe" doc:"Name from OAuth provider"`
-	AvatarURL  *string `json:"avatar_url,omitempty" example:"https://..." doc:"Avatar URL from OAuth provider"`
-	ConnectedAt string `json:"connected_at" example:"2024-01-15T10:30:00Z" doc:"When the account was connected"`
+	Provider    string  `json:"provider" example:"google" doc:"OAuth provider name"`
+	Email       *string `json:"email,omitempty" example:"user@gmail.com" doc:"Email from OAuth provider"`
+	Name        *string `json:"name,omitempty" example:"John Doe" doc:"Name from OAuth provider"`
+	AvatarURL   *string `json:"avatar_url,omitempty" example:"https://..." doc:"Avatar URL from OAuth provider"`
+	ConnectedAt string  `json:"connected_at" example:"2024-01-15T10:30:00Z" doc:"When the account was connected"`
 }
 
 // GetOAuthAccountsRequest represents the request for listing OAuth accounts

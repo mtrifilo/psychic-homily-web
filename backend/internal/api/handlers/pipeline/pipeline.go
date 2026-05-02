@@ -1,4 +1,4 @@
-package handlers
+package pipeline
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -47,7 +48,7 @@ type ExtractVenueResponse struct {
 
 // ExtractVenueHandler handles POST /admin/pipeline/extract/{venue_id}
 func (h *PipelineHandler) ExtractVenueHandler(ctx context.Context, req *ExtractVenueRequest) (*ExtractVenueResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -110,7 +111,7 @@ type ListPipelineVenuesResponse struct {
 
 // ListPipelineVenuesHandler handles GET /admin/pipeline/venues
 func (h *PipelineHandler) ListPipelineVenuesHandler(ctx context.Context, req *ListPipelineVenuesRequest) (*ListPipelineVenuesResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -176,7 +177,7 @@ type VenueRejectionStatsResponse struct {
 
 // VenueRejectionStatsHandler handles GET /admin/pipeline/venues/{venue_id}/stats
 func (h *PipelineHandler) VenueRejectionStatsHandler(ctx context.Context, req *VenueRejectionStatsRequest) (*VenueRejectionStatsResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -218,7 +219,7 @@ type UpdateExtractionNotesResponse struct {
 
 // UpdateExtractionNotesHandler handles PATCH /admin/pipeline/venues/{venue_id}/notes
 func (h *PipelineHandler) UpdateExtractionNotesHandler(ctx context.Context, req *UpdateExtractionNotesRequest) (*UpdateExtractionNotesResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -270,7 +271,7 @@ type UpdateVenueConfigResponse struct {
 
 // UpdateVenueConfigHandler handles PUT /admin/pipeline/venues/{venue_id}/config
 func (h *PipelineHandler) UpdateVenueConfigHandler(ctx context.Context, req *UpdateVenueConfigRequest) (*UpdateVenueConfigResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -344,7 +345,7 @@ type GetVenueRunsResponse struct {
 
 // GetVenueRunsHandler handles GET /admin/pipeline/venues/{venue_id}/runs
 func (h *PipelineHandler) GetVenueRunsHandler(ctx context.Context, req *GetVenueRunsRequest) (*GetVenueRunsResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -386,13 +387,13 @@ type GetImportHistoryRequest struct {
 type GetImportHistoryResponse struct {
 	Body struct {
 		Imports []contracts.ImportHistoryEntry `json:"imports"`
-		Total   int64                        `json:"total"`
+		Total   int64                          `json:"total"`
 	}
 }
 
 // GetImportHistoryHandler handles GET /admin/pipeline/imports
 func (h *PipelineHandler) GetImportHistoryHandler(ctx context.Context, req *GetImportHistoryRequest) (*GetImportHistoryResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +428,7 @@ type ResetRenderMethodResponse struct {
 
 // ResetRenderMethodHandler handles POST /admin/pipeline/venues/{venue_id}/reset-render-method
 func (h *PipelineHandler) ResetRenderMethodHandler(ctx context.Context, req *ResetRenderMethodRequest) (*ResetRenderMethodResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -467,7 +468,7 @@ type EnrichmentStatusResponse struct {
 
 // EnrichmentStatusHandler handles GET /admin/pipeline/enrichment/status
 func (h *PipelineHandler) EnrichmentStatusHandler(ctx context.Context, req *EnrichmentStatusRequest) (*EnrichmentStatusResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -498,7 +499,7 @@ type TriggerEnrichmentResponse struct {
 
 // TriggerEnrichmentHandler handles POST /admin/pipeline/enrichment/trigger/{show_id}
 func (h *PipelineHandler) TriggerEnrichmentHandler(ctx context.Context, req *TriggerEnrichmentRequest) (*TriggerEnrichmentResponse, error) {
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

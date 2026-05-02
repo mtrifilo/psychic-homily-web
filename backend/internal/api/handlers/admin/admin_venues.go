@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -48,7 +49,7 @@ type GetUnverifiedVenuesRequest struct {
 type GetUnverifiedVenuesResponse struct {
 	Body struct {
 		Venues []*contracts.UnverifiedVenueResponse `json:"venues"`
-		Total  int64                               `json:"total"`
+		Total  int64                                `json:"total"`
 	}
 }
 
@@ -56,7 +57,7 @@ type GetUnverifiedVenuesResponse struct {
 func (h *AdminVenueHandler) VerifyVenueHandler(ctx context.Context, req *VerifyVenueRequest) (*VerifyVenueResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -102,7 +103,7 @@ func (h *AdminVenueHandler) VerifyVenueHandler(ctx context.Context, req *VerifyV
 func (h *AdminVenueHandler) GetUnverifiedVenuesHandler(ctx context.Context, req *GetUnverifiedVenuesRequest) (*GetUnverifiedVenuesResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -148,4 +149,3 @@ func (h *AdminVenueHandler) GetUnverifiedVenuesHandler(ctx context.Context, req 
 	resp.Body.Total = total
 	return resp, nil
 }
-

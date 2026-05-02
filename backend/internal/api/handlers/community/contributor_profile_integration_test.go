@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 	usersvc "psychic-homily-backend/internal/services/user"
@@ -15,25 +16,25 @@ import (
 
 type ContributorProfileHandlerIntegrationSuite struct {
 	suite.Suite
-	deps           *handlerIntegrationDeps
+	deps           *testhelpers.IntegrationDeps
 	handler        *ContributorProfileHandler
 	profileService *usersvc.ContributorProfileService
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.profileService = usersvc.NewContributorProfileService(s.deps.db)
-	s.handler = NewContributorProfileHandler(s.profileService, s.deps.userService)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.profileService = usersvc.NewContributorProfileService(s.deps.DB)
+	s.handler = NewContributorProfileHandler(s.profileService, s.deps.UserService)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TearDownTest() {
-	sqlDB, _ := s.deps.db.DB()
+	sqlDB, _ := s.deps.DB.DB()
 	_, _ = sqlDB.Exec("DELETE FROM user_profile_sections")
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestContributorProfileHandlerIntegration(t *testing.T) {
@@ -47,20 +48,20 @@ func TestContributorProfileHandlerIntegration(t *testing.T) {
 
 func (s *ContributorProfileHandlerIntegrationSuite) createUserWithUsername(username string) *models.User {
 	user := &models.User{
-		Email:         stringPtr(fmt.Sprintf("%s@test.com", username)),
-		Username:      stringPtr(username),
-		FirstName:     stringPtr("Test"),
-		LastName:      stringPtr("User"),
+		Email:         testhelpers.StringPtr(fmt.Sprintf("%s@test.com", username)),
+		Username:      testhelpers.StringPtr(username),
+		FirstName:     testhelpers.StringPtr("Test"),
+		LastName:      testhelpers.StringPtr("User"),
 		IsActive:      true,
 		EmailVerified: true,
 	}
-	s.deps.db.Create(user)
+	s.deps.DB.Create(user)
 	return user
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) createPrivateUser(username string) *models.User {
 	user := s.createUserWithUsername(username)
-	s.deps.db.Model(user).Update("profile_visibility", "private")
+	s.deps.DB.Model(user).Update("profile_visibility", "private")
 	user.ProfileVisibility = "private"
 	return user
 }
@@ -69,7 +70,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) setPrivacySettings(user *mod
 	raw, err := json.Marshal(settings)
 	s.Require().NoError(err)
 	rawMsg := json.RawMessage(raw)
-	s.deps.db.Model(user).Update("privacy_settings", &rawMsg)
+	s.deps.DB.Model(user).Update("privacy_settings", &rawMsg)
 }
 
 // =============================================================================
@@ -80,7 +81,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_Success
 	_ = s.createUserWithUsername("publicuser")
 
 	req := &GetPublicProfileRequest{Username: "publicuser"}
-	resp, err := s.handler.GetPublicProfileHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetPublicProfileHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("publicuser", resp.Body.Username)
@@ -89,8 +90,8 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_Success
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_NotFound() {
 	req := &GetPublicProfileRequest{Username: "nonexistent"}
-	_, err := s.handler.GetPublicProfileHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetPublicProfileHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_PrivateProfile_NotOwner() {
@@ -98,13 +99,13 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_Private
 
 	req := &GetPublicProfileRequest{Username: "privateuser"}
 	// View as anonymous — should get 404
-	_, err := s.handler.GetPublicProfileHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetPublicProfileHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_PrivateProfile_AsOwner() {
 	user := s.createPrivateUser("privateowner")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &GetPublicProfileRequest{Username: "privateowner"}
 	resp, err := s.handler.GetPublicProfileHandler(ctx, req)
@@ -115,7 +116,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_Private
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_OwnerSeesPrivacySettings() {
 	user := s.createUserWithUsername("ownerview")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &GetPublicProfileRequest{Username: "ownerview"}
 	resp, err := s.handler.GetPublicProfileHandler(ctx, req)
@@ -128,7 +129,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_OwnerSe
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_NonOwnerDoesNotSeePrivacySettings() {
 	s.createUserWithUsername("targetuser")
 	viewer := s.createUserWithUsername("vieweruser")
-	ctx := ctxWithUser(viewer)
+	ctx := testhelpers.CtxWithUser(viewer)
 
 	req := &GetPublicProfileRequest{Username: "targetuser"}
 	resp, err := s.handler.GetPublicProfileHandler(ctx, req)
@@ -143,7 +144,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetPublicProfile_NonOwne
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnProfile_Success() {
 	user := s.createUserWithUsername("ownprofile")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	resp, err := s.handler.GetOwnProfileHandler(ctx, &struct{}{})
 	s.NoError(err)
@@ -156,7 +157,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnProfile_Success() 
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnProfile_Unauthenticated() {
 	_, err := s.handler.GetOwnProfileHandler(context.Background(), &struct{}{})
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // =============================================================================
@@ -165,7 +166,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnProfile_Unauthenti
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_SetPrivate() {
 	user := s.createUserWithUsername("visuser")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UpdateProfileVisibilityRequest{}
 	req.Body.Visibility = "private"
@@ -179,7 +180,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_SetPriv
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_SetPublic() {
 	user := s.createPrivateUser("visuser2")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UpdateProfileVisibilityRequest{}
 	req.Body.Visibility = "public"
@@ -193,13 +194,13 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_SetPubl
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_InvalidValue() {
 	user := s.createUserWithUsername("visuser3")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UpdateProfileVisibilityRequest{}
 	req.Body.Visibility = "invalid"
 
 	_, err := s.handler.UpdateProfileVisibilityHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_Unauthenticated() {
@@ -207,7 +208,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_Unauthe
 	req.Body.Visibility = "private"
 
 	_, err := s.handler.UpdateProfileVisibilityHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // =============================================================================
@@ -216,7 +217,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateVisibility_Unauthe
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Success() {
 	user := s.createUserWithUsername("privacyuser")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UpdatePrivacySettingsRequest{}
 	req.Body = contracts.PrivacySettings{
@@ -239,7 +240,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Su
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_InvalidLevel() {
 	user := s.createUserWithUsername("privacyuser2")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UpdatePrivacySettingsRequest{}
 	req.Body = contracts.PrivacySettings{
@@ -253,12 +254,12 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_In
 	}
 
 	_, err := s.handler.UpdatePrivacySettingsHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_BinaryFieldCountOnly() {
 	user := s.createUserWithUsername("privacyuser3")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UpdatePrivacySettingsRequest{}
 	req.Body = contracts.PrivacySettings{
@@ -272,7 +273,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Bi
 	}
 
 	_, err := s.handler.UpdatePrivacySettingsHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Unauthenticated() {
@@ -280,7 +281,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Un
 	req.Body = contracts.DefaultPrivacySettings()
 
 	_, err := s.handler.UpdatePrivacySettingsHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // =============================================================================
@@ -290,10 +291,10 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdatePrivacySettings_Un
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_Success() {
 	user := s.createUserWithUsername("contribuser")
 	// Create a show submitted by this user to produce a contribution entry
-	createApprovedShow(s.deps.db, user.ID, "Test Show")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
 	req := &GetContributionHistoryRequest{Username: "contribuser", Limit: 20, Offset: 0}
-	resp, err := s.handler.GetContributionHistoryHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetContributionHistoryHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(resp.Body.Total, int64(1))
@@ -301,21 +302,21 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_S
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_UserNotFound() {
 	req := &GetContributionHistoryRequest{Username: "ghostuser", Limit: 20, Offset: 0}
-	_, err := s.handler.GetContributionHistoryHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetContributionHistoryHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_PrivateProfile_NotOwner() {
 	s.createPrivateUser("privatecontrib")
 
 	req := &GetContributionHistoryRequest{Username: "privatecontrib", Limit: 20, Offset: 0}
-	_, err := s.handler.GetContributionHistoryHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetContributionHistoryHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_PrivateProfile_AsOwner() {
 	user := s.createPrivateUser("privatecontribowner")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &GetContributionHistoryRequest{Username: "privatecontribowner", Limit: 20, Offset: 0}
 	resp, err := s.handler.GetContributionHistoryHandler(ctx, req)
@@ -337,16 +338,16 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_P
 
 	// View as a different user
 	viewer := s.createUserWithUsername("hiddenviewer")
-	ctx := ctxWithUser(viewer)
+	ctx := testhelpers.CtxWithUser(viewer)
 
 	req := &GetContributionHistoryRequest{Username: "hiddencontrib", Limit: 20, Offset: 0}
 	_, err := s.handler.GetContributionHistoryHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_PrivacyCountOnly() {
 	user := s.createUserWithUsername("countcontrib")
-	createApprovedShow(s.deps.db, user.ID, "Count Only Show")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Count Only Show")
 
 	s.setPrivacySettings(user, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyCountOnly,
@@ -359,7 +360,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_P
 	})
 
 	viewer := s.createUserWithUsername("countviewer")
-	ctx := ctxWithUser(viewer)
+	ctx := testhelpers.CtxWithUser(viewer)
 
 	req := &GetContributionHistoryRequest{Username: "countcontrib", Limit: 20, Offset: 0}
 	resp, err := s.handler.GetContributionHistoryHandler(ctx, req)
@@ -375,8 +376,8 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetContributionHistory_P
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnContributions_Success() {
 	user := s.createUserWithUsername("owncontrib")
-	createApprovedShow(s.deps.db, user.ID, "Own Show")
-	ctx := ctxWithUser(user)
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Own Show")
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &GetOwnContributionsRequest{Limit: 20, Offset: 0}
 	resp, err := s.handler.GetOwnContributionsHandler(ctx, req)
@@ -388,7 +389,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnContributions_Succ
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnContributions_Unauthenticated() {
 	req := &GetOwnContributionsRequest{Limit: 20, Offset: 0}
 	_, err := s.handler.GetOwnContributionsHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // =============================================================================
@@ -397,7 +398,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnContributions_Unau
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_Success() {
 	user := s.createUserWithUsername("sectionuser")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateSectionRequest{}
 	req.Body.Title = "My Section"
@@ -420,12 +421,12 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_Unauthenti
 	req.Body.Position = 0
 
 	_, err := s.handler.CreateSectionHandler(context.Background(), req)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_EmptyTitle() {
 	user := s.createUserWithUsername("emptytitle")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateSectionRequest{}
 	req.Body.Title = ""
@@ -433,12 +434,12 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_EmptyTitle
 	req.Body.Position = 0
 
 	_, err := s.handler.CreateSectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_InvalidPosition() {
 	user := s.createUserWithUsername("badposition")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateSectionRequest{}
 	req.Body.Title = "Valid Title"
@@ -446,12 +447,12 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_InvalidPos
 	req.Body.Position = 5 // max is 2
 
 	_, err := s.handler.CreateSectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_MaxSectionsExceeded() {
 	user := s.createUserWithUsername("maxsections")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create 3 sections (the max)
 	for i := 0; i < 3; i++ {
@@ -470,7 +471,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_MaxSection
 	req.Body.Position = 0
 
 	_, err := s.handler.CreateSectionHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 // =============================================================================
@@ -479,7 +480,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestCreateSection_MaxSection
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_Success() {
 	user := s.createUserWithUsername("updateuser")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create a section first
 	createReq := &CreateSectionRequest{}
@@ -502,7 +503,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_Success() 
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_ToggleVisibility() {
 	user := s.createUserWithUsername("togglevisuser")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	createReq := &CreateSectionRequest{}
 	createReq.Body.Title = "Visible Section"
@@ -525,21 +526,21 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_ToggleVisi
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_NotFound() {
 	user := s.createUserWithUsername("updatemissing")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	newTitle := "Ghost Update"
 	updateReq := &UpdateSectionRequest{SectionID: "99999"}
 	updateReq.Body.Title = &newTitle
 
 	_, err := s.handler.UpdateSectionHandler(ctx, updateReq)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_OtherUsersSection() {
 	owner := s.createUserWithUsername("sectionowner")
 	other := s.createUserWithUsername("sectionthief")
 
-	ownerCtx := ctxWithUser(owner)
+	ownerCtx := testhelpers.CtxWithUser(owner)
 	createReq := &CreateSectionRequest{}
 	createReq.Body.Title = "Owner Section"
 	createReq.Body.Content = "Confidential"
@@ -548,30 +549,30 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_OtherUsers
 	s.Require().NoError(err)
 
 	// Try to update as the other user
-	otherCtx := ctxWithUser(other)
+	otherCtx := testhelpers.CtxWithUser(other)
 	newTitle := "Hacked"
 	updateReq := &UpdateSectionRequest{SectionID: fmt.Sprintf("%d", createResp.Body.ID)}
 	updateReq.Body.Title = &newTitle
 
 	_, err = s.handler.UpdateSectionHandler(otherCtx, updateReq)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_InvalidSectionID() {
 	user := s.createUserWithUsername("badsectionid")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	newTitle := "Broken"
 	updateReq := &UpdateSectionRequest{SectionID: "not-a-number"}
 	updateReq.Body.Title = &newTitle
 
 	_, err := s.handler.UpdateSectionHandler(ctx, updateReq)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_NoFields() {
 	user := s.createUserWithUsername("nofielduser")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	createReq := &CreateSectionRequest{}
 	createReq.Body.Title = "No Field Section"
@@ -583,7 +584,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_NoFields()
 	// Send update with no fields
 	updateReq := &UpdateSectionRequest{SectionID: fmt.Sprintf("%d", createResp.Body.ID)}
 	_, err = s.handler.UpdateSectionHandler(ctx, updateReq)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_Unauthenticated() {
@@ -592,7 +593,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_Unauthenti
 	updateReq.Body.Title = &newTitle
 
 	_, err := s.handler.UpdateSectionHandler(context.Background(), updateReq)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // =============================================================================
@@ -601,7 +602,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestUpdateSection_Unauthenti
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestDeleteSection_Success() {
 	user := s.createUserWithUsername("deleteuser")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	createReq := &CreateSectionRequest{}
 	createReq.Body.Title = "Doomed Section"
@@ -625,18 +626,18 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestDeleteSection_Success() 
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestDeleteSection_NotFound() {
 	user := s.createUserWithUsername("deletemissing")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	deleteReq := &DeleteSectionRequest{SectionID: "99999"}
 	_, err := s.handler.DeleteSectionHandler(ctx, deleteReq)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestDeleteSection_OtherUsersSection() {
 	owner := s.createUserWithUsername("delowner")
 	other := s.createUserWithUsername("delthief")
 
-	ownerCtx := ctxWithUser(owner)
+	ownerCtx := testhelpers.CtxWithUser(owner)
 	createReq := &CreateSectionRequest{}
 	createReq.Body.Title = "Protected Section"
 	createReq.Body.Content = "Content"
@@ -644,25 +645,25 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestDeleteSection_OtherUsers
 	createResp, err := s.handler.CreateSectionHandler(ownerCtx, createReq)
 	s.Require().NoError(err)
 
-	otherCtx := ctxWithUser(other)
+	otherCtx := testhelpers.CtxWithUser(other)
 	deleteReq := &DeleteSectionRequest{SectionID: fmt.Sprintf("%d", createResp.Body.ID)}
 	_, err = s.handler.DeleteSectionHandler(otherCtx, deleteReq)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestDeleteSection_InvalidSectionID() {
 	user := s.createUserWithUsername("delbadid")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	deleteReq := &DeleteSectionRequest{SectionID: "abc"}
 	_, err := s.handler.DeleteSectionHandler(ctx, deleteReq)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestDeleteSection_Unauthenticated() {
 	deleteReq := &DeleteSectionRequest{SectionID: "1"}
 	_, err := s.handler.DeleteSectionHandler(context.Background(), deleteReq)
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // =============================================================================
@@ -671,7 +672,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestDeleteSection_Unauthenti
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnSections_Success() {
 	user := s.createUserWithUsername("ownsections")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create two sections
 	for i := 0; i < 2; i++ {
@@ -691,7 +692,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnSections_Success()
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnSections_IncludesHiddenSections() {
 	user := s.createUserWithUsername("ownsectionshidden")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create a visible section
 	req := &CreateSectionRequest{}
@@ -717,7 +718,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnSections_IncludesH
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnSections_Empty() {
 	user := s.createUserWithUsername("emptysections")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	resp, err := s.handler.GetOwnSectionsHandler(ctx, &struct{}{})
 	s.NoError(err)
@@ -727,7 +728,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnSections_Empty() {
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnSections_Unauthenticated() {
 	_, err := s.handler.GetOwnSectionsHandler(context.Background(), &struct{}{})
-	assertHumaError(s.T(), err, 401)
+	testhelpers.AssertHumaError(s.T(), err, 401)
 }
 
 // =============================================================================
@@ -736,7 +737,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetOwnSections_Unauthent
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_Success() {
 	user := s.createUserWithUsername("pubsections")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateSectionRequest{}
 	req.Body.Title = "Public Section"
@@ -747,7 +748,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_Success(
 
 	// View as anonymous
 	sectReq := &GetUserSectionsRequest{Username: "pubsections"}
-	resp, err := s.handler.GetUserSectionsHandler(s.deps.ctx, sectReq)
+	resp, err := s.handler.GetUserSectionsHandler(s.deps.Ctx, sectReq)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Len(resp.Body.Sections, 1)
@@ -756,7 +757,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_Success(
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_HiddenSectionNotVisible() {
 	user := s.createUserWithUsername("hiddensecpub")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create and hide a section
 	req := &CreateSectionRequest{}
@@ -774,7 +775,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_HiddenSe
 
 	// View as anonymous — hidden section should not appear
 	viewer := s.createUserWithUsername("secviewer")
-	viewerCtx := ctxWithUser(viewer)
+	viewerCtx := testhelpers.CtxWithUser(viewer)
 
 	sectReq := &GetUserSectionsRequest{Username: "hiddensecpub"}
 	resp, err := s.handler.GetUserSectionsHandler(viewerCtx, sectReq)
@@ -784,7 +785,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_HiddenSe
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_OwnerSeesHiddenSections() {
 	user := s.createUserWithUsername("ownerseeshidden")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateSectionRequest{}
 	req.Body.Title = "Hidden From Public"
@@ -808,21 +809,21 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_OwnerSee
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_UserNotFound() {
 	sectReq := &GetUserSectionsRequest{Username: "nosuchuser"}
-	_, err := s.handler.GetUserSectionsHandler(s.deps.ctx, sectReq)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetUserSectionsHandler(s.deps.Ctx, sectReq)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_PrivateProfile() {
 	s.createPrivateUser("privatesecuser")
 
 	sectReq := &GetUserSectionsRequest{Username: "privatesecuser"}
-	_, err := s.handler.GetUserSectionsHandler(s.deps.ctx, sectReq)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetUserSectionsHandler(s.deps.Ctx, sectReq)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_PrivacySectionsHidden() {
 	user := s.createUserWithUsername("sechiddenpriv")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create a section
 	req := &CreateSectionRequest{}
@@ -845,7 +846,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_PrivacyS
 
 	// View as another user
 	viewer := s.createUserWithUsername("privviewer")
-	viewerCtx := ctxWithUser(viewer)
+	viewerCtx := testhelpers.CtxWithUser(viewer)
 
 	sectReq := &GetUserSectionsRequest{Username: "sechiddenpriv"}
 	resp, err := s.handler.GetUserSectionsHandler(viewerCtx, sectReq)
@@ -860,10 +861,10 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserSections_PrivacyS
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Success() {
 	user := s.createUserWithUsername("heatmapuser")
-	createApprovedShow(s.deps.db, user.ID, "Heatmap Show")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Heatmap Show")
 
 	req := &GetActivityHeatmapRequest{Username: "heatmapuser"}
-	resp, err := s.handler.GetActivityHeatmapHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetActivityHeatmapHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.NotEmpty(resp.Body.Days)
@@ -871,21 +872,21 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Succe
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_UserNotFound() {
 	req := &GetActivityHeatmapRequest{Username: "ghostheatmap"}
-	_, err := s.handler.GetActivityHeatmapHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetActivityHeatmapHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_PrivateProfile_NotOwner() {
 	s.createPrivateUser("privateheatmap")
 
 	req := &GetActivityHeatmapRequest{Username: "privateheatmap"}
-	_, err := s.handler.GetActivityHeatmapHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetActivityHeatmapHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_PrivateProfile_AsOwner() {
 	user := s.createPrivateUser("privateheatmapowner")
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &GetActivityHeatmapRequest{Username: "privateheatmapowner"}
 	resp, err := s.handler.GetActivityHeatmapHandler(ctx, req)
@@ -895,7 +896,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Priva
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_PrivacyHidden_ReturnsEmpty() {
 	user := s.createUserWithUsername("hiddenheatmap")
-	createApprovedShow(s.deps.db, user.ID, "Hidden Heatmap Show")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Hidden Heatmap Show")
 	s.setPrivacySettings(user, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyHidden,
 		SavedShows:      contracts.PrivacyHidden,
@@ -907,7 +908,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Priva
 	})
 
 	viewer := s.createUserWithUsername("heatmapviewer")
-	ctx := ctxWithUser(viewer)
+	ctx := testhelpers.CtxWithUser(viewer)
 
 	req := &GetActivityHeatmapRequest{Username: "hiddenheatmap"}
 	resp, err := s.handler.GetActivityHeatmapHandler(ctx, req)
@@ -918,7 +919,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Priva
 
 func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_PrivacyCountOnly_StillReturnsData() {
 	user := s.createUserWithUsername("countheatmap")
-	createApprovedShow(s.deps.db, user.ID, "Count Heatmap Show")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Count Heatmap Show")
 	s.setPrivacySettings(user, contracts.PrivacySettings{
 		Contributions:   contracts.PrivacyCountOnly,
 		SavedShows:      contracts.PrivacyHidden,
@@ -930,7 +931,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_Priva
 	})
 
 	viewer := s.createUserWithUsername("countheatmapviewer")
-	ctx := ctxWithUser(viewer)
+	ctx := testhelpers.CtxWithUser(viewer)
 
 	req := &GetActivityHeatmapRequest{Username: "countheatmap"}
 	resp, err := s.handler.GetActivityHeatmapHandler(ctx, req)
@@ -943,7 +944,7 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_NoAct
 	s.createUserWithUsername("noactheatmap")
 
 	req := &GetActivityHeatmapRequest{Username: "noactheatmap"}
-	resp, err := s.handler.GetActivityHeatmapHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetActivityHeatmapHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Empty(resp.Body.Days)

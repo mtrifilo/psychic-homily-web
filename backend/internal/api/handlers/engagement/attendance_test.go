@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -22,32 +23,32 @@ func TestSetAttendanceHandler_NoAuth(t *testing.T) {
 	req.Body.Status = "going"
 
 	_, err := h.SetAttendanceHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestSetAttendanceHandler_InvalidID(t *testing.T) {
 	h := testAttendanceHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "abc"}
 	req.Body.Status = "going"
 
 	_, err := h.SetAttendanceHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestSetAttendanceHandler_InvalidStatus(t *testing.T) {
-	h := NewAttendanceHandler(&mockAttendanceService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewAttendanceHandler(&testhelpers.MockAttendanceService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = "maybe"
 
 	_, err := h.SetAttendanceHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestSetAttendanceHandler_Going_Success(t *testing.T) {
-	mock := &mockAttendanceService{
-		setAttendanceFn: func(userID, showID uint, status string) error {
+	mock := &testhelpers.MockAttendanceService{
+		SetAttendanceFn: func(userID, showID uint, status string) error {
 			if userID != 1 || showID != 42 || status != "going" {
 				t.Errorf("unexpected args: userID=%d, showID=%d, status=%s", userID, showID, status)
 			}
@@ -55,7 +56,7 @@ func TestSetAttendanceHandler_Going_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = "going"
 
@@ -69,8 +70,8 @@ func TestSetAttendanceHandler_Going_Success(t *testing.T) {
 }
 
 func TestSetAttendanceHandler_Interested_Success(t *testing.T) {
-	mock := &mockAttendanceService{
-		setAttendanceFn: func(_, _ uint, status string) error {
+	mock := &testhelpers.MockAttendanceService{
+		SetAttendanceFn: func(_, _ uint, status string) error {
 			if status != "interested" {
 				t.Errorf("expected status=interested, got %s", status)
 			}
@@ -78,7 +79,7 @@ func TestSetAttendanceHandler_Interested_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = "interested"
 
@@ -92,8 +93,8 @@ func TestSetAttendanceHandler_Interested_Success(t *testing.T) {
 }
 
 func TestSetAttendanceHandler_Clear_Success(t *testing.T) {
-	mock := &mockAttendanceService{
-		setAttendanceFn: func(_, _ uint, status string) error {
+	mock := &testhelpers.MockAttendanceService{
+		SetAttendanceFn: func(_, _ uint, status string) error {
 			if status != "" {
 				t.Errorf("expected empty status, got %s", status)
 			}
@@ -101,7 +102,7 @@ func TestSetAttendanceHandler_Clear_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = ""
 
@@ -115,33 +116,33 @@ func TestSetAttendanceHandler_Clear_Success(t *testing.T) {
 }
 
 func TestSetAttendanceHandler_ShowNotFound(t *testing.T) {
-	mock := &mockAttendanceService{
-		setAttendanceFn: func(_, _ uint, _ string) error {
+	mock := &testhelpers.MockAttendanceService{
+		SetAttendanceFn: func(_, _ uint, _ string) error {
 			return fmt.Errorf("show not found")
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "999"}
 	req.Body.Status = "going"
 
 	_, err := h.SetAttendanceHandler(ctx, req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestSetAttendanceHandler_ServiceError(t *testing.T) {
-	mock := &mockAttendanceService{
-		setAttendanceFn: func(_, _ uint, _ string) error {
+	mock := &testhelpers.MockAttendanceService{
+		SetAttendanceFn: func(_, _ uint, _ string) error {
 			return fmt.Errorf("db error")
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = "going"
 
 	_, err := h.SetAttendanceHandler(ctx, req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- RemoveAttendanceHandler ---
@@ -151,21 +152,21 @@ func TestRemoveAttendanceHandler_NoAuth(t *testing.T) {
 	req := &RemoveAttendanceRequest{ShowID: "1"}
 
 	_, err := h.RemoveAttendanceHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestRemoveAttendanceHandler_InvalidID(t *testing.T) {
 	h := testAttendanceHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &RemoveAttendanceRequest{ShowID: "abc"}
 
 	_, err := h.RemoveAttendanceHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRemoveAttendanceHandler_Success(t *testing.T) {
-	mock := &mockAttendanceService{
-		removeAttendanceFn: func(userID, showID uint) error {
+	mock := &testhelpers.MockAttendanceService{
+		RemoveAttendanceFn: func(userID, showID uint) error {
 			if userID != 1 || showID != 42 {
 				t.Errorf("unexpected args: userID=%d, showID=%d", userID, showID)
 			}
@@ -173,7 +174,7 @@ func TestRemoveAttendanceHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &RemoveAttendanceRequest{ShowID: "42"}
 
 	resp, err := h.RemoveAttendanceHandler(ctx, req)
@@ -186,32 +187,32 @@ func TestRemoveAttendanceHandler_Success(t *testing.T) {
 }
 
 func TestRemoveAttendanceHandler_ServiceError(t *testing.T) {
-	mock := &mockAttendanceService{
-		removeAttendanceFn: func(_, _ uint) error {
+	mock := &testhelpers.MockAttendanceService{
+		RemoveAttendanceFn: func(_, _ uint) error {
 			return fmt.Errorf("db error")
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &RemoveAttendanceRequest{ShowID: "42"}
 
 	_, err := h.RemoveAttendanceHandler(ctx, req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- GetAttendanceHandler ---
 
 func TestGetAttendanceHandler_InvalidID(t *testing.T) {
-	h := NewAttendanceHandler(&mockAttendanceService{})
+	h := NewAttendanceHandler(&testhelpers.MockAttendanceService{})
 	req := &GetAttendanceRequest{ShowID: "abc"}
 
 	_, err := h.GetAttendanceHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetAttendanceHandler_Success_NoAuth(t *testing.T) {
-	mock := &mockAttendanceService{
-		getAttendanceCountsFn: func(showID uint) (*contracts.AttendanceCountsResponse, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetAttendanceCountsFn: func(showID uint) (*contracts.AttendanceCountsResponse, error) {
 			return &contracts.AttendanceCountsResponse{
 				ShowID:          showID,
 				GoingCount:      5,
@@ -238,20 +239,20 @@ func TestGetAttendanceHandler_Success_NoAuth(t *testing.T) {
 }
 
 func TestGetAttendanceHandler_Success_WithAuth(t *testing.T) {
-	mock := &mockAttendanceService{
-		getAttendanceCountsFn: func(showID uint) (*contracts.AttendanceCountsResponse, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetAttendanceCountsFn: func(showID uint) (*contracts.AttendanceCountsResponse, error) {
 			return &contracts.AttendanceCountsResponse{
 				ShowID:          showID,
 				GoingCount:      3,
 				InterestedCount: 7,
 			}, nil
 		},
-		getUserAttendanceFn: func(userID, showID uint) (string, error) {
+		GetUserAttendanceFn: func(userID, showID uint) (string, error) {
 			return "going", nil
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetAttendanceRequest{ShowID: "42"}
 
 	resp, err := h.GetAttendanceHandler(ctx, req)
@@ -267,8 +268,8 @@ func TestGetAttendanceHandler_Success_WithAuth(t *testing.T) {
 }
 
 func TestGetAttendanceHandler_CountsError(t *testing.T) {
-	mock := &mockAttendanceService{
-		getAttendanceCountsFn: func(_ uint) (*contracts.AttendanceCountsResponse, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetAttendanceCountsFn: func(_ uint) (*contracts.AttendanceCountsResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -276,13 +277,13 @@ func TestGetAttendanceHandler_CountsError(t *testing.T) {
 	req := &GetAttendanceRequest{ShowID: "42"}
 
 	_, err := h.GetAttendanceHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- BatchAttendanceHandler ---
 
 func TestBatchAttendanceHandler_EmptyList(t *testing.T) {
-	h := NewAttendanceHandler(&mockAttendanceService{})
+	h := NewAttendanceHandler(&testhelpers.MockAttendanceService{})
 	req := &BatchAttendanceRequest{}
 	req.Body.ShowIDs = []int{}
 
@@ -296,7 +297,7 @@ func TestBatchAttendanceHandler_EmptyList(t *testing.T) {
 }
 
 func TestBatchAttendanceHandler_TooMany(t *testing.T) {
-	h := NewAttendanceHandler(&mockAttendanceService{})
+	h := NewAttendanceHandler(&testhelpers.MockAttendanceService{})
 	req := &BatchAttendanceRequest{}
 	req.Body.ShowIDs = make([]int, 101)
 	for i := range req.Body.ShowIDs {
@@ -304,21 +305,21 @@ func TestBatchAttendanceHandler_TooMany(t *testing.T) {
 	}
 
 	_, err := h.BatchAttendanceHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestBatchAttendanceHandler_NegativeID(t *testing.T) {
-	h := NewAttendanceHandler(&mockAttendanceService{})
+	h := NewAttendanceHandler(&testhelpers.MockAttendanceService{})
 	req := &BatchAttendanceRequest{}
 	req.Body.ShowIDs = []int{1, -5, 3}
 
 	_, err := h.BatchAttendanceHandler(context.Background(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestBatchAttendanceHandler_Success_NoAuth(t *testing.T) {
-	mock := &mockAttendanceService{
-		getBatchAttendanceCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetBatchAttendanceCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
 			result := make(map[uint]*contracts.AttendanceCountsResponse)
 			for _, id := range showIDs {
 				result[id] = &contracts.AttendanceCountsResponse{
@@ -354,20 +355,20 @@ func TestBatchAttendanceHandler_Success_NoAuth(t *testing.T) {
 }
 
 func TestBatchAttendanceHandler_Success_WithAuth(t *testing.T) {
-	mock := &mockAttendanceService{
-		getBatchAttendanceCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetBatchAttendanceCountsFn: func(showIDs []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
 			result := make(map[uint]*contracts.AttendanceCountsResponse)
 			for _, id := range showIDs {
 				result[id] = &contracts.AttendanceCountsResponse{ShowID: id}
 			}
 			return result, nil
 		},
-		getBatchUserAttendanceFn: func(userID uint, showIDs []uint) (map[uint]string, error) {
+		GetBatchUserAttendanceFn: func(userID uint, showIDs []uint) (map[uint]string, error) {
 			return map[uint]string{1: "going", 2: "interested"}, nil
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &BatchAttendanceRequest{}
 	req.Body.ShowIDs = []int{1, 2, 3}
 
@@ -387,8 +388,8 @@ func TestBatchAttendanceHandler_Success_WithAuth(t *testing.T) {
 }
 
 func TestBatchAttendanceHandler_CountsError(t *testing.T) {
-	mock := &mockAttendanceService{
-		getBatchAttendanceCountsFn: func(_ []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetBatchAttendanceCountsFn: func(_ []uint) (map[uint]*contracts.AttendanceCountsResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
@@ -397,7 +398,7 @@ func TestBatchAttendanceHandler_CountsError(t *testing.T) {
 	req.Body.ShowIDs = []int{1}
 
 	_, err := h.BatchAttendanceHandler(context.Background(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- GetMyShowsHandler ---
@@ -407,16 +408,16 @@ func TestGetMyShowsHandler_NoAuth(t *testing.T) {
 	req := &GetMyShowsRequest{}
 
 	_, err := h.GetMyShowsHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestGetMyShowsHandler_InvalidStatus(t *testing.T) {
-	h := NewAttendanceHandler(&mockAttendanceService{})
-	ctx := ctxWithUser(&models.User{ID: 1})
+	h := NewAttendanceHandler(&testhelpers.MockAttendanceService{})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetMyShowsRequest{Status: "maybe"}
 
 	_, err := h.GetMyShowsHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetMyShowsHandler_Success(t *testing.T) {
@@ -430,8 +431,8 @@ func TestGetMyShowsHandler_Success(t *testing.T) {
 			Status:    "going",
 		},
 	}
-	mock := &mockAttendanceService{
-		getUserAttendingShowsFn: func(userID uint, status string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetUserAttendingShowsFn: func(userID uint, status string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -442,7 +443,7 @@ func TestGetMyShowsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetMyShowsRequest{Status: "all", Limit: 20, Offset: 0}
 
 	resp, err := h.GetMyShowsHandler(ctx, req)
@@ -458,30 +459,30 @@ func TestGetMyShowsHandler_Success(t *testing.T) {
 }
 
 func TestGetMyShowsHandler_ServiceError(t *testing.T) {
-	mock := &mockAttendanceService{
-		getUserAttendingShowsFn: func(_ uint, _ string, _, _ int) ([]*contracts.AttendingShowResponse, int64, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetUserAttendingShowsFn: func(_ uint, _ string, _, _ int) ([]*contracts.AttendingShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &GetMyShowsRequest{Status: "all", Limit: 20}
 
 	_, err := h.GetMyShowsHandler(ctx, req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestGetMyShowsHandler_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
-	mock := &mockAttendanceService{
-		getUserAttendingShowsFn: func(_ uint, _ string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetUserAttendingShowsFn: func(_ uint, _ string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	// limit=0 -> 20, offset=-1 -> 0
 	_, err := h.GetMyShowsHandler(ctx, &GetMyShowsRequest{Status: "all", Limit: 0, Offset: -1})
@@ -504,14 +505,14 @@ func TestGetMyShowsHandler_PaginationClamping(t *testing.T) {
 
 func TestGetMyShowsHandler_DefaultStatus(t *testing.T) {
 	var capturedStatus string
-	mock := &mockAttendanceService{
-		getUserAttendingShowsFn: func(_ uint, status string, _, _ int) ([]*contracts.AttendingShowResponse, int64, error) {
+	mock := &testhelpers.MockAttendanceService{
+		GetUserAttendingShowsFn: func(_ uint, status string, _, _ int) ([]*contracts.AttendingShowResponse, int64, error) {
 			capturedStatus = status
 			return nil, 0, nil
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	// Empty status defaults to "all"
 	_, err := h.GetMyShowsHandler(ctx, &GetMyShowsRequest{Status: "", Limit: 20})

@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -19,11 +20,11 @@ func testCommentHandler() *CommentHandler {
 }
 
 func commentUserCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 10, IsAdmin: false})
+	return testhelpers.CtxWithUser(&models.User{ID: 10, IsAdmin: false})
 }
 
 func commentAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 }
 
 func makeCommentResponse(id uint, entityType string, entityID uint, userID uint) *contracts.CommentResponse {
@@ -64,12 +65,12 @@ func TestListComments_InvalidEntityID(t *testing.T) {
 		EntityType: "show",
 		EntityID:   "abc",
 	})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestListComments_UnsupportedEntityType(t *testing.T) {
-	mock := &mockCommentService{
-		listCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			return nil, fmt.Errorf("unsupported entity type: %s", entityType)
 		},
 	}
@@ -78,13 +79,13 @@ func TestListComments_UnsupportedEntityType(t *testing.T) {
 		EntityType: "invalid_type",
 		EntityID:   "1",
 	})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestListComments_Success(t *testing.T) {
 	comments := []*contracts.CommentResponse{makeCommentResponse(1, "show", 5, 10)}
-	mock := &mockCommentService{
-		listCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			if entityType != "show" || entityID != 5 {
 				t.Errorf("unexpected entity: %s/%d", entityType, entityID)
 			}
@@ -119,8 +120,8 @@ func TestListComments_Success(t *testing.T) {
 }
 
 func TestListComments_DefaultLimit(t *testing.T) {
-	mock := &mockCommentService{
-		listCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			if filters.Limit != 25 {
 				t.Errorf("expected default limit=25, got %d", filters.Limit)
 			}
@@ -138,8 +139,8 @@ func TestListComments_DefaultLimit(t *testing.T) {
 }
 
 func TestListComments_LimitCap(t *testing.T) {
-	mock := &mockCommentService{
-		listCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			if filters.Limit != 100 {
 				t.Errorf("expected capped limit=100, got %d", filters.Limit)
 			}
@@ -158,8 +159,8 @@ func TestListComments_LimitCap(t *testing.T) {
 }
 
 func TestListComments_ServiceError(t *testing.T) {
-	mock := &mockCommentService{
-		listCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
@@ -168,15 +169,15 @@ func TestListComments_ServiceError(t *testing.T) {
 		EntityType: "show",
 		EntityID:   "1",
 	})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestListComments_PopulatesUserVote_WhenAuthenticated(t *testing.T) {
 	up := 1
 	c1 := makeCommentResponse(1, "show", 5, 10)
 	c2 := makeCommentResponse(2, "show", 5, 11)
-	commentSvc := &mockCommentService{
-		listCommentsForEntityFn: func(_ string, _ uint, _ contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	commentSvc := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(_ string, _ uint, _ contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			return &contracts.CommentListResponse{
 				Comments: []*contracts.CommentResponse{c1, c2},
 				Total:    2,
@@ -185,8 +186,8 @@ func TestListComments_PopulatesUserVote_WhenAuthenticated(t *testing.T) {
 	}
 	var receivedUserID uint
 	var receivedIDs []uint
-	voteSvc := &mockCommentVoteService{
-		getUserVotesForCommentsFn: func(userID uint, ids []uint) (map[uint]int, error) {
+	voteSvc := &testhelpers.MockCommentVoteService{
+		GetUserVotesForCommentsFn: func(userID uint, ids []uint) (map[uint]int, error) {
 			receivedUserID = userID
 			receivedIDs = ids
 			return map[uint]int{1: up}, nil
@@ -216,8 +217,8 @@ func TestListComments_PopulatesUserVote_WhenAuthenticated(t *testing.T) {
 
 func TestListComments_DoesNotPopulateUserVote_WhenAnonymous(t *testing.T) {
 	c1 := makeCommentResponse(1, "show", 5, 10)
-	commentSvc := &mockCommentService{
-		listCommentsForEntityFn: func(_ string, _ uint, _ contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	commentSvc := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(_ string, _ uint, _ contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			return &contracts.CommentListResponse{
 				Comments: []*contracts.CommentResponse{c1},
 				Total:    1,
@@ -225,8 +226,8 @@ func TestListComments_DoesNotPopulateUserVote_WhenAnonymous(t *testing.T) {
 		},
 	}
 	voteCalled := false
-	voteSvc := &mockCommentVoteService{
-		getUserVotesForCommentsFn: func(_ uint, _ []uint) (map[uint]int, error) {
+	voteSvc := &testhelpers.MockCommentVoteService{
+		GetUserVotesForCommentsFn: func(_ uint, _ []uint) (map[uint]int, error) {
 			voteCalled = true
 			return nil, nil
 		},
@@ -249,13 +250,13 @@ func TestListComments_DoesNotPopulateUserVote_WhenAnonymous(t *testing.T) {
 
 func TestListComments_SwallowsVoteLookupError(t *testing.T) {
 	c1 := makeCommentResponse(1, "show", 5, 10)
-	commentSvc := &mockCommentService{
-		listCommentsForEntityFn: func(_ string, _ uint, _ contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
+	commentSvc := &testhelpers.MockCommentService{
+		ListCommentsForEntityFn: func(_ string, _ uint, _ contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
 			return &contracts.CommentListResponse{Comments: []*contracts.CommentResponse{c1}, Total: 1}, nil
 		},
 	}
-	voteSvc := &mockCommentVoteService{
-		getUserVotesForCommentsFn: func(_ uint, _ []uint) (map[uint]int, error) {
+	voteSvc := &testhelpers.MockCommentVoteService{
+		GetUserVotesForCommentsFn: func(_ uint, _ []uint) (map[uint]int, error) {
 			return nil, fmt.Errorf("vote lookup failed")
 		},
 	}
@@ -279,24 +280,24 @@ func TestListComments_SwallowsVoteLookupError(t *testing.T) {
 func TestGetComment_InvalidID(t *testing.T) {
 	h := testCommentHandler()
 	_, err := h.GetCommentHandler(context.Background(), &GetCommentRequest{CommentID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetComment_NotFound(t *testing.T) {
-	mock := &mockCommentService{
-		getCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("comment not found")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
 	_, err := h.GetCommentHandler(context.Background(), &GetCommentRequest{CommentID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetComment_Success(t *testing.T) {
 	expected := makeCommentResponse(1, "show", 5, 10)
-	mock := &mockCommentService{
-		getCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
 			if commentID != 1 {
 				t.Errorf("expected commentID=1, got %d", commentID)
 			}
@@ -320,36 +321,36 @@ func TestGetComment_Success(t *testing.T) {
 func TestGetThread_InvalidID(t *testing.T) {
 	h := testCommentHandler()
 	_, err := h.GetThreadHandler(context.Background(), &GetThreadRequest{CommentID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetThread_NotFound(t *testing.T) {
-	mock := &mockCommentService{
-		getThreadFn: func(rootID uint) ([]*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		GetThreadFn: func(rootID uint) ([]*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("thread root comment not found")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
 	_, err := h.GetThreadHandler(context.Background(), &GetThreadRequest{CommentID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestGetThread_NotARoot(t *testing.T) {
-	mock := &mockCommentService{
-		getThreadFn: func(rootID uint) ([]*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		GetThreadFn: func(rootID uint) ([]*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("comment is not a thread root")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
 	_, err := h.GetThreadHandler(context.Background(), &GetThreadRequest{CommentID: "5"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetThread_Success(t *testing.T) {
 	root := makeCommentResponse(1, "show", 5, 10)
 	reply := makeReplyResponse(2, 1, 1, "show", 5, 11)
-	mock := &mockCommentService{
-		getThreadFn: func(rootID uint) ([]*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		GetThreadFn: func(rootID uint) ([]*contracts.CommentResponse, error) {
 			if rootID != 1 {
 				t.Errorf("expected rootID=1, got %d", rootID)
 			}
@@ -376,7 +377,7 @@ func TestCreateComment_NoUser(t *testing.T) {
 		EntityType: "show",
 		EntityID:   "1",
 	})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestCreateComment_InvalidEntityID(t *testing.T) {
@@ -385,7 +386,7 @@ func TestCreateComment_InvalidEntityID(t *testing.T) {
 		EntityType: "show",
 		EntityID:   "abc",
 	})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCreateComment_EmptyBody(t *testing.T) {
@@ -393,12 +394,12 @@ func TestCreateComment_EmptyBody(t *testing.T) {
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "   "
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCreateComment_UnsupportedEntityType(t *testing.T) {
-	mock := &mockCommentService{
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("unsupported entity type: nope")
 		},
 	}
@@ -406,12 +407,12 @@ func TestCreateComment_UnsupportedEntityType(t *testing.T) {
 	req := &CreateCommentRequest{EntityType: "nope", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCreateComment_EntityNotFound(t *testing.T) {
-	mock := &mockCommentService{
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("show with ID 999 not found")
 		},
 	}
@@ -419,13 +420,13 @@ func TestCreateComment_EntityNotFound(t *testing.T) {
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "999"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestCreateComment_Success(t *testing.T) {
 	expected := makeCommentResponse(1, "show", 5, 10)
-	mock := &mockCommentService{
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			if userID != 10 {
 				t.Errorf("expected userID=10, got %d", userID)
 			}
@@ -438,7 +439,7 @@ func TestCreateComment_Success(t *testing.T) {
 			return expected, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &mockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "5"}
 	req.Body.Body = "Great show!"
 	resp, err := h.CreateCommentHandler(commentUserCtx(), req)
@@ -451,8 +452,8 @@ func TestCreateComment_Success(t *testing.T) {
 }
 
 func TestCreateComment_WithReplyPermission(t *testing.T) {
-	mock := &mockCommentService{
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			if req.ReplyPermission != "author_only" {
 				t.Errorf("expected reply_permission=author_only, got %s", req.ReplyPermission)
 			}
@@ -470,8 +471,8 @@ func TestCreateComment_WithReplyPermission(t *testing.T) {
 }
 
 func TestCreateComment_ServiceError(t *testing.T) {
-	mock := &mockCommentService{
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
@@ -479,7 +480,7 @@ func TestCreateComment_ServiceError(t *testing.T) {
 	req := &CreateCommentRequest{EntityType: "show", EntityID: "1"}
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -489,13 +490,13 @@ func TestCreateComment_ServiceError(t *testing.T) {
 func TestCreateReply_NoUser(t *testing.T) {
 	h := testCommentHandler()
 	_, err := h.CreateReplyHandler(context.Background(), &CreateReplyRequest{CommentID: "1"})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestCreateReply_InvalidCommentID(t *testing.T) {
 	h := testCommentHandler()
 	_, err := h.CreateReplyHandler(commentUserCtx(), &CreateReplyRequest{CommentID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCreateReply_EmptyBody(t *testing.T) {
@@ -503,12 +504,12 @@ func TestCreateReply_EmptyBody(t *testing.T) {
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = ""
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCreateReply_ParentNotFound(t *testing.T) {
-	mock := &mockCommentService{
-		getCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("comment not found")
 		},
 	}
@@ -516,16 +517,16 @@ func TestCreateReply_ParentNotFound(t *testing.T) {
 	req := &CreateReplyRequest{CommentID: "99"}
 	req.Body.Body = "Replying..."
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestCreateReply_MaxDepthExceeded(t *testing.T) {
 	parent := makeCommentResponse(1, "show", 5, 10)
-	mock := &mockCommentService{
-		getCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
 			return parent, nil
 		},
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("maximum reply depth of 2 exceeded")
 		},
 	}
@@ -533,17 +534,17 @@ func TestCreateReply_MaxDepthExceeded(t *testing.T) {
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = "Deep reply"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestCreateReply_Success(t *testing.T) {
 	parent := makeCommentResponse(1, "show", 5, 10)
 	reply := makeReplyResponse(2, 1, 1, "show", 5, 10)
-	mock := &mockCommentService{
-		getCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
 			return parent, nil
 		},
-		createCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			if req.ParentID == nil || *req.ParentID != 1 {
 				t.Errorf("expected parent_id=1")
 			}
@@ -553,7 +554,7 @@ func TestCreateReply_Success(t *testing.T) {
 			return reply, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &mockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = "Nice reply!"
 	resp, err := h.CreateReplyHandler(commentUserCtx(), req)
@@ -575,13 +576,13 @@ func TestCreateReply_Success(t *testing.T) {
 func TestUpdateComment_NoUser(t *testing.T) {
 	h := testCommentHandler()
 	_, err := h.UpdateCommentHandler(context.Background(), &UpdateCommentRequest{CommentID: "1"})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestUpdateComment_InvalidID(t *testing.T) {
 	h := testCommentHandler()
 	_, err := h.UpdateCommentHandler(commentUserCtx(), &UpdateCommentRequest{CommentID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUpdateComment_EmptyBody(t *testing.T) {
@@ -589,12 +590,12 @@ func TestUpdateComment_EmptyBody(t *testing.T) {
 	req := &UpdateCommentRequest{CommentID: "1"}
 	req.Body.Body = "  "
 	_, err := h.UpdateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUpdateComment_NotFound(t *testing.T) {
-	mock := &mockCommentService{
-		updateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		UpdateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("comment not found")
 		},
 	}
@@ -602,12 +603,12 @@ func TestUpdateComment_NotFound(t *testing.T) {
 	req := &UpdateCommentRequest{CommentID: "99"}
 	req.Body.Body = "Updated text"
 	_, err := h.UpdateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestUpdateComment_ForbiddenNotAuthor(t *testing.T) {
-	mock := &mockCommentService{
-		updateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		UpdateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("only the comment author can edit this comment")
 		},
 	}
@@ -615,7 +616,7 @@ func TestUpdateComment_ForbiddenNotAuthor(t *testing.T) {
 	req := &UpdateCommentRequest{CommentID: "1"}
 	req.Body.Body = "Trying to edit someone else's comment"
 	_, err := h.UpdateCommentHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUpdateComment_Success(t *testing.T) {
@@ -623,8 +624,8 @@ func TestUpdateComment_Success(t *testing.T) {
 	updated.Body = "Updated body"
 	updated.IsEdited = true
 	updated.EditCount = 1
-	mock := &mockCommentService{
-		updateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		UpdateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 			if userID != 10 {
 				t.Errorf("expected userID=10, got %d", userID)
 			}
@@ -637,7 +638,7 @@ func TestUpdateComment_Success(t *testing.T) {
 			return updated, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &mockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
 	req := &UpdateCommentRequest{CommentID: "1"}
 	req.Body.Body = "Updated body"
 	resp, err := h.UpdateCommentHandler(commentUserCtx(), req)
@@ -659,40 +660,40 @@ func TestUpdateComment_Success(t *testing.T) {
 func TestDeleteComment_NoUser(t *testing.T) {
 	h := testCommentHandler()
 	_, err := h.DeleteCommentHandler(context.Background(), &DeleteCommentRequest{CommentID: "1"})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestDeleteComment_InvalidID(t *testing.T) {
 	h := testCommentHandler()
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestDeleteComment_NotFound(t *testing.T) {
-	mock := &mockCommentService{
-		deleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
+	mock := &testhelpers.MockCommentService{
+		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			return fmt.Errorf("comment not found")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestDeleteComment_ForbiddenNotAuthorOrAdmin(t *testing.T) {
-	mock := &mockCommentService{
-		deleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
+	mock := &testhelpers.MockCommentService{
+		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			return fmt.Errorf("only the comment author or an admin can delete this comment")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "1"})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestDeleteComment_SuccessOwn(t *testing.T) {
-	mock := &mockCommentService{
-		deleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
+	mock := &testhelpers.MockCommentService{
+		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			if userID != 10 {
 				t.Errorf("expected userID=10, got %d", userID)
 			}
@@ -705,7 +706,7 @@ func TestDeleteComment_SuccessOwn(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &mockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -713,15 +714,15 @@ func TestDeleteComment_SuccessOwn(t *testing.T) {
 }
 
 func TestDeleteComment_SuccessAdmin(t *testing.T) {
-	mock := &mockCommentService{
-		deleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
+	mock := &testhelpers.MockCommentService{
+		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			if !isAdmin {
 				t.Error("expected isAdmin=true for admin delete")
 			}
 			return nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &mockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
 	_, err := h.DeleteCommentHandler(commentAdminCtx(), &DeleteCommentRequest{CommentID: "1"})
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
@@ -729,14 +730,14 @@ func TestDeleteComment_SuccessAdmin(t *testing.T) {
 }
 
 func TestDeleteComment_ServiceError(t *testing.T) {
-	mock := &mockCommentService{
-		deleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
+	mock := &testhelpers.MockCommentService{
+		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
 			return fmt.Errorf("database error")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
 	_, err := h.DeleteCommentHandler(commentUserCtx(), &DeleteCommentRequest{CommentID: "1"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -748,7 +749,7 @@ func TestUpdateReplyPermission_NoUser(t *testing.T) {
 	req := &UpdateReplyPermissionRequest{CommentID: "1"}
 	req.Body.Permission = "anyone"
 	_, err := h.UpdateReplyPermissionHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestUpdateReplyPermission_InvalidID(t *testing.T) {
@@ -756,7 +757,7 @@ func TestUpdateReplyPermission_InvalidID(t *testing.T) {
 	req := &UpdateReplyPermissionRequest{CommentID: "abc"}
 	req.Body.Permission = "anyone"
 	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUpdateReplyPermission_EmptyPermission(t *testing.T) {
@@ -764,12 +765,12 @@ func TestUpdateReplyPermission_EmptyPermission(t *testing.T) {
 	req := &UpdateReplyPermissionRequest{CommentID: "1"}
 	req.Body.Permission = "   "
 	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUpdateReplyPermission_InvalidEnum(t *testing.T) {
-	mock := &mockCommentService{
-		updateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("invalid reply_permission: %s", permission)
 		},
 	}
@@ -777,12 +778,12 @@ func TestUpdateReplyPermission_InvalidEnum(t *testing.T) {
 	req := &UpdateReplyPermissionRequest{CommentID: "1"}
 	req.Body.Permission = "banana"
 	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUpdateReplyPermission_Forbidden(t *testing.T) {
-	mock := &mockCommentService{
-		updateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("only the comment author can change reply permission")
 		},
 	}
@@ -790,12 +791,12 @@ func TestUpdateReplyPermission_Forbidden(t *testing.T) {
 	req := &UpdateReplyPermissionRequest{CommentID: "1"}
 	req.Body.Permission = "author_only"
 	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestUpdateReplyPermission_NotFound(t *testing.T) {
-	mock := &mockCommentService{
-		updateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("comment not found")
 		},
 	}
@@ -803,14 +804,14 @@ func TestUpdateReplyPermission_NotFound(t *testing.T) {
 	req := &UpdateReplyPermissionRequest{CommentID: "99"}
 	req.Body.Permission = "followers"
 	_, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestUpdateReplyPermission_Success(t *testing.T) {
 	updated := makeCommentResponse(1, "show", 5, 10)
 	updated.ReplyPermission = "followers"
-	mock := &mockCommentService{
-		updateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
+	mock := &testhelpers.MockCommentService{
+		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
 			if userID != 10 {
 				t.Errorf("expected userID=10, got %d", userID)
 			}
@@ -823,7 +824,7 @@ func TestUpdateReplyPermission_Success(t *testing.T) {
 			return updated, nil
 		},
 	}
-	h := NewCommentHandler(mock, mock, nil, &mockAuditLogService{})
+	h := NewCommentHandler(mock, mock, nil, &testhelpers.MockAuditLogService{})
 	req := &UpdateReplyPermissionRequest{CommentID: "1"}
 	req.Body.Permission = "followers"
 	resp, err := h.UpdateReplyPermissionHandler(commentUserCtx(), req)
@@ -840,13 +841,13 @@ func TestUpdateReplyPermission_Success(t *testing.T) {
 // ============================================================================
 
 func TestCreateReply_RepliesDisabled(t *testing.T) {
-	reader := &mockCommentService{
-		getCommentFn: func(id uint) (*contracts.CommentResponse, error) {
+	reader := &testhelpers.MockCommentService{
+		GetCommentFn: func(id uint) (*contracts.CommentResponse, error) {
 			return makeCommentResponse(id, "show", 5, 99), nil
 		},
 	}
-	writer := &mockCommentService{
-		createCommentFn: func(uid uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	writer := &testhelpers.MockCommentService{
+		CreateCommentFn: func(uid uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("replies to this comment are disabled")
 		},
 	}
@@ -854,17 +855,17 @@ func TestCreateReply_RepliesDisabled(t *testing.T) {
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = "trying to reply"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestCreateReply_FollowersOnlyRejected(t *testing.T) {
-	reader := &mockCommentService{
-		getCommentFn: func(id uint) (*contracts.CommentResponse, error) {
+	reader := &testhelpers.MockCommentService{
+		GetCommentFn: func(id uint) (*contracts.CommentResponse, error) {
 			return makeCommentResponse(id, "show", 5, 99), nil
 		},
 	}
-	writer := &mockCommentService{
-		createCommentFn: func(uid uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+	writer := &testhelpers.MockCommentService{
+		CreateCommentFn: func(uid uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
 			return nil, fmt.Errorf("only followers of the author can reply to this comment")
 		},
 	}
@@ -872,5 +873,5 @@ func TestCreateReply_FollowersOnlyRejected(t *testing.T) {
 	req := &CreateReplyRequest{CommentID: "1"}
 	req.Body.Body = "trying to reply"
 	_, err := h.CreateReplyHandler(commentUserCtx(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }

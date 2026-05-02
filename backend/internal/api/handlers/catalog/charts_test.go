@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -14,7 +15,7 @@ import (
 // ============================================================================
 
 func testChartsHandler() *ChartsHandler {
-	return NewChartsHandler(&mockChartsService{})
+	return NewChartsHandler(&testhelpers.MockChartsService{})
 }
 
 // ============================================================================
@@ -49,8 +50,8 @@ func TestNormalizeChartsLimit(t *testing.T) {
 // ============================================================================
 
 func TestChartsHandler_TrendingShows_Success(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getTrendingShowsFn: func(limit int) ([]contracts.TrendingShow, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetTrendingShowsFn: func(limit int) ([]contracts.TrendingShow, error) {
 			if limit != 20 {
 				t.Errorf("expected limit=20, got %d", limit)
 			}
@@ -77,8 +78,8 @@ func TestChartsHandler_TrendingShows_Success(t *testing.T) {
 
 func TestChartsHandler_TrendingShows_CustomLimit(t *testing.T) {
 	var receivedLimit int
-	h := NewChartsHandler(&mockChartsService{
-		getTrendingShowsFn: func(limit int) ([]contracts.TrendingShow, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetTrendingShowsFn: func(limit int) ([]contracts.TrendingShow, error) {
 			receivedLimit = limit
 			return []contracts.TrendingShow{}, nil
 		},
@@ -95,8 +96,8 @@ func TestChartsHandler_TrendingShows_CustomLimit(t *testing.T) {
 
 func TestChartsHandler_TrendingShows_LimitCapped(t *testing.T) {
 	var receivedLimit int
-	h := NewChartsHandler(&mockChartsService{
-		getTrendingShowsFn: func(limit int) ([]contracts.TrendingShow, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetTrendingShowsFn: func(limit int) ([]contracts.TrendingShow, error) {
 			receivedLimit = limit
 			return []contracts.TrendingShow{}, nil
 		},
@@ -112,14 +113,14 @@ func TestChartsHandler_TrendingShows_LimitCapped(t *testing.T) {
 }
 
 func TestChartsHandler_TrendingShows_ServiceError(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getTrendingShowsFn: func(limit int) ([]contracts.TrendingShow, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetTrendingShowsFn: func(limit int) ([]contracts.TrendingShow, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetTrendingShowsHandler(context.Background(), &GetTrendingShowsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -127,8 +128,8 @@ func TestChartsHandler_TrendingShows_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestChartsHandler_PopularArtists_Success(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getPopularArtistsFn: func(limit int) ([]contracts.PopularArtist, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetPopularArtistsFn: func(limit int) ([]contracts.PopularArtist, error) {
 			return []contracts.PopularArtist{
 				{ArtistID: 1, Name: "Great Band", Slug: "great-band", FollowCount: 100, UpcomingShowCount: 5, Score: 205},
 				{ArtistID: 2, Name: "Good Band", Slug: "good-band", FollowCount: 50, UpcomingShowCount: 2, Score: 102},
@@ -149,20 +150,20 @@ func TestChartsHandler_PopularArtists_Success(t *testing.T) {
 }
 
 func TestChartsHandler_PopularArtists_ServiceError(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getPopularArtistsFn: func(limit int) ([]contracts.PopularArtist, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetPopularArtistsFn: func(limit int) ([]contracts.PopularArtist, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetPopularArtistsHandler(context.Background(), &GetPopularArtistsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestChartsHandler_PopularArtists_DefaultLimit(t *testing.T) {
 	var receivedLimit int
-	h := NewChartsHandler(&mockChartsService{
-		getPopularArtistsFn: func(limit int) ([]contracts.PopularArtist, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetPopularArtistsFn: func(limit int) ([]contracts.PopularArtist, error) {
 			receivedLimit = limit
 			return []contracts.PopularArtist{}, nil
 		},
@@ -182,8 +183,8 @@ func TestChartsHandler_PopularArtists_DefaultLimit(t *testing.T) {
 // ============================================================================
 
 func TestChartsHandler_ActiveVenues_Success(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getActiveVenuesFn: func(limit int) ([]contracts.ActiveVenue, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetActiveVenuesFn: func(limit int) ([]contracts.ActiveVenue, error) {
 			return []contracts.ActiveVenue{
 				{VenueID: 1, Name: "Best Venue", Slug: "best-venue", City: "Phoenix", State: "AZ", UpcomingShowCount: 10, FollowCount: 50, Score: 70},
 			}, nil
@@ -206,20 +207,20 @@ func TestChartsHandler_ActiveVenues_Success(t *testing.T) {
 }
 
 func TestChartsHandler_ActiveVenues_ServiceError(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getActiveVenuesFn: func(limit int) ([]contracts.ActiveVenue, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetActiveVenuesFn: func(limit int) ([]contracts.ActiveVenue, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetActiveVenuesHandler(context.Background(), &GetActiveVenuesRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestChartsHandler_ActiveVenues_DefaultLimit(t *testing.T) {
 	var receivedLimit int
-	h := NewChartsHandler(&mockChartsService{
-		getActiveVenuesFn: func(limit int) ([]contracts.ActiveVenue, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetActiveVenuesFn: func(limit int) ([]contracts.ActiveVenue, error) {
 			receivedLimit = limit
 			return []contracts.ActiveVenue{}, nil
 		},
@@ -240,8 +241,8 @@ func TestChartsHandler_ActiveVenues_DefaultLimit(t *testing.T) {
 
 func TestChartsHandler_HotReleases_Success(t *testing.T) {
 	now := time.Now()
-	h := NewChartsHandler(&mockChartsService{
-		getHotReleasesFn: func(limit int) ([]contracts.HotRelease, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetHotReleasesFn: func(limit int) ([]contracts.HotRelease, error) {
 			return []contracts.HotRelease{
 				{ReleaseID: 1, Title: "Hot Album", Slug: "hot-album", ReleaseDate: &now, ArtistNames: []string{"Artist A", "Artist B"}, BookmarkCount: 42},
 			}, nil
@@ -264,20 +265,20 @@ func TestChartsHandler_HotReleases_Success(t *testing.T) {
 }
 
 func TestChartsHandler_HotReleases_ServiceError(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getHotReleasesFn: func(limit int) ([]contracts.HotRelease, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetHotReleasesFn: func(limit int) ([]contracts.HotRelease, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetHotReleasesHandler(context.Background(), &GetHotReleasesRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestChartsHandler_HotReleases_DefaultLimit(t *testing.T) {
 	var receivedLimit int
-	h := NewChartsHandler(&mockChartsService{
-		getHotReleasesFn: func(limit int) ([]contracts.HotRelease, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetHotReleasesFn: func(limit int) ([]contracts.HotRelease, error) {
 			receivedLimit = limit
 			return []contracts.HotRelease{}, nil
 		},
@@ -297,8 +298,8 @@ func TestChartsHandler_HotReleases_DefaultLimit(t *testing.T) {
 // ============================================================================
 
 func TestChartsHandler_Overview_Success(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getChartsOverviewFn: func() (*contracts.ChartsOverview, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetChartsOverviewFn: func() (*contracts.ChartsOverview, error) {
 			return &contracts.ChartsOverview{
 				TrendingShows:  []contracts.TrendingShow{{ShowID: 1, Title: "Show", TotalAttendance: 5}},
 				PopularArtists: []contracts.PopularArtist{{ArtistID: 1, Name: "Artist", Score: 10}},
@@ -342,12 +343,12 @@ func TestChartsHandler_Overview_Empty(t *testing.T) {
 }
 
 func TestChartsHandler_Overview_ServiceError(t *testing.T) {
-	h := NewChartsHandler(&mockChartsService{
-		getChartsOverviewFn: func() (*contracts.ChartsOverview, error) {
+	h := NewChartsHandler(&testhelpers.MockChartsService{
+		GetChartsOverviewFn: func() (*contracts.ChartsOverview, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetChartsOverviewHandler(context.Background(), &GetChartsOverviewRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }

@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -9,6 +9,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -104,19 +105,19 @@ type ReleaseSlugResolver interface {
 
 // RadioHandler handles all radio entity HTTP endpoints.
 type RadioHandler struct {
-	stationReader      RadioStationReader
-	showReader         RadioShowReader
-	episodeReader      RadioEpisodeReader
-	aggregationReader  RadioAggregationReader
-	stationWriter      RadioStationWriter
-	showWriter         RadioShowWriter
-	unmatchedManager   RadioUnmatchedManager
-	importer           RadioImporter
-	importJobManager   RadioImportJobManager
-	importJobStarter   RadioImportJobStarter
-	artistResolver     ArtistSlugResolver
-	releaseResolver    ReleaseSlugResolver
-	auditLogService    contracts.AuditLogServiceInterface
+	stationReader     RadioStationReader
+	showReader        RadioShowReader
+	episodeReader     RadioEpisodeReader
+	aggregationReader RadioAggregationReader
+	stationWriter     RadioStationWriter
+	showWriter        RadioShowWriter
+	unmatchedManager  RadioUnmatchedManager
+	importer          RadioImporter
+	importJobManager  RadioImportJobManager
+	importJobStarter  RadioImportJobStarter
+	artistResolver    ArtistSlugResolver
+	releaseResolver   ReleaseSlugResolver
+	auditLogService   contracts.AuditLogServiceInterface
 }
 
 // NewRadioHandler creates a new RadioHandler.
@@ -127,19 +128,19 @@ func NewRadioHandler(
 	auditLogService contracts.AuditLogServiceInterface,
 ) *RadioHandler {
 	return &RadioHandler{
-		stationReader:      radioService,
-		showReader:         radioService,
-		episodeReader:      radioService,
-		aggregationReader:  radioService,
-		stationWriter:      radioService,
-		showWriter:         radioService,
-		unmatchedManager:   radioService,
-		importer:           radioService,
-		importJobManager:   radioService,
-		importJobStarter:   radioService,
-		artistResolver:     artistResolver,
-		releaseResolver:    releaseResolver,
-		auditLogService:    auditLogService,
+		stationReader:     radioService,
+		showReader:        radioService,
+		episodeReader:     radioService,
+		aggregationReader: radioService,
+		stationWriter:     radioService,
+		showWriter:        radioService,
+		unmatchedManager:  radioService,
+		importer:          radioService,
+		importJobManager:  radioService,
+		importJobStarter:  radioService,
+		artistResolver:    artistResolver,
+		releaseResolver:   releaseResolver,
+		auditLogService:   auditLogService,
 	}
 }
 
@@ -333,7 +334,7 @@ func (h *RadioHandler) GetRadioEpisodeByDateHandler(ctx context.Context, req *Ge
 	}
 
 	// Validate date format
-	if _, err := parseDate(req.Date); err != nil {
+	if _, err := shared.ParseDate(req.Date); err != nil {
 		return nil, huma.Error400BadRequest("Invalid date format, expected YYYY-MM-DD")
 	}
 
@@ -615,7 +616,7 @@ type AdminCreateRadioStationResponse struct {
 func (h *RadioHandler) AdminCreateRadioStationHandler(ctx context.Context, req *AdminCreateRadioStationRequest) (*AdminCreateRadioStationResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -713,7 +714,7 @@ type AdminUpdateRadioStationResponse struct {
 func (h *RadioHandler) AdminUpdateRadioStationHandler(ctx context.Context, req *AdminUpdateRadioStationRequest) (*AdminUpdateRadioStationResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -784,7 +785,7 @@ type AdminDeleteRadioStationRequest struct {
 func (h *RadioHandler) AdminDeleteRadioStationHandler(ctx context.Context, req *AdminDeleteRadioStationRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -851,7 +852,7 @@ type AdminCreateRadioShowResponse struct {
 func (h *RadioHandler) AdminCreateRadioShowHandler(ctx context.Context, req *AdminCreateRadioShowRequest) (*AdminCreateRadioShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -937,7 +938,7 @@ type AdminUpdateRadioShowResponse struct {
 func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *AdminUpdateRadioShowRequest) (*AdminUpdateRadioShowResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -999,7 +1000,7 @@ type AdminDeleteRadioShowRequest struct {
 func (h *RadioHandler) AdminDeleteRadioShowHandler(ctx context.Context, req *AdminDeleteRadioShowRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1052,7 +1053,7 @@ type AdminDiscoverShowsResponse struct {
 
 // AdminDiscoverShowsHandler handles POST /admin/radio-stations/{id}/discover
 func (h *RadioHandler) AdminDiscoverShowsHandler(ctx context.Context, req *AdminDiscoverShowsRequest) (*AdminDiscoverShowsResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1077,7 +1078,7 @@ type AdminTriggerFetchRequest struct {
 // AdminTriggerFetchHandler handles POST /admin/radio-stations/{id}/fetch
 // Repurposed to call DiscoverStationShows.
 func (h *RadioHandler) AdminTriggerFetchHandler(ctx context.Context, req *AdminTriggerFetchRequest) (*AdminDiscoverShowsResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1110,7 +1111,7 @@ type AdminImportShowEpisodesResponse struct {
 
 // AdminImportShowEpisodesHandler handles POST /admin/radio-shows/{id}/import
 func (h *RadioHandler) AdminImportShowEpisodesHandler(ctx context.Context, req *AdminImportShowEpisodesRequest) (*AdminImportShowEpisodesResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1144,7 +1145,7 @@ type AdminGetUnmatchedPlaysResponse struct {
 
 // AdminGetUnmatchedPlaysHandler handles GET /admin/radio/unmatched
 func (h *RadioHandler) AdminGetUnmatchedPlaysHandler(ctx context.Context, req *AdminGetUnmatchedPlaysRequest) (*AdminGetUnmatchedPlaysResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1194,7 +1195,7 @@ type AdminLinkPlayResponse struct {
 func (h *RadioHandler) AdminLinkPlayHandler(ctx context.Context, req *AdminLinkPlayRequest) (*AdminLinkPlayResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1253,7 +1254,7 @@ type AdminBulkLinkPlaysResponse struct {
 func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *AdminBulkLinkPlaysRequest) (*AdminBulkLinkPlaysResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1327,7 +1328,7 @@ type AdminCreateImportJobResponse struct {
 func (h *RadioHandler) AdminCreateImportJobHandler(ctx context.Context, req *AdminCreateImportJobRequest) (*AdminCreateImportJobResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1398,7 +1399,7 @@ type AdminGetImportJobResponse struct {
 
 // AdminGetImportJobHandler handles GET /admin/radio/import-jobs/{id}
 func (h *RadioHandler) AdminGetImportJobHandler(ctx context.Context, req *AdminGetImportJobRequest) (*AdminGetImportJobResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1431,7 +1432,7 @@ type AdminCancelImportJobResponse struct {
 func (h *RadioHandler) AdminCancelImportJobHandler(ctx context.Context, req *AdminCancelImportJobRequest) (*AdminCancelImportJobResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -1484,7 +1485,7 @@ type AdminListImportJobsResponse struct {
 
 // AdminListImportJobsHandler handles GET /admin/radio-shows/{id}/import-jobs
 func (h *RadioHandler) AdminListImportJobsHandler(ctx context.Context, req *AdminListImportJobsRequest) (*AdminListImportJobsResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

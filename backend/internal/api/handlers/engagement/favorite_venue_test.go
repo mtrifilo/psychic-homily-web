@@ -1,10 +1,11 @@
-package handlers
+package engagement
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -20,21 +21,21 @@ func TestFavoriteVenueHandler_FavoriteVenue_NoAuth(t *testing.T) {
 	req := &FavoriteVenueRequest{VenueID: "1"}
 
 	_, err := h.FavoriteVenueHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestFavoriteVenueHandler_FavoriteVenue_InvalidID(t *testing.T) {
 	h := testFavoriteVenueHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &FavoriteVenueRequest{VenueID: "abc"}
 
 	_, err := h.FavoriteVenueHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestFavoriteVenueHandler_FavoriteVenue_Success(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		favoriteVenueFn: func(userID, venueID uint) error {
+	mock := &testhelpers.MockFavoriteVenueService{
+		FavoriteVenueFn: func(userID, venueID uint) error {
 			if userID != 1 || venueID != 5 {
 				t.Errorf("unexpected args: userID=%d, venueID=%d", userID, venueID)
 			}
@@ -42,7 +43,7 @@ func TestFavoriteVenueHandler_FavoriteVenue_Success(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.FavoriteVenueHandler(ctx, &FavoriteVenueRequest{VenueID: "5"})
 	if err != nil {
@@ -54,16 +55,16 @@ func TestFavoriteVenueHandler_FavoriteVenue_Success(t *testing.T) {
 }
 
 func TestFavoriteVenueHandler_FavoriteVenue_ServiceError(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		favoriteVenueFn: func(_, _ uint) error {
+	mock := &testhelpers.MockFavoriteVenueService{
+		FavoriteVenueFn: func(_, _ uint) error {
 			return fmt.Errorf("already favorited")
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.FavoriteVenueHandler(ctx, &FavoriteVenueRequest{VenueID: "5"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- UnfavoriteVenueHandler ---
@@ -73,21 +74,21 @@ func TestFavoriteVenueHandler_UnfavoriteVenue_NoAuth(t *testing.T) {
 	req := &UnfavoriteVenueRequest{VenueID: "1"}
 
 	_, err := h.UnfavoriteVenueHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestFavoriteVenueHandler_UnfavoriteVenue_InvalidID(t *testing.T) {
 	h := testFavoriteVenueHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnfavoriteVenueRequest{VenueID: "abc"}
 
 	_, err := h.UnfavoriteVenueHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestFavoriteVenueHandler_UnfavoriteVenue_Success(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		unfavoriteVenueFn: func(userID, venueID uint) error {
+	mock := &testhelpers.MockFavoriteVenueService{
+		UnfavoriteVenueFn: func(userID, venueID uint) error {
 			if userID != 1 || venueID != 5 {
 				t.Errorf("unexpected args: userID=%d, venueID=%d", userID, venueID)
 			}
@@ -95,7 +96,7 @@ func TestFavoriteVenueHandler_UnfavoriteVenue_Success(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.UnfavoriteVenueHandler(ctx, &UnfavoriteVenueRequest{VenueID: "5"})
 	if err != nil {
@@ -107,16 +108,16 @@ func TestFavoriteVenueHandler_UnfavoriteVenue_Success(t *testing.T) {
 }
 
 func TestFavoriteVenueHandler_UnfavoriteVenue_ServiceError(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		unfavoriteVenueFn: func(_, _ uint) error {
+	mock := &testhelpers.MockFavoriteVenueService{
+		UnfavoriteVenueFn: func(_, _ uint) error {
 			return fmt.Errorf("not favorited")
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.UnfavoriteVenueHandler(ctx, &UnfavoriteVenueRequest{VenueID: "5"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- GetFavoriteVenuesHandler ---
@@ -126,13 +127,13 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_NoAuth(t *testing.T) {
 	req := &GetFavoriteVenuesRequest{}
 
 	_, err := h.GetFavoriteVenuesHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestFavoriteVenueHandler_GetFavoriteVenues_Success(t *testing.T) {
 	venues := []*contracts.FavoriteVenueResponse{{}}
-	mock := &mockFavoriteVenueService{
-		getUserFavoriteVenuesFn: func(userID uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		GetUserFavoriteVenuesFn: func(userID uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -140,7 +141,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_Success(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetFavoriteVenuesHandler(ctx, &GetFavoriteVenuesRequest{Limit: 10})
 	if err != nil {
@@ -155,29 +156,29 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_Success(t *testing.T) {
 }
 
 func TestFavoriteVenueHandler_GetFavoriteVenues_ServiceError(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		getUserFavoriteVenuesFn: func(_ uint, _, _ int) ([]*contracts.FavoriteVenueResponse, int64, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		GetUserFavoriteVenuesFn: func(_ uint, _, _ int) ([]*contracts.FavoriteVenueResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.GetFavoriteVenuesHandler(ctx, &GetFavoriteVenuesRequest{Limit: 10})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestFavoriteVenueHandler_GetFavoriteVenues_PaginationClamping(t *testing.T) {
 	var capturedLimit, capturedOffset int
-	mock := &mockFavoriteVenueService{
-		getUserFavoriteVenuesFn: func(_ uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		GetUserFavoriteVenuesFn: func(_ uint, limit, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
 			capturedLimit = limit
 			capturedOffset = offset
 			return nil, 0, nil
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	// limit=0 → 50, offset=-1 → 0
 	resp, err := h.GetFavoriteVenuesHandler(ctx, &GetFavoriteVenuesRequest{Limit: 0, Offset: -1})
@@ -208,26 +209,26 @@ func TestFavoriteVenueHandler_CheckFavorited_NoAuth(t *testing.T) {
 	req := &CheckFavoritedRequest{VenueID: "1"}
 
 	_, err := h.CheckFavoritedHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestFavoriteVenueHandler_CheckFavorited_InvalidID(t *testing.T) {
 	h := testFavoriteVenueHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &CheckFavoritedRequest{VenueID: "abc"}
 
 	_, err := h.CheckFavoritedHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestFavoriteVenueHandler_CheckFavorited_True(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		isVenueFavoritedFn: func(_, _ uint) (bool, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		IsVenueFavoritedFn: func(_, _ uint) (bool, error) {
 			return true, nil
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.CheckFavoritedHandler(ctx, &CheckFavoritedRequest{VenueID: "5"})
 	if err != nil {
@@ -239,13 +240,13 @@ func TestFavoriteVenueHandler_CheckFavorited_True(t *testing.T) {
 }
 
 func TestFavoriteVenueHandler_CheckFavorited_False(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		isVenueFavoritedFn: func(_, _ uint) (bool, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		IsVenueFavoritedFn: func(_, _ uint) (bool, error) {
 			return false, nil
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.CheckFavoritedHandler(ctx, &CheckFavoritedRequest{VenueID: "5"})
 	if err != nil {
@@ -257,16 +258,16 @@ func TestFavoriteVenueHandler_CheckFavorited_False(t *testing.T) {
 }
 
 func TestFavoriteVenueHandler_CheckFavorited_ServiceError(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		isVenueFavoritedFn: func(_, _ uint) (bool, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		IsVenueFavoritedFn: func(_, _ uint) (bool, error) {
 			return false, fmt.Errorf("db error")
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.CheckFavoritedHandler(ctx, &CheckFavoritedRequest{VenueID: "5"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- GetFavoriteVenueShowsHandler ---
@@ -276,13 +277,13 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_NoAuth(t *testing.T) {
 	req := &GetFavoriteVenueShowsRequest{}
 
 	_, err := h.GetFavoriteVenueShowsHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestFavoriteVenueHandler_GetFavoriteVenueShows_Success(t *testing.T) {
 	shows := []*contracts.FavoriteVenueShowResponse{{}}
-	mock := &mockFavoriteVenueService{
-		getUpcomingShowsFromFavoritesFn: func(userID uint, timezone string, limit, offset int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		GetUpcomingShowsFromFavoritesFn: func(userID uint, timezone string, limit, offset int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
 			if userID != 1 {
 				t.Errorf("unexpected userID=%d", userID)
 			}
@@ -293,7 +294,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_Success(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetFavoriteVenueShowsHandler(ctx, &GetFavoriteVenueShowsRequest{Timezone: "US/Eastern", Limit: 10})
 	if err != nil {
@@ -308,28 +309,28 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_Success(t *testing.T) {
 }
 
 func TestFavoriteVenueHandler_GetFavoriteVenueShows_ServiceError(t *testing.T) {
-	mock := &mockFavoriteVenueService{
-		getUpcomingShowsFromFavoritesFn: func(_ uint, _ string, _, _ int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		GetUpcomingShowsFromFavoritesFn: func(_ uint, _ string, _, _ int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	_, err := h.GetFavoriteVenueShowsHandler(ctx, &GetFavoriteVenueShowsRequest{Timezone: "US/Eastern", Limit: 10})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestFavoriteVenueHandler_GetFavoriteVenueShows_DefaultTimezone(t *testing.T) {
 	var capturedTZ string
-	mock := &mockFavoriteVenueService{
-		getUpcomingShowsFromFavoritesFn: func(_ uint, timezone string, _, _ int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
+	mock := &testhelpers.MockFavoriteVenueService{
+		GetUpcomingShowsFromFavoritesFn: func(_ uint, timezone string, _, _ int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
 			capturedTZ = timezone
 			return nil, 0, nil
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 
 	resp, err := h.GetFavoriteVenueShowsHandler(ctx, &GetFavoriteVenueShowsRequest{Timezone: "", Limit: 10})
 	if err != nil {

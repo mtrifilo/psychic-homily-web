@@ -1,10 +1,11 @@
-package handlers
+package community
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -13,7 +14,7 @@ import (
 // ============================================================================
 
 func testContributeHandler() *ContributeHandler {
-	return NewContributeHandler(&mockDataQualityService{})
+	return NewContributeHandler(&testhelpers.MockDataQualityService{})
 }
 
 // ============================================================================
@@ -21,8 +22,8 @@ func testContributeHandler() *ContributeHandler {
 // ============================================================================
 
 func TestContributeHandler_Opportunities_Success(t *testing.T) {
-	h := NewContributeHandler(&mockDataQualityService{
-		getSummaryFn: func() (*contracts.DataQualitySummary, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
 			return &contracts.DataQualitySummary{
 				Categories: []contracts.DataQualityCategory{
 					{
@@ -77,19 +78,19 @@ func TestContributeHandler_Opportunities_NoAuthRequired(t *testing.T) {
 }
 
 func TestContributeHandler_Opportunities_ServiceError(t *testing.T) {
-	h := NewContributeHandler(&mockDataQualityService{
-		getSummaryFn: func() (*contracts.DataQualitySummary, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	})
 
 	_, err := h.GetOpportunitiesHandler(context.Background(), &GetOpportunitiesRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestContributeHandler_Opportunities_Empty(t *testing.T) {
-	h := NewContributeHandler(&mockDataQualityService{
-		getSummaryFn: func() (*contracts.DataQualitySummary, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetSummaryFn: func() (*contracts.DataQualitySummary, error) {
 			return &contracts.DataQualitySummary{
 				Categories: []contracts.DataQualityCategory{},
 				TotalItems: 0,
@@ -114,8 +115,8 @@ func TestContributeHandler_Opportunities_Empty(t *testing.T) {
 // ============================================================================
 
 func TestContributeHandler_Category_Success(t *testing.T) {
-	h := NewContributeHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			if category != "artists_missing_links" {
 				t.Errorf("expected category=artists_missing_links, got %s", category)
 			}
@@ -176,8 +177,8 @@ func TestContributeHandler_Category_NoAuthRequired(t *testing.T) {
 }
 
 func TestContributeHandler_Category_InvalidCategory(t *testing.T) {
-	h := NewContributeHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return nil, 0, fmt.Errorf("unknown category: %s", category)
 		},
 	})
@@ -185,12 +186,12 @@ func TestContributeHandler_Category_InvalidCategory(t *testing.T) {
 	_, err := h.GetOpportunityCategoryHandler(context.Background(), &GetOpportunityCategoryRequest{
 		Category: "nonexistent",
 	})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestContributeHandler_Category_ServiceError(t *testing.T) {
-	h := NewContributeHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return nil, 0, fmt.Errorf("database error")
 		},
 	})
@@ -198,13 +199,13 @@ func TestContributeHandler_Category_ServiceError(t *testing.T) {
 	_, err := h.GetOpportunityCategoryHandler(context.Background(), &GetOpportunityCategoryRequest{
 		Category: "artists_missing_links",
 	})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestContributeHandler_Category_DefaultLimit(t *testing.T) {
 	var receivedLimit int
-	h := NewContributeHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			receivedLimit = limit
 			return nil, 0, nil
 		},
@@ -223,8 +224,8 @@ func TestContributeHandler_Category_DefaultLimit(t *testing.T) {
 
 func TestContributeHandler_Category_CustomLimit(t *testing.T) {
 	var receivedLimit, receivedOffset int
-	h := NewContributeHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			receivedLimit = limit
 			receivedOffset = offset
 			return nil, 0, nil
@@ -248,8 +249,8 @@ func TestContributeHandler_Category_CustomLimit(t *testing.T) {
 }
 
 func TestContributeHandler_Category_Empty(t *testing.T) {
-	h := NewContributeHandler(&mockDataQualityService{
-		getCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
+	h := NewContributeHandler(&testhelpers.MockDataQualityService{
+		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 			return []*contracts.DataQualityItem{}, 0, nil
 		},
 	})

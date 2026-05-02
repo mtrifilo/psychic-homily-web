@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -19,11 +20,11 @@ func testEntityReportHandler() *EntityReportHandler {
 }
 
 func entityReportAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 }
 
 func entityReportUserCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 2, IsAdmin: false})
+	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false})
 }
 
 func makeEntityReportResponse(id uint, entityType, reportType string) *contracts.EntityReportResponse {
@@ -46,7 +47,7 @@ func makeEntityReportResponse(id uint, entityType, reportType string) *contracts
 func TestReportEntity_NoUser(t *testing.T) {
 	h := testEntityReportHandler()
 	_, err := h.ReportArtistHandler(context.Background(), &ReportEntityRequest{EntityID: "1"})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestReportEntity_InvalidEntityID(t *testing.T) {
@@ -54,7 +55,7 @@ func TestReportEntity_InvalidEntityID(t *testing.T) {
 	req := &ReportEntityRequest{EntityID: "abc"}
 	req.Body.ReportType = "inaccurate"
 	_, err := h.ReportArtistHandler(entityReportUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestReportEntity_EmptyReportType(t *testing.T) {
@@ -62,7 +63,7 @@ func TestReportEntity_EmptyReportType(t *testing.T) {
 	req := &ReportEntityRequest{EntityID: "1"}
 	req.Body.ReportType = ""
 	_, err := h.ReportArtistHandler(entityReportUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestReportEntity_InvalidReportType(t *testing.T) {
@@ -70,7 +71,7 @@ func TestReportEntity_InvalidReportType(t *testing.T) {
 	req := &ReportEntityRequest{EntityID: "1"}
 	req.Body.ReportType = "cancelled" // not valid for artist
 	_, err := h.ReportArtistHandler(entityReportUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // ============================================================================
@@ -80,8 +81,8 @@ func TestReportEntity_InvalidReportType(t *testing.T) {
 func TestReportArtist_Success(t *testing.T) {
 	expected := makeEntityReportResponse(1, "artist", "inaccurate")
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			createEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 				if req.EntityType != "artist" || req.EntityID != 10 || req.UserID != 2 {
 					t.Errorf("unexpected params: %+v", req)
 				}
@@ -109,8 +110,8 @@ func TestReportArtist_Success(t *testing.T) {
 func TestReportVenue_Success(t *testing.T) {
 	expected := makeEntityReportResponse(2, "venue", "closed_permanently")
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			createEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 				if req.EntityType != "venue" {
 					t.Errorf("expected entity_type=venue, got %s", req.EntityType)
 				}
@@ -135,8 +136,8 @@ func TestReportVenue_Success(t *testing.T) {
 func TestReportFestival_Success(t *testing.T) {
 	expected := makeEntityReportResponse(3, "festival", "cancelled")
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			createEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 				return expected, nil
 			},
 		},
@@ -158,8 +159,8 @@ func TestReportFestival_Success(t *testing.T) {
 func TestReportShow_Success(t *testing.T) {
 	expected := makeEntityReportResponse(4, "show", "wrong_venue")
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			createEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 				return expected, nil
 			},
 		},
@@ -184,8 +185,8 @@ func TestReportShow_Success(t *testing.T) {
 
 func TestReportEntity_EntityNotFound(t *testing.T) {
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			createEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 				return nil, fmt.Errorf("entity not found: artist 99999")
 			},
 		},
@@ -196,13 +197,13 @@ func TestReportEntity_EntityNotFound(t *testing.T) {
 	req.Body.ReportType = "inaccurate"
 
 	_, err := h.ReportArtistHandler(entityReportUserCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestReportEntity_DuplicatePending(t *testing.T) {
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			createEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 				return nil, fmt.Errorf("you already have a pending report for this entity")
 			},
 		},
@@ -213,13 +214,13 @@ func TestReportEntity_DuplicatePending(t *testing.T) {
 	req.Body.ReportType = "inaccurate"
 
 	_, err := h.ReportArtistHandler(entityReportUserCtx(), req)
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 func TestReportEntity_ServiceError(t *testing.T) {
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			createEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
@@ -230,7 +231,7 @@ func TestReportEntity_ServiceError(t *testing.T) {
 	req.Body.ReportType = "inaccurate"
 
 	_, err := h.ReportArtistHandler(entityReportUserCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -242,19 +243,19 @@ func TestAdminListEntityReports_RequiresAdmin(t *testing.T) {
 
 	t.Run("NoUser", func(t *testing.T) {
 		_, err := h.AdminListEntityReportsHandler(context.Background(), &AdminListEntityReportsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 	t.Run("NonAdmin", func(t *testing.T) {
 		_, err := h.AdminListEntityReportsHandler(entityReportUserCtx(), &AdminListEntityReportsRequest{})
-		assertHumaError(t, err, 403)
+		testhelpers.AssertHumaError(t, err, 403)
 	})
 }
 
 func TestAdminListEntityReports_Success(t *testing.T) {
 	reports := []contracts.EntityReportResponse{*makeEntityReportResponse(1, "artist", "inaccurate")}
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			listEntityReportsFn: func(filters *contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error) {
+		&testhelpers.MockEntityReportService{
+			ListEntityReportsFn: func(filters *contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error) {
 				if filters.Status != "pending" {
 					t.Errorf("expected status=pending, got %s", filters.Status)
 				}
@@ -281,8 +282,8 @@ func TestAdminListEntityReports_Success(t *testing.T) {
 func TestAdminListEntityReports_WithEntityTypeFilter(t *testing.T) {
 	reports := []contracts.EntityReportResponse{*makeEntityReportResponse(1, "venue", "wrong_address")}
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			listEntityReportsFn: func(filters *contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error) {
+		&testhelpers.MockEntityReportService{
+			ListEntityReportsFn: func(filters *contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error) {
 				if filters.EntityType != "venue" {
 					t.Errorf("expected entity_type=venue, got %s", filters.EntityType)
 				}
@@ -310,19 +311,19 @@ func TestAdminListEntityReports_WithEntityTypeFilter(t *testing.T) {
 func TestAdminGetEntityReport_RequiresAdmin(t *testing.T) {
 	h := testEntityReportHandler()
 	_, err := h.AdminGetEntityReportHandler(entityReportUserCtx(), &AdminGetEntityReportRequest{ReportID: "1"})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminGetEntityReport_InvalidID(t *testing.T) {
 	h := testEntityReportHandler()
 	_, err := h.AdminGetEntityReportHandler(entityReportAdminCtx(), &AdminGetEntityReportRequest{ReportID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminGetEntityReport_NotFound(t *testing.T) {
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			getEntityReportFn: func(reportID uint) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			GetEntityReportFn: func(reportID uint) (*contracts.EntityReportResponse, error) {
 				return nil, nil
 			},
 		},
@@ -330,14 +331,14 @@ func TestAdminGetEntityReport_NotFound(t *testing.T) {
 	)
 
 	_, err := h.AdminGetEntityReportHandler(entityReportAdminCtx(), &AdminGetEntityReportRequest{ReportID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminGetEntityReport_Success(t *testing.T) {
 	expected := makeEntityReportResponse(1, "artist", "inaccurate")
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			getEntityReportFn: func(reportID uint) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			GetEntityReportFn: func(reportID uint) (*contracts.EntityReportResponse, error) {
 				if reportID != 1 {
 					t.Errorf("expected reportID=1, got %d", reportID)
 				}
@@ -364,13 +365,13 @@ func TestAdminResolveEntityReport_RequiresAdmin(t *testing.T) {
 	h := testEntityReportHandler()
 	req := &AdminResolveEntityReportRequest{ReportID: "1"}
 	_, err := h.AdminResolveEntityReportHandler(entityReportUserCtx(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminResolveEntityReport_InvalidID(t *testing.T) {
 	h := testEntityReportHandler()
 	_, err := h.AdminResolveEntityReportHandler(entityReportAdminCtx(), &AdminResolveEntityReportRequest{ReportID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminResolveEntityReport_Success(t *testing.T) {
@@ -382,8 +383,8 @@ func TestAdminResolveEntityReport_Success(t *testing.T) {
 	resolved.AdminNotes = &notes
 
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			resolveEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			ResolveEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
 				if reportID != 1 || rID != 1 {
 					t.Errorf("unexpected params: reportID=%d, reviewerID=%d", reportID, rID)
 				}
@@ -393,7 +394,7 @@ func TestAdminResolveEntityReport_Success(t *testing.T) {
 				return resolved, nil
 			},
 		},
-		&mockAuditLogService{},
+		&testhelpers.MockAuditLogService{},
 	)
 
 	req := &AdminResolveEntityReportRequest{ReportID: "1"}
@@ -410,8 +411,8 @@ func TestAdminResolveEntityReport_Success(t *testing.T) {
 
 func TestAdminResolveEntityReport_NotFound(t *testing.T) {
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			resolveEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			ResolveEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
 				return nil, fmt.Errorf("report not found")
 			},
 		},
@@ -419,13 +420,13 @@ func TestAdminResolveEntityReport_NotFound(t *testing.T) {
 	)
 
 	_, err := h.AdminResolveEntityReportHandler(entityReportAdminCtx(), &AdminResolveEntityReportRequest{ReportID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminResolveEntityReport_AlreadyReviewed(t *testing.T) {
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			resolveEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			ResolveEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
 				return nil, fmt.Errorf("report has already been reviewed (status: resolved)")
 			},
 		},
@@ -433,7 +434,7 @@ func TestAdminResolveEntityReport_AlreadyReviewed(t *testing.T) {
 	)
 
 	_, err := h.AdminResolveEntityReportHandler(entityReportAdminCtx(), &AdminResolveEntityReportRequest{ReportID: "1"})
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 // ============================================================================
@@ -444,13 +445,13 @@ func TestAdminDismissEntityReport_RequiresAdmin(t *testing.T) {
 	h := testEntityReportHandler()
 	req := &AdminDismissEntityReportRequest{ReportID: "1"}
 	_, err := h.AdminDismissEntityReportHandler(entityReportUserCtx(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminDismissEntityReport_InvalidID(t *testing.T) {
 	h := testEntityReportHandler()
 	_, err := h.AdminDismissEntityReportHandler(entityReportAdminCtx(), &AdminDismissEntityReportRequest{ReportID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminDismissEntityReport_Success(t *testing.T) {
@@ -462,15 +463,15 @@ func TestAdminDismissEntityReport_Success(t *testing.T) {
 	dismissed.AdminNotes = &notes
 
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			dismissEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			DismissEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
 				if reportID != 1 || rID != 1 {
 					t.Errorf("unexpected params: reportID=%d, reviewerID=%d", reportID, rID)
 				}
 				return dismissed, nil
 			},
 		},
-		&mockAuditLogService{},
+		&testhelpers.MockAuditLogService{},
 	)
 
 	req := &AdminDismissEntityReportRequest{ReportID: "1"}
@@ -487,8 +488,8 @@ func TestAdminDismissEntityReport_Success(t *testing.T) {
 
 func TestAdminDismissEntityReport_NotFound(t *testing.T) {
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			dismissEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			DismissEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
 				return nil, fmt.Errorf("report not found")
 			},
 		},
@@ -496,13 +497,13 @@ func TestAdminDismissEntityReport_NotFound(t *testing.T) {
 	)
 
 	_, err := h.AdminDismissEntityReportHandler(entityReportAdminCtx(), &AdminDismissEntityReportRequest{ReportID: "99"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminDismissEntityReport_AlreadyReviewed(t *testing.T) {
 	h := NewEntityReportHandler(
-		&mockEntityReportService{
-			dismissEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
+		&testhelpers.MockEntityReportService{
+			DismissEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
 				return nil, fmt.Errorf("report has already been reviewed (status: dismissed)")
 			},
 		},
@@ -510,5 +511,5 @@ func TestAdminDismissEntityReport_AlreadyReviewed(t *testing.T) {
 	)
 
 	_, err := h.AdminDismissEntityReportHandler(entityReportAdminCtx(), &AdminDismissEntityReportRequest{ReportID: "1"})
-	assertHumaError(t, err, 409)
+	testhelpers.AssertHumaError(t, err, 409)
 }

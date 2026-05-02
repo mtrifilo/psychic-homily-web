@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"fmt"
@@ -7,27 +7,28 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
 type FestivalHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *FestivalHandler
 }
 
 func (s *FestivalHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewFestivalHandler(s.deps.festivalService, s.deps.artistService, s.deps.auditLogService, nil)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewFestivalHandler(s.deps.FestivalService, s.deps.ArtistService, s.deps.AuditLogService, nil)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestFestivalHandlerIntegration(t *testing.T) {
@@ -45,7 +46,7 @@ func (s *FestivalHandlerIntegrationSuite) createFestivalViaService(name string) 
 	city := "Phoenix"
 	state := "AZ"
 	counter := atomic.AddInt64(&handlerFestivalCounter, 1)
-	resp, err := s.deps.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
+	resp, err := s.deps.FestivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name:        name,
 		SeriesSlug:  utils.GenerateArtistSlug(name),
 		EditionYear: 2026 + int(counter),
@@ -59,13 +60,13 @@ func (s *FestivalHandlerIntegrationSuite) createFestivalViaService(name string) 
 }
 
 func (s *FestivalHandlerIntegrationSuite) createArtistViaArtistService(name string) uint {
-	resp, err := s.deps.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
+	resp, err := s.deps.ArtistService.CreateArtist(&contracts.CreateArtistRequest{Name: name})
 	s.Require().NoError(err)
 	return resp.ID
 }
 
 func (s *FestivalHandlerIntegrationSuite) createVenueViaDB(name, city, state string) uint {
-	venue := createVerifiedVenue(s.deps.db, name, city, state)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, name, city, state)
 	return venue.ID
 }
 
@@ -76,7 +77,7 @@ func (s *FestivalHandlerIntegrationSuite) TestListFestivals_Success() {
 	s.createFestivalViaService("Festival B")
 
 	req := &ListFestivalsRequest{}
-	resp, err := s.handler.ListFestivalsHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListFestivalsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(resp.Body.Count, 2)
@@ -84,24 +85,24 @@ func (s *FestivalHandlerIntegrationSuite) TestListFestivals_Success() {
 
 func (s *FestivalHandlerIntegrationSuite) TestListFestivals_Empty() {
 	req := &ListFestivalsRequest{}
-	resp, err := s.handler.ListFestivalsHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListFestivalsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestListFestivals_FilterByStatus() {
-	s.deps.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
+	s.deps.FestivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Confirmed Fest", SeriesSlug: "cf", EditionYear: 2026,
 		StartDate: "2026-03-01", EndDate: "2026-03-03", Status: "confirmed",
 	})
-	s.deps.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
+	s.deps.FestivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Announced Fest", SeriesSlug: "af", EditionYear: 2026,
 		StartDate: "2026-04-01", EndDate: "2026-04-03",
 	})
 
 	req := &ListFestivalsRequest{Status: "confirmed"}
-	resp, err := s.handler.ListFestivalsHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListFestivalsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.Equal(1, resp.Body.Count)
 	s.Equal("Confirmed Fest", resp.Body.Festivals[0].Name)
@@ -113,7 +114,7 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestival_ByID() {
 	festival := s.createFestivalViaService("Test Festival")
 
 	req := &GetFestivalRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
-	resp, err := s.handler.GetFestivalHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetFestivalHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("Test Festival", resp.Body.Name)
@@ -123,7 +124,7 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestival_BySlug() {
 	s.createFestivalViaService("Slug Festival")
 
 	req := &GetFestivalRequest{FestivalID: "slug-festival"}
-	resp, err := s.handler.GetFestivalHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetFestivalHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal("Slug Festival", resp.Body.Name)
@@ -131,15 +132,15 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestival_BySlug() {
 
 func (s *FestivalHandlerIntegrationSuite) TestGetFestival_NotFound() {
 	req := &GetFestivalRequest{FestivalID: "99999"}
-	_, err := s.handler.GetFestivalHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetFestivalHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- CreateFestivalHandler ---
 
 func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_AdminSuccess() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &CreateFestivalRequest{}
 	req.Body.Name = "New Festival"
@@ -157,8 +158,8 @@ func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_AdminSuccess() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &CreateFestivalRequest{}
 	req.Body.Name = "Forbidden Festival"
@@ -168,7 +169,7 @@ func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_NonAdminForbidden()
 	req.Body.EndDate = "2026-06-03"
 
 	_, err := s.handler.CreateFestivalHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_NoAuth() {
@@ -179,13 +180,13 @@ func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_NoAuth() {
 	req.Body.StartDate = "2026-06-01"
 	req.Body.EndDate = "2026-06-03"
 
-	_, err := s.handler.CreateFestivalHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 403)
+	_, err := s.handler.CreateFestivalHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_EmptyName() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &CreateFestivalRequest{}
 	req.Body.Name = ""
@@ -195,12 +196,12 @@ func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_EmptyName() {
 	req.Body.EndDate = "2026-06-03"
 
 	_, err := s.handler.CreateFestivalHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_MissingSeriesSlug() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &CreateFestivalRequest{}
 	req.Body.Name = "Missing Series"
@@ -210,16 +211,16 @@ func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_MissingSeriesSlug()
 	req.Body.EndDate = "2026-06-03"
 
 	_, err := s.handler.CreateFestivalHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 // --- UpdateFestivalHandler ---
 
 func (s *FestivalHandlerIntegrationSuite) TestUpdateFestival_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Original Festival")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	newName := "Updated Festival"
 	req := &UpdateFestivalRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	req.Body.Name = &newName
@@ -231,64 +232,64 @@ func (s *FestivalHandlerIntegrationSuite) TestUpdateFestival_Success() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestUpdateFestival_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	newName := "New Name"
 	req := &UpdateFestivalRequest{FestivalID: "99999"}
 	req.Body.Name = &newName
 
 	_, err := s.handler.UpdateFestivalHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestUpdateFestival_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	festival := s.createFestivalViaService("Forbidden Update")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	newName := "Hacked Name"
 	req := &UpdateFestivalRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	req.Body.Name = &newName
 
 	_, err := s.handler.UpdateFestivalHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- DeleteFestivalHandler ---
 
 func (s *FestivalHandlerIntegrationSuite) TestDeleteFestival_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Deletable Festival")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &DeleteFestivalRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	_, err := s.handler.DeleteFestivalHandler(ctx, req)
 	s.NoError(err)
 
 	// Verify festival is gone
 	getReq := &GetFestivalRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
-	_, err = s.handler.GetFestivalHandler(s.deps.ctx, getReq)
-	assertHumaError(s.T(), err, 404)
+	_, err = s.handler.GetFestivalHandler(s.deps.Ctx, getReq)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestDeleteFestival_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &DeleteFestivalRequest{FestivalID: "99999"}
 
 	_, err := s.handler.DeleteFestivalHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestDeleteFestival_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	festival := s.createFestivalViaService("Protected Festival")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteFestivalRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 
 	_, err := s.handler.DeleteFestivalHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- GetFestivalArtistsHandler ---
@@ -297,13 +298,13 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalArtists_Success() {
 	festival := s.createFestivalViaService("Lineup Festival")
 	artistID := s.createArtistViaArtistService("Lineup Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "headliner",
 	})
 
 	req := &GetFestivalArtistsRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
-	resp, err := s.handler.GetFestivalArtistsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetFestivalArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -315,7 +316,7 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalArtists_BySlug() {
 	s.createFestivalViaService("Slug Lineup Festival")
 
 	req := &GetFestivalArtistsRequest{FestivalID: "slug-lineup-festival"}
-	resp, err := s.handler.GetFestivalArtistsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetFestivalArtistsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
@@ -323,18 +324,18 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalArtists_BySlug() {
 
 func (s *FestivalHandlerIntegrationSuite) TestGetFestivalArtists_NotFound() {
 	req := &GetFestivalArtistsRequest{FestivalID: "99999"}
-	_, err := s.handler.GetFestivalArtistsHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetFestivalArtistsHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- AddFestivalArtistHandler ---
 
 func (s *FestivalHandlerIntegrationSuite) TestAddFestivalArtist_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Add Artist Festival")
 	artistID := s.createArtistViaArtistService("Added Artist")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &AddFestivalArtistHandlerRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	req.Body.ArtistID = artistID
 	req.Body.BillingTier = "headliner"
@@ -347,43 +348,43 @@ func (s *FestivalHandlerIntegrationSuite) TestAddFestivalArtist_Success() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestAddFestivalArtist_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	festival := s.createFestivalViaService("Protected Add Festival")
 	artistID := s.createArtistViaArtistService("Forbidden Artist")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &AddFestivalArtistHandlerRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	req.Body.ArtistID = artistID
 
 	_, err := s.handler.AddFestivalArtistHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestAddFestivalArtist_MissingArtistID() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Missing Artist ID Festival")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &AddFestivalArtistHandlerRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	req.Body.ArtistID = 0
 
 	_, err := s.handler.AddFestivalArtistHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 // --- UpdateFestivalArtistHandler ---
 
 func (s *FestivalHandlerIntegrationSuite) TestUpdateFestivalArtist_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Update Artist Festival")
 	artistID := s.createArtistViaArtistService("Promoted Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "undercard",
 	})
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	newTier := "headliner"
 	req := &UpdateFestivalArtistHandlerRequest{
 		FestivalID: fmt.Sprintf("%d", festival.ID),
@@ -398,8 +399,8 @@ func (s *FestivalHandlerIntegrationSuite) TestUpdateFestivalArtist_Success() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestUpdateFestivalArtist_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 	newTier := "headliner"
 	req := &UpdateFestivalArtistHandlerRequest{
 		FestivalID: "99999",
@@ -408,21 +409,21 @@ func (s *FestivalHandlerIntegrationSuite) TestUpdateFestivalArtist_NotFound() {
 	req.Body.BillingTier = &newTier
 
 	_, err := s.handler.UpdateFestivalArtistHandler(ctx, req)
-	assertHumaError(s.T(), err, 404)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- RemoveFestivalArtistHandler ---
 
 func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalArtist_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Remove Artist Festival")
 	artistID := s.createArtistViaArtistService("Removed Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artistID,
 	})
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &RemoveFestivalArtistRequest{
 		FestivalID: fmt.Sprintf("%d", festival.ID),
 		ArtistID:   fmt.Sprintf("%d", artistID),
@@ -433,22 +434,22 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalArtist_Success() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalArtist_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	festival := s.createFestivalViaService("Protected Remove Festival")
 	artistID := s.createArtistViaArtistService("Protected Remove Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artistID,
 	})
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &RemoveFestivalArtistRequest{
 		FestivalID: fmt.Sprintf("%d", festival.ID),
 		ArtistID:   fmt.Sprintf("%d", artistID),
 	}
 
 	_, err := s.handler.RemoveFestivalArtistHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- GetFestivalVenuesHandler ---
@@ -457,13 +458,13 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalVenues_Success() {
 	festival := s.createFestivalViaService("Venue Festival")
 	venueID := s.createVenueViaDB("Test Venue", "Phoenix", "AZ")
 
-	s.deps.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
+	s.deps.FestivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID:   venueID,
 		IsPrimary: true,
 	})
 
 	req := &GetFestivalVenuesRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
-	resp, err := s.handler.GetFestivalVenuesHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetFestivalVenuesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -473,18 +474,18 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalVenues_Success() {
 
 func (s *FestivalHandlerIntegrationSuite) TestGetFestivalVenues_NotFound() {
 	req := &GetFestivalVenuesRequest{FestivalID: "99999"}
-	_, err := s.handler.GetFestivalVenuesHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetFestivalVenuesHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 // --- AddFestivalVenueHandler ---
 
 func (s *FestivalHandlerIntegrationSuite) TestAddFestivalVenue_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Add Venue Festival")
 	venueID := s.createVenueViaDB("Added Venue", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &AddFestivalVenueHandlerRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	req.Body.VenueID = venueID
 	req.Body.IsPrimary = true
@@ -497,42 +498,42 @@ func (s *FestivalHandlerIntegrationSuite) TestAddFestivalVenue_Success() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestAddFestivalVenue_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	festival := s.createFestivalViaService("Protected Venue Festival")
 	venueID := s.createVenueViaDB("Protected Venue", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &AddFestivalVenueHandlerRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	req.Body.VenueID = venueID
 
 	_, err := s.handler.AddFestivalVenueHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestAddFestivalVenue_MissingVenueID() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Missing Venue ID Festival")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &AddFestivalVenueHandlerRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	req.Body.VenueID = 0
 
 	_, err := s.handler.AddFestivalVenueHandler(ctx, req)
-	assertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 // --- RemoveFestivalVenueHandler ---
 
 func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalVenue_Success() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	festival := s.createFestivalViaService("Remove Venue Festival")
 	venueID := s.createVenueViaDB("Removable Venue", "Phoenix", "AZ")
 
-	s.deps.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
+	s.deps.FestivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID: venueID,
 	})
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &RemoveFestivalVenueRequest{
 		FestivalID: fmt.Sprintf("%d", festival.ID),
 		VenueID:    fmt.Sprintf("%d", venueID),
@@ -543,22 +544,22 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalVenue_Success() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalVenue_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	festival := s.createFestivalViaService("Protected Remove Venue Festival")
 	venueID := s.createVenueViaDB("Protected Remove Venue", "Phoenix", "AZ")
 
-	s.deps.festivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
+	s.deps.FestivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID: venueID,
 	})
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &RemoveFestivalVenueRequest{
 		FestivalID: fmt.Sprintf("%d", festival.ID),
 		VenueID:    fmt.Sprintf("%d", venueID),
 	}
 
 	_, err := s.handler.RemoveFestivalVenueHandler(ctx, req)
-	assertHumaError(s.T(), err, 403)
+	testhelpers.AssertHumaError(s.T(), err, 403)
 }
 
 // --- GetArtistFestivalsHandler ---
@@ -567,13 +568,13 @@ func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_Success() {
 	festival := s.createFestivalViaService("Artist Fest History")
 	artistID := s.createArtistViaArtistService("Festival Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "headliner",
 	})
 
 	req := &GetArtistFestivalsRequest{ArtistID: fmt.Sprintf("%d", artistID)}
-	resp, err := s.handler.GetArtistFestivalsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistFestivalsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -585,12 +586,12 @@ func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_BySlug() {
 	festival := s.createFestivalViaService("Slug Artist Festival")
 	artistID := s.createArtistViaArtistService("Slug Festival Artist")
 
-	s.deps.festivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artistID,
 	})
 
 	req := &GetArtistFestivalsRequest{ArtistID: "slug-festival-artist"}
-	resp, err := s.handler.GetArtistFestivalsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistFestivalsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(1, resp.Body.Count)
@@ -598,15 +599,15 @@ func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_BySlug() {
 
 func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_ArtistNotFound() {
 	req := &GetArtistFestivalsRequest{ArtistID: "99999"}
-	_, err := s.handler.GetArtistFestivalsHandler(s.deps.ctx, req)
-	assertHumaError(s.T(), err, 404)
+	_, err := s.handler.GetArtistFestivalsHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_Empty() {
 	artistID := s.createArtistViaArtistService("No Festivals Artist")
 
 	req := &GetArtistFestivalsRequest{ArtistID: fmt.Sprintf("%d", artistID)}
-	resp, err := s.handler.GetArtistFestivalsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetArtistFestivalsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)

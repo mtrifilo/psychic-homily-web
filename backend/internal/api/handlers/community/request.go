@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -109,7 +109,7 @@ type ListRequestsHandlerRequest struct {
 type ListRequestsHandlerResponse struct {
 	Body struct {
 		Requests []*contracts.RequestResponse `json:"requests" doc:"List of requests"`
-		Total    int64                       `json:"total" doc:"Total number of matching requests"`
+		Total    int64                        `json:"total" doc:"Total number of matching requests"`
 	}
 }
 
@@ -197,7 +197,7 @@ func (h *RequestHandler) GetRequestHandler(ctx context.Context, req *GetRequestH
 // UpdateRequestHandlerRequest represents the request for updating a request
 type UpdateRequestHandlerRequest struct {
 	RequestID string `path:"request_id" doc:"Request ID" example:"1"`
-	Body struct {
+	Body      struct {
 		Title       *string `json:"title,omitempty" required:"false" doc:"Request title"`
 		Description *string `json:"description,omitempty" required:"false" doc:"Request description"`
 	}
@@ -287,7 +287,7 @@ func (h *RequestHandler) DeleteRequestHandler(ctx context.Context, req *DeleteRe
 // VoteRequestHandlerRequest represents the request for voting on a request
 type VoteRequestHandlerRequest struct {
 	RequestID string `path:"request_id" doc:"Request ID" example:"1"`
-	Body struct {
+	Body      struct {
 		IsUpvote bool `json:"is_upvote" doc:"True for upvote, false for downvote"`
 	}
 }
@@ -356,7 +356,7 @@ func (h *RequestHandler) RemoveVoteRequestHandler(ctx context.Context, req *Remo
 // FulfillRequestHandlerRequest represents the request for fulfilling a request
 type FulfillRequestHandlerRequest struct {
 	RequestID string `path:"request_id" doc:"Request ID" example:"1"`
-	Body struct {
+	Body      struct {
 		FulfilledEntityID *uint `json:"fulfilled_entity_id,omitempty" required:"false" doc:"Optional ID of the entity that fulfills this request"`
 	}
 }

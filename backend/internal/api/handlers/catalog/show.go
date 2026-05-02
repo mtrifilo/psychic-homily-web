@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -19,9 +19,9 @@ import (
 
 // ShowHandler handles show-related HTTP requests
 type ShowHandler struct {
-	showService      contracts.ShowServiceInterface
-	showStateService contracts.ShowStateServiceInterface
-	showImportService contracts.ShowImportServiceInterface
+	showService           contracts.ShowServiceInterface
+	showStateService      contracts.ShowStateServiceInterface
+	showImportService     contracts.ShowImportServiceInterface
 	savedShowService      contracts.SavedShowServiceInterface
 	discordService        contracts.DiscordServiceInterface
 	musicDiscoveryService contracts.MusicDiscoveryServiceInterface
@@ -231,7 +231,7 @@ type SearchShowsRequest struct {
 type SearchShowsResponse struct {
 	Body struct {
 		Shows []*contracts.ShowSearchResult `json:"shows" doc:"Matching shows ordered by event_date DESC, max 20"`
-		Count int                            `json:"count" doc:"Number of results"`
+		Count int                           `json:"count" doc:"Number of results"`
 	}
 }
 
@@ -275,8 +275,8 @@ type CursorPaginationMeta struct {
 type GetUpcomingShowsResponse struct {
 	Body struct {
 		Shows      []*contracts.ShowResponse `json:"shows"`
-		Timezone   string                   `json:"timezone" doc:"The timezone used for filtering"`
-		Pagination CursorPaginationMeta     `json:"pagination"`
+		Timezone   string                    `json:"timezone" doc:"The timezone used for filtering"`
+		Pagination CursorPaginationMeta      `json:"pagination"`
 	}
 }
 
@@ -764,8 +764,8 @@ func (h *ShowHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcom
 	return &GetUpcomingShowsResponse{
 		Body: struct {
 			Shows      []*contracts.ShowResponse `json:"shows"`
-			Timezone   string                   `json:"timezone" doc:"The timezone used for filtering"`
-			Pagination CursorPaginationMeta     `json:"pagination"`
+			Timezone   string                    `json:"timezone" doc:"The timezone used for filtering"`
+			Pagination CursorPaginationMeta      `json:"pagination"`
 		}{
 			Shows:    shows,
 			Timezone: timezone,
@@ -1457,7 +1457,7 @@ type GetMySubmissionsRequest struct {
 type GetMySubmissionsResponse struct {
 	Body struct {
 		Shows []contracts.ShowResponse `json:"shows" doc:"List of user's submitted shows"`
-		Total int                     `json:"total" doc:"Total count of submissions"`
+		Total int                      `json:"total" doc:"Total count of submissions"`
 	}
 }
 
@@ -1684,7 +1684,7 @@ func (h *ShowHandler) GetMySubmissionsHandler(ctx context.Context, req *GetMySub
 	return &GetMySubmissionsResponse{
 		Body: struct {
 			Shows []contracts.ShowResponse `json:"shows" doc:"List of user's submitted shows"`
-			Total int                     `json:"total" doc:"Total count of submissions"`
+			Total int                      `json:"total" doc:"Total count of submissions"`
 		}{
 			Shows: shows,
 			Total: total,

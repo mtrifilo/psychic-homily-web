@@ -1,4 +1,4 @@
-package handlers
+package auth
 
 import (
 	"errors"
@@ -7,6 +7,7 @@ import (
 	"strings"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/services/engagement"
 )
 
@@ -16,7 +17,7 @@ import (
 // the right Content-Type, status, and side effect.
 
 func TestUnsubscribeCollectionDigestPage_MissingParams(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 
 	req := httptest.NewRequest(http.MethodGet, "/unsubscribe/collection-digest", nil)
 	w := httptest.NewRecorder()
@@ -31,7 +32,7 @@ func TestUnsubscribeCollectionDigestPage_MissingParams(t *testing.T) {
 }
 
 func TestUnsubscribeCollectionDigestPage_InvalidSignature(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 
 	req := httptest.NewRequest(http.MethodGet, "/unsubscribe/collection-digest?uid=42&sig=bogus", nil)
 	w := httptest.NewRecorder()
@@ -49,8 +50,8 @@ func TestUnsubscribeCollectionDigestPage_GET_Success(t *testing.T) {
 
 	var receivedUID uint
 	var receivedEnabled bool
-	mock := &mockUserService{
-		setNotifyOnCollectionDigestFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCollectionDigestFn: func(userID uint, enabled bool) error {
 			receivedUID = userID
 			receivedEnabled = enabled
 			return nil
@@ -90,8 +91,8 @@ func TestUnsubscribeCollectionDigestPage_POST_OneClick_Success(t *testing.T) {
 	sig := engagement.ComputeCollectionDigestUnsubscribeSignature(uid, secret)
 
 	var called bool
-	mock := &mockUserService{
-		setNotifyOnCollectionDigestFn: func(userID uint, enabled bool) error {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCollectionDigestFn: func(userID uint, enabled bool) error {
 			called = true
 			if enabled {
 				t.Errorf("POST one-click must always disable; got enabled=true")
@@ -123,7 +124,7 @@ func TestUnsubscribeCollectionDigestPage_POST_OneClick_Success(t *testing.T) {
 }
 
 func TestUnsubscribeCollectionDigestPage_POST_InvalidSig_JSON(t *testing.T) {
-	h := NewUserPreferencesHandler(&mockUserService{}, "secret")
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 
 	req := httptest.NewRequest(http.MethodPost,
 		"/unsubscribe/collection-digest?uid=42&sig=bogus", strings.NewReader("List-Unsubscribe=One-Click"))
@@ -145,8 +146,8 @@ func TestUnsubscribeCollectionDigestPage_ServiceError_GET(t *testing.T) {
 	uid := uint(50)
 	sig := engagement.ComputeCollectionDigestUnsubscribeSignature(uid, secret)
 
-	mock := &mockUserService{
-		setNotifyOnCollectionDigestFn: func(uint, bool) error {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCollectionDigestFn: func(uint, bool) error {
 			return errors.New("db unavailable")
 		},
 	}
@@ -170,8 +171,8 @@ func TestUnsubscribeCollectionDigestPage_ServiceError_POST(t *testing.T) {
 	uid := uint(50)
 	sig := engagement.ComputeCollectionDigestUnsubscribeSignature(uid, secret)
 
-	mock := &mockUserService{
-		setNotifyOnCollectionDigestFn: func(uint, bool) error {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCollectionDigestFn: func(uint, bool) error {
 			return errors.New("db unavailable")
 		},
 	}

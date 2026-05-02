@@ -1,10 +1,11 @@
-package handlers
+package community
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
@@ -13,15 +14,15 @@ import (
 // ============================================================================
 
 func testRequestHandler() *RequestHandler {
-	return NewRequestHandler(&mockRequestService{}, nil)
+	return NewRequestHandler(&testhelpers.MockRequestService{}, nil)
 }
 
 func requestUserCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: false})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
 }
 
 func requestAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 2, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: true})
 }
 
 // ============================================================================
@@ -68,7 +69,7 @@ func TestRequestHandler_RequiresAuth(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name+"_NoUser", func(t *testing.T) {
 			err := tc.fn(context.Background())
-			assertHumaError(t, err, 401)
+			testhelpers.AssertHumaError(t, err, 401)
 		})
 	}
 }
@@ -78,8 +79,8 @@ func TestRequestHandler_RequiresAuth(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Create_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		createRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		CreateRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error) {
 			if userID != 1 {
 				t.Errorf("expected userID=1, got %d", userID)
 			}
@@ -129,7 +130,7 @@ func TestRequestHandler_Create_MissingTitle(t *testing.T) {
 	req.Body.EntityType = "artist"
 
 	_, err := h.CreateRequestHandler(requestUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRequestHandler_Create_MissingEntityType(t *testing.T) {
@@ -139,12 +140,12 @@ func TestRequestHandler_Create_MissingEntityType(t *testing.T) {
 	req.Body.Title = "Test"
 
 	_, err := h.CreateRequestHandler(requestUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRequestHandler_Create_ServiceError(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		createRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		CreateRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}, nil)
@@ -156,7 +157,7 @@ func TestRequestHandler_Create_ServiceError(t *testing.T) {
 	req.Body.EntityType = "artist"
 
 	_, err := h.CreateRequestHandler(requestUserCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -164,8 +165,8 @@ func TestRequestHandler_Create_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Get_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		getRequestFn: func(requestID uint) (*models.Request, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		GetRequestFn: func(requestID uint) (*models.Request, error) {
 			if requestID != 42 {
 				t.Errorf("expected requestID=42, got %d", requestID)
 			}
@@ -192,29 +193,29 @@ func TestRequestHandler_Get_InvalidID(t *testing.T) {
 	h := testRequestHandler()
 
 	_, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "not-a-number"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRequestHandler_Get_NotFound(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		getRequestFn: func(requestID uint) (*models.Request, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		GetRequestFn: func(requestID uint) (*models.Request, error) {
 			return nil, nil
 		},
 	}, nil)
 
 	_, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "999"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestRequestHandler_Get_ServiceError(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		getRequestFn: func(requestID uint) (*models.Request, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		GetRequestFn: func(requestID uint) (*models.Request, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}, nil)
 
 	_, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "1"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -222,8 +223,8 @@ func TestRequestHandler_Get_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_List_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		listRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
 			if limit != 20 {
 				t.Errorf("expected limit=20, got %d", limit)
 			}
@@ -265,8 +266,8 @@ func TestRequestHandler_List_Success(t *testing.T) {
 
 func TestRequestHandler_List_DefaultLimit(t *testing.T) {
 	var receivedLimit int
-	h := NewRequestHandler(&mockRequestService{
-		listRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
 			receivedLimit = limit
 			return []models.Request{}, 0, nil
 		},
@@ -282,19 +283,19 @@ func TestRequestHandler_List_DefaultLimit(t *testing.T) {
 }
 
 func TestRequestHandler_List_ServiceError(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		listRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
 			return nil, 0, fmt.Errorf("database error")
 		},
 	}, nil)
 
 	_, err := h.ListRequestsHandler(requestUserCtx(), &ListRequestsHandlerRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestRequestHandler_List_NoAuth_Succeeds(t *testing.T) {
 	// List should work without authentication (public endpoint)
-	h := NewRequestHandler(&mockRequestService{}, nil)
+	h := NewRequestHandler(&testhelpers.MockRequestService{}, nil)
 
 	resp, err := h.ListRequestsHandler(context.Background(), &ListRequestsHandlerRequest{})
 	if err != nil {
@@ -310,8 +311,8 @@ func TestRequestHandler_List_NoAuth_Succeeds(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Update_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		updateRequestFn: func(requestID, userID uint, title, description *string) (*models.Request, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		UpdateRequestFn: func(requestID, userID uint, title, description *string) (*models.Request, error) {
 			if requestID != 7 {
 				t.Errorf("expected requestID=7, got %d", requestID)
 			}
@@ -346,12 +347,12 @@ func TestRequestHandler_Update_InvalidID(t *testing.T) {
 
 	req := &UpdateRequestHandlerRequest{RequestID: "abc"}
 	_, err := h.UpdateRequestHandler(requestUserCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRequestHandler_Update_ServiceError_NotFound(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		updateRequestFn: func(requestID, userID uint, title, description *string) (*models.Request, error) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		UpdateRequestFn: func(requestID, userID uint, title, description *string) (*models.Request, error) {
 			return nil, fmt.Errorf("REQUEST_NOT_FOUND: not found")
 		},
 	}, nil)
@@ -359,7 +360,7 @@ func TestRequestHandler_Update_ServiceError_NotFound(t *testing.T) {
 	req := &UpdateRequestHandlerRequest{RequestID: "999"}
 	_, err := h.UpdateRequestHandler(requestUserCtx(), req)
 	// Falls through to 500 since the plain error doesn't match RequestError type
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -367,8 +368,8 @@ func TestRequestHandler_Update_ServiceError_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Delete_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		deleteRequestFn: func(requestID, userID uint, isAdmin bool) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		DeleteRequestFn: func(requestID, userID uint, isAdmin bool) error {
 			if requestID != 3 {
 				t.Errorf("expected requestID=3, got %d", requestID)
 			}
@@ -392,18 +393,18 @@ func TestRequestHandler_Delete_InvalidID(t *testing.T) {
 	h := testRequestHandler()
 
 	_, err := h.DeleteRequestHandler(requestUserCtx(), &DeleteRequestHandlerRequest{RequestID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRequestHandler_Delete_ServiceError(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		deleteRequestFn: func(requestID, userID uint, isAdmin bool) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		DeleteRequestFn: func(requestID, userID uint, isAdmin bool) error {
 			return fmt.Errorf("db error")
 		},
 	}, nil)
 
 	_, err := h.DeleteRequestHandler(requestUserCtx(), &DeleteRequestHandlerRequest{RequestID: "1"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -411,8 +412,8 @@ func TestRequestHandler_Delete_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Vote_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		voteFn: func(requestID, userID uint, isUpvote bool) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		VoteFn: func(requestID, userID uint, isUpvote bool) error {
 			if requestID != 5 {
 				t.Errorf("expected requestID=5, got %d", requestID)
 			}
@@ -439,12 +440,12 @@ func TestRequestHandler_Vote_InvalidID(t *testing.T) {
 	h := testRequestHandler()
 
 	_, err := h.VoteRequestHandler(requestUserCtx(), &VoteRequestHandlerRequest{RequestID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRequestHandler_Vote_ServiceError(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		voteFn: func(requestID, userID uint, isUpvote bool) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		VoteFn: func(requestID, userID uint, isUpvote bool) error {
 			return fmt.Errorf("db error")
 		},
 	}, nil)
@@ -453,7 +454,7 @@ func TestRequestHandler_Vote_ServiceError(t *testing.T) {
 	req.Body.IsUpvote = true
 
 	_, err := h.VoteRequestHandler(requestUserCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -461,8 +462,8 @@ func TestRequestHandler_Vote_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_RemoveVote_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		removeVoteFn: func(requestID, userID uint) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		RemoveVoteFn: func(requestID, userID uint) error {
 			if requestID != 8 {
 				t.Errorf("expected requestID=8, got %d", requestID)
 			}
@@ -483,7 +484,7 @@ func TestRequestHandler_RemoveVote_InvalidID(t *testing.T) {
 	h := testRequestHandler()
 
 	_, err := h.RemoveVoteRequestHandler(requestUserCtx(), &RemoveVoteRequestHandlerRequest{RequestID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // ============================================================================
@@ -491,8 +492,8 @@ func TestRequestHandler_RemoveVote_InvalidID(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Fulfill_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		fulfillRequestFn: func(requestID, fulfillerID uint, fulfilledEntityID *uint) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		FulfillRequestFn: func(requestID, fulfillerID uint, fulfilledEntityID *uint) error {
 			if requestID != 15 {
 				t.Errorf("expected requestID=15, got %d", requestID)
 			}
@@ -513,18 +514,18 @@ func TestRequestHandler_Fulfill_InvalidID(t *testing.T) {
 	h := testRequestHandler()
 
 	_, err := h.FulfillRequestHandler(requestUserCtx(), &FulfillRequestHandlerRequest{RequestID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRequestHandler_Fulfill_ServiceError(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		fulfillRequestFn: func(requestID, fulfillerID uint, fulfilledEntityID *uint) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		FulfillRequestFn: func(requestID, fulfillerID uint, fulfilledEntityID *uint) error {
 			return fmt.Errorf("db error")
 		},
 	}, nil)
 
 	_, err := h.FulfillRequestHandler(requestUserCtx(), &FulfillRequestHandlerRequest{RequestID: "1"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -532,8 +533,8 @@ func TestRequestHandler_Fulfill_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestRequestHandler_Close_Success(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		closeRequestFn: func(requestID, userID uint, isAdmin bool) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		CloseRequestFn: func(requestID, userID uint, isAdmin bool) error {
 			if requestID != 20 {
 				t.Errorf("expected requestID=20, got %d", requestID)
 			}
@@ -557,18 +558,18 @@ func TestRequestHandler_Close_InvalidID(t *testing.T) {
 	h := testRequestHandler()
 
 	_, err := h.CloseRequestHandler(requestUserCtx(), &CloseRequestHandlerRequest{RequestID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestRequestHandler_Close_ServiceError(t *testing.T) {
-	h := NewRequestHandler(&mockRequestService{
-		closeRequestFn: func(requestID, userID uint, isAdmin bool) error {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		CloseRequestFn: func(requestID, userID uint, isAdmin bool) error {
 			return fmt.Errorf("db error")
 		},
 	}, nil)
 
 	_, err := h.CloseRequestHandler(requestUserCtx(), &CloseRequestHandlerRequest{RequestID: "1"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -603,7 +604,7 @@ func TestMapRequestError(t *testing.T) {
 					t.Errorf("expected nil, got %v", result)
 				}
 			} else {
-				assertHumaError(t, result, tc.expectedStatus)
+				testhelpers.AssertHumaError(t, result, tc.expectedStatus)
 			}
 		})
 	}

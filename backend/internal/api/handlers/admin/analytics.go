@@ -1,10 +1,11 @@
-package handlers
+package admin
 
 import (
 	"context"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -50,7 +51,7 @@ type GetGrowthMetricsResponse struct {
 
 // GetGrowthMetricsHandler handles GET /admin/analytics/growth
 func (h *AnalyticsHandler) GetGrowthMetricsHandler(ctx context.Context, req *GetGrowthMetricsRequest) (*GetGrowthMetricsResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -106,7 +107,7 @@ type GetEngagementMetricsResponse struct {
 
 // GetEngagementMetricsHandler handles GET /admin/analytics/engagement
 func (h *AnalyticsHandler) GetEngagementMetricsHandler(ctx context.Context, req *GetEngagementMetricsRequest) (*GetEngagementMetricsResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -167,7 +168,7 @@ type GetCommunityHealthResponse struct {
 
 // GetCommunityHealthHandler handles GET /admin/analytics/community
 func (h *AnalyticsHandler) GetCommunityHealthHandler(ctx context.Context, _ *GetCommunityHealthRequest) (*GetCommunityHealthResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -225,7 +226,7 @@ type GetDataQualityTrendsResponse struct {
 
 // GetDataQualityTrendsHandler handles GET /admin/analytics/data-quality
 func (h *AnalyticsHandler) GetDataQualityTrendsHandler(ctx context.Context, req *GetDataQualityTrendsRequest) (*GetDataQualityTrendsResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

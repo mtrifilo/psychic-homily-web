@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/models"
@@ -170,14 +171,14 @@ func (h *ReleaseHandler) GetReleaseHandler(ctx context.Context, req *GetReleaseR
 // CreateReleaseRequest represents the request for creating a release
 type CreateReleaseRequest struct {
 	Body struct {
-		Title       string `json:"title" doc:"Release title" example:"Nevermind"`
-		ReleaseType string `json:"release_type,omitempty" required:"false" doc:"Release type (lp, ep, single, compilation, live, remix, demo)" example:"lp"`
-		ReleaseYear *int   `json:"release_year,omitempty" required:"false" doc:"Release year" example:"1991"`
-		ReleaseDate *string `json:"release_date,omitempty" required:"false" doc:"Release date (YYYY-MM-DD)" example:"1991-09-24"`
-		CoverArtURL *string `json:"cover_art_url,omitempty" required:"false" doc:"Cover art URL"`
-		Description *string `json:"description,omitempty" required:"false" doc:"Description"`
-		Artists     []CreateReleaseArtistInput `json:"artists,omitempty" required:"false" doc:"Artists with roles"`
-		ExternalLinks []CreateReleaseLinkInput `json:"external_links,omitempty" required:"false" doc:"External links (Bandcamp, Spotify, etc.)"`
+		Title         string                     `json:"title" doc:"Release title" example:"Nevermind"`
+		ReleaseType   string                     `json:"release_type,omitempty" required:"false" doc:"Release type (lp, ep, single, compilation, live, remix, demo)" example:"lp"`
+		ReleaseYear   *int                       `json:"release_year,omitempty" required:"false" doc:"Release year" example:"1991"`
+		ReleaseDate   *string                    `json:"release_date,omitempty" required:"false" doc:"Release date (YYYY-MM-DD)" example:"1991-09-24"`
+		CoverArtURL   *string                    `json:"cover_art_url,omitempty" required:"false" doc:"Cover art URL"`
+		Description   *string                    `json:"description,omitempty" required:"false" doc:"Description"`
+		Artists       []CreateReleaseArtistInput `json:"artists,omitempty" required:"false" doc:"Artists with roles"`
+		ExternalLinks []CreateReleaseLinkInput   `json:"external_links,omitempty" required:"false" doc:"External links (Bandcamp, Spotify, etc.)"`
 	}
 }
 
@@ -202,7 +203,7 @@ type CreateReleaseResponse struct {
 func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateReleaseRequest) (*CreateReleaseResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -292,7 +293,7 @@ type UpdateReleaseResponse struct {
 func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateReleaseRequest) (*UpdateReleaseResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -427,7 +428,7 @@ type DeleteReleaseRequest struct {
 func (h *ReleaseHandler) DeleteReleaseHandler(ctx context.Context, req *DeleteReleaseRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -544,7 +545,7 @@ type AddExternalLinkResponse struct {
 func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExternalLinkRequest) (*AddExternalLinkResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -594,7 +595,7 @@ type RemoveExternalLinkRequest struct {
 func (h *ReleaseHandler) RemoveExternalLinkHandler(ctx context.Context, req *RemoveExternalLinkRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

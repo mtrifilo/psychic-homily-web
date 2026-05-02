@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -102,9 +102,9 @@ type GetMyShowsRequest struct {
 type GetMyShowsResponse struct {
 	Body struct {
 		Shows  []*contracts.AttendingShowResponse `json:"shows"`
-		Total  int64                             `json:"total"`
-		Limit  int                               `json:"limit"`
-		Offset int                               `json:"offset"`
+		Total  int64                              `json:"total"`
+		Limit  int                                `json:"limit"`
+		Offset int                                `json:"offset"`
 	}
 }
 
@@ -395,9 +395,9 @@ func (h *AttendanceHandler) GetMyShowsHandler(ctx context.Context, req *GetMySho
 	return &GetMyShowsResponse{
 		Body: struct {
 			Shows  []*contracts.AttendingShowResponse `json:"shows"`
-			Total  int64                             `json:"total"`
-			Limit  int                               `json:"limit"`
-			Offset int                               `json:"offset"`
+			Total  int64                              `json:"total"`
+			Limit  int                                `json:"limit"`
+			Offset int                                `json:"offset"`
 		}{
 			Shows:  shows,
 			Total:  total,

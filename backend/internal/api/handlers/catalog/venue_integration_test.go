@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"fmt"
@@ -6,26 +6,27 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
 type VenueHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *VenueHandler
 }
 
 func (s *VenueHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewVenueHandler(s.deps.venueService, s.deps.discordService, s.deps.auditLogService, nil)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewVenueHandler(s.deps.VenueService, s.deps.DiscordService, s.deps.AuditLogService, nil)
 }
 
 func (s *VenueHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *VenueHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestVenueHandlerIntegration(t *testing.T) {
@@ -38,11 +39,11 @@ func TestVenueHandlerIntegration(t *testing.T) {
 // --- SearchVenuesHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestSearchVenues_Success() {
-	createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	createVerifiedVenue(s.deps.db, "Crescent Ballroom", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Crescent Ballroom", "Phoenix", "AZ")
 
 	req := &SearchVenuesRequest{Query: "Valley"}
-	resp, err := s.handler.SearchVenuesHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchVenuesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(resp.Body.Count, 1)
@@ -50,7 +51,7 @@ func (s *VenueHandlerIntegrationSuite) TestSearchVenues_Success() {
 
 func (s *VenueHandlerIntegrationSuite) TestSearchVenues_NoResults() {
 	req := &SearchVenuesRequest{Query: "Nonexistent Venue XYZ"}
-	resp, err := s.handler.SearchVenuesHandler(s.deps.ctx, req)
+	resp, err := s.handler.SearchVenuesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(0, resp.Body.Count)
@@ -59,12 +60,12 @@ func (s *VenueHandlerIntegrationSuite) TestSearchVenues_NoResults() {
 // --- ListVenuesHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestListVenues_Success() {
-	createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	createVerifiedVenue(s.deps.db, "Crescent Ballroom", "Phoenix", "AZ")
-	createVerifiedVenue(s.deps.db, "The Rebel Lounge", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Crescent Ballroom", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "The Rebel Lounge", "Phoenix", "AZ")
 
 	req := &ListVenuesRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.ListVenuesHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListVenuesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(resp.Body.Total, int64(3))
@@ -72,29 +73,29 @@ func (s *VenueHandlerIntegrationSuite) TestListVenues_Success() {
 
 func (s *VenueHandlerIntegrationSuite) TestListVenues_Empty() {
 	req := &ListVenuesRequest{Limit: 50, Offset: 0}
-	resp, err := s.handler.ListVenuesHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListVenuesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(int64(0), resp.Body.Total)
 }
 
 func (s *VenueHandlerIntegrationSuite) TestListVenues_CityFilter() {
-	createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	createVerifiedVenue(s.deps.db, "Club Congress", "Tucson", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Club Congress", "Tucson", "AZ")
 
 	req := &ListVenuesRequest{City: "Phoenix", Limit: 50, Offset: 0}
-	resp, err := s.handler.ListVenuesHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListVenuesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.Equal(int64(1), resp.Body.Total)
 }
 
 func (s *VenueHandlerIntegrationSuite) TestListVenues_MultiCityFilter() {
-	createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	createVerifiedVenue(s.deps.db, "Club Congress", "Tucson", "AZ")
-	createVerifiedVenue(s.deps.db, "Empty Bottle", "Chicago", "IL")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Club Congress", "Tucson", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Empty Bottle", "Chicago", "IL")
 
 	req := &ListVenuesRequest{Cities: "Phoenix,AZ|Chicago,IL", Limit: 50, Offset: 0}
-	resp, err := s.handler.ListVenuesHandler(s.deps.ctx, req)
+	resp, err := s.handler.ListVenuesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.Equal(int64(2), resp.Body.Total)
 	s.Len(resp.Body.Venues, 2)
@@ -103,10 +104,10 @@ func (s *VenueHandlerIntegrationSuite) TestListVenues_MultiCityFilter() {
 // --- GetVenueHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestGetVenue_ByID() {
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 
 	req := &GetVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
-	resp, err := s.handler.GetVenueHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetVenueHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(venue.ID, resp.Body.ID)
@@ -115,19 +116,19 @@ func (s *VenueHandlerIntegrationSuite) TestGetVenue_ByID() {
 
 func (s *VenueHandlerIntegrationSuite) TestGetVenue_NotFound() {
 	req := &GetVenueRequest{VenueID: "99999"}
-	_, err := s.handler.GetVenueHandler(s.deps.ctx, req)
+	_, err := s.handler.GetVenueHandler(s.deps.Ctx, req)
 	s.Error(err)
 }
 
 // --- GetVenueShowsHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestGetVenueShows_Success() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 
 	// Create a future show at this venue
-	show := createFutureApprovedShow(s.deps.db, user.ID, "Test Show", 7)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	show := testhelpers.CreateFutureApprovedShow(s.deps.DB, user.ID, "Test Show", 7)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 
 	req := &GetVenueShowsRequest{
 		VenueID:    fmt.Sprintf("%d", venue.ID),
@@ -135,7 +136,7 @@ func (s *VenueHandlerIntegrationSuite) TestGetVenueShows_Success() {
 		Limit:      20,
 		TimeFilter: "upcoming",
 	}
-	resp, err := s.handler.GetVenueShowsHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetVenueShowsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Equal(venue.ID, resp.Body.VenueID)
@@ -144,11 +145,11 @@ func (s *VenueHandlerIntegrationSuite) TestGetVenueShows_Success() {
 // --- GetVenueCitiesHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestGetVenueCities_Success() {
-	createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	createVerifiedVenue(s.deps.db, "Club Congress", "Tucson", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Club Congress", "Tucson", "AZ")
 
 	req := &GetVenueCitiesRequest{}
-	resp, err := s.handler.GetVenueCitiesHandler(s.deps.ctx, req)
+	resp, err := s.handler.GetVenueCitiesHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
 	s.GreaterOrEqual(len(resp.Body.Cities), 2)
@@ -157,10 +158,10 @@ func (s *VenueHandlerIntegrationSuite) TestGetVenueCities_Success() {
 // --- UpdateVenueHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_AdminDirectUpdate() {
-	admin := createAdminUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	newName := "Valley Bar Updated"
 	req := &UpdateVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 	req.Body.Name = &newName
@@ -173,7 +174,7 @@ func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_AdminDirectUpdate() {
 }
 
 func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonAdminForbidden() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	// Even the venue submitter gets 403 on direct PUT now; non-admins must use
 	// PUT /venues/{id}/suggest-edit (handled by PendingEditHandler).
 	venue := &models.Venue{
@@ -183,9 +184,9 @@ func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonAdminForbidden() {
 		Verified:    true,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(venue)
+	s.deps.DB.Create(venue)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	newName := "Changed Name"
 	req := &UpdateVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 	req.Body.Name = &newName
@@ -195,8 +196,8 @@ func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonAdminForbidden() {
 }
 
 func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_VenueNotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	newName := "Updated"
 	req := &UpdateVenueRequest{VenueID: "99999"}
@@ -209,10 +210,10 @@ func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_VenueNotFound() {
 // --- DeleteVenueHandler ---
 
 func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_AdminSuccess() {
-	admin := createAdminUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Delete Me", "Phoenix", "AZ")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Delete Me", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &DeleteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 
 	resp, err := s.handler.DeleteVenueHandler(ctx, req)
@@ -222,16 +223,16 @@ func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_AdminSuccess() {
 }
 
 func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_OwnerSuccess() {
-	user := createTestUser(s.deps.db)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 	venue := &models.Venue{
 		Name:        "My Venue",
 		City:        "Phoenix",
 		State:       "AZ",
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(venue)
+	s.deps.DB.Create(venue)
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 
 	resp, err := s.handler.DeleteVenueHandler(ctx, req)
@@ -240,10 +241,10 @@ func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_OwnerSuccess() {
 }
 
 func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_NonOwnerForbidden() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &DeleteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 
 	_, err := s.handler.DeleteVenueHandler(ctx, req)
@@ -251,11 +252,10 @@ func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_NonOwnerForbidden() {
 }
 
 func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &DeleteVenueRequest{VenueID: "99999"}
 	_, err := s.handler.DeleteVenueHandler(ctx, req)
 	s.Error(err)
 }
-

@@ -1,14 +1,15 @@
-package handlers
+package engagement
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
-// Uses auto-generated mockCommentVoteService from handler_unit_mock_helpers_test.go
+// Uses auto-generated testhelpers.MockCommentVoteService from handler_unit_mock_helpers_test.go
 
 func testCommentVoteHandler() *CommentVoteHandler {
 	return NewCommentVoteHandler(nil)
@@ -24,57 +25,57 @@ func TestVoteComment_NoAuth(t *testing.T) {
 	req.Body.Direction = 1
 
 	_, err := h.VoteCommentHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestVoteComment_InvalidCommentID(t *testing.T) {
 	h := testCommentVoteHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "abc"}
 	req.Body.Direction = 1
 
 	_, err := h.VoteCommentHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestVoteComment_InvalidDirectionZero(t *testing.T) {
 	h := testCommentVoteHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "1"}
 	req.Body.Direction = 0
 
 	_, err := h.VoteCommentHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestVoteComment_InvalidDirectionTwo(t *testing.T) {
 	h := testCommentVoteHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "1"}
 	req.Body.Direction = 2
 
 	_, err := h.VoteCommentHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestVoteComment_Success(t *testing.T) {
 	upvote := 1
-	h := NewCommentVoteHandler(&mockCommentVoteService{
-		voteFn: func(userID uint, commentID uint, direction int) error {
+	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
+		VoteFn: func(userID uint, commentID uint, direction int) error {
 			if userID != 1 || commentID != 42 || direction != 1 {
 				return fmt.Errorf("unexpected args: %d, %d, %d", userID, commentID, direction)
 			}
 			return nil
 		},
-		getCommentVoteCountsFn: func(commentID uint) (int, int, float64, error) {
+		GetCommentVoteCountsFn: func(commentID uint) (int, int, float64, error) {
 			return 5, 2, 0.55, nil
 		},
-		getUserVoteFn: func(userID uint, commentID uint) (*int, error) {
+		GetUserVoteFn: func(userID uint, commentID uint) (*int, error) {
 			return &upvote, nil
 		},
 	})
 
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "42"}
 	req.Body.Direction = 1
 
@@ -95,33 +96,33 @@ func TestVoteComment_Success(t *testing.T) {
 }
 
 func TestVoteComment_CommentNotFound(t *testing.T) {
-	h := NewCommentVoteHandler(&mockCommentVoteService{
-		voteFn: func(userID uint, commentID uint, direction int) error {
+	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
+		VoteFn: func(userID uint, commentID uint, direction int) error {
 			return fmt.Errorf("comment not found")
 		},
 	})
 
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "99"}
 	req.Body.Direction = 1
 
 	_, err := h.VoteCommentHandler(ctx, req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestVoteComment_ServiceError(t *testing.T) {
-	h := NewCommentVoteHandler(&mockCommentVoteService{
-		voteFn: func(userID uint, commentID uint, direction int) error {
+	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
+		VoteFn: func(userID uint, commentID uint, direction int) error {
 			return fmt.Errorf("database error")
 		},
 	})
 
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "1"}
 	req.Body.Direction = 1
 
 	_, err := h.VoteCommentHandler(ctx, req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -133,29 +134,29 @@ func TestUnvoteComment_NoAuth(t *testing.T) {
 	req := &UnvoteCommentRequest{CommentID: "1"}
 
 	_, err := h.UnvoteCommentHandler(context.Background(), req)
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestUnvoteComment_InvalidCommentID(t *testing.T) {
 	h := testCommentVoteHandler()
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnvoteCommentRequest{CommentID: "abc"}
 
 	_, err := h.UnvoteCommentHandler(ctx, req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestUnvoteComment_Success(t *testing.T) {
-	h := NewCommentVoteHandler(&mockCommentVoteService{
-		unvoteFn: func(userID uint, commentID uint) error {
+	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
+		UnvoteFn: func(userID uint, commentID uint) error {
 			return nil
 		},
-		getCommentVoteCountsFn: func(commentID uint) (int, int, float64, error) {
+		GetCommentVoteCountsFn: func(commentID uint) (int, int, float64, error) {
 			return 3, 1, 0.45, nil
 		},
 	})
 
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnvoteCommentRequest{CommentID: "42"}
 
 	resp, err := h.UnvoteCommentHandler(ctx, req)
@@ -172,29 +173,29 @@ func TestUnvoteComment_Success(t *testing.T) {
 }
 
 func TestUnvoteComment_CommentNotFound(t *testing.T) {
-	h := NewCommentVoteHandler(&mockCommentVoteService{
-		unvoteFn: func(userID uint, commentID uint) error {
+	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
+		UnvoteFn: func(userID uint, commentID uint) error {
 			return fmt.Errorf("comment not found")
 		},
 	})
 
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnvoteCommentRequest{CommentID: "99"}
 
 	_, err := h.UnvoteCommentHandler(ctx, req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestUnvoteComment_ServiceError(t *testing.T) {
-	h := NewCommentVoteHandler(&mockCommentVoteService{
-		unvoteFn: func(userID uint, commentID uint) error {
+	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
+		UnvoteFn: func(userID uint, commentID uint) error {
 			return fmt.Errorf("database error")
 		},
 	})
 
-	ctx := ctxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
 	req := &UnvoteCommentRequest{CommentID: "1"}
 
 	_, err := h.UnvoteCommentHandler(ctx, req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }

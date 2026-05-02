@@ -1,10 +1,11 @@
-package handlers
+package pipeline
 
 import (
 	"context"
 	"fmt"
 	"testing"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -18,11 +19,11 @@ func testPipelineHandler() *PipelineHandler {
 }
 
 func pipelineAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
 }
 
 func pipelineNonAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 2, IsAdmin: false})
+	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false})
 }
 
 // ============================================================================
@@ -73,11 +74,11 @@ func TestPipelineHandler_RequiresAdmin(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name+"_NoUser", func(t *testing.T) {
 			err := tc.fn(context.Background())
-			assertHumaError(t, err, 403)
+			testhelpers.AssertHumaError(t, err, 403)
 		})
 		t.Run(tc.name+"_NonAdmin", func(t *testing.T) {
 			err := tc.fn(pipelineNonAdminCtx())
-			assertHumaError(t, err, 403)
+			testhelpers.AssertHumaError(t, err, 403)
 		})
 	}
 }
@@ -88,8 +89,8 @@ func TestPipelineHandler_RequiresAdmin(t *testing.T) {
 
 func TestPipelineHandler_ExtractVenue_Success(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{
-			extractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
+		&testhelpers.MockPipelineService{
+			ExtractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
 				if venueID != 25 {
 					t.Errorf("expected venueID=25, got %d", venueID)
 				}
@@ -107,8 +108,8 @@ func TestPipelineHandler_ExtractVenue_Success(t *testing.T) {
 				}, nil
 			},
 		},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	resp, err := h.ExtractVenueHandler(pipelineAdminCtx(), &ExtractVenueRequest{VenueID: "25"})
@@ -126,14 +127,14 @@ func TestPipelineHandler_ExtractVenue_Success(t *testing.T) {
 func TestPipelineHandler_ExtractVenue_DryRun(t *testing.T) {
 	var receivedDryRun bool
 	h := NewPipelineHandler(
-		&mockPipelineService{
-			extractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
+		&testhelpers.MockPipelineService{
+			ExtractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
 				receivedDryRun = dryRun
 				return &contracts.PipelineResult{VenueID: venueID, DryRun: dryRun, EventsExtracted: 3}, nil
 			},
 		},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	resp, err := h.ExtractVenueHandler(pipelineAdminCtx(), &ExtractVenueRequest{VenueID: "1", DryRun: true})
@@ -150,28 +151,28 @@ func TestPipelineHandler_ExtractVenue_DryRun(t *testing.T) {
 
 func TestPipelineHandler_ExtractVenue_InvalidVenueID(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{},
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	_, err := h.ExtractVenueHandler(pipelineAdminCtx(), &ExtractVenueRequest{VenueID: "not-a-number"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestPipelineHandler_ExtractVenue_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{
-			extractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
+		&testhelpers.MockPipelineService{
+			ExtractVenueFn: func(venueID uint, dryRun bool) (*contracts.PipelineResult, error) {
 				return nil, fmt.Errorf("venue has no calendar URL configured")
 			},
 		},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	_, err := h.ExtractVenueHandler(pipelineAdminCtx(), &ExtractVenueRequest{VenueID: "1"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -184,9 +185,9 @@ func TestPipelineHandler_ListVenues_Success(t *testing.T) {
 	slug := "test-venue"
 
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			listConfiguredFn: func() ([]models.VenueSourceConfig, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			ListConfiguredFn: func() ([]models.VenueSourceConfig, error) {
 				return []models.VenueSourceConfig{
 					{
 						ID:              1,
@@ -202,13 +203,13 @@ func TestPipelineHandler_ListVenues_Success(t *testing.T) {
 					},
 				}, nil
 			},
-			getRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+			GetRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
 				return []models.VenueExtractionRun{
 					{ID: 1, VenueID: venueID, EventsExtracted: 5, EventsImported: 3},
 				}, nil
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	resp, err := h.ListPipelineVenuesHandler(pipelineAdminCtx(), &ListPipelineVenuesRequest{})
@@ -241,13 +242,13 @@ func TestPipelineHandler_ListVenues_Success(t *testing.T) {
 
 func TestPipelineHandler_ListVenues_Empty(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			listConfiguredFn: func() ([]models.VenueSourceConfig, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			ListConfiguredFn: func() ([]models.VenueSourceConfig, error) {
 				return []models.VenueSourceConfig{}, nil
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	resp, err := h.ListPipelineVenuesHandler(pipelineAdminCtx(), &ListPipelineVenuesRequest{})
@@ -264,17 +265,17 @@ func TestPipelineHandler_ListVenues_Empty(t *testing.T) {
 
 func TestPipelineHandler_ListVenues_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			listConfiguredFn: func() ([]models.VenueSourceConfig, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			ListConfiguredFn: func() ([]models.VenueSourceConfig, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	_, err := h.ListPipelineVenuesHandler(pipelineAdminCtx(), &ListPipelineVenuesRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -283,9 +284,9 @@ func TestPipelineHandler_ListVenues_ServiceError(t *testing.T) {
 
 func TestPipelineHandler_RejectionStats_Success(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getRejectionStatsFn: func(venueID uint) (*contracts.VenueRejectionStats, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetRejectionStatsFn: func(venueID uint) (*contracts.VenueRejectionStats, error) {
 				return &contracts.VenueRejectionStats{
 					TotalExtracted:       100,
 					Approved:             85,
@@ -297,7 +298,7 @@ func TestPipelineHandler_RejectionStats_Success(t *testing.T) {
 				}, nil
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	resp, err := h.VenueRejectionStatsHandler(pipelineAdminCtx(), &VenueRejectionStatsRequest{VenueID: "1"})
@@ -316,25 +317,25 @@ func TestPipelineHandler_RejectionStats_Success(t *testing.T) {
 }
 
 func TestPipelineHandler_RejectionStats_InvalidVenueID(t *testing.T) {
-	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{}, &mockEnrichmentService{})
+	h := NewPipelineHandler(&testhelpers.MockPipelineService{}, &testhelpers.MockVenueSourceConfigService{}, &testhelpers.MockEnrichmentService{})
 
 	_, err := h.VenueRejectionStatsHandler(pipelineAdminCtx(), &VenueRejectionStatsRequest{VenueID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestPipelineHandler_RejectionStats_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getRejectionStatsFn: func(venueID uint) (*contracts.VenueRejectionStats, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetRejectionStatsFn: func(venueID uint) (*contracts.VenueRejectionStats, error) {
 				return nil, fmt.Errorf("venue not found")
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	_, err := h.VenueRejectionStatsHandler(pipelineAdminCtx(), &VenueRejectionStatsRequest{VenueID: "999"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -345,15 +346,15 @@ func TestPipelineHandler_UpdateNotes_Success(t *testing.T) {
 	var receivedVenueID uint
 	var receivedNotes *string
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			updateExtractionNotesFn: func(venueID uint, notes *string) error {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			UpdateExtractionNotesFn: func(venueID uint, notes *string) error {
 				receivedVenueID = venueID
 				receivedNotes = notes
 				return nil
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	notes := "Skip karaoke Tuesdays and trivia Wednesdays"
@@ -377,9 +378,9 @@ func TestPipelineHandler_UpdateNotes_Success(t *testing.T) {
 
 func TestPipelineHandler_UpdateNotes_ClearNotes(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{},
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	req := &UpdateExtractionNotesRequest{VenueID: "10"}
@@ -395,21 +396,21 @@ func TestPipelineHandler_UpdateNotes_ClearNotes(t *testing.T) {
 }
 
 func TestPipelineHandler_UpdateNotes_InvalidVenueID(t *testing.T) {
-	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{}, &mockEnrichmentService{})
+	h := NewPipelineHandler(&testhelpers.MockPipelineService{}, &testhelpers.MockVenueSourceConfigService{}, &testhelpers.MockEnrichmentService{})
 
 	_, err := h.UpdateExtractionNotesHandler(pipelineAdminCtx(), &UpdateExtractionNotesRequest{VenueID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestPipelineHandler_UpdateNotes_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			updateExtractionNotesFn: func(venueID uint, notes *string) error {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			UpdateExtractionNotesFn: func(venueID uint, notes *string) error {
 				return fmt.Errorf("venue source config not found for venue 999")
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	req := &UpdateExtractionNotesRequest{VenueID: "999"}
@@ -417,7 +418,7 @@ func TestPipelineHandler_UpdateNotes_ServiceError(t *testing.T) {
 	req.Body.ExtractionNotes = &notes
 
 	_, err := h.UpdateExtractionNotesHandler(pipelineAdminCtx(), req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -428,14 +429,14 @@ func TestPipelineHandler_UpdateConfig_Success(t *testing.T) {
 	calURL := "https://example.com/calendar"
 	slug := "test-venue"
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			createOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			CreateOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
 				config.Venue = models.Venue{ID: config.VenueID, Name: "Test Venue", Slug: &slug}
 				return config, nil
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	req := &UpdateVenueConfigRequest{VenueID: "10"}
@@ -460,28 +461,28 @@ func TestPipelineHandler_UpdateConfig_Success(t *testing.T) {
 }
 
 func TestPipelineHandler_UpdateConfig_InvalidVenueID(t *testing.T) {
-	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{}, &mockEnrichmentService{})
+	h := NewPipelineHandler(&testhelpers.MockPipelineService{}, &testhelpers.MockVenueSourceConfigService{}, &testhelpers.MockEnrichmentService{})
 
 	_, err := h.UpdateVenueConfigHandler(pipelineAdminCtx(), &UpdateVenueConfigRequest{VenueID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestPipelineHandler_UpdateConfig_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			createOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			CreateOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	req := &UpdateVenueConfigRequest{VenueID: "10"}
 	req.Body.PreferredSource = "ai"
 
 	_, err := h.UpdateVenueConfigHandler(pipelineAdminCtx(), req)
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -490,16 +491,16 @@ func TestPipelineHandler_UpdateConfig_ServiceError(t *testing.T) {
 
 func TestPipelineHandler_GetVenueRuns_Success(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
 				return []models.VenueExtractionRun{
 					{ID: 1, VenueID: venueID, EventsExtracted: 10, EventsImported: 8},
 					{ID: 2, VenueID: venueID, EventsExtracted: 5, EventsImported: 3},
 				}, nil
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	resp, err := h.GetVenueRunsHandler(pipelineAdminCtx(), &GetVenueRunsRequest{VenueID: "10", Limit: 10})
@@ -520,14 +521,14 @@ func TestPipelineHandler_GetVenueRuns_Success(t *testing.T) {
 func TestPipelineHandler_GetVenueRuns_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
 				receivedLimit = limit
 				return nil, nil
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	_, err := h.GetVenueRunsHandler(pipelineAdminCtx(), &GetVenueRunsRequest{VenueID: "10"})
@@ -540,25 +541,25 @@ func TestPipelineHandler_GetVenueRuns_DefaultLimit(t *testing.T) {
 }
 
 func TestPipelineHandler_GetVenueRuns_InvalidVenueID(t *testing.T) {
-	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{}, &mockEnrichmentService{})
+	h := NewPipelineHandler(&testhelpers.MockPipelineService{}, &testhelpers.MockVenueSourceConfigService{}, &testhelpers.MockEnrichmentService{})
 
 	_, err := h.GetVenueRunsHandler(pipelineAdminCtx(), &GetVenueRunsRequest{VenueID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestPipelineHandler_GetVenueRuns_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	_, err := h.GetVenueRunsHandler(pipelineAdminCtx(), &GetVenueRunsRequest{VenueID: "10"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -568,14 +569,14 @@ func TestPipelineHandler_GetVenueRuns_ServiceError(t *testing.T) {
 func TestPipelineHandler_ResetRenderMethod_Success(t *testing.T) {
 	var receivedVenueID uint
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			resetRenderMethodFn: func(venueID uint) error {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			ResetRenderMethodFn: func(venueID uint) error {
 				receivedVenueID = venueID
 				return nil
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	resp, err := h.ResetRenderMethodHandler(pipelineAdminCtx(), &ResetRenderMethodRequest{VenueID: "10"})
@@ -591,25 +592,25 @@ func TestPipelineHandler_ResetRenderMethod_Success(t *testing.T) {
 }
 
 func TestPipelineHandler_ResetRenderMethod_InvalidVenueID(t *testing.T) {
-	h := NewPipelineHandler(&mockPipelineService{}, &mockVenueSourceConfigService{}, &mockEnrichmentService{})
+	h := NewPipelineHandler(&testhelpers.MockPipelineService{}, &testhelpers.MockVenueSourceConfigService{}, &testhelpers.MockEnrichmentService{})
 
 	_, err := h.ResetRenderMethodHandler(pipelineAdminCtx(), &ResetRenderMethodRequest{VenueID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestPipelineHandler_ResetRenderMethod_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			resetRenderMethodFn: func(venueID uint) error {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			ResetRenderMethodFn: func(venueID uint) error {
 				return fmt.Errorf("venue source config not found for venue 999")
 			},
 		},
-		&mockEnrichmentService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	_, err := h.ResetRenderMethodHandler(pipelineAdminCtx(), &ResetRenderMethodRequest{VenueID: "999"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -619,9 +620,9 @@ func TestPipelineHandler_ResetRenderMethod_ServiceError(t *testing.T) {
 func TestPipelineHandler_GetImportHistory_Success(t *testing.T) {
 	rm := "dynamic"
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
 				return []contracts.ImportHistoryEntry{
 					{
 						ID:              1,
@@ -673,9 +674,9 @@ func TestPipelineHandler_GetImportHistory_Success(t *testing.T) {
 
 func TestPipelineHandler_GetImportHistory_Empty(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
 				return []contracts.ImportHistoryEntry{}, 0, nil
 			},
 		},
@@ -697,9 +698,9 @@ func TestPipelineHandler_GetImportHistory_Empty(t *testing.T) {
 func TestPipelineHandler_GetImportHistory_PaginationPassedThrough(t *testing.T) {
 	var receivedLimit, receivedOffset int
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
 				receivedLimit = limit
 				receivedOffset = offset
 				return nil, 0, nil
@@ -722,9 +723,9 @@ func TestPipelineHandler_GetImportHistory_PaginationPassedThrough(t *testing.T) 
 
 func TestPipelineHandler_GetImportHistory_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{
-			getAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{
+			GetAllRecentRunsFn: func(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
@@ -732,7 +733,7 @@ func TestPipelineHandler_GetImportHistory_ServiceError(t *testing.T) {
 	)
 
 	_, err := h.GetImportHistoryHandler(pipelineAdminCtx(), &GetImportHistoryRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -741,10 +742,10 @@ func TestPipelineHandler_GetImportHistory_ServiceError(t *testing.T) {
 
 func TestPipelineHandler_EnrichmentStatus_Success(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{
-			getQueueStatsFn: func() (*contracts.EnrichmentQueueStats, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{
+			GetQueueStatsFn: func() (*contracts.EnrichmentQueueStats, error) {
 				return &contracts.EnrichmentQueueStats{
 					Pending:        5,
 					Processing:     2,
@@ -776,25 +777,25 @@ func TestPipelineHandler_EnrichmentStatus_Success(t *testing.T) {
 func TestPipelineHandler_EnrichmentStatus_RequiresAdmin(t *testing.T) {
 	h := testPipelineHandler()
 	_, err := h.EnrichmentStatusHandler(context.Background(), &EnrichmentStatusRequest{})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 
 	_, err = h.EnrichmentStatusHandler(pipelineNonAdminCtx(), &EnrichmentStatusRequest{})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestPipelineHandler_EnrichmentStatus_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{
-			getQueueStatsFn: func() (*contracts.EnrichmentQueueStats, error) {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{
+			GetQueueStatsFn: func() (*contracts.EnrichmentQueueStats, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
 	)
 
 	_, err := h.EnrichmentStatusHandler(pipelineAdminCtx(), &EnrichmentStatusRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -805,10 +806,10 @@ func TestPipelineHandler_TriggerEnrichment_Success(t *testing.T) {
 	var receivedShowID uint
 	var receivedType string
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{
-			queueShowForEnrichmentFn: func(showID uint, enrichmentType string) error {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{
+			QueueShowForEnrichmentFn: func(showID uint, enrichmentType string) error {
 				receivedShowID = showID
 				receivedType = enrichmentType
 				return nil
@@ -834,34 +835,34 @@ func TestPipelineHandler_TriggerEnrichment_Success(t *testing.T) {
 func TestPipelineHandler_TriggerEnrichment_RequiresAdmin(t *testing.T) {
 	h := testPipelineHandler()
 	_, err := h.TriggerEnrichmentHandler(context.Background(), &TriggerEnrichmentRequest{ShowID: "1"})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 
 	_, err = h.TriggerEnrichmentHandler(pipelineNonAdminCtx(), &TriggerEnrichmentRequest{ShowID: "1"})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestPipelineHandler_TriggerEnrichment_InvalidShowID(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{},
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{},
 	)
 
 	_, err := h.TriggerEnrichmentHandler(pipelineAdminCtx(), &TriggerEnrichmentRequest{ShowID: "abc"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestPipelineHandler_TriggerEnrichment_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
-		&mockPipelineService{},
-		&mockVenueSourceConfigService{},
-		&mockEnrichmentService{
-			queueShowForEnrichmentFn: func(showID uint, enrichmentType string) error {
+		&testhelpers.MockPipelineService{},
+		&testhelpers.MockVenueSourceConfigService{},
+		&testhelpers.MockEnrichmentService{
+			QueueShowForEnrichmentFn: func(showID uint, enrichmentType string) error {
 				return fmt.Errorf("show not found")
 			},
 		},
 	)
 
 	_, err := h.TriggerEnrichmentHandler(pipelineAdminCtx(), &TriggerEnrichmentRequest{ShowID: "999"})
-	assertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }

@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -36,7 +37,7 @@ type GetAdminStatsResponse struct {
 func (h *AdminStatsHandler) GetAdminStatsHandler(ctx context.Context, req *GetAdminStatsRequest) (*GetAdminStatsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -75,7 +76,7 @@ type GetActivityFeedResponse struct {
 func (h *AdminStatsHandler) GetActivityFeedHandler(ctx context.Context, req *GetActivityFeedRequest) (*GetActivityFeedResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}

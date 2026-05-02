@@ -1,4 +1,4 @@
-package handlers
+package system
 
 import (
 	"context"
@@ -9,9 +9,9 @@ import (
 
 // ComponentHealth represents the health status of a single component
 type ComponentHealth struct {
-	Status      string `json:"status" example:"healthy" doc:"Component health status: healthy, unhealthy"`
-	Latency     string `json:"latency,omitempty" example:"1.23ms" doc:"Response time for the health check"`
-	Error       string `json:"error,omitempty" example:"connection refused" doc:"Error message if unhealthy"`
+	Status  string `json:"status" example:"healthy" doc:"Component health status: healthy, unhealthy"`
+	Latency string `json:"latency,omitempty" example:"1.23ms" doc:"Response time for the health check"`
+	Error   string `json:"error,omitempty" example:"connection refused" doc:"Error message if unhealthy"`
 }
 
 // HealthResponse represents the health check response

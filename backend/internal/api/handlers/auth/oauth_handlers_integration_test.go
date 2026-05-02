@@ -1,4 +1,4 @@
-package handlers
+package auth
 
 import (
 	"context"
@@ -12,6 +12,7 @@ import (
 	"github.com/markbates/goth"
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -29,12 +30,12 @@ func (m *mockOAuthCompleter) CompleteUserAuth(w http.ResponseWriter, r *http.Req
 
 type OAuthHandlerIntegrationSuite struct {
 	suite.Suite
-	deps *handlerIntegrationDeps
+	deps *testhelpers.IntegrationDeps
 	cfg  *config.Config
 }
 
 func (s *OAuthHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 	s.cfg = &config.Config{
 		JWT: config.JWTConfig{
 			SecretKey: "test-secret-key-at-least-32-characters-long",
@@ -55,12 +56,12 @@ func (s *OAuthHandlerIntegrationSuite) SetupSuite() {
 }
 
 func (s *OAuthHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 	cleanCLICallbackStore()
 }
 
 func (s *OAuthHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestOAuthHandlerIntegration(t *testing.T) {
@@ -71,7 +72,7 @@ func TestOAuthHandlerIntegration(t *testing.T) {
 }
 
 func (s *OAuthHandlerIntegrationSuite) newHandler(completer contracts.OAuthCompleter) *OAuthHTTPHandler {
-	authService := auth.NewAuthService(s.deps.db, s.cfg, s.deps.userService)
+	authService := auth.NewAuthService(s.deps.DB, s.cfg, s.deps.UserService)
 	authService.SetOAuthCompleter(completer)
 	return NewOAuthHTTPHandler(authService, s.cfg)
 }
@@ -221,7 +222,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_CustomFrontendURL() {
 			FrontendURL: "https://myapp.example.com",
 		},
 	}
-	authService := auth.NewAuthService(s.deps.db, customCfg, s.deps.userService)
+	authService := auth.NewAuthService(s.deps.DB, customCfg, s.deps.UserService)
 	authService.SetOAuthCompleter(&mockOAuthCompleter{err: http.ErrNoCookie})
 	handler := NewOAuthHTTPHandler(authService, customCfg)
 
@@ -240,7 +241,7 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_EmptyFrontendURL_Fallback() 
 		Session: s.cfg.Session,
 		Email:   config.EmailConfig{FrontendURL: ""},
 	}
-	authService := auth.NewAuthService(s.deps.db, emptyCfg, s.deps.userService)
+	authService := auth.NewAuthService(s.deps.DB, emptyCfg, s.deps.UserService)
 	authService.SetOAuthCompleter(&mockOAuthCompleter{err: http.ErrNoCookie})
 	handler := NewOAuthHTTPHandler(authService, emptyCfg)
 

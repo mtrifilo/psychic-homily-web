@@ -1,4 +1,4 @@
-package handlers
+package auth
 
 import (
 	"context"
@@ -38,8 +38,8 @@ type SetFavoriteCitiesRequest struct {
 // SetFavoriteCitiesResponse represents the response after updating favorite cities
 type SetFavoriteCitiesResponse struct {
 	Body struct {
-		Success bool                 `json:"success"`
-		Message string               `json:"message"`
+		Success bool                  `json:"success"`
+		Message string                `json:"message"`
 		Cities  []models.FavoriteCity `json:"cities"`
 	}
 }
@@ -76,8 +76,8 @@ func (h *UserPreferencesHandler) SetFavoriteCitiesHandler(ctx context.Context, r
 
 	return &SetFavoriteCitiesResponse{
 		Body: struct {
-			Success bool                 `json:"success"`
-			Message string               `json:"message"`
+			Success bool                  `json:"success"`
+			Message string                `json:"message"`
 			Cities  []models.FavoriteCity `json:"cities"`
 		}{
 			Success: true,

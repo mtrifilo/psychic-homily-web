@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -60,9 +60,9 @@ type GetSavedShowsRequest struct {
 type GetSavedShowsResponse struct {
 	Body struct {
 		Shows  []*contracts.SavedShowResponse `json:"shows"`
-		Total  int64                         `json:"total"`
-		Limit  int                           `json:"limit"`
-		Offset int                           `json:"offset"`
+		Total  int64                          `json:"total"`
+		Limit  int                            `json:"limit"`
+		Offset int                            `json:"offset"`
 	}
 }
 
@@ -242,9 +242,9 @@ func (h *SavedShowHandler) GetSavedShowsHandler(ctx context.Context, req *GetSav
 	return &GetSavedShowsResponse{
 		Body: struct {
 			Shows  []*contracts.SavedShowResponse `json:"shows"`
-			Total  int64                         `json:"total"`
-			Limit  int                           `json:"limit"`
-			Offset int                           `json:"offset"`
+			Total  int64                          `json:"total"`
+			Limit  int                            `json:"limit"`
+			Offset int                            `json:"offset"`
 		}{
 			Shows:  shows,
 			Total:  total,

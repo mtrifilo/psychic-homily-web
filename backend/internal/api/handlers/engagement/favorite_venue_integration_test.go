@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"fmt"
@@ -7,26 +7,27 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 )
 
 type FavoriteVenueHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *FavoriteVenueHandler
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
-	s.handler = NewFavoriteVenueHandler(s.deps.favoriteVenueService)
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
+	s.handler = NewFavoriteVenueHandler(s.deps.FavoriteVenueService)
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestFavoriteVenueHandlerIntegration(t *testing.T) {
@@ -39,10 +40,10 @@ func TestFavoriteVenueHandlerIntegration(t *testing.T) {
 // --- FavoriteVenueHandler (POST) ---
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestFavoriteVenue_Success() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &FavoriteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 
 	resp, err := s.handler.FavoriteVenueHandler(ctx, req)
@@ -52,10 +53,10 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestFavoriteVenue_Success() {
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestFavoriteVenue_AlreadyFavorited_Idempotent() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &FavoriteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 
 	_, err := s.handler.FavoriteVenueHandler(ctx, req)
@@ -68,8 +69,8 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestFavoriteVenue_AlreadyFavorite
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestFavoriteVenue_VenueNotFound() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &FavoriteVenueRequest{VenueID: "99999"}
 
 	_, err := s.handler.FavoriteVenueHandler(ctx, req)
@@ -79,9 +80,9 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestFavoriteVenue_VenueNotFound()
 // --- UnfavoriteVenueHandler (DELETE) ---
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestUnfavoriteVenue_Success() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Favorite first
 	favReq := &FavoriteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
@@ -97,9 +98,9 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestUnfavoriteVenue_Success() {
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestUnfavoriteVenue_NotFavorited() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &UnfavoriteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 	_, err := s.handler.UnfavoriteVenueHandler(ctx, req)
@@ -109,8 +110,8 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestUnfavoriteVenue_NotFavorited(
 // --- GetFavoriteVenuesHandler ---
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenues_Empty() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &GetFavoriteVenuesRequest{Limit: 50, Offset: 0}
 
 	resp, err := s.handler.GetFavoriteVenuesHandler(ctx, req)
@@ -121,12 +122,12 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenues_Empty() {
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenues_WithVenues() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	venues := []string{"Valley Bar", "Crescent Ballroom", "The Rebel Lounge"}
 	for _, name := range venues {
-		venue := createVerifiedVenue(s.deps.db, name, "Phoenix", "AZ")
+		venue := testhelpers.CreateVerifiedVenue(s.deps.DB, name, "Phoenix", "AZ")
 		favReq := &FavoriteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 		_, err := s.handler.FavoriteVenueHandler(ctx, favReq)
 		s.NoError(err)
@@ -140,11 +141,11 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenues_WithVenues(
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenues_Pagination() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	for i := 0; i < 3; i++ {
-		venue := createVerifiedVenue(s.deps.db, fmt.Sprintf("Venue %d", i), "Phoenix", "AZ")
+		venue := testhelpers.CreateVerifiedVenue(s.deps.DB, fmt.Sprintf("Venue %d", i), "Phoenix", "AZ")
 		favReq := &FavoriteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 		_, err := s.handler.FavoriteVenueHandler(ctx, favReq)
 		s.NoError(err)
@@ -167,9 +168,9 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenues_Pagination(
 // --- CheckFavoritedHandler ---
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestCheckFavorited_True() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Favorite
 	favReq := &FavoriteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
@@ -184,9 +185,9 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestCheckFavorited_True() {
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestCheckFavorited_False() {
-	user := createTestUser(s.deps.db)
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
+	ctx := testhelpers.CtxWithUser(user)
 
 	checkReq := &CheckFavoritedRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 	resp, err := s.handler.CheckFavoritedHandler(ctx, checkReq)
@@ -197,8 +198,8 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestCheckFavorited_False() {
 // --- GetFavoriteVenueShowsHandler ---
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenueShows_Empty() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	req := &GetFavoriteVenueShowsRequest{Timezone: "America/Phoenix", Limit: 50, Offset: 0}
 	resp, err := s.handler.GetFavoriteVenueShowsHandler(ctx, req)
@@ -208,11 +209,11 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenueShows_Empty()
 }
 
 func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenueShows_WithShows() {
-	user := createTestUser(s.deps.db)
-	ctx := ctxWithUser(user)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create venue, favorite it, then create a future show at it
-	venue := createVerifiedVenue(s.deps.db, "Valley Bar", "Phoenix", "AZ")
+	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Valley Bar", "Phoenix", "AZ")
 	favReq := &FavoriteVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 	_, err := s.handler.FavoriteVenueHandler(ctx, favReq)
 	s.NoError(err)
@@ -221,16 +222,16 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenueShows_WithSho
 	show := &models.Show{
 		Title:       "Upcoming Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Create(show)
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
 
-	artist := createArtist(s.deps.db, "Test Artist")
-	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
+	artist := testhelpers.CreateArtist(s.deps.DB, "Test Artist")
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
 
 	req := &GetFavoriteVenueShowsRequest{Timezone: "America/Phoenix", Limit: 50, Offset: 0}
 	resp, err := s.handler.GetFavoriteVenueShowsHandler(ctx, req)

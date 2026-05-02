@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"fmt"
@@ -7,13 +7,14 @@ import (
 
 	"github.com/stretchr/testify/suite"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/catalog"
 )
 
 type AdminHandlerIntegrationSuite struct {
 	suite.Suite
-	deps         *handlerIntegrationDeps
+	deps         *testhelpers.IntegrationDeps
 	showHandler  *AdminShowHandler
 	venueHandler *AdminVenueHandler
 	tokenHandler *AdminTokenHandler
@@ -23,40 +24,40 @@ type AdminHandlerIntegrationSuite struct {
 }
 
 func (s *AdminHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 	s.showHandler = NewAdminShowHandler(
-		s.deps.showService,
-		s.deps.showService,
-		s.deps.showService,
-		s.deps.discordService,
-		s.deps.auditLogService,
+		s.deps.ShowService,
+		s.deps.ShowService,
+		s.deps.ShowService,
+		s.deps.DiscordService,
+		s.deps.AuditLogService,
 		nil, // notificationFilterService
-		s.deps.musicDiscoveryService,
+		s.deps.MusicDiscoveryService,
 	)
 	s.venueHandler = NewAdminVenueHandler(
-		s.deps.venueService,
-		s.deps.auditLogService,
+		s.deps.VenueService,
+		s.deps.AuditLogService,
 	)
 	s.tokenHandler = NewAdminTokenHandler(
-		s.deps.apiTokenService,
+		s.deps.APITokenService,
 	)
 	s.dataHandler = NewAdminDataHandler(
-		s.deps.dataSyncService,
+		s.deps.DataSyncService,
 	)
 	s.userHandler = NewAdminUserHandler(
-		s.deps.userService,
+		s.deps.UserService,
 	)
 	s.statsHandler = NewAdminStatsHandler(
-		s.deps.adminStatsService,
+		s.deps.AdminStatsService,
 	)
 }
 
 func (s *AdminHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *AdminHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestAdminHandlerIntegration(t *testing.T) {
@@ -69,8 +70,8 @@ func TestAdminHandlerIntegration(t *testing.T) {
 // --- GetPendingShowsHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestGetPendingShows_Empty() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &GetPendingShowsRequest{Limit: 50, Offset: 0}
 	resp, err := s.showHandler.GetPendingShowsHandler(ctx, req)
@@ -79,13 +80,13 @@ func (s *AdminHandlerIntegrationSuite) TestGetPendingShows_Empty() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestGetPendingShows_Success() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 
-	createPendingShow(s.deps.db, user.ID, "Pending Show 1")
-	createPendingShow(s.deps.db, user.ID, "Pending Show 2")
+	testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Pending Show 1")
+	testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Pending Show 2")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &GetPendingShowsRequest{Limit: 50, Offset: 0}
 	resp, err := s.showHandler.GetPendingShowsHandler(ctx, req)
 	s.NoError(err)
@@ -96,11 +97,11 @@ func (s *AdminHandlerIntegrationSuite) TestGetPendingShows_Success() {
 // --- ApproveShowHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestApproveShow_Success() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
-	show := createPendingShow(s.deps.db, user.ID, "Pending Show")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Pending Show")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &ApproveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
 	resp, err := s.showHandler.ApproveShowHandler(ctx, req)
@@ -110,8 +111,8 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_Success() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestApproveShow_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &ApproveShowRequest{ShowID: "99999"}
 	_, err := s.showHandler.ApproveShowHandler(ctx, req)
@@ -119,11 +120,11 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_NotFound() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestApproveShow_AlreadyApproved() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Approved Show")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Approved Show")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &ApproveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 
 	_, err := s.showHandler.ApproveShowHandler(ctx, req)
@@ -131,26 +132,26 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_AlreadyApproved() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestApproveShow_WithVerifyVenues() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 
 	// Create pending show with unverified venue
 	show := &models.Show{
 		Title:       "Show With Unverified Venue",
 		EventDate:   futureDate(7),
-		City:        stringPtr("Phoenix"),
-		State:       stringPtr("AZ"),
+		City:        testhelpers.StringPtr("Phoenix"),
+		State:       testhelpers.StringPtr("AZ"),
 		Status:      models.ShowStatusPending,
 		SubmittedBy: &user.ID,
 	}
-	s.deps.db.Create(show)
+	s.deps.DB.Create(show)
 
-	venue := createUnverifiedVenue(s.deps.db, "New Venue", "Phoenix", "AZ")
-	artist := createArtist(s.deps.db, "Test Artist")
-	s.deps.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
-	s.deps.db.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
+	venue := testhelpers.CreateUnverifiedVenue(s.deps.DB, "New Venue", "Phoenix", "AZ")
+	artist := testhelpers.CreateArtist(s.deps.DB, "Test Artist")
+	s.deps.DB.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", show.ID, venue.ID)
+	s.deps.DB.Exec("INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'headliner')", show.ID, artist.ID)
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &ApproveShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.VerifyVenues = true
 
@@ -162,11 +163,11 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_WithVerifyVenues() {
 // --- RejectShowHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestRejectShow_Success() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
-	show := createPendingShow(s.deps.db, user.ID, "Pending Show")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Pending Show")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &RejectShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Reason = "Duplicate event"
 
@@ -176,8 +177,8 @@ func (s *AdminHandlerIntegrationSuite) TestRejectShow_Success() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestRejectShow_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &RejectShowRequest{ShowID: "99999"}
 	req.Body.Reason = "Not found"
@@ -186,11 +187,11 @@ func (s *AdminHandlerIntegrationSuite) TestRejectShow_NotFound() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestRejectShow_EmptyReason() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
-	show := createPendingShow(s.deps.db, user.ID, "Pending Show")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Pending Show")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &RejectShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	req.Body.Reason = ""
 
@@ -201,12 +202,12 @@ func (s *AdminHandlerIntegrationSuite) TestRejectShow_EmptyReason() {
 // --- GetRejectedShowsHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestGetRejectedShows_Success() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 
 	// Create and reject a show
-	show := createPendingShow(s.deps.db, user.ID, "Will Be Rejected")
-	ctx := ctxWithUser(admin)
+	show := testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Will Be Rejected")
+	ctx := testhelpers.CtxWithUser(admin)
 	rejectReq := &RejectShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	rejectReq.Body.Reason = "Test rejection"
 	_, err := s.showHandler.RejectShowHandler(ctx, rejectReq)
@@ -221,10 +222,10 @@ func (s *AdminHandlerIntegrationSuite) TestGetRejectedShows_Success() {
 // --- VerifyVenueHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestVerifyVenue_Success() {
-	admin := createAdminUser(s.deps.db)
-	venue := createUnverifiedVenue(s.deps.db, "Unverified Venue", "Phoenix", "AZ")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	venue := testhelpers.CreateUnverifiedVenue(s.deps.DB, "Unverified Venue", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &VerifyVenueRequest{VenueID: fmt.Sprintf("%d", venue.ID)}
 
 	resp, err := s.venueHandler.VerifyVenueHandler(ctx, req)
@@ -234,8 +235,8 @@ func (s *AdminHandlerIntegrationSuite) TestVerifyVenue_Success() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestVerifyVenue_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &VerifyVenueRequest{VenueID: "99999"}
 	_, err := s.venueHandler.VerifyVenueHandler(ctx, req)
@@ -245,11 +246,11 @@ func (s *AdminHandlerIntegrationSuite) TestVerifyVenue_NotFound() {
 // --- GetUnverifiedVenuesHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestGetUnverifiedVenues_Success() {
-	admin := createAdminUser(s.deps.db)
-	createUnverifiedVenue(s.deps.db, "Unverified 1", "Phoenix", "AZ")
-	createUnverifiedVenue(s.deps.db, "Unverified 2", "Tucson", "AZ")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	testhelpers.CreateUnverifiedVenue(s.deps.DB, "Unverified 1", "Phoenix", "AZ")
+	testhelpers.CreateUnverifiedVenue(s.deps.DB, "Unverified 2", "Tucson", "AZ")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &GetUnverifiedVenuesRequest{Limit: 50, Offset: 0}
 	resp, err := s.venueHandler.GetUnverifiedVenuesHandler(ctx, req)
 	s.NoError(err)
@@ -257,8 +258,8 @@ func (s *AdminHandlerIntegrationSuite) TestGetUnverifiedVenues_Success() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestGetUnverifiedVenues_Empty() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &GetUnverifiedVenuesRequest{Limit: 50, Offset: 0}
 	resp, err := s.venueHandler.GetUnverifiedVenuesHandler(ctx, req)
@@ -269,13 +270,13 @@ func (s *AdminHandlerIntegrationSuite) TestGetUnverifiedVenues_Empty() {
 // --- GetAdminShowsHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestGetAdminShows_Success() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 
-	createApprovedShow(s.deps.db, user.ID, "Show 1")
-	createPendingShow(s.deps.db, user.ID, "Show 2")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Show 1")
+	testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Show 2")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &GetAdminShowsRequest{Limit: 50, Offset: 0}
 	resp, err := s.showHandler.GetAdminShowsHandler(ctx, req)
 	s.NoError(err)
@@ -283,13 +284,13 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminShows_Success() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestGetAdminShows_StatusFilter() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 
-	createApprovedShow(s.deps.db, user.ID, "Approved Show")
-	createPendingShow(s.deps.db, user.ID, "Pending Show")
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Approved Show")
+	testhelpers.CreatePendingShow(s.deps.DB, user.ID, "Pending Show")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &GetAdminShowsRequest{Limit: 50, Offset: 0, Status: "pending"}
 	resp, err := s.showHandler.GetAdminShowsHandler(ctx, req)
 	s.NoError(err)
@@ -303,8 +304,8 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminShows_StatusFilter() {
 // --- GetAdminStatsHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestGetAdminStats_Success() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &GetAdminStatsRequest{}
 	resp, err := s.statsHandler.GetAdminStatsHandler(ctx, req)
@@ -315,11 +316,11 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminStats_Success() {
 // --- GetAdminUsersHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestGetAdminUsers_Success() {
-	admin := createAdminUser(s.deps.db)
-	createTestUser(s.deps.db)
-	createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	testhelpers.CreateTestUser(s.deps.DB)
+	testhelpers.CreateTestUser(s.deps.DB)
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &GetAdminUsersRequest{Limit: 50, Offset: 0}
 	resp, err := s.userHandler.GetAdminUsersHandler(ctx, req)
 	s.NoError(err)
@@ -327,12 +328,12 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminUsers_Success() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestGetAdminUsers_Pagination() {
-	admin := createAdminUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	for i := 0; i < 5; i++ {
-		createTestUser(s.deps.db)
+		testhelpers.CreateTestUser(s.deps.DB)
 	}
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &GetAdminUsersRequest{Limit: 3, Offset: 0}
 	resp, err := s.userHandler.GetAdminUsersHandler(ctx, req)
 	s.NoError(err)
@@ -343,8 +344,8 @@ func (s *AdminHandlerIntegrationSuite) TestGetAdminUsers_Pagination() {
 // --- CreateAPITokenHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_Success() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &CreateAPITokenRequest{}
 	req.Body.Description = "Test token"
@@ -357,8 +358,8 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_Success() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_DefaultExpiration() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &CreateAPITokenRequest{}
 	req.Body.Description = "Default expiry token"
@@ -369,8 +370,8 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_DefaultExpiration() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_ExceededMaxDays() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &CreateAPITokenRequest{}
 	req.Body.ExpirationDays = 500
@@ -382,8 +383,8 @@ func (s *AdminHandlerIntegrationSuite) TestCreateAPIToken_ExceededMaxDays() {
 // --- ListAPITokensHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestListAPITokens_Success() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	// Create a token first
 	createReq := &CreateAPITokenRequest{}
@@ -402,8 +403,8 @@ func (s *AdminHandlerIntegrationSuite) TestListAPITokens_Success() {
 // --- RevokeAPITokenHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestRevokeAPIToken_Success() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	// Create a token
 	createReq := &CreateAPITokenRequest{}
@@ -420,8 +421,8 @@ func (s *AdminHandlerIntegrationSuite) TestRevokeAPIToken_Success() {
 }
 
 func (s *AdminHandlerIntegrationSuite) TestRevokeAPIToken_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &RevokeAPITokenRequest{TokenID: "99999"}
 	_, err := s.tokenHandler.RevokeAPITokenHandler(ctx, req)
@@ -431,11 +432,11 @@ func (s *AdminHandlerIntegrationSuite) TestRevokeAPIToken_NotFound() {
 // --- ExportShowsHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestExportShows_Success() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
-	createApprovedShow(s.deps.db, user.ID, "Export Show")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Export Show")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &ExportShowsRequest{Limit: 50, Offset: 0}
 	resp, err := s.dataHandler.ExportShowsHandler(ctx, req)
 	s.NoError(err)
@@ -445,10 +446,10 @@ func (s *AdminHandlerIntegrationSuite) TestExportShows_Success() {
 // --- ExportArtistsHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestExportArtists_Success() {
-	admin := createAdminUser(s.deps.db)
-	createArtist(s.deps.db, "Test Artist")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	testhelpers.CreateArtist(s.deps.DB, "Test Artist")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &ExportArtistsRequest{Limit: 50, Offset: 0}
 	resp, err := s.dataHandler.ExportArtistsHandler(ctx, req)
 	s.NoError(err)
@@ -458,10 +459,10 @@ func (s *AdminHandlerIntegrationSuite) TestExportArtists_Success() {
 // --- ExportVenuesHandler ---
 
 func (s *AdminHandlerIntegrationSuite) TestExportVenues_Success() {
-	admin := createAdminUser(s.deps.db)
-	createVerifiedVenue(s.deps.db, "Test Venue", "Phoenix", "AZ")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	testhelpers.CreateVerifiedVenue(s.deps.DB, "Test Venue", "Phoenix", "AZ")
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &ExportVenuesRequest{Limit: 50, Offset: 0}
 	resp, err := s.dataHandler.ExportVenuesHandler(ctx, req)
 	s.NoError(err)

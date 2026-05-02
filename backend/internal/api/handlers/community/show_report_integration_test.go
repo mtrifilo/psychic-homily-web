@@ -1,7 +1,8 @@
-package handlers
+package community
 
 import (
 	"fmt"
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -9,26 +10,26 @@ import (
 
 type ShowReportHandlerIntegrationSuite struct {
 	suite.Suite
-	deps    *handlerIntegrationDeps
+	deps    *testhelpers.IntegrationDeps
 	handler *ShowReportHandler
 }
 
 func (s *ShowReportHandlerIntegrationSuite) SetupSuite() {
-	s.deps = setupHandlerIntegrationDeps(s.T())
+	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 	s.handler = NewShowReportHandler(
-		s.deps.showReportService,
-		s.deps.discordService,
-		s.deps.userService,
-		s.deps.auditLogService,
+		s.deps.ShowReportService,
+		s.deps.DiscordService,
+		s.deps.UserService,
+		s.deps.AuditLogService,
 	)
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TearDownTest() {
-	cleanupTables(s.deps.db)
+	testhelpers.CleanupTables(s.deps.DB)
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TearDownSuite() {
-	s.deps.testDB.Cleanup()
+	s.deps.TestDB.Cleanup()
 }
 
 func TestShowReportHandlerIntegration(t *testing.T) {
@@ -41,10 +42,10 @@ func TestShowReportHandlerIntegration(t *testing.T) {
 // --- ReportShowHandler ---
 
 func (s *ShowReportHandlerIntegrationSuite) TestReportShow_Success() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &ReportShowRequest{
 		ShowID: fmt.Sprintf("%d", show.ID),
 	}
@@ -59,10 +60,10 @@ func (s *ShowReportHandlerIntegrationSuite) TestReportShow_Success() {
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TestReportShow_WithDetails() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	details := "Wrong date listed"
 	req := &ReportShowRequest{
 		ShowID: fmt.Sprintf("%d", show.ID),
@@ -77,10 +78,10 @@ func (s *ShowReportHandlerIntegrationSuite) TestReportShow_WithDetails() {
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TestReportShow_AlreadyReported() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	req := &ReportShowRequest{
 		ShowID: fmt.Sprintf("%d", show.ID),
 	}
@@ -98,10 +99,10 @@ func (s *ShowReportHandlerIntegrationSuite) TestReportShow_AlreadyReported() {
 // --- GetMyReportHandler ---
 
 func (s *ShowReportHandlerIntegrationSuite) TestGetMyReport_Exists() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 
 	// Create report
 	reportReq := &ReportShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
@@ -119,10 +120,10 @@ func (s *ShowReportHandlerIntegrationSuite) TestGetMyReport_Exists() {
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TestGetMyReport_NotExists() {
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
-	ctx := ctxWithUser(user)
+	ctx := testhelpers.CtxWithUser(user)
 	getReq := &GetMyReportRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	resp, err := s.handler.GetMyReportHandler(ctx, getReq)
 	s.NoError(err)
@@ -133,8 +134,8 @@ func (s *ShowReportHandlerIntegrationSuite) TestGetMyReport_NotExists() {
 // --- GetPendingReportsHandler (admin) ---
 
 func (s *ShowReportHandlerIntegrationSuite) TestGetPendingReports_Empty() {
-	admin := createAdminUser(s.deps.db)
-	ctx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(admin)
 
 	req := &GetPendingReportsRequest{Limit: 50, Offset: 0}
 	resp, err := s.handler.GetPendingReportsHandler(ctx, req)
@@ -144,20 +145,20 @@ func (s *ShowReportHandlerIntegrationSuite) TestGetPendingReports_Empty() {
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TestGetPendingReports_WithReports() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
 
 	// Create 2 reports
 	for i := 0; i < 2; i++ {
-		show := createApprovedShow(s.deps.db, user.ID, fmt.Sprintf("Show %d", i))
-		ctx := ctxWithUser(user)
+		show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, fmt.Sprintf("Show %d", i))
+		ctx := testhelpers.CtxWithUser(user)
 		req := &ReportShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 		req.Body.ReportType = "cancelled"
 		_, err := s.handler.ReportShowHandler(ctx, req)
 		s.NoError(err)
 	}
 
-	ctx := ctxWithUser(admin)
+	ctx := testhelpers.CtxWithUser(admin)
 	req := &GetPendingReportsRequest{Limit: 50, Offset: 0}
 	resp, err := s.handler.GetPendingReportsHandler(ctx, req)
 	s.NoError(err)
@@ -168,19 +169,19 @@ func (s *ShowReportHandlerIntegrationSuite) TestGetPendingReports_WithReports() 
 // --- DismissReportHandler (admin) ---
 
 func (s *ShowReportHandlerIntegrationSuite) TestDismissReport_Success() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
 	// Create report
-	userCtx := ctxWithUser(user)
+	userCtx := testhelpers.CtxWithUser(user)
 	reportReq := &ReportShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	reportReq.Body.ReportType = "cancelled"
 	reportResp, err := s.handler.ReportShowHandler(userCtx, reportReq)
 	s.NoError(err)
 
 	// Admin dismisses
-	adminCtx := ctxWithUser(admin)
+	adminCtx := testhelpers.CtxWithUser(admin)
 	dismissReq := &DismissReportRequest{
 		ReportID: fmt.Sprintf("%d", reportResp.Body.ID),
 	}
@@ -191,8 +192,8 @@ func (s *ShowReportHandlerIntegrationSuite) TestDismissReport_Success() {
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TestDismissReport_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	adminCtx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	adminCtx := testhelpers.CtxWithUser(admin)
 
 	dismissReq := &DismissReportRequest{ReportID: "99999"}
 	_, err := s.handler.DismissReportHandler(adminCtx, dismissReq)
@@ -202,23 +203,23 @@ func (s *ShowReportHandlerIntegrationSuite) TestDismissReport_NotFound() {
 // --- ResolveReportHandler (admin) ---
 
 func (s *ShowReportHandlerIntegrationSuite) TestResolveReport_Success() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
 	// Create report
-	userCtx := ctxWithUser(user)
+	userCtx := testhelpers.CtxWithUser(user)
 	reportReq := &ReportShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	reportReq.Body.ReportType = "cancelled"
 	reportResp, err := s.handler.ReportShowHandler(userCtx, reportReq)
 	s.NoError(err)
 
 	// Admin resolves
-	adminCtx := ctxWithUser(admin)
+	adminCtx := testhelpers.CtxWithUser(admin)
 	resolveReq := &ResolveReportRequest{
 		ReportID: fmt.Sprintf("%d", reportResp.Body.ID),
 	}
-	resolveReq.Body.SetShowFlag = boolPtr(false)
+	resolveReq.Body.SetShowFlag = testhelpers.BoolPtr(false)
 	resp, err := s.handler.ResolveReportHandler(adminCtx, resolveReq)
 	s.NoError(err)
 	s.NotNil(resp)
@@ -226,23 +227,23 @@ func (s *ShowReportHandlerIntegrationSuite) TestResolveReport_Success() {
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TestResolveReport_WithShowFlag() {
-	admin := createAdminUser(s.deps.db)
-	user := createTestUser(s.deps.db)
-	show := createApprovedShow(s.deps.db, user.ID, "Test Show")
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	show := testhelpers.CreateApprovedShow(s.deps.DB, user.ID, "Test Show")
 
 	// Create report
-	userCtx := ctxWithUser(user)
+	userCtx := testhelpers.CtxWithUser(user)
 	reportReq := &ReportShowRequest{ShowID: fmt.Sprintf("%d", show.ID)}
 	reportReq.Body.ReportType = "cancelled"
 	reportResp, err := s.handler.ReportShowHandler(userCtx, reportReq)
 	s.NoError(err)
 
 	// Admin resolves with flag
-	adminCtx := ctxWithUser(admin)
+	adminCtx := testhelpers.CtxWithUser(admin)
 	resolveReq := &ResolveReportRequest{
 		ReportID: fmt.Sprintf("%d", reportResp.Body.ID),
 	}
-	resolveReq.Body.SetShowFlag = boolPtr(true)
+	resolveReq.Body.SetShowFlag = testhelpers.BoolPtr(true)
 	resp, err := s.handler.ResolveReportHandler(adminCtx, resolveReq)
 	s.NoError(err)
 	s.NotNil(resp)
@@ -250,11 +251,11 @@ func (s *ShowReportHandlerIntegrationSuite) TestResolveReport_WithShowFlag() {
 }
 
 func (s *ShowReportHandlerIntegrationSuite) TestResolveReport_NotFound() {
-	admin := createAdminUser(s.deps.db)
-	adminCtx := ctxWithUser(admin)
+	admin := testhelpers.CreateAdminUser(s.deps.DB)
+	adminCtx := testhelpers.CtxWithUser(admin)
 
 	resolveReq := &ResolveReportRequest{ReportID: "99999"}
-	resolveReq.Body.SetShowFlag = boolPtr(false)
+	resolveReq.Body.SetShowFlag = testhelpers.BoolPtr(false)
 	_, err := s.handler.ResolveReportHandler(adminCtx, resolveReq)
 	s.Error(err)
 }

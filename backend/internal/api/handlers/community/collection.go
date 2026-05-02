@@ -1,4 +1,4 @@
-package handlers
+package community
 
 import (
 	"context"
@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -49,7 +50,7 @@ type ListCollectionsHandlerRequest struct {
 type ListCollectionsHandlerResponse struct {
 	Body struct {
 		Collections []*contracts.CollectionListResponse `json:"collections" doc:"List of collections"`
-		Total       int64                              `json:"total" doc:"Total number of matching collections"`
+		Total       int64                               `json:"total" doc:"Total number of matching collections"`
 	}
 }
 
@@ -623,7 +624,7 @@ type SetFeaturedHandlerRequest struct {
 func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeaturedHandlerRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := requireAdmin(ctx)
+	user, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -671,7 +672,7 @@ type GetUserCollectionsHandlerRequest struct {
 type GetUserCollectionsHandlerResponse struct {
 	Body struct {
 		Collections []*contracts.CollectionListResponse `json:"collections" doc:"List of user's collections"`
-		Total       int64                              `json:"total" doc:"Total number of collections"`
+		Total       int64                               `json:"total" doc:"Total number of collections"`
 	}
 }
 
@@ -763,7 +764,7 @@ type GetUserPublicCollectionsHandlerRequest struct {
 type GetUserPublicCollectionsHandlerResponse struct {
 	Body struct {
 		Collections []*contracts.CollectionListResponse `json:"collections" doc:"List of user's public collections"`
-		Total       int64                              `json:"total" doc:"Total number of public collections"`
+		Total       int64                               `json:"total" doc:"Total number of public collections"`
 	}
 }
 

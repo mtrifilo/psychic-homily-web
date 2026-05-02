@@ -1,4 +1,4 @@
-package handlers
+package catalog
 
 import (
 	"context"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
@@ -16,37 +17,37 @@ import (
 // ============================================================================
 
 type mockArtistSlugResolver struct {
-	getArtistBySlugFn func(slug string) (*contracts.ArtistDetailResponse, error)
+	GetArtistBySlugFn func(slug string) (*contracts.ArtistDetailResponse, error)
 }
 
 func (m *mockArtistSlugResolver) GetArtistBySlug(slug string) (*contracts.ArtistDetailResponse, error) {
-	if m.getArtistBySlugFn != nil {
-		return m.getArtistBySlugFn(slug)
+	if m.GetArtistBySlugFn != nil {
+		return m.GetArtistBySlugFn(slug)
 	}
 	return nil, fmt.Errorf("artist not found")
 }
 
 type mockReleaseSlugResolver struct {
-	getReleaseBySlugFn func(slug string) (*contracts.ReleaseDetailResponse, error)
+	GetReleaseBySlugFn func(slug string) (*contracts.ReleaseDetailResponse, error)
 }
 
 func (m *mockReleaseSlugResolver) GetReleaseBySlug(slug string) (*contracts.ReleaseDetailResponse, error) {
-	if m.getReleaseBySlugFn != nil {
-		return m.getReleaseBySlugFn(slug)
+	if m.GetReleaseBySlugFn != nil {
+		return m.GetReleaseBySlugFn(slug)
 	}
 	return nil, fmt.Errorf("release not found")
 }
 
-func testRadioHandler(radio *mockRadioService) *RadioHandler {
+func testRadioHandler(radio *testhelpers.MockRadioService) *RadioHandler {
 	return NewRadioHandler(radio, &mockArtistSlugResolver{}, &mockReleaseSlugResolver{}, nil)
 }
 
-func testRadioHandlerWithResolvers(radio *mockRadioService, artist *mockArtistSlugResolver, release *mockReleaseSlugResolver) *RadioHandler {
+func testRadioHandlerWithResolvers(radio *testhelpers.MockRadioService, artist *mockArtistSlugResolver, release *mockReleaseSlugResolver) *RadioHandler {
 	return NewRadioHandler(radio, artist, release, nil)
 }
 
 func radioAdminCtx() context.Context {
-	return ctxWithUser(&models.User{ID: 1, IsAdmin: true, EmailVerified: true})
+	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true, EmailVerified: true})
 }
 
 // ============================================================================
@@ -54,8 +55,8 @@ func radioAdminCtx() context.Context {
 // ============================================================================
 
 func TestListRadioStations_Success(t *testing.T) {
-	mock := &mockRadioService{
-		listStationsFn: func(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		ListStationsFn: func(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
 			return []*contracts.RadioStationListResponse{
 				{ID: 1, Name: "KEXP", Slug: "kexp", BroadcastType: "both", IsActive: true, ShowCount: 5},
 			}, nil
@@ -76,8 +77,8 @@ func TestListRadioStations_Success(t *testing.T) {
 
 func TestListRadioStations_FilterActive(t *testing.T) {
 	var capturedFilters map[string]interface{}
-	mock := &mockRadioService{
-		listStationsFn: func(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		ListStationsFn: func(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
 			capturedFilters = filters
 			return []*contracts.RadioStationListResponse{}, nil
 		},
@@ -93,14 +94,14 @@ func TestListRadioStations_FilterActive(t *testing.T) {
 }
 
 func TestListRadioStations_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		listStationsFn: func(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		ListStationsFn: func(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.ListRadioStationsHandler(context.Background(), &ListRadioStationsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -108,8 +109,8 @@ func TestListRadioStations_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestGetRadioStation_BySlug(t *testing.T) {
-	mock := &mockRadioService{
-		getStationBySlugFn: func(slug string) (*contracts.RadioStationDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetStationBySlugFn: func(slug string) (*contracts.RadioStationDetailResponse, error) {
 			return &contracts.RadioStationDetailResponse{ID: 1, Name: "KEXP", Slug: "kexp", BroadcastType: "both"}, nil
 		},
 	}
@@ -124,8 +125,8 @@ func TestGetRadioStation_BySlug(t *testing.T) {
 }
 
 func TestGetRadioStation_ByID(t *testing.T) {
-	mock := &mockRadioService{
-		getStationFn: func(stationID uint) (*contracts.RadioStationDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetStationFn: func(stationID uint) (*contracts.RadioStationDetailResponse, error) {
 			return &contracts.RadioStationDetailResponse{ID: stationID, Name: "KEXP", Slug: "kexp", BroadcastType: "both"}, nil
 		},
 	}
@@ -140,14 +141,14 @@ func TestGetRadioStation_ByID(t *testing.T) {
 }
 
 func TestGetRadioStation_NotFound(t *testing.T) {
-	mock := &mockRadioService{
-		getStationBySlugFn: func(slug string) (*contracts.RadioStationDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetStationBySlugFn: func(slug string) (*contracts.RadioStationDetailResponse, error) {
 			return nil, apperrors.ErrRadioStationNotFound(0)
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.GetRadioStationHandler(context.Background(), &GetRadioStationRequest{Slug: "nonexistent"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -155,8 +156,8 @@ func TestGetRadioStation_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestListRadioShows_Success(t *testing.T) {
-	mock := &mockRadioService{
-		listShowsFn: func(stationID uint) ([]*contracts.RadioShowListResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		ListShowsFn: func(stationID uint) ([]*contracts.RadioShowListResponse, error) {
 			return []*contracts.RadioShowListResponse{
 				{ID: 1, StationID: stationID, Name: "Morning Show", Slug: "morning-show"},
 			}, nil
@@ -173,10 +174,10 @@ func TestListRadioShows_Success(t *testing.T) {
 }
 
 func TestListRadioShows_MissingStationID(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	_, err := h.ListRadioShowsHandler(context.Background(), &ListRadioShowsRequest{StationID: 0})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 // ============================================================================
@@ -184,8 +185,8 @@ func TestListRadioShows_MissingStationID(t *testing.T) {
 // ============================================================================
 
 func TestGetRadioShow_BySlug(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show", StationID: 1}, nil
 		},
 	}
@@ -200,14 +201,14 @@ func TestGetRadioShow_BySlug(t *testing.T) {
 }
 
 func TestGetRadioShow_NotFound(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return nil, apperrors.ErrRadioShowNotFound(0)
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.GetRadioShowHandler(context.Background(), &GetRadioShowRequest{Slug: "nonexistent"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -216,11 +217,11 @@ func TestGetRadioShow_NotFound(t *testing.T) {
 
 func TestGetRadioShowEpisodes_Success(t *testing.T) {
 	now := time.Now()
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
-		getEpisodesFn: func(showID uint, limit, offset int) ([]*contracts.RadioEpisodeResponse, int64, error) {
+		GetEpisodesFn: func(showID uint, limit, offset int) ([]*contracts.RadioEpisodeResponse, int64, error) {
 			return []*contracts.RadioEpisodeResponse{
 				{ID: 1, ShowID: showID, AirDate: "2026-03-15", PlayCount: 25, CreatedAt: now},
 			}, 1, nil
@@ -238,11 +239,11 @@ func TestGetRadioShowEpisodes_Success(t *testing.T) {
 
 func TestGetRadioShowEpisodes_DefaultLimit(t *testing.T) {
 	var capturedLimit int
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
-		getEpisodesFn: func(showID uint, limit, offset int) ([]*contracts.RadioEpisodeResponse, int64, error) {
+		GetEpisodesFn: func(showID uint, limit, offset int) ([]*contracts.RadioEpisodeResponse, int64, error) {
 			capturedLimit = limit
 			return []*contracts.RadioEpisodeResponse{}, 0, nil
 		},
@@ -258,14 +259,14 @@ func TestGetRadioShowEpisodes_DefaultLimit(t *testing.T) {
 }
 
 func TestGetRadioShowEpisodes_ShowNotFound(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return nil, apperrors.ErrRadioShowNotFound(0)
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.GetRadioShowEpisodesHandler(context.Background(), &GetRadioShowEpisodesRequest{Slug: "nonexistent"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -273,11 +274,11 @@ func TestGetRadioShowEpisodes_ShowNotFound(t *testing.T) {
 // ============================================================================
 
 func TestGetRadioEpisodeByDate_Success(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
-		getEpisodeByShowAndDateFn: func(showID uint, airDate string) (*contracts.RadioEpisodeDetailResponse, error) {
+		GetEpisodeByShowAndDateFn: func(showID uint, airDate string) (*contracts.RadioEpisodeDetailResponse, error) {
 			return &contracts.RadioEpisodeDetailResponse{
 				ID:          1,
 				ShowID:      showID,
@@ -298,28 +299,28 @@ func TestGetRadioEpisodeByDate_Success(t *testing.T) {
 }
 
 func TestGetRadioEpisodeByDate_InvalidDate(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.GetRadioEpisodeByDateHandler(context.Background(), &GetRadioEpisodeByDateRequest{Slug: "morning-show", Date: "not-a-date"})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestGetRadioEpisodeByDate_NotFound(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
-		getEpisodeByShowAndDateFn: func(showID uint, airDate string) (*contracts.RadioEpisodeDetailResponse, error) {
+		GetEpisodeByShowAndDateFn: func(showID uint, airDate string) (*contracts.RadioEpisodeDetailResponse, error) {
 			return nil, apperrors.ErrRadioEpisodeNotFound(0)
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.GetRadioEpisodeByDateHandler(context.Background(), &GetRadioEpisodeByDateRequest{Slug: "morning-show", Date: "2026-03-15"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -327,11 +328,11 @@ func TestGetRadioEpisodeByDate_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestGetRadioShowTopArtists_Success(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
-		getTopArtistsForShowFn: func(showID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
+		GetTopArtistsForShowFn: func(showID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
 			return []*contracts.RadioTopArtistResponse{
 				{ArtistName: "Radiohead", PlayCount: 15, EpisodeCount: 10},
 			}, nil
@@ -352,11 +353,11 @@ func TestGetRadioShowTopArtists_Success(t *testing.T) {
 
 func TestGetRadioShowTopArtists_DefaultPeriodAndLimit(t *testing.T) {
 	var capturedPeriod, capturedLimit int
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
-		getTopArtistsForShowFn: func(showID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
+		GetTopArtistsForShowFn: func(showID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
 			capturedPeriod = periodDays
 			capturedLimit = limit
 			return []*contracts.RadioTopArtistResponse{}, nil
@@ -380,11 +381,11 @@ func TestGetRadioShowTopArtists_DefaultPeriodAndLimit(t *testing.T) {
 // ============================================================================
 
 func TestGetRadioShowTopLabels_Success(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
-		getTopLabelsForShowFn: func(showID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
+		GetTopLabelsForShowFn: func(showID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
 			return []*contracts.RadioTopLabelResponse{
 				{LabelName: "Sub Pop", PlayCount: 30},
 			}, nil
@@ -401,17 +402,17 @@ func TestGetRadioShowTopLabels_Success(t *testing.T) {
 }
 
 func TestGetRadioShowTopLabels_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		getShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetShowBySlugFn: func(slug string) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{ID: 1, Name: "Morning Show", Slug: "morning-show"}, nil
 		},
-		getTopLabelsForShowFn: func(showID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
+		GetTopLabelsForShowFn: func(showID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.GetRadioShowTopLabelsHandler(context.Background(), &GetRadioShowTopLabelsRequest{Slug: "morning-show"})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -420,12 +421,12 @@ func TestGetRadioShowTopLabels_ServiceError(t *testing.T) {
 
 func TestGetArtistRadioPlays_BySlug(t *testing.T) {
 	artistMock := &mockArtistSlugResolver{
-		getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 42, Name: "Radiohead"}, nil
 		},
 	}
-	radioMock := &mockRadioService{
-		getAsHeardOnForArtistFn: func(artistID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+	radioMock := &testhelpers.MockRadioService{
+		GetAsHeardOnForArtistFn: func(artistID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
 			return []*contracts.RadioAsHeardOnResponse{
 				{StationID: 1, StationName: "KEXP", ShowID: 1, ShowName: "Morning Show", PlayCount: 5},
 			}, nil
@@ -443,8 +444,8 @@ func TestGetArtistRadioPlays_BySlug(t *testing.T) {
 
 func TestGetArtistRadioPlays_ByNumericID(t *testing.T) {
 	var capturedID uint
-	radioMock := &mockRadioService{
-		getAsHeardOnForArtistFn: func(artistID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+	radioMock := &testhelpers.MockRadioService{
+		GetAsHeardOnForArtistFn: func(artistID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
 			capturedID = artistID
 			return []*contracts.RadioAsHeardOnResponse{}, nil
 		},
@@ -461,14 +462,14 @@ func TestGetArtistRadioPlays_ByNumericID(t *testing.T) {
 
 func TestGetArtistRadioPlays_ArtistNotFound(t *testing.T) {
 	artistMock := &mockArtistSlugResolver{
-		getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	radioMock := &mockRadioService{}
+	radioMock := &testhelpers.MockRadioService{}
 	h := testRadioHandlerWithResolvers(radioMock, artistMock, &mockReleaseSlugResolver{})
 	_, err := h.GetArtistRadioPlaysHandler(context.Background(), &GetArtistRadioPlaysRequest{Slug: "nonexistent"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -477,12 +478,12 @@ func TestGetArtistRadioPlays_ArtistNotFound(t *testing.T) {
 
 func TestGetReleaseRadioPlays_BySlug(t *testing.T) {
 	releaseMock := &mockReleaseSlugResolver{
-		getReleaseBySlugFn: func(slug string) (*contracts.ReleaseDetailResponse, error) {
+		GetReleaseBySlugFn: func(slug string) (*contracts.ReleaseDetailResponse, error) {
 			return &contracts.ReleaseDetailResponse{ID: 10, Title: "OK Computer"}, nil
 		},
 	}
-	radioMock := &mockRadioService{
-		getAsHeardOnForReleaseFn: func(releaseID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
+	radioMock := &testhelpers.MockRadioService{
+		GetAsHeardOnForReleaseFn: func(releaseID uint) ([]*contracts.RadioAsHeardOnResponse, error) {
 			return []*contracts.RadioAsHeardOnResponse{
 				{StationID: 1, StationName: "KEXP", ShowID: 1, ShowName: "Morning Show", PlayCount: 3},
 			}, nil
@@ -500,14 +501,14 @@ func TestGetReleaseRadioPlays_BySlug(t *testing.T) {
 
 func TestGetReleaseRadioPlays_ReleaseNotFound(t *testing.T) {
 	releaseMock := &mockReleaseSlugResolver{
-		getReleaseBySlugFn: func(slug string) (*contracts.ReleaseDetailResponse, error) {
+		GetReleaseBySlugFn: func(slug string) (*contracts.ReleaseDetailResponse, error) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	radioMock := &mockRadioService{}
+	radioMock := &testhelpers.MockRadioService{}
 	h := testRadioHandlerWithResolvers(radioMock, &mockArtistSlugResolver{}, releaseMock)
 	_, err := h.GetReleaseRadioPlaysHandler(context.Background(), &GetReleaseRadioPlaysRequest{Slug: "nonexistent"})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -515,8 +516,8 @@ func TestGetReleaseRadioPlays_ReleaseNotFound(t *testing.T) {
 // ============================================================================
 
 func TestGetRadioNewReleaseRadar_Success(t *testing.T) {
-	mock := &mockRadioService{
-		getNewReleaseRadarFn: func(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error) {
+	mock := &testhelpers.MockRadioService{
+		GetNewReleaseRadarFn: func(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error) {
 			return []*contracts.RadioNewReleaseRadarEntry{
 				{ArtistName: "Radiohead", PlayCount: 5, StationCount: 2},
 			}, nil
@@ -534,8 +535,8 @@ func TestGetRadioNewReleaseRadar_Success(t *testing.T) {
 
 func TestGetRadioNewReleaseRadar_DefaultLimit(t *testing.T) {
 	var capturedLimit int
-	mock := &mockRadioService{
-		getNewReleaseRadarFn: func(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error) {
+	mock := &testhelpers.MockRadioService{
+		GetNewReleaseRadarFn: func(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error) {
 			capturedLimit = limit
 			return []*contracts.RadioNewReleaseRadarEntry{}, nil
 		},
@@ -551,14 +552,14 @@ func TestGetRadioNewReleaseRadar_DefaultLimit(t *testing.T) {
 }
 
 func TestGetRadioNewReleaseRadar_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		getNewReleaseRadarFn: func(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error) {
+	mock := &testhelpers.MockRadioService{
+		GetNewReleaseRadarFn: func(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.GetRadioNewReleaseRadarHandler(context.Background(), &GetRadioNewReleaseRadarRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -566,8 +567,8 @@ func TestGetRadioNewReleaseRadar_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestGetRadioStats_Success(t *testing.T) {
-	mock := &mockRadioService{
-		getRadioStatsFn: func() (*contracts.RadioStatsResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetRadioStatsFn: func() (*contracts.RadioStatsResponse, error) {
 			return &contracts.RadioStatsResponse{
 				TotalStations: 3,
 				TotalShows:    15,
@@ -592,14 +593,14 @@ func TestGetRadioStats_Success(t *testing.T) {
 }
 
 func TestGetRadioStats_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		getRadioStatsFn: func() (*contracts.RadioStatsResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetRadioStatsFn: func() (*contracts.RadioStatsResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.GetRadioStatsHandler(context.Background(), &GetRadioStatsRequest{})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -607,8 +608,8 @@ func TestGetRadioStats_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestAdminCreateRadioStation_Success(t *testing.T) {
-	mock := &mockRadioService{
-		createStationFn: func(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		CreateStationFn: func(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
 			return &contracts.RadioStationDetailResponse{
 				ID:            1,
 				Name:          req.Name,
@@ -633,39 +634,39 @@ func TestAdminCreateRadioStation_Success(t *testing.T) {
 }
 
 func TestAdminCreateRadioStation_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioStationRequest{}
 	req.Body.Name = "KEXP"
 	req.Body.BroadcastType = "both"
 
 	_, err := h.AdminCreateRadioStationHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminCreateRadioStation_MissingName(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioStationRequest{}
 	req.Body.BroadcastType = "both"
 
 	_, err := h.AdminCreateRadioStationHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminCreateRadioStation_MissingBroadcastType(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioStationRequest{}
 	req.Body.Name = "KEXP"
 
 	_, err := h.AdminCreateRadioStationHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminCreateRadioStation_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		createStationFn: func(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		CreateStationFn: func(req *contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
@@ -675,7 +676,7 @@ func TestAdminCreateRadioStation_ServiceError(t *testing.T) {
 	req.Body.BroadcastType = "both"
 
 	_, err := h.AdminCreateRadioStationHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -684,8 +685,8 @@ func TestAdminCreateRadioStation_ServiceError(t *testing.T) {
 
 func TestAdminUpdateRadioStation_Success(t *testing.T) {
 	newName := "KEXP 2.0"
-	mock := &mockRadioService{
-		updateStationFn: func(stationID uint, req *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		UpdateStationFn: func(stationID uint, req *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
 			return &contracts.RadioStationDetailResponse{
 				ID:   stationID,
 				Name: *req.Name,
@@ -707,17 +708,17 @@ func TestAdminUpdateRadioStation_Success(t *testing.T) {
 }
 
 func TestAdminUpdateRadioStation_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminUpdateRadioStationRequest{StationID: 1}
 
 	_, err := h.AdminUpdateRadioStationHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminUpdateRadioStation_NotFound(t *testing.T) {
-	mock := &mockRadioService{
-		updateStationFn: func(stationID uint, req *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		UpdateStationFn: func(stationID uint, req *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error) {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
 		},
 	}
@@ -725,7 +726,7 @@ func TestAdminUpdateRadioStation_NotFound(t *testing.T) {
 	req := &AdminUpdateRadioStationRequest{StationID: 999}
 
 	_, err := h.AdminUpdateRadioStationHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -733,8 +734,8 @@ func TestAdminUpdateRadioStation_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestAdminDeleteRadioStation_Success(t *testing.T) {
-	mock := &mockRadioService{
-		deleteStationFn: func(stationID uint) error {
+	mock := &testhelpers.MockRadioService{
+		DeleteStationFn: func(stationID uint) error {
 			return nil
 		},
 	}
@@ -748,17 +749,17 @@ func TestAdminDeleteRadioStation_Success(t *testing.T) {
 }
 
 func TestAdminDeleteRadioStation_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminDeleteRadioStationRequest{StationID: 1}
 
 	_, err := h.AdminDeleteRadioStationHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminDeleteRadioStation_NotFound(t *testing.T) {
-	mock := &mockRadioService{
-		deleteStationFn: func(stationID uint) error {
+	mock := &testhelpers.MockRadioService{
+		DeleteStationFn: func(stationID uint) error {
 			return apperrors.ErrRadioStationNotFound(stationID)
 		},
 	}
@@ -766,7 +767,7 @@ func TestAdminDeleteRadioStation_NotFound(t *testing.T) {
 	req := &AdminDeleteRadioStationRequest{StationID: 999}
 
 	_, err := h.AdminDeleteRadioStationHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -774,8 +775,8 @@ func TestAdminDeleteRadioStation_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestAdminCreateRadioShow_Success(t *testing.T) {
-	mock := &mockRadioService{
-		createShowFn: func(stationID uint, req *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		CreateShowFn: func(stationID uint, req *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{
 				ID:        1,
 				StationID: stationID,
@@ -798,27 +799,27 @@ func TestAdminCreateRadioShow_Success(t *testing.T) {
 }
 
 func TestAdminCreateRadioShow_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioShowRequest{StationID: 1}
 	req.Body.Name = "Morning Show"
 
 	_, err := h.AdminCreateRadioShowHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminCreateRadioShow_MissingName(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateRadioShowRequest{StationID: 1}
 
 	_, err := h.AdminCreateRadioShowHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminCreateRadioShow_StationNotFound(t *testing.T) {
-	mock := &mockRadioService{
-		createShowFn: func(stationID uint, req *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		CreateShowFn: func(stationID uint, req *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
 		},
 	}
@@ -827,7 +828,7 @@ func TestAdminCreateRadioShow_StationNotFound(t *testing.T) {
 	req.Body.Name = "Morning Show"
 
 	_, err := h.AdminCreateRadioShowHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -836,8 +837,8 @@ func TestAdminCreateRadioShow_StationNotFound(t *testing.T) {
 
 func TestAdminUpdateRadioShow_Success(t *testing.T) {
 	newName := "Evening Show"
-	mock := &mockRadioService{
-		updateShowFn: func(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		UpdateShowFn: func(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
 			return &contracts.RadioShowDetailResponse{
 				ID:   showID,
 				Name: *req.Name,
@@ -859,17 +860,17 @@ func TestAdminUpdateRadioShow_Success(t *testing.T) {
 }
 
 func TestAdminUpdateRadioShow_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminUpdateRadioShowRequest{ShowID: 1}
 
 	_, err := h.AdminUpdateRadioShowHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminUpdateRadioShow_NotFound(t *testing.T) {
-	mock := &mockRadioService{
-		updateShowFn: func(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		UpdateShowFn: func(showID uint, req *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error) {
 			return nil, apperrors.ErrRadioShowNotFound(showID)
 		},
 	}
@@ -877,7 +878,7 @@ func TestAdminUpdateRadioShow_NotFound(t *testing.T) {
 	req := &AdminUpdateRadioShowRequest{ShowID: 999}
 
 	_, err := h.AdminUpdateRadioShowHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -885,8 +886,8 @@ func TestAdminUpdateRadioShow_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestAdminDeleteRadioShow_Success(t *testing.T) {
-	mock := &mockRadioService{
-		deleteShowFn: func(showID uint) error {
+	mock := &testhelpers.MockRadioService{
+		DeleteShowFn: func(showID uint) error {
 			return nil
 		},
 	}
@@ -900,17 +901,17 @@ func TestAdminDeleteRadioShow_Success(t *testing.T) {
 }
 
 func TestAdminDeleteRadioShow_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminDeleteRadioShowRequest{ShowID: 1}
 
 	_, err := h.AdminDeleteRadioShowHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminDeleteRadioShow_NotFound(t *testing.T) {
-	mock := &mockRadioService{
-		deleteShowFn: func(showID uint) error {
+	mock := &testhelpers.MockRadioService{
+		DeleteShowFn: func(showID uint) error {
 			return apperrors.ErrRadioShowNotFound(showID)
 		},
 	}
@@ -918,7 +919,7 @@ func TestAdminDeleteRadioShow_NotFound(t *testing.T) {
 	req := &AdminDeleteRadioShowRequest{ShowID: 999}
 
 	_, err := h.AdminDeleteRadioShowHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 // ============================================================================
@@ -926,8 +927,8 @@ func TestAdminDeleteRadioShow_NotFound(t *testing.T) {
 // ============================================================================
 
 func TestAdminTriggerFetch_Success(t *testing.T) {
-	mock := &mockRadioService{
-		discoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
+	mock := &testhelpers.MockRadioService{
+		DiscoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
 			return &contracts.RadioDiscoverResult{ShowsDiscovered: 3, ShowNames: []string{"Show A", "Show B", "Show C"}}, nil
 		},
 	}
@@ -944,12 +945,12 @@ func TestAdminTriggerFetch_Success(t *testing.T) {
 }
 
 func TestAdminTriggerFetch_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminTriggerFetchRequest{StationID: 1}
 
 	_, err := h.AdminTriggerFetchHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 // ============================================================================
@@ -957,8 +958,8 @@ func TestAdminTriggerFetch_NotAdmin(t *testing.T) {
 // ============================================================================
 
 func TestAdminDiscoverShows_Success(t *testing.T) {
-	mock := &mockRadioService{
-		discoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
+	mock := &testhelpers.MockRadioService{
+		DiscoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
 			return &contracts.RadioDiscoverResult{ShowsDiscovered: 2, ShowNames: []string{"Show X", "Show Y"}}, nil
 		},
 	}
@@ -978,17 +979,17 @@ func TestAdminDiscoverShows_Success(t *testing.T) {
 }
 
 func TestAdminDiscoverShows_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminDiscoverShowsRequest{StationID: 1}
 
 	_, err := h.AdminDiscoverShowsHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminDiscoverShows_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		discoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
+	mock := &testhelpers.MockRadioService{
+		DiscoverStationShowsFn: func(stationID uint) (*contracts.RadioDiscoverResult, error) {
 			return nil, fmt.Errorf("station not found")
 		},
 	}
@@ -996,7 +997,7 @@ func TestAdminDiscoverShows_ServiceError(t *testing.T) {
 	req := &AdminDiscoverShowsRequest{StationID: 999}
 
 	_, err := h.AdminDiscoverShowsHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -1004,8 +1005,8 @@ func TestAdminDiscoverShows_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestAdminImportShowEpisodes_Success(t *testing.T) {
-	mock := &mockRadioService{
-		importShowEpisodesFn: func(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+	mock := &testhelpers.MockRadioService{
+		ImportShowEpisodesFn: func(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
 			return &contracts.RadioImportResult{
 				EpisodesImported: 5,
 				PlaysImported:    50,
@@ -1034,19 +1035,19 @@ func TestAdminImportShowEpisodes_Success(t *testing.T) {
 }
 
 func TestAdminImportShowEpisodes_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminImportShowEpisodesRequest{ShowID: 1}
 	req.Body.Since = "2024-01-01"
 	req.Body.Until = "2024-12-31"
 
 	_, err := h.AdminImportShowEpisodesHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminImportShowEpisodes_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		importShowEpisodesFn: func(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
+	mock := &testhelpers.MockRadioService{
+		ImportShowEpisodesFn: func(showID uint, since string, until string) (*contracts.RadioImportResult, error) {
 			return nil, fmt.Errorf("show not found")
 		},
 	}
@@ -1056,16 +1057,17 @@ func TestAdminImportShowEpisodes_ServiceError(t *testing.T) {
 	req.Body.Until = "2024-12-31"
 
 	_, err := h.AdminImportShowEpisodesHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
+
 // ============================================================================
 // AdminCreateImportJobHandler Tests
 // ============================================================================
 
 func TestAdminCreateImportJob_Success(t *testing.T) {
 	now := time.Now()
-	mock := &mockRadioService{
-		createImportJobFn: func(showID uint, since, until string) (*contracts.RadioImportJobResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		CreateImportJobFn: func(showID uint, since, until string) (*contracts.RadioImportJobResponse, error) {
 			return &contracts.RadioImportJobResponse{
 				ID:          1,
 				ShowID:      showID,
@@ -1079,7 +1081,7 @@ func TestAdminCreateImportJob_Success(t *testing.T) {
 				UpdatedAt:   now,
 			}, nil
 		},
-		startImportJobFn: func(jobID uint) error {
+		StartImportJobFn: func(jobID uint) error {
 			return nil
 		},
 	}
@@ -1104,41 +1106,41 @@ func TestAdminCreateImportJob_Success(t *testing.T) {
 }
 
 func TestAdminCreateImportJob_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateImportJobRequest{ShowID: 1}
 	req.Body.Since = "2025-01-01"
 	req.Body.Until = "2025-12-31"
 
 	_, err := h.AdminCreateImportJobHandler(context.Background(), req)
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestAdminCreateImportJob_MissingSince(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateImportJobRequest{ShowID: 1}
 	req.Body.Since = ""
 	req.Body.Until = "2025-12-31"
 
 	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminCreateImportJob_MissingUntil(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	req := &AdminCreateImportJobRequest{ShowID: 1}
 	req.Body.Since = "2025-01-01"
 	req.Body.Until = ""
 
 	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestAdminCreateImportJob_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		createImportJobFn: func(showID uint, since, until string) (*contracts.RadioImportJobResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		CreateImportJobFn: func(showID uint, since, until string) (*contracts.RadioImportJobResponse, error) {
 			return nil, fmt.Errorf("an import job is already running")
 		},
 	}
@@ -1148,7 +1150,7 @@ func TestAdminCreateImportJob_ServiceError(t *testing.T) {
 	req.Body.Until = "2025-12-31"
 
 	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // ============================================================================
@@ -1157,8 +1159,8 @@ func TestAdminCreateImportJob_ServiceError(t *testing.T) {
 
 func TestAdminGetImportJob_Success(t *testing.T) {
 	now := time.Now()
-	mock := &mockRadioService{
-		getImportJobFn: func(jobID uint) (*contracts.RadioImportJobResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetImportJobFn: func(jobID uint) (*contracts.RadioImportJobResponse, error) {
 			return &contracts.RadioImportJobResponse{
 				ID:          jobID,
 				ShowID:      1,
@@ -1185,21 +1187,21 @@ func TestAdminGetImportJob_Success(t *testing.T) {
 }
 
 func TestAdminGetImportJob_NotFound(t *testing.T) {
-	mock := &mockRadioService{
-		getImportJobFn: func(jobID uint) (*contracts.RadioImportJobResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		GetImportJobFn: func(jobID uint) (*contracts.RadioImportJobResponse, error) {
 			return nil, fmt.Errorf("job not found")
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.AdminGetImportJobHandler(radioAdminCtx(), &AdminGetImportJobRequest{JobID: 999})
-	assertHumaError(t, err, 404)
+	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestAdminGetImportJob_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	_, err := h.AdminGetImportJobHandler(context.Background(), &AdminGetImportJobRequest{JobID: 1})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 // ============================================================================
@@ -1207,8 +1209,8 @@ func TestAdminGetImportJob_NotAdmin(t *testing.T) {
 // ============================================================================
 
 func TestAdminCancelImportJob_Success(t *testing.T) {
-	mock := &mockRadioService{
-		cancelImportJobFn: func(jobID uint) error {
+	mock := &testhelpers.MockRadioService{
+		CancelImportJobFn: func(jobID uint) error {
 			return nil
 		},
 	}
@@ -1223,21 +1225,21 @@ func TestAdminCancelImportJob_Success(t *testing.T) {
 }
 
 func TestAdminCancelImportJob_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		cancelImportJobFn: func(jobID uint) error {
+	mock := &testhelpers.MockRadioService{
+		CancelImportJobFn: func(jobID uint) error {
 			return fmt.Errorf("job cannot be cancelled")
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.AdminCancelImportJobHandler(radioAdminCtx(), &AdminCancelImportJobRequest{JobID: 1})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestAdminCancelImportJob_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	_, err := h.AdminCancelImportJobHandler(context.Background(), &AdminCancelImportJobRequest{JobID: 1})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }
 
 // ============================================================================
@@ -1246,8 +1248,8 @@ func TestAdminCancelImportJob_NotAdmin(t *testing.T) {
 
 func TestAdminListImportJobs_Success(t *testing.T) {
 	now := time.Now()
-	mock := &mockRadioService{
-		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		ListImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
 			return []*contracts.RadioImportJobResponse{
 				{
 					ID:          1,
@@ -1276,8 +1278,8 @@ func TestAdminListImportJobs_Success(t *testing.T) {
 }
 
 func TestAdminListImportJobs_Empty(t *testing.T) {
-	mock := &mockRadioService{
-		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		ListImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
 			return []*contracts.RadioImportJobResponse{}, nil
 		},
 	}
@@ -1292,19 +1294,19 @@ func TestAdminListImportJobs_Empty(t *testing.T) {
 }
 
 func TestAdminListImportJobs_ServiceError(t *testing.T) {
-	mock := &mockRadioService{
-		listImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
+	mock := &testhelpers.MockRadioService{
+		ListImportJobsFn: func(showID uint) ([]*contracts.RadioImportJobResponse, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}
 	h := testRadioHandler(mock)
 	_, err := h.AdminListImportJobsHandler(radioAdminCtx(), &AdminListImportJobsRequest{ShowID: 1})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestAdminListImportJobs_NotAdmin(t *testing.T) {
-	mock := &mockRadioService{}
+	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	_, err := h.AdminListImportJobsHandler(context.Background(), &AdminListImportJobsRequest{ShowID: 1})
-	assertHumaError(t, err, 403)
+	testhelpers.AssertHumaError(t, err, 403)
 }

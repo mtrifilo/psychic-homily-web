@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"strings"
@@ -13,9 +13,9 @@ func envFromMap(m map[string]string) func(string) string {
 
 func TestIsTestFixturesEnabled(t *testing.T) {
 	cases := []struct {
-		name    string
-		env     map[string]string
-		want    bool
+		name string
+		env  map[string]string
+		want bool
 	}{
 		{"flag unset", map[string]string{}, false},
 		{"flag empty", map[string]string{"ENABLE_TEST_FIXTURES": ""}, false},
@@ -35,9 +35,9 @@ func TestIsTestFixturesEnabled(t *testing.T) {
 
 func TestValidateTestFixturesEnvironment(t *testing.T) {
 	cases := []struct {
-		name      string
-		env       map[string]string
-		wantError bool
+		name        string
+		env         map[string]string
+		wantError   bool
 		errIncludes string
 	}{
 		// Safe: flag off means no check

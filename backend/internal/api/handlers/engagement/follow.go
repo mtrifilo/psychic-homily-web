@@ -1,4 +1,4 @@
-package handlers
+package engagement
 
 import (
 	"context"
@@ -119,9 +119,9 @@ type GetMyFollowingRequest struct {
 type GetMyFollowingResponse struct {
 	Body struct {
 		Following []*contracts.FollowingEntityResponse `json:"following"`
-		Total     int64                               `json:"total"`
-		Limit     int                                 `json:"limit"`
-		Offset    int                                 `json:"offset"`
+		Total     int64                                `json:"total"`
+		Limit     int                                  `json:"limit"`
+		Offset    int                                  `json:"offset"`
 	}
 }
 
@@ -137,9 +137,9 @@ type GetFollowersListRequest struct {
 type GetFollowersListResponse struct {
 	Body struct {
 		Followers []*contracts.FollowerResponse `json:"followers"`
-		Total     int64                        `json:"total"`
-		Limit     int                          `json:"limit"`
-		Offset    int                          `json:"offset"`
+		Total     int64                         `json:"total"`
+		Limit     int                           `json:"limit"`
+		Offset    int                           `json:"offset"`
 	}
 }
 
@@ -457,9 +457,9 @@ func (h *FollowHandler) GetMyFollowingHandler(ctx context.Context, req *GetMyFol
 	return &GetMyFollowingResponse{
 		Body: struct {
 			Following []*contracts.FollowingEntityResponse `json:"following"`
-			Total     int64                               `json:"total"`
-			Limit     int                                 `json:"limit"`
-			Offset    int                                 `json:"offset"`
+			Total     int64                                `json:"total"`
+			Limit     int                                  `json:"limit"`
+			Offset    int                                  `json:"offset"`
 		}{
 			Following: following,
 			Total:     total,
@@ -512,9 +512,9 @@ func (h *FollowHandler) GetFollowersListHandler(ctx context.Context, req *GetFol
 	return &GetFollowersListResponse{
 		Body: struct {
 			Followers []*contracts.FollowerResponse `json:"followers"`
-			Total     int64                        `json:"total"`
-			Limit     int                          `json:"limit"`
-			Offset    int                          `json:"offset"`
+			Total     int64                         `json:"total"`
+			Limit     int                           `json:"limit"`
+			Offset    int                           `json:"offset"`
 		}{
 			Followers: followers,
 			Total:     total,

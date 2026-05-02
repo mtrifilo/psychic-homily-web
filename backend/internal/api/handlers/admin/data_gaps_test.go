@@ -1,4 +1,4 @@
-package handlers
+package admin
 
 import (
 	"context"
@@ -9,6 +9,8 @@ import (
 	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
 )
 
@@ -17,7 +19,7 @@ import (
 // ============================================================================
 
 func testDataGapsHandler() *DataGapsHandler {
-	return NewDataGapsHandler(&mockArtistService{}, &mockVenueService{}, &mockFestivalService{}, &mockReleaseService{}, &mockLabelService{})
+	return NewDataGapsHandler(&testhelpers.MockArtistService{}, &testhelpers.MockVenueService{}, &testhelpers.MockFestivalService{}, &testhelpers.MockReleaseService{}, &testhelpers.MockLabelService{})
 }
 
 func dataGapsCtxWithUser() context.Context {
@@ -31,8 +33,8 @@ func dataGapsCtxWithUser() context.Context {
 
 func TestDataGapsHandler_Artist_WithMissingFields(t *testing.T) {
 	h := NewDataGapsHandler(
-		&mockArtistService{
-			getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		&testhelpers.MockArtistService{
+			GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 				return &contracts.ArtistDetailResponse{
 					ID:   1,
 					Slug: "test-artist",
@@ -42,10 +44,10 @@ func TestDataGapsHandler_Artist_WithMissingFields(t *testing.T) {
 				}, nil
 			},
 		},
-		&mockVenueService{},
-		&mockFestivalService{},
-		&mockReleaseService{},
-		&mockLabelService{},
+		&testhelpers.MockVenueService{},
+		&testhelpers.MockFestivalService{},
+		&testhelpers.MockReleaseService{},
+		&testhelpers.MockLabelService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -79,8 +81,8 @@ func TestDataGapsHandler_Artist_Complete(t *testing.T) {
 	state := "AZ"
 	desc := "A great band"
 	h := NewDataGapsHandler(
-		&mockArtistService{
-			getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		&testhelpers.MockArtistService{
+			GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 				return &contracts.ArtistDetailResponse{
 					ID:          1,
 					Slug:        "complete-artist",
@@ -89,18 +91,18 @@ func TestDataGapsHandler_Artist_Complete(t *testing.T) {
 					State:       &state,
 					Description: &desc,
 					Social: contracts.SocialResponse{
-						Bandcamp:  ptrString("https://band.bandcamp.com"),
-						Spotify:   ptrString("https://open.spotify.com/artist/123"),
-						Website:   ptrString("https://band.com"),
-						Instagram: ptrString("https://instagram.com/band"),
+						Bandcamp:  shared.PtrString("https://band.bandcamp.com"),
+						Spotify:   shared.PtrString("https://open.spotify.com/artist/123"),
+						Website:   shared.PtrString("https://band.com"),
+						Instagram: shared.PtrString("https://instagram.com/band"),
 					},
 				}, nil
 			},
 		},
-		&mockVenueService{},
-		&mockFestivalService{},
-		&mockReleaseService{},
-		&mockLabelService{},
+		&testhelpers.MockVenueService{},
+		&testhelpers.MockFestivalService{},
+		&testhelpers.MockReleaseService{},
+		&testhelpers.MockLabelService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -122,9 +124,9 @@ func TestDataGapsHandler_Artist_Complete(t *testing.T) {
 
 func TestDataGapsHandler_Venue_WithMissingFields(t *testing.T) {
 	h := NewDataGapsHandler(
-		&mockArtistService{},
-		&mockVenueService{
-			getVenueBySlugFn: func(slug string) (*contracts.VenueDetailResponse, error) {
+		&testhelpers.MockArtistService{},
+		&testhelpers.MockVenueService{
+			GetVenueBySlugFn: func(slug string) (*contracts.VenueDetailResponse, error) {
 				return &contracts.VenueDetailResponse{
 					ID:   1,
 					Slug: "test-venue",
@@ -135,9 +137,9 @@ func TestDataGapsHandler_Venue_WithMissingFields(t *testing.T) {
 				}, nil
 			},
 		},
-		&mockFestivalService{},
-		&mockReleaseService{},
-		&mockLabelService{},
+		&testhelpers.MockFestivalService{},
+		&testhelpers.MockReleaseService{},
+		&testhelpers.MockLabelService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -164,10 +166,10 @@ func TestDataGapsHandler_Venue_WithMissingFields(t *testing.T) {
 
 func TestDataGapsHandler_Festival_WithMissingFields(t *testing.T) {
 	h := NewDataGapsHandler(
-		&mockArtistService{},
-		&mockVenueService{},
-		&mockFestivalService{
-			getFestivalBySlugFn: func(slug string) (*contracts.FestivalDetailResponse, error) {
+		&testhelpers.MockArtistService{},
+		&testhelpers.MockVenueService{},
+		&testhelpers.MockFestivalService{
+			GetFestivalBySlugFn: func(slug string) (*contracts.FestivalDetailResponse, error) {
 				return &contracts.FestivalDetailResponse{
 					ID:   1,
 					Slug: "test-fest",
@@ -176,8 +178,8 @@ func TestDataGapsHandler_Festival_WithMissingFields(t *testing.T) {
 				}, nil
 			},
 		},
-		&mockReleaseService{},
-		&mockLabelService{},
+		&testhelpers.MockReleaseService{},
+		&testhelpers.MockLabelService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -206,23 +208,23 @@ func TestDataGapsHandler_Festival_WithMissingFields(t *testing.T) {
 
 func TestDataGapsHandler_NotFound(t *testing.T) {
 	h := NewDataGapsHandler(
-		&mockArtistService{
-			getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		&testhelpers.MockArtistService{
+			GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 				return nil, apperrors.ErrArtistNotFound(0)
 			},
 		},
-		&mockVenueService{
-			getVenueBySlugFn: func(slug string) (*contracts.VenueDetailResponse, error) {
+		&testhelpers.MockVenueService{
+			GetVenueBySlugFn: func(slug string) (*contracts.VenueDetailResponse, error) {
 				return nil, apperrors.ErrVenueNotFound(0)
 			},
 		},
-		&mockFestivalService{
-			getFestivalBySlugFn: func(slug string) (*contracts.FestivalDetailResponse, error) {
+		&testhelpers.MockFestivalService{
+			GetFestivalBySlugFn: func(slug string) (*contracts.FestivalDetailResponse, error) {
 				return nil, apperrors.ErrFestivalNotFound(0)
 			},
 		},
-		&mockReleaseService{},
-		&mockLabelService{},
+		&testhelpers.MockReleaseService{},
+		&testhelpers.MockLabelService{},
 	)
 
 	tests := []struct {
@@ -240,7 +242,7 @@ func TestDataGapsHandler_NotFound(t *testing.T) {
 				EntityType: tt.entityType,
 				IDOrSlug:   "nonexistent",
 			})
-			assertHumaError(t, err, 404)
+			testhelpers.AssertHumaError(t, err, 404)
 		})
 	}
 }
@@ -252,7 +254,7 @@ func TestDataGapsHandler_InvalidEntityType(t *testing.T) {
 		EntityType: "invalid",
 		IDOrSlug:   "something",
 	})
-	assertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 400)
 }
 
 func TestDataGapsHandler_Unauthenticated(t *testing.T) {
@@ -263,33 +265,33 @@ func TestDataGapsHandler_Unauthenticated(t *testing.T) {
 		EntityType: "artist",
 		IDOrSlug:   "test",
 	})
-	assertHumaError(t, err, 401)
+	testhelpers.AssertHumaError(t, err, 401)
 }
 
 func TestDataGapsHandler_ServiceError(t *testing.T) {
 	h := NewDataGapsHandler(
-		&mockArtistService{
-			getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		&testhelpers.MockArtistService{
+			GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
-		&mockVenueService{},
-		&mockFestivalService{},
-		&mockReleaseService{},
-		&mockLabelService{},
+		&testhelpers.MockVenueService{},
+		&testhelpers.MockFestivalService{},
+		&testhelpers.MockReleaseService{},
+		&testhelpers.MockLabelService{},
 	)
 
 	_, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
 		EntityType: "artist",
 		IDOrSlug:   "test",
 	})
-	assertHumaError(t, err, 500)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestDataGapsHandler_NumericID(t *testing.T) {
 	h := NewDataGapsHandler(
-		&mockArtistService{
-			getArtistFn: func(id uint) (*contracts.ArtistDetailResponse, error) {
+		&testhelpers.MockArtistService{
+			GetArtistFn: func(id uint) (*contracts.ArtistDetailResponse, error) {
 				if id != 42 {
 					t.Errorf("expected artist ID 42, got %d", id)
 				}
@@ -301,10 +303,10 @@ func TestDataGapsHandler_NumericID(t *testing.T) {
 				}, nil
 			},
 		},
-		&mockVenueService{},
-		&mockFestivalService{},
-		&mockReleaseService{},
-		&mockLabelService{},
+		&testhelpers.MockVenueService{},
+		&testhelpers.MockFestivalService{},
+		&testhelpers.MockReleaseService{},
+		&testhelpers.MockLabelService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{
@@ -323,8 +325,8 @@ func TestDataGapsHandler_EmptyStringNotAGap(t *testing.T) {
 	// An empty string should count as a gap (same as nil)
 	emptyStr := ""
 	h := NewDataGapsHandler(
-		&mockArtistService{
-			getArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+		&testhelpers.MockArtistService{
+			GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
 				return &contracts.ArtistDetailResponse{
 					ID:   1,
 					Slug: "test",
@@ -335,10 +337,10 @@ func TestDataGapsHandler_EmptyStringNotAGap(t *testing.T) {
 				}, nil
 			},
 		},
-		&mockVenueService{},
-		&mockFestivalService{},
-		&mockReleaseService{},
-		&mockLabelService{},
+		&testhelpers.MockVenueService{},
+		&testhelpers.MockFestivalService{},
+		&testhelpers.MockReleaseService{},
+		&testhelpers.MockLabelService{},
 	)
 
 	resp, err := h.GetDataGapsHandler(dataGapsCtxWithUser(), &GetDataGapsRequest{

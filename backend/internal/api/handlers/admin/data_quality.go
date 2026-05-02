@@ -1,10 +1,11 @@
-package handlers
+package admin
 
 import (
 	"context"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -47,7 +48,7 @@ type DataQualityCategoryResponse struct {
 
 // GetDataQualitySummaryHandler handles GET /admin/data-quality
 func (h *DataQualityHandler) GetDataQualitySummaryHandler(ctx context.Context, _ *GetDataQualitySummaryRequest) (*GetDataQualitySummaryResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -105,7 +106,7 @@ type GetDataQualityCategoryResponse struct {
 
 // GetDataQualityCategoryHandler handles GET /admin/data-quality/{category}
 func (h *DataQualityHandler) GetDataQualityCategoryHandler(ctx context.Context, req *GetDataQualityCategoryRequest) (*GetDataQualityCategoryResponse, error) {
-	_, err := requireAdmin(ctx)
+	_, err := shared.RequireAdmin(ctx)
 	if err != nil {
 		return nil, err
 	}
