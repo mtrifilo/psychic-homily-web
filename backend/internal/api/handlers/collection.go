@@ -40,7 +40,10 @@ type ListCollectionsHandlerRequest struct {
 	Search     string `query:"search" required:"false" doc:"Search by title"`
 	// PSY-352: sort=popular orders by HN gravity (likes / age^1.8). Empty
 	// or omitted defaults to updated_at DESC.
-	Sort   string `query:"sort" required:"false" doc:"Sort order: 'popular' for HN-gravity ranking. Defaults to recently-updated." enum:"popular"`
+	Sort string `query:"sort" required:"false" doc:"Sort order: 'popular' for HN-gravity ranking. Defaults to recently-updated." enum:"popular"`
+	// PSY-354: filter the listing to collections tagged with the given slug.
+	// Single-tag for the MVP — multi-tag intersection is out of scope.
+	Tag    string `query:"tag" required:"false" doc:"Filter to collections tagged with this slug" example:"phoenix"`
 	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
 	Offset int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
 }
@@ -67,6 +70,7 @@ func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *Lis
 		EntityType: req.EntityType,
 		PublicOnly: true, // Public endpoint always filters to public
 		Sort:       req.Sort,
+		Tag:        req.Tag, // PSY-354
 	}
 
 	if req.Featured == 1 {
@@ -846,6 +850,140 @@ func (h *CollectionHandler) CloneCollectionHandler(ctx context.Context, req *Clo
 }
 
 // ============================================================================
+// Add / Remove Collection Tags (PSY-354)
+// ============================================================================
+
+// AddCollectionTagHandlerRequest is POST /collections/{slug}/tags. Mirrors
+// AddTagToEntity on entities — accept tag_id OR tag_name. Free-form
+// tag_name routes through the polymorphic tag service's
+// alias-resolve-or-create path; the trust-tier gate on inline creation is
+// inherited (new_user can apply existing tags but cannot create new ones).
+type AddCollectionTagHandlerRequest struct {
+	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Body struct {
+		TagID    uint   `json:"tag_id,omitempty" required:"false" doc:"Existing tag ID (provide tag_id OR tag_name)"`
+		TagName  string `json:"tag_name,omitempty" required:"false" doc:"Tag name with alias resolution; creates the tag inline when not found"`
+		Category string `json:"category,omitempty" required:"false" doc:"Tag category for inline creation (genre, locale, other; default: other)"`
+	}
+}
+
+// AddCollectionTagHandlerResponse returns the post-mutation tag list so the
+// frontend can update the chip row in one round-trip.
+type AddCollectionTagHandlerResponse struct {
+	Body *contracts.AddCollectionTagResponse
+}
+
+// AddCollectionTagHandler handles POST /collections/{slug}/tags.
+//
+// Returns:
+//   - 401 unauthenticated
+//   - 403 caller cannot edit the collection
+//   - 400 cap exceeded (>10 tags) OR malformed body
+//   - 404 collection not found
+//   - 409 tag already applied to this collection
+//   - 200 with the post-mutation tag list
+func (h *CollectionHandler) AddCollectionTagHandler(ctx context.Context, req *AddCollectionTagHandlerRequest) (*AddCollectionTagHandlerResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if req.Body.TagID == 0 && req.Body.TagName == "" {
+		return nil, huma.Error400BadRequest("Either tag_id or tag_name is required")
+	}
+
+	serviceReq := &contracts.AddCollectionTagRequest{
+		TagID:    req.Body.TagID,
+		TagName:  req.Body.TagName,
+		Category: req.Body.Category,
+	}
+
+	resp, err := h.collectionService.AddTagToCollection(req.Slug, user.ID, serviceReq)
+	if err != nil {
+		// Collection-domain errors first (forbidden / cap / not-found / invalid).
+		if mapped := mapCollectionError(err); mapped != nil {
+			return nil, mapped
+		}
+		// Tag-domain errors (already-applied, name-too-short, trust-tier gate).
+		if mapped := mapTagError(err); mapped != nil {
+			return nil, mapped
+		}
+		logger.FromContext(ctx).Error("add_collection_tag_failed",
+			"slug", req.Slug,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to add tag to collection (request_id: %s)", requestID),
+		)
+	}
+
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "add_collection_tag", "collection", 0, map[string]interface{}{
+				"slug":     req.Slug,
+				"tag_id":   req.Body.TagID,
+				"tag_name": req.Body.TagName,
+			})
+		}()
+	}
+
+	return &AddCollectionTagHandlerResponse{Body: resp}, nil
+}
+
+// RemoveCollectionTagHandlerRequest is DELETE /collections/{slug}/tags/{tag_id}.
+type RemoveCollectionTagHandlerRequest struct {
+	Slug  string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	TagID string `path:"tag_id" doc:"Tag ID to remove" example:"42"`
+}
+
+// RemoveCollectionTagHandler handles DELETE /collections/{slug}/tags/{tag_id}.
+func (h *CollectionHandler) RemoveCollectionTagHandler(ctx context.Context, req *RemoveCollectionTagHandlerRequest) (*struct{}, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	tagID, err := strconv.ParseUint(req.TagID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid tag ID")
+	}
+
+	if err := h.collectionService.RemoveTagFromCollection(req.Slug, uint(tagID), user.ID); err != nil {
+		if mapped := mapCollectionError(err); mapped != nil {
+			return nil, mapped
+		}
+		if mapped := mapTagError(err); mapped != nil {
+			return nil, mapped
+		}
+		logger.FromContext(ctx).Error("remove_collection_tag_failed",
+			"slug", req.Slug,
+			"tag_id", tagID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to remove tag from collection (request_id: %s)", requestID),
+		)
+	}
+
+	if h.auditLogService != nil {
+		go func() {
+			h.auditLogService.LogAction(user.ID, "remove_collection_tag", "collection", 0, map[string]interface{}{
+				"slug":   req.Slug,
+				"tag_id": tagID,
+			})
+		}()
+	}
+
+	return nil, nil
+}
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -863,6 +1001,8 @@ func mapCollectionError(err error) error {
 		case apperrors.CodeCollectionItemNotFound:
 			return huma.Error404NotFound(collectionErr.Message)
 		case apperrors.CodeCollectionInvalidRequest:
+			return huma.Error400BadRequest(collectionErr.Message)
+		case apperrors.CodeCollectionTagLimitExceeded:
 			return huma.Error400BadRequest(collectionErr.Message)
 		}
 	}

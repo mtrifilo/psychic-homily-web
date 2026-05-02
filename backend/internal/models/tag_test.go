@@ -78,7 +78,9 @@ func TestTagEntityTypeConstants(t *testing.T) {
 	assert.Equal(t, "show", TagEntityShow)
 	assert.Equal(t, "venue", TagEntityVenue)
 	assert.Equal(t, "festival", TagEntityFestival)
-	assert.Len(t, TagEntityTypes, 6)
+	// PSY-354: collections share the polymorphic entity_tags table.
+	assert.Equal(t, "collection", TagEntityCollection)
+	assert.Len(t, TagEntityTypes, 7)
 }
 
 // Verify tag entity types match collection entity types (same values used project-wide).
@@ -89,4 +91,10 @@ func TestTagEntityTypesMatchCollectionEntityTypes(t *testing.T) {
 	assert.Equal(t, CollectionEntityShow, TagEntityShow)
 	assert.Equal(t, CollectionEntityVenue, TagEntityVenue)
 	assert.Equal(t, CollectionEntityFestival, TagEntityFestival)
+}
+
+// PSY-354: collection entity tag round-trips through IsValidTagEntityType.
+func TestIsValidTagEntityType_Collection(t *testing.T) {
+	assert.True(t, IsValidTagEntityType(TagEntityCollection))
+	assert.True(t, IsValidTagEntityType("collection"))
 }

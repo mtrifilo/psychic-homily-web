@@ -696,6 +696,8 @@ type mockCollectionService struct {
 	getUserPublicCollectionsFn func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	getUserPublicCollectionsByUsernameFn func(string, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	setFeaturedFn func(string, bool) (error)
+	addTagToCollectionFn func(string, uint, *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error)
+	removeTagFromCollectionFn func(string, uint, uint) error
 }
 
 func (m *mockCollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
@@ -821,6 +823,18 @@ func (m *mockCollectionService) GetUserPublicCollectionsByUsername(username stri
 func (m *mockCollectionService) SetFeatured(slug string, featured bool) (error) {
 	if m.setFeaturedFn != nil {
 		return m.setFeaturedFn(slug, featured)
+	}
+	return nil
+}
+func (m *mockCollectionService) AddTagToCollection(slug string, userID uint, req *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error) {
+	if m.addTagToCollectionFn != nil {
+		return m.addTagToCollectionFn(slug, userID, req)
+	}
+	return nil, nil
+}
+func (m *mockCollectionService) RemoveTagFromCollection(slug string, tagID uint, userID uint) error {
+	if m.removeTagFromCollectionFn != nil {
+		return m.removeTagFromCollectionFn(slug, tagID, userID)
 	}
 	return nil
 }

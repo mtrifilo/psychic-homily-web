@@ -39,9 +39,16 @@ const (
 // render Description and per-item Notes on read. Sanitization is applied on
 // every response so existing plain-text rows are also rendered safely — the
 // sanitizer is the source of truth for XSS safety, not the input pipeline.
+//
+// tagService is the polymorphic tag system (PSY-354). Optional — nil when
+// the service is built bare (e.g. from older test paths). The
+// AddTagToCollection / RemoveTagFromCollection methods require it; tag
+// rendering on Get/List is gracefully no-op when nil so that older callers
+// keep working.
 type CollectionService struct {
-	db *gorm.DB
-	md *utils.MarkdownRenderer
+	db         *gorm.DB
+	md         *utils.MarkdownRenderer
+	tagService contracts.TagServiceInterface
 }
 
 // NewCollectionService creates a new collection service
@@ -53,6 +60,14 @@ func NewCollectionService(database *gorm.DB) *CollectionService {
 		db: database,
 		md: utils.NewMarkdownRenderer(),
 	}
+}
+
+// SetTagService injects the polymorphic tag service (PSY-354). Called by the
+// service container after both services are constructed (avoids the
+// constructor-ordering tangle that would otherwise force a TagService import
+// from the services root package). Idempotent — safe to call again in tests.
+func (s *CollectionService) SetTagService(tagService contracts.TagServiceInterface) {
+	s.tagService = tagService
 }
 
 // renderMarkdown returns sanitized HTML for the given markdown source. Returns
@@ -421,6 +436,11 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		}()
 	}
 
+	// PSY-354: tag chips on the detail response. Empty slice (not nil) when
+	// the collection has no tags or the tag service isn't wired (older
+	// test paths) — keeps the JSON shape stable and unblocks the frontend.
+	tags := s.listCollectionTags(collection.ID, viewerID)
+
 	return &contracts.CollectionDetailResponse{
 		ID:                     collection.ID,
 		Title:                  collection.Title,
@@ -445,6 +465,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		IsSubscribed:           isSubscribed,
 		LikeCount:              int(likeCount),
 		UserLikesThis:          userLikesThis,
+		Tags:                   tags,
 		CreatedAt:              collection.CreatedAt,
 		UpdatedAt:              collection.UpdatedAt,
 	}, nil
@@ -513,6 +534,17 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 				Where("entity_type = ?", filters.EntityType),
 		)
 	}
+	// PSY-354: filter by a single tag slug when requested. Subquery joins
+	// entity_tags → tags so callers can use the user-facing slug rather than
+	// numeric tag IDs in the URL. No-op when no collection has the tag.
+	if filters.Tag != "" {
+		query = query.Where("collections.id IN (?)",
+			s.db.Table("entity_tags").
+				Select("entity_tags.entity_id").
+				Joins("JOIN tags ON tags.id = entity_tags.tag_id").
+				Where("entity_tags.entity_type = ? AND tags.slug = ?", models.TagEntityCollection, filters.Tag),
+		)
+	}
 
 	// Count total before pagination
 	var total int64
@@ -566,6 +598,11 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// Batch-load entity type counts
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 
+	// Batch-load tag chips (PSY-354). Returns map[collection_id][]TagSummary;
+	// missing keys decode as nil — we coerce to empty slice in the per-row
+	// build below so the JSON shape is always `tags: []`.
+	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
+
 	// Batch-load creator names
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
@@ -573,6 +610,10 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// Build responses
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
+		tags := tagsByCollection[c.ID]
+		if tags == nil {
+			tags = []contracts.TagSummary{}
+		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
 			Title:                  c.Title,
@@ -595,6 +636,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
 			UserLikesThis:          userLikes[c.ID],
+			Tags:                   tags,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1253,9 +1295,15 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	// PSY-352: like aggregates and viewer's own like state.
 	likeCounts := s.batchCountLikes(collectionIDs)
 	userLikes := s.batchCheckUserLikes(userID, collectionIDs)
+	// PSY-354: tag chips on library cards.
+	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
+		tags := tagsByCollection[c.ID]
+		if tags == nil {
+			tags = []contracts.TagSummary{}
+		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
 			Title:                  c.Title,
@@ -1279,6 +1327,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			NewSinceLastVisit:      newCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
 			UserLikesThis:          userLikes[c.ID],
+			Tags:                   tags,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1339,9 +1388,15 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	// so UserLikesThis is left false here (clients that need it should
 	// use the detail endpoint).
 	likeCounts := s.batchCountLikes(collectionIDs)
+	// PSY-354: tag chips on entity-collection cards.
+	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
+		tags := tagsByCollection[c.ID]
+		if tags == nil {
+			tags = []contracts.TagSummary{}
+		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
 			Title:                  c.Title,
@@ -1363,6 +1418,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
+			Tags:                   tags,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1419,9 +1475,15 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	// PSY-352: like aggregate; viewer ID is not threaded through this call,
 	// so UserLikesThis is left false here.
 	likeCounts := s.batchCountLikes(collectionIDs)
+	// PSY-354: tag chips on profile-page cards.
+	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
+		tags := tagsByCollection[c.ID]
+		if tags == nil {
+			tags = []contracts.TagSummary{}
+		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
 			Title:                  c.Title,
@@ -1443,6 +1505,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
+			Tags:                   tags,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1990,6 +2053,205 @@ func (s *CollectionService) batchCheckUserLikes(userID uint, collectionIDs []uin
 
 	for _, r := range rows {
 		result[r.CollectionID] = true
+	}
+	return result
+}
+
+// ============================================================================
+// Collection tags (PSY-354)
+// ============================================================================
+
+// canEditCollectionTags returns true when the user has permission to
+// add/remove tags on the given collection. Mirrors the AddItem rule:
+// the creator can always edit, plus any authenticated user when the
+// collection is collaborative. Anonymous callers (userID == 0) are
+// always rejected.
+func (s *CollectionService) canEditCollectionTags(collection *models.Collection, userID uint) bool {
+	if userID == 0 {
+		return false
+	}
+	if collection.CreatorID == userID {
+		return true
+	}
+	return collection.Collaborative
+}
+
+// AddTagToCollection applies a tag to a collection (PSY-354). Reuses the
+// polymorphic tag service for the tag/alias resolution + inline-creation
+// path, then enforces:
+//   - max-10 tags per collection (rejects 11th with 400),
+//   - edit-access (creator OR collaborative-and-authenticated),
+//   - default category "other" when creating a new tag inline.
+//
+// Returns the post-mutation tag list so the frontend can refresh the chip
+// row from a single round-trip.
+func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if s.tagService == nil {
+		return nil, fmt.Errorf("tag service not initialized")
+	}
+	if req == nil {
+		return nil, apperrors.ErrCollectionInvalidRequest("request body is required")
+	}
+	if req.TagID == 0 && strings.TrimSpace(req.TagName) == "" {
+		return nil, apperrors.ErrCollectionInvalidRequest("tag_id or tag_name is required")
+	}
+
+	var collection models.Collection
+	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !s.canEditCollectionTags(&collection, userID) {
+		return nil, apperrors.ErrCollectionForbidden(slug)
+	}
+
+	// Enforce the per-collection cap before delegating. We list first so the
+	// 400 response can quote the precise current count to the curator. There
+	// is a benign race here (two simultaneous adds at count==9 could both
+	// succeed), but ten vs eleven is not safety-critical and the alternative
+	// would be a counter column or a SERIALIZABLE transaction — overkill for
+	// a soft cap.
+	existing, err := s.tagService.ListEntityTags(models.TagEntityCollection, collection.ID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list existing collection tags: %w", err)
+	}
+	if len(existing) >= contracts.MaxCollectionTags {
+		return nil, apperrors.ErrCollectionTagLimitExceeded(len(existing), contracts.MaxCollectionTags)
+	}
+
+	category := req.Category
+	if category == "" {
+		// Collection meta-tags rarely fit "genre" or "locale"; default to
+		// "other" so the autocomplete doesn't accidentally pollute the genre
+		// taxonomy when the curator types a freeform term.
+		category = models.TagCategoryOther
+	}
+
+	if _, err := s.tagService.AddTagToEntity(req.TagID, req.TagName, models.TagEntityCollection, collection.ID, userID, category); err != nil {
+		return nil, err
+	}
+
+	// Re-list and return the post-mutation set.
+	tags, err := s.tagService.ListEntityTags(models.TagEntityCollection, collection.ID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list collection tags: %w", err)
+	}
+	if tags == nil {
+		tags = []contracts.EntityTagResponse{}
+	}
+	return &contracts.AddCollectionTagResponse{Tags: tags}, nil
+}
+
+// RemoveTagFromCollection removes a tag from a collection (PSY-354). Same
+// edit-access rule as AddTagToCollection. Idempotency is delegated to the
+// tag service — removing a non-existent application returns ErrEntityTagNotFound.
+func (s *CollectionService) RemoveTagFromCollection(slug string, tagID uint, userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if s.tagService == nil {
+		return fmt.Errorf("tag service not initialized")
+	}
+	if tagID == 0 {
+		return apperrors.ErrCollectionInvalidRequest("tag_id is required")
+	}
+
+	var collection models.Collection
+	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return apperrors.ErrCollectionNotFound(slug)
+		}
+		return fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !s.canEditCollectionTags(&collection, userID) {
+		return apperrors.ErrCollectionForbidden(slug)
+	}
+
+	return s.tagService.RemoveTagFromEntity(tagID, models.TagEntityCollection, collection.ID)
+}
+
+// listCollectionTags returns the EntityTagResponse list for a single
+// collection. Returns an empty slice (never nil) so the JSON shape is
+// stable. Tag service unavailability is a no-op (older test paths build
+// CollectionService bare); callers always get an empty array, never an
+// error. Live errors from the tag service are logged and swallowed for
+// the same reason — a list/get must not fail because the tag side-channel
+// hiccupped.
+func (s *CollectionService) listCollectionTags(collectionID uint, viewerID uint) []contracts.EntityTagResponse {
+	if s.tagService == nil {
+		return []contracts.EntityTagResponse{}
+	}
+	tags, err := s.tagService.ListEntityTags(models.TagEntityCollection, collectionID, viewerID)
+	if err != nil {
+		log.Printf("warning: failed to list tags for collection %d: %v", collectionID, err)
+		return []contracts.EntityTagResponse{}
+	}
+	if tags == nil {
+		return []contracts.EntityTagResponse{}
+	}
+	return tags
+}
+
+// batchListCollectionTagSummaries fetches lightweight tag summaries for
+// many collections in one query. Used by list endpoints (cards) where the
+// per-tag vote/upvote/wilson_score detail isn't needed. Mirrors the
+// batchCount* / batchCheck* helpers the rest of the service uses.
+//
+// SQL shape:
+//
+//	SELECT et.entity_id AS collection_id,
+//	       t.id, t.name, t.slug, t.category, t.is_official, t.usage_count
+//	FROM entity_tags et
+//	JOIN tags t ON t.id = et.tag_id
+//	WHERE et.entity_type = 'collection' AND et.entity_id IN (...)
+//	ORDER BY t.is_official DESC, t.usage_count DESC, t.name ASC
+//
+// Ordering keeps the most-curated chips first on the card.
+func (s *CollectionService) batchListCollectionTagSummaries(collectionIDs []uint) map[uint][]contracts.TagSummary {
+	result := make(map[uint][]contracts.TagSummary)
+	if len(collectionIDs) == 0 {
+		return result
+	}
+
+	type Row struct {
+		CollectionID uint
+		ID           uint
+		Name         string
+		Slug         string
+		Category     string
+		IsOfficial   bool
+		UsageCount   int
+	}
+	var rows []Row
+	err := s.db.Table("entity_tags").
+		Select(`entity_tags.entity_id AS collection_id,
+		        tags.id, tags.name, tags.slug, tags.category,
+		        tags.is_official, tags.usage_count`).
+		Joins("JOIN tags ON tags.id = entity_tags.tag_id").
+		Where("entity_tags.entity_type = ? AND entity_tags.entity_id IN ?", models.TagEntityCollection, collectionIDs).
+		Order("tags.is_official DESC, tags.usage_count DESC, tags.name ASC").
+		Scan(&rows).Error
+	if err != nil {
+		log.Printf("warning: failed to batch list collection tags: %v", err)
+		return result
+	}
+
+	for _, r := range rows {
+		result[r.CollectionID] = append(result[r.CollectionID], contracts.TagSummary{
+			ID:         r.ID,
+			Name:       r.Name,
+			Slug:       r.Slug,
+			Category:   r.Category,
+			IsOfficial: r.IsOfficial,
+			UsageCount: r.UsageCount,
+		})
 	}
 	return result
 }
