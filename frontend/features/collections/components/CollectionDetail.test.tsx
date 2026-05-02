@@ -51,6 +51,23 @@ vi.mock('@/components/shared', () => ({
       <span data-testid="breadcrumb-current">{currentPage}</span>
     </nav>
   ),
+  // PSY-360: stub the density toggle so the items-list view-mode toggle
+  // can render without pulling in the real (no behavior we exercise from
+  // here — density coverage lives in the DensityToggle's own test file).
+  DensityToggle: ({
+    density,
+    onDensityChange,
+  }: {
+    density: 'compact' | 'comfortable' | 'expanded'
+    onDensityChange: (value: 'compact' | 'comfortable' | 'expanded') => void
+  }) => (
+    <div data-testid="density-toggle-stub">
+      <button onClick={() => onDensityChange('compact')}>compact</button>
+      <button onClick={() => onDensityChange('comfortable')}>comfortable</button>
+      <button onClick={() => onDensityChange('expanded')}>expanded</button>
+      <span data-testid="density-current">{density}</span>
+    </div>
+  ),
 }))
 
 // Mock hooks
@@ -709,6 +726,15 @@ describe('CollectionDetail', () => {
   // ──────────────────────────────────────────────
 
   describe('display mode', () => {
+    // PSY-360 default flipped to grid view; the legacy ranked-mode
+    // assertions below (drag handles, numbered position spans, Move
+    // up/down buttons) all live in the list-view rendering path. Force
+    // list view via localStorage so this block keeps testing what it
+    // was originally written to test (PSY-348 ranked vs unranked).
+    beforeEach(() => {
+      window.localStorage.setItem('ph-collection-items-view-mode', 'list')
+    })
+
     const sampleItems = [
       {
         id: 11,
@@ -1535,6 +1561,208 @@ describe('CollectionDetail', () => {
       expect(screen.getByText('The Growlers')).toBeInTheDocument()
       expect(screen.getByText('Dana Point, CA')).toBeInTheDocument()
       expect(screen.getByText('Artist')).toBeInTheDocument()
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-360: Grid view + view-mode toggle
+  // ──────────────────────────────────────────────
+
+  describe('PSY-360 grid view + view-mode toggle', () => {
+    const sampleItems = [
+      {
+        id: 21,
+        entity_type: 'release',
+        entity_id: 201,
+        entity_name: 'Cover Art Release',
+        entity_slug: 'cover-art-release',
+        image_url: 'https://example.com/cover.jpg',
+        position: 0,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 22,
+        entity_type: 'artist',
+        entity_id: 202,
+        entity_name: 'No-Image Artist',
+        entity_slug: 'no-image-artist',
+        image_url: null,
+        position: 1,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+    ]
+
+    beforeEach(() => {
+      // Each test starts with no stored view-mode preference so the default
+      // (grid) applies — except where a test explicitly seeds it.
+      window.localStorage.removeItem('ph-collection-items-view-mode')
+    })
+
+    it('renders grid view by default with one card per item', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      const container = screen.getByTestId('collection-items')
+      expect(container).toHaveAttribute('data-view-mode', 'grid')
+
+      // One card per item
+      expect(screen.getAllByTestId('collection-item-card')).toHaveLength(2)
+
+      // The release with image_url renders the image variant; the
+      // artist without one renders the typed-icon fallback.
+      expect(screen.getByTestId('collection-item-card-image')).toBeInTheDocument()
+      expect(screen.getByTestId('collection-item-card-fallback')).toBeInTheDocument()
+    })
+
+    it('renders the view-mode toggle with both options', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(screen.getByTestId('collection-items-view-toggle')).toBeInTheDocument()
+      expect(screen.getByTestId('view-mode-grid')).toBeInTheDocument()
+      expect(screen.getByTestId('view-mode-list')).toBeInTheDocument()
+    })
+
+    it('clicking the list-view button switches to list rendering', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Sanity: starts in grid.
+      expect(screen.getByTestId('collection-items')).toHaveAttribute(
+        'data-view-mode',
+        'grid'
+      )
+
+      await user.click(screen.getByTestId('view-mode-list'))
+
+      expect(screen.getByTestId('collection-items')).toHaveAttribute(
+        'data-view-mode',
+        'list'
+      )
+      // Grid cards are gone; list rows have replaced them.
+      expect(screen.queryAllByTestId('collection-item-card')).toHaveLength(0)
+      // List rendering shows the entity-name link with its added-by line.
+      expect(screen.getByText('Cover Art Release')).toBeInTheDocument()
+      // Persistence side-effect: the choice was saved.
+      expect(
+        window.localStorage.getItem('ph-collection-items-view-mode')
+      ).toBe('list')
+    })
+
+    it('respects a stored list-view preference on mount', () => {
+      window.localStorage.setItem('ph-collection-items-view-mode', 'list')
+      mockCollection.mockReturnValue({
+        data: makeCollection({ items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(screen.getByTestId('collection-items')).toHaveAttribute(
+        'data-view-mode',
+        'list'
+      )
+      // No grid cards.
+      expect(screen.queryAllByTestId('collection-item-card')).toHaveLength(0)
+    })
+
+    it('density toggle is visible only in grid view', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Visible in grid.
+      expect(screen.getByTestId('density-toggle-stub')).toBeInTheDocument()
+
+      // Switch to list — density toggle disappears (no effect on list).
+      await user.click(screen.getByTestId('view-mode-list'))
+      expect(
+        screen.queryByTestId('density-toggle-stub')
+      ).not.toBeInTheDocument()
+    })
+
+    it('grid view in ranked mode shows position badges on each card', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          display_mode: 'ranked',
+          items: sampleItems,
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      const badges = screen.getAllByTestId('collection-item-card-position')
+      expect(badges).toHaveLength(2)
+      expect(badges[0]).toHaveTextContent('1')
+      expect(badges[1]).toHaveTextContent('2')
+    })
+
+    it('grid view in unranked mode does NOT show position badges', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          display_mode: 'unranked',
+          items: sampleItems,
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(
+        screen.queryAllByTestId('collection-item-card-position')
+      ).toHaveLength(0)
+    })
+
+    it('density toggle changes the column-grid container class', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      const container = screen.getByTestId('collection-items')
+      // Default density is comfortable (ph-density default).
+      expect(container.className).toContain('grid-cols-2')
+      expect(container.className).toContain('sm:grid-cols-3')
+
+      // Compact density → tighter grid.
+      await user.click(screen.getByText('compact'))
+      const compactContainer = screen.getByTestId('collection-items')
+      expect(compactContainer.className).toContain('grid-cols-3')
+      expect(compactContainer.className).toContain('sm:grid-cols-4')
+
+      // Expanded density → wider tiles, fewer columns.
+      await user.click(screen.getByText('expanded'))
+      const expandedContainer = screen.getByTestId('collection-items')
+      expect(expandedContainer.className).toContain('grid-cols-1')
+      expect(expandedContainer.className).toContain('sm:grid-cols-2')
     })
   })
 })
