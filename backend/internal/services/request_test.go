@@ -9,7 +9,8 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -45,9 +46,9 @@ func (suite *RequestServiceIntegrationTestSuite) SetupTest() {
 }
 
 // createTestUserForRequest creates a test user for request tests
-func (suite *RequestServiceIntegrationTestSuite) createTestUser(name string) *models.User {
+func (suite *RequestServiceIntegrationTestSuite) createTestUser(name string) *authm.User {
 	email := fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		FirstName:     &name,
 		IsActive:      true,
@@ -73,7 +74,7 @@ func (suite *RequestServiceIntegrationTestSuite) TestCreateRequest_Success() {
 	suite.Assert().NotNil(request.Description)
 	suite.Assert().Equal("They play shows frequently", *request.Description)
 	suite.Assert().Equal("artist", request.EntityType)
-	suite.Assert().Equal(models.RequestStatusPending, request.Status)
+	suite.Assert().Equal(communitym.RequestStatusPending, request.Status)
 	suite.Assert().Equal(user.ID, request.RequesterID)
 	suite.Assert().Equal(0, request.VoteScore)
 	suite.Assert().Equal(0, request.Upvotes)
@@ -481,7 +482,7 @@ func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_Success() {
 	suite.Require().NoError(err)
 
 	request, _ := suite.requestService.GetRequest(created.ID)
-	suite.Assert().Equal(models.RequestStatusFulfilled, request.Status)
+	suite.Assert().Equal(communitym.RequestStatusFulfilled, request.Status)
 	suite.Assert().NotNil(request.FulfillerID)
 	suite.Assert().Equal(fulfiller.ID, *request.FulfillerID)
 	suite.Assert().NotNil(request.FulfilledAt)
@@ -497,7 +498,7 @@ func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_WithEntityID
 	suite.Require().NoError(err)
 
 	request, _ := suite.requestService.GetRequest(created.ID)
-	suite.Assert().Equal(models.RequestStatusFulfilled, request.Status)
+	suite.Assert().Equal(communitym.RequestStatusFulfilled, request.Status)
 	suite.Assert().NotNil(request.RequestedEntityID)
 	suite.Assert().Equal(uint(42), *request.RequestedEntityID)
 }
@@ -540,7 +541,7 @@ func (suite *RequestServiceIntegrationTestSuite) TestCloseRequest_ByOwner() {
 	suite.Require().NoError(err)
 
 	request, _ := suite.requestService.GetRequest(created.ID)
-	suite.Assert().Equal(models.RequestStatusCancelled, request.Status)
+	suite.Assert().Equal(communitym.RequestStatusCancelled, request.Status)
 }
 
 func (suite *RequestServiceIntegrationTestSuite) TestCloseRequest_ByAdmin() {
@@ -552,7 +553,7 @@ func (suite *RequestServiceIntegrationTestSuite) TestCloseRequest_ByAdmin() {
 	suite.Require().NoError(err)
 
 	request, _ := suite.requestService.GetRequest(created.ID)
-	suite.Assert().Equal(models.RequestStatusRejected, request.Status)
+	suite.Assert().Equal(communitym.RequestStatusRejected, request.Status)
 }
 
 func (suite *RequestServiceIntegrationTestSuite) TestCloseRequest_AdminSelfClose() {
@@ -565,7 +566,7 @@ func (suite *RequestServiceIntegrationTestSuite) TestCloseRequest_AdminSelfClose
 
 	request, _ := suite.requestService.GetRequest(created.ID)
 	// Owner closing their own = cancelled, even if admin
-	suite.Assert().Equal(models.RequestStatusCancelled, request.Status)
+	suite.Assert().Equal(communitym.RequestStatusCancelled, request.Status)
 }
 
 func (suite *RequestServiceIntegrationTestSuite) TestCloseRequest_NotOwnerNotAdmin() {

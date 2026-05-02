@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -26,7 +27,7 @@ func TestReportShowHandler_NoAuth(t *testing.T) {
 
 func TestReportShowHandler_InvalidID(t *testing.T) {
 	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &ReportShowRequest{ShowID: "abc"}
 
 	_, err := h.ReportShowHandler(ctx, req)
@@ -45,13 +46,13 @@ func TestReportShowHandler_Success(t *testing.T) {
 			}
 			return report, nil
 		},
-		GetReportByIDFn: func(reportID uint) (*models.ShowReport, error) {
-			return &models.ShowReport{ID: reportID}, nil
+		GetReportByIDFn: func(reportID uint) (*communitym.ShowReport, error) {
+			return &communitym.ShowReport{ID: reportID}, nil
 		},
 	}
 	email := "user@test.com"
 	h := NewShowReportHandler(mock, &testhelpers.MockDiscordService{}, &testhelpers.MockUserService{}, &testhelpers.MockAuditLogService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, Email: &email})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, Email: &email})
 
 	req := &ReportShowRequest{ShowID: "42"}
 	req.Body.ReportType = "cancelled"
@@ -71,7 +72,7 @@ func TestReportShowHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, &testhelpers.MockDiscordService{}, &testhelpers.MockUserService{}, &testhelpers.MockAuditLogService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	req := &ReportShowRequest{ShowID: "42"}
 	req.Body.ReportType = "cancelled"
@@ -91,7 +92,7 @@ func TestGetMyReportHandler_NoAuth(t *testing.T) {
 
 func TestGetMyReportHandler_InvalidID(t *testing.T) {
 	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetMyReportRequest{ShowID: "abc"}
 
 	_, err := h.GetMyReportHandler(ctx, req)
@@ -109,7 +110,7 @@ func TestGetMyReportHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetMyReportHandler(ctx, &GetMyReportRequest{ShowID: "42"})
 	if err != nil {
@@ -130,7 +131,7 @@ func TestGetMyReportHandler_NoReport(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetMyReportHandler(ctx, &GetMyReportRequest{ShowID: "42"})
 	if err != nil {
@@ -148,7 +149,7 @@ func TestGetMyReportHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetMyReportHandler(ctx, &GetMyReportRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -166,7 +167,7 @@ func TestGetPendingReportsHandler_NoAuth(t *testing.T) {
 
 func TestGetPendingReportsHandler_NonAdmin(t *testing.T) {
 	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &GetPendingReportsRequest{}
 
 	_, err := h.GetPendingReportsHandler(ctx, req)
@@ -181,7 +182,7 @@ func TestGetPendingReportsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GetPendingReportsHandler(ctx, &GetPendingReportsRequest{Limit: 10})
 	if err != nil {
@@ -202,7 +203,7 @@ func TestGetPendingReportsHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.GetPendingReportsHandler(ctx, &GetPendingReportsRequest{Limit: 10})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -220,7 +221,7 @@ func TestDismissReportHandler_NoAuth(t *testing.T) {
 
 func TestDismissReportHandler_NonAdmin(t *testing.T) {
 	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &DismissReportRequest{ReportID: "1"}
 
 	_, err := h.DismissReportHandler(ctx, req)
@@ -229,7 +230,7 @@ func TestDismissReportHandler_NonAdmin(t *testing.T) {
 
 func TestDismissReportHandler_InvalidID(t *testing.T) {
 	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &DismissReportRequest{ReportID: "abc"}
 
 	_, err := h.DismissReportHandler(ctx, req)
@@ -259,7 +260,7 @@ func TestDismissReportHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, auditMock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 99, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 99, IsAdmin: true})
 
 	resp, err := h.DismissReportHandler(ctx, &DismissReportRequest{ReportID: "5"})
 	if err != nil {
@@ -280,7 +281,7 @@ func TestDismissReportHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, &testhelpers.MockAuditLogService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DismissReportHandler(ctx, &DismissReportRequest{ReportID: "5"})
 	testhelpers.AssertHumaError(t, err, 422)
@@ -298,7 +299,7 @@ func TestResolveReportHandler_NoAuth(t *testing.T) {
 
 func TestResolveReportHandler_NonAdmin(t *testing.T) {
 	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &ResolveReportRequest{ReportID: "1"}
 
 	_, err := h.ResolveReportHandler(ctx, req)
@@ -307,7 +308,7 @@ func TestResolveReportHandler_NonAdmin(t *testing.T) {
 
 func TestResolveReportHandler_InvalidID(t *testing.T) {
 	h := testShowReportHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &ResolveReportRequest{ReportID: "abc"}
 
 	_, err := h.ResolveReportHandler(ctx, req)
@@ -334,7 +335,7 @@ func TestResolveReportHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, auditMock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 99, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 99, IsAdmin: true})
 
 	resp, err := h.ResolveReportHandler(ctx, &ResolveReportRequest{ReportID: "5"})
 	if err != nil {
@@ -364,7 +365,7 @@ func TestResolveReportHandler_WithFlag(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, auditMock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 99, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 99, IsAdmin: true})
 
 	req := &ResolveReportRequest{ReportID: "5"}
 	flagTrue := true
@@ -389,7 +390,7 @@ func TestResolveReportHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewShowReportHandler(mock, nil, nil, &testhelpers.MockAuditLogService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.ResolveReportHandler(ctx, &ResolveReportRequest{ReportID: "5"})
 	testhelpers.AssertHumaError(t, err, 422)

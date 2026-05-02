@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -51,8 +53,8 @@ func TestRevisionServiceIntegrationSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (s *RevisionServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (s *RevisionServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("rev-user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -64,9 +66,9 @@ func (s *RevisionServiceIntegrationTestSuite) createTestUser() *models.User {
 	return user
 }
 
-func (s *RevisionServiceIntegrationTestSuite) createTestVenue(name string) *models.Venue {
+func (s *RevisionServiceIntegrationTestSuite) createTestVenue(name string) *catalogm.Venue {
 	slug := fmt.Sprintf("test-venue-%d", time.Now().UnixNano())
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:  name,
 		Slug:  &slug,
 		City:  "Phoenix",
@@ -84,7 +86,7 @@ func (s *RevisionServiceIntegrationTestSuite) createTestVenue(name string) *mode
 func (s *RevisionServiceIntegrationTestSuite) TestRecordRevision_Success() {
 	user := s.createTestUser()
 
-	changes := []models.FieldChange{
+	changes := []adminm.FieldChange{
 		{Field: "name", OldValue: "Old Name", NewValue: "New Name"},
 		{Field: "city", OldValue: "Phoenix", NewValue: "Tempe"},
 	}
@@ -93,7 +95,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRecordRevision_Success() {
 	s.NoError(err)
 
 	// Verify the revision was created
-	var revision models.Revision
+	var revision adminm.Revision
 	err = s.db.First(&revision).Error
 	s.Require().NoError(err)
 	s.Equal("venue", revision.EntityType)
@@ -104,7 +106,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRecordRevision_Success() {
 	s.Require().NotNil(revision.FieldChanges)
 
 	// Verify field changes deserialization
-	var parsedChanges []models.FieldChange
+	var parsedChanges []adminm.FieldChange
 	err = json.Unmarshal(*revision.FieldChanges, &parsedChanges)
 	s.NoError(err)
 	s.Len(parsedChanges, 2)
@@ -116,12 +118,12 @@ func (s *RevisionServiceIntegrationTestSuite) TestRecordRevision_Success() {
 func (s *RevisionServiceIntegrationTestSuite) TestRecordRevision_EmptyChanges() {
 	user := s.createTestUser()
 
-	err := s.svc.RecordRevision("artist", 1, user.ID, []models.FieldChange{}, "no changes")
+	err := s.svc.RecordRevision("artist", 1, user.ID, []adminm.FieldChange{}, "no changes")
 	s.NoError(err)
 
 	// Verify no revision was created
 	var count int64
-	s.db.Model(&models.Revision{}).Count(&count)
+	s.db.Model(&adminm.Revision{}).Count(&count)
 	s.Equal(int64(0), count)
 }
 
@@ -132,21 +134,21 @@ func (s *RevisionServiceIntegrationTestSuite) TestRecordRevision_NilChanges() {
 	s.NoError(err)
 
 	var count int64
-	s.db.Model(&models.Revision{}).Count(&count)
+	s.db.Model(&adminm.Revision{}).Count(&count)
 	s.Equal(int64(0), count)
 }
 
 func (s *RevisionServiceIntegrationTestSuite) TestRecordRevision_EmptySummary() {
 	user := s.createTestUser()
 
-	changes := []models.FieldChange{
+	changes := []adminm.FieldChange{
 		{Field: "name", OldValue: "Old", NewValue: "New"},
 	}
 
 	err := s.svc.RecordRevision("artist", 1, user.ID, changes, "")
 	s.NoError(err)
 
-	var revision models.Revision
+	var revision adminm.Revision
 	err = s.db.First(&revision).Error
 	s.Require().NoError(err)
 	s.Nil(revision.Summary) // Empty summary stored as nil
@@ -161,7 +163,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_Success() {
 
 	// Create 3 revisions for the same entity
 	for i := 0; i < 3; i++ {
-		changes := []models.FieldChange{
+		changes := []adminm.FieldChange{
 			{Field: "name", OldValue: fmt.Sprintf("Name %d", i), NewValue: fmt.Sprintf("Name %d", i+1)},
 		}
 		err := s.svc.RecordRevision("artist", 10, user.ID, changes, fmt.Sprintf("Edit %d", i+1))
@@ -184,7 +186,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_Pagination() 
 	user := s.createTestUser()
 
 	for i := 0; i < 5; i++ {
-		changes := []models.FieldChange{
+		changes := []adminm.FieldChange{
 			{Field: "name", OldValue: "old", NewValue: "new"},
 		}
 		err := s.svc.RecordRevision("venue", 20, user.ID, changes, fmt.Sprintf("Edit %d", i+1))
@@ -228,7 +230,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_MaxLimit() {
 func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_FiltersByEntity() {
 	user := s.createTestUser()
 
-	changes := []models.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
+	changes := []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 	s.Require().NoError(s.svc.RecordRevision("artist", 1, user.ID, changes, "artist edit"))
 	s.Require().NoError(s.svc.RecordRevision("venue", 1, user.ID, changes, "venue edit"))
 	s.Require().NoError(s.svc.RecordRevision("artist", 2, user.ID, changes, "other artist edit"))
@@ -244,7 +246,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_FiltersByEnti
 func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_PreloadsUser() {
 	user := s.createTestUser()
 
-	changes := []models.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
+	changes := []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 	s.Require().NoError(s.svc.RecordRevision("artist", 1, user.ID, changes, "test"))
 
 	revisions, _, err := s.svc.GetEntityHistory("artist", 1, 10, 0)
@@ -261,14 +263,14 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetEntityHistory_PreloadsUser(
 func (s *RevisionServiceIntegrationTestSuite) TestGetRevision_Found() {
 	user := s.createTestUser()
 
-	changes := []models.FieldChange{
+	changes := []adminm.FieldChange{
 		{Field: "name", OldValue: "Old", NewValue: "New"},
 	}
 	err := s.svc.RecordRevision("artist", 5, user.ID, changes, "test edit")
 	s.Require().NoError(err)
 
 	// Get the created revision's ID
-	var created models.Revision
+	var created adminm.Revision
 	s.db.First(&created)
 
 	revision, err := s.svc.GetRevision(created.ID)
@@ -294,7 +296,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_Success() {
 	user1 := s.createTestUser()
 	user2 := s.createTestUser()
 
-	changes := []models.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
+	changes := []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 
 	// User 1 makes 3 edits
 	for i := 0; i < 3; i++ {
@@ -325,7 +327,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_Success() {
 func (s *RevisionServiceIntegrationTestSuite) TestGetUserRevisions_Pagination() {
 	user := s.createTestUser()
 
-	changes := []models.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
+	changes := []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 	for i := 0; i < 5; i++ {
 		s.Require().NoError(s.svc.RecordRevision("artist", uint(i+1), user.ID, changes, ""))
 	}
@@ -362,7 +364,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_Success() {
 	venue := s.createTestVenue("Original Name")
 
 	// Record a revision changing the venue name
-	changes := []models.FieldChange{
+	changes := []adminm.FieldChange{
 		{Field: "name", OldValue: "Original Name", NewValue: "Changed Name"},
 	}
 	err := s.svc.RecordRevision("venue", venue.ID, user.ID, changes, "renamed venue")
@@ -374,12 +376,12 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_Success() {
 	})
 
 	// Verify venue has changed name
-	var updatedVenue models.Venue
+	var updatedVenue catalogm.Venue
 	s.db.First(&updatedVenue, venue.ID)
 	s.Equal("Changed Name", updatedVenue.Name)
 
 	// Get the revision to rollback
-	var revision models.Revision
+	var revision adminm.Revision
 	s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).First(&revision)
 
 	// Rollback
@@ -387,12 +389,12 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_Success() {
 	s.NoError(err)
 
 	// Verify venue name is restored
-	var restoredVenue models.Venue
+	var restoredVenue catalogm.Venue
 	s.db.First(&restoredVenue, venue.ID)
 	s.Equal("Original Name", restoredVenue.Name)
 
 	// Verify a rollback revision was created
-	var allRevisions []models.Revision
+	var allRevisions []adminm.Revision
 	s.db.Where("entity_type = ? AND entity_id = ?", "venue", venue.ID).
 		Order("created_at DESC").
 		Find(&allRevisions)
@@ -404,7 +406,7 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_Success() {
 	s.Contains(*rollbackRevision.Summary, "Rollback of revision #")
 
 	// Verify rollback revision has inverted changes
-	var rollbackChanges []models.FieldChange
+	var rollbackChanges []adminm.FieldChange
 	err = json.Unmarshal(*rollbackRevision.FieldChanges, &rollbackChanges)
 	s.NoError(err)
 	s.Len(rollbackChanges, 1)
@@ -423,13 +425,13 @@ func (s *RevisionServiceIntegrationTestSuite) TestRollback_EntityNotFound() {
 	user := s.createTestUser()
 
 	// Record a revision for an entity that doesn't exist
-	changes := []models.FieldChange{
+	changes := []adminm.FieldChange{
 		{Field: "name", OldValue: "Old", NewValue: "New"},
 	}
 	err := s.svc.RecordRevision("venue", 99999, user.ID, changes, "test")
 	s.Require().NoError(err)
 
-	var revision models.Revision
+	var revision adminm.Revision
 	s.db.First(&revision)
 
 	err = s.svc.Rollback(revision.ID, user.ID)

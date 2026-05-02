@@ -8,7 +8,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -60,7 +60,7 @@ func TestCreateFieldNote_NoAuth(t *testing.T) {
 
 func TestCreateFieldNote_InvalidShowID(t *testing.T) {
 	h := testFieldNoteHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	_, err := h.CreateFieldNoteHandler(ctx, &CreateFieldNoteRequest{
 		ShowID: "abc",
 	})
@@ -69,7 +69,7 @@ func TestCreateFieldNote_InvalidShowID(t *testing.T) {
 
 func TestCreateFieldNote_EmptyBody(t *testing.T) {
 	h := testFieldNoteHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "   "
 	_, err := h.CreateFieldNoteHandler(ctx, req)
@@ -83,7 +83,7 @@ func TestCreateFieldNote_ShowNotFound(t *testing.T) {
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "999"}
 	req.Body.Body = "test note"
 	_, err := h.CreateFieldNoteHandler(ctx, req)
@@ -97,7 +97,7 @@ func TestCreateFieldNote_FutureShow(t *testing.T) {
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
 	_, err := h.CreateFieldNoteHandler(ctx, req)
@@ -111,7 +111,7 @@ func TestCreateFieldNote_SoundQualityInvalid(t *testing.T) {
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
 	sq := 0
@@ -127,7 +127,7 @@ func TestCreateFieldNote_CrowdEnergyInvalid(t *testing.T) {
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
 	ce := 7
@@ -143,7 +143,7 @@ func TestCreateFieldNote_ArtistNotOnShow(t *testing.T) {
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
 	aid := uint(99)
@@ -159,7 +159,7 @@ func TestCreateFieldNote_RateLimited(t *testing.T) {
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "1"}
 	req.Body.Body = "test note"
 	_, err := h.CreateFieldNoteHandler(ctx, req)
@@ -183,7 +183,7 @@ func TestCreateFieldNote_Success(t *testing.T) {
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "42"}
 	req.Body.Body = "Great show!"
 	resp, err := h.CreateFieldNoteHandler(ctx, req)
@@ -228,7 +228,7 @@ func TestCreateFieldNote_PassesAllFields(t *testing.T) {
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 10})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 10})
 	req := &CreateFieldNoteRequest{ShowID: "42"}
 	req.Body.Body = "note"
 	req.Body.ShowArtistID = &aid

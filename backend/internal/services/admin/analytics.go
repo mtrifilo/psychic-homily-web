@@ -43,7 +43,7 @@ func generateMonthKeys(months int) []string {
 	first := time.Date(now.Year(), now.Month(), 1, 0, 0, 0, 0, time.UTC)
 	keys := make([]string, months)
 	for i := 0; i < months; i++ {
-		t := first.AddDate(0, -(months-1-i), 0)
+		t := first.AddDate(0, -(months - 1 - i), 0)
 		keys[i] = t.Format("2006-01")
 	}
 	return keys

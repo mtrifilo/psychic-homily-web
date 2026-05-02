@@ -17,7 +17,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/middleware"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // AssertHumaError checks that an error is a *huma.ErrorModel with the
@@ -41,6 +41,6 @@ func AssertHumaError(t *testing.T, err error, expectedStatus int) {
 // middleware.UserContextKey. Mirrors what the auth middleware does in
 // production so handler unit tests can simulate authenticated requests
 // without spinning up the middleware stack.
-func CtxWithUser(user *models.User) context.Context {
+func CtxWithUser(user *authm.User) context.Context {
 	return context.WithValue(context.Background(), middleware.UserContextKey, user)
 }

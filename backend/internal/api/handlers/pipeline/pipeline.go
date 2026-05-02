@@ -9,7 +9,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -98,7 +98,7 @@ type PipelineVenueInfo struct {
 	ExtractionNotes     *string                    `json:"extraction_notes,omitempty"`
 	ApprovalRate        *float64                   `json:"approval_rate,omitempty"`
 	TotalRuns           int                        `json:"total_runs"`
-	LastRun             *models.VenueExtractionRun `json:"last_run,omitempty"`
+	LastRun             *adminm.VenueExtractionRun `json:"last_run,omitempty"`
 }
 
 // ListPipelineVenuesResponse is the Huma response for GET /admin/pipeline/venues
@@ -281,7 +281,7 @@ func (h *PipelineHandler) UpdateVenueConfigHandler(ctx context.Context, req *Upd
 		return nil, huma.Error400BadRequest("Invalid venue ID")
 	}
 
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:         uint(venueID),
 		CalendarURL:     req.Body.CalendarURL,
 		PreferredSource: req.Body.PreferredSource,
@@ -338,7 +338,7 @@ type GetVenueRunsRequest struct {
 // GetVenueRunsResponse is the Huma response for GET /admin/pipeline/venues/{venue_id}/runs
 type GetVenueRunsResponse struct {
 	Body struct {
-		Runs  []models.VenueExtractionRun `json:"runs"`
+		Runs  []adminm.VenueExtractionRun `json:"runs"`
 		Total int                         `json:"total"`
 	}
 }

@@ -10,7 +10,10 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -114,8 +117,8 @@ func TestLeaderboardServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *LeaderboardServiceIntegrationTestSuite) createTestUser(username string) *models.User {
-	user := &models.User{
+func (suite *LeaderboardServiceIntegrationTestSuite) createTestUser(username string) *authm.User {
+	user := &authm.User{
 		Email:             stringPtr(fmt.Sprintf("%s-%d@test.com", username, time.Now().UnixNano())),
 		Username:          stringPtr(username),
 		ProfileVisibility: "public",
@@ -127,10 +130,10 @@ func (suite *LeaderboardServiceIntegrationTestSuite) createTestUser(username str
 	return user
 }
 
-func (suite *LeaderboardServiceIntegrationTestSuite) createUserWithHiddenContributions(username string) *models.User {
+func (suite *LeaderboardServiceIntegrationTestSuite) createUserWithHiddenContributions(username string) *authm.User {
 	privJSON := `{"contributions":"hidden","saved_shows":"hidden","attendance":"hidden","following":"count_only","collections":"visible","last_active":"visible","profile_sections":"visible"}`
 	raw := json.RawMessage(privJSON)
-	user := &models.User{
+	user := &authm.User{
 		Email:             stringPtr(fmt.Sprintf("%s-%d@test.com", username, time.Now().UnixNano())),
 		Username:          stringPtr(username),
 		ProfileVisibility: "public",
@@ -144,7 +147,7 @@ func (suite *LeaderboardServiceIntegrationTestSuite) createUserWithHiddenContrib
 }
 
 func (suite *LeaderboardServiceIntegrationTestSuite) createShow(submittedBy uint, title string) {
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       title,
 		SubmittedBy: &submittedBy,
 		Status:      "approved",
@@ -156,7 +159,7 @@ func (suite *LeaderboardServiceIntegrationTestSuite) createShow(submittedBy uint
 
 func (suite *LeaderboardServiceIntegrationTestSuite) createVenue(submittedBy uint, name string) {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:        name,
 		SubmittedBy: &submittedBy,
 		City:        "Phoenix",
@@ -169,7 +172,7 @@ func (suite *LeaderboardServiceIntegrationTestSuite) createVenue(submittedBy uin
 
 func (suite *LeaderboardServiceIntegrationTestSuite) createTag(addedByUserID uint) {
 	// Create the tag first
-	tag := &models.Tag{
+	tag := &catalogm.Tag{
 		Name:     fmt.Sprintf("tag-%d", time.Now().UnixNano()),
 		Slug:     fmt.Sprintf("tag-%d", time.Now().UnixNano()),
 		Category: "genre",
@@ -178,7 +181,7 @@ func (suite *LeaderboardServiceIntegrationTestSuite) createTag(addedByUserID uin
 	suite.Require().NoError(err)
 
 	// Create the entity tag
-	entityTag := &models.EntityTag{
+	entityTag := &catalogm.EntityTag{
 		TagID:         tag.ID,
 		EntityType:    "artist",
 		EntityID:      1, // doesn't need to exist for count
@@ -189,7 +192,7 @@ func (suite *LeaderboardServiceIntegrationTestSuite) createTag(addedByUserID uin
 }
 
 func (suite *LeaderboardServiceIntegrationTestSuite) createRevision(userID uint) {
-	rev := &models.Revision{
+	rev := &adminm.Revision{
 		EntityType: "artist",
 		EntityID:   1,
 		UserID:     userID,
@@ -276,7 +279,7 @@ func (suite *LeaderboardServiceIntegrationTestSuite) TestGetLeaderboard_Requests
 
 	// Create a fulfilled request
 	desc := "Looking for setlist"
-	req := &models.Request{
+	req := &communitym.Request{
 		Title:       "Find setlist",
 		Description: &desc,
 		EntityType:  "show",

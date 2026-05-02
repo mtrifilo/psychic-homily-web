@@ -13,7 +13,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/notification"
 )
@@ -28,16 +29,16 @@ const (
 
 // Promotion thresholds.
 const (
-	ContributorMinEdits         = 5
-	ContributorMinAccountAge    = 14 * 24 * time.Hour // 2 weeks
-	TrustedMinEdits             = 25
-	TrustedMinApprovalRate      = 0.95
-	TrustedMinAccountAge        = 60 * 24 * time.Hour // ~2 months
-	AmbassadorMinEdits          = 50
-	AmbassadorMinAccountAge     = 180 * 24 * time.Hour // ~6 months
-	AmbassadorMinCityEdits      = 10
+	ContributorMinEdits           = 5
+	ContributorMinAccountAge      = 14 * 24 * time.Hour // 2 weeks
+	TrustedMinEdits               = 25
+	TrustedMinApprovalRate        = 0.95
+	TrustedMinAccountAge          = 60 * 24 * time.Hour // ~2 months
+	AmbassadorMinEdits            = 50
+	AmbassadorMinAccountAge       = 180 * 24 * time.Hour // ~6 months
+	AmbassadorMinCityEdits        = 10
 	DemotionApprovalRateThreshold = 0.80
-	DemotionMinEditsForRate     = 3 // must have at least 3 edits in 30d window to evaluate rate
+	DemotionMinEditsForRate       = 3 // must have at least 3 edits in 30d window to evaluate rate
 )
 
 // DefaultAutoPromotionInterval is the default interval for the background scheduler (24 hours).
@@ -179,7 +180,7 @@ func (s *AutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResul
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var users []models.User
+	var users []authm.User
 	err := s.db.Where("is_active = ? AND is_admin = ? AND deleted_at IS NULL", true, false).
 		Find(&users).Error
 	if err != nil {
@@ -221,7 +222,7 @@ func (s *AutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResul
 		}
 
 		// Apply the tier change
-		if err := s.db.Model(&models.User{}).Where("id = ?", user.ID).
+		if err := s.db.Model(&authm.User{}).Where("id = ?", user.ID).
 			Update("user_tier", evalResult.NewTier).Error; err != nil {
 			s.logger.Error("failed to update user tier",
 				"user_id", user.ID,
@@ -250,7 +251,7 @@ func (s *AutoPromotionService) EvaluateAllUsers() (*contracts.AutoPromotionResul
 
 // sendTierChangeEmail sends a promotion or demotion email for a tier change.
 // Errors are logged but never fail the parent operation.
-func (s *AutoPromotionService) sendTierChangeEmail(user *models.User, change contracts.UserTierChange, isPromotion bool) {
+func (s *AutoPromotionService) sendTierChangeEmail(user *authm.User, change contracts.UserTierChange, isPromotion bool) {
 	if s.emailService == nil || !s.emailService.IsConfigured() {
 		return
 	}
@@ -282,7 +283,7 @@ func (s *AutoPromotionService) sendTierChangeEmail(user *models.User, change con
 
 // writeTierChangeAuditLog records a tier change in the audit log.
 // Errors are logged but never fail the parent operation.
-func (s *AutoPromotionService) writeTierChangeAuditLog(user *models.User, change contracts.UserTierChange, isPromotion bool) {
+func (s *AutoPromotionService) writeTierChangeAuditLog(user *authm.User, change contracts.UserTierChange, isPromotion bool) {
 	if s.db == nil {
 		return
 	}
@@ -308,7 +309,7 @@ func (s *AutoPromotionService) writeTierChangeAuditLog(user *models.User, change
 	}
 
 	raw := json.RawMessage(metadataJSON)
-	auditLog := models.AuditLog{
+	auditLog := adminm.AuditLog{
 		ActorID:    nil, // system action, no actor
 		Action:     action,
 		EntityType: "user",
@@ -331,7 +332,7 @@ func (s *AutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEvaluat
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var user models.User
+	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("user not found")
@@ -343,21 +344,21 @@ func (s *AutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEvaluat
 }
 
 // evaluateUserInternal computes promotion/demotion for a single user.
-func (s *AutoPromotionService) evaluateUserInternal(user *models.User) (*contracts.UserEvaluationResult, error) {
+func (s *AutoPromotionService) evaluateUserInternal(user *authm.User) (*contracts.UserEvaluationResult, error) {
 	now := time.Now()
 	accountAge := now.Sub(user.CreatedAt)
 
 	// Count approved edits from pending_entity_edits
 	var pendingApproved int64
-	if err := s.db.Model(&models.PendingEntityEdit{}).
-		Where("submitted_by = ? AND status = ?", user.ID, models.PendingEditStatusApproved).
+	if err := s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("submitted_by = ? AND status = ?", user.ID, adminm.PendingEditStatusApproved).
 		Count(&pendingApproved).Error; err != nil {
 		return nil, fmt.Errorf("failed to count approved pending edits: %w", err)
 	}
 
 	// Count total edits from pending_entity_edits (approved + rejected)
 	var pendingTotal int64
-	if err := s.db.Model(&models.PendingEntityEdit{}).
+	if err := s.db.Model(&adminm.PendingEntityEdit{}).
 		Where("submitted_by = ?", user.ID).
 		Count(&pendingTotal).Error; err != nil {
 		return nil, fmt.Errorf("failed to count total pending edits: %w", err)
@@ -365,7 +366,7 @@ func (s *AutoPromotionService) evaluateUserInternal(user *models.User) (*contrac
 
 	// Count revisions (direct edits by trusted users create revisions, not pending edits)
 	var revisionCount int64
-	if err := s.db.Model(&models.Revision{}).
+	if err := s.db.Model(&adminm.Revision{}).
 		Where("user_id = ?", user.ID).
 		Count(&revisionCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count revisions: %w", err)
@@ -384,21 +385,21 @@ func (s *AutoPromotionService) evaluateUserInternal(user *models.User) (*contrac
 	thirtyDaysAgo := now.Add(-30 * 24 * time.Hour)
 
 	var rolling30dApproved int64
-	if err := s.db.Model(&models.PendingEntityEdit{}).
-		Where("submitted_by = ? AND status = ? AND created_at >= ?", user.ID, models.PendingEditStatusApproved, thirtyDaysAgo).
+	if err := s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("submitted_by = ? AND status = ? AND created_at >= ?", user.ID, adminm.PendingEditStatusApproved, thirtyDaysAgo).
 		Count(&rolling30dApproved).Error; err != nil {
 		return nil, fmt.Errorf("failed to count rolling 30d approved: %w", err)
 	}
 
 	var rolling30dTotal int64
-	if err := s.db.Model(&models.PendingEntityEdit{}).
+	if err := s.db.Model(&adminm.PendingEntityEdit{}).
 		Where("submitted_by = ? AND created_at >= ?", user.ID, thirtyDaysAgo).
 		Count(&rolling30dTotal).Error; err != nil {
 		return nil, fmt.Errorf("failed to count rolling 30d total: %w", err)
 	}
 
 	var rolling30dRevisions int64
-	if err := s.db.Model(&models.Revision{}).
+	if err := s.db.Model(&adminm.Revision{}).
 		Where("user_id = ? AND created_at >= ?", user.ID, thirtyDaysAgo).
 		Count(&rolling30dRevisions).Error; err != nil {
 		return nil, fmt.Errorf("failed to count rolling 30d revisions: %w", err)
@@ -452,7 +453,7 @@ func (s *AutoPromotionService) evaluateUserInternal(user *models.User) (*contrac
 }
 
 // shouldDemote checks if the user should be demoted based on rolling 30-day approval rate.
-func (s *AutoPromotionService) shouldDemote(user *models.User, rolling30dRate float64, rolling30dTotal int) bool {
+func (s *AutoPromotionService) shouldDemote(user *authm.User, rolling30dRate float64, rolling30dTotal int) bool {
 	// Can't demote below new_user
 	if user.UserTier == TierNewUser {
 		return false
@@ -465,7 +466,7 @@ func (s *AutoPromotionService) shouldDemote(user *models.User, rolling30dRate fl
 }
 
 // shouldPromote checks if the user should be promoted and returns (shouldPromote, newTier, reason).
-func (s *AutoPromotionService) shouldPromote(user *models.User, approvedEdits int, approvalRate float64, accountAge time.Duration, cityEdits int) (bool, string, string) {
+func (s *AutoPromotionService) shouldPromote(user *authm.User, approvedEdits int, approvalRate float64, accountAge time.Duration, cityEdits int) (bool, string, string) {
 	switch user.UserTier {
 	case TierNewUser:
 		if approvedEdits >= ContributorMinEdits &&
@@ -505,25 +506,25 @@ func (s *AutoPromotionService) shouldPromote(user *models.User, approvedEdits in
 func (s *AutoPromotionService) countCityEdits(userID uint) int {
 	// Count pending edits on venues (venues always have a city)
 	var venueEdits int64
-	s.db.Model(&models.PendingEntityEdit{}).
-		Where("submitted_by = ? AND entity_type = ? AND status = ?", userID, "venue", models.PendingEditStatusApproved).
+	s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("submitted_by = ? AND entity_type = ? AND status = ?", userID, "venue", adminm.PendingEditStatusApproved).
 		Count(&venueEdits)
 
 	// Count pending edits on artists (artists may have a city)
 	var artistEdits int64
-	s.db.Model(&models.PendingEntityEdit{}).
-		Where("submitted_by = ? AND entity_type = ? AND status = ?", userID, "artist", models.PendingEditStatusApproved).
+	s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("submitted_by = ? AND entity_type = ? AND status = ?", userID, "artist", adminm.PendingEditStatusApproved).
 		Count(&artistEdits)
 
 	// Count revisions on venues
 	var venueRevisions int64
-	s.db.Model(&models.Revision{}).
+	s.db.Model(&adminm.Revision{}).
 		Where("user_id = ? AND entity_type = ?", userID, "venue").
 		Count(&venueRevisions)
 
 	// Count revisions on artists
 	var artistRevisions int64
-	s.db.Model(&models.Revision{}).
+	s.db.Model(&adminm.Revision{}).
 		Where("user_id = ? AND entity_type = ?", userID, "artist").
 		Count(&artistRevisions)
 

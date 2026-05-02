@@ -15,7 +15,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -110,18 +110,18 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 }
 
 // FindOrCreateAppleUser finds or creates a user from Apple Sign In data
-func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*models.User, error) {
+func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error) {
 	appleUserID := claims.Subject
 
 	// Look for existing OAuth account with provider=apple
-	var oauthAccount models.OAuthAccount
+	var oauthAccount authm.OAuthAccount
 	result := s.db.
 		Where("provider = ? AND provider_user_id = ?", "apple", appleUserID).
 		First(&oauthAccount)
 
 	if result.Error == nil {
 		// Existing Apple user — fetch and return
-		var user models.User
+		var user authm.User
 		if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&user, oauthAccount.UserID).Error; err != nil {
 			return nil, fmt.Errorf("failed to get user: %w", err)
 		}
@@ -134,7 +134,7 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 
 	// No existing Apple account. Check if a user exists with the same email.
 	if claims.Email != "" {
-		var existingUser models.User
+		var existingUser authm.User
 		if err := s.db.Where("email = ?", claims.Email).First(&existingUser).Error; err == nil {
 			// Link Apple account to existing user
 			return s.linkAppleAccount(&existingUser, appleUserID, claims.Email)
@@ -146,13 +146,13 @@ func (s *AppleAuthService) FindOrCreateAppleUser(claims *contracts.AppleIdentity
 }
 
 // GenerateToken creates a JWT for the user
-func (s *AppleAuthService) GenerateToken(user *models.User) (string, error) {
+func (s *AppleAuthService) GenerateToken(user *authm.User) (string, error) {
 	return s.jwtService.CreateToken(user)
 }
 
 // linkAppleAccount links an Apple OAuth account to an existing user
-func (s *AppleAuthService) linkAppleAccount(user *models.User, appleUserID, email string) (*models.User, error) {
-	oauthAccount := &models.OAuthAccount{
+func (s *AppleAuthService) linkAppleAccount(user *authm.User, appleUserID, email string) (*authm.User, error) {
+	oauthAccount := &authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "apple",
 		ProviderUserID: appleUserID,
@@ -164,7 +164,7 @@ func (s *AppleAuthService) linkAppleAccount(user *models.User, appleUserID, emai
 	}
 
 	// Reload user with relationships
-	var updatedUser models.User
+	var updatedUser authm.User
 	if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&updatedUser, user.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload user: %w", err)
 	}
@@ -173,7 +173,7 @@ func (s *AppleAuthService) linkAppleAccount(user *models.User, appleUserID, emai
 }
 
 // createAppleUser creates a new user from Apple Sign In data
-func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string) (*models.User, error) {
+func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastName string) (*authm.User, error) {
 	tx := s.db.Begin()
 	defer func() {
 		if r := recover(); r != nil {
@@ -181,7 +181,7 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 		}
 	}()
 
-	user := &models.User{
+	user := &authm.User{
 		FirstName:     &firstName,
 		LastName:      &lastName,
 		IsActive:      true,
@@ -196,7 +196,7 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 		return nil, fmt.Errorf("failed to create user: %w", err)
 	}
 
-	oauthAccount := &models.OAuthAccount{
+	oauthAccount := &authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "apple",
 		ProviderUserID: appleUserID,
@@ -210,7 +210,7 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 		return nil, fmt.Errorf("failed to create OAuth account: %w", err)
 	}
 
-	preferences := &models.UserPreferences{
+	preferences := &authm.UserPreferences{
 		UserID: user.ID,
 	}
 	if err := tx.Create(preferences).Error; err != nil {
@@ -223,7 +223,7 @@ func (s *AppleAuthService) createAppleUser(appleUserID, email, firstName, lastNa
 	}
 
 	// Reload with relationships
-	var createdUser models.User
+	var createdUser authm.User
 	if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&createdUser, user.ID).Error; err != nil {
 		return nil, fmt.Errorf("failed to reload user: %w", err)
 	}

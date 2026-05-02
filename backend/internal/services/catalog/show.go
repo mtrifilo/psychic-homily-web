@@ -17,9 +17,9 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -45,7 +45,6 @@ func NewShowService(database *gorm.DB) *ShowService {
 	}
 }
 
-
 // CreateShow creates a new show with associated venues and artists.
 // Prevents duplicate headliners at the same venue on the same date/time.
 // Prevents duplicate venues with the same name in the same city.
@@ -67,7 +66,7 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		status := s.determineShowStatus(tx, req.Venues, req.SubmitterIsAdmin, req.IsPrivate)
 
 		// Create the show
-		show := &models.Show{
+		show := &catalogm.Show{
 			Title:          req.Title,
 			EventDate:      req.EventDate.UTC(), // Ensure UTC storage
 			City:           &req.City,
@@ -122,7 +121,7 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName, showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			tx.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)
+			tx.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
 
@@ -165,14 +164,14 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 // determineShowStatus determines whether a show should be approved or private.
 // Shows from unverified venues are now approved but display city-only until venue is verified.
 // Private shows remain private (user's list only).
-func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.CreateShowVenue, isAdmin bool, isPrivate bool) models.ShowStatus {
+func (s *ShowService) determineShowStatus(tx *gorm.DB, venues []contracts.CreateShowVenue, isAdmin bool, isPrivate bool) catalogm.ShowStatus {
 	// Private shows stay private regardless of venue status
 	if isPrivate {
-		return models.ShowStatusPrivate
+		return catalogm.ShowStatusPrivate
 	}
 
 	// All other shows are approved - unverified venues will show city-only on frontend
-	return models.ShowStatusApproved
+	return catalogm.ShowStatusApproved
 }
 
 // checkDuplicateHeadlinerConflicts checks if any headliners are already performing
@@ -223,7 +222,7 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 	// Matches headliner by explicit set_type='headliner' OR position=0 (first billed artist).
 	for _, headlinerName := range headlinerNames {
 		for _, venueName := range venueNames {
-			var existingShows []models.Show
+			var existingShows []catalogm.Show
 
 			// Query for shows on the same day with the same headliner and venue
 			err := tx.Table("shows").
@@ -257,7 +256,7 @@ func (s *ShowService) GetShow(showID uint) (*contracts.ShowResponse, error) {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var show models.Show
+	var show catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -275,7 +274,7 @@ func (s *ShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var show models.Show
+	var show catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").Where("slug = ?", slug).First(&show).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -294,7 +293,7 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*contracts.Sho
 	}
 
 	query := s.db.Preload("Venues").Preload("Artists").
-		Where("status = ?", models.ShowStatusApproved)
+		Where("status = ?", catalogm.ShowStatusApproved)
 
 	// Apply filters
 	if city, ok := filters["city"].(string); ok && city != "" {
@@ -323,7 +322,7 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*contracts.Sho
 	// Default ordering by event date
 	query = query.Order("event_date ASC")
 
-	var shows []models.Show
+	var shows []catalogm.Show
 	err := query.Find(&shows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get shows: %w", err)
@@ -346,12 +345,12 @@ func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]cont
 
 	// Get total count first
 	var total int64
-	if err := s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&total).Error; err != nil {
+	if err := s.db.Model(&catalogm.Show{}).Where("submitted_by = ?", userID).Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count user submissions: %w", err)
 	}
 
 	// Query shows with pagination
-	var shows []models.Show
+	var shows []catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").
 		Where("submitted_by = ?", userID).
 		Order("created_at DESC").
@@ -382,7 +381,7 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 		updates["event_date"] = eventDate.UTC()
 	}
 
-	err := s.db.Model(&models.Show{}).Where("id = ?", showID).Updates(updates).Error
+	err := s.db.Model(&catalogm.Show{}).Where("id = ?", showID).Updates(updates).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to update show: %w", err)
 	}
@@ -418,7 +417,7 @@ func (s *ShowService) UpdateShowWithRelations(
 	var orphanedArtists []contracts.OrphanedArtist
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// First, verify the show exists
-		var show models.Show
+		var show catalogm.Show
 		if err := tx.First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return apperrors.ErrShowNotFound(showID)
@@ -441,7 +440,7 @@ func (s *ShowService) UpdateShowWithRelations(
 		var venueResponses []contracts.VenueResponse
 		if venues != nil {
 			// Delete existing show-venue associations
-			if err := tx.Where("show_id = ?", showID).Delete(&models.ShowVenue{}).Error; err != nil {
+			if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowVenue{}).Error; err != nil {
 				return fmt.Errorf("failed to delete existing show venues: %w", err)
 			}
 
@@ -457,7 +456,7 @@ func (s *ShowService) UpdateShowWithRelations(
 		var artistResponses []contracts.ArtistResponse
 		if artists != nil {
 			// Capture old artist IDs before deleting associations
-			var oldShowArtists []models.ShowArtist
+			var oldShowArtists []catalogm.ShowArtist
 			if err := tx.Where("show_id = ?", showID).Find(&oldShowArtists).Error; err != nil {
 				return fmt.Errorf("failed to fetch old show artists: %w", err)
 			}
@@ -467,7 +466,7 @@ func (s *ShowService) UpdateShowWithRelations(
 			}
 
 			// Delete existing show-artist associations
-			if err := tx.Where("show_id = ?", showID).Delete(&models.ShowArtist{}).Error; err != nil {
+			if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowArtist{}).Error; err != nil {
 				return fmt.Errorf("failed to delete existing show artists: %w", err)
 			}
 
@@ -490,11 +489,11 @@ func (s *ShowService) UpdateShowWithRelations(
 					continue // still associated with this show
 				}
 				var count int64
-				if err := tx.Model(&models.ShowArtist{}).Where("artist_id = ?", oldID).Count(&count).Error; err != nil {
+				if err := tx.Model(&catalogm.ShowArtist{}).Where("artist_id = ?", oldID).Count(&count).Error; err != nil {
 					return fmt.Errorf("failed to count artist associations: %w", err)
 				}
 				if count == 0 {
-					var artist models.Artist
+					var artist catalogm.Artist
 					if err := tx.First(&artist, oldID).Error; err == nil {
 						slug := ""
 						if artist.Slug != nil {
@@ -513,7 +512,7 @@ func (s *ShowService) UpdateShowWithRelations(
 		// Build response - need to fetch associations if not updated
 		if venues == nil {
 			// Fetch existing venues in batch
-			var showVenues []models.ShowVenue
+			var showVenues []catalogm.ShowVenue
 			if err := tx.Where("show_id = ?", showID).Find(&showVenues).Error; err != nil {
 				return fmt.Errorf("failed to fetch show venues: %w", err)
 			}
@@ -522,11 +521,11 @@ func (s *ShowService) UpdateShowWithRelations(
 				for i, sv := range showVenues {
 					venueIDs[i] = sv.VenueID
 				}
-				var venueModels []models.Venue
+				var venueModels []catalogm.Venue
 				if err := tx.Where("id IN ?", venueIDs).Find(&venueModels).Error; err != nil {
 					return fmt.Errorf("failed to fetch venues: %w", err)
 				}
-				venueMap := make(map[uint]models.Venue, len(venueModels))
+				venueMap := make(map[uint]catalogm.Venue, len(venueModels))
 				for _, v := range venueModels {
 					venueMap[v.ID] = v
 				}
@@ -551,7 +550,7 @@ func (s *ShowService) UpdateShowWithRelations(
 
 		if artists == nil {
 			// Fetch existing artists in batch, preserving position order
-			var showArtists []models.ShowArtist
+			var showArtists []catalogm.ShowArtist
 			if err := tx.Where("show_id = ?", showID).Order("position ASC").Find(&showArtists).Error; err != nil {
 				return fmt.Errorf("failed to fetch show artists: %w", err)
 			}
@@ -560,11 +559,11 @@ func (s *ShowService) UpdateShowWithRelations(
 				for i, sa := range showArtists {
 					artistIDs[i] = sa.ArtistID
 				}
-				var artistModels []models.Artist
+				var artistModels []catalogm.Artist
 				if err := tx.Where("id IN ?", artistIDs).Find(&artistModels).Error; err != nil {
 					return fmt.Errorf("failed to fetch artists: %w", err)
 				}
-				artistMap := make(map[uint]models.Artist, len(artistModels))
+				artistMap := make(map[uint]catalogm.Artist, len(artistModels))
 				for _, a := range artistModels {
 					artistMap[a.ID] = a
 				}
@@ -690,10 +689,10 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 
 	// Filter by status for non-admin users (public view shows only approved)
 	if !includeNonApproved {
-		query = query.Where("status = ?", models.ShowStatusApproved)
+		query = query.Where("status = ?", catalogm.ShowStatusApproved)
 	} else {
 		// For admin view, still exclude private shows (those are personal to the submitter)
-		query = query.Where("status != ?", models.ShowStatusPrivate)
+		query = query.Where("status != ?", catalogm.ShowStatusPrivate)
 	}
 
 	// Apply city/state filters if provided
@@ -754,7 +753,7 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	// Fetch one extra to check if there are more results
 	query = query.Order("event_date ASC, id ASC").Limit(limit + 1)
 
-	var shows []models.Show
+	var shows []catalogm.Show
 	if err := query.Find(&shows).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to get upcoming shows: %w", err)
 	}
@@ -778,7 +777,6 @@ func (s *ShowService) GetUpcomingShows(timezone string, cursor string, limit int
 	return responses, nextCursor, nil
 }
 
-
 // GetShowCities retrieves cities that have upcoming approved shows, with counts.
 // Returns cities sorted by show count (descending).
 func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityResponse, error) {
@@ -799,9 +797,9 @@ func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityRespon
 
 	var results []contracts.ShowCityResponse
 
-	err = s.db.Model(&models.Show{}).
+	err = s.db.Model(&catalogm.Show{}).
 		Select("city, state, COUNT(*) as show_count").
-		Where("status = ?", models.ShowStatusApproved).
+		Where("status = ?", catalogm.ShowStatusApproved).
 		Where("event_date >= ?", startOfTodayUTC).
 		Where("city IS NOT NULL AND city != ''").
 		Where("state IS NOT NULL AND state != ''").
@@ -962,15 +960,15 @@ func (s *ShowService) DeleteShow(showID uint) error {
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Delete show associations first (cascade will handle this, but being explicit)
-		if err := tx.Where("show_id = ?", showID).Delete(&models.ShowVenue{}).Error; err != nil {
+		if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowVenue{}).Error; err != nil {
 			return fmt.Errorf("failed to delete show venues: %w", err)
 		}
-		if err := tx.Where("show_id = ?", showID).Delete(&models.ShowArtist{}).Error; err != nil {
+		if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowArtist{}).Error; err != nil {
 			return fmt.Errorf("failed to delete show artists: %w", err)
 		}
 
 		// Delete the show
-		if err := tx.Delete(&models.Show{}, showID).Error; err != nil {
+		if err := tx.Delete(&catalogm.Show{}, showID).Error; err != nil {
 			return fmt.Errorf("failed to delete show: %w", err)
 		}
 
@@ -986,7 +984,7 @@ func (s *ShowService) GetPendingShows(limit, offset int, filters *contracts.Pend
 	}
 
 	// Build base query with optional filters
-	countQuery := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusPending)
+	countQuery := s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusPending)
 	if filters != nil {
 		if filters.VenueID != nil {
 			countQuery = countQuery.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
@@ -1005,7 +1003,7 @@ func (s *ShowService) GetPendingShows(limit, offset int, filters *contracts.Pend
 
 	// Get pending shows with pagination
 	findQuery := s.db.Preload("Venues").Preload("Artists").
-		Where("status = ?", models.ShowStatusPending)
+		Where("status = ?", catalogm.ShowStatusPending)
 	if filters != nil {
 		if filters.VenueID != nil {
 			findQuery = findQuery.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
@@ -1016,7 +1014,7 @@ func (s *ShowService) GetPendingShows(limit, offset int, filters *contracts.Pend
 		}
 	}
 
-	var shows []models.Show
+	var shows []catalogm.Show
 	err := findQuery.
 		Order("source_venue ASC NULLS LAST, event_date ASC").
 		Limit(limit).
@@ -1044,7 +1042,7 @@ func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*con
 	}
 
 	// Build base query
-	baseQuery := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusRejected)
+	baseQuery := s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusRejected)
 
 	// Add search filter if provided
 	if search != "" {
@@ -1059,9 +1057,9 @@ func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*con
 	}
 
 	// Get rejected shows with pagination
-	var shows []models.Show
+	var shows []catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").
-		Where("status = ?", models.ShowStatusRejected).
+		Where("status = ?", catalogm.ShowStatusRejected).
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			if search != "" {
 				searchPattern := "%" + search + "%"
@@ -1095,7 +1093,7 @@ func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*contracts.Sh
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show
-		var show models.Show
+		var show catalogm.Show
 		if err := tx.Preload("Venues").First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return apperrors.ErrShowNotFound(showID)
@@ -1104,13 +1102,13 @@ func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*contracts.Sh
 		}
 
 		// Verify the show is pending or rejected
-		if show.Status != models.ShowStatusPending && show.Status != models.ShowStatusRejected {
+		if show.Status != catalogm.ShowStatusPending && show.Status != catalogm.ShowStatusRejected {
 			return fmt.Errorf("show cannot be approved (current status: %s)", show.Status)
 		}
 
 		// Update show status to approved (clear rejection reason if previously rejected)
 		updates := map[string]interface{}{
-			"status":           models.ShowStatusApproved,
+			"status":           catalogm.ShowStatusApproved,
 			"rejection_reason": "",
 		}
 		if err := tx.Model(&show).Updates(updates).Error; err != nil {
@@ -1153,7 +1151,7 @@ func (s *ShowService) RejectShow(showID uint, reason string) (*contracts.ShowRes
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show
-		var show models.Show
+		var show catalogm.Show
 		if err := tx.First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return apperrors.ErrShowNotFound(showID)
@@ -1162,13 +1160,13 @@ func (s *ShowService) RejectShow(showID uint, reason string) (*contracts.ShowRes
 		}
 
 		// Verify the show is pending
-		if show.Status != models.ShowStatusPending {
+		if show.Status != catalogm.ShowStatusPending {
 			return fmt.Errorf("show is not pending (current status: %s)", show.Status)
 		}
 
 		// Update show status to rejected with reason
 		updates := map[string]interface{}{
-			"status":           models.ShowStatusRejected,
+			"status":           catalogm.ShowStatusRejected,
 			"rejection_reason": reason,
 		}
 		if err := tx.Model(&show).Updates(updates).Error; err != nil {
@@ -1232,7 +1230,7 @@ func (s *ShowService) BatchRejectShows(showIDs []uint, reason string, category s
 		} else {
 			// Update rejection_category separately since RejectShow doesn't handle it
 			if category != "" {
-				s.db.Model(&models.Show{}).Where("id = ?", id).Update("rejection_category", category)
+				s.db.Model(&catalogm.Show{}).Where("id = ?", id).Update("rejection_category", category)
 			}
 			result.Succeeded = append(result.Succeeded, id)
 		}
@@ -1251,7 +1249,7 @@ func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*co
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show
-		var show models.Show
+		var show catalogm.Show
 		if err := tx.First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return apperrors.ErrShowNotFound(showID)
@@ -1260,7 +1258,7 @@ func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*co
 		}
 
 		// Verify the show is approved (can only unpublish approved shows)
-		if show.Status != models.ShowStatusApproved {
+		if show.Status != catalogm.ShowStatusApproved {
 			return fmt.Errorf("can only unpublish approved shows (current status: %s)", show.Status)
 		}
 
@@ -1272,7 +1270,7 @@ func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*co
 		}
 
 		// Update show status to private
-		if err := tx.Model(&show).Update("status", models.ShowStatusPrivate).Error; err != nil {
+		if err := tx.Model(&show).Update("status", catalogm.ShowStatusPrivate).Error; err != nil {
 			return fmt.Errorf("failed to unpublish show: %w", err)
 		}
 
@@ -1302,7 +1300,7 @@ func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show
-		var show models.Show
+		var show catalogm.Show
 		if err := tx.First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return apperrors.ErrShowNotFound(showID)
@@ -1311,7 +1309,7 @@ func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*
 		}
 
 		// Verify the show is pending (can only make private from pending status)
-		if show.Status != models.ShowStatusPending {
+		if show.Status != catalogm.ShowStatusPending {
 			return fmt.Errorf("can only make pending shows private (current status: %s)", show.Status)
 		}
 
@@ -1323,7 +1321,7 @@ func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*
 		}
 
 		// Update show status to private
-		if err := tx.Model(&show).Update("status", models.ShowStatusPrivate).Error; err != nil {
+		if err := tx.Model(&show).Update("status", catalogm.ShowStatusPrivate).Error; err != nil {
 			return fmt.Errorf("failed to make show private: %w", err)
 		}
 
@@ -1355,7 +1353,7 @@ func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*cont
 	var response *contracts.ShowResponse
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Get the show with venues preloaded
-		var show models.Show
+		var show catalogm.Show
 		if err := tx.Preload("Venues").First(&show, showID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return apperrors.ErrShowNotFound(showID)
@@ -1364,7 +1362,7 @@ func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*cont
 		}
 
 		// Verify the show is private (can only publish from private status)
-		if show.Status != models.ShowStatusPrivate {
+		if show.Status != catalogm.ShowStatusPrivate {
 			return fmt.Errorf("can only publish private shows (current status: %s)", show.Status)
 		}
 
@@ -1376,7 +1374,7 @@ func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*cont
 		}
 
 		// Always set status to approved - unverified venues show city-only until verified
-		if err := tx.Model(&show).Update("status", models.ShowStatusApproved).Error; err != nil {
+		if err := tx.Model(&show).Update("status", catalogm.ShowStatusApproved).Error; err != nil {
 			return fmt.Errorf("failed to publish show: %w", err)
 		}
 
@@ -1406,13 +1404,13 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 	venueService := NewVenueService(s.db)
 
 	for _, requestVenue := range requestVenues {
-		var venue *models.Venue
+		var venue *catalogm.Venue
 		var err error
 		isNewVenue := false
 
 		// If ID is provided, try to find existing venue by ID
 		if requestVenue.ID != nil {
-			var venueModel models.Venue
+			var venueModel catalogm.Venue
 			err = tx.First(&venueModel, *requestVenue.ID).Error
 			if err == gorm.ErrRecordNotFound {
 				return nil, fmt.Errorf("venue with ID %d not found", *requestVenue.ID)
@@ -1433,8 +1431,8 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 				requestVenue.City,
 				requestVenue.State,
 				addressPtr,
-				nil,    // zipcode
-				tx,     // use transaction
+				nil,     // zipcode
+				tx,      // use transaction
 				isAdmin, // pass admin status for venue verification
 			)
 			if err != nil {
@@ -1443,7 +1441,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 		}
 
 		// Create show-venue association
-		showVenue := models.ShowVenue{
+		showVenue := catalogm.ShowVenue{
 			ShowID:  showID,
 			VenueID: venue.ID,
 		}
@@ -1482,7 +1480,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 	var artists []contracts.ArtistResponse
 
 	for position, requestArtist := range requestArtists {
-		var artist models.Artist
+		var artist catalogm.Artist
 		var err error
 		isNewArtist := false
 
@@ -1503,7 +1501,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 			err = tx.Where("LOWER(name) = LOWER(?)", requestArtist.Name).First(&artist).Error
 			if err == gorm.ErrRecordNotFound {
 				// Create new artist
-				artist = models.Artist{
+				artist = catalogm.Artist{
 					Name: requestArtist.Name,
 				}
 				// Set Instagram handle if provided
@@ -1517,7 +1515,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 				baseSlug := utils.GenerateArtistSlug(artist.Name)
 				slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 					var count int64
-					tx.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 					return count > 0
 				})
 				tx.Model(&artist).Update("slug", slug)
@@ -1541,7 +1539,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 		}
 
 		// Create show-artist association with position
-		showArtist := models.ShowArtist{
+		showArtist := catalogm.ShowArtist{
 			ShowID:   showID,
 			ArtistID: artist.ID,
 			Position: position,
@@ -1586,7 +1584,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 }
 
 // buildShowResponse converts a Show model to contracts.ShowResponse
-func (s *ShowService) buildShowResponse(show *models.Show) *contracts.ShowResponse {
+func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResponse {
 	// Build venue responses
 	venues := make([]contracts.VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
@@ -1614,7 +1612,7 @@ func (s *ShowService) buildShowResponse(show *models.Show) *contracts.ShowRespon
 	artists := make([]contracts.ArtistResponse, 0, len(show.Artists))
 
 	// Get ordered artists from show_artists table
-	var showArtists []models.ShowArtist
+	var showArtists []catalogm.ShowArtist
 	if err := s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists).Error; err != nil {
 		log.Printf("WARN buildShowResponse: failed to fetch show_artists for show_id=%d: %v", show.ID, err)
 	}
@@ -1626,13 +1624,13 @@ func (s *ShowService) buildShowResponse(show *models.Show) *contracts.ShowRespon
 			artistIDs[i] = sa.ArtistID
 		}
 
-		var allArtists []models.Artist
+		var allArtists []catalogm.Artist
 		if err := s.db.Where("id IN ?", artistIDs).Find(&allArtists).Error; err != nil {
 			log.Printf("WARN buildShowResponse: failed to batch-fetch artists for show_id=%d: %v", show.ID, err)
 		}
 
 		// Build lookup map
-		artistMap := make(map[uint]*models.Artist, len(allArtists))
+		artistMap := make(map[uint]*catalogm.Artist, len(allArtists))
 		for i := range allArtists {
 			artistMap[allArtists[i].ID] = &allArtists[i]
 		}
@@ -1683,24 +1681,24 @@ func (s *ShowService) buildShowResponse(show *models.Show) *contracts.ShowRespon
 		showSlug = *show.Slug
 	}
 	return &contracts.ShowResponse{
-		ID:              show.ID,
-		Slug:            showSlug,
-		Title:           show.Title,
-		EventDate:       show.EventDate,
-		City:            show.City,
-		State:           show.State,
-		Price:           show.Price,
-		AgeRequirement:  show.AgeRequirement,
-		Description:     show.Description,
-		TicketURL:       show.TicketURL,
-		Status:          string(show.Status),
-		SubmittedBy:     show.SubmittedBy,
+		ID:                show.ID,
+		Slug:              showSlug,
+		Title:             show.Title,
+		EventDate:         show.EventDate,
+		City:              show.City,
+		State:             show.State,
+		Price:             show.Price,
+		AgeRequirement:    show.AgeRequirement,
+		Description:       show.Description,
+		TicketURL:         show.TicketURL,
+		Status:            string(show.Status),
+		SubmittedBy:       show.SubmittedBy,
 		RejectionReason:   show.RejectionReason,
 		RejectionCategory: show.RejectionCategory,
 		Venues:            venues,
-		Artists:         artists,
-		CreatedAt:       show.CreatedAt,
-		UpdatedAt:       show.UpdatedAt,
+		Artists:           artists,
+		CreatedAt:         show.CreatedAt,
+		UpdatedAt:         show.UpdatedAt,
 		IsSoldOut:         show.IsSoldOut,
 		IsCancelled:       show.IsCancelled,
 		Source:            string(show.Source),
@@ -1724,7 +1722,7 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 	}
 
 	// Fetch show with preloaded venues and artists
-	var show models.Show
+	var show catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -1734,7 +1732,7 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 	}
 
 	// Get ordered show artists from junction table
-	var showArtists []models.ShowArtist
+	var showArtists []catalogm.ShowArtist
 	s.db.Where("show_id = ?", show.ID).Order("position ASC").Find(&showArtists)
 
 	// Build frontmatter data
@@ -1808,9 +1806,9 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 	for i, sa := range showArtists {
 		artistIDs[i] = sa.ArtistID
 	}
-	var allArtists []models.Artist
+	var allArtists []catalogm.Artist
 	s.db.Where("id IN ?", artistIDs).Find(&allArtists)
-	artistMap := make(map[uint]*models.Artist, len(allArtists))
+	artistMap := make(map[uint]*catalogm.Artist, len(allArtists))
 	for i := range allArtists {
 		artistMap[allArtists[i].ID] = &allArtists[i]
 	}
@@ -1992,7 +1990,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 		}
 
 		// Match by LOWER(name) = ? AND LOWER(city) = ?
-		var venue models.Venue
+		var venue catalogm.Venue
 		err := s.db.Where("LOWER(name) = ? AND LOWER(city) = ?",
 			strings.ToLower(venueData.Name),
 			strings.ToLower(venueData.City),
@@ -2019,7 +2017,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 		}
 
 		// Match by LOWER(name) = ?
-		var artist models.Artist
+		var artist catalogm.Artist
 		err := s.db.Where("LOWER(name) = ?", strings.ToLower(artistData.Name)).First(&artist).Error
 
 		if err == nil {
@@ -2043,7 +2041,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 				for _, venueResult := range response.Venues {
 					if venueResult.ExistingID != nil {
 						// Check for existing show
-						var existingShows []models.Show
+						var existingShows []catalogm.Show
 						s.db.Table("shows").
 							Joins("JOIN show_artists ON shows.id = show_artists.show_id").
 							Joins("JOIN show_venues ON shows.id = show_venues.show_id").
@@ -2075,7 +2073,7 @@ func (s *ShowService) GetAdminShows(limit, offset int, filters contracts.AdminSh
 	}
 
 	// Build base query
-	baseQuery := s.db.Model(&models.Show{})
+	baseQuery := s.db.Model(&catalogm.Show{})
 
 	// Apply status filter
 	if filters.Status != "" {
@@ -2108,7 +2106,7 @@ func (s *ShowService) GetAdminShows(limit, offset int, filters contracts.AdminSh
 	}
 
 	// Get shows with pagination
-	var shows []models.Show
+	var shows []catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			if filters.Status != "" {
@@ -2216,7 +2214,7 @@ func (s *ShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*contracts.Sh
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var show models.Show
+	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrShowNotFound(showID)
@@ -2237,7 +2235,7 @@ func (s *ShowService) SetShowCancelled(showID uint, isCancelled bool) (*contract
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var show models.Show
+	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrShowNotFound(showID)

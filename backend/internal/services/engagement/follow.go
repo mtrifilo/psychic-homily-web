@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -20,11 +20,11 @@ const FollowEntityUser = "user"
 // validFollowEntityTypes lists entity types that support following.
 // Shows use going/interested (attendance) instead of follow.
 var validFollowEntityTypes = map[string]bool{
-	string(models.BookmarkEntityArtist):   true,
-	string(models.BookmarkEntityVenue):    true,
-	string(models.BookmarkEntityLabel):    true,
-	string(models.BookmarkEntityFestival): true,
-	FollowEntityUser:                      true,
+	string(engagementm.BookmarkEntityArtist):   true,
+	string(engagementm.BookmarkEntityVenue):    true,
+	string(engagementm.BookmarkEntityLabel):    true,
+	string(engagementm.BookmarkEntityFestival): true,
+	FollowEntityUser:                           true,
 }
 
 // FollowService handles follow/unfollow operations on entities.
@@ -58,19 +58,19 @@ func (s *FollowService) Follow(userID uint, entityType string, entityID uint) er
 		return err
 	}
 
-	bookmark := models.UserBookmark{
+	bookmark := engagementm.UserBookmark{
 		UserID:     userID,
-		EntityType: models.BookmarkEntityType(entityType),
+		EntityType: engagementm.BookmarkEntityType(entityType),
 		EntityID:   entityID,
-		Action:     models.BookmarkActionFollow,
+		Action:     engagementm.BookmarkActionFollow,
 		CreatedAt:  time.Now().UTC(),
 	}
 
-	return s.db.Where(models.UserBookmark{
+	return s.db.Where(engagementm.UserBookmark{
 		UserID:     userID,
-		EntityType: models.BookmarkEntityType(entityType),
+		EntityType: engagementm.BookmarkEntityType(entityType),
 		EntityID:   entityID,
-		Action:     models.BookmarkActionFollow,
+		Action:     engagementm.BookmarkActionFollow,
 	}).FirstOrCreate(&bookmark).Error
 }
 
@@ -85,8 +85,8 @@ func (s *FollowService) Unfollow(userID uint, entityType string, entityID uint) 
 
 	result := s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-		userID, models.BookmarkEntityType(entityType), entityID, models.BookmarkActionFollow,
-	).Delete(&models.UserBookmark{})
+		userID, engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow,
+	).Delete(&engagementm.UserBookmark{})
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to unfollow: %w", result.Error)
@@ -104,9 +104,9 @@ func (s *FollowService) IsFollowing(userID uint, entityType string, entityID uin
 	}
 
 	var count int64
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			userID, models.BookmarkEntityType(entityType), entityID, models.BookmarkActionFollow).
+			userID, engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).
 		Count(&count).Error
 	if err != nil {
 		return false, fmt.Errorf("failed to check follow status: %w", err)
@@ -124,9 +124,9 @@ func (s *FollowService) GetFollowerCount(entityType string, entityID uint) (int6
 	}
 
 	var count int64
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Where("entity_type = ? AND entity_id = ? AND action = ?",
-			models.BookmarkEntityType(entityType), entityID, models.BookmarkActionFollow).
+			engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).
 		Count(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to get follower count: %w", err)
@@ -154,10 +154,10 @@ func (s *FollowService) GetBatchFollowerCounts(entityType string, entityIDs []ui
 	}
 	var rows []countRow
 
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Select("entity_id, COUNT(*) as count").
 		Where("entity_type = ? AND entity_id IN ? AND action = ?",
-			models.BookmarkEntityType(entityType), entityIDs, models.BookmarkActionFollow).
+			engagementm.BookmarkEntityType(entityType), entityIDs, engagementm.BookmarkActionFollow).
 		Group("entity_id").
 		Find(&rows).Error
 	if err != nil {
@@ -188,10 +188,10 @@ func (s *FollowService) GetBatchUserFollowing(userID uint, entityType string, en
 		return result, nil
 	}
 
-	var bookmarks []models.UserBookmark
+	var bookmarks []engagementm.UserBookmark
 	err := s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id IN ? AND action = ?",
-		userID, models.BookmarkEntityType(entityType), entityIDs, models.BookmarkActionFollow,
+		userID, engagementm.BookmarkEntityType(entityType), entityIDs, engagementm.BookmarkActionFollow,
 	).Find(&bookmarks).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get batch user following: %w", err)
@@ -216,10 +216,10 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 	}
 
 	// Build base condition
-	baseQuery := s.db.Model(&models.UserBookmark{}).
-		Where("user_id = ? AND action = ?", userID, models.BookmarkActionFollow)
+	baseQuery := s.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND action = ?", userID, engagementm.BookmarkActionFollow)
 	if entityType != "" {
-		baseQuery = baseQuery.Where("entity_type = ?", models.BookmarkEntityType(entityType))
+		baseQuery = baseQuery.Where("entity_type = ?", engagementm.BookmarkEntityType(entityType))
 	}
 
 	// Count total
@@ -232,7 +232,7 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 	}
 
 	// Get bookmarks
-	var bookmarks []models.UserBookmark
+	var bookmarks []engagementm.UserBookmark
 	if err := baseQuery.Order("created_at DESC").
 		Limit(limit).Offset(offset).
 		Find(&bookmarks).Error; err != nil {
@@ -256,7 +256,7 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 	// Batch lookup for each type
 	for t, ids := range idsByType {
 		switch t {
-		case string(models.BookmarkEntityArtist):
+		case string(engagementm.BookmarkEntityArtist):
 			var artists []struct {
 				ID   uint
 				Name string
@@ -270,7 +270,7 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 				}
 				entityNames[entityKey{t, a.ID}] = struct{ Name, Slug string }{a.Name, slug}
 			}
-		case string(models.BookmarkEntityVenue):
+		case string(engagementm.BookmarkEntityVenue):
 			var venues []struct {
 				ID   uint
 				Name string
@@ -284,7 +284,7 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 				}
 				entityNames[entityKey{t, v.ID}] = struct{ Name, Slug string }{v.Name, slug}
 			}
-		case string(models.BookmarkEntityLabel):
+		case string(engagementm.BookmarkEntityLabel):
 			var labels []struct {
 				ID   uint
 				Name string
@@ -298,7 +298,7 @@ func (s *FollowService) GetUserFollowing(userID uint, entityType string, limit, 
 				}
 				entityNames[entityKey{t, l.ID}] = struct{ Name, Slug string }{l.Name, slug}
 			}
-		case string(models.BookmarkEntityFestival):
+		case string(engagementm.BookmarkEntityFestival):
 			var festivals []struct {
 				ID   uint
 				Name string
@@ -338,9 +338,9 @@ func (s *FollowService) GetFollowers(entityType string, entityID uint, limit, of
 
 	// Count total followers
 	var total int64
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Where("entity_type = ? AND entity_id = ? AND action = ?",
-			models.BookmarkEntityType(entityType), entityID, models.BookmarkActionFollow).
+			engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).
 		Count(&total).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count followers: %w", err)
@@ -361,7 +361,7 @@ func (s *FollowService) GetFollowers(entityType string, entityID uint, limit, of
 		Select("user_bookmarks.user_id, users.username, users.first_name as display_name").
 		Joins("JOIN users ON users.id = user_bookmarks.user_id").
 		Where("user_bookmarks.entity_type = ? AND user_bookmarks.entity_id = ? AND user_bookmarks.action = ?",
-			models.BookmarkEntityType(entityType), entityID, models.BookmarkActionFollow).
+			engagementm.BookmarkEntityType(entityType), entityID, engagementm.BookmarkActionFollow).
 		Where("users.deleted_at IS NULL").
 		Order("user_bookmarks.created_at DESC").
 		Limit(limit).Offset(offset).

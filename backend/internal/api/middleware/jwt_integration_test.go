@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
@@ -61,9 +61,9 @@ func (s *JWTMiddlewareIntegrationSuite) TearDownSuite() {
 
 // --- Helpers ---
 
-func (s *JWTMiddlewareIntegrationSuite) createActiveUser(email string) *models.User {
+func (s *JWTMiddlewareIntegrationSuite) createActiveUser(email string) *authm.User {
 	s.T().Helper()
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -72,7 +72,7 @@ func (s *JWTMiddlewareIntegrationSuite) createActiveUser(email string) *models.U
 	return user
 }
 
-func (s *JWTMiddlewareIntegrationSuite) createInactiveUser(email string) *models.User {
+func (s *JWTMiddlewareIntegrationSuite) createInactiveUser(email string) *authm.User {
 	s.T().Helper()
 	// Create as active first, then update to inactive (GORM bool zero-value gotcha)
 	user := s.createActiveUser(email)
@@ -94,10 +94,10 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_ValidBearerToken_UserInConte
 	ctx, _ := newHumaContext(s.T(), req)
 
 	nextCalled := false
-	var ctxUser *models.User
+	var ctxUser *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			ctxUser = u
 		}
 	})
@@ -120,10 +120,10 @@ func (s *JWTMiddlewareIntegrationSuite) TestHumaJWT_ValidCookieToken_UserInConte
 	ctx, _ := newHumaContext(s.T(), req)
 
 	nextCalled := false
-	var ctxUser *models.User
+	var ctxUser *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			ctxUser = u
 		}
 	})
@@ -194,10 +194,10 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_ValidNonExpiredToken_User
 	ctx, _ := newHumaContext(s.T(), req)
 
 	nextCalled := false
-	var ctxUser *models.User
+	var ctxUser *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			ctxUser = u
 		}
 	})
@@ -229,10 +229,10 @@ func (s *JWTMiddlewareIntegrationSuite) TestLenientJWT_ExpiredWithinGrace_UserIn
 	ctx, _ := newHumaContext(s.T(), req)
 
 	nextCalled := false
-	var ctxUser *models.User
+	var ctxUser *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			ctxUser = u
 		}
 	})
@@ -285,10 +285,10 @@ func (s *JWTMiddlewareIntegrationSuite) TestOptionalJWT_ValidToken_UserInContext
 	ctx, _ := newHumaContext(s.T(), req)
 
 	nextCalled := false
-	var ctxUser *models.User
+	var ctxUser *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			ctxUser = u
 		}
 	})
@@ -310,10 +310,10 @@ func (s *JWTMiddlewareIntegrationSuite) TestOptionalJWT_ValidToken_InactiveUser_
 	ctx, _ := newHumaContext(s.T(), req)
 
 	nextCalled := false
-	var ctxUser *models.User
+	var ctxUser *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			ctxUser = u
 		}
 	})
@@ -329,7 +329,7 @@ func (s *JWTMiddlewareIntegrationSuite) TestChiJWT_ValidBearerToken_UserInContex
 	token, err := s.jwtService.CreateToken(user)
 	s.Require().NoError(err)
 
-	var ctxUser *models.User
+	var ctxUser *authm.User
 	innerHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		ctxUser = GetUserFromContext(r.Context())
 	})

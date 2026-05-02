@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/utils"
@@ -290,7 +290,7 @@ type testVenueFinderCreator struct {
 	db *gorm.DB
 }
 
-func (v *testVenueFinderCreator) FindOrCreateVenue(name, city, state string, address, zipcode *string, txDB *gorm.DB, isAdmin bool) (*models.Venue, bool, error) {
+func (v *testVenueFinderCreator) FindOrCreateVenue(name, city, state string, address, zipcode *string, txDB *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error) {
 	query := txDB
 	if query == nil {
 		query = v.db
@@ -300,7 +300,7 @@ func (v *testVenueFinderCreator) FindOrCreateVenue(name, city, state string, add
 	}
 
 	// Check if venue already exists by name and city
-	var venue models.Venue
+	var venue catalogm.Venue
 	err := query.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", name, city).First(&venue).Error
 	if err == nil {
 		// Venue exists — backfill slug if missing
@@ -308,7 +308,7 @@ func (v *testVenueFinderCreator) FindOrCreateVenue(name, city, state string, add
 			baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
 			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 				var count int64
-				query.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+				query.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 				return count > 0
 			})
 			venue.Slug = &slug
@@ -323,11 +323,11 @@ func (v *testVenueFinderCreator) FindOrCreateVenue(name, city, state string, add
 	baseSlug := utils.GenerateVenueSlug(name, city, state)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		query.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+		query.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	venue = models.Venue{
+	venue = catalogm.Venue{
 		Name:  name,
 		City:  city,
 		State: state,
@@ -406,7 +406,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_Success() {
 		suite.makeEvent("evt-001", "The National", "valley-bar", "2026-06-15", []string{"The National"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Total)
 	suite.Equal(1, result.Imported)
@@ -414,12 +414,12 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_Success() {
 	suite.Equal(0, result.Errors)
 
 	// Verify show was created
-	var show models.Show
+	var show catalogm.Show
 	err = suite.db.Where("source_event_id = ?", "evt-001").First(&show).Error
 	suite.Require().NoError(err)
 	suite.Equal("The National", show.Title)
-	suite.Equal(models.ShowStatusApproved, show.Status)
-	suite.Equal(models.ShowSourceDiscovery, show.Source)
+	suite.Equal(catalogm.ShowStatusApproved, show.Status)
+	suite.Equal(catalogm.ShowSourceDiscovery, show.Source)
 	suite.NotNil(show.Slug)
 }
 
@@ -429,12 +429,12 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_SourceDuplicate() {
 	}
 
 	// First import
-	result1, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result1, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result1.Imported)
 
 	// Second import — same source_venue + source_event_id
-	result2, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result2, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(0, result2.Imported)
 	suite.Equal(1, result2.Duplicates)
@@ -445,7 +445,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_UnknownVenue() {
 		suite.makeEvent("evt-003", "Test Band", "unknown-venue-xyz", "2026-08-01", []string{"Test Band"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Errors)
 	suite.Contains(result.Messages[0], "Unknown venue slug")
@@ -456,7 +456,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate(
 	events1 := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-004a", "Bon Iver", "valley-bar", "2026-09-01", []string{"Bon Iver"}),
 	}
-	result1, err := suite.svc.ImportEvents(events1, false, false, models.ShowStatusApproved)
+	result1, err := suite.svc.ImportEvents(events1, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result1.Imported)
 
@@ -465,32 +465,32 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate(
 	events2 := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-004b", "Bon Iver (Late Show)", "valley-bar", "2026-09-01", []string{"Bon Iver"}),
 	}
-	result2, err := suite.svc.ImportEvents(events2, false, false, models.ShowStatusApproved)
+	result2, err := suite.svc.ImportEvents(events2, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result2.Duplicates)
 
 	// Verify the second show was NOT created
 	var count int64
-	suite.db.Model(&models.Show{}).Where("source_event_id = ?", "evt-004b").Count(&count)
+	suite.db.Model(&catalogm.Show{}).Where("source_event_id = ?", "evt-004b").Count(&count)
 	suite.Equal(int64(0), count)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped() {
 	// Create a rejected show at Valley Bar on a specific date
-	venue := &models.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	venue := &catalogm.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 	err := suite.db.Create(venue).Error
 	suite.Require().NoError(err)
 
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:     "Old Rejected Show",
 		EventDate: time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC),
-		Status:    models.ShowStatusRejected,
-		Source:    models.ShowSourceUser,
+		Status:    catalogm.ShowStatusRejected,
+		Source:    catalogm.ShowSourceUser,
 	}
 	err = suite.db.Create(show).Error
 	suite.Require().NoError(err)
 
-	showVenue := models.ShowVenue{ShowID: show.ID, VenueID: venue.ID}
+	showVenue := catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}
 	err = suite.db.Exec("INSERT INTO show_venues (show_id, venue_id) VALUES (?, ?)", showVenue.ShowID, showVenue.VenueID).Error
 	suite.Require().NoError(err)
 
@@ -499,7 +499,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_RejectedShowSkipped
 		suite.makeEvent("evt-005", "Some New Band", "valley-bar", "2026-10-01", []string{"Some New Band"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Rejected)
 	suite.Contains(result.Messages[0], "REJECTED")
@@ -510,7 +510,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DryRun() {
 		suite.makeEvent("evt-006", "Dry Run Band", "valley-bar", "2026-11-01", []string{"Dry Run Band"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, true, false, models.ShowStatusApproved)
+	result, err := suite.svc.ImportEvents(events, true, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Total)
 	// In dry run, nothing is actually imported but message says "WOULD IMPORT"
@@ -518,7 +518,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_DryRun() {
 
 	// Verify nothing was actually created
 	var count int64
-	suite.db.Model(&models.Show{}).Where("source_event_id = ?", "evt-006").Count(&count)
+	suite.db.Model(&catalogm.Show{}).Where("source_event_id = ?", "evt-006").Count(&count)
 	suite.Zero(count)
 }
 
@@ -527,15 +527,15 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_PendingStatus() {
 		suite.makeEvent("evt-pending-1", "Pending Band", "valley-bar", "2026-11-15", []string{"Pending Band"}),
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusPending)
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusPending)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Imported)
 
 	// Verify show was created with pending status
-	var show models.Show
+	var show catalogm.Show
 	err = suite.db.Where("source_event_id = ?", "evt-pending-1").First(&show).Error
 	suite.Require().NoError(err)
-	suite.Equal(models.ShowStatusPending, show.Status)
+	suite.Equal(catalogm.ShowStatusPending, show.Status)
 }
 
 // =============================================================================
@@ -547,7 +547,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_Found() {
 	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-check-1", "Check Band", "valley-bar", "2026-12-01", []string{"Check Band"}),
 	}
-	_, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	_, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 
 	// Check it
@@ -601,17 +601,17 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithBillingArtists(
 		},
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Imported)
 
 	// Verify show was created
-	var show models.Show
+	var show catalogm.Show
 	err = suite.db.Where("source_event_id = ?", "evt-billing-1").First(&show).Error
 	suite.Require().NoError(err)
 
 	// Verify show_artists have correct set_type and position
-	var showArtists []models.ShowArtist
+	var showArtists []catalogm.ShowArtist
 	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
 	suite.Require().NoError(err)
 	suite.Require().Len(showArtists, 3)
@@ -644,16 +644,16 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_FallbackWithoutBill
 		},
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Imported)
 
 	// Verify show_artists have default set_type
-	var show models.Show
+	var show catalogm.Show
 	err = suite.db.Where("source_event_id = ?", "evt-no-billing-1").First(&show).Error
 	suite.Require().NoError(err)
 
-	var showArtists []models.ShowArtist
+	var showArtists []catalogm.ShowArtist
 	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
 	suite.Require().NoError(err)
 	suite.Require().Len(showArtists, 2)
@@ -682,15 +682,15 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_WithSpecialGuestAnd
 		},
 	}
 
-	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Imported)
 
-	var show models.Show
+	var show catalogm.Show
 	err = suite.db.Where("source_event_id = ?", "evt-special-1").First(&show).Error
 	suite.Require().NoError(err)
 
-	var showArtists []models.ShowArtist
+	var showArtists []catalogm.ShowArtist
 	err = suite.db.Where("show_id = ?", show.ID).Order("position").Find(&showArtists).Error
 	suite.Require().NoError(err)
 	suite.Require().Len(showArtists, 3)
@@ -717,7 +717,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_
 			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
 		},
 	}
-	result1, err := suite.svc.ImportEvents(events1, false, false, models.ShowStatusApproved)
+	result1, err := suite.svc.ImportEvents(events1, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result1.Imported)
 
@@ -736,32 +736,32 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_
 			ScrapedAt: time.Now().UTC().Format(time.RFC3339),
 		},
 	}
-	result2, err := suite.svc.ImportEvents(events2, false, false, models.ShowStatusApproved)
+	result2, err := suite.svc.ImportEvents(events2, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result2.Duplicates)
 
 	// Verify the second show was NOT created
 	var count int64
-	suite.db.Model(&models.Show{}).Where("source_event_id = ?", "evt-billing-002").Count(&count)
+	suite.db.Model(&catalogm.Show{}).Where("source_event_id = ?", "evt-billing-002").Count(&count)
 	suite.Equal(int64(0), count)
 }
 
 func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_Position0Match() {
 	// Import a show where the headliner is assigned position=0 but set_type is just "performer"
 	// This simulates shows created without explicit headliner tagging
-	venue := &models.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+	venue := &catalogm.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 	suite.Require().NoError(suite.db.Create(venue).Error)
 
-	artist := &models.Artist{Name: "Position Zero Band"}
+	artist := &catalogm.Artist{Name: "Position Zero Band"}
 	slug := utils.GenerateArtistSlug(artist.Name)
 	artist.Slug = &slug
 	suite.Require().NoError(suite.db.Create(artist).Error)
 
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:     "Existing Show",
 		EventDate: time.Date(2026, 11, 15, 2, 0, 0, 0, time.UTC),
-		Status:    models.ShowStatusApproved,
-		Source:    models.ShowSourceUser,
+		Status:    catalogm.ShowStatusApproved,
+		Source:    catalogm.ShowSourceUser,
 	}
 	suite.Require().NoError(suite.db.Create(show).Error)
 
@@ -775,7 +775,7 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_
 	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-pos0-001", "Position Zero Band Live", "valley-bar", "2026-11-15", []string{"Position Zero Band"}),
 	}
-	result, err := suite.svc.ImportEvents(events, false, false, models.ShowStatusApproved)
+	result, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Duplicates)
 	suite.Contains(result.Messages[0], "DUPLICATE")

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -26,7 +26,7 @@ func TestSaveShowHandler_NoAuth(t *testing.T) {
 
 func TestSaveShowHandler_InvalidID(t *testing.T) {
 	h := testSavedShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SaveShowRequest{ShowID: "abc"}
 
 	_, err := h.SaveShowHandler(ctx, req)
@@ -43,7 +43,7 @@ func TestSaveShowHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.SaveShowHandler(ctx, &SaveShowRequest{ShowID: "42"})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestSaveShowHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.SaveShowHandler(ctx, &SaveShowRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 422)
@@ -79,7 +79,7 @@ func TestUnsaveShowHandler_NoAuth(t *testing.T) {
 
 func TestUnsaveShowHandler_InvalidID(t *testing.T) {
 	h := testSavedShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnsaveShowRequest{ShowID: "abc"}
 
 	_, err := h.UnsaveShowHandler(ctx, req)
@@ -96,7 +96,7 @@ func TestUnsaveShowHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.UnsaveShowHandler(ctx, &UnsaveShowRequest{ShowID: "42"})
 	if err != nil {
@@ -114,7 +114,7 @@ func TestUnsaveShowHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UnsaveShowHandler(ctx, &UnsaveShowRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 422)
@@ -141,7 +141,7 @@ func TestGetSavedShowsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 10, Offset: 0})
 	if err != nil {
@@ -162,7 +162,7 @@ func TestGetSavedShowsHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 10})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -178,7 +178,7 @@ func TestGetSavedShowsHandler_PaginationClamping(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	// limit=0 should be clamped to 50, offset=-1 should be clamped to 0
 	resp, err := h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 0, Offset: -1})
@@ -214,7 +214,7 @@ func TestCheckSavedHandler_NoAuth(t *testing.T) {
 
 func TestCheckSavedHandler_InvalidID(t *testing.T) {
 	h := testSavedShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &CheckSavedRequest{ShowID: "abc"}
 
 	_, err := h.CheckSavedHandler(ctx, req)
@@ -228,7 +228,7 @@ func TestCheckSavedHandler_Saved(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.CheckSavedHandler(ctx, &CheckSavedRequest{ShowID: "42"})
 	if err != nil {
@@ -246,7 +246,7 @@ func TestCheckSavedHandler_NotSaved(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.CheckSavedHandler(ctx, &CheckSavedRequest{ShowID: "42"})
 	if err != nil {
@@ -264,7 +264,7 @@ func TestCheckSavedHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.CheckSavedHandler(ctx, &CheckSavedRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -283,7 +283,7 @@ func TestCheckBatchSavedHandler_NoAuth(t *testing.T) {
 
 func TestCheckBatchSavedHandler_EmptyList(t *testing.T) {
 	h := NewSavedShowHandler(&testhelpers.MockSavedShowService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &CheckBatchSavedRequest{}
 	req.Body.ShowIDs = []int{}
 
@@ -303,7 +303,7 @@ func TestCheckBatchSavedHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &CheckBatchSavedRequest{}
 	req.Body.ShowIDs = []int{1, 2, 3}
 
@@ -319,7 +319,7 @@ func TestCheckBatchSavedHandler_Success(t *testing.T) {
 func TestCheckBatchSavedHandler_NegativeID(t *testing.T) {
 	mock := &testhelpers.MockSavedShowService{}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &CheckBatchSavedRequest{}
 	req.Body.ShowIDs = []int{1, -5, 3}
 
@@ -334,7 +334,7 @@ func TestCheckBatchSavedHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewSavedShowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &CheckBatchSavedRequest{}
 	req.Body.ShowIDs = []int{1, 2}
 

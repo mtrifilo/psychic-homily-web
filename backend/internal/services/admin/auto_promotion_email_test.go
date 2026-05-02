@@ -8,20 +8,22 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
 // mockEmailService is a simple mock for testing tier change email notifications.
 type mockEmailService struct {
-	configured             bool
-	promotionCalls         []promotionCall
-	demotionCalls          []demotionCall
-	demotionWarningCalls   []demotionWarningCall
-	promotionError         error
-	demotionError          error
-	demotionWarningError   error
+	configured           bool
+	promotionCalls       []promotionCall
+	demotionCalls        []demotionCall
+	demotionWarningCalls []demotionWarningCall
+	promotionError       error
+	demotionError        error
+	demotionWarningError error
 }
 
 type promotionCall struct {
@@ -49,9 +51,9 @@ type demotionWarningCall struct {
 	threshold   float64
 }
 
-func (m *mockEmailService) IsConfigured() bool { return m.configured }
-func (m *mockEmailService) SendVerificationEmail(_, _ string) error { return nil }
-func (m *mockEmailService) SendMagicLinkEmail(_, _ string) error { return nil }
+func (m *mockEmailService) IsConfigured() bool                                { return m.configured }
+func (m *mockEmailService) SendVerificationEmail(_, _ string) error           { return nil }
+func (m *mockEmailService) SendMagicLinkEmail(_, _ string) error              { return nil }
 func (m *mockEmailService) SendAccountRecoveryEmail(_, _ string, _ int) error { return nil }
 func (m *mockEmailService) SendShowReminderEmail(_, _, _, _ string, _ time.Time, _ []string) error {
 	return nil
@@ -119,9 +121,9 @@ func TestAutoPromotionEmailSuite(t *testing.T) {
 	suite.Run(t, new(AutoPromotionEmailTestSuite))
 }
 
-func (s *AutoPromotionEmailTestSuite) createUserWithEmail(tier string, emailVerified bool, createdAt time.Time, email string) *models.User {
+func (s *AutoPromotionEmailTestSuite) createUserWithEmail(tier string, emailVerified bool, createdAt time.Time, email string) *authm.User {
 	username := fmt.Sprintf("user-%d", time.Now().UnixNano())
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		Username:      &username,
 		FirstName:     stringPtr("Test"),
@@ -142,13 +144,13 @@ func (s *AutoPromotionEmailTestSuite) createUserWithEmail(tier string, emailVeri
 
 func (s *AutoPromotionEmailTestSuite) createApprovedEdit(userID uint, entityType string, entityID uint) {
 	raw := testRawJSON()
-	edit := &models.PendingEntityEdit{
+	edit := &adminm.PendingEntityEdit{
 		EntityType:   entityType,
 		EntityID:     entityID,
 		SubmittedBy:  userID,
 		FieldChanges: raw,
 		Summary:      "test edit",
-		Status:       models.PendingEditStatusApproved,
+		Status:       adminm.PendingEditStatusApproved,
 	}
 	err := s.db.Create(edit).Error
 	s.Require().NoError(err)
@@ -156,13 +158,13 @@ func (s *AutoPromotionEmailTestSuite) createApprovedEdit(userID uint, entityType
 
 func (s *AutoPromotionEmailTestSuite) createRejectedEditWithTime(userID uint, entityType string, entityID uint, createdAt time.Time) {
 	raw := testRawJSON()
-	edit := &models.PendingEntityEdit{
+	edit := &adminm.PendingEntityEdit{
 		EntityType:   entityType,
 		EntityID:     entityID,
 		SubmittedBy:  userID,
 		FieldChanges: raw,
 		Summary:      "test edit",
-		Status:       models.PendingEditStatusRejected,
+		Status:       adminm.PendingEditStatusRejected,
 	}
 	err := s.db.Create(edit).Error
 	s.Require().NoError(err)
@@ -171,9 +173,9 @@ func (s *AutoPromotionEmailTestSuite) createRejectedEditWithTime(userID uint, en
 	s.Require().NoError(err)
 }
 
-func (s *AutoPromotionEmailTestSuite) createTestArtist(name string) *models.Artist {
+func (s *AutoPromotionEmailTestSuite) createTestArtist(name string) *catalogm.Artist {
 	slug := fmt.Sprintf("test-artist-%d", time.Now().UnixNano())
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -254,7 +256,7 @@ func (s *AutoPromotionEmailTestSuite) TestEmailErrorDoesNotFailPromotion() {
 	s.Require().Len(result.Promoted, 1)
 
 	// Verify the tier was still updated in the DB
-	var updatedUser models.User
+	var updatedUser authm.User
 	s.Require().NoError(s.db.First(&updatedUser, user.ID).Error)
 	s.Equal(TierContributor, updatedUser.UserTier)
 
@@ -315,7 +317,7 @@ func (s *AutoPromotionEmailTestSuite) TestAuditLogWrittenOnPromotion() {
 	s.Require().Len(result.Promoted, 1)
 
 	// Verify audit log was written
-	var auditLog models.AuditLog
+	var auditLog adminm.AuditLog
 	err = s.db.Where("entity_type = ? AND entity_id = ? AND action = ?", "user", user.ID, "tier_promotion").
 		First(&auditLog).Error
 	s.Require().NoError(err)
@@ -343,7 +345,7 @@ func (s *AutoPromotionEmailTestSuite) TestAuditLogWrittenOnDemotion() {
 	s.Require().Len(result.Demoted, 1)
 
 	// Verify audit log was written
-	var auditLog models.AuditLog
+	var auditLog adminm.AuditLog
 	err = s.db.Where("entity_type = ? AND entity_id = ? AND action = ?", "user", user.ID, "tier_demotion").
 		First(&auditLog).Error
 	s.Require().NoError(err)

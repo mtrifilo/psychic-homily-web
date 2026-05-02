@@ -8,9 +8,9 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -29,7 +29,6 @@ func NewVenueService(database *gorm.DB) *VenueService {
 	}
 }
 
-
 // CreateVenue creates a new venue
 // If isAdmin is true, the venue is automatically verified.
 // If isAdmin is false, the venue requires admin approval (verified = false).
@@ -39,7 +38,7 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 	}
 
 	// Check if venue already exists (same name in same city)
-	var existingVenue models.Venue
+	var existingVenue catalogm.Venue
 	err := s.db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", req.Name, req.City).First(&existingVenue).Error
 	if err == nil {
 		return nil, fmt.Errorf("venue with name '%s' already exists in %s", req.Name, req.City)
@@ -51,12 +50,12 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 	baseSlug := utils.GenerateVenueSlug(req.Name, req.City, req.State)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
 	// Create the venue - verified if created by admin, unverified otherwise
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:        req.Name,
 		Slug:        &slug,
 		Address:     req.Address,
@@ -66,7 +65,7 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 		Zipcode:     req.Zipcode,
 		Verified:    isAdmin, // Admins create verified venues, non-admins require approval
 		SubmittedBy: req.SubmittedBy,
-		Social: models.Social{
+		Social: catalogm.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
 			Twitter:    req.Twitter,
@@ -91,7 +90,7 @@ func (s *VenueService) GetVenue(venueID uint) (*contracts.VenueDetailResponse, e
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var venue models.Venue
+	var venue catalogm.Venue
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -109,7 +108,7 @@ func (s *VenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailRespon
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var venue models.Venue
+	var venue catalogm.Venue
 	err := s.db.Where("slug = ?", slug).First(&venue).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -140,13 +139,13 @@ func (s *VenueService) GetVenues(filters map[string]interface{}) ([]*contracts.V
 		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%")
 	}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		query = ApplyTagFilter(query, s.db, models.TagEntityVenue, "venues.id", tf)
+		query = ApplyTagFilter(query, s.db, catalogm.TagEntityVenue, "venues.id", tf)
 	}
 
 	// Default ordering by name
 	query = query.Order("name ASC")
 
-	var venues []models.Venue
+	var venues []catalogm.Venue
 	err := query.Find(&venues).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get venues: %w", err)
@@ -169,7 +168,7 @@ func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{})
 
 	// Check if name/city is being updated and if it conflicts with existing venue
 	// Get current venue to check its city
-	var currentVenue models.Venue
+	var currentVenue catalogm.Venue
 	err := s.db.First(&currentVenue, venueID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -197,7 +196,7 @@ func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{})
 	}
 
 	// Check for duplicate venue with same name and city (excluding current venue)
-	var existingVenue models.Venue
+	var existingVenue catalogm.Venue
 	err = s.db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?) AND id != ?", checkName, checkCity, venueID).First(&existingVenue).Error
 	if err == nil {
 		return nil, fmt.Errorf("venue with name '%s' already exists in %s", checkName, checkCity)
@@ -206,7 +205,7 @@ func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{})
 	}
 
 	// Update the venue
-	err = s.db.Model(&models.Venue{}).Where("id = ?", venueID).Updates(updates).Error
+	err = s.db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(updates).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to update venue: %w", err)
 	}
@@ -221,7 +220,7 @@ func (s *VenueService) DeleteVenue(venueID uint) error {
 	}
 
 	// Check if venue exists
-	var venue models.Venue
+	var venue catalogm.Venue
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -232,7 +231,7 @@ func (s *VenueService) DeleteVenue(venueID uint) error {
 
 	// Check if venue is associated with any shows
 	var count int64
-	err = s.db.Model(&models.ShowVenue{}).Where("venue_id = ?", venueID).Count(&count).Error
+	err = s.db.Model(&catalogm.ShowVenue{}).Where("venue_id = ?", venueID).Count(&count).Error
 	if err != nil {
 		return fmt.Errorf("failed to check venue associations: %w", err)
 	}
@@ -259,7 +258,7 @@ func (venueService *VenueService) SearchVenues(query string) ([]*contracts.Venue
 		return []*contracts.VenueDetailResponse{}, nil
 	}
 
-	var venues []models.Venue
+	var venues []catalogm.Venue
 	var err error
 
 	if len(query) <= 2 {
@@ -296,7 +295,7 @@ func (venueService *VenueService) SearchVenues(query string) ([]*contracts.Venue
 // If isAdmin is true, new venues are automatically verified.
 // If isAdmin is false, new venues require admin approval (verified = false).
 // Returns the venue and a boolean indicating if it was newly created.
-func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, bool, error) {
+func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error) {
 	// Use provided db or fall back to service's db
 	query := db
 	if query == nil {
@@ -319,7 +318,7 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	}
 
 	// Check if venue already exists by name and city
-	var venue models.Venue
+	var venue catalogm.Venue
 	err := query.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", name, city).First(&venue).Error
 
 	if err == nil {
@@ -328,7 +327,7 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 			baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
 			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 				var count int64
-				query.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+				query.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 				return count > 0
 			})
 			venue.Slug = &slug
@@ -344,19 +343,19 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 	baseSlug := utils.GenerateVenueSlug(name, city, state)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		query.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+		query.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	venue = models.Venue{
+	venue = catalogm.Venue{
 		Name:     name,
 		Slug:     &slug,
 		Address:  address,
 		City:     city,
 		State:    state,
 		Zipcode:  zipcode,
-		Verified: isAdmin, // Admins create verified venues, non-admins require approval
-		Social:   models.Social{}, // Empty social fields
+		Verified: isAdmin,           // Admins create verified venues, non-admins require approval
+		Social:   catalogm.Social{}, // Empty social fields
 	}
 
 	if err := query.Create(&venue).Error; err != nil {
@@ -373,7 +372,7 @@ func (s *VenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResponse
 	}
 
 	// Get the venue
-	var venue models.Venue
+	var venue catalogm.Venue
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -393,7 +392,7 @@ func (s *VenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResponse
 		baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+			s.db.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
 		updates["slug"] = slug
@@ -413,7 +412,7 @@ func (s *VenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResponse
 }
 
 // buildVenueResponse converts a Venue model to contracts.VenueDetailResponse
-func (s *VenueService) buildVenueResponse(venue *models.Venue) *contracts.VenueDetailResponse {
+func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.VenueDetailResponse {
 	slug := ""
 	if venue.Slug != nil {
 		slug = *venue.Slug
@@ -457,7 +456,7 @@ func (s *VenueService) buildVenueResponse(venue *models.Venue) *contracts.VenueD
 
 // VenueWithCount is used internally for querying venues with their show counts
 type VenueWithCount struct {
-	models.Venue
+	catalogm.Venue
 	UpcomingShowCount int64 `gorm:"column:upcoming_show_count"`
 }
 
@@ -476,7 +475,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	subquery := s.db.Table("show_venues").
 		Select("show_venues.venue_id, COUNT(*) as show_count").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("shows.event_date >= ? AND shows.status = ?", now, models.ShowStatusApproved).
+		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
 		Group("show_venues.venue_id")
 
 	// Start with verified venues only for public display
@@ -507,7 +506,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 		}
 	}
 	tf := TagFilter{TagSlugs: filters.TagSlugs, MatchAny: filters.TagMatchAny}
-	query = ApplyTagFilter(query, s.db, models.TagEntityVenue, "venues.id", tf)
+	query = ApplyTagFilter(query, s.db, catalogm.TagEntityVenue, "venues.id", tf)
 
 	// Get total count of matching venues
 	var total int64
@@ -532,7 +531,7 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 			countQuery = countQuery.Where("city = ?", filters.City)
 		}
 	}
-	countQuery = ApplyTagFilter(countQuery, s.db, models.TagEntityVenue, "venues.id", tf)
+	countQuery = ApplyTagFilter(countQuery, s.db, catalogm.TagEntityVenue, "venues.id", tf)
 	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
 	}
@@ -555,7 +554,6 @@ func (s *VenueService) GetVenuesWithShowCounts(filters contracts.VenueListFilter
 	return responses, total, nil
 }
 
-
 // GetUpcomingShowsForVenue retrieves upcoming shows at a specific venue.
 // Only returns approved shows with event_date >= today in the specified timezone.
 // Deprecated: Use GetShowsForVenue with timeFilter="upcoming" instead.
@@ -572,7 +570,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	}
 
 	// Verify venue exists
-	var venue models.Venue
+	var venue catalogm.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, 0, apperrors.ErrVenueNotFound(venueID)
@@ -594,7 +592,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	// Build base query
 	baseQuery := s.db.Table("show_venues").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, models.ShowStatusApproved)
+		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
 
 	// Apply time filter
 	var dateCondition string
@@ -617,7 +615,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	var total int64
 	countQuery := s.db.Table("show_venues").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, models.ShowStatusApproved)
+		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
 	if dateCondition != "" {
 		countQuery = countQuery.Where(dateCondition, startOfTodayUTC)
 	}
@@ -630,7 +628,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	showQuery := s.db.Table("show_venues").
 		Select("show_venues.show_id").
 		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, models.ShowStatusApproved)
+		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
 	if dateCondition != "" {
 		showQuery = showQuery.Where(dateCondition, startOfTodayUTC)
 	}
@@ -639,7 +637,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	}
 
 	// Fetch full show data
-	var shows []models.Show
+	var shows []catalogm.Show
 	if len(showIDs) > 0 {
 		if err := s.db.Where("id IN ?", showIDs).Order(orderDirection).Find(&shows).Error; err != nil {
 			return nil, 0, fmt.Errorf("failed to get shows: %w", err)
@@ -647,10 +645,10 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	}
 
 	// Batch-load all ShowArtist records and collect artist IDs
-	allShowArtists := make(map[uint][]models.ShowArtist)
+	allShowArtists := make(map[uint][]catalogm.ShowArtist)
 	var allArtistIDs []uint
 	if len(shows) > 0 {
-		var showArtistRecords []models.ShowArtist
+		var showArtistRecords []catalogm.ShowArtist
 		showIDsForArtists := make([]uint, len(shows))
 		for i, show := range shows {
 			showIDsForArtists[i] = show.ID
@@ -663,9 +661,9 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	}
 
 	// Batch-fetch all artists in one query
-	artistMap := make(map[uint]*models.Artist)
+	artistMap := make(map[uint]*catalogm.Artist)
 	if len(allArtistIDs) > 0 {
-		var allArtists []models.Artist
+		var allArtists []catalogm.Artist
 		s.db.Where("id IN ?", allArtistIDs).Find(&allArtists)
 		for i := range allArtists {
 			artistMap[allArtists[i].ID] = &allArtists[i]
@@ -782,7 +780,7 @@ func (s *VenueService) GetVenueGenreProfile(venueID uint) ([]contracts.GenreCoun
 		JOIN entity_tags et ON et.entity_type = 'artist' AND et.entity_id = sa.artist_id
 		JOIN tags t ON t.id = et.tag_id AND t.category = 'genre'
 		WHERE sv.venue_id = ? AND s.status = ?
-	`, venueID, models.ShowStatusApproved).Scan(&showCount).Error
+	`, venueID, catalogm.ShowStatusApproved).Scan(&showCount).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to count tagged shows for venue: %w", err)
 	}
@@ -810,7 +808,7 @@ func (s *VenueService) GetVenueGenreProfile(venueID uint) ([]contracts.GenreCoun
 		GROUP BY t.id, t.name, t.slug
 		ORDER BY count DESC
 		LIMIT 5
-	`, venueID, models.ShowStatusApproved).Scan(&rows).Error
+	`, venueID, catalogm.ShowStatusApproved).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get venue genre profile: %w", err)
 	}
@@ -829,12 +827,12 @@ func (s *VenueService) GetVenueGenreProfile(venueID uint) ([]contracts.GenreCoun
 }
 
 // GetVenueModel retrieves a raw venue model (used by handlers to check ownership)
-func (s *VenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
+func (s *VenueService) GetVenueModel(venueID uint) (*catalogm.Venue, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var venue models.Venue
+	var venue catalogm.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrVenueNotFound(venueID)
@@ -856,7 +854,7 @@ func (s *VenueService) GetUnverifiedVenues(limit, offset int) ([]*contracts.Unve
 
 	// Get total count of unverified venues
 	var total int64
-	if err := s.db.Model(&models.Venue{}).Where("verified = ?", false).Count(&total).Error; err != nil {
+	if err := s.db.Model(&catalogm.Venue{}).Where("verified = ?", false).Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count unverified venues: %w", err)
 	}
 
@@ -866,7 +864,7 @@ func (s *VenueService) GetUnverifiedVenues(limit, offset int) ([]*contracts.Unve
 		Group("venue_id")
 
 	var results []struct {
-		models.Venue
+		catalogm.Venue
 		ShowCount int64 `gorm:"column:show_count"`
 	}
 

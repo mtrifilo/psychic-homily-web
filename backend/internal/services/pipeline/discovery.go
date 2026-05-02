@@ -11,7 +11,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -30,7 +31,7 @@ type DiscoveryService struct {
 
 // venueFinderCreator is the subset of VenueService used by DiscoveryService.
 type venueFinderCreator interface {
-	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, bool, error)
+	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error)
 }
 
 // NewDiscoveryService creates a new discovery service
@@ -43,7 +44,6 @@ func NewDiscoveryService(database *gorm.DB, venueSvc venueFinderCreator) *Discov
 		venueService: venueSvc,
 	}
 }
-
 
 // SetEnrichmentService sets the enrichment service for post-import queuing.
 // Called after container construction to avoid circular dependencies.
@@ -153,7 +153,7 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 	}
 
 	for _, event := range events {
-		msg, status := s.importEvent(&event, dryRun, false, models.ShowStatusApproved)
+		msg, status := s.importEvent(&event, dryRun, false, catalogm.ShowStatusApproved)
 		result.Messages = append(result.Messages, msg)
 
 		switch status {
@@ -177,11 +177,11 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 
 // checkHeadlinerDuplicate checks if there's an existing non-rejected show with the same
 // headliner at the same venue on the same date. Returns the matching show or nil.
-func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *models.Show {
+func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *catalogm.Show {
 	startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
-	var existingShow models.Show
+	var existingShow catalogm.Show
 	err := s.db.
 		Joins("JOIN show_artists ON shows.id = show_artists.show_id").
 		Joins("JOIN artists ON show_artists.artist_id = artists.id").
@@ -191,7 +191,7 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 		Where("(show_artists.set_type = ? OR show_artists.position = 0)", "headliner").
 		Where("LOWER(venues.name) = LOWER(?)", venueName).
 		Where("shows.event_date >= ? AND shows.event_date < ?", startOfDay, endOfDay).
-		Where("shows.status NOT IN ?", []models.ShowStatus{models.ShowStatusRejected, models.ShowStatusPrivate}).
+		Where("shows.status NOT IN ?", []catalogm.ShowStatus{catalogm.ShowStatusRejected, catalogm.ShowStatusPrivate}).
 		First(&existingShow).Error
 	if err != nil {
 		return nil
@@ -232,14 +232,14 @@ func (s *DiscoveryService) resolveHeadlinerName(event *contracts.DiscoveredEvent
 
 // importEvent imports a single scraped event
 // Returns a message, status ("imported", "duplicate", "rejected", "updated", "error"), and show ID (if created)
-func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (string, string) {
+func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (string, string) {
 	// Validate required fields
 	if event.ID == "" || event.VenueSlug == "" {
 		return fmt.Sprintf("SKIP: Missing required fields (id=%s, venueSlug=%s)", event.ID, event.VenueSlug), "error"
 	}
 
 	// Check for duplicate (same source_venue + source_event_id)
-	var existing models.Show
+	var existing catalogm.Show
 	err := s.db.Where("source_venue = ? AND source_event_id = ?", event.VenueSlug, event.ID).First(&existing).Error
 	if err == nil {
 		if allowUpdates {
@@ -267,11 +267,11 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 	startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
 	endOfDay := startOfDay.Add(24 * time.Hour)
 
-	var rejectedShow models.Show
+	var rejectedShow catalogm.Show
 	err = s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 		Joins("JOIN venues ON show_venues.venue_id = venues.id").
 		Where("LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ? AND shows.status = ?",
-			venueConfig.Name, startOfDay, endOfDay, models.ShowStatusRejected).
+			venueConfig.Name, startOfDay, endOfDay, catalogm.ShowStatusRejected).
 		First(&rejectedShow).Error
 	if err == nil {
 		return fmt.Sprintf("REJECTED: %s matches previously rejected show #%d at %s on %s",
@@ -307,7 +307,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 	City    string
 	State   string
 	Address string
-}, duplicateOfShowID *uint, initialStatus models.ShowStatus) error {
+}, duplicateOfShowID *uint, initialStatus catalogm.ShowStatus) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Parse scraped_at timestamp
 		scrapedAt, err := time.Parse(time.RFC3339, event.ScrapedAt)
@@ -335,22 +335,22 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		// Create the show — use initialStatus, but always override to pending for potential duplicates
 		status := initialStatus
 		if duplicateOfShowID != nil {
-			status = models.ShowStatusPending
+			status = catalogm.ShowStatusPending
 		}
 
 		// Set data provenance fields for AI-extracted shows
-		aiSource := models.DataSourceAIExtraction
+		aiSource := catalogm.DataSourceAIExtraction
 		aiConfidence := 0.8
 		now := time.Now()
 
-		show := &models.Show{
+		show := &catalogm.Show{
 			Title:             event.Title,
 			EventDate:         eventDate.UTC(),
 			City:              &venueConfig.City,
 			State:             &venueConfig.State,
 			Description:       description,
 			Status:            status,
-			Source:            models.ShowSourceDiscovery,
+			Source:            catalogm.ShowSourceDiscovery,
 			SourceVenue:       &event.VenueSlug,
 			SourceEventID:     &event.ID,
 			ScrapedAt:         &scrapedAt,
@@ -389,7 +389,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		}
 
 		// Create show-venue association
-		showVenue := models.ShowVenue{
+		showVenue := catalogm.ShowVenue{
 			ShowID:  show.ID,
 			VenueID: venue.ID,
 		}
@@ -433,10 +433,10 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			}
 
 			// Find or create artist
-			var artist models.Artist
+			var artist catalogm.Artist
 			err := tx.Where("LOWER(name) = LOWER(?)", artistName).First(&artist).Error
 			if err == gorm.ErrRecordNotFound {
-				artist = models.Artist{Name: artistName}
+				artist = catalogm.Artist{Name: artistName}
 				if err := tx.Create(&artist).Error; err != nil {
 					return fmt.Errorf("failed to create artist %s: %w", artistName, err)
 				}
@@ -444,7 +444,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 				baseSlug := utils.GenerateArtistSlug(artist.Name)
 				artistSlug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 					var count int64
-					tx.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 					return count > 0
 				})
 				tx.Model(&artist).Update("slug", artistSlug)
@@ -470,7 +470,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			}
 
 			// Create show-artist association
-			showArtist := models.ShowArtist{
+			showArtist := catalogm.ShowArtist{
 				ShowID:   show.ID,
 				ArtistID: artist.ID,
 				Position: position,
@@ -489,7 +489,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 		baseShowSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueConfig.Name, venueConfig.State)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
 			var count int64
-			tx.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)
+			tx.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
 		tx.Model(show).Update("slug", showSlug)
@@ -500,7 +500,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 
 // updateShowFromEvent compares scraped event data against an existing show and updates changed fields.
 // Returns a message and status ("updated" or "duplicate").
-func (s *DiscoveryService) updateShowFromEvent(existing *models.Show, event *contracts.DiscoveredEvent, dryRun bool) (string, string) {
+func (s *DiscoveryService) updateShowFromEvent(existing *catalogm.Show, event *contracts.DiscoveredEvent, dryRun bool) (string, string) {
 	updates := make(map[string]interface{})
 	var changes []string
 
@@ -756,7 +756,7 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		return result, nil
 	}
 
-	var shows []models.Show
+	var shows []catalogm.Show
 	err := s.db.Where("(source_venue, source_event_id) IN ?", pairs).
 		Select("id, source_venue, source_event_id, status, price, age_requirement, description, event_date, is_sold_out, is_cancelled").
 		Find(&shows).Error
@@ -792,7 +792,7 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		startOfDay := eventDate
 		endOfDay := eventDate.Add(24 * time.Hour)
 
-		var matchedShow models.Show
+		var matchedShow catalogm.Show
 		err = s.db.Joins("JOIN show_venues ON show_venues.show_id = shows.id").
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
 			Where("LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
@@ -810,7 +810,7 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 }
 
 // buildCheckEventStatus creates a CheckEventStatus from a Show model
-func (s *DiscoveryService) buildCheckEventStatus(show models.Show) contracts.CheckEventStatus {
+func (s *DiscoveryService) buildCheckEventStatus(show catalogm.Show) contracts.CheckEventStatus {
 	var artistNames []string
 	s.db.Raw(`SELECT artists.name FROM show_artists
 		JOIN artists ON show_artists.artist_id = artists.id
@@ -835,7 +835,7 @@ func (s *DiscoveryService) buildCheckEventStatus(show models.Show) contracts.Che
 
 // ImportEvents imports events from an array of DiscoveredEvent objects
 // This is used by the HTTP API endpoint for importing scraped data directly
-func (s *DiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
+func (s *DiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -881,11 +881,11 @@ func (s *DiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryR
 // queueImportedShowsForEnrichment looks up shows by source_event_id and queues them for enrichment.
 func (s *DiscoveryService) queueImportedShowsForEnrichment(eventIDs []string) {
 	for _, eventID := range eventIDs {
-		var show models.Show
+		var show catalogm.Show
 		if err := s.db.Where("source_event_id = ?", eventID).First(&show).Error; err != nil {
 			continue
 		}
-		if err := s.enrichmentService.QueueShowForEnrichment(show.ID, models.EnrichmentTypeAll); err != nil {
+		if err := s.enrichmentService.QueueShowForEnrichment(show.ID, adminm.EnrichmentTypeAll); err != nil {
 			// Fire-and-forget: log but don't fail
 			fmt.Printf("warning: failed to queue show %d for enrichment: %v\n", show.ID, err)
 		}

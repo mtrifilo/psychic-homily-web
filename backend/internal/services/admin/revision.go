@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
 )
 
 // RevisionService handles revision history business logic.
@@ -26,7 +26,7 @@ func NewRevisionService(database *gorm.DB) *RevisionService {
 
 // RecordRevision creates a new revision entry for an entity edit.
 // If changes is empty, it is a no-op (no revision recorded).
-func (s *RevisionService) RecordRevision(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) error {
+func (s *RevisionService) RecordRevision(entityType string, entityID uint, userID uint, changes []adminm.FieldChange, summary string) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -45,7 +45,7 @@ func (s *RevisionService) RecordRevision(entityType string, entityID uint, userI
 		summaryPtr = &summary
 	}
 
-	revision := &models.Revision{
+	revision := &adminm.Revision{
 		EntityType:   entityType,
 		EntityID:     entityID,
 		UserID:       userID,
@@ -60,7 +60,7 @@ func (s *RevisionService) RecordRevision(entityType string, entityID uint, userI
 }
 
 // GetEntityHistory returns paginated revision history for a specific entity.
-func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
+func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -73,11 +73,11 @@ func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, lim
 	}
 
 	var total int64
-	s.db.Model(&models.Revision{}).
+	s.db.Model(&adminm.Revision{}).
 		Where("entity_type = ? AND entity_id = ?", entityType, entityID).
 		Count(&total)
 
-	var revisions []models.Revision
+	var revisions []adminm.Revision
 	err := s.db.Where("entity_type = ? AND entity_id = ?", entityType, entityID).
 		Preload("User").
 		Order("created_at DESC").
@@ -93,12 +93,12 @@ func (s *RevisionService) GetEntityHistory(entityType string, entityID uint, lim
 
 // GetRevision retrieves a single revision by ID.
 // Returns nil, nil if not found.
-func (s *RevisionService) GetRevision(revisionID uint) (*models.Revision, error) {
+func (s *RevisionService) GetRevision(revisionID uint) (*adminm.Revision, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var revision models.Revision
+	var revision adminm.Revision
 	err := s.db.Preload("User").First(&revision, revisionID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -110,7 +110,7 @@ func (s *RevisionService) GetRevision(revisionID uint) (*models.Revision, error)
 }
 
 // GetUserRevisions returns paginated revisions made by a specific user.
-func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int) ([]models.Revision, int64, error) {
+func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int) ([]adminm.Revision, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -123,9 +123,9 @@ func (s *RevisionService) GetUserRevisions(userID uint, limit, offset int) ([]mo
 	}
 
 	var total int64
-	s.db.Model(&models.Revision{}).Where("user_id = ?", userID).Count(&total)
+	s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID).Count(&total)
 
-	var revisions []models.Revision
+	var revisions []adminm.Revision
 	err := s.db.Where("user_id = ?", userID).
 		Preload("User").
 		Order("created_at DESC").
@@ -155,17 +155,17 @@ func (s *RevisionService) Rollback(revisionID uint, adminUserID uint) error {
 	}
 
 	// Parse field changes
-	var changes []models.FieldChange
+	var changes []adminm.FieldChange
 	if err := json.Unmarshal(*revision.FieldChanges, &changes); err != nil {
 		return fmt.Errorf("failed to parse field changes: %w", err)
 	}
 
 	// Build update map from old values (reversing the change)
 	updates := make(map[string]interface{})
-	var rollbackChanges []models.FieldChange
+	var rollbackChanges []adminm.FieldChange
 	for _, c := range changes {
 		updates[c.Field] = c.OldValue
-		rollbackChanges = append(rollbackChanges, models.FieldChange{
+		rollbackChanges = append(rollbackChanges, adminm.FieldChange{
 			Field:    c.Field,
 			OldValue: c.NewValue,
 			NewValue: c.OldValue,

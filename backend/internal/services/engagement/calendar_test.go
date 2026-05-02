@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -262,8 +262,8 @@ func TestCalendarIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *CalendarIntegrationTestSuite) createTestUser(active bool) *models.User {
-	user := &models.User{
+func (suite *CalendarIntegrationTestSuite) createTestUser(active bool) *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("cal-user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Calendar"),
 		LastName:      stringPtr("User"),
@@ -391,7 +391,7 @@ func (suite *CalendarIntegrationTestSuite) TestValidateCalendarToken_InactiveUse
 	suite.Require().NoError(err)
 
 	// Deactivate the user
-	suite.db.Model(&models.User{}).Where("id = ?", user.ID).Update("is_active", false)
+	suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", false)
 
 	_, err = suite.svc.ValidateCalendarToken(resp.Token)
 	suite.Error(err)

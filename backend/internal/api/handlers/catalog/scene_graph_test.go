@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // SceneGraphIntegrationSuite covers the PSY-367 scene-scale graph endpoint.
@@ -48,14 +48,14 @@ func TestSceneGraphIntegration(t *testing.T) {
 // seedSceneVenue creates a verified venue at (city, state). The scene service
 // requires `sceneMinVenues` (= 2) verified venues to consider a scene valid;
 // most tests below seed at least two even when only one carries activity.
-func (s *SceneGraphIntegrationSuite) seedSceneVenue(name, city, state string) *models.Venue {
+func (s *SceneGraphIntegrationSuite) seedSceneVenue(name, city, state string) *catalogm.Venue {
 	return testhelpers.CreateVerifiedVenue(s.deps.DB, name, city, state)
 }
 
 // seedSceneArtist creates a bare artist row. Slug doesn't matter for graph
 // computation but the response payload surfaces it.
-func (s *SceneGraphIntegrationSuite) seedSceneArtist(name string) *models.Artist {
-	a := &models.Artist{Name: name}
+func (s *SceneGraphIntegrationSuite) seedSceneArtist(name string) *catalogm.Artist {
+	a := &catalogm.Artist{Name: name}
 	s.deps.DB.Create(a)
 	slug := fmt.Sprintf("artist-%d", a.ID)
 	s.deps.DB.Model(a).Update("slug", slug)
@@ -64,14 +64,14 @@ func (s *SceneGraphIntegrationSuite) seedSceneArtist(name string) *models.Artist
 
 // seedShowAtVenue creates one approved show on `eventDate` at `venue` with the
 // given artists in lineup order (position 0 = headliner). Returns the show ID.
-func (s *SceneGraphIntegrationSuite) seedShowAtVenue(eventDate time.Time, venue *models.Venue, artistIDs ...uint) uint {
+func (s *SceneGraphIntegrationSuite) seedShowAtVenue(eventDate time.Time, venue *catalogm.Venue, artistIDs ...uint) uint {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       fmt.Sprintf("Show at %s on %s", venue.Name, eventDate.Format("2006-01-02")),
 		EventDate:   eventDate,
 		City:        testhelpers.StringPtr(venue.City),
 		State:       testhelpers.StringPtr(venue.State),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)
@@ -93,7 +93,7 @@ func (s *SceneGraphIntegrationSuite) seedShowAtVenue(eventDate time.Time, venue 
 // artists with the given shared-show count carried in the `detail` JSONB. Score
 // scaled the same way DeriveSharedBills does (count/10, capped at 1.0).
 func (s *SceneGraphIntegrationSuite) seedSharedBillsRel(a, b uint, sharedCount int) {
-	src, tgt := models.CanonicalOrder(a, b)
+	src, tgt := catalogm.CanonicalOrder(a, b)
 	score := float32(sharedCount) / 10.0
 	if score > 1.0 {
 		score = 1.0
@@ -103,10 +103,10 @@ func (s *SceneGraphIntegrationSuite) seedSharedBillsRel(a, b uint, sharedCount i
 		"last_shared":  time.Now().UTC().Format("2006-01-02"),
 	})
 	raw := json.RawMessage(detail)
-	rel := models.ArtistRelationship{
+	rel := catalogm.ArtistRelationship{
 		SourceArtistID:   src,
 		TargetArtistID:   tgt,
-		RelationshipType: models.RelationshipTypeSharedBills,
+		RelationshipType: catalogm.RelationshipTypeSharedBills,
 		Score:            score,
 		AutoDerived:      true,
 		Detail:           &raw,
@@ -117,8 +117,8 @@ func (s *SceneGraphIntegrationSuite) seedSharedBillsRel(a, b uint, sharedCount i
 // seedTypedRel inserts a relationship of the given type between two artists.
 // Used to exercise the `types` query filter.
 func (s *SceneGraphIntegrationSuite) seedTypedRel(a, b uint, relType string) {
-	src, tgt := models.CanonicalOrder(a, b)
-	rel := models.ArtistRelationship{
+	src, tgt := catalogm.CanonicalOrder(a, b)
+	rel := catalogm.ArtistRelationship{
 		SourceArtistID:   src,
 		TargetArtistID:   tgt,
 		RelationshipType: relType,
@@ -195,7 +195,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_PrimaryVenueClusters() {
 	now := time.Now().UTC()
 
 	// 6 artists who play primarily at Valley Bar.
-	valleyArtists := make([]*models.Artist, 0, 6)
+	valleyArtists := make([]*catalogm.Artist, 0, 6)
 	for i := 0; i < 6; i++ {
 		a := s.seedSceneArtist(fmt.Sprintf("Valley-A%d", i))
 		s.seedShowAtVenue(now.AddDate(0, 0, -i), valley, a.ID)
@@ -204,7 +204,7 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_PrimaryVenueClusters() {
 	}
 
 	// 6 artists who play primarily at Crescent Ballroom.
-	crescentArtists := make([]*models.Artist, 0, 6)
+	crescentArtists := make([]*catalogm.Artist, 0, 6)
 	for i := 0; i < 6; i++ {
 		a := s.seedSceneArtist(fmt.Sprintf("Crescent-A%d", i))
 		s.seedShowAtVenue(now.AddDate(0, 0, -i), crescent, a.ID)
@@ -332,18 +332,18 @@ func (s *SceneGraphIntegrationSuite) TestSceneGraph_TypeFilter() {
 	s.seedShowAtVenue(now.AddDate(0, -1, 0), venue, a.ID)
 	s.seedShowAtVenue(now.AddDate(0, -2, 0), venue, b.ID)
 
-	s.seedTypedRel(a.ID, b.ID, models.RelationshipTypeSharedBills)
-	s.seedTypedRel(a.ID, b.ID, models.RelationshipTypeSharedLabel)
+	s.seedTypedRel(a.ID, b.ID, catalogm.RelationshipTypeSharedBills)
+	s.seedTypedRel(a.ID, b.ID, catalogm.RelationshipTypeSharedLabel)
 
 	all, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", nil)
 	s.Require().NoError(err)
 	s.Equal(2, all.Scene.EdgeCount)
 
-	onlyShared, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{models.RelationshipTypeSharedLabel})
+	onlyShared, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{catalogm.RelationshipTypeSharedLabel})
 	s.Require().NoError(err)
 	s.Equal(1, onlyShared.Scene.EdgeCount)
 	s.Require().Len(onlyShared.Links, 1)
-	s.Equal(models.RelationshipTypeSharedLabel, onlyShared.Links[0].Type)
+	s.Equal(catalogm.RelationshipTypeSharedLabel, onlyShared.Links[0].Type)
 
 	// Unknown type silently drops to allowlist; result is zero edges, not an error.
 	bogus, err := s.deps.SceneService.GetSceneGraph("Phoenix", "AZ", []string{"definitely_not_a_type"})

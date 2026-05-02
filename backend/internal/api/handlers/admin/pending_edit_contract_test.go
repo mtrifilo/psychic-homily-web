@@ -6,19 +6,18 @@ import (
 	"testing"
 
 	"github.com/stretchr/testify/assert"
-
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
 )
 
 // TestAllowedEditFieldsCoversAllTypes ensures every entity type in
-// models.ValidPendingEditEntityTypes() has a non-empty entry in
+// adminm.ValidPendingEditEntityTypes() has a non-empty entry in
 // allowedEditFields. Without this, adding a new entity type to the model
 // allowlist silently produces a handler that rejects every user-submitted
 // field (because the empty inner map returns false for every lookup).
 //
 // PSY-492 contract drift guard.
 func TestAllowedEditFieldsCoversAllTypes(t *testing.T) {
-	for _, entityType := range models.ValidPendingEditEntityTypes() {
+	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
 		fields, ok := allowedEditFields[entityType]
 		assert.Truef(t, ok, "allowedEditFields missing entry for %q", entityType)
 		assert.NotEmptyf(t, fields, "allowedEditFields[%q] is empty", entityType)
@@ -34,7 +33,7 @@ func TestAllowedEditFieldsCoversAllTypes(t *testing.T) {
 // PSY-492 contract drift guard.
 func TestSuggestEditHandlerExistsForAllTypes(t *testing.T) {
 	hType := reflect.TypeOf(&PendingEditHandler{})
-	for _, entityType := range models.ValidPendingEditEntityTypes() {
+	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
 		methodName := "Suggest" + capitalize(entityType) + "EditHandler"
 		_, ok := hType.MethodByName(methodName)
 		assert.Truef(t, ok, "PendingEditHandler missing method %q for entity type %q", methodName, entityType)
@@ -58,7 +57,7 @@ func TestDataGapsHandlerAcceptsAllEntityTypes(t *testing.T) {
 	// types it'll hit a nil-pointer deref, which is also "not a 400" — we
 	// catch it with recover.
 	h := &DataGapsHandler{}
-	for _, entityType := range models.ValidPendingEditEntityTypes() {
+	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
 		t.Run(entityType, func(t *testing.T) {
 			defer func() {
 				// Nil-service panic is acceptable — it proves we dispatched

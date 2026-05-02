@@ -10,7 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -64,7 +64,7 @@ func NewCommentHandler(reader CommentReader, writer CommentWriter, voteReader Co
 // anonymous, the voteReader is nil, or the response set is empty. Errors
 // from the vote lookup are logged and swallowed — vote state is a
 // decoration, not a critical path.
-func (h *CommentHandler) populateUserVotes(ctx context.Context, user *models.User, responses []*contracts.CommentResponse) {
+func (h *CommentHandler) populateUserVotes(ctx context.Context, user *authm.User, responses []*contracts.CommentResponse) {
 	if user == nil || h.voteReader == nil || len(responses) == 0 {
 		return
 	}

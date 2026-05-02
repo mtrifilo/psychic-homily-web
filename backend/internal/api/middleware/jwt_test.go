@@ -13,7 +13,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	usersvc "psychic-homily-backend/internal/services/user"
 )
@@ -24,7 +24,7 @@ func strPtr(s string) *string { return &s }
 
 func TestGetUserFromContext_WithUser(t *testing.T) {
 	email := "test@example.com"
-	user := &models.User{Email: &email}
+	user := &authm.User{Email: &email}
 	ctx := context.WithValue(context.Background(), UserContextKey, user)
 
 	got := GetUserFromContext(ctx)
@@ -213,7 +213,7 @@ func TestJWTMiddleware_ExpiredToken(t *testing.T) {
 	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
 	// Create a token (it will be expired since expiry is 0 hours from now)
-	user := &models.User{Email: strPtr("test@example.com")}
+	user := &authm.User{Email: strPtr("test@example.com")}
 	user.ID = 1
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -412,7 +412,7 @@ func TestHumaJWTMiddleware_ExpiredToken(t *testing.T) {
 	}
 	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
-	user := &models.User{Email: strPtr("test@example.com")}
+	user := &authm.User{Email: strPtr("test@example.com")}
 	user.ID = 1
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -446,7 +446,7 @@ func TestHumaJWTMiddleware_ValidJWT_FailsDBLookup(t *testing.T) {
 	// up to the DB boundary. Full happy-path requires integration test with DB.
 	jwtService := newTestJWTService()
 
-	user := &models.User{Email: strPtr("valid@example.com")}
+	user := &authm.User{Email: strPtr("valid@example.com")}
 	user.ID = 42
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -481,7 +481,7 @@ func TestHumaJWTMiddleware_CookieFallback(t *testing.T) {
 	// but the cookie extraction path is exercised.
 	jwtService := newTestJWTService()
 
-	user := &models.User{Email: strPtr("cookie@example.com")}
+	user := &authm.User{Email: strPtr("cookie@example.com")}
 	user.ID = 7
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -569,7 +569,7 @@ func TestHumaJWTMiddleware_WithSessionConfig_ExpiredClearsCookie(t *testing.T) {
 	}
 	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
-	user := &models.User{Email: strPtr("expired@example.com")}
+	user := &authm.User{Email: strPtr("expired@example.com")}
 	user.ID = 1
 	token, _ := jwtService.CreateToken(user)
 
@@ -670,7 +670,7 @@ func TestLenientHumaJWTMiddleware_ValidToken_FailsDBLookup(t *testing.T) {
 	// LenientHumaJWTMiddleware delegates to ValidateTokenLenient → ValidateToken.
 	jwtService := newTestJWTService()
 
-	user := &models.User{Email: strPtr("lenient@example.com")}
+	user := &authm.User{Email: strPtr("lenient@example.com")}
 	user.ID = 99
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -710,7 +710,7 @@ func TestLenientHumaJWTMiddleware_ExpiredWithinGrace_FailsDBLookup(t *testing.T)
 	}
 	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
-	user := &models.User{Email: strPtr("grace@example.com")}
+	user := &authm.User{Email: strPtr("grace@example.com")}
 	user.ID = 55
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -750,7 +750,7 @@ func TestLenientHumaJWTMiddleware_ExpiredBeyondGrace(t *testing.T) {
 	}
 	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
-	user := &models.User{Email: strPtr("expired@example.com")}
+	user := &authm.User{Email: strPtr("expired@example.com")}
 	user.ID = 1
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -784,7 +784,7 @@ func TestLenientHumaJWTMiddleware_CookieFallback(t *testing.T) {
 	// DB lookup fails but cookie path is exercised.
 	jwtService := newTestJWTService()
 
-	user := &models.User{Email: strPtr("cookie-lenient@example.com")}
+	user := &authm.User{Email: strPtr("cookie-lenient@example.com")}
 	user.ID = 33
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -823,10 +823,10 @@ func TestOptionalHumaJWTMiddleware_NoToken(t *testing.T) {
 	ctx, _ := newHumaContext(t, req)
 
 	nextCalled := false
-	var userInCtx *models.User
+	var userInCtx *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			userInCtx = u
 		}
 	})
@@ -844,7 +844,7 @@ func TestOptionalHumaJWTMiddleware_ValidJWT_FailsDBLookup_ProceedsWithoutUser(t 
 	// without user (does NOT block the request).
 	jwtService := newTestJWTService()
 
-	user := &models.User{Email: strPtr("optional@example.com")}
+	user := &authm.User{Email: strPtr("optional@example.com")}
 	user.ID = 77
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -857,10 +857,10 @@ func TestOptionalHumaJWTMiddleware_ValidJWT_FailsDBLookup_ProceedsWithoutUser(t 
 	ctx, _ := newHumaContext(t, req)
 
 	nextCalled := false
-	var userInCtx *models.User
+	var userInCtx *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			userInCtx = u
 		}
 	})
@@ -882,10 +882,10 @@ func TestOptionalHumaJWTMiddleware_InvalidJWT_ProceedsWithoutUser(t *testing.T) 
 	ctx, _ := newHumaContext(t, req)
 
 	nextCalled := false
-	var userInCtx *models.User
+	var userInCtx *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			userInCtx = u
 		}
 	})
@@ -907,7 +907,7 @@ func TestOptionalHumaJWTMiddleware_ExpiredJWT_ProceedsWithoutUser(t *testing.T) 
 	}
 	jwtService := auth.NewJWTService(nil, cfg, usersvc.NewUserService(nil))
 
-	user := &models.User{Email: strPtr("expired@example.com")}
+	user := &authm.User{Email: strPtr("expired@example.com")}
 	user.ID = 1
 	token, _ := jwtService.CreateToken(user)
 
@@ -917,10 +917,10 @@ func TestOptionalHumaJWTMiddleware_ExpiredJWT_ProceedsWithoutUser(t *testing.T) 
 	ctx, _ := newHumaContext(t, req)
 
 	nextCalled := false
-	var userInCtx *models.User
+	var userInCtx *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			userInCtx = u
 		}
 	})
@@ -942,10 +942,10 @@ func TestOptionalHumaJWTMiddleware_InvalidAPIToken_ProceedsWithoutUser(t *testin
 	ctx, _ := newHumaContext(t, req)
 
 	nextCalled := false
-	var userInCtx *models.User
+	var userInCtx *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			userInCtx = u
 		}
 	})
@@ -962,7 +962,7 @@ func TestOptionalHumaJWTMiddleware_CookieFallback_ProceedsWithoutUser(t *testing
 	// Cookie token found but DB lookup fails → proceeds without user.
 	jwtService := newTestJWTService()
 
-	user := &models.User{Email: strPtr("cookie-optional@example.com")}
+	user := &authm.User{Email: strPtr("cookie-optional@example.com")}
 	user.ID = 11
 	token, err := jwtService.CreateToken(user)
 	if err != nil {
@@ -975,10 +975,10 @@ func TestOptionalHumaJWTMiddleware_CookieFallback_ProceedsWithoutUser(t *testing
 	ctx, _ := newHumaContext(t, req)
 
 	nextCalled := false
-	var userInCtx *models.User
+	var userInCtx *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			userInCtx = u
 		}
 	})
@@ -1000,10 +1000,10 @@ func TestOptionalHumaJWTMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 	ctx, _ := newHumaContext(t, req)
 
 	nextCalled := false
-	var userInCtx *models.User
+	var userInCtx *authm.User
 	mw(ctx, func(next huma.Context) {
 		nextCalled = true
-		if u, ok := next.Context().Value(UserContextKey).(*models.User); ok {
+		if u, ok := next.Context().Value(UserContextKey).(*authm.User); ok {
 			userInCtx = u
 		}
 	})

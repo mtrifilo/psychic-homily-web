@@ -1,9 +1,8 @@
 package contracts
 
 import (
+	adminm "psychic-homily-backend/internal/models/admin"
 	"time"
-
-	"psychic-homily-backend/internal/models"
 )
 
 // ──────────────────────────────────────────────
@@ -46,7 +45,7 @@ type CreatePendingEditRequest struct {
 	EntityType string               `json:"entity_type"`
 	EntityID   uint                 `json:"entity_id"`
 	UserID     uint                 `json:"-"`
-	Changes    []models.FieldChange `json:"changes"`
+	Changes    []adminm.FieldChange `json:"changes"`
 	Summary    string               `json:"summary"`
 }
 
@@ -60,19 +59,19 @@ type PendingEditFilters struct {
 
 // PendingEditResponse is the API response for a pending entity edit.
 type PendingEditResponse struct {
-	ID              uint                   `json:"id"`
-	EntityType      string                 `json:"entity_type"`
-	EntityID        uint                   `json:"entity_id"`
-	EntityName      string                 `json:"entity_name,omitempty"`
-	SubmittedBy     uint                   `json:"submitted_by"`
-	SubmitterName   string                 `json:"submitter_name,omitempty"`
-	FieldChanges    []models.FieldChange   `json:"field_changes"`
-	Summary         string                 `json:"summary"`
-	Status          models.PendingEditStatus `json:"status"`
-	ReviewedBy      *uint                  `json:"reviewed_by,omitempty"`
-	ReviewerName    string                 `json:"reviewer_name,omitempty"`
-	ReviewedAt      *time.Time             `json:"reviewed_at,omitempty"`
-	RejectionReason *string                `json:"rejection_reason,omitempty"`
-	CreatedAt       time.Time              `json:"created_at"`
-	UpdatedAt       time.Time              `json:"updated_at"`
+	ID              uint                     `json:"id"`
+	EntityType      string                   `json:"entity_type"`
+	EntityID        uint                     `json:"entity_id"`
+	EntityName      string                   `json:"entity_name,omitempty"`
+	SubmittedBy     uint                     `json:"submitted_by"`
+	SubmitterName   string                   `json:"submitter_name,omitempty"`
+	FieldChanges    []adminm.FieldChange     `json:"field_changes"`
+	Summary         string                   `json:"summary"`
+	Status          adminm.PendingEditStatus `json:"status"`
+	ReviewedBy      *uint                    `json:"reviewed_by,omitempty"`
+	ReviewerName    string                   `json:"reviewer_name,omitempty"`
+	ReviewedAt      *time.Time               `json:"reviewed_at,omitempty"`
+	RejectionReason *string                  `json:"rejection_reason,omitempty"`
+	CreatedAt       time.Time                `json:"created_at"`
+	UpdatedAt       time.Time                `json:"updated_at"`
 }

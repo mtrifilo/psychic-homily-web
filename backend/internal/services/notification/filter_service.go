@@ -15,7 +15,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -23,7 +24,7 @@ import (
 type NotificationFilterService struct {
 	db           *gorm.DB
 	emailService contracts.EmailServiceInterface
-	jwtSecret    string  // for HMAC unsubscribe URLs
+	jwtSecret    string // for HMAC unsubscribe URLs
 	frontendURL  string
 }
 
@@ -51,7 +52,7 @@ const maxFilterEmailsPerDay = 10
 // ──────────────────────────────────────────────
 
 // CreateFilter creates a new notification filter for a user.
-func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.CreateFilterInput) (*models.NotificationFilter, error) {
+func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.CreateFilterInput) (*notificationm.NotificationFilter, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -63,7 +64,7 @@ func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.Cr
 
 	// Check filter count limit
 	var count int64
-	if err := s.db.Model(&models.NotificationFilter{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
+	if err := s.db.Model(&notificationm.NotificationFilter{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
 		return nil, fmt.Errorf("failed to count filters: %w", err)
 	}
 	if count >= maxFiltersPerUser {
@@ -71,7 +72,7 @@ func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.Cr
 	}
 
 	now := time.Now().UTC()
-	filter := models.NotificationFilter{
+	filter := notificationm.NotificationFilter{
 		UserID:        userID,
 		Name:          input.Name,
 		IsActive:      true,
@@ -100,12 +101,12 @@ func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.Cr
 }
 
 // UpdateFilter updates an existing filter owned by the user.
-func (s *NotificationFilterService) UpdateFilter(userID uint, filterID uint, input contracts.UpdateFilterInput) (*models.NotificationFilter, error) {
+func (s *NotificationFilterService) UpdateFilter(userID uint, filterID uint, input contracts.UpdateFilterInput) (*notificationm.NotificationFilter, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var filter models.NotificationFilter
+	var filter notificationm.NotificationFilter
 	if err := s.db.Where("id = ? AND user_id = ?", filterID, userID).First(&filter).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("filter not found")
@@ -169,7 +170,7 @@ func (s *NotificationFilterService) DeleteFilter(userID uint, filterID uint) err
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Where("id = ? AND user_id = ?", filterID, userID).Delete(&models.NotificationFilter{})
+	result := s.db.Where("id = ? AND user_id = ?", filterID, userID).Delete(&notificationm.NotificationFilter{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete filter: %w", result.Error)
 	}
@@ -180,12 +181,12 @@ func (s *NotificationFilterService) DeleteFilter(userID uint, filterID uint) err
 }
 
 // GetUserFilters returns all filters for a user.
-func (s *NotificationFilterService) GetUserFilters(userID uint) ([]models.NotificationFilter, error) {
+func (s *NotificationFilterService) GetUserFilters(userID uint) ([]notificationm.NotificationFilter, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var filters []models.NotificationFilter
+	var filters []notificationm.NotificationFilter
 	if err := s.db.Where("user_id = ?", userID).Order("created_at DESC").Find(&filters).Error; err != nil {
 		return nil, fmt.Errorf("failed to get filters: %w", err)
 	}
@@ -193,12 +194,12 @@ func (s *NotificationFilterService) GetUserFilters(userID uint) ([]models.Notifi
 }
 
 // GetFilter returns a single filter owned by the user.
-func (s *NotificationFilterService) GetFilter(userID uint, filterID uint) (*models.NotificationFilter, error) {
+func (s *NotificationFilterService) GetFilter(userID uint, filterID uint) (*notificationm.NotificationFilter, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var filter models.NotificationFilter
+	var filter notificationm.NotificationFilter
 	if err := s.db.Where("id = ? AND user_id = ?", filterID, userID).First(&filter).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("filter not found")
@@ -214,7 +215,7 @@ func (s *NotificationFilterService) GetFilter(userID uint, filterID uint) (*mode
 
 // QuickCreateFilter creates a filter from a single entity shortcut.
 // E.g., "Notify me about Deafheaven shows" creates a filter with artist_ids=[42].
-func (s *NotificationFilterService) QuickCreateFilter(userID uint, entityType string, entityID uint) (*models.NotificationFilter, error) {
+func (s *NotificationFilterService) QuickCreateFilter(userID uint, entityType string, entityID uint) (*notificationm.NotificationFilter, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -278,7 +279,7 @@ type filterMatch struct {
 
 // MatchAndNotify finds all active filters that match the given show and sends notifications.
 // This is designed to be called fire-and-forget from the show approval handler.
-func (s *NotificationFilterService) MatchAndNotify(show *models.Show) error {
+func (s *NotificationFilterService) MatchAndNotify(show *catalogm.Show) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -333,7 +334,7 @@ func (s *NotificationFilterService) MatchAndNotify(show *models.Show) error {
 
 // MatchAndNotifyBatch matches multiple shows against all active filters.
 // Used after batch approval.
-func (s *NotificationFilterService) MatchAndNotifyBatch(shows []models.Show) error {
+func (s *NotificationFilterService) MatchAndNotifyBatch(shows []catalogm.Show) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -487,12 +488,12 @@ func (s *NotificationFilterService) findMatchingFilters(
 
 // processUserMatches handles matched filters for a single user: inserts notification log
 // entries and sends emails.
-func (s *NotificationFilterService) processUserMatches(userID uint, show *models.Show, matches []filterMatch) {
+func (s *NotificationFilterService) processUserMatches(userID uint, show *catalogm.Show, matches []filterMatch) {
 	now := time.Now().UTC()
 
 	for _, match := range matches {
 		// Insert notification_log entry for each match
-		logEntry := models.NotificationLog{
+		logEntry := notificationm.NotificationLog{
 			UserID:     userID,
 			FilterID:   &match.FilterID,
 			EntityType: "show",
@@ -507,7 +508,7 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *models
 		}
 
 		// Update the filter's last_matched_at and match_count
-		s.db.Model(&models.NotificationFilter{}).
+		s.db.Model(&notificationm.NotificationFilter{}).
 			Where("id = ?", match.FilterID).
 			Updates(map[string]interface{}{
 				"last_matched_at": now,
@@ -523,11 +524,11 @@ func (s *NotificationFilterService) processUserMatches(userID uint, show *models
 
 // sendFilterEmail sends a notification email for a matched filter.
 // Rate limited to maxFilterEmailsPerDay per user per day.
-func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, filterName string, show *models.Show) {
+func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, filterName string, show *catalogm.Show) {
 	// Check rate limit: max emails per user per day
 	var emailCount int64
 	dayAgo := time.Now().UTC().Add(-24 * time.Hour)
-	s.db.Model(&models.NotificationLog{}).
+	s.db.Model(&notificationm.NotificationLog{}).
 		Where("user_id = ? AND channel = ? AND sent_at > ?", userID, "email", dayAgo).
 		Count(&emailCount)
 
@@ -614,7 +615,7 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 	}
 
 	var logs []struct {
-		models.NotificationLog
+		notificationm.NotificationLog
 		FilterName string `gorm:"column:filter_name"`
 	}
 
@@ -653,7 +654,7 @@ func (s *NotificationFilterService) GetUnreadCount(userID uint) (int64, error) {
 	}
 
 	var count int64
-	err := s.db.Model(&models.NotificationLog{}).
+	err := s.db.Model(&notificationm.NotificationLog{}).
 		Where("user_id = ? AND read_at IS NULL", userID).
 		Count(&count).Error
 	return count, err
@@ -670,7 +671,7 @@ func (s *NotificationFilterService) PauseFilter(filterID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.NotificationFilter{}).
+	result := s.db.Model(&notificationm.NotificationFilter{}).
 		Where("id = ?", filterID).
 		Update("is_active", false)
 	if result.Error != nil {
@@ -792,4 +793,3 @@ func toInt64Array(ids []int64) pq.Int64Array {
 	}
 	return pq.Int64Array(ids)
 }
-

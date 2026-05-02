@@ -8,7 +8,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -47,7 +47,7 @@ func testRadioHandlerWithResolvers(radio *testhelpers.MockRadioService, artist *
 }
 
 func radioAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true, EmailVerified: true})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true, EmailVerified: true})
 }
 
 // ============================================================================

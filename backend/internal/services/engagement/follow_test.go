@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -122,8 +124,8 @@ func TestFollowServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *FollowServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *FollowServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -135,8 +137,8 @@ func (suite *FollowServiceIntegrationTestSuite) createTestUser() *models.User {
 	return user
 }
 
-func (suite *FollowServiceIntegrationTestSuite) createTestUserWithUsername(username string) *models.User {
-	user := &models.User{
+func (suite *FollowServiceIntegrationTestSuite) createTestUserWithUsername(username string) *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("%s@test.com", username)),
 		Username:      stringPtr(username),
 		FirstName:     stringPtr("Test"),
@@ -151,7 +153,7 @@ func (suite *FollowServiceIntegrationTestSuite) createTestUserWithUsername(usern
 
 func (suite *FollowServiceIntegrationTestSuite) createTestArtist(name string) uint {
 	slug := name
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -162,7 +164,7 @@ func (suite *FollowServiceIntegrationTestSuite) createTestArtist(name string) ui
 
 func (suite *FollowServiceIntegrationTestSuite) createTestVenue(name string) uint {
 	slug := name
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:  name,
 		Slug:  &slug,
 		City:  "Phoenix",
@@ -175,7 +177,7 @@ func (suite *FollowServiceIntegrationTestSuite) createTestVenue(name string) uin
 
 func (suite *FollowServiceIntegrationTestSuite) createTestLabel(name string) uint {
 	slug := name
-	label := &models.Label{
+	label := &catalogm.Label{
 		Name: name,
 		Slug: &slug,
 	}
@@ -185,7 +187,7 @@ func (suite *FollowServiceIntegrationTestSuite) createTestLabel(name string) uin
 }
 
 func (suite *FollowServiceIntegrationTestSuite) createTestFestival(name string) uint {
-	festival := &models.Festival{
+	festival := &catalogm.Festival{
 		Name:        name,
 		Slug:        name,
 		SeriesSlug:  name,
@@ -211,9 +213,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollow_Artist() {
 
 	// Verify bookmark exists
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityArtist, artistID, models.BookmarkActionFollow).
+			user.ID, engagementm.BookmarkEntityArtist, artistID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -230,9 +232,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollow_Idempotent() {
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityArtist, artistID, models.BookmarkActionFollow).
+			user.ID, engagementm.BookmarkEntityArtist, artistID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -245,9 +247,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollow_Venue() {
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityVenue, venueID, models.BookmarkActionFollow).
+			user.ID, engagementm.BookmarkEntityVenue, venueID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -260,9 +262,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollow_Label() {
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityLabel, labelID, models.BookmarkActionFollow).
+			user.ID, engagementm.BookmarkEntityLabel, labelID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -275,9 +277,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollow_Festival() {
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityFestival, festivalID, models.BookmarkActionFollow).
+			user.ID, engagementm.BookmarkEntityFestival, festivalID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -292,9 +294,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestUnfollow_Success() {
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityArtist, artistID, models.BookmarkActionFollow).
+			user.ID, engagementm.BookmarkEntityArtist, artistID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(0), count)
 }

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -46,8 +46,8 @@ func (s *ArtistHandlerIntegrationSuite) createArtistViaService(name string) uint
 }
 
 // createArtistWithCity creates an artist with city and state via raw insert + slug
-func (s *ArtistHandlerIntegrationSuite) createArtistWithCity(name, city, state string) *models.Artist {
-	artist := &models.Artist{
+func (s *ArtistHandlerIntegrationSuite) createArtistWithCity(name, city, state string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name:  name,
 		City:  &city,
 		State: &state,
@@ -89,12 +89,12 @@ func (s *ArtistHandlerIntegrationSuite) createArtistWithUpcomingShow(name string
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, fmt.Sprintf("Venue for %s", name), "Phoenix", "AZ")
 
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       fmt.Sprintf("Show for %s", name),
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)
@@ -138,12 +138,12 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_CityFilter() {
 	// Give Phoenix Band an upcoming show
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "PHX Venue", "Phoenix", "AZ")
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       "PHX Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)
@@ -166,12 +166,12 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_CityFilter() {
 // path, not the count-rollup trigger.
 func (s *ArtistHandlerIntegrationSuite) tagArtist(artistID uint, tagSlug string) {
 	// upsert tag
-	var tag models.Tag
+	var tag catalogm.Tag
 	if err := s.deps.DB.Where("slug = ?", tagSlug).First(&tag).Error; err != nil {
-		tag = models.Tag{
+		tag = catalogm.Tag{
 			Name:     tagSlug,
 			Slug:     tagSlug,
-			Category: models.TagCategoryGenre,
+			Category: catalogm.TagCategoryGenre,
 		}
 		s.Require().NoError(s.deps.DB.Create(&tag).Error)
 	}
@@ -179,9 +179,9 @@ func (s *ArtistHandlerIntegrationSuite) tagArtist(artistID uint, tagSlug string)
 	// need an AddedByUserID: grab or create a throwaway user
 	adder := testhelpers.CreateTestUser(s.deps.DB)
 
-	entityTag := models.EntityTag{
+	entityTag := catalogm.EntityTag{
 		TagID:         tag.ID,
-		EntityType:    models.TagEntityArtist,
+		EntityType:    catalogm.TagEntityArtist,
 		EntityID:      artistID,
 		AddedByUserID: adder.ID,
 	}
@@ -236,12 +236,12 @@ func (s *ArtistHandlerIntegrationSuite) TestListArtists_TagFilter_SurfacesLastSh
 	// Give the dormant artist a past approved show 400 days ago
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Past Venue", "Phoenix", "AZ")
-	pastShow := &models.Show{
+	pastShow := &catalogm.Show{
 		Title:       "Past Gig",
 		EventDate:   time.Now().UTC().AddDate(0, 0, -400),
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(pastShow)
@@ -295,12 +295,12 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_Success() {
 	artistID := s.createArtistViaService("Show Artist")
 
 	// Create an approved show and associate the artist
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       "Future Gig",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)
@@ -331,12 +331,12 @@ func (s *ArtistHandlerIntegrationSuite) TestGetArtistShows_BySlug() {
 
 	artistID := s.createArtistViaService("Slug Artist")
 
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       "Slug Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)
@@ -378,12 +378,12 @@ func (s *ArtistHandlerIntegrationSuite) TestDeleteArtist_HasShows() {
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "Show Venue", "Phoenix", "AZ")
 	artistID := s.createArtistViaService("Busy Artist")
 
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       "Active Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 30),
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)

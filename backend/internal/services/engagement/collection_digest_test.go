@@ -13,7 +13,9 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -231,12 +233,12 @@ func TestCollectionDigestServiceIntegrationSuite(t *testing.T) {
 // clock times collide (testcontainers can run sub-millisecond apart).
 var digestUserCounter int64
 
-func (s *CollectionDigestServiceIntegrationSuite) createUser(username string) *models.User {
+func (s *CollectionDigestServiceIntegrationSuite) createUser(username string) *authm.User {
 	digestUserCounter++
 	email := fmt.Sprintf("%s-%d-%d@test.local", username, time.Now().UnixNano(), digestUserCounter)
 	un := username
 	fn := "First"
-	u := &models.User{
+	u := &authm.User{
 		Email:         &email,
 		Username:      &un,
 		FirstName:     &fn,
@@ -252,9 +254,9 @@ func (s *CollectionDigestServiceIntegrationSuite) createUser(username string) *m
 // PSY-350: column default is FALSE (opt-IN). When `notify=true`, GORM writes
 // the non-zero value directly; when `notify=false`, GORM skips the column and
 // the DB default (false) wins.
-func (s *CollectionDigestServiceIntegrationSuite) createUserWithDigestPref(username string, notify bool) *models.User {
+func (s *CollectionDigestServiceIntegrationSuite) createUserWithDigestPref(username string, notify bool) *authm.User {
 	u := s.createUser(username)
-	prefs := &models.UserPreferences{
+	prefs := &authm.UserPreferences{
 		UserID:                      u.ID,
 		NotifyOnCommentSubscription: true,
 		NotifyOnMention:             true,
@@ -264,8 +266,8 @@ func (s *CollectionDigestServiceIntegrationSuite) createUserWithDigestPref(usern
 	return u
 }
 
-func (s *CollectionDigestServiceIntegrationSuite) createCollection(creator *models.User, title, slug string) *models.Collection {
-	coll := &models.Collection{
+func (s *CollectionDigestServiceIntegrationSuite) createCollection(creator *authm.User, title, slug string) *communitym.Collection {
+	coll := &communitym.Collection{
 		Title:         title,
 		Slug:          slug,
 		Description:   "test",
@@ -280,8 +282,8 @@ func (s *CollectionDigestServiceIntegrationSuite) createCollection(creator *mode
 // subscribe creates a CollectionSubscriber row. The subscription's created_at
 // is forced to "2 hours ago" so test items added with "1 hour ago" timestamps
 // fall *after* the effective digest cursor (which is GREATEST(last_digest, sub.created_at)).
-func (s *CollectionDigestServiceIntegrationSuite) subscribe(coll *models.Collection, user *models.User, lastVisited *time.Time, lastDigest *time.Time) {
-	sub := &models.CollectionSubscriber{
+func (s *CollectionDigestServiceIntegrationSuite) subscribe(coll *communitym.Collection, user *authm.User, lastVisited *time.Time, lastDigest *time.Time) {
+	sub := &communitym.CollectionSubscriber{
 		CollectionID:     coll.ID,
 		UserID:           user.ID,
 		LastVisitedAt:    lastVisited,
@@ -291,14 +293,14 @@ func (s *CollectionDigestServiceIntegrationSuite) subscribe(coll *models.Collect
 	// Backdate so items added "1 hour ago" in tests fall after the cursor.
 	twoHoursAgo := time.Now().Add(-2 * time.Hour)
 	s.Require().NoError(
-		s.db.Model(&models.CollectionSubscriber{}).
+		s.db.Model(&communitym.CollectionSubscriber{}).
 			Where("collection_id = ? AND user_id = ?", coll.ID, user.ID).
 			Update("created_at", twoHoursAgo).Error,
 	)
 }
 
-func (s *CollectionDigestServiceIntegrationSuite) addItem(coll *models.Collection, addedBy *models.User, entityType string, entityID uint, when time.Time) *models.CollectionItem {
-	item := &models.CollectionItem{
+func (s *CollectionDigestServiceIntegrationSuite) addItem(coll *communitym.Collection, addedBy *authm.User, entityType string, entityID uint, when time.Time) *communitym.CollectionItem {
+	item := &communitym.CollectionItem{
 		CollectionID:  coll.ID,
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -311,9 +313,9 @@ func (s *CollectionDigestServiceIntegrationSuite) addItem(coll *models.Collectio
 	return item
 }
 
-func (s *CollectionDigestServiceIntegrationSuite) createArtist(name string) *models.Artist {
+func (s *CollectionDigestServiceIntegrationSuite) createArtist(name string) *catalogm.Artist {
 	slug := name
-	a := &models.Artist{Name: name, Slug: &slug}
+	a := &catalogm.Artist{Name: name, Slug: &slug}
 	s.Require().NoError(s.db.Create(a).Error)
 	return a
 }
@@ -341,7 +343,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_OneItem_OneSubscrib
 	s.subscribe(coll, subscriber, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 
@@ -353,7 +355,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_OneItem_OneSubscrib
 	assert.Equal(s.T(), "C1", g.CollectionTitle)
 	require.Len(s.T(), g.Items, 1)
 	assert.Equal(s.T(), "Artist1", g.Items[0].EntityName)
-	assert.Equal(s.T(), models.CollectionEntityArtist, g.Items[0].EntityType)
+	assert.Equal(s.T(), communitym.CollectionEntityArtist, g.Items[0].EntityType)
 }
 
 // TestDigest_AdderExcluded — the user who added the item should not receive
@@ -368,7 +370,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_AdderExcluded() {
 	s.subscribe(coll, other, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, adder, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, adder, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 
@@ -386,7 +388,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_RespectsPreference(
 	s.subscribe(coll, noNotify, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 	assert.Empty(s.T(), s.mock.calls, "user with notify off should receive nothing")
@@ -401,7 +403,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_IdempotentAcrossCyc
 	s.subscribe(coll, sub, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 	require.Len(s.T(), s.mock.calls, 1)
@@ -416,7 +418,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_IdempotentAcrossCyc
 	// cycle's `now`.
 	time.Sleep(50 * time.Millisecond)
 	a2 := s.createArtist("Artist2")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a2.ID, time.Now())
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a2.ID, time.Now())
 	s.svc.RunDigestCycleNow()
 	require.Len(s.T(), s.mock.calls, 2, "new item after cursor must trigger a new email")
 	require.Len(s.T(), s.mock.calls[1].Groups, 1)
@@ -436,8 +438,8 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_MultipleCollections
 
 	a1 := s.createArtist("A1")
 	a2 := s.createArtist("A2")
-	s.addItem(c1, creator, models.CollectionEntityArtist, a1.ID, time.Now().Add(-2*time.Hour))
-	s.addItem(c2, creator, models.CollectionEntityArtist, a2.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(c1, creator, communitym.CollectionEntityArtist, a1.ID, time.Now().Add(-2*time.Hour))
+	s.addItem(c2, creator, communitym.CollectionEntityArtist, a2.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 	require.Len(s.T(), s.mock.calls, 1, "one user -> one email")
@@ -464,7 +466,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_SkipsInactiveOrDele
 	s.subscribe(coll, good, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 	require.Len(s.T(), s.mock.calls, 1, "only the active+non-deleted user should be emailed")
@@ -480,12 +482,12 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_UnsubscribeStopsImm
 	s.subscribe(coll, sub, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	// Unsubscribe BEFORE cycling.
 	s.Require().NoError(
 		s.db.Where("collection_id = ? AND user_id = ?", coll.ID, sub.ID).
-			Delete(&models.CollectionSubscriber{}).Error,
+			Delete(&communitym.CollectionSubscriber{}).Error,
 	)
 
 	s.svc.RunDigestCycleNow()
@@ -505,7 +507,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_RespectsCursorBound
 
 	// Item added 1 HOUR ago — *before* the cursor.
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 	assert.Empty(s.T(), s.mock.calls, "item before cursor must not be included")
@@ -520,13 +522,13 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_BumpsCursorOnSucces
 	s.subscribe(coll, sub, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 	require.Len(s.T(), s.mock.calls, 1)
 
 	// Verify cursor moved.
-	var subRow models.CollectionSubscriber
+	var subRow communitym.CollectionSubscriber
 	s.Require().NoError(
 		s.db.Where("collection_id = ? AND user_id = ?", coll.ID, sub.ID).
 			First(&subRow).Error,
@@ -543,13 +545,13 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_FailedSendDoesNotBu
 	s.subscribe(coll, sub, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.mock.fail = true
 	s.svc.RunDigestCycleNow()
 	assert.Empty(s.T(), s.mock.calls, "forced failure should record no successful calls")
 
-	var subRow models.CollectionSubscriber
+	var subRow communitym.CollectionSubscriber
 	s.Require().NoError(
 		s.db.Where("collection_id = ? AND user_id = ?", coll.ID, sub.ID).
 			First(&subRow).Error,
@@ -572,7 +574,7 @@ func (s *CollectionDigestServiceIntegrationSuite) TestDigest_PrefDefaultsToFalse
 	s.subscribe(coll, sub, nil, nil)
 
 	a := s.createArtist("Artist1")
-	s.addItem(coll, creator, models.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
+	s.addItem(coll, creator, communitym.CollectionEntityArtist, a.ID, time.Now().Add(-1*time.Hour))
 
 	s.svc.RunDigestCycleNow()
 	assert.Empty(s.T(), s.mock.calls, "missing prefs row should default to NOT receiving digest")

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // VenueBillNetworkIntegrationSuite covers the PSY-365 venue co-bill graph
@@ -52,8 +52,8 @@ func TestVenueBillNetworkIntegration(t *testing.T) {
 
 // seedArtistForVenueBills mirrors seedSceneArtist — bare row with a slug so
 // the response payload looks complete.
-func (s *VenueBillNetworkIntegrationSuite) seedArtist(name string) *models.Artist {
-	a := &models.Artist{Name: name}
+func (s *VenueBillNetworkIntegrationSuite) seedArtist(name string) *catalogm.Artist {
+	a := &catalogm.Artist{Name: name}
 	s.deps.DB.Create(a)
 	slug := name + "-slug"
 	s.deps.DB.Model(a).Update("slug", slug)
@@ -62,14 +62,14 @@ func (s *VenueBillNetworkIntegrationSuite) seedArtist(name string) *models.Artis
 
 // seedShowAtVenue mirrors the scene_graph_test helper — one approved show on
 // `eventDate` at `venue` with the given artist IDs in lineup order.
-func (s *VenueBillNetworkIntegrationSuite) seedShowAtVenue(eventDate time.Time, venue *models.Venue, artistIDs ...uint) uint {
+func (s *VenueBillNetworkIntegrationSuite) seedShowAtVenue(eventDate time.Time, venue *catalogm.Venue, artistIDs ...uint) uint {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       "Show",
 		EventDate:   eventDate,
 		City:        testhelpers.StringPtr(venue.City),
 		State:       testhelpers.StringPtr(venue.State),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)
@@ -161,7 +161,7 @@ func (s *VenueBillNetworkIntegrationSuite) TestThreshold() {
 	s.Require().NoError(err)
 	s.Equal(1, graph2.Venue.EdgeCount)
 	s.Require().Len(graph2.Links, 1)
-	s.Equal(models.RelationshipTypeSharedBills, graph2.Links[0].Type)
+	s.Equal(catalogm.RelationshipTypeSharedBills, graph2.Links[0].Type)
 
 	// Detail blob carries shared_count + last_shared per PSY-362 grammar.
 	detail, ok := graph2.Links[0].Detail.(map[string]any)

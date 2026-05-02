@@ -7,14 +7,13 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/assert"
-
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // stubUserService is a minimal stub for cleanup tests.
 type stubUserService struct{}
 
-func (s *stubUserService) GetExpiredDeletedAccounts() ([]models.User, error) {
+func (s *stubUserService) GetExpiredDeletedAccounts() ([]authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 func (s *stubUserService) PermanentlyDeleteUser(userID uint) error {

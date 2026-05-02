@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -60,7 +62,7 @@ func TestFieldNote_BodyValidation(t *testing.T) {
 	})
 
 	t.Run("CreateFieldNote_TooLongBody", func(t *testing.T) {
-		longBody := make([]byte, models.MaxCommentBodyLength+1)
+		longBody := make([]byte, engagementm.MaxCommentBodyLength+1)
 		for i := range longBody {
 			longBody[i] = 'a'
 		}
@@ -176,8 +178,8 @@ func TestFieldNoteIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *FieldNoteIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *FieldNoteIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("fn-user-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("fnuser%d", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
@@ -191,8 +193,8 @@ func (suite *FieldNoteIntegrationTestSuite) createTestUser() *models.User {
 	return user
 }
 
-func (suite *FieldNoteIntegrationTestSuite) createTestNewUser() *models.User {
-	user := &models.User{
+func (suite *FieldNoteIntegrationTestSuite) createTestNewUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("fn-newuser-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("fnnewuser%d", time.Now().UnixNano())),
 		FirstName:     stringPtr("New"),
@@ -208,11 +210,11 @@ func (suite *FieldNoteIntegrationTestSuite) createTestNewUser() *models.User {
 
 func (suite *FieldNoteIntegrationTestSuite) createPastShow(title string, daysAgo int) uint {
 	slug := fmt.Sprintf("%s-%d", title, time.Now().UnixNano())
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:     title,
 		Slug:      &slug,
 		EventDate: time.Now().Add(-time.Duration(daysAgo) * 24 * time.Hour),
-		Status:    models.ShowStatusApproved,
+		Status:    catalogm.ShowStatusApproved,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
@@ -221,11 +223,11 @@ func (suite *FieldNoteIntegrationTestSuite) createPastShow(title string, daysAgo
 
 func (suite *FieldNoteIntegrationTestSuite) createFutureShow(title string) uint {
 	slug := fmt.Sprintf("%s-%d", title, time.Now().UnixNano())
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:     title,
 		Slug:      &slug,
 		EventDate: time.Now().Add(7 * 24 * time.Hour),
-		Status:    models.ShowStatusApproved,
+		Status:    catalogm.ShowStatusApproved,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
@@ -234,7 +236,7 @@ func (suite *FieldNoteIntegrationTestSuite) createFutureShow(title string) uint 
 
 func (suite *FieldNoteIntegrationTestSuite) createTestArtist(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -244,7 +246,7 @@ func (suite *FieldNoteIntegrationTestSuite) createTestArtist(name string) uint {
 }
 
 func (suite *FieldNoteIntegrationTestSuite) addArtistToShow(showID, artistID uint, position int) {
-	sa := &models.ShowArtist{
+	sa := &catalogm.ShowArtist{
 		ShowID:   showID,
 		ArtistID: artistID,
 		Position: position,
@@ -255,11 +257,11 @@ func (suite *FieldNoteIntegrationTestSuite) addArtistToShow(showID, artistID uin
 }
 
 func (suite *FieldNoteIntegrationTestSuite) markGoing(userID, showID uint, createdAt time.Time) {
-	bookmark := &models.UserBookmark{
+	bookmark := &engagementm.UserBookmark{
 		UserID:     userID,
-		EntityType: models.BookmarkEntityShow,
+		EntityType: engagementm.BookmarkEntityShow,
 		EntityID:   showID,
-		Action:     models.BookmarkActionGoing,
+		Action:     engagementm.BookmarkActionGoing,
 		CreatedAt:  createdAt,
 	}
 	err := suite.db.Create(bookmark).Error
@@ -267,18 +269,18 @@ func (suite *FieldNoteIntegrationTestSuite) markGoing(userID, showID uint, creat
 }
 
 // insertFieldNote creates a field note directly in the DB, bypassing rate limiting.
-func (suite *FieldNoteIntegrationTestSuite) insertFieldNote(userID, showID uint, body string, sd *contracts.FieldNoteStructuredData) *models.Comment {
+func (suite *FieldNoteIntegrationTestSuite) insertFieldNote(userID, showID uint, body string, sd *contracts.FieldNoteStructuredData) *engagementm.Comment {
 	svc := suite.commentService
 	bodyHTML := svc.renderMarkdown(body)
-	comment := &models.Comment{
-		EntityType:      models.CommentEntityShow,
+	comment := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityShow,
 		EntityID:        showID,
-		Kind:            models.CommentKindFieldNote,
+		Kind:            engagementm.CommentKindFieldNote,
 		UserID:          userID,
 		Body:            body,
 		BodyHTML:        bodyHTML,
-		Visibility:      models.CommentVisibilityVisible,
-		ReplyPermission: models.ReplyPermissionAnyone,
+		Visibility:      engagementm.CommentVisibilityVisible,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
 	}
 	if sd != nil {
 		sdJSON, err := json.Marshal(sd)
@@ -547,11 +549,11 @@ func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_NotVerified_Inte
 	showID := suite.createPastShow("Interested Show", 5)
 
 	// Mark interested (not going) before the show
-	bookmark := &models.UserBookmark{
+	bookmark := &engagementm.UserBookmark{
 		UserID:     user.ID,
-		EntityType: models.BookmarkEntityShow,
+		EntityType: engagementm.BookmarkEntityShow,
 		EntityID:   showID,
-		Action:     models.BookmarkActionInterested,
+		Action:     engagementm.BookmarkActionInterested,
 		CreatedAt:  time.Now().Add(-10 * 24 * time.Hour),
 	}
 	err := suite.db.Create(bookmark).Error
@@ -615,15 +617,15 @@ func (suite *FieldNoteIntegrationTestSuite) TestListFieldNotesForShow_OnlyFieldN
 	// Insert a regular comment (not a field note)
 	svc := suite.commentService
 	bodyHTML := svc.renderMarkdown("Regular comment")
-	regularComment := &models.Comment{
-		EntityType:      models.CommentEntityShow,
+	regularComment := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityShow,
 		EntityID:        showID,
-		Kind:            models.CommentKindComment,
+		Kind:            engagementm.CommentKindComment,
 		UserID:          user.ID,
 		Body:            "Regular comment",
 		BodyHTML:        bodyHTML,
-		Visibility:      models.CommentVisibilityVisible,
-		ReplyPermission: models.ReplyPermissionAnyone,
+		Visibility:      engagementm.CommentVisibilityVisible,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
 	}
 	err := suite.db.Create(regularComment).Error
 	suite.Require().NoError(err)
@@ -649,15 +651,15 @@ func (suite *FieldNoteIntegrationTestSuite) TestListFieldNotesForShow_ExcludesHi
 	// Insert a hidden field note directly
 	svc := suite.commentService
 	bodyHTML := svc.renderMarkdown("Hidden note")
-	hidden := &models.Comment{
-		EntityType:      models.CommentEntityShow,
+	hidden := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityShow,
 		EntityID:        showID,
-		Kind:            models.CommentKindFieldNote,
+		Kind:            engagementm.CommentKindFieldNote,
 		UserID:          user.ID,
 		Body:            "Hidden note",
 		BodyHTML:        bodyHTML,
-		Visibility:      models.CommentVisibilityHiddenByMod,
-		ReplyPermission: models.ReplyPermissionAnyone,
+		Visibility:      engagementm.CommentVisibilityHiddenByMod,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
 	}
 	err := suite.db.Create(hidden).Error
 	suite.Require().NoError(err)
@@ -777,7 +779,7 @@ func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_AutoSubscribes()
 	suite.Require().NoError(err)
 
 	// Verify the subscription was created
-	var sub models.CommentSubscription
+	var sub engagementm.CommentSubscription
 	err = suite.db.Where("user_id = ? AND entity_type = ? AND entity_id = ?",
 		user.ID, "show", showID).First(&sub).Error
 	suite.Require().NoError(err)

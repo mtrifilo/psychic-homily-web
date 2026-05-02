@@ -9,7 +9,8 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
 )
@@ -31,16 +32,16 @@ func NewUserPreferencesHandler(userService contracts.UserServiceInterface, jwtSe
 // SetFavoriteCitiesRequest represents the request to update favorite cities
 type SetFavoriteCitiesRequest struct {
 	Body struct {
-		Cities []models.FavoriteCity `json:"cities" doc:"List of favorite cities (max 20)"`
+		Cities []authm.FavoriteCity `json:"cities" doc:"List of favorite cities (max 20)"`
 	}
 }
 
 // SetFavoriteCitiesResponse represents the response after updating favorite cities
 type SetFavoriteCitiesResponse struct {
 	Body struct {
-		Success bool                  `json:"success"`
-		Message string                `json:"message"`
-		Cities  []models.FavoriteCity `json:"cities"`
+		Success bool                 `json:"success"`
+		Message string               `json:"message"`
+		Cities  []authm.FavoriteCity `json:"cities"`
 	}
 }
 
@@ -55,7 +56,7 @@ func (h *UserPreferencesHandler) SetFavoriteCitiesHandler(ctx context.Context, r
 
 	cities := req.Body.Cities
 	if cities == nil {
-		cities = []models.FavoriteCity{}
+		cities = []authm.FavoriteCity{}
 	}
 
 	if err := h.userService.SetFavoriteCities(user.ID, cities); err != nil {
@@ -76,9 +77,9 @@ func (h *UserPreferencesHandler) SetFavoriteCitiesHandler(ctx context.Context, r
 
 	return &SetFavoriteCitiesResponse{
 		Body: struct {
-			Success bool                  `json:"success"`
-			Message string                `json:"message"`
-			Cities  []models.FavoriteCity `json:"cities"`
+			Success bool                 `json:"success"`
+			Message string               `json:"message"`
+			Cities  []authm.FavoriteCity `json:"cities"`
 		}{
 			Success: true,
 			Message: "Favorite cities updated",
@@ -207,7 +208,7 @@ func (h *UserPreferencesHandler) SetDefaultReplyPermissionHandler(ctx context.Co
 	}
 
 	perm := req.Body.Permission
-	if !models.IsValidReplyPermission(perm) {
+	if !engagementm.IsValidReplyPermission(perm) {
 		return nil, huma.Error400BadRequest(
 			fmt.Sprintf("invalid reply_permission: %q (want anyone, followers, or author_only)", perm),
 		)

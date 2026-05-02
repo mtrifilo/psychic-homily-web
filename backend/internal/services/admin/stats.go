@@ -8,7 +8,10 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -36,45 +39,45 @@ func (s *AdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats,
 	sevenDaysAgo := time.Now().AddDate(0, 0, -7)
 
 	// Action items
-	if err := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusPending).Count(&stats.PendingShows).Error; err != nil {
+	if err := s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusPending).Count(&stats.PendingShows).Error; err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&models.PendingEntityEdit{}).
-		Where("status = ? AND entity_type = ?", models.PendingEditStatusPending, models.PendingEditEntityVenue).
+	if err := s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("status = ? AND entity_type = ?", adminm.PendingEditStatusPending, adminm.PendingEditEntityVenue).
 		Count(&stats.PendingVenueEdits).Error; err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&models.ShowReport{}).Where("status = ?", models.ShowReportStatusPending).Count(&stats.PendingReports).Error; err != nil {
+	if err := s.db.Model(&communitym.ShowReport{}).Where("status = ?", communitym.ShowReportStatusPending).Count(&stats.PendingReports).Error; err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&models.ArtistReport{}).Where("status = ?", models.ShowReportStatusPending).Count(&stats.PendingArtistReports).Error; err != nil {
+	if err := s.db.Model(&communitym.ArtistReport{}).Where("status = ?", communitym.ShowReportStatusPending).Count(&stats.PendingArtistReports).Error; err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&models.Venue{}).Where("verified = ?", false).Count(&stats.UnverifiedVenues).Error; err != nil {
+	if err := s.db.Model(&catalogm.Venue{}).Where("verified = ?", false).Count(&stats.UnverifiedVenues).Error; err != nil {
 		return nil, err
 	}
 
 	// Content totals
-	if err := s.db.Model(&models.Show{}).Where("status = ?", models.ShowStatusApproved).Count(&stats.TotalShows).Error; err != nil {
+	if err := s.db.Model(&catalogm.Show{}).Where("status = ?", catalogm.ShowStatusApproved).Count(&stats.TotalShows).Error; err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&models.Venue{}).Where("verified = ?", true).Count(&stats.TotalVenues).Error; err != nil {
+	if err := s.db.Model(&catalogm.Venue{}).Where("verified = ?", true).Count(&stats.TotalVenues).Error; err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&models.Artist{}).Count(&stats.TotalArtists).Error; err != nil {
+	if err := s.db.Model(&catalogm.Artist{}).Count(&stats.TotalArtists).Error; err != nil {
 		return nil, err
 	}
 
 	// Users
-	if err := s.db.Model(&models.User{}).Count(&stats.TotalUsers).Error; err != nil {
+	if err := s.db.Model(&authm.User{}).Count(&stats.TotalUsers).Error; err != nil {
 		return nil, err
 	}
 
 	// Recent activity
-	if err := s.db.Model(&models.Show{}).Where("created_at > ?", sevenDaysAgo).Count(&stats.ShowsSubmittedLast7Days).Error; err != nil {
+	if err := s.db.Model(&catalogm.Show{}).Where("created_at > ?", sevenDaysAgo).Count(&stats.ShowsSubmittedLast7Days).Error; err != nil {
 		return nil, err
 	}
-	if err := s.db.Model(&models.User{}).Where("created_at > ?", sevenDaysAgo).Count(&stats.UsersRegisteredLast7Days).Error; err != nil {
+	if err := s.db.Model(&authm.User{}).Where("created_at > ?", sevenDaysAgo).Count(&stats.UsersRegisteredLast7Days).Error; err != nil {
 		return nil, err
 	}
 
@@ -82,38 +85,38 @@ func (s *AdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats,
 	fourteenDaysAgo := time.Now().AddDate(0, 0, -14)
 
 	var showsCurrent, showsPrevious int64
-	if err := s.db.Model(&models.Show{}).Where("status = ? AND created_at > ?", models.ShowStatusApproved, sevenDaysAgo).Count(&showsCurrent).Error; err != nil {
+	if err := s.db.Model(&catalogm.Show{}).Where("status = ? AND created_at > ?", catalogm.ShowStatusApproved, sevenDaysAgo).Count(&showsCurrent).Error; err != nil {
 		// Log but don't fail — trends are non-critical
 		showsCurrent = 0
 	}
-	if err := s.db.Model(&models.Show{}).Where("status = ? AND created_at > ? AND created_at <= ?", models.ShowStatusApproved, fourteenDaysAgo, sevenDaysAgo).Count(&showsPrevious).Error; err != nil {
+	if err := s.db.Model(&catalogm.Show{}).Where("status = ? AND created_at > ? AND created_at <= ?", catalogm.ShowStatusApproved, fourteenDaysAgo, sevenDaysAgo).Count(&showsPrevious).Error; err != nil {
 		showsPrevious = 0
 	}
 	stats.TotalShowsTrend = showsCurrent - showsPrevious
 
 	var venuesCurrent, venuesPrevious int64
-	if err := s.db.Model(&models.Venue{}).Where("verified = ? AND created_at > ?", true, sevenDaysAgo).Count(&venuesCurrent).Error; err != nil {
+	if err := s.db.Model(&catalogm.Venue{}).Where("verified = ? AND created_at > ?", true, sevenDaysAgo).Count(&venuesCurrent).Error; err != nil {
 		venuesCurrent = 0
 	}
-	if err := s.db.Model(&models.Venue{}).Where("verified = ? AND created_at > ? AND created_at <= ?", true, fourteenDaysAgo, sevenDaysAgo).Count(&venuesPrevious).Error; err != nil {
+	if err := s.db.Model(&catalogm.Venue{}).Where("verified = ? AND created_at > ? AND created_at <= ?", true, fourteenDaysAgo, sevenDaysAgo).Count(&venuesPrevious).Error; err != nil {
 		venuesPrevious = 0
 	}
 	stats.TotalVenuesTrend = venuesCurrent - venuesPrevious
 
 	var artistsCurrent, artistsPrevious int64
-	if err := s.db.Model(&models.Artist{}).Where("created_at > ?", sevenDaysAgo).Count(&artistsCurrent).Error; err != nil {
+	if err := s.db.Model(&catalogm.Artist{}).Where("created_at > ?", sevenDaysAgo).Count(&artistsCurrent).Error; err != nil {
 		artistsCurrent = 0
 	}
-	if err := s.db.Model(&models.Artist{}).Where("created_at > ? AND created_at <= ?", fourteenDaysAgo, sevenDaysAgo).Count(&artistsPrevious).Error; err != nil {
+	if err := s.db.Model(&catalogm.Artist{}).Where("created_at > ? AND created_at <= ?", fourteenDaysAgo, sevenDaysAgo).Count(&artistsPrevious).Error; err != nil {
 		artistsPrevious = 0
 	}
 	stats.TotalArtistsTrend = artistsCurrent - artistsPrevious
 
 	var usersCurrent, usersPrevious int64
-	if err := s.db.Model(&models.User{}).Where("created_at > ?", sevenDaysAgo).Count(&usersCurrent).Error; err != nil {
+	if err := s.db.Model(&authm.User{}).Where("created_at > ?", sevenDaysAgo).Count(&usersCurrent).Error; err != nil {
 		usersCurrent = 0
 	}
-	if err := s.db.Model(&models.User{}).Where("created_at > ? AND created_at <= ?", fourteenDaysAgo, sevenDaysAgo).Count(&usersPrevious).Error; err != nil {
+	if err := s.db.Model(&authm.User{}).Where("created_at > ? AND created_at <= ?", fourteenDaysAgo, sevenDaysAgo).Count(&usersPrevious).Error; err != nil {
 		usersPrevious = 0
 	}
 	stats.TotalUsersTrend = usersCurrent - usersPrevious
@@ -126,7 +129,7 @@ func (s *AdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResponse
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	var logs []models.AuditLog
+	var logs []adminm.AuditLog
 	if err := s.db.Preload("Actor").Order("created_at DESC").Limit(20).Find(&logs).Error; err != nil {
 		return nil, err
 	}
@@ -134,11 +137,11 @@ func (s *AdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResponse
 	events := make([]contracts.ActivityEvent, 0, len(logs))
 	for _, log := range logs {
 		event := contracts.ActivityEvent{
-			ID:         log.ID,
-			EventType:  mapActionToEventType(log.Action),
+			ID:          log.ID,
+			EventType:   mapActionToEventType(log.Action),
 			Description: buildDescription(log.Action, log.EntityType, log.EntityID),
-			EntityType: normalizeEntityType(log.EntityType),
-			Timestamp:  log.CreatedAt,
+			EntityType:  normalizeEntityType(log.EntityType),
+			Timestamp:   log.CreatedAt,
 		}
 
 		// Resolve actor name
@@ -275,19 +278,19 @@ func capitalizeFirst(s string) string {
 // normalizeEntityType maps audit log entity types to the standard entity types used in URLs.
 func normalizeEntityType(entityType string) string {
 	mapping := map[string]string{
-		"show":            "show",
-		"venue":           "venue",
-		"artist":          "artist",
-		"venue_edit":      "venue",
-		"show_report":     "show",
-		"artist_report":   "artist",
-		"label":           "label",
-		"release":         "release",
-		"festival":        "festival",
-		"collection":      "collection",
-		"request":         "request",
-		"tag":             "tag",
-		"revision":        "",
+		"show":          "show",
+		"venue":         "venue",
+		"artist":        "artist",
+		"venue_edit":    "venue",
+		"show_report":   "show",
+		"artist_report": "artist",
+		"label":         "label",
+		"release":       "release",
+		"festival":      "festival",
+		"collection":    "collection",
+		"request":       "request",
+		"tag":           "tag",
+		"revision":      "",
 	}
 	if normalized, ok := mapping[entityType]; ok {
 		return normalized
@@ -296,7 +299,7 @@ func normalizeEntityType(entityType string) string {
 }
 
 // resolveActorName returns a display name from a User model.
-func resolveActorName(user *models.User) string {
+func resolveActorName(user *authm.User) string {
 	if user.FirstName != nil && user.LastName != nil && *user.FirstName != "" {
 		return *user.FirstName + " " + *user.LastName
 	}
@@ -315,19 +318,19 @@ func (s *AdminStatsService) resolveEntitySlug(entityType string, entityID uint) 
 
 	switch entityType {
 	case "show":
-		var show models.Show
+		var show catalogm.Show
 		if err := s.db.Select("slug").First(&show, entityID).Error; err != nil {
 			return ""
 		}
 		slug = show.Slug
 	case "venue":
-		var venue models.Venue
+		var venue catalogm.Venue
 		if err := s.db.Select("slug").First(&venue, entityID).Error; err != nil {
 			return ""
 		}
 		slug = venue.Slug
 	case "artist":
-		var artist models.Artist
+		var artist catalogm.Artist
 		if err := s.db.Select("slug").First(&artist, entityID).Error; err != nil {
 			return ""
 		}

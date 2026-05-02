@@ -10,7 +10,8 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -60,7 +61,7 @@ func (s *TagService) PreviewMergeTags(sourceID, targetID uint) (*contracts.Merge
 	preview.MovedDownvotes = movedDown
 
 	var aliasCount int64
-	if err := s.db.Model(&models.TagAlias{}).Where("tag_id = ?", source.ID).Count(&aliasCount).Error; err != nil {
+	if err := s.db.Model(&catalogm.TagAlias{}).Where("tag_id = ?", source.ID).Count(&aliasCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count source aliases: %w", err)
 	}
 	preview.SourceAliasesCount = aliasCount
@@ -152,7 +153,7 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 		// Reject merge when source.name is already an alias on a different
 		// canonical tag — the DB unique index on LOWER(alias) will also reject
 		// this, but checking here surfaces a clean error instead of a 500.
-		var existingAlias models.TagAlias
+		var existingAlias catalogm.TagAlias
 		err = tx.Where("LOWER(alias) = LOWER(?)", source.Name).First(&existingAlias).Error
 		if err == nil && existingAlias.TagID != target.ID {
 			return apperrors.ErrTagMergeAliasConflict(source.Name, existingAlias.TagID)
@@ -190,7 +191,7 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 		if !aliasExists {
 			// Also check that source.name doesn't collide with target.name (edge case).
 			if !strings.EqualFold(source.Name, target.Name) {
-				if err := tx.Create(&models.TagAlias{TagID: target.ID, Alias: source.Name}).Error; err != nil {
+				if err := tx.Create(&catalogm.TagAlias{TagID: target.ID, Alias: source.Name}).Error; err != nil {
 					return fmt.Errorf("failed to create alias: %w", err)
 				}
 				result.AliasCreated = true
@@ -199,7 +200,7 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 
 		// 5. Delete source tag. FK cascades would normally zap child rows, but
 		// we've already moved everything off source; this is the final cleanup.
-		if err := tx.Delete(&models.Tag{}, source.ID).Error; err != nil {
+		if err := tx.Delete(&catalogm.Tag{}, source.ID).Error; err != nil {
 			return fmt.Errorf("failed to delete source tag: %w", err)
 		}
 
@@ -207,17 +208,17 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 		// more reliable than arithmetic over movedEntityTags, which could drift
 		// if anything else touches the rows concurrently.
 		var count int64
-		if err := tx.Model(&models.EntityTag{}).Where("tag_id = ?", target.ID).Count(&count).Error; err != nil {
+		if err := tx.Model(&catalogm.EntityTag{}).Where("tag_id = ?", target.ID).Count(&count).Error; err != nil {
 			return fmt.Errorf("failed to recount usage: %w", err)
 		}
-		if err := tx.Model(&models.Tag{}).Where("id = ?", target.ID).Update("usage_count", count).Error; err != nil {
+		if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Update("usage_count", count).Error; err != nil {
 			return fmt.Errorf("failed to update usage count: %w", err)
 		}
 
 		// 7. Carry official designation forward: if either was official, the
 		// result is official. Only update when we need to flip false → true on target.
 		if source.IsOfficial && !target.IsOfficial {
-			if err := tx.Model(&models.Tag{}).Where("id = ?", target.ID).Update("is_official", true).Error; err != nil {
+			if err := tx.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Update("is_official", true).Error; err != nil {
 				return fmt.Errorf("failed to carry official flag: %w", err)
 			}
 		}
@@ -237,15 +238,15 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 }
 
 // loadMergeTags resolves source and target, and rejects circular merges.
-func (s *TagService) loadMergeTags(db *gorm.DB, sourceID, targetID uint) (*models.Tag, *models.Tag, error) {
-	var source models.Tag
+func (s *TagService) loadMergeTags(db *gorm.DB, sourceID, targetID uint) (*catalogm.Tag, *catalogm.Tag, error) {
+	var source catalogm.Tag
 	if err := db.First(&source, sourceID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil, apperrors.ErrTagNotFound(sourceID)
 		}
 		return nil, nil, fmt.Errorf("failed to load source: %w", err)
 	}
-	var target models.Tag
+	var target catalogm.Tag
 	if err := db.First(&target, targetID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil, apperrors.ErrTagNotFound(targetID)
@@ -255,7 +256,7 @@ func (s *TagService) loadMergeTags(db *gorm.DB, sourceID, targetID uint) (*model
 
 	// Guard against circular merge: if source is already an alias of target,
 	// or target is already an alias of source, the relationship is ambiguous.
-	var aliasOfTarget models.TagAlias
+	var aliasOfTarget catalogm.TagAlias
 	err := db.Where("tag_id = ? AND LOWER(alias) = LOWER(?)", target.ID, source.Name).First(&aliasOfTarget).Error
 	if err == nil {
 		return nil, nil, apperrors.ErrTagMergeInvalid(
@@ -290,7 +291,7 @@ func moveEntityTags(db *gorm.DB, sourceID, targetID uint) (moved, skipped int64,
 	skipped = del.RowsAffected
 
 	// Remaining source rows: re-point to target.
-	upd := db.Model(&models.EntityTag{}).Where("tag_id = ?", sourceID).Update("tag_id", targetID)
+	upd := db.Model(&catalogm.EntityTag{}).Where("tag_id = ?", sourceID).Update("tag_id", targetID)
 	if upd.Error != nil {
 		return 0, 0, fmt.Errorf("failed to move entity_tags: %w", upd.Error)
 	}
@@ -302,7 +303,7 @@ func moveEntityTags(db *gorm.DB, sourceID, targetID uint) (moved, skipped int64,
 // countEntityTagMoves is the preview-only counterpart to moveEntityTags.
 func countEntityTagMoves(db *gorm.DB, sourceID, targetID uint) (moved, skipped int64, err error) {
 	var total int64
-	if err := db.Model(&models.EntityTag{}).Where("tag_id = ?", sourceID).Count(&total).Error; err != nil {
+	if err := db.Model(&catalogm.EntityTag{}).Where("tag_id = ?", sourceID).Count(&total).Error; err != nil {
 		return 0, 0, fmt.Errorf("failed to count source entity_tags: %w", err)
 	}
 	var conflicts int64
@@ -342,7 +343,7 @@ func moveVotes(db *gorm.DB, sourceID, targetID uint) (moved, skipped int64, err 
 	}
 	skipped = del.RowsAffected
 
-	upd := db.Model(&models.TagVote{}).Where("tag_id = ?", sourceID).Update("tag_id", targetID)
+	upd := db.Model(&catalogm.TagVote{}).Where("tag_id = ?", sourceID).Update("tag_id", targetID)
 	if upd.Error != nil {
 		return 0, 0, fmt.Errorf("failed to move tag_votes: %w", upd.Error)
 	}
@@ -354,7 +355,7 @@ func moveVotes(db *gorm.DB, sourceID, targetID uint) (moved, skipped int64, err 
 // countVoteMoves is the preview-only counterpart to moveVotes.
 func countVoteMoves(db *gorm.DB, sourceID, targetID uint) (moved, skipped int64, err error) {
 	var total int64
-	if err := db.Model(&models.TagVote{}).Where("tag_id = ?", sourceID).Count(&total).Error; err != nil {
+	if err := db.Model(&catalogm.TagVote{}).Where("tag_id = ?", sourceID).Count(&total).Error; err != nil {
 		return 0, 0, fmt.Errorf("failed to count source votes: %w", err)
 	}
 	var conflicts int64
@@ -405,7 +406,7 @@ func (s *TagService) writeMergeAuditLog(actorID, sourceID, targetID uint, source
 		actor = &actorID
 	}
 
-	auditLog := models.AuditLog{
+	auditLog := adminm.AuditLog{
 		ActorID:    actor,
 		Action:     AuditActionMergeTags,
 		EntityType: "tag",
@@ -435,7 +436,7 @@ func moveAliases(db *gorm.DB, sourceID, targetID uint) (int64, error) {
 		return 0, fmt.Errorf("failed to drop conflicting aliases: %w", del.Error)
 	}
 
-	upd := db.Model(&models.TagAlias{}).Where("tag_id = ?", sourceID).Update("tag_id", targetID)
+	upd := db.Model(&catalogm.TagAlias{}).Where("tag_id = ?", sourceID).Update("tag_id", targetID)
 	if upd.Error != nil {
 		return 0, fmt.Errorf("failed to move aliases: %w", upd.Error)
 	}

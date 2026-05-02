@@ -10,7 +10,8 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -86,9 +87,9 @@ func (suite *TagServiceIntegrationTestSuite) SetupTest() {
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
-func (suite *TagServiceIntegrationTestSuite) createTestUser(name string) *models.User {
+func (suite *TagServiceIntegrationTestSuite) createTestUser(name string) *authm.User {
 	email := fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		FirstName:     &name,
 		IsActive:      true,
@@ -99,7 +100,7 @@ func (suite *TagServiceIntegrationTestSuite) createTestUser(name string) *models
 	return user
 }
 
-func (suite *TagServiceIntegrationTestSuite) createTag(name, category string) *models.Tag {
+func (suite *TagServiceIntegrationTestSuite) createTag(name, category string) *catalogm.Tag {
 	tag, err := suite.tagService.CreateTag(name, nil, nil, category, false, nil)
 	suite.Require().NoError(err)
 	return tag
@@ -108,7 +109,7 @@ func (suite *TagServiceIntegrationTestSuite) createTag(name, category string) *m
 // createArtist creates a minimal artist for tagging tests
 func (suite *TagServiceIntegrationTestSuite) createArtist(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	artist := &models.Artist{Name: name, Slug: &slug}
+	artist := &catalogm.Artist{Name: name, Slug: &slug}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist.ID
@@ -285,7 +286,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedCounts
 	_, err = suite.tagService.AddTagToEntity(punk.ID, "", "artist", artist2, user.ID, "")
 	suite.Require().NoError(err)
 
-	venue := &models.Venue{Name: "The Smell", City: "LA", State: "CA"}
+	venue := &catalogm.Venue{Name: "The Smell", City: "LA", State: "CA"}
 	suite.Require().NoError(suite.db.Create(venue).Error)
 	_, err = suite.tagService.AddTagToEntity(rock.ID, "", "venue", venue.ID, user.ID, "")
 	suite.Require().NoError(err)
@@ -351,12 +352,12 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedSort()
 
 	// Make rock more globally popular than punk by tagging two festivals
 	// with rock and only one venue with rock.
-	venue := &models.Venue{Name: "Sort Venue", City: "LA", State: "CA"}
+	venue := &catalogm.Venue{Name: "Sort Venue", City: "LA", State: "CA"}
 	suite.Require().NoError(suite.db.Create(venue).Error)
 	_, err := suite.tagService.AddTagToEntity(rock.ID, "", "venue", venue.ID, user.ID, "")
 	suite.Require().NoError(err)
 	for i := 0; i < 2; i++ {
-		fest := &models.Festival{
+		fest := &catalogm.Festival{
 			Name:        fmt.Sprintf("RockFest %d", i),
 			Slug:        fmt.Sprintf("rockfest-%d-%d", i, time.Now().UnixNano()),
 			SeriesSlug:  "rockfest",
@@ -370,7 +371,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedSort()
 	}
 	// Tag two venues with punk so punk dominates the venue scope.
 	for i := 0; i < 2; i++ {
-		v := &models.Venue{Name: fmt.Sprintf("PunkVenue %d", i), City: "LA", State: "CA"}
+		v := &catalogm.Venue{Name: fmt.Sprintf("PunkVenue %d", i), City: "LA", State: "CA"}
 		suite.Require().NoError(suite.db.Create(v).Error)
 		_, err := suite.tagService.AddTagToEntity(punk.ID, "", "venue", v.ID, user.ID, "")
 		suite.Require().NoError(err)
@@ -960,14 +961,14 @@ func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags_OfficialImmu
 // Inline Tag Creation Tests
 // ──────────────────────────────────────────────
 
-func (suite *TagServiceIntegrationTestSuite) createTestUserWithTier(name, tier string) *models.User {
+func (suite *TagServiceIntegrationTestSuite) createTestUserWithTier(name, tier string) *authm.User {
 	user := suite.createTestUser(name)
 	suite.db.Model(user).Update("user_tier", tier)
 	user.UserTier = tier
 	return user
 }
 
-func (suite *TagServiceIntegrationTestSuite) createAdminUser(name string) *models.User {
+func (suite *TagServiceIntegrationTestSuite) createAdminUser(name string) *authm.User {
 	user := suite.createTestUser(name)
 	suite.db.Model(user).Updates(map[string]interface{}{"is_admin": true, "user_tier": "new_user"})
 	user.IsAdmin = true
@@ -1138,7 +1139,7 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Emp
 // ──────────────────────────────────────────────
 
 // createTestUserWithUsername creates a user with a specific username for attribution tests.
-func (suite *TagServiceIntegrationTestSuite) createTestUserWithUsername(name, username string) *models.User {
+func (suite *TagServiceIntegrationTestSuite) createTestUserWithUsername(name, username string) *authm.User {
 	user := suite.createTestUser(name)
 	suite.db.Model(user).Update("username", username)
 	user.Username = &username
@@ -1148,7 +1149,7 @@ func (suite *TagServiceIntegrationTestSuite) createTestUserWithUsername(name, us
 // createVenue creates a minimal venue for breakdown tests.
 func (suite *TagServiceIntegrationTestSuite) createVenue(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	venue := &models.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
+	venue := &catalogm.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
 	err := suite.db.Create(venue).Error
 	suite.Require().NoError(err)
 	return venue.ID
@@ -1181,8 +1182,8 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_Minimal() {
 	suite.Assert().Empty(resp.RelatedTags)
 
 	// Usage breakdown is always fully populated for every valid entity type (zero counts).
-	suite.Assert().Len(resp.UsageBreakdown, len(models.TagEntityTypes))
-	for _, et := range models.TagEntityTypes {
+	suite.Assert().Len(resp.UsageBreakdown, len(catalogm.TagEntityTypes))
+	for _, et := range catalogm.TagEntityTypes {
 		count, ok := resp.UsageBreakdown[et]
 		suite.Assert().True(ok, "breakdown missing entity type %s", et)
 		suite.Assert().Equal(int64(0), count)

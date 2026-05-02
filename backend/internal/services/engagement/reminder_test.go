@@ -13,7 +13,9 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -268,8 +270,8 @@ func testLogger() *slog.Logger {
 	return slog.Default()
 }
 
-func (s *ReminderServiceIntegrationTestSuite) createTestUserWithPrefs(showReminders bool) *models.User {
-	user := &models.User{
+func (s *ReminderServiceIntegrationTestSuite) createTestUserWithPrefs(showReminders bool) *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("reminder-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -281,7 +283,7 @@ func (s *ReminderServiceIntegrationTestSuite) createTestUserWithPrefs(showRemind
 
 	// Create user preferences with show_reminders setting.
 	// GORM bool gotcha: create with ShowReminders true, then update to false if needed.
-	prefs := &models.UserPreferences{
+	prefs := &authm.UserPreferences{
 		UserID:        user.ID,
 		ShowReminders: true,
 	}
@@ -296,15 +298,15 @@ func (s *ReminderServiceIntegrationTestSuite) createTestUserWithPrefs(showRemind
 	return user
 }
 
-func (s *ReminderServiceIntegrationTestSuite) createShowAt(title string, eventDate time.Time, userID uint) *models.Show {
+func (s *ReminderServiceIntegrationTestSuite) createShowAt(title string, eventDate time.Time, userID uint) *catalogm.Show {
 	slug := fmt.Sprintf("show-%d", time.Now().UnixNano())
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       title,
 		Slug:        &slug,
 		EventDate:   eventDate,
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := s.db.Create(show).Error
@@ -312,23 +314,23 @@ func (s *ReminderServiceIntegrationTestSuite) createShowAt(title string, eventDa
 	return show
 }
 
-func (s *ReminderServiceIntegrationTestSuite) createVenueForShow(showID uint, venueName string) *models.Venue {
-	venue := &models.Venue{
+func (s *ReminderServiceIntegrationTestSuite) createVenueForShow(showID uint, venueName string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:  venueName,
 		City:  "Phoenix",
 		State: "AZ",
 	}
 	s.db.Create(venue)
-	s.db.Create(&models.ShowVenue{ShowID: showID, VenueID: venue.ID})
+	s.db.Create(&catalogm.ShowVenue{ShowID: showID, VenueID: venue.ID})
 	return venue
 }
 
 func (s *ReminderServiceIntegrationTestSuite) saveShow(userID, showID uint) {
-	bookmark := &models.UserBookmark{
+	bookmark := &engagementm.UserBookmark{
 		UserID:     userID,
-		EntityType: models.BookmarkEntityShow,
+		EntityType: engagementm.BookmarkEntityShow,
 		EntityID:   showID,
-		Action:     models.BookmarkActionSave,
+		Action:     engagementm.BookmarkActionSave,
 	}
 	err := s.db.Create(bookmark).Error
 	s.Require().NoError(err)
@@ -358,9 +360,9 @@ func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_SendsReminder
 	s.Equal(venue.Name, call.Venues[0])
 
 	// Verify reminder_sent_at was set (deduplication)
-	var bookmark models.UserBookmark
+	var bookmark engagementm.UserBookmark
 	err := s.db.Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-		user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave).
+		user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave).
 		First(&bookmark).Error
 	s.Require().NoError(err)
 	s.NotNil(bookmark.ReminderSentAt, "reminder_sent_at should be set after sending")
@@ -460,7 +462,7 @@ func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_PendingShow()
 	s.saveShow(user.ID, show.ID)
 
 	// Change status to pending
-	s.db.Model(show).Update("status", models.ShowStatusPending)
+	s.db.Model(show).Update("status", catalogm.ShowStatusPending)
 
 	s.reminderService.RunReminderCycleNow()
 
@@ -489,7 +491,7 @@ func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_SoftDeletedUs
 
 	// Soft-delete the user
 	now := time.Now()
-	s.db.Model(&models.User{}).Where("id = ?", user.ID).Update("deleted_at", now)
+	s.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("deleted_at", now)
 
 	s.reminderService.RunReminderCycleNow()
 
@@ -529,9 +531,9 @@ func (s *ReminderServiceIntegrationTestSuite) TestRunReminderCycle_EmailError_Co
 	s.Len(s.emailMock.calls, 2)
 
 	// Verify reminder_sent_at was NOT set (since email failed)
-	var bookmark models.UserBookmark
+	var bookmark engagementm.UserBookmark
 	err := s.db.Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-		user1.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave).
+		user1.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave).
 		First(&bookmark).Error
 	s.Require().NoError(err)
 	s.Nil(bookmark.ReminderSentAt, "reminder_sent_at should not be set when email fails")

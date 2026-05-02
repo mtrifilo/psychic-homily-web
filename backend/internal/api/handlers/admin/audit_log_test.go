@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -26,7 +26,7 @@ func TestGetAuditLogsHandler_NoAuth(t *testing.T) {
 
 func TestGetAuditLogsHandler_NonAdmin(t *testing.T) {
 	h := testAuditLogHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &GetAuditLogsRequest{}
 
 	_, err := h.GetAuditLogsHandler(ctx, req)
@@ -41,7 +41,7 @@ func TestGetAuditLogsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewAuditLogHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 10})
 	if err != nil {
@@ -62,7 +62,7 @@ func TestGetAuditLogsHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewAuditLogHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 10})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -77,7 +77,7 @@ func TestGetAuditLogsHandler_LimitClamping(t *testing.T) {
 		},
 	}
 	h := NewAuditLogHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	// limit=0 → 50
 	h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 0})
@@ -101,7 +101,7 @@ func TestGetAuditLogsHandler_FiltersPassedThrough(t *testing.T) {
 		},
 	}
 	h := NewAuditLogHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{
 		Limit:      10,

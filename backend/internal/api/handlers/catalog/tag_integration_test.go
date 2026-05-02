@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -46,7 +48,7 @@ func TestTagHandlerIntegration(t *testing.T) {
 
 // --- Helpers ---
 
-func (s *TagHandlerIntegrationSuite) createTagViaHandler(admin *models.User, name, category string) *CreateTagResponse {
+func (s *TagHandlerIntegrationSuite) createTagViaHandler(admin *authm.User, name, category string) *CreateTagResponse {
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &CreateTagRequest{}
 	req.Body.Name = name
@@ -67,7 +69,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_Success() {
 
 	req := &CreateTagRequest{}
 	req.Body.Name = "post-punk"
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 
 	resp, err := s.handler.CreateTagHandler(ctx, req)
 	s.NoError(err)
@@ -85,7 +87,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestCreateTag_CreatedByIncludedInGetResponse() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "math-rock", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "math-rock", catalogm.TagCategoryGenre)
 
 	// Fetch via GetTag and verify attribution persists
 	ctx := testhelpers.CtxWithUser(admin)
@@ -105,7 +107,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_WithDescription() {
 	desc := "Music influenced by the post-punk movement"
 	req := &CreateTagRequest{}
 	req.Body.Name = "post-punk"
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 	req.Body.Description = &desc
 
 	resp, err := s.handler.CreateTagHandler(ctx, req)
@@ -119,13 +121,13 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_WithParent() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 
 	// Create parent tag
-	parent := s.createTagViaHandler(admin, "rock", models.TagCategoryGenre)
+	parent := s.createTagViaHandler(admin, "rock", catalogm.TagCategoryGenre)
 
 	// Create child tag with parent
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &CreateTagRequest{}
 	req.Body.Name = "post-punk"
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 	req.Body.ParentID = &parent.Body.ID
 
 	resp, err := s.handler.CreateTagHandler(ctx, req)
@@ -137,12 +139,12 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_WithParent() {
 
 func (s *TagHandlerIntegrationSuite) TestCreateTag_Duplicate() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &CreateTagRequest{}
 	req.Body.Name = "post-punk"
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 
 	_, err := s.handler.CreateTagHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 409)
@@ -154,7 +156,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_MissingName() {
 
 	req := &CreateTagRequest{}
 	req.Body.Name = ""
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 
 	_, err := s.handler.CreateTagHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 400)
@@ -178,7 +180,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_NonAdmin() {
 
 	req := &CreateTagRequest{}
 	req.Body.Name = "post-punk"
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 
 	_, err := s.handler.CreateTagHandler(ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 403)
@@ -187,7 +189,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_NonAdmin() {
 func (s *TagHandlerIntegrationSuite) TestCreateTag_NoAuth() {
 	req := &CreateTagRequest{}
 	req.Body.Name = "post-punk"
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 
 	_, err := s.handler.CreateTagHandler(s.deps.Ctx, req)
 	testhelpers.AssertHumaError(s.T(), err, 401)
@@ -199,7 +201,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_NoAuth() {
 
 func (s *TagHandlerIntegrationSuite) TestGetTag_ByID() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	req := &GetTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
 	resp, err := s.handler.GetTagHandler(s.deps.Ctx, req)
@@ -211,7 +213,7 @@ func (s *TagHandlerIntegrationSuite) TestGetTag_ByID() {
 
 func (s *TagHandlerIntegrationSuite) TestGetTag_BySlug() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	req := &GetTagRequest{TagID: created.Body.Slug}
 	resp, err := s.handler.GetTagHandler(s.deps.Ctx, req)
@@ -244,7 +246,7 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_NotFound() {
 
 func (s *TagHandlerIntegrationSuite) TestGetTagDetail_Minimal_BySlug() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "detail-tag", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "detail-tag", catalogm.TagCategoryGenre)
 
 	req := &GetTagDetailRequest{TagID: created.Body.Slug}
 	resp, err := s.handler.GetTagDetailHandler(s.deps.Ctx, req)
@@ -255,7 +257,7 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_Minimal_BySlug() {
 	s.Equal(created.Body.ID, resp.Body.ID)
 	s.Equal("detail-tag", resp.Body.Name)
 	// Zero-state sanity: breakdown initialized, collections non-nil (empty slices, not nil).
-	s.Len(resp.Body.UsageBreakdown, len(models.TagEntityTypes))
+	s.Len(resp.Body.UsageBreakdown, len(catalogm.TagEntityTypes))
 	s.NotNil(resp.Body.Children)
 	s.NotNil(resp.Body.TopContributors)
 	s.NotNil(resp.Body.RelatedTags)
@@ -268,7 +270,7 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_DescriptionRendered() {
 	desc := "Rendered **markdown** body."
 	req := &CreateTagRequest{}
 	req.Body.Name = "desc-tag"
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 	req.Body.Description = &desc
 
 	created, err := s.handler.CreateTagHandler(ctx, req)
@@ -286,11 +288,11 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_ParentAndChildren() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
 
-	parent := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	parent := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	childReq := &CreateTagRequest{}
 	childReq.Body.Name = "shoegaze"
-	childReq.Body.Category = models.TagCategoryGenre
+	childReq.Body.Category = catalogm.TagCategoryGenre
 	parentID := parent.Body.ID
 	childReq.Body.ParentID = &parentID
 	childCreated, err := s.handler.CreateTagHandler(ctx, childReq)
@@ -315,7 +317,7 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_ParentAndChildren() {
 func (s *TagHandlerIntegrationSuite) TestGetTagDetail_UsageBreakdownAcrossTypes() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
-	tag := s.createTagViaHandler(admin, "multi-type", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "multi-type", catalogm.TagCategoryGenre)
 
 	// Tag 1 artist and 1 venue.
 	artist := testhelpers.CreateArtist(s.deps.DB, "Handler Test Band")
@@ -330,8 +332,8 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_UsageBreakdownAcrossTypes(
 		_, err := s.handler.AddTagToEntityHandler(ctx, req)
 		s.Require().NoError(err)
 	}
-	applyReq(models.TagEntityArtist, artist.ID)
-	applyReq(models.TagEntityVenue, venue.ID)
+	applyReq(catalogm.TagEntityArtist, artist.ID)
+	applyReq(catalogm.TagEntityVenue, venue.ID)
 
 	resp, err := s.handler.GetTagDetailHandler(s.deps.Ctx, &GetTagDetailRequest{TagID: tag.Body.Slug})
 	s.NoError(err)
@@ -353,11 +355,11 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_TopContributorsAndCreatedB
 	admin.Username = &aliceUsername
 	ctx := testhelpers.CtxWithUser(admin)
 
-	tag := s.createTagViaHandler(admin, "contrib-detail", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "contrib-detail", catalogm.TagCategoryGenre)
 
 	artist := testhelpers.CreateArtist(s.deps.DB, "Contrib Artist")
 	applyReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	applyReq.Body.TagID = tag.Body.ID
@@ -385,13 +387,13 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_RelatedTags() {
 	s.deps.DB.Model(admin).Update("user_tier", "contributor")
 	ctx := testhelpers.CtxWithUser(admin)
 
-	focus := s.createTagViaHandler(admin, "focus-tag", models.TagCategoryGenre)
-	related := s.createTagViaHandler(admin, "related-tag", models.TagCategoryGenre)
+	focus := s.createTagViaHandler(admin, "focus-tag", catalogm.TagCategoryGenre)
+	related := s.createTagViaHandler(admin, "related-tag", catalogm.TagCategoryGenre)
 
 	artist := testhelpers.CreateArtist(s.deps.DB, "Related Artist")
 	for _, tagID := range []uint{focus.Body.ID, related.Body.ID} {
 		r := &AddTagToEntityRequest{
-			EntityType: models.TagEntityArtist,
+			EntityType: catalogm.TagEntityArtist,
 			EntityID:   fmt.Sprintf("%d", artist.ID),
 		}
 		r.Body.TagID = tagID
@@ -413,7 +415,7 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_RelatedTags() {
 
 func (s *TagHandlerIntegrationSuite) TestGetTagDetail_AliasesPreserved() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "alias-detail", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "alias-detail", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	aliasReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
@@ -433,9 +435,9 @@ func (s *TagHandlerIntegrationSuite) TestGetTagDetail_AliasesPreserved() {
 
 func (s *TagHandlerIntegrationSuite) TestListTags_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "melancholy", models.TagCategoryOther)
+	s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
+	s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
+	s.createTagViaHandler(admin, "melancholy", catalogm.TagCategoryOther)
 
 	req := &ListTagsRequest{}
 	resp, err := s.handler.ListTagsHandler(s.deps.Ctx, req)
@@ -447,11 +449,11 @@ func (s *TagHandlerIntegrationSuite) TestListTags_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestListTags_FilterByCategory() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "melancholy", models.TagCategoryOther)
+	s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
+	s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
+	s.createTagViaHandler(admin, "melancholy", catalogm.TagCategoryOther)
 
-	req := &ListTagsRequest{Category: models.TagCategoryGenre}
+	req := &ListTagsRequest{Category: catalogm.TagCategoryGenre}
 	resp, err := s.handler.ListTagsHandler(s.deps.Ctx, req)
 	s.NoError(err)
 	s.NotNil(resp)
@@ -463,9 +465,9 @@ func (s *TagHandlerIntegrationSuite) TestListTags_FilterByCategory() {
 
 func (s *TagHandlerIntegrationSuite) TestListTags_Search() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "post-rock", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
+	s.createTagViaHandler(admin, "post-rock", catalogm.TagCategoryGenre)
+	s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	req := &ListTagsRequest{Search: "post"}
 	resp, err := s.handler.ListTagsHandler(s.deps.Ctx, req)
@@ -477,7 +479,7 @@ func (s *TagHandlerIntegrationSuite) TestListTags_Search() {
 func (s *TagHandlerIntegrationSuite) TestListTags_Pagination() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	for i := 0; i < 5; i++ {
-		s.createTagViaHandler(admin, fmt.Sprintf("tag-%d", i), models.TagCategoryGenre)
+		s.createTagViaHandler(admin, fmt.Sprintf("tag-%d", i), catalogm.TagCategoryGenre)
 	}
 
 	req := &ListTagsRequest{Limit: 2, Offset: 0}
@@ -510,8 +512,8 @@ func (s *TagHandlerIntegrationSuite) TestListTags_Empty() {
 // (venues)" instead of both showing the global N+M+….
 func (s *TagHandlerIntegrationSuite) TestListTags_EntityTypeScopedFacet() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	createdPunk := s.createTagViaHandler(admin, "punk", models.TagCategoryGenre)
-	createdRock := s.createTagViaHandler(admin, "rock", models.TagCategoryGenre)
+	createdPunk := s.createTagViaHandler(admin, "punk", catalogm.TagCategoryGenre)
+	createdRock := s.createTagViaHandler(admin, "rock", catalogm.TagCategoryGenre)
 
 	// Apply punk to one artist; apply rock to a venue. After this:
 	//   global: punk=1, rock=1
@@ -574,7 +576,7 @@ func (s *TagHandlerIntegrationSuite) TestListTags_EntityTypeScopedFacet() {
 
 func (s *TagHandlerIntegrationSuite) TestListTags_InvalidEntityType() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	s.createTagViaHandler(admin, "punk", models.TagCategoryGenre)
+	s.createTagViaHandler(admin, "punk", catalogm.TagCategoryGenre)
 
 	resp, err := s.handler.ListTagsHandler(s.deps.Ctx, &ListTagsRequest{EntityType: "user"})
 	s.Nil(resp)
@@ -587,9 +589,9 @@ func (s *TagHandlerIntegrationSuite) TestListTags_InvalidEntityType() {
 
 func (s *TagHandlerIntegrationSuite) TestSearchTags_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "post-rock", models.TagCategoryGenre)
-	s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
+	s.createTagViaHandler(admin, "post-rock", catalogm.TagCategoryGenre)
+	s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	req := &SearchTagsRequest{Query: "post"}
 	resp, err := s.handler.SearchTagsHandler(s.deps.Ctx, req)
@@ -600,7 +602,7 @@ func (s *TagHandlerIntegrationSuite) TestSearchTags_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestSearchTags_NoResults() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	req := &SearchTagsRequest{Query: "zzzznonexistent"}
 	resp, err := s.handler.SearchTagsHandler(s.deps.Ctx, req)
@@ -618,7 +620,7 @@ func (s *TagHandlerIntegrationSuite) TestSearchTags_EmptyQuery() {
 func (s *TagHandlerIntegrationSuite) TestSearchTags_WithLimit() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	for i := 0; i < 10; i++ {
-		s.createTagViaHandler(admin, fmt.Sprintf("rock-%d", i), models.TagCategoryGenre)
+		s.createTagViaHandler(admin, fmt.Sprintf("rock-%d", i), catalogm.TagCategoryGenre)
 	}
 
 	req := &SearchTagsRequest{Query: "rock", Limit: 3}
@@ -633,7 +635,7 @@ func (s *TagHandlerIntegrationSuite) TestSearchTags_WithLimit() {
 // a "matched `punk-rock`" caption under the canonical row.
 func (s *TagHandlerIntegrationSuite) TestSearchTags_MatchedViaAlias() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "punk", catalogm.TagCategoryGenre)
 
 	// Seed an alias via the service layer (alias creation is admin-only via
 	// the handler, but we don't need to exercise that path here).
@@ -655,7 +657,7 @@ func (s *TagHandlerIntegrationSuite) TestSearchTags_MatchedViaAlias() {
 // consumers (Cmd+K, admin browse) render unchanged.
 func (s *TagHandlerIntegrationSuite) TestSearchTags_NameMatchHasNoAliasCaption() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "punk", catalogm.TagCategoryGenre)
 	// An alias exists on the tag, but the query hits the canonical name directly.
 	_, err := s.deps.TagService.CreateAlias(tag.Body.ID, "punk-rock")
 	s.Require().NoError(err)
@@ -676,7 +678,7 @@ func (s *TagHandlerIntegrationSuite) TestSearchTags_NameMatchHasNoAliasCaption()
 
 func (s *TagHandlerIntegrationSuite) TestUpdateTag_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	newName := "Post-Punk Revival"
@@ -691,10 +693,10 @@ func (s *TagHandlerIntegrationSuite) TestUpdateTag_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestUpdateTag_ChangeCategory() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "dark", models.TagCategoryOther)
+	created := s.createTagViaHandler(admin, "dark", catalogm.TagCategoryOther)
 
 	ctx := testhelpers.CtxWithUser(admin)
-	newCat := models.TagCategoryLocale
+	newCat := catalogm.TagCategoryLocale
 	req := &UpdateTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
 	req.Body.Category = &newCat
 
@@ -706,7 +708,7 @@ func (s *TagHandlerIntegrationSuite) TestUpdateTag_ChangeCategory() {
 
 func (s *TagHandlerIntegrationSuite) TestUpdateTag_NonAdmin() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
@@ -720,7 +722,7 @@ func (s *TagHandlerIntegrationSuite) TestUpdateTag_NonAdmin() {
 
 func (s *TagHandlerIntegrationSuite) TestUpdateTag_NoAuth() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	newName := "Updated"
 	req := &UpdateTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
@@ -747,7 +749,7 @@ func (s *TagHandlerIntegrationSuite) TestUpdateTag_NotFound() {
 
 func (s *TagHandlerIntegrationSuite) TestDeleteTag_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "to-delete", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "to-delete", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &DeleteTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
@@ -762,7 +764,7 @@ func (s *TagHandlerIntegrationSuite) TestDeleteTag_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestDeleteTag_NonAdmin() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "protected-tag", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "protected-tag", catalogm.TagCategoryGenre)
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
@@ -774,7 +776,7 @@ func (s *TagHandlerIntegrationSuite) TestDeleteTag_NonAdmin() {
 
 func (s *TagHandlerIntegrationSuite) TestDeleteTag_NoAuth() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "protected-tag", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "protected-tag", catalogm.TagCategoryGenre)
 
 	req := &DeleteTagRequest{TagID: fmt.Sprintf("%d", created.Body.ID)}
 	_, err := s.handler.DeleteTagHandler(s.deps.Ctx, req)
@@ -796,13 +798,13 @@ func (s *TagHandlerIntegrationSuite) TestDeleteTag_NotFound() {
 
 func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByTagID() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Joy Division")
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	req := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	req.Body.TagID = tag.Body.ID
@@ -812,7 +814,7 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByTagID() {
 
 	// Verify via list
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	listResp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -823,13 +825,13 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByTagID() {
 
 func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByTagName() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "My Bloody Valentine")
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	req := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	req.Body.TagName = "shoegaze"
@@ -839,7 +841,7 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByTagName() {
 
 	// Verify
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	listResp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -850,13 +852,13 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByTagName() {
 
 func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_Duplicate() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Siouxsie")
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	req := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	req.Body.TagID = tag.Body.ID
@@ -876,7 +878,7 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_MissingFields() {
 	artist := testhelpers.CreateArtist(s.deps.DB, "Test Artist")
 
 	req := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	// Both TagID and TagName are zero/empty
@@ -887,11 +889,11 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_MissingFields() {
 
 func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_NoAuth() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Test Artist")
 
 	req := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	req.Body.TagID = tag.Body.ID
@@ -906,13 +908,13 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_NoAuth() {
 
 func (s *TagHandlerIntegrationSuite) TestListEntityTags_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Joy Division")
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	addReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	addReq.Body.TagID = tag.Body.ID
@@ -920,7 +922,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_Success() {
 	s.Require().NoError(err)
 
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	resp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -934,7 +936,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_Empty() {
 	artist := testhelpers.CreateArtist(s.deps.DB, "No Tags Artist")
 
 	req := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	resp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, req)
@@ -948,7 +950,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_Empty() {
 // Verifies the handler-level wiring (response body shape) end-to-end.
 func (s *TagHandlerIntegrationSuite) TestListEntityTags_SurfacesAttribution() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "shoegaze-revival", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "shoegaze-revival", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Faetooth")
 
 	// Create a user with a username so AddedByUsername is non-nil.
@@ -958,7 +960,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_SurfacesAttribution() {
 
 	ctx := testhelpers.CtxWithUser(user)
 	addReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	addReq.Body.TagID = tag.Body.ID
@@ -966,7 +968,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_SurfacesAttribution() {
 	s.Require().NoError(err)
 
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	resp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -991,14 +993,14 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_SurfacesAttribution() {
 // attribution line entirely.
 func (s *TagHandlerIntegrationSuite) TestListEntityTags_AttributionNullUsername() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "dream-pop", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "dream-pop", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Cocteau Twins")
 
 	// createTestUser does NOT set Username — mirrors the seed/dogfood case.
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	addReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	addReq.Body.TagID = tag.Body.ID
@@ -1006,7 +1008,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_AttributionNullUsername(
 	s.Require().NoError(err)
 
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	resp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -1022,9 +1024,9 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_AttributionNullUsername(
 
 func (s *TagHandlerIntegrationSuite) TestListEntityTags_MultipleTags() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag1 := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
-	tag2 := s.createTagViaHandler(admin, "dark", models.TagCategoryOther)
-	tag3 := s.createTagViaHandler(admin, "80s", models.TagCategoryLocale)
+	tag1 := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
+	tag2 := s.createTagViaHandler(admin, "dark", catalogm.TagCategoryOther)
+	tag3 := s.createTagViaHandler(admin, "80s", catalogm.TagCategoryLocale)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Bauhaus")
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
@@ -1032,7 +1034,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_MultipleTags() {
 
 	for _, tagID := range []uint{tag1.Body.ID, tag2.Body.ID, tag3.Body.ID} {
 		addReq := &AddTagToEntityRequest{
-			EntityType: models.TagEntityArtist,
+			EntityType: catalogm.TagEntityArtist,
 			EntityID:   fmt.Sprintf("%d", artist.ID),
 		}
 		addReq.Body.TagID = tagID
@@ -1041,7 +1043,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_MultipleTags() {
 	}
 
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	resp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -1055,7 +1057,7 @@ func (s *TagHandlerIntegrationSuite) TestListEntityTags_MultipleTags() {
 
 func (s *TagHandlerIntegrationSuite) TestRemoveTagFromEntity_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Wire")
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
@@ -1063,7 +1065,7 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagFromEntity_Success() {
 
 	// Add tag
 	addReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	addReq.Body.TagID = tag.Body.ID
@@ -1072,7 +1074,7 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagFromEntity_Success() {
 
 	// Remove tag
 	removeReq := &RemoveTagFromEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 		TagID:      fmt.Sprintf("%d", tag.Body.ID),
 	}
@@ -1081,7 +1083,7 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagFromEntity_Success() {
 
 	// Verify removed
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	listResp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -1095,7 +1097,7 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagFromEntity_NotFound() {
 	artist := testhelpers.CreateArtist(s.deps.DB, "Test Artist")
 
 	req := &RemoveTagFromEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 		TagID:      "99999",
 	}
@@ -1105,11 +1107,11 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagFromEntity_NotFound() {
 
 func (s *TagHandlerIntegrationSuite) TestRemoveTagFromEntity_NoAuth() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Test Artist")
 
 	req := &RemoveTagFromEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 		TagID:      fmt.Sprintf("%d", tag.Body.ID),
 	}
@@ -1123,14 +1125,14 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagFromEntity_NoAuth() {
 
 func (s *TagHandlerIntegrationSuite) TestVoteTag_Upvote() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Joy Division")
 
 	// First add the tag to the entity
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	addReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	addReq.Body.TagID = tag.Body.ID
@@ -1142,7 +1144,7 @@ func (s *TagHandlerIntegrationSuite) TestVoteTag_Upvote() {
 	voteCtx := testhelpers.CtxWithUser(voter)
 	req := &VoteTagRequest{
 		TagID:      fmt.Sprintf("%d", tag.Body.ID),
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	req.Body.IsUpvote = true
@@ -1153,14 +1155,14 @@ func (s *TagHandlerIntegrationSuite) TestVoteTag_Upvote() {
 
 func (s *TagHandlerIntegrationSuite) TestVoteTag_Downvote() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Joy Division")
 
 	// Add the tag
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	addReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	addReq.Body.TagID = tag.Body.ID
@@ -1172,7 +1174,7 @@ func (s *TagHandlerIntegrationSuite) TestVoteTag_Downvote() {
 	voteCtx := testhelpers.CtxWithUser(voter)
 	req := &VoteTagRequest{
 		TagID:      fmt.Sprintf("%d", tag.Body.ID),
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	req.Body.IsUpvote = false
@@ -1184,7 +1186,7 @@ func (s *TagHandlerIntegrationSuite) TestVoteTag_Downvote() {
 func (s *TagHandlerIntegrationSuite) TestVoteTag_NoAuth() {
 	req := &VoteTagRequest{
 		TagID:      "1",
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   "1",
 	}
 	req.Body.IsUpvote = true
@@ -1199,14 +1201,14 @@ func (s *TagHandlerIntegrationSuite) TestVoteTag_NoAuth() {
 
 func (s *TagHandlerIntegrationSuite) TestRemoveTagVote_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 	artist := testhelpers.CreateArtist(s.deps.DB, "Joy Division")
 
 	// Add the tag
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	addReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	addReq.Body.TagID = tag.Body.ID
@@ -1218,7 +1220,7 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagVote_Success() {
 	voteCtx := testhelpers.CtxWithUser(voter)
 	voteReq := &VoteTagRequest{
 		TagID:      fmt.Sprintf("%d", tag.Body.ID),
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	voteReq.Body.IsUpvote = true
@@ -1228,7 +1230,7 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagVote_Success() {
 	// Remove vote
 	removeReq := &RemoveTagVoteRequest{
 		TagID:      fmt.Sprintf("%d", tag.Body.ID),
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	_, err = s.handler.RemoveTagVoteHandler(voteCtx, removeReq)
@@ -1238,7 +1240,7 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagVote_Success() {
 func (s *TagHandlerIntegrationSuite) TestRemoveTagVote_NoAuth() {
 	req := &RemoveTagVoteRequest{
 		TagID:      "1",
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   "1",
 	}
 	_, err := s.handler.RemoveTagVoteHandler(s.deps.Ctx, req)
@@ -1251,7 +1253,7 @@ func (s *TagHandlerIntegrationSuite) TestRemoveTagVote_NoAuth() {
 
 func (s *TagHandlerIntegrationSuite) TestCreateAlias_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
@@ -1266,7 +1268,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateAlias_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestCreateAlias_NonAdmin() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
@@ -1279,7 +1281,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateAlias_NonAdmin() {
 
 func (s *TagHandlerIntegrationSuite) TestCreateAlias_NoAuth() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	req := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
 	req.Body.Alias = "post punk"
@@ -1290,7 +1292,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateAlias_NoAuth() {
 
 func (s *TagHandlerIntegrationSuite) TestCreateAlias_EmptyAlias() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
@@ -1302,7 +1304,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateAlias_EmptyAlias() {
 
 func (s *TagHandlerIntegrationSuite) TestCreateAlias_DuplicateAlias() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 
@@ -1325,7 +1327,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateAlias_DuplicateAlias() {
 
 func (s *TagHandlerIntegrationSuite) TestListAliases_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	for _, alias := range []string{"post punk", "postpunk", "pp"} {
@@ -1344,7 +1346,7 @@ func (s *TagHandlerIntegrationSuite) TestListAliases_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestListAliases_Empty() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	req := &ListAliasesRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
 	resp, err := s.handler.ListAliasesHandler(s.deps.Ctx, req)
@@ -1355,7 +1357,7 @@ func (s *TagHandlerIntegrationSuite) TestListAliases_Empty() {
 
 func (s *TagHandlerIntegrationSuite) TestListAliases_BySlug() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	aliasReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
@@ -1383,7 +1385,7 @@ func (s *TagHandlerIntegrationSuite) TestListAliases_TagNotFound() {
 
 func (s *TagHandlerIntegrationSuite) TestDeleteAlias_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	createReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
@@ -1408,7 +1410,7 @@ func (s *TagHandlerIntegrationSuite) TestDeleteAlias_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestDeleteAlias_NonAdmin() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	createReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
@@ -1428,7 +1430,7 @@ func (s *TagHandlerIntegrationSuite) TestDeleteAlias_NonAdmin() {
 
 func (s *TagHandlerIntegrationSuite) TestDeleteAlias_NoAuth() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	createReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
@@ -1450,7 +1452,7 @@ func (s *TagHandlerIntegrationSuite) TestDeleteAlias_NoAuth() {
 
 func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByAliasName() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	// Create alias
 	ctx := testhelpers.CtxWithUser(admin)
@@ -1464,7 +1466,7 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByAliasName() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	userCtx := testhelpers.CtxWithUser(user)
 	addReq := &AddTagToEntityRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	addReq.Body.TagName = "postpunk"
@@ -1474,7 +1476,7 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_ByAliasName() {
 
 	// Verify the canonical tag was applied
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityArtist,
+		EntityType: catalogm.TagEntityArtist,
 		EntityID:   fmt.Sprintf("%d", artist.ID),
 	}
 	listResp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -1493,7 +1495,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_Official() {
 
 	req := &CreateTagRequest{}
 	req.Body.Name = "official-genre"
-	req.Body.Category = models.TagCategoryGenre
+	req.Body.Category = catalogm.TagCategoryGenre
 	req.Body.IsOfficial = true
 
 	resp, err := s.handler.CreateTagHandler(ctx, req)
@@ -1508,7 +1510,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_Official() {
 
 func (s *TagHandlerIntegrationSuite) TestUpdateTag_SetDescription() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	created := s.createTagViaHandler(admin, "ambient", models.TagCategoryGenre)
+	created := s.createTagViaHandler(admin, "ambient", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	desc := "Electronic music focused on atmosphere"
@@ -1528,13 +1530,13 @@ func (s *TagHandlerIntegrationSuite) TestUpdateTag_SetDescription() {
 
 func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_VenueType() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "intimate", models.TagCategoryOther)
+	tag := s.createTagViaHandler(admin, "intimate", catalogm.TagCategoryOther)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, "The Rebel Lounge", "Phoenix", "AZ")
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 	req := &AddTagToEntityRequest{
-		EntityType: models.TagEntityVenue,
+		EntityType: catalogm.TagEntityVenue,
 		EntityID:   fmt.Sprintf("%d", venue.ID),
 	}
 	req.Body.TagID = tag.Body.ID
@@ -1543,7 +1545,7 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_VenueType() {
 	s.NoError(err)
 
 	listReq := &ListEntityTagsRequest{
-		EntityType: models.TagEntityVenue,
+		EntityType: catalogm.TagEntityVenue,
 		EntityID:   fmt.Sprintf("%d", venue.ID),
 	}
 	listResp, err := s.handler.ListEntityTagsHandler(s.deps.Ctx, listReq)
@@ -1573,7 +1575,7 @@ func (s *TagHandlerIntegrationSuite) TestListAllAliases_Unauthenticated() {
 func (s *TagHandlerIntegrationSuite) TestListAllAliases_ReturnsAllWithCanonicalInfo() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
-	tag := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
 
 	aliasReq := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tag.Body.ID)}
 	aliasReq.Body.Alias = "postpunk"
@@ -1592,8 +1594,8 @@ func (s *TagHandlerIntegrationSuite) TestListAllAliases_ReturnsAllWithCanonicalI
 func (s *TagHandlerIntegrationSuite) TestListAllAliases_SearchFilter() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
-	tagA := s.createTagViaHandler(admin, "post-punk", models.TagCategoryGenre)
-	tagB := s.createTagViaHandler(admin, "hip-hop", models.TagCategoryGenre)
+	tagA := s.createTagViaHandler(admin, "post-punk", catalogm.TagCategoryGenre)
+	tagB := s.createTagViaHandler(admin, "hip-hop", catalogm.TagCategoryGenre)
 
 	aliasReqA := &CreateAliasRequest{TagID: fmt.Sprintf("%d", tagA.Body.ID)}
 	aliasReqA.Body.Alias = "postpunk"
@@ -1649,7 +1651,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_TooLargeRejected() {
 func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_MixedResultSummary() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(admin)
-	s.createTagViaHandler(admin, "drum-and-bass", models.TagCategoryGenre)
+	s.createTagViaHandler(admin, "drum-and-bass", catalogm.TagCategoryGenre)
 
 	req := &BulkImportAliasesRequest{}
 	req.Body.Items = []contracts.BulkAliasImportItem{
@@ -1670,8 +1672,8 @@ func (s *TagHandlerIntegrationSuite) TestBulkImportAliases_MixedResultSummary() 
 
 func (s *TagHandlerIntegrationSuite) TestMergeTags_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	source := s.createTagViaHandler(admin, "shoe-gaze", models.TagCategoryGenre)
-	target := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	source := s.createTagViaHandler(admin, "shoe-gaze", catalogm.TagCategoryGenre)
+	target := s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
@@ -1690,8 +1692,8 @@ func (s *TagHandlerIntegrationSuite) TestMergeTags_Success() {
 
 func (s *TagHandlerIntegrationSuite) TestMergeTags_NonAdmin() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	source := s.createTagViaHandler(admin, "shoe-gaze", models.TagCategoryGenre)
-	target := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	source := s.createTagViaHandler(admin, "shoe-gaze", catalogm.TagCategoryGenre)
+	target := s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
@@ -1711,7 +1713,7 @@ func (s *TagHandlerIntegrationSuite) TestMergeTags_NoAuth() {
 
 func (s *TagHandlerIntegrationSuite) TestMergeTags_MissingTarget() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	source := s.createTagViaHandler(admin, "shoe-gaze", models.TagCategoryGenre)
+	source := s.createTagViaHandler(admin, "shoe-gaze", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", source.Body.ID)}
@@ -1723,7 +1725,7 @@ func (s *TagHandlerIntegrationSuite) TestMergeTags_MissingTarget() {
 
 func (s *TagHandlerIntegrationSuite) TestMergeTags_SelfMergeRejected() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	tag := s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &MergeTagsRequest{SourceID: fmt.Sprintf("%d", tag.Body.ID)}
@@ -1735,7 +1737,7 @@ func (s *TagHandlerIntegrationSuite) TestMergeTags_SelfMergeRejected() {
 
 func (s *TagHandlerIntegrationSuite) TestMergeTags_InvalidSource() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	target := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	target := s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &MergeTagsRequest{SourceID: "notanumber"}
@@ -1747,8 +1749,8 @@ func (s *TagHandlerIntegrationSuite) TestMergeTags_InvalidSource() {
 
 func (s *TagHandlerIntegrationSuite) TestMergePreview_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	source := s.createTagViaHandler(admin, "shoe-gaze", models.TagCategoryGenre)
-	target := s.createTagViaHandler(admin, "shoegaze", models.TagCategoryGenre)
+	source := s.createTagViaHandler(admin, "shoe-gaze", catalogm.TagCategoryGenre)
+	target := s.createTagViaHandler(admin, "shoegaze", catalogm.TagCategoryGenre)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &MergeTagsPreviewRequest{
@@ -1778,7 +1780,7 @@ func (s *TagHandlerIntegrationSuite) TestMergePreview_NonAdmin() {
 func (s *TagHandlerIntegrationSuite) TestListLowQualityTags_Admin() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
 	// Seed an orphaned tag so the queue has content.
-	orphan := &models.Tag{
+	orphan := &catalogm.Tag{
 		Name:     "orphan",
 		Slug:     "orphan-lq-admin",
 		Category: "other",
@@ -1808,7 +1810,7 @@ func (s *TagHandlerIntegrationSuite) TestListLowQualityTags_Unauthenticated() {
 
 func (s *TagHandlerIntegrationSuite) TestSnoozeTag_Admin_WritesAuditLog() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	tag := &models.Tag{
+	tag := &catalogm.Tag{
 		Name:     "to-snooze",
 		Slug:     "to-snooze-lq",
 		Category: "other",
@@ -1820,12 +1822,12 @@ func (s *TagHandlerIntegrationSuite) TestSnoozeTag_Admin_WritesAuditLog() {
 	s.Require().NoError(err)
 
 	// reviewed_at should now be set.
-	var refreshed models.Tag
+	var refreshed catalogm.Tag
 	s.Require().NoError(s.deps.DB.First(&refreshed, tag.ID).Error)
 	s.Require().NotNil(refreshed.ReviewedAt)
 
 	// Audit log fires via goroutine — poll briefly so the goroutine wins.
-	var log models.AuditLog
+	var log adminm.AuditLog
 	for i := 0; i < 40; i++ {
 		if err := s.deps.DB.Where("action = ? AND entity_id = ?", "snooze_low_quality_tag", tag.ID).First(&log).Error; err == nil {
 			break
@@ -1865,8 +1867,8 @@ func (s *TagHandlerIntegrationSuite) TestSnoozeTag_InvalidID() {
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Snooze_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	t1 := &models.Tag{Name: "bulk-snooze-1", Slug: "bulk-snooze-1", Category: "other"}
-	t2 := &models.Tag{Name: "bulk-snooze-2", Slug: "bulk-snooze-2", Category: "other"}
+	t1 := &catalogm.Tag{Name: "bulk-snooze-1", Slug: "bulk-snooze-1", Category: "other"}
+	t2 := &catalogm.Tag{Name: "bulk-snooze-2", Slug: "bulk-snooze-2", Category: "other"}
 	s.Require().NoError(s.deps.DB.Create(t1).Error)
 	s.Require().NoError(s.deps.DB.Create(t2).Error)
 
@@ -1882,14 +1884,14 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Snooze_Success() {
 	s.EqualValues(2, resp.Body.Affected)
 	s.EqualValues(0, resp.Body.NotFound)
 
-	var refreshed models.Tag
+	var refreshed catalogm.Tag
 	s.Require().NoError(s.deps.DB.First(&refreshed, t1.ID).Error)
 	s.Require().NotNil(refreshed.ReviewedAt)
 }
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Delete_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	t1 := &models.Tag{Name: "bulk-del-1", Slug: "bulk-del-1", Category: "other"}
+	t1 := &catalogm.Tag{Name: "bulk-del-1", Slug: "bulk-del-1", Category: "other"}
 	s.Require().NoError(s.deps.DB.Create(t1).Error)
 
 	req := &BulkLowQualityTagsRequest{}
@@ -1902,13 +1904,13 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Delete_Success() {
 	s.EqualValues(1, resp.Body.Affected)
 
 	var count int64
-	s.Require().NoError(s.deps.DB.Model(&models.Tag{}).Where("id = ?", t1.ID).Count(&count).Error)
+	s.Require().NoError(s.deps.DB.Model(&catalogm.Tag{}).Where("id = ?", t1.ID).Count(&count).Error)
 	s.EqualValues(0, count)
 }
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_MarkOfficial_Success() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	t1 := &models.Tag{Name: "bulk-promo-1", Slug: "bulk-promo-1", Category: "other"}
+	t1 := &catalogm.Tag{Name: "bulk-promo-1", Slug: "bulk-promo-1", Category: "other"}
 	s.Require().NoError(s.deps.DB.Create(t1).Error)
 
 	req := &BulkLowQualityTagsRequest{}
@@ -1920,7 +1922,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_MarkOfficial_Success
 	s.Require().NoError(err)
 	s.EqualValues(1, resp.Body.Affected)
 
-	var refreshed models.Tag
+	var refreshed catalogm.Tag
 	s.Require().NoError(s.deps.DB.First(&refreshed, t1.ID).Error)
 	s.True(refreshed.IsOfficial)
 }
@@ -1948,7 +1950,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_EmptyIDs() {
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_UnknownAction() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	t1 := &models.Tag{Name: "tag-x", Slug: "tag-x-bulk", Category: "other"}
+	t1 := &catalogm.Tag{Name: "tag-x", Slug: "tag-x-bulk", Category: "other"}
 	s.Require().NoError(s.deps.DB.Create(t1).Error)
 
 	req := &BulkLowQualityTagsRequest{}
@@ -1982,7 +1984,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_Unauthenticated() {
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_NotFoundCounted() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	t1 := &models.Tag{Name: "real", Slug: "real-bulk", Category: "other"}
+	t1 := &catalogm.Tag{Name: "real", Slug: "real-bulk", Category: "other"}
 	s.Require().NoError(s.deps.DB.Create(t1).Error)
 
 	req := &BulkLowQualityTagsRequest{}
@@ -1999,7 +2001,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_NotFoundCounted() {
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_WritesAuditLog() {
 	admin := testhelpers.CreateAdminUser(s.deps.DB)
-	t1 := &models.Tag{Name: "audit-target", Slug: "audit-target-bulk", Category: "other"}
+	t1 := &catalogm.Tag{Name: "audit-target", Slug: "audit-target-bulk", Category: "other"}
 	s.Require().NoError(s.deps.DB.Create(t1).Error)
 
 	req := &BulkLowQualityTagsRequest{}
@@ -2011,7 +2013,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_WritesAuditLog() {
 	s.Require().NoError(err)
 
 	// Audit log fires via goroutine — poll briefly so the goroutine wins.
-	var log models.AuditLog
+	var log adminm.AuditLog
 	for i := 0; i < 40; i++ {
 		if err := s.deps.DB.Where("action = ?", "bulk_low_quality_tags").First(&log).Error; err == nil {
 			break

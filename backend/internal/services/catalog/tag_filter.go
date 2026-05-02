@@ -4,8 +4,7 @@ import (
 	"strings"
 
 	"gorm.io/gorm"
-
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // TagFilter captures the tag-filter inputs for browse-list queries
@@ -111,7 +110,7 @@ func ApplyTransitiveArtistTagFilter(
 	}
 	sub := db.Table(junctionTable).
 		Select(junctionTable+"."+containerIDColumn).
-		Joins("JOIN entity_tags ON entity_tags.entity_type = ? AND entity_tags.entity_id = "+junctionTable+"."+artistIDColumn, models.TagEntityArtist).
+		Joins("JOIN entity_tags ON entity_tags.entity_type = ? AND entity_tags.entity_id = "+junctionTable+"."+artistIDColumn, catalogm.TagEntityArtist).
 		Joins("JOIN tags ON tags.id = entity_tags.tag_id").
 		Where("LOWER(tags.slug) IN ?", filter.TagSlugs).
 		Group(junctionTable + "." + containerIDColumn)
@@ -151,7 +150,7 @@ func CountTransitiveArtistTagUsage(
 	var rows []row
 	err := db.Table(junctionTable).
 		Select("entity_tags.tag_id AS tag_id, COUNT(DISTINCT "+junctionTable+"."+containerIDColumn+") AS count").
-		Joins("JOIN entity_tags ON entity_tags.entity_type = ? AND entity_tags.entity_id = "+junctionTable+"."+artistIDColumn, models.TagEntityArtist).
+		Joins("JOIN entity_tags ON entity_tags.entity_type = ? AND entity_tags.entity_id = "+junctionTable+"."+artistIDColumn, catalogm.TagEntityArtist).
 		Where("entity_tags.tag_id IN ?", tagIDs).
 		Group("entity_tags.tag_id").
 		Scan(&rows).Error

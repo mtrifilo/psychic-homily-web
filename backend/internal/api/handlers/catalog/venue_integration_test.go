@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 type VenueHandlerIntegrationSuite struct {
@@ -177,7 +177,7 @@ func (s *VenueHandlerIntegrationSuite) TestUpdateVenue_NonAdminForbidden() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	// Even the venue submitter gets 403 on direct PUT now; non-admins must use
 	// PUT /venues/{id}/suggest-edit (handled by PendingEditHandler).
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:        "My Venue",
 		City:        "Phoenix",
 		State:       "AZ",
@@ -224,7 +224,7 @@ func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_AdminSuccess() {
 
 func (s *VenueHandlerIntegrationSuite) TestDeleteVenue_OwnerSuccess() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:        "My Venue",
 		City:        "Phoenix",
 		State:       "AZ",

@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // Uses auto-generated testhelpers.MockCommentSubscriptionService and testhelpers.MockAuditLogService
@@ -30,7 +30,7 @@ func TestSubscribe_NoAuth(t *testing.T) {
 
 func TestSubscribe_InvalidEntityID(t *testing.T) {
 	h := testCommentSubscriptionHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "abc"}
 
 	_, err := h.SubscribeHandler(ctx, req)
@@ -43,7 +43,7 @@ func TestSubscribe_InvalidEntityType(t *testing.T) {
 			return fmt.Errorf("unsupported entity type: %s", entityType)
 		},
 	}, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "invalid", EntityID: "1"}
 
 	_, err := h.SubscribeHandler(ctx, req)
@@ -60,7 +60,7 @@ func TestSubscribe_Success(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "42"}
 
 	resp, err := h.SubscribeHandler(ctx, req)
@@ -79,7 +79,7 @@ func TestSubscribe_ServiceError(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "1"}
 
 	_, err := h.SubscribeHandler(ctx, req)
@@ -100,7 +100,7 @@ func TestSubscribe_AuditLogFires(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "42"}
 
 	_, err := h.SubscribeHandler(ctx, req)
@@ -125,7 +125,7 @@ func TestUnsubscribe_NoAuth(t *testing.T) {
 
 func TestUnsubscribe_InvalidEntityID(t *testing.T) {
 	h := testCommentSubscriptionHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnsubscribeRequest{EntityType: "show", EntityID: "abc"}
 
 	_, err := h.UnsubscribeHandler(ctx, req)
@@ -138,7 +138,7 @@ func TestUnsubscribe_InvalidEntityType(t *testing.T) {
 			return fmt.Errorf("unsupported entity type: %s", entityType)
 		},
 	}, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnsubscribeRequest{EntityType: "invalid", EntityID: "1"}
 
 	_, err := h.UnsubscribeHandler(ctx, req)
@@ -155,7 +155,7 @@ func TestUnsubscribe_Success(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnsubscribeRequest{EntityType: "show", EntityID: "42"}
 
 	_, err := h.UnsubscribeHandler(ctx, req)
@@ -171,7 +171,7 @@ func TestUnsubscribe_ServiceError(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnsubscribeRequest{EntityType: "show", EntityID: "1"}
 
 	_, err := h.UnsubscribeHandler(ctx, req)
@@ -192,7 +192,7 @@ func TestSubscriptionStatus_NoAuth(t *testing.T) {
 
 func TestSubscriptionStatus_InvalidEntityID(t *testing.T) {
 	h := testCommentSubscriptionHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "abc"}
 
 	_, err := h.SubscriptionStatusHandler(ctx, req)
@@ -205,7 +205,7 @@ func TestSubscriptionStatus_InvalidEntityType(t *testing.T) {
 			return false, fmt.Errorf("unsupported entity type: %s", entityType)
 		},
 	}, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "invalid", EntityID: "1"}
 
 	_, err := h.SubscriptionStatusHandler(ctx, req)
@@ -222,7 +222,7 @@ func TestSubscriptionStatus_Subscribed(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
 
 	resp, err := h.SubscriptionStatusHandler(ctx, req)
@@ -244,7 +244,7 @@ func TestSubscriptionStatus_NotSubscribed(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
 
 	resp, err := h.SubscriptionStatusHandler(ctx, req)
@@ -266,7 +266,7 @@ func TestSubscriptionStatus_ServiceError(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
 
 	_, err := h.SubscriptionStatusHandler(ctx, req)
@@ -287,7 +287,7 @@ func TestMarkRead_NoAuth(t *testing.T) {
 
 func TestMarkRead_InvalidEntityID(t *testing.T) {
 	h := testCommentSubscriptionHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &MarkReadRequest{EntityType: "show", EntityID: "abc"}
 
 	_, err := h.MarkReadHandler(ctx, req)
@@ -300,7 +300,7 @@ func TestMarkRead_InvalidEntityType(t *testing.T) {
 			return fmt.Errorf("unsupported entity type: %s", entityType)
 		},
 	}, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &MarkReadRequest{EntityType: "invalid", EntityID: "1"}
 
 	_, err := h.MarkReadHandler(ctx, req)
@@ -317,7 +317,7 @@ func TestMarkRead_Success(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &MarkReadRequest{EntityType: "show", EntityID: "42"}
 
 	resp, err := h.MarkReadHandler(ctx, req)
@@ -336,7 +336,7 @@ func TestMarkRead_ServiceError(t *testing.T) {
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &MarkReadRequest{EntityType: "show", EntityID: "1"}
 
 	_, err := h.MarkReadHandler(ctx, req)
@@ -357,7 +357,7 @@ func TestSubscriptionStatus_UnreadCountError_StillReturnsSubscribed(t *testing.T
 		},
 	}, nil)
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscriptionStatusRequest{EntityType: "show", EntityID: "1"}
 
 	resp, err := h.SubscriptionStatusHandler(ctx, req)
@@ -379,7 +379,7 @@ func TestSubscriptionStatus_UnreadCountError_StillReturnsSubscribed(t *testing.T
 
 func TestSubscribe_NilSubscriptionService(t *testing.T) {
 	h := NewCommentSubscriptionHandler(nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SubscribeRequest{EntityType: "show", EntityID: "1"}
 
 	// This should return success because testhelpers.MockCommentSubscriptionService default returns nil

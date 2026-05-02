@@ -9,10 +9,11 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 
 	"github.com/lib/pq"
+	authm "psychic-homily-backend/internal/models/auth"
+	notificationm "psychic-homily-backend/internal/models/notification"
 )
 
 func testNotificationFilterHandler() *NotificationFilterHandler {
@@ -29,14 +30,14 @@ func TestListFiltersHandler_NoAuth(t *testing.T) {
 
 func TestListFiltersHandler_Success(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		GetUserFiltersFn: func(userID uint) ([]models.NotificationFilter, error) {
-			return []models.NotificationFilter{
+		GetUserFiltersFn: func(userID uint) ([]notificationm.NotificationFilter, error) {
+			return []notificationm.NotificationFilter{
 				{ID: 1, Name: "Test filter", IsActive: true, ArtistIDs: pq.Int64Array{1, 2}},
 			}, nil
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.ListFiltersHandler(ctx, &ListFiltersRequest{})
 	if err != nil {
@@ -52,12 +53,12 @@ func TestListFiltersHandler_Success(t *testing.T) {
 
 func TestListFiltersHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		GetUserFiltersFn: func(_ uint) ([]models.NotificationFilter, error) {
+		GetUserFiltersFn: func(_ uint) ([]notificationm.NotificationFilter, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.ListFiltersHandler(ctx, &ListFiltersRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -73,14 +74,14 @@ func TestCreateFilterHandler_NoAuth(t *testing.T) {
 
 func TestCreateFilterHandler_Success(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		CreateFilterFn: func(userID uint, input contracts.CreateFilterInput) (*models.NotificationFilter, error) {
+		CreateFilterFn: func(userID uint, input contracts.CreateFilterInput) (*notificationm.NotificationFilter, error) {
 			if userID != 1 {
 				return nil, fmt.Errorf("wrong user")
 			}
 			if input.Name != "PHX punk" {
 				return nil, fmt.Errorf("wrong name: %s", input.Name)
 			}
-			return &models.NotificationFilter{
+			return &notificationm.NotificationFilter{
 				ID:       1,
 				UserID:   userID,
 				Name:     input.Name,
@@ -89,7 +90,7 @@ func TestCreateFilterHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	req := &CreateFilterRequest{}
 	req.Body.Name = "PHX punk"
@@ -106,12 +107,12 @@ func TestCreateFilterHandler_Success(t *testing.T) {
 
 func TestCreateFilterHandler_ValidationError(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		CreateFilterFn: func(_ uint, _ contracts.CreateFilterInput) (*models.NotificationFilter, error) {
+		CreateFilterFn: func(_ uint, _ contracts.CreateFilterInput) (*notificationm.NotificationFilter, error) {
 			return nil, fmt.Errorf("at least one filter criteria is required")
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	req := &CreateFilterRequest{}
 	req.Body.Name = "Empty"
@@ -130,7 +131,7 @@ func TestUpdateFilterHandler_NoAuth(t *testing.T) {
 
 func TestUpdateFilterHandler_InvalidID(t *testing.T) {
 	h := NewNotificationFilterHandler(&testhelpers.MockNotificationFilterService{}, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UpdateFilterHandler(ctx, &UpdateFilterRequest{ID: "abc"})
 	testhelpers.AssertHumaError(t, err, 400)
@@ -138,12 +139,12 @@ func TestUpdateFilterHandler_InvalidID(t *testing.T) {
 
 func TestUpdateFilterHandler_NotFound(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		UpdateFilterFn: func(_ uint, _ uint, _ contracts.UpdateFilterInput) (*models.NotificationFilter, error) {
+		UpdateFilterFn: func(_ uint, _ uint, _ contracts.UpdateFilterInput) (*notificationm.NotificationFilter, error) {
 			return nil, fmt.Errorf("filter not found")
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UpdateFilterHandler(ctx, &UpdateFilterRequest{ID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -151,8 +152,8 @@ func TestUpdateFilterHandler_NotFound(t *testing.T) {
 
 func TestUpdateFilterHandler_Success(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		UpdateFilterFn: func(_ uint, filterID uint, input contracts.UpdateFilterInput) (*models.NotificationFilter, error) {
-			return &models.NotificationFilter{
+		UpdateFilterFn: func(_ uint, filterID uint, input contracts.UpdateFilterInput) (*notificationm.NotificationFilter, error) {
+			return &notificationm.NotificationFilter{
 				ID:       filterID,
 				Name:     *input.Name,
 				IsActive: true,
@@ -160,7 +161,7 @@ func TestUpdateFilterHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	req := &UpdateFilterRequest{ID: "42"}
 	name := "Updated"
@@ -185,7 +186,7 @@ func TestDeleteFilterHandler_NoAuth(t *testing.T) {
 
 func TestDeleteFilterHandler_InvalidID(t *testing.T) {
 	h := NewNotificationFilterHandler(&testhelpers.MockNotificationFilterService{}, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteFilterHandler(ctx, &DeleteFilterRequest{ID: "abc"})
 	testhelpers.AssertHumaError(t, err, 400)
@@ -201,7 +202,7 @@ func TestDeleteFilterHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.DeleteFilterHandler(ctx, &DeleteFilterRequest{ID: "42"})
 	if err != nil {
@@ -219,7 +220,7 @@ func TestDeleteFilterHandler_NotFound(t *testing.T) {
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteFilterHandler(ctx, &DeleteFilterRequest{ID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -235,7 +236,7 @@ func TestQuickCreateFilterHandler_NoAuth(t *testing.T) {
 
 func TestQuickCreateFilterHandler_InvalidEntityID(t *testing.T) {
 	h := NewNotificationFilterHandler(&testhelpers.MockNotificationFilterService{}, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	req := &QuickCreateFilterRequest{}
 	req.Body.EntityType = "artist"
@@ -247,8 +248,8 @@ func TestQuickCreateFilterHandler_InvalidEntityID(t *testing.T) {
 
 func TestQuickCreateFilterHandler_Success(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
-		QuickCreateFilterFn: func(userID uint, entityType string, entityID uint) (*models.NotificationFilter, error) {
-			return &models.NotificationFilter{
+		QuickCreateFilterFn: func(userID uint, entityType string, entityID uint) (*notificationm.NotificationFilter, error) {
+			return &notificationm.NotificationFilter{
 				ID:       1,
 				Name:     "Deafheaven shows",
 				IsActive: true,
@@ -256,7 +257,7 @@ func TestQuickCreateFilterHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	req := &QuickCreateFilterRequest{}
 	req.Body.EntityType = "artist"
@@ -291,7 +292,7 @@ func TestGetNotificationsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetNotificationsHandler(ctx, &GetNotificationsRequest{Limit: 20, Offset: 0})
 	if err != nil {
@@ -353,7 +354,7 @@ func TestUnsubscribeFilterHandler_Success(t *testing.T) {
 // --- filterToResponse helper ---
 
 func TestFilterToResponse(t *testing.T) {
-	f := &models.NotificationFilter{
+	f := &notificationm.NotificationFilter{
 		ID:        1,
 		Name:      "Test",
 		IsActive:  true,

@@ -11,7 +11,8 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -54,7 +55,7 @@ func TestCollectionHandlerIntegration(t *testing.T) {
 // char description, then flip is_public). Tests that pass false get a bare
 // private collection — most tests that only need a slug should call with
 // false to keep item counts predictable.
-func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *models.User, title string, isPublic bool) *contracts.CollectionDetailResponse {
+func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *authm.User, title string, isPublic bool) *contracts.CollectionDetailResponse {
 	priv, err := s.deps.CollectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
 		Title:    title,
 		IsPublic: false,
@@ -323,7 +324,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter()
 // and (optionally) an item-with-notes payload so the search-tier tests below
 // stay readable. Returns the public slug.
 func (s *CollectionHandlerIntegrationSuite) seedSearchableCollection(
-	user *models.User,
+	user *authm.User,
 	title, description, itemNotes string,
 ) string {
 	priv, err := s.deps.CollectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
@@ -422,9 +423,9 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_Search_TagAliasM
 	taggedSlug := s.seedSearchableCollection(user, "Alpha Catalog", "ordinary description text", "")
 	s.seedSearchableCollection(user, "Beta Catalog", "ordinary description text", "")
 
-	tag, err := s.deps.TagService.CreateTag("post-rock", nil, nil, models.TagCategoryGenre, false, &user.ID)
+	tag, err := s.deps.TagService.CreateTag("post-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID)
 	s.Require().NoError(err)
-	s.Require().NoError(s.deps.DB.Create(&models.TagAlias{
+	s.Require().NoError(s.deps.DB.Create(&catalogm.TagAlias{
 		TagID: tag.ID,
 		Alias: "postrock",
 	}).Error)
@@ -1330,7 +1331,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OriginalShowsFor
 	src := s.createCollectionViaService(owner, "Forky Source", true)
 
 	// Two clones from different users.
-	for _, c := range []*models.User{cloner1, cloner2} {
+	for _, c := range []*authm.User{cloner1, cloner2} {
 		ctx := testhelpers.CtxWithUser(c)
 		req := &CloneCollectionHandlerRequest{Slug: src.Slug}
 		_, err := s.handler.CloneCollectionHandler(ctx, req)
@@ -1392,8 +1393,8 @@ func (s *CollectionHandlerIntegrationSuite) TestMapCollectionError_NotFound() {
 // from the tag service's createTagInline gate). The trust-tier gate itself
 // is covered in catalog/tag_service_test.go — these tests focus on the
 // collection-side behavior.
-func (s *CollectionHandlerIntegrationSuite) promoteContributorForTags(user *models.User) {
-	s.Require().NoError(s.deps.DB.Model(&models.User{}).
+func (s *CollectionHandlerIntegrationSuite) promoteContributorForTags(user *authm.User) {
+	s.Require().NoError(s.deps.DB.Model(&authm.User{}).
 		Where("id = ?", user.ID).
 		Update("user_tier", "contributor").Error)
 }

@@ -523,8 +523,8 @@ func parseReleaseYear(dateStr string) int {
 // =============================================================================
 
 type kexpPaginatedResponse struct {
-	Next    string `json:"next"`
-	Count   int    `json:"count"`
+	Next  string `json:"next"`
+	Count int    `json:"count"`
 }
 
 type kexpProgramsResponse struct {

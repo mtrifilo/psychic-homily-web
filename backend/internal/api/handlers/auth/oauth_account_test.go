@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 func testOAuthAccountHandler() *OAuthAccountHandler {
@@ -34,7 +34,7 @@ func TestUnlinkOAuthAccountHandler_NoAuth(t *testing.T) {
 
 func TestUnlinkOAuthAccountHandler_InvalidProvider(t *testing.T) {
 	h := testOAuthAccountHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnlinkOAuthAccountRequest{Provider: "facebook"}
 
 	_, err := h.UnlinkOAuthAccountHandler(ctx, req)

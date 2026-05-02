@@ -6,14 +6,15 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 // adminCtx returns a context populated with an admin user, suitable for
 // invoking handlers that gate on shared.RequireAdmin.
 func adminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }
 
 func testAdminDiscoveryHandler() *AdminDiscoveryHandler {
@@ -69,7 +70,7 @@ func TestDiscoveryCheckHandler_TooMany(t *testing.T) {
 func TestDiscoveryImportHandler_Success(t *testing.T) {
 	h := adminDiscoveryHandler(func(ah *AdminDiscoveryHandler) {
 		ah.discoveryService = &testhelpers.MockDiscoveryService{
-			ImportEventsFn: func(events []contracts.DiscoveredEvent, dryRun, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
+			ImportEventsFn: func(events []contracts.DiscoveredEvent, dryRun, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error) {
 				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
 		}
@@ -88,7 +89,7 @@ func TestDiscoveryImportHandler_Success(t *testing.T) {
 func TestDiscoveryImportHandler_ServiceError(t *testing.T) {
 	h := adminDiscoveryHandler(func(ah *AdminDiscoveryHandler) {
 		ah.discoveryService = &testhelpers.MockDiscoveryService{
-			ImportEventsFn: func(_ []contracts.DiscoveredEvent, _, _ bool, _ models.ShowStatus) (*contracts.ImportResult, error) {
+			ImportEventsFn: func(_ []contracts.DiscoveredEvent, _, _ bool, _ catalogm.ShowStatus) (*contracts.ImportResult, error) {
 				return nil, fmt.Errorf("import failed")
 			},
 		}

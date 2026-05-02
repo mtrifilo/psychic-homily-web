@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -50,15 +51,15 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) SetupTest() {
 
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) createArtist(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	artist := &models.Artist{Name: name, Slug: &slug}
+	artist := &catalogm.Artist{Name: name, Slug: &slug}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist.ID
 }
 
-func (suite *ArtistRelationshipServiceIntegrationTestSuite) createUser(name string) *models.User {
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) createUser(name string) *authm.User {
 	email := fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())
-	user := &models.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
+	user := &authm.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	return user
@@ -66,11 +67,11 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) createUser(name stri
 
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) createShow(title string) uint {
 	slug := fmt.Sprintf("show-%d", time.Now().UnixNano())
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:     title,
 		Slug:      &slug,
 		EventDate: time.Now().Add(24 * time.Hour),
-		Status:    models.ShowStatusApproved,
+		Status:    catalogm.ShowStatusApproved,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
@@ -104,7 +105,7 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestCreateRelationsh
 	rel, err := suite.svc.CreateRelationship(a2, a1, "similar", false)
 	suite.Require().NoError(err)
 
-	src, tgt := models.CanonicalOrder(a1, a2)
+	src, tgt := catalogm.CanonicalOrder(a1, a2)
 	suite.Assert().Equal(src, rel.SourceArtistID)
 	suite.Assert().Equal(tgt, rel.TargetArtistID)
 }
@@ -468,11 +469,11 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_U
 
 	// Create future show with related artist
 	slug := fmt.Sprintf("future-show-%d", time.Now().UnixNano())
-	futureShow := &models.Show{
+	futureShow := &catalogm.Show{
 		Title:     "Future Show",
 		Slug:      &slug,
 		EventDate: time.Now().Add(48 * time.Hour),
-		Status:    models.ShowStatusApproved,
+		Status:    catalogm.ShowStatusApproved,
 	}
 	suite.db.Create(futureShow)
 	suite.addArtistToShow(futureShow.ID, a2)
@@ -494,14 +495,14 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_U
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) createFestival(name string, startDate, endDate string, editionYear int) uint {
 	slug := fmt.Sprintf("fest-%s-%d", name, time.Now().UnixNano())
 	seriesSlug := fmt.Sprintf("fest-series-%s-%d", name, time.Now().UnixNano())
-	f := &models.Festival{
+	f := &catalogm.Festival{
 		Name:        name,
 		Slug:        slug,
 		SeriesSlug:  seriesSlug,
 		EditionYear: editionYear,
 		StartDate:   startDate,
 		EndDate:     endDate,
-		Status:      models.FestivalStatusCompleted,
+		Status:      catalogm.FestivalStatusCompleted,
 	}
 	err := suite.db.Create(f).Error
 	suite.Require().NoError(err)
@@ -510,10 +511,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) createFestival(name 
 
 // addArtistToFestival inserts a festival_artists row. Position is auto.
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) addArtistToFestival(festivalID, artistID uint) {
-	fa := &models.FestivalArtist{
+	fa := &catalogm.FestivalArtist{
 		FestivalID:  festivalID,
 		ArtistID:    artistID,
-		BillingTier: models.BillingTierMidCard,
+		BillingTier: catalogm.BillingTierMidCard,
 	}
 	err := suite.db.Create(fa).Error
 	suite.Require().NoError(err)

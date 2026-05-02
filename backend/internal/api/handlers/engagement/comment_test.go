@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -20,11 +20,11 @@ func testCommentHandler() *CommentHandler {
 }
 
 func commentUserCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 10, IsAdmin: false})
+	return testhelpers.CtxWithUser(&authm.User{ID: 10, IsAdmin: false})
 }
 
 func commentAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }
 
 func makeCommentResponse(id uint, entityType string, entityID uint, userID uint) *contracts.CommentResponse {

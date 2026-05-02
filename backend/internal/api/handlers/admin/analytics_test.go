@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -19,11 +19,11 @@ func testAnalyticsHandler() *AnalyticsHandler {
 }
 
 func analyticsAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }
 
 func analyticsNonAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false})
+	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: false})
 }
 
 // ============================================================================

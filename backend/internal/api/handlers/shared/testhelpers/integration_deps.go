@@ -9,7 +9,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/catalog"
@@ -151,8 +152,8 @@ func CleanupTables(db *gorm.DB) {
 
 // CreateTestUser inserts a normal (non-admin) verified user with a unique
 // email and returns it.
-func CreateTestUser(db *gorm.DB) *models.User {
-	user := &models.User{
+func CreateTestUser(db *gorm.DB) *authm.User {
+	user := &authm.User{
 		Email:         StringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     StringPtr("Test"),
 		LastName:      StringPtr("User"),
@@ -164,8 +165,8 @@ func CreateTestUser(db *gorm.DB) *models.User {
 }
 
 // CreateAdminUser inserts an admin user with a unique email and returns it.
-func CreateAdminUser(db *gorm.DB) *models.User {
-	user := &models.User{
+func CreateAdminUser(db *gorm.DB) *authm.User {
+	user := &authm.User{
 		Email:         StringPtr(fmt.Sprintf("admin-%d@test.com", time.Now().UnixNano())),
 		FirstName:     StringPtr("Admin"),
 		LastName:      StringPtr("User"),
@@ -178,8 +179,8 @@ func CreateAdminUser(db *gorm.DB) *models.User {
 }
 
 // CreateVerifiedVenue inserts a verified venue and returns it.
-func CreateVerifiedVenue(db *gorm.DB, name, city, state string) *models.Venue {
-	venue := &models.Venue{
+func CreateVerifiedVenue(db *gorm.DB, name, city, state string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -190,8 +191,8 @@ func CreateVerifiedVenue(db *gorm.DB, name, city, state string) *models.Venue {
 }
 
 // CreateUnverifiedVenue inserts an unverified venue and returns it.
-func CreateUnverifiedVenue(db *gorm.DB, name, city, state string) *models.Venue {
-	venue := &models.Venue{
+func CreateUnverifiedVenue(db *gorm.DB, name, city, state string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -202,8 +203,8 @@ func CreateUnverifiedVenue(db *gorm.DB, name, city, state string) *models.Venue 
 }
 
 // CreateArtist inserts an artist by name and returns it.
-func CreateArtist(db *gorm.DB, name string) *models.Artist {
-	artist := &models.Artist{
+func CreateArtist(db *gorm.DB, name string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name: name,
 	}
 	db.Create(artist)
@@ -212,13 +213,13 @@ func CreateArtist(db *gorm.DB, name string) *models.Artist {
 
 // CreateApprovedShow inserts a show in the approved state, with a venue +
 // artist association, dated 7 days from now. Returns the show.
-func CreateApprovedShow(db *gorm.DB, userID uint, title string) *models.Show {
-	show := &models.Show{
+func CreateApprovedShow(db *gorm.DB, userID uint, title string) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        StringPtr("Phoenix"),
 		State:       StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	db.Create(show)
@@ -235,13 +236,13 @@ func CreateApprovedShow(db *gorm.DB, userID uint, title string) *models.Show {
 
 // CreatePendingShow inserts a show in the pending state, with a venue +
 // artist association, dated 7 days from now. Returns the show.
-func CreatePendingShow(db *gorm.DB, userID uint, title string) *models.Show {
-	show := &models.Show{
+func CreatePendingShow(db *gorm.DB, userID uint, title string) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        StringPtr("Phoenix"),
 		State:       StringPtr("AZ"),
-		Status:      models.ShowStatusPending,
+		Status:      catalogm.ShowStatusPending,
 		SubmittedBy: &userID,
 	}
 	db.Create(show)
@@ -257,13 +258,13 @@ func CreatePendingShow(db *gorm.DB, userID uint, title string) *models.Show {
 
 // CreateFutureApprovedShow inserts an approved show daysFromNow into the
 // future, with a venue + artist association.
-func CreateFutureApprovedShow(db *gorm.DB, userID uint, title string, daysFromNow int) *models.Show {
-	show := &models.Show{
+func CreateFutureApprovedShow(db *gorm.DB, userID uint, title string, daysFromNow int) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, daysFromNow),
 		City:        StringPtr("Phoenix"),
 		State:       StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	db.Create(show)
@@ -279,13 +280,13 @@ func CreateFutureApprovedShow(db *gorm.DB, userID uint, title string, daysFromNo
 
 // CreatePastApprovedShow inserts an approved show daysAgo days in the past,
 // with a venue + artist association.
-func CreatePastApprovedShow(db *gorm.DB, userID uint, title string, daysAgo int) *models.Show {
-	show := &models.Show{
+func CreatePastApprovedShow(db *gorm.DB, userID uint, title string, daysAgo int) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, -daysAgo),
 		City:        StringPtr("Phoenix"),
 		State:       StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	db.Create(show)

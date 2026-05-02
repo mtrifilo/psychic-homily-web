@@ -6,7 +6,9 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -19,11 +21,11 @@ func testPipelineHandler() *PipelineHandler {
 }
 
 func pipelineAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }
 
 func pipelineNonAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false})
+	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: false})
 }
 
 // ============================================================================
@@ -187,15 +189,15 @@ func TestPipelineHandler_ListVenues_Success(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
 		&testhelpers.MockVenueSourceConfigService{
-			ListConfiguredFn: func() ([]models.VenueSourceConfig, error) {
-				return []models.VenueSourceConfig{
+			ListConfiguredFn: func() ([]adminm.VenueSourceConfig, error) {
+				return []adminm.VenueSourceConfig{
 					{
 						ID:              1,
 						VenueID:         10,
 						CalendarURL:     &calURL,
 						PreferredSource: "ai",
 						RenderMethod:    &rm,
-						Venue: models.Venue{
+						Venue: catalogm.Venue{
 							ID:   10,
 							Name: "Test Venue",
 							Slug: &slug,
@@ -203,8 +205,8 @@ func TestPipelineHandler_ListVenues_Success(t *testing.T) {
 					},
 				}, nil
 			},
-			GetRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
-				return []models.VenueExtractionRun{
+			GetRecentRunsFn: func(venueID uint, limit int) ([]adminm.VenueExtractionRun, error) {
+				return []adminm.VenueExtractionRun{
 					{ID: 1, VenueID: venueID, EventsExtracted: 5, EventsImported: 3},
 				}, nil
 			},
@@ -244,8 +246,8 @@ func TestPipelineHandler_ListVenues_Empty(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
 		&testhelpers.MockVenueSourceConfigService{
-			ListConfiguredFn: func() ([]models.VenueSourceConfig, error) {
-				return []models.VenueSourceConfig{}, nil
+			ListConfiguredFn: func() ([]adminm.VenueSourceConfig, error) {
+				return []adminm.VenueSourceConfig{}, nil
 			},
 		},
 		&testhelpers.MockEnrichmentService{},
@@ -267,7 +269,7 @@ func TestPipelineHandler_ListVenues_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
 		&testhelpers.MockVenueSourceConfigService{
-			ListConfiguredFn: func() ([]models.VenueSourceConfig, error) {
+			ListConfiguredFn: func() ([]adminm.VenueSourceConfig, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
@@ -431,8 +433,8 @@ func TestPipelineHandler_UpdateConfig_Success(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
 		&testhelpers.MockVenueSourceConfigService{
-			CreateOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
-				config.Venue = models.Venue{ID: config.VenueID, Name: "Test Venue", Slug: &slug}
+			CreateOrUpdateFn: func(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error) {
+				config.Venue = catalogm.Venue{ID: config.VenueID, Name: "Test Venue", Slug: &slug}
 				return config, nil
 			},
 		},
@@ -471,7 +473,7 @@ func TestPipelineHandler_UpdateConfig_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
 		&testhelpers.MockVenueSourceConfigService{
-			CreateOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+			CreateOrUpdateFn: func(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
@@ -493,8 +495,8 @@ func TestPipelineHandler_GetVenueRuns_Success(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
 		&testhelpers.MockVenueSourceConfigService{
-			GetRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
-				return []models.VenueExtractionRun{
+			GetRecentRunsFn: func(venueID uint, limit int) ([]adminm.VenueExtractionRun, error) {
+				return []adminm.VenueExtractionRun{
 					{ID: 1, VenueID: venueID, EventsExtracted: 10, EventsImported: 8},
 					{ID: 2, VenueID: venueID, EventsExtracted: 5, EventsImported: 3},
 				}, nil
@@ -523,7 +525,7 @@ func TestPipelineHandler_GetVenueRuns_DefaultLimit(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
 		&testhelpers.MockVenueSourceConfigService{
-			GetRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+			GetRecentRunsFn: func(venueID uint, limit int) ([]adminm.VenueExtractionRun, error) {
 				receivedLimit = limit
 				return nil, nil
 			},
@@ -551,7 +553,7 @@ func TestPipelineHandler_GetVenueRuns_ServiceError(t *testing.T) {
 	h := NewPipelineHandler(
 		&testhelpers.MockPipelineService{},
 		&testhelpers.MockVenueSourceConfigService{
-			GetRecentRunsFn: func(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+			GetRecentRunsFn: func(venueID uint, limit int) ([]adminm.VenueExtractionRun, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},

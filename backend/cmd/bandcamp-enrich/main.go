@@ -17,22 +17,22 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // CLI flags
 var (
-	dryRun      bool
-	artistName  string
-	confirm     bool
-	limitFlag   int
-	verbose     bool
-	delayMs     int
+	dryRun     bool
+	artistName string
+	confirm    bool
+	limitFlag  int
+	verbose    bool
+	delayMs    int
 )
 
 func init() {
@@ -48,7 +48,7 @@ func init() {
 type BandcampRelease struct {
 	Title       string
 	URL         string
-	ReleaseType models.ReleaseType
+	ReleaseType catalogm.ReleaseType
 	ReleaseDate *string
 	ReleaseYear *int
 	CoverArtURL *string
@@ -59,16 +59,16 @@ type BandcampRelease struct {
 
 // BandcampJSONLD represents the JSON-LD structured data from a Bandcamp release page
 type BandcampJSONLD struct {
-	Type            string              `json:"@type"`
-	Name            string              `json:"name"`
-	DatePublished   string              `json:"datePublished"`
-	Image           interface{}         `json:"image"` // can be string or array
-	NumTracks       int                 `json:"numTracks"`
-	ByArtist        *BandcampJSONArtist `json:"byArtist"`
-	RecordLabel     *BandcampJSONLabel  `json:"recordLabel"`
-	Track           *BandcampJSONTrack  `json:"track"`
-	URL             string              `json:"@id"`
-	AdditionalType  string              `json:"additionalType"`
+	Type           string              `json:"@type"`
+	Name           string              `json:"name"`
+	DatePublished  string              `json:"datePublished"`
+	Image          interface{}         `json:"image"` // can be string or array
+	NumTracks      int                 `json:"numTracks"`
+	ByArtist       *BandcampJSONArtist `json:"byArtist"`
+	RecordLabel    *BandcampJSONLabel  `json:"recordLabel"`
+	Track          *BandcampJSONTrack  `json:"track"`
+	URL            string              `json:"@id"`
+	AdditionalType string              `json:"additionalType"`
 }
 
 type BandcampJSONArtist struct {
@@ -218,10 +218,10 @@ func main() {
 }
 
 // getArtistsWithBandcamp queries for artists that have a Bandcamp URL
-func getArtistsWithBandcamp(database *gorm.DB) []models.Artist {
-	var artists []models.Artist
+func getArtistsWithBandcamp(database *gorm.DB) []catalogm.Artist {
+	var artists []catalogm.Artist
 
-	query := database.Model(&models.Artist{})
+	query := database.Model(&catalogm.Artist{})
 
 	if artistName != "" {
 		query = query.Where("LOWER(name) = LOWER(?)", artistName)
@@ -238,7 +238,7 @@ func getArtistsWithBandcamp(database *gorm.DB) []models.Artist {
 
 	// If filtering by name, check that the artist actually has a Bandcamp URL
 	if artistName != "" {
-		filtered := make([]models.Artist, 0)
+		filtered := make([]catalogm.Artist, 0)
 		for _, a := range artists {
 			if getBandcampURL(&a) != "" {
 				filtered = append(filtered, a)
@@ -253,7 +253,7 @@ func getArtistsWithBandcamp(database *gorm.DB) []models.Artist {
 }
 
 // getBandcampURL extracts the Bandcamp URL from an artist's social links or embed URL
-func getBandcampURL(artist *models.Artist) string {
+func getBandcampURL(artist *catalogm.Artist) string {
 	// Prefer social.bandcamp (direct URL)
 	if artist.Social.Bandcamp != nil && *artist.Social.Bandcamp != "" {
 		url := *artist.Social.Bandcamp
@@ -415,7 +415,7 @@ func jsonLDToRelease(jsonLD *BandcampJSONLD, url string, fallbackArtist string) 
 
 	// Determine release type
 	if jsonLD.Type == "MusicRecording" {
-		release.ReleaseType = models.ReleaseTypeSingle
+		release.ReleaseType = catalogm.ReleaseTypeSingle
 	} else {
 		// Determine LP vs EP based on track count
 		trackCount := jsonLD.NumTracks
@@ -425,11 +425,11 @@ func jsonLDToRelease(jsonLD *BandcampJSONLD, url string, fallbackArtist string) 
 		release.Tracks = trackCount
 
 		if trackCount > 0 && trackCount <= 3 {
-			release.ReleaseType = models.ReleaseTypeSingle
+			release.ReleaseType = catalogm.ReleaseTypeSingle
 		} else if trackCount > 0 && trackCount <= 6 {
-			release.ReleaseType = models.ReleaseTypeEP
+			release.ReleaseType = catalogm.ReleaseTypeEP
 		} else {
-			release.ReleaseType = models.ReleaseTypeLP
+			release.ReleaseType = catalogm.ReleaseTypeLP
 		}
 	}
 
@@ -506,9 +506,9 @@ func extractReleaseFromHTML(html string, url string, artistName string) *Bandcam
 	}
 
 	// Determine type from URL
-	releaseType := models.ReleaseTypeLP
+	releaseType := catalogm.ReleaseTypeLP
 	if strings.Contains(url, "/track/") {
-		releaseType = models.ReleaseTypeSingle
+		releaseType = catalogm.ReleaseTypeSingle
 	}
 
 	// Try to get release date
@@ -594,7 +594,7 @@ func getExistingReleases(database *gorm.DB, artistID uint) []existingRelease {
 // hasBandcampLink checks if a release already has a Bandcamp external link
 func hasBandcampLink(database *gorm.DB, releaseID uint) bool {
 	var count int64
-	database.Model(&models.ReleaseExternalLink{}).
+	database.Model(&catalogm.ReleaseExternalLink{}).
 		Where("release_id = ? AND LOWER(platform) = 'bandcamp'", releaseID).
 		Count(&count)
 	return count > 0
@@ -648,7 +648,7 @@ func createNewRelease(database *gorm.DB, releaseService *catalog.ReleaseService,
 		Artists: []contracts.CreateReleaseArtistEntry{
 			{
 				ArtistID: artistID,
-				Role:     string(models.ArtistReleaseRoleMain),
+				Role:     string(catalogm.ArtistReleaseRoleMain),
 			},
 		},
 		ExternalLinks: []contracts.CreateReleaseLinkEntry{
@@ -679,7 +679,7 @@ func createNewRelease(database *gorm.DB, releaseService *catalog.ReleaseService,
 // handleLabelAssociation creates a label if needed and associates it with the release and artist
 func handleLabelAssociation(database *gorm.DB, labelService *catalog.LabelService, releaseID uint, artistID uint, labelName string) error {
 	// Skip if label name matches the artist name (Bandcamp uses artist name as label for self-released)
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := database.First(&artist, artistID).Error; err == nil {
 		if strings.EqualFold(artist.Name, labelName) {
 			if verbose {
@@ -690,7 +690,7 @@ func handleLabelAssociation(database *gorm.DB, labelService *catalog.LabelServic
 	}
 
 	// Check if label already exists (case-insensitive)
-	var existingLabel models.Label
+	var existingLabel catalogm.Label
 	err := database.Where("LOWER(name) = LOWER(?)", labelName).First(&existingLabel).Error
 	if err == nil {
 		// Label exists — associate with release and artist
@@ -716,7 +716,7 @@ func handleLabelAssociation(database *gorm.DB, labelService *catalog.LabelServic
 // associateLabel creates release_labels and artist_labels junction entries
 func associateLabel(database *gorm.DB, labelID uint, releaseID uint, artistID uint) error {
 	// Create release_labels entry (skip if exists)
-	rl := models.ReleaseLabel{
+	rl := catalogm.ReleaseLabel{
 		ReleaseID: releaseID,
 		LabelID:   labelID,
 	}
@@ -725,7 +725,7 @@ func associateLabel(database *gorm.DB, labelID uint, releaseID uint, artistID ui
 	}
 
 	// Create artist_labels entry (skip if exists)
-	al := models.ArtistLabel{
+	al := catalogm.ArtistLabel{
 		ArtistID: artistID,
 		LabelID:  labelID,
 	}
@@ -826,4 +826,3 @@ func connectToDatabase() *gorm.DB {
 
 	return db.GetDB()
 }
-

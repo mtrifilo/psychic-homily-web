@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -57,8 +59,8 @@ func TestChartsServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *ChartsServiceIntegrationTestSuite) createUser(email string) *models.User {
-	user := &models.User{
+func (suite *ChartsServiceIntegrationTestSuite) createUser(email string) *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(email),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -70,8 +72,8 @@ func (suite *ChartsServiceIntegrationTestSuite) createUser(email string) *models
 	return user
 }
 
-func (suite *ChartsServiceIntegrationTestSuite) createVenue(name, city, state string) *models.Venue {
-	venue := &models.Venue{
+func (suite *ChartsServiceIntegrationTestSuite) createVenue(name, city, state string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:  name,
 		City:  city,
 		State: state,
@@ -81,36 +83,36 @@ func (suite *ChartsServiceIntegrationTestSuite) createVenue(name, city, state st
 	return venue
 }
 
-func (suite *ChartsServiceIntegrationTestSuite) createArtist(name string) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (suite *ChartsServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
 }
 
-func (suite *ChartsServiceIntegrationTestSuite) createApprovedShow(title string, venueID, artistID, userID uint, eventDate time.Time) *models.Show {
-	show := &models.Show{
+func (suite *ChartsServiceIntegrationTestSuite) createApprovedShow(title string, venueID, artistID, userID uint, eventDate time.Time) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   eventDate,
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 
-	err = suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
+	err = suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
 	suite.Require().NoError(err)
 
-	err = suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
+	err = suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
 	suite.Require().NoError(err)
 
 	return show
 }
 
-func (suite *ChartsServiceIntegrationTestSuite) createBookmark(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) {
-	bookmark := &models.UserBookmark{
+func (suite *ChartsServiceIntegrationTestSuite) createBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) {
+	bookmark := &engagementm.UserBookmark{
 		UserID:     userID,
 		EntityType: entityType,
 		EntityID:   entityID,
@@ -120,8 +122,8 @@ func (suite *ChartsServiceIntegrationTestSuite) createBookmark(userID uint, enti
 	suite.Require().NoError(err)
 }
 
-func (suite *ChartsServiceIntegrationTestSuite) createRelease(title string) *models.Release {
-	release := &models.Release{
+func (suite *ChartsServiceIntegrationTestSuite) createRelease(title string) *catalogm.Release {
+	release := &catalogm.Release{
 		Title: title,
 	}
 	err := suite.db.Create(release).Error
@@ -130,10 +132,10 @@ func (suite *ChartsServiceIntegrationTestSuite) createRelease(title string) *mod
 }
 
 func (suite *ChartsServiceIntegrationTestSuite) addArtistToRelease(artistID, releaseID uint) {
-	ar := &models.ArtistRelease{
+	ar := &catalogm.ArtistRelease{
 		ArtistID:  artistID,
 		ReleaseID: releaseID,
-		Role:      models.ArtistReleaseRoleMain,
+		Role:      catalogm.ArtistReleaseRoleMain,
 		Position:  0,
 	}
 	err := suite.db.Create(ar).Error
@@ -162,12 +164,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_WithData() 
 	show2 := suite.createApprovedShow("Less Popular Show", venue.ID, artist.ID, user1.ID, future.AddDate(0, 0, 1))
 
 	// Show 1 has 3 attendees (2 going, 1 interested)
-	suite.createBookmark(user1.ID, models.BookmarkEntityShow, show1.ID, models.BookmarkActionGoing)
-	suite.createBookmark(user2.ID, models.BookmarkEntityShow, show1.ID, models.BookmarkActionGoing)
-	suite.createBookmark(user3.ID, models.BookmarkEntityShow, show1.ID, models.BookmarkActionInterested)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionGoing)
+	suite.createBookmark(user2.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionGoing)
+	suite.createBookmark(user3.ID, engagementm.BookmarkEntityShow, show1.ID, engagementm.BookmarkActionInterested)
 
 	// Show 2 has 1 attendee
-	suite.createBookmark(user1.ID, models.BookmarkEntityShow, show2.ID, models.BookmarkActionGoing)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityShow, show2.ID, engagementm.BookmarkActionGoing)
 
 	shows, err := suite.chartsService.GetTrendingShows(20)
 	suite.Require().NoError(err)
@@ -195,12 +197,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_ExcludesPas
 	// Past show
 	past := time.Now().UTC().AddDate(0, 0, -7)
 	pastShow := suite.createApprovedShow("Past Show", venue.ID, artist.ID, user.ID, past)
-	suite.createBookmark(user.ID, models.BookmarkEntityShow, pastShow.ID, models.BookmarkActionGoing)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, pastShow.ID, engagementm.BookmarkActionGoing)
 
 	// Future show
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	futureShow := suite.createApprovedShow("Future Show", venue.ID, artist.ID, user.ID, future)
-	suite.createBookmark(user.ID, models.BookmarkEntityShow, futureShow.ID, models.BookmarkActionGoing)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, futureShow.ID, engagementm.BookmarkActionGoing)
 
 	shows, err := suite.chartsService.GetTrendingShows(20)
 	suite.Require().NoError(err)
@@ -220,7 +222,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_RespectsLim
 			venue.ID, artist.ID, user.ID,
 			future.AddDate(0, 0, i),
 		)
-		suite.createBookmark(user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionGoing)
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
 	}
 
 	shows, err := suite.chartsService.GetTrendingShows(3)
@@ -257,7 +259,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetTrendingShows_BookmarkedR
 	unbookmarked := suite.createApprovedShow("Unbookmarked", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
 	// Show with bookmarks (same date)
 	bookmarked := suite.createApprovedShow("Bookmarked", venue.ID, artist.ID, user.ID, future.AddDate(0, 0, 10))
-	suite.createBookmark(user.ID, models.BookmarkEntityShow, bookmarked.ID, models.BookmarkActionGoing)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, bookmarked.ID, engagementm.BookmarkActionGoing)
 
 	shows, err := suite.chartsService.GetTrendingShows(20)
 	suite.Require().NoError(err)
@@ -289,14 +291,14 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetPopularArtists_WithData()
 	artistB := suite.createArtist("Less Popular Artist")
 
 	// Artist A: 2 followers + 2 upcoming shows = 2*2 + 2 = 6
-	suite.createBookmark(user1.ID, models.BookmarkEntityArtist, artistA.ID, models.BookmarkActionFollow)
-	suite.createBookmark(user2.ID, models.BookmarkEntityArtist, artistA.ID, models.BookmarkActionFollow)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityArtist, artistA.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(user2.ID, engagementm.BookmarkEntityArtist, artistA.ID, engagementm.BookmarkActionFollow)
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	suite.createApprovedShow("Show A1", venue.ID, artistA.ID, user1.ID, future)
 	suite.createApprovedShow("Show A2", venue.ID, artistA.ID, user1.ID, future.AddDate(0, 0, 1))
 
 	// Artist B: 1 follower + 0 upcoming shows = 1*2 + 0 = 2
-	suite.createBookmark(user1.ID, models.BookmarkEntityArtist, artistB.ID, models.BookmarkActionFollow)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityArtist, artistB.ID, engagementm.BookmarkActionFollow)
 
 	artists, err := suite.chartsService.GetPopularArtists(20)
 	suite.Require().NoError(err)
@@ -339,7 +341,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetPopularArtists_RespectsLi
 
 	for i := 0; i < 5; i++ {
 		artist := suite.createArtist(fmt.Sprintf("Limit Artist %d", i))
-		suite.createBookmark(user.ID, models.BookmarkEntityArtist, artist.ID, models.BookmarkActionFollow)
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow)
 	}
 
 	artists, err := suite.chartsService.GetPopularArtists(3)
@@ -370,12 +372,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetActiveVenues_WithData() {
 	suite.createApprovedShow("VA1", venueA.ID, artist.ID, user1.ID, future)
 	suite.createApprovedShow("VA2", venueA.ID, artist.ID, user1.ID, future.AddDate(0, 0, 1))
 	suite.createApprovedShow("VA3", venueA.ID, artist.ID, user1.ID, future.AddDate(0, 0, 2))
-	suite.createBookmark(user1.ID, models.BookmarkEntityVenue, venueA.ID, models.BookmarkActionFollow)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityVenue, venueA.ID, engagementm.BookmarkActionFollow)
 
 	// Venue B: 1 upcoming show + 2 followers = 1*2 + 2 = 4
 	suite.createApprovedShow("VB1", venueB.ID, artist.ID, user1.ID, future)
-	suite.createBookmark(user1.ID, models.BookmarkEntityVenue, venueB.ID, models.BookmarkActionFollow)
-	suite.createBookmark(user2.ID, models.BookmarkEntityVenue, venueB.ID, models.BookmarkActionFollow)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityVenue, venueB.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(user2.ID, engagementm.BookmarkEntityVenue, venueB.ID, engagementm.BookmarkActionFollow)
 
 	venues, err := suite.chartsService.GetActiveVenues(20)
 	suite.Require().NoError(err)
@@ -435,12 +437,12 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_WithData() {
 	suite.addArtistToRelease(artist.ID, releaseB.ID)
 
 	// Release A: 3 bookmarks
-	suite.createBookmark(user1.ID, models.BookmarkEntityRelease, releaseA.ID, models.BookmarkActionBookmark)
-	suite.createBookmark(user2.ID, models.BookmarkEntityRelease, releaseA.ID, models.BookmarkActionBookmark)
-	suite.createBookmark(user3.ID, models.BookmarkEntityRelease, releaseA.ID, models.BookmarkActionBookmark)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityRelease, releaseA.ID, engagementm.BookmarkActionBookmark)
+	suite.createBookmark(user2.ID, engagementm.BookmarkEntityRelease, releaseA.ID, engagementm.BookmarkActionBookmark)
+	suite.createBookmark(user3.ID, engagementm.BookmarkEntityRelease, releaseA.ID, engagementm.BookmarkActionBookmark)
 
 	// Release B: 1 bookmark
-	suite.createBookmark(user1.ID, models.BookmarkEntityRelease, releaseB.ID, models.BookmarkActionBookmark)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityRelease, releaseB.ID, engagementm.BookmarkActionBookmark)
 
 	releases, err := suite.chartsService.GetHotReleases(20)
 	suite.Require().NoError(err)
@@ -467,15 +469,15 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_MultipleArtis
 	suite.addArtistToRelease(artistA.ID, release.ID)
 
 	// Add second artist at position 1
-	ar := &models.ArtistRelease{
+	ar := &catalogm.ArtistRelease{
 		ArtistID:  artistB.ID,
 		ReleaseID: release.ID,
-		Role:      models.ArtistReleaseRoleFeatured,
+		Role:      catalogm.ArtistReleaseRoleFeatured,
 		Position:  1,
 	}
 	suite.Require().NoError(suite.db.Create(ar).Error)
 
-	suite.createBookmark(user.ID, models.BookmarkEntityRelease, release.ID, models.BookmarkActionBookmark)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityRelease, release.ID, engagementm.BookmarkActionBookmark)
 
 	releases, err := suite.chartsService.GetHotReleases(20)
 	suite.Require().NoError(err)
@@ -492,7 +494,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_RespectsLimit
 	for i := 0; i < 5; i++ {
 		release := suite.createRelease(fmt.Sprintf("Release %d", i))
 		suite.addArtistToRelease(artist.ID, release.ID)
-		suite.createBookmark(user.ID, models.BookmarkEntityRelease, release.ID, models.BookmarkActionBookmark)
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityRelease, release.ID, engagementm.BookmarkActionBookmark)
 	}
 
 	releases, err := suite.chartsService.GetHotReleases(3)
@@ -524,7 +526,7 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_BookmarkedRan
 
 	bookmarked := suite.createRelease("Bookmarked Release")
 	suite.addArtistToRelease(artist.ID, bookmarked.ID)
-	suite.createBookmark(user.ID, models.BookmarkEntityRelease, bookmarked.ID, models.BookmarkActionBookmark)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityRelease, bookmarked.ID, engagementm.BookmarkActionBookmark)
 
 	releases, err := suite.chartsService.GetHotReleases(20)
 	suite.Require().NoError(err)
@@ -545,9 +547,9 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetHotReleases_Only30Days() 
 	suite.addArtistToRelease(artist.ID, release.ID)
 
 	// Create a bookmark, then manually backdate it to 31 days ago
-	suite.createBookmark(user.ID, models.BookmarkEntityRelease, release.ID, models.BookmarkActionBookmark)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityRelease, release.ID, engagementm.BookmarkActionBookmark)
 	suite.db.Exec("UPDATE user_bookmarks SET created_at = ? WHERE entity_id = ? AND entity_type = ? AND action = ?",
-		time.Now().UTC().AddDate(0, 0, -31), release.ID, models.BookmarkEntityRelease, models.BookmarkActionBookmark)
+		time.Now().UTC().AddDate(0, 0, -31), release.ID, engagementm.BookmarkEntityRelease, engagementm.BookmarkActionBookmark)
 
 	releases, err := suite.chartsService.GetHotReleases(20)
 	suite.Require().NoError(err)
@@ -583,8 +585,8 @@ func (suite *ChartsServiceIntegrationTestSuite) TestGetChartsOverview_LimitsToFi
 			venue.ID, artist.ID, user.ID,
 			future.AddDate(0, 0, i),
 		)
-		suite.createBookmark(user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionGoing)
-		suite.createBookmark(user.ID, models.BookmarkEntityArtist, artist.ID, models.BookmarkActionFollow)
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
+		suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow)
 	}
 
 	overview, err := suite.chartsService.GetChartsOverview()

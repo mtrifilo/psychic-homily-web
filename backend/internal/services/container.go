@@ -20,46 +20,46 @@ import (
 // Exported fields — no getters needed for a simple data-holding struct.
 type ServiceContainer struct {
 	// DB-only leaf services
-	AdminStats         *adminsvc.AdminStatsService
-	Analytics          *adminsvc.AnalyticsService
-	APIToken           *adminsvc.APITokenService
-	DataQuality        *adminsvc.DataQualityService
-	Revision           *adminsvc.RevisionService
-	PendingEdit        *adminsvc.PendingEditService
-	Charts             *catalog.ChartsService
-	Artist             *catalog.ArtistService
-	ContributorProfile *usersvc.ContributorProfileService
-	ArtistReport  *adminsvc.ArtistReportService
-	AuditLog      *adminsvc.AuditLogService
-	Bookmark      *engagement.BookmarkService
-	Calendar      *engagement.CalendarService
-	Collection    *CollectionService
-	Request       *RequestService
-	Tag                *catalog.TagService
-	ArtistRelationship *catalog.ArtistRelationshipService
-	Scene              *catalog.SceneService
-	Attendance         *engagement.AttendanceService
-	Comment             *engagement.CommentService
-	CommentVote         *engagement.CommentVoteService
-	CommentSubscription *engagement.CommentSubscriptionService
-	CommentNotification *engagement.CommentNotificationService
-	Follow             *engagement.FollowService
-	FavoriteVenue      *engagement.FavoriteVenueService
+	AdminStats             *adminsvc.AdminStatsService
+	Analytics              *adminsvc.AnalyticsService
+	APIToken               *adminsvc.APITokenService
+	DataQuality            *adminsvc.DataQualityService
+	Revision               *adminsvc.RevisionService
+	PendingEdit            *adminsvc.PendingEditService
+	Charts                 *catalog.ChartsService
+	Artist                 *catalog.ArtistService
+	ContributorProfile     *usersvc.ContributorProfileService
+	ArtistReport           *adminsvc.ArtistReportService
+	AuditLog               *adminsvc.AuditLogService
+	Bookmark               *engagement.BookmarkService
+	Calendar               *engagement.CalendarService
+	Collection             *CollectionService
+	Request                *RequestService
+	Tag                    *catalog.TagService
+	ArtistRelationship     *catalog.ArtistRelationshipService
+	Scene                  *catalog.SceneService
+	Attendance             *engagement.AttendanceService
+	Comment                *engagement.CommentService
+	CommentVote            *engagement.CommentVoteService
+	CommentSubscription    *engagement.CommentSubscriptionService
+	CommentNotification    *engagement.CommentNotificationService
+	Follow                 *engagement.FollowService
+	FavoriteVenue          *engagement.FavoriteVenueService
 	Festival               *catalog.FestivalService
 	FestivalIntelligence   *catalog.FestivalIntelligenceService
-	Label         *catalog.LabelService
-	Release       *catalog.ReleaseService
-	SavedShow     *engagement.SavedShowService
-	Show          *catalog.ShowService
-	ShowReport    *adminsvc.ShowReportService
-	EntityReport  *adminsvc.EntityReportService
-	User              *usersvc.UserService
-	Leaderboard       *usersvc.LeaderboardService
+	Label                  *catalog.LabelService
+	Release                *catalog.ReleaseService
+	SavedShow              *engagement.SavedShowService
+	Show                   *catalog.ShowService
+	ShowReport             *adminsvc.ShowReportService
+	EntityReport           *adminsvc.EntityReportService
+	User                   *usersvc.UserService
+	Leaderboard            *usersvc.LeaderboardService
 	Radio                  *catalog.RadioService
 	RadioFetch             *catalog.RadioFetchService
 	RelationshipDerivation *catalog.RelationshipDerivationService
-	Venue             *catalog.VenueService
-	VenueSourceConfig *pipeline.VenueSourceConfigService
+	Venue                  *catalog.VenueService
+	VenueSourceConfig      *pipeline.VenueSourceConfigService
 
 	// Config-only services
 	Discord            *notification.DiscordService
@@ -72,13 +72,13 @@ type ServiceContainer struct {
 	PasswordValidator *auth.PasswordValidator
 
 	// DB + Config composite services
-	Auth       *auth.AuthService
-	JWT        *auth.JWTService
-	AppleAuth  *auth.AppleAuthService
-	Extraction *pipeline.ExtractionService
-	WebAuthn   *auth.WebAuthnService // nil if init fails (passkeys optional)
-	Cleanup    *adminsvc.CleanupService
-	DataSync   *adminsvc.DataSyncService
+	Auth             *auth.AuthService
+	JWT              *auth.JWTService
+	AppleAuth        *auth.AppleAuthService
+	Extraction       *pipeline.ExtractionService
+	WebAuthn         *auth.WebAuthnService // nil if init fails (passkeys optional)
+	Cleanup          *adminsvc.CleanupService
+	DataSync         *adminsvc.DataSyncService
 	Discovery        *pipeline.DiscoveryService
 	Pipeline         *pipeline.PipelineService
 	Reminder         *engagement.ReminderService
@@ -152,46 +152,46 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	return &ServiceContainer{
 		// DB-only leaf services
-		AdminStats:         adminsvc.NewAdminStatsService(database),
-		Analytics:          adminsvc.NewAnalyticsService(database),
-		APIToken:           adminsvc.NewAPITokenService(database),
-		DataQuality:        adminsvc.NewDataQualityService(database),
-		Revision:           revisionSvc,
-		PendingEdit:        adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL),
-		Charts:             catalog.NewChartsService(database),
-		Artist:             artist,
-		ContributorProfile: usersvc.NewContributorProfileService(database),
-		ArtistReport:  adminsvc.NewArtistReportService(database),
-		AuditLog:      adminsvc.NewAuditLogService(database),
-		Bookmark:      engagement.NewBookmarkService(database),
-		Calendar:      engagement.NewCalendarService(database, savedShow),
-		Collection:    collectionSvc,
-		Request:       NewRequestService(database),
-		Tag:                tagSvc,
-		ArtistRelationship: artistRelSvc,
-		Scene:              catalog.NewSceneService(database),
-		Attendance:         engagement.NewAttendanceService(database),
-		Comment:             commentSvc,
-		CommentVote:         engagement.NewCommentVoteService(database),
-		CommentSubscription: engagement.NewCommentSubscriptionService(database),
-		CommentNotification: commentNotificationSvc,
-		Follow:             engagement.NewFollowService(database),
-		FavoriteVenue:      engagement.NewFavoriteVenueService(database),
+		AdminStats:             adminsvc.NewAdminStatsService(database),
+		Analytics:              adminsvc.NewAnalyticsService(database),
+		APIToken:               adminsvc.NewAPITokenService(database),
+		DataQuality:            adminsvc.NewDataQualityService(database),
+		Revision:               revisionSvc,
+		PendingEdit:            adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL),
+		Charts:                 catalog.NewChartsService(database),
+		Artist:                 artist,
+		ContributorProfile:     usersvc.NewContributorProfileService(database),
+		ArtistReport:           adminsvc.NewArtistReportService(database),
+		AuditLog:               adminsvc.NewAuditLogService(database),
+		Bookmark:               engagement.NewBookmarkService(database),
+		Calendar:               engagement.NewCalendarService(database, savedShow),
+		Collection:             collectionSvc,
+		Request:                NewRequestService(database),
+		Tag:                    tagSvc,
+		ArtistRelationship:     artistRelSvc,
+		Scene:                  catalog.NewSceneService(database),
+		Attendance:             engagement.NewAttendanceService(database),
+		Comment:                commentSvc,
+		CommentVote:            engagement.NewCommentVoteService(database),
+		CommentSubscription:    engagement.NewCommentSubscriptionService(database),
+		CommentNotification:    commentNotificationSvc,
+		Follow:                 engagement.NewFollowService(database),
+		FavoriteVenue:          engagement.NewFavoriteVenueService(database),
 		Festival:               catalog.NewFestivalService(database),
 		FestivalIntelligence:   catalog.NewFestivalIntelligenceService(database),
-		Label:         catalog.NewLabelService(database),
-		Release:       catalog.NewReleaseService(database),
-		SavedShow:     savedShow,
-		Show:          catalog.NewShowService(database),
-		ShowReport:    adminsvc.NewShowReportService(database),
-		EntityReport:  adminsvc.NewEntityReportService(database),
-		User:          userService,
-		Leaderboard:   usersvc.NewLeaderboardService(database),
+		Label:                  catalog.NewLabelService(database),
+		Release:                catalog.NewReleaseService(database),
+		SavedShow:              savedShow,
+		Show:                   catalog.NewShowService(database),
+		ShowReport:             adminsvc.NewShowReportService(database),
+		EntityReport:           adminsvc.NewEntityReportService(database),
+		User:                   userService,
+		Leaderboard:            usersvc.NewLeaderboardService(database),
 		Radio:                  radioSvc,
 		RadioFetch:             catalog.NewRadioFetchService(radioSvc, discord),
 		RelationshipDerivation: catalog.NewRelationshipDerivationService(artistRelSvc),
 		Venue:                  venue,
-		VenueSourceConfig: venueSourceConfig,
+		VenueSourceConfig:      venueSourceConfig,
 
 		// Config-only services
 		Discord:            discord,
@@ -204,16 +204,16 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		PasswordValidator: auth.NewPasswordValidator(),
 
 		// DB + Config composite services
-		Auth:       auth.NewAuthService(database, cfg, userService),
-		JWT:        jwtService,
-		AppleAuth:  auth.NewAppleAuthService(database, cfg, jwtService),
-		Extraction: extraction,
-		WebAuthn:   webauthnService,
-		Cleanup:    adminsvc.NewCleanupService(database, userService),
-		DataSync:   adminsvc.NewDataSyncService(database),
-		Discovery:  discovery,
-		Pipeline:   pipelineSvc,
-		Reminder:   engagement.NewReminderService(database, email, cfg),
+		Auth:             auth.NewAuthService(database, cfg, userService),
+		JWT:              jwtService,
+		AppleAuth:        auth.NewAppleAuthService(database, cfg, jwtService),
+		Extraction:       extraction,
+		WebAuthn:         webauthnService,
+		Cleanup:          adminsvc.NewCleanupService(database, userService),
+		DataSync:         adminsvc.NewDataSyncService(database),
+		Discovery:        discovery,
+		Pipeline:         pipelineSvc,
+		Reminder:         engagement.NewReminderService(database, email, cfg),
 		Scheduler:        pipeline.NewSchedulerService(database, pipelineSvc, venueSourceConfig, discord),
 		Enrichment:       enrichmentSvc,
 		EnrichmentWorker: enrichmentWorker,

@@ -11,7 +11,9 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -21,7 +23,6 @@ const (
 	AccountLockDuration    = 15 * time.Minute
 )
 
-
 // ListUsers returns a paginated list of users for the admin console
 func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
 	if s.db == nil {
@@ -29,7 +30,7 @@ func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFi
 	}
 
 	// Base query
-	query := s.db.Model(&models.User{})
+	query := s.db.Model(&authm.User{})
 
 	// Apply search filter
 	if filters.Search != "" {
@@ -44,7 +45,7 @@ func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFi
 	}
 
 	// Fetch users with OAuth accounts preloaded
-	var users []models.User
+	var users []authm.User
 	if err := query.
 		Preload("OAuthAccounts").
 		Order("created_at DESC").
@@ -70,7 +71,7 @@ func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFi
 		Count  int64
 	}
 	var passkeyCounts []passkeyCount
-	s.db.Model(&models.WebAuthnCredential{}).
+	s.db.Model(&authm.WebAuthnCredential{}).
 		Select("user_id, COUNT(*) as count").
 		Where("user_id IN ?", userIDs).
 		Group("user_id").
@@ -88,7 +89,7 @@ func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFi
 		Count       int64
 	}
 	var showStats []showStat
-	s.db.Model(&models.Show{}).
+	s.db.Model(&catalogm.Show{}).
 		Select("submitted_by, status, COUNT(*) as count").
 		Where("submitted_by IN ?", userIDs).
 		Group("submitted_by, status").
@@ -161,22 +162,22 @@ func NewUserService(database *gorm.DB) *UserService {
 
 // FindOrCreateUser finds existing user or creates new one from OAuth data.
 // This legacy path does not enforce signup consent for new OAuth users.
-func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*models.User, error) {
+func (s *UserService) FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error) {
 	return s.findOrCreateOAuthUser(gothUser, provider, nil, false)
 }
 
 // FindOrCreateUserWithConsent enforces terms acceptance for brand-new OAuth users.
-func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*models.User, error) {
+func (s *UserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	return s.findOrCreateOAuthUser(gothUser, provider, consent, true)
 }
 
-func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent, enforceConsent bool) (*models.User, error) {
+func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent, enforceConsent bool) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	// First, try to find existing OAuth account
-	var oauthAccount models.OAuthAccount
+	var oauthAccount authm.OAuthAccount
 
 	result := s.db.
 		Where("provider = ? AND provider_user_id = ?", provider, gothUser.UserID).
@@ -184,7 +185,7 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 
 	if result.Error == nil {
 		// OAuth account exists, get the user
-		var user models.User
+		var user authm.User
 		if err := s.db.Preload("OAuthAccounts").Preload("Preferences").First(&user, oauthAccount.UserID).Error; err != nil {
 			return nil, fmt.Errorf("failed to get user: %w", err)
 		}
@@ -196,7 +197,7 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 	}
 
 	// OAuth account doesn't exist, check if user exists by email
-	var existingUser models.User
+	var existingUser authm.User
 	if gothUser.Email != "" {
 		result.Error = s.db.Where("email = ?", gothUser.Email).First(&existingUser).Error
 		if result.Error == nil {
@@ -213,7 +214,7 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 }
 
 // CreateUserWithPassword creates a new user with email and password.
-func (s *UserService) CreateUserWithPassword(email, password, firstName, lastName string) (*models.User, error) {
+func (s *UserService) CreateUserWithPassword(email, password, firstName, lastName string) (*authm.User, error) {
 	return s.createUserWithPassword(email, password, firstName, lastName, nil)
 }
 
@@ -224,7 +225,7 @@ func (s *UserService) CreateUserWithPasswordWithLegal(
 	firstName,
 	lastName string,
 	acceptance contracts.LegalAcceptance,
-) (*models.User, error) {
+) (*authm.User, error) {
 	return s.createUserWithPassword(email, password, firstName, lastName, &acceptance)
 }
 
@@ -234,7 +235,7 @@ func (s *UserService) createUserWithPassword(
 	firstName,
 	lastName string,
 	acceptance *contracts.LegalAcceptance,
-) (*models.User, error) {
+) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -260,7 +261,7 @@ func (s *UserService) createUserWithPassword(
 		}
 	}()
 	// Create user
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		PasswordHash:  &hashedPassword,
 		FirstName:     &firstName,
@@ -286,7 +287,7 @@ func (s *UserService) createUserWithPassword(
 	}
 
 	// Create default preferences
-	preferences := &models.UserPreferences{
+	preferences := &authm.UserPreferences{
 		UserID: user.ID,
 	}
 
@@ -307,7 +308,7 @@ func (s *UserService) createUserWithPassword(
 	return user, nil
 }
 
-func (s *UserService) AuthenticateUserWithPassword(email, password string) (*models.User, error) {
+func (s *UserService) AuthenticateUserWithPassword(email, password string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -359,7 +360,7 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*mod
 
 // createNewUserOauth creates a new user with OAuth account.
 // This legacy path does not enforce consent requirements.
-func (s *UserService) createNewUserOauth(gothUser goth.User, provider string) (*models.User, error) {
+func (s *UserService) createNewUserOauth(gothUser goth.User, provider string) (*authm.User, error) {
 	return s.createNewUserOauthWithConsent(gothUser, provider, nil, false)
 }
 
@@ -368,7 +369,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 	provider string,
 	consent *contracts.OAuthSignupConsent,
 	enforceConsent bool,
-) (*models.User, error) {
+) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -387,7 +388,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 	}()
 
 	// Create user
-	user := &models.User{
+	user := &authm.User{
 		Email:         &gothUser.Email,
 		FirstName:     &gothUser.FirstName,
 		LastName:      &gothUser.LastName,
@@ -413,7 +414,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 	}
 
 	// Create OAuth account
-	oauthAccount := &models.OAuthAccount{
+	oauthAccount := &authm.OAuthAccount{
 		UserID:            user.ID,
 		Provider:          provider,
 		ProviderUserID:    gothUser.UserID,
@@ -435,7 +436,7 @@ func (s *UserService) createNewUserOauthWithConsent(
 	}
 
 	// Create default preferences
-	preferences := &models.UserPreferences{
+	preferences := &authm.UserPreferences{
 		UserID: user.ID,
 	}
 
@@ -471,13 +472,13 @@ func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
 }
 
 // linkOAuthAccount links OAuth account to existing user
-func (s *UserService) linkOAuthAccount(user *models.User, gothUser goth.User, provider string) (*models.User, error) {
+func (s *UserService) linkOAuthAccount(user *authm.User, gothUser goth.User, provider string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	// Check if OAuth account already exists for this provider
-	var existingOAuth models.OAuthAccount
+	var existingOAuth authm.OAuthAccount
 	err := s.db.Where("user_id = ? AND provider = ?", user.ID, provider).First(&existingOAuth).Error
 
 	if err == nil {
@@ -497,7 +498,7 @@ func (s *UserService) linkOAuthAccount(user *models.User, gothUser goth.User, pr
 		}
 	} else if err == gorm.ErrRecordNotFound {
 		// Create new OAuth account
-		oauthAccount := &models.OAuthAccount{
+		oauthAccount := &authm.OAuthAccount{
 			UserID:            user.ID,
 			Provider:          provider,
 			ProviderUserID:    gothUser.UserID,
@@ -529,12 +530,12 @@ func (s *UserService) linkOAuthAccount(user *models.User, gothUser goth.User, pr
 }
 
 // GetUserByID retrieves a user by ID
-func (s *UserService) GetUserByID(userID uint) (*models.User, error) {
+func (s *UserService) GetUserByID(userID uint) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var user models.User
+	var user authm.User
 
 	result := s.db.Preload("OAuthAccounts").
 		Preload("Preferences").
@@ -548,12 +549,12 @@ func (s *UserService) GetUserByID(userID uint) (*models.User, error) {
 }
 
 // GetUserByEmail retrieves a user by email
-func (s *UserService) GetUserByEmail(email string) (*models.User, error) {
+func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var user models.User
+	var user authm.User
 
 	result := s.db.Where("email = ?", email).
 		Preload("OAuthAccounts").
@@ -570,12 +571,12 @@ func (s *UserService) GetUserByEmail(email string) (*models.User, error) {
 	return &user, nil
 }
 
-func (s *UserService) GetUserByUsername(username string) (*models.User, error) {
+func (s *UserService) GetUserByUsername(username string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var user models.User
+	var user authm.User
 
 	result := s.db.Where("username = ?", username).
 		Preload("OAuthAccounts").
@@ -593,12 +594,12 @@ func (s *UserService) GetUserByUsername(username string) (*models.User, error) {
 }
 
 // UpdateUser updates user information
-func (s *UserService) UpdateUser(userID uint, updates map[string]any) (*models.User, error) {
+func (s *UserService) UpdateUser(userID uint, updates map[string]any) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var user models.User
+	var user authm.User
 
 	result := s.db.Model(&user).
 		Where("id = ?", userID).
@@ -624,12 +625,12 @@ func (s *UserService) VerifyPassword(hashedPassword, password string) error {
 }
 
 // IsAccountLocked checks if the user account is currently locked
-func (s *UserService) IsAccountLocked(user *models.User) bool {
+func (s *UserService) IsAccountLocked(user *authm.User) bool {
 	return user.LockedUntil != nil && time.Now().Before(*user.LockedUntil)
 }
 
 // GetLockTimeRemaining returns the duration until the account is unlocked
-func (s *UserService) GetLockTimeRemaining(user *models.User) time.Duration {
+func (s *UserService) GetLockTimeRemaining(user *authm.User) time.Duration {
 	if user.LockedUntil == nil {
 		return 0
 	}
@@ -648,7 +649,7 @@ func (s *UserService) IncrementFailedAttempts(userID uint) error {
 
 	// Use a transaction to atomically increment and check
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		var user models.User
+		var user authm.User
 		if err := tx.First(&user, userID).Error; err != nil {
 			return fmt.Errorf("failed to get user: %w", err)
 		}
@@ -675,7 +676,7 @@ func (s *UserService) ResetFailedAttempts(userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.User{}).
+	result := s.db.Model(&authm.User{}).
 		Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"failed_login_attempts": 0,
@@ -718,7 +719,7 @@ func (s *UserService) UpdatePassword(userID uint, currentPassword, newPassword s
 	}
 
 	// Update the password in the database
-	result := s.db.Model(&models.User{}).
+	result := s.db.Model(&authm.User{}).
 		Where("id = ?", userID).
 		Update("password_hash", hashedPassword)
 
@@ -739,7 +740,7 @@ func (s *UserService) SetEmailVerified(userID uint, verified bool) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.User{}).
+	result := s.db.Model(&authm.User{}).
 		Where("id = ?", userID).
 		Update("email_verified", verified)
 
@@ -765,17 +766,17 @@ func (s *UserService) GetDeletionSummary(userID uint) (*contracts.DeletionSummar
 	summary := &contracts.DeletionSummary{}
 
 	// Count shows submitted by this user
-	if err := s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&summary.ShowsCount).Error; err != nil {
+	if err := s.db.Model(&catalogm.Show{}).Where("submitted_by = ?", userID).Count(&summary.ShowsCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count shows: %w", err)
 	}
 
 	// Count saved shows (bookmarks with entity_type='show' and action='save')
-	if err := s.db.Model(&models.UserBookmark{}).Where("user_id = ? AND entity_type = ? AND action = ?", userID, models.BookmarkEntityShow, models.BookmarkActionSave).Count(&summary.SavedShowsCount).Error; err != nil {
+	if err := s.db.Model(&engagementm.UserBookmark{}).Where("user_id = ? AND entity_type = ? AND action = ?", userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave).Count(&summary.SavedShowsCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count saved shows: %w", err)
 	}
 
 	// Count passkeys
-	if err := s.db.Model(&models.WebAuthnCredential{}).Where("user_id = ?", userID).Count(&summary.PasskeysCount).Error; err != nil {
+	if err := s.db.Model(&authm.WebAuthnCredential{}).Where("user_id = ?", userID).Count(&summary.PasskeysCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count passkeys: %w", err)
 	}
 
@@ -799,7 +800,7 @@ func (s *UserService) SoftDeleteAccount(userID uint, reason *string) error {
 		updates["deletion_reason"] = *reason
 	}
 
-	result := s.db.Model(&models.User{}).
+	result := s.db.Model(&authm.User{}).
 		Where("id = ?", userID).
 		Updates(updates)
 
@@ -816,7 +817,7 @@ func (s *UserService) SoftDeleteAccount(userID uint, reason *string) error {
 
 // CreateUserWithoutPassword creates a user account without a password
 // (for passkey-only or OAuth-only accounts)
-func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, error) {
+func (s *UserService) CreateUserWithoutPassword(email string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -838,7 +839,7 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, err
 	}()
 
 	// Create user without password
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: false, // Email verification required
@@ -850,7 +851,7 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, err
 	}
 
 	// Create default preferences
-	preferences := &models.UserPreferences{
+	preferences := &authm.UserPreferences{
 		UserID: user.ID,
 	}
 
@@ -871,7 +872,6 @@ func (s *UserService) CreateUserWithoutPassword(email string) (*models.User, err
 	return user, nil
 }
 
-
 // ExportUserData exports all user data in a portable JSON format
 // This supports GDPR Article 20 - Right to data portability
 func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, error) {
@@ -880,7 +880,7 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 	}
 
 	// Get user with all relationships
-	var user models.User
+	var user authm.User
 	if err := s.db.
 		Preload("OAuthAccounts").
 		Preload("Preferences").
@@ -939,13 +939,13 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 	}
 
 	// Get saved shows with venue info (from user_bookmarks)
-	var savedBookmarks []models.UserBookmark
-	if err := s.db.Where("user_id = ? AND entity_type = ? AND action = ?", userID, models.BookmarkEntityShow, models.BookmarkActionSave).Find(&savedBookmarks).Error; err != nil {
+	var savedBookmarks []engagementm.UserBookmark
+	if err := s.db.Where("user_id = ? AND entity_type = ? AND action = ?", userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave).Find(&savedBookmarks).Error; err != nil {
 		return nil, fmt.Errorf("failed to get saved shows: %w", err)
 	}
 
 	for _, sb := range savedBookmarks {
-		var show models.Show
+		var show catalogm.Show
 		if err := s.db.Preload("Venues").First(&show, sb.EntityID).Error; err != nil {
 			continue // Skip if show not found
 		}
@@ -966,7 +966,7 @@ func (s *UserService) ExportUserData(userID uint) (*contracts.UserDataExport, er
 	}
 
 	// Export submitted shows with details
-	var submittedShows []models.Show
+	var submittedShows []catalogm.Show
 	if err := s.db.
 		Preload("Venues").
 		Preload("Artists").
@@ -1010,21 +1010,21 @@ func (s *UserService) ExportUserDataJSON(userID uint) ([]byte, error) {
 }
 
 // GetFavoriteCities returns a user's favorite cities from their preferences
-func (s *UserService) GetFavoriteCities(userID uint) ([]models.FavoriteCity, error) {
+func (s *UserService) GetFavoriteCities(userID uint) ([]authm.FavoriteCity, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var prefs models.UserPreferences
+	var prefs authm.UserPreferences
 	if err := s.db.Where("user_id = ?", userID).First(&prefs).Error; err != nil {
 		return nil, fmt.Errorf("failed to get user preferences: %w", err)
 	}
 
 	if prefs.FavoriteCities == nil {
-		return []models.FavoriteCity{}, nil
+		return []authm.FavoriteCity{}, nil
 	}
 
-	var cities []models.FavoriteCity
+	var cities []authm.FavoriteCity
 	if err := json.Unmarshal(*prefs.FavoriteCities, &cities); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal favorite cities: %w", err)
 	}
@@ -1033,7 +1033,7 @@ func (s *UserService) GetFavoriteCities(userID uint) ([]models.FavoriteCity, err
 }
 
 // SetFavoriteCities replaces a user's favorite cities list
-func (s *UserService) SetFavoriteCities(userID uint, cities []models.FavoriteCity) error {
+func (s *UserService) SetFavoriteCities(userID uint, cities []authm.FavoriteCity) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -1058,7 +1058,7 @@ func (s *UserService) SetFavoriteCities(userID uint, cities []models.FavoriteCit
 	raw := json.RawMessage(data)
 
 	// Upsert preferences row
-	result := s.db.Model(&models.UserPreferences{}).
+	result := s.db.Model(&authm.UserPreferences{}).
 		Where("user_id = ?", userID).
 		Update("favorite_cities", &raw)
 
@@ -1068,7 +1068,7 @@ func (s *UserService) SetFavoriteCities(userID uint, cities []models.FavoriteCit
 
 	if result.RowsAffected == 0 {
 		// No preferences row yet — create one
-		prefs := &models.UserPreferences{
+		prefs := &authm.UserPreferences{
 			UserID:         userID,
 			FavoriteCities: &raw,
 		}
@@ -1086,7 +1086,7 @@ func (s *UserService) SetShowReminders(userID uint, enabled bool) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.UserPreferences{}).
+	result := s.db.Model(&authm.UserPreferences{}).
 		Where("user_id = ?", userID).
 		Update("show_reminders", enabled)
 
@@ -1095,7 +1095,7 @@ func (s *UserService) SetShowReminders(userID uint, enabled bool) error {
 	}
 
 	if result.RowsAffected == 0 {
-		prefs := &models.UserPreferences{
+		prefs := &authm.UserPreferences{
 			UserID:        userID,
 			ShowReminders: enabled,
 		}
@@ -1113,11 +1113,11 @@ func (s *UserService) SetDefaultReplyPermission(userID uint, permission string) 
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
-	if !models.IsValidReplyPermission(permission) {
+	if !engagementm.IsValidReplyPermission(permission) {
 		return fmt.Errorf("invalid reply_permission: %s", permission)
 	}
 
-	result := s.db.Model(&models.UserPreferences{}).
+	result := s.db.Model(&authm.UserPreferences{}).
 		Where("user_id = ?", userID).
 		Update("default_reply_permission", permission)
 
@@ -1126,7 +1126,7 @@ func (s *UserService) SetDefaultReplyPermission(userID uint, permission string) 
 	}
 
 	if result.RowsAffected == 0 {
-		prefs := &models.UserPreferences{
+		prefs := &authm.UserPreferences{
 			UserID:                 userID,
 			DefaultReplyPermission: permission,
 		}
@@ -1177,7 +1177,7 @@ func (s *UserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) err
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.UserPreferences{}).
+	result := s.db.Model(&authm.UserPreferences{}).
 		Where("user_id = ?", userID).
 		Update("notify_on_collection_digest", enabled)
 	if result.Error != nil {
@@ -1193,7 +1193,7 @@ func (s *UserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) err
 		// were false; since we're passing the caller's `enabled`, we follow
 		// up with an explicit Update only when enabling — matching the
 		// pattern used in ToggleCollectionDigest tests for false toggles.
-		prefs := &models.UserPreferences{
+		prefs := &authm.UserPreferences{
 			UserID:                      userID,
 			NotifyOnCommentSubscription: true,
 			NotifyOnMention:             true,
@@ -1214,7 +1214,7 @@ func (s *UserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) err
 // setCommentNotificationPref updates one or both of the PSY-289 preference
 // flags on the user_preferences row, creating the row if it doesn't exist.
 func (s *UserService) setCommentNotificationPref(userID uint, updates map[string]interface{}) error {
-	result := s.db.Model(&models.UserPreferences{}).
+	result := s.db.Model(&authm.UserPreferences{}).
 		Where("user_id = ?", userID).
 		Updates(updates)
 	if result.Error != nil {
@@ -1223,7 +1223,7 @@ func (s *UserService) setCommentNotificationPref(userID uint, updates map[string
 	if result.RowsAffected == 0 {
 		// No preferences row yet — create one. Both prefs default to TRUE,
 		// then apply the incoming override(s).
-		prefs := &models.UserPreferences{
+		prefs := &authm.UserPreferences{
 			UserID:                      userID,
 			NotifyOnCommentSubscription: true,
 			NotifyOnMention:             true,
@@ -1242,8 +1242,8 @@ func (s *UserService) setCommentNotificationPref(userID uint, updates map[string
 }
 
 // GetOAuthAccounts returns all OAuth accounts linked to a user
-func (s *UserService) GetOAuthAccounts(userID uint) ([]models.OAuthAccount, error) {
-	var accounts []models.OAuthAccount
+func (s *UserService) GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error) {
+	var accounts []authm.OAuthAccount
 	err := s.db.Where("user_id = ?", userID).Find(&accounts).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get OAuth accounts: %w", err)
@@ -1255,12 +1255,12 @@ func (s *UserService) GetOAuthAccounts(userID uint) ([]models.OAuthAccount, erro
 const AccountRecoveryGracePeriod = 30 * 24 * time.Hour // 30 days
 
 // GetUserByEmailIncludingDeleted retrieves a user by email, including soft-deleted accounts
-func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*models.User, error) {
+func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var user models.User
+	var user authm.User
 
 	// Query without filtering by is_active to include soft-deleted accounts
 	result := s.db.Where("email = ?", email).
@@ -1280,7 +1280,7 @@ func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*models.User
 
 // IsAccountRecoverable checks if a soft-deleted account can still be recovered
 // Returns true if account is deleted and within the 30-day grace period
-func (s *UserService) IsAccountRecoverable(user *models.User) bool {
+func (s *UserService) IsAccountRecoverable(user *authm.User) bool {
 	if user == nil {
 		return false
 	}
@@ -1299,7 +1299,7 @@ func (s *UserService) IsAccountRecoverable(user *models.User) bool {
 
 // GetDaysUntilPermanentDeletion returns the number of days until an account is permanently deleted
 // Returns 0 if account is not recoverable
-func (s *UserService) GetDaysUntilPermanentDeletion(user *models.User) int {
+func (s *UserService) GetDaysUntilPermanentDeletion(user *authm.User) int {
 	if user == nil || user.DeletedAt == nil || user.IsActive {
 		return 0
 	}
@@ -1322,7 +1322,7 @@ func (s *UserService) RestoreAccount(userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.User{}).
+	result := s.db.Model(&authm.User{}).
 		Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"is_active":       true,
@@ -1343,14 +1343,14 @@ func (s *UserService) RestoreAccount(userID uint) error {
 
 // GetExpiredDeletedAccounts returns users whose accounts have been soft-deleted
 // for longer than the grace period and are ready for permanent deletion
-func (s *UserService) GetExpiredDeletedAccounts() ([]models.User, error) {
+func (s *UserService) GetExpiredDeletedAccounts() ([]authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	cutoffDate := time.Now().Add(-AccountRecoveryGracePeriod)
 
-	var users []models.User
+	var users []authm.User
 	result := s.db.
 		Where("is_active = ? AND deleted_at IS NOT NULL AND deleted_at < ?", false, cutoffDate).
 		Find(&users)
@@ -1372,7 +1372,7 @@ func (s *UserService) PermanentlyDeleteUser(userID uint) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Set shows.submitted_by to NULL for shows submitted by this user
 		// (this is already handled by ON DELETE SET NULL in the FK, but being explicit)
-		if err := tx.Model(&models.Show{}).
+		if err := tx.Model(&catalogm.Show{}).
 			Where("submitted_by = ?", userID).
 			Update("submitted_by", nil).Error; err != nil {
 			return fmt.Errorf("failed to nullify show submissions: %w", err)
@@ -1380,7 +1380,7 @@ func (s *UserService) PermanentlyDeleteUser(userID uint) error {
 
 		// Hard delete the user (cascades will handle related data like OAuth accounts,
 		// preferences, passkeys, saved shows, favorite venues)
-		if err := tx.Unscoped().Delete(&models.User{}, userID).Error; err != nil {
+		if err := tx.Unscoped().Delete(&authm.User{}, userID).Error; err != nil {
 			return fmt.Errorf("failed to permanently delete user: %w", err)
 		}
 
@@ -1392,13 +1392,13 @@ func (s *UserService) PermanentlyDeleteUser(userID uint) error {
 // Returns (canUnlink, reason, error)
 func (s *UserService) CanUnlinkOAuthAccount(userID uint, provider string) (bool, string, error) {
 	// Get user
-	var user models.User
+	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
 		return false, "", fmt.Errorf("failed to get user: %w", err)
 	}
 
 	// Check if this OAuth account exists
-	var oauthAccount models.OAuthAccount
+	var oauthAccount authm.OAuthAccount
 	err := s.db.Where("user_id = ? AND provider = ?", userID, provider).First(&oauthAccount).Error
 	if err != nil {
 		return false, "OAuth account not found", nil
@@ -1409,11 +1409,11 @@ func (s *UserService) CanUnlinkOAuthAccount(userID uint, provider string) (bool,
 
 	// Count other OAuth accounts
 	var otherOAuthCount int64
-	s.db.Model(&models.OAuthAccount{}).Where("user_id = ? AND provider != ?", userID, provider).Count(&otherOAuthCount)
+	s.db.Model(&authm.OAuthAccount{}).Where("user_id = ? AND provider != ?", userID, provider).Count(&otherOAuthCount)
 
 	// Count passkeys
 	var passkeyCount int64
-	s.db.Model(&models.WebAuthnCredential{}).Where("user_id = ?", userID).Count(&passkeyCount)
+	s.db.Model(&authm.WebAuthnCredential{}).Where("user_id = ?", userID).Count(&passkeyCount)
 
 	// User must have at least one other auth method
 	if !hasPassword && otherOAuthCount == 0 && passkeyCount == 0 {
@@ -1425,7 +1425,7 @@ func (s *UserService) CanUnlinkOAuthAccount(userID uint, provider string) (bool,
 
 // UnlinkOAuthAccount removes an OAuth account from a user
 func (s *UserService) UnlinkOAuthAccount(userID uint, provider string) error {
-	result := s.db.Where("user_id = ? AND provider = ?", userID, provider).Delete(&models.OAuthAccount{})
+	result := s.db.Where("user_id = ? AND provider = ?", userID, provider).Delete(&authm.OAuthAccount{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to unlink OAuth account: %w", result.Error)
 	}

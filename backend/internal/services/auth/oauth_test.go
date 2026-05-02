@@ -10,7 +10,7 @@ import (
 	"github.com/stretchr/testify/mock"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // MockOAuthCompleter implements OAuthCompleter for testing
@@ -138,7 +138,7 @@ func TestAuthService_RefreshUserToken(t *testing.T) {
 	authService := NewAuthService(nil, cfg, newNilDBUserService())
 
 	t.Run("with_email", func(t *testing.T) {
-		user := &models.User{
+		user := &authm.User{
 			ID:    1,
 			Email: stringPtr("test@example.com"),
 		}
@@ -153,7 +153,7 @@ func TestAuthService_RefreshUserToken(t *testing.T) {
 	})
 
 	t.Run("with_nil_email", func(t *testing.T) {
-		user := &models.User{
+		user := &authm.User{
 			ID:    2,
 			Email: nil,
 		}

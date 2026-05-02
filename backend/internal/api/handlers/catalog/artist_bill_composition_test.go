@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // ArtistBillCompositionIntegrationSuite covers the PSY-364 bill-composition endpoint.
@@ -49,12 +49,12 @@ func (s *ArtistBillCompositionIntegrationSuite) seedShowWithBill(title string, e
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, fmt.Sprintf("Venue for %s", title), "Phoenix", "AZ")
 
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   eventDate,
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)
@@ -256,7 +256,7 @@ func (s *ArtistBillCompositionIntegrationSuite) TestBillComposition_ArtistNotFou
 // --- Helper: minimal artist insert (no upcoming-show requirement) ---
 
 func (s *ArtistBillCompositionIntegrationSuite) createArtist(name string) uint {
-	artist := &models.Artist{Name: name}
+	artist := &catalogm.Artist{Name: name}
 	s.deps.DB.Create(artist)
 	slug := fmt.Sprintf("%s-slug-%d", name, artist.ID)
 	s.deps.DB.Model(artist).Update("slug", slug)

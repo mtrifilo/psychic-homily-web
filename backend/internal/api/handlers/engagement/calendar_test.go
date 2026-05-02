@@ -8,7 +8,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -45,7 +45,7 @@ func TestCreateCalendarTokenHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 	if err != nil {
@@ -66,7 +66,7 @@ func TestCreateCalendarTokenHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.CreateCalendarTokenHandler(ctx, &CreateCalendarTokenRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -93,7 +93,7 @@ func TestGetCalendarTokenStatusHandler_HasToken(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
 	if err != nil {
@@ -111,7 +111,7 @@ func TestGetCalendarTokenStatusHandler_NoToken(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
 	if err != nil {
@@ -129,7 +129,7 @@ func TestGetCalendarTokenStatusHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetCalendarTokenStatusHandler(ctx, &GetCalendarTokenStatusRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -155,7 +155,7 @@ func TestDeleteCalendarTokenHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.DeleteCalendarTokenHandler(ctx, &DeleteCalendarTokenRequest{})
 	if err != nil {
@@ -173,7 +173,7 @@ func TestDeleteCalendarTokenHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewCalendarHandler(mock, testCalendarConfig())
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteCalendarTokenHandler(ctx, &DeleteCalendarTokenRequest{})
 	testhelpers.AssertHumaError(t, err, 422)

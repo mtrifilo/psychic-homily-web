@@ -15,7 +15,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -136,11 +136,11 @@ type FinishRegisterRequest struct {
 // FinishRegisterResponse represents the response after completing registration
 type FinishRegisterResponse struct {
 	Body struct {
-		Success    bool                       `json:"success" doc:"Success status"`
-		Message    string                     `json:"message" doc:"Response message"`
-		Credential *models.WebAuthnCredential `json:"credential,omitempty" doc:"Registered credential"`
-		ErrorCode  string                     `json:"error_code,omitempty" doc:"Error code"`
-		RequestID  string                     `json:"request_id,omitempty" doc:"Request ID"`
+		Success    bool                      `json:"success" doc:"Success status"`
+		Message    string                    `json:"message" doc:"Response message"`
+		Credential *authm.WebAuthnCredential `json:"credential,omitempty" doc:"Registered credential"`
+		ErrorCode  string                    `json:"error_code,omitempty" doc:"Error code"`
+		RequestID  string                    `json:"request_id,omitempty" doc:"Request ID"`
 	}
 }
 
@@ -350,11 +350,11 @@ type FinishLoginRequest struct {
 type FinishLoginResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool         `json:"success" doc:"Success status"`
-		Message   string       `json:"message" doc:"Response message"`
-		User      *models.User `json:"user,omitempty" doc:"Authenticated user"`
-		ErrorCode string       `json:"error_code,omitempty" doc:"Error code"`
-		RequestID string       `json:"request_id,omitempty" doc:"Request ID"`
+		Success   bool        `json:"success" doc:"Success status"`
+		Message   string      `json:"message" doc:"Response message"`
+		User      *authm.User `json:"user,omitempty" doc:"Authenticated user"`
+		ErrorCode string      `json:"error_code,omitempty" doc:"Error code"`
+		RequestID string      `json:"request_id,omitempty" doc:"Request ID"`
 	}
 }
 
@@ -392,7 +392,7 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 		return resp, nil
 	}
 
-	var user *models.User
+	var user *authm.User
 
 	if userID != 0 {
 		// User-specific login
@@ -453,11 +453,11 @@ func (h *PasskeyHandler) FinishLoginHandler(ctx context.Context, input *FinishLo
 // ListCredentialsResponse represents the response with user's passkeys
 type ListCredentialsResponse struct {
 	Body struct {
-		Success     bool                        `json:"success" doc:"Success status"`
-		Message     string                      `json:"message" doc:"Response message"`
-		Credentials []models.WebAuthnCredential `json:"credentials" doc:"User's passkey credentials"`
-		ErrorCode   string                      `json:"error_code,omitempty" doc:"Error code"`
-		RequestID   string                      `json:"request_id,omitempty" doc:"Request ID"`
+		Success     bool                       `json:"success" doc:"Success status"`
+		Message     string                     `json:"message" doc:"Response message"`
+		Credentials []authm.WebAuthnCredential `json:"credentials" doc:"User's passkey credentials"`
+		ErrorCode   string                     `json:"error_code,omitempty" doc:"Error code"`
+		RequestID   string                     `json:"request_id,omitempty" doc:"Request ID"`
 	}
 }
 
@@ -658,7 +658,7 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 
 	// Create a temporary user object for WebAuthn registration
 	// We use a placeholder ID (0) since the user doesn't exist yet
-	tempUser := &models.User{
+	tempUser := &authm.User{
 		Email: &email,
 	}
 	// Use a temporary ID based on email hash for WebAuthn
@@ -711,11 +711,11 @@ type FinishSignupRequest struct {
 type FinishSignupResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool         `json:"success" doc:"Success status"`
-		Message   string       `json:"message" doc:"Response message"`
-		User      *models.User `json:"user,omitempty" doc:"Created user"`
-		ErrorCode string       `json:"error_code,omitempty" doc:"Error code"`
-		RequestID string       `json:"request_id,omitempty" doc:"Request ID"`
+		Success   bool        `json:"success" doc:"Success status"`
+		Message   string      `json:"message" doc:"Response message"`
+		User      *authm.User `json:"user,omitempty" doc:"Created user"`
+		ErrorCode string      `json:"error_code,omitempty" doc:"Error code"`
+		RequestID string      `json:"request_id,omitempty" doc:"Request ID"`
 	}
 }
 

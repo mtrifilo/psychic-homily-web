@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -20,14 +22,14 @@ import (
 // =============================================================================
 
 func TestIsValidPendingEditEntityType(t *testing.T) {
-	assert.True(t, models.IsValidPendingEditEntityType("artist"))
-	assert.True(t, models.IsValidPendingEditEntityType("venue"))
-	assert.True(t, models.IsValidPendingEditEntityType("festival"))
-	assert.True(t, models.IsValidPendingEditEntityType("release"))
-	assert.True(t, models.IsValidPendingEditEntityType("label"))
-	assert.False(t, models.IsValidPendingEditEntityType("show"))
-	assert.False(t, models.IsValidPendingEditEntityType(""))
-	assert.False(t, models.IsValidPendingEditEntityType("comment"))
+	assert.True(t, adminm.IsValidPendingEditEntityType("artist"))
+	assert.True(t, adminm.IsValidPendingEditEntityType("venue"))
+	assert.True(t, adminm.IsValidPendingEditEntityType("festival"))
+	assert.True(t, adminm.IsValidPendingEditEntityType("release"))
+	assert.True(t, adminm.IsValidPendingEditEntityType("label"))
+	assert.False(t, adminm.IsValidPendingEditEntityType("show"))
+	assert.False(t, adminm.IsValidPendingEditEntityType(""))
+	assert.False(t, adminm.IsValidPendingEditEntityType("comment"))
 }
 
 // =============================================================================
@@ -36,11 +38,11 @@ func TestIsValidPendingEditEntityType(t *testing.T) {
 
 // mockEmailServiceForPendingEdit implements contracts.EmailServiceInterface for testing.
 type mockEmailServiceForPendingEdit struct {
-	configured             bool
-	editApprovedCalls      []editApprovedCall
-	editRejectedCalls      []editRejectedCall
-	editApprovedErr        error
-	editRejectedErr        error
+	configured        bool
+	editApprovedCalls []editApprovedCall
+	editRejectedCalls []editRejectedCall
+	editApprovedErr   error
+	editRejectedErr   error
 }
 
 type editApprovedCall struct {
@@ -59,9 +61,9 @@ type editRejectedCall struct {
 	RejectionReason string
 }
 
-func (m *mockEmailServiceForPendingEdit) IsConfigured() bool { return m.configured }
+func (m *mockEmailServiceForPendingEdit) IsConfigured() bool                      { return m.configured }
 func (m *mockEmailServiceForPendingEdit) SendVerificationEmail(_, _ string) error { return nil }
-func (m *mockEmailServiceForPendingEdit) SendMagicLinkEmail(_, _ string) error { return nil }
+func (m *mockEmailServiceForPendingEdit) SendMagicLinkEmail(_, _ string) error    { return nil }
 func (m *mockEmailServiceForPendingEdit) SendAccountRecoveryEmail(_, _ string, _ int) error {
 	return nil
 }
@@ -106,11 +108,11 @@ func (m *mockEmailServiceForPendingEdit) SendCollectionDigestEmail(_ string, _ [
 
 type PendingEditServiceIntegrationTestSuite struct {
 	suite.Suite
-	testDB       *testutil.TestDatabase
-	db           *gorm.DB
-	svc          *PendingEditService
-	revisionSvc  *RevisionService
-	mockEmail    *mockEmailServiceForPendingEdit
+	testDB      *testutil.TestDatabase
+	db          *gorm.DB
+	svc         *PendingEditService
+	revisionSvc *RevisionService
+	mockEmail   *mockEmailServiceForPendingEdit
 }
 
 func (s *PendingEditServiceIntegrationTestSuite) SetupSuite() {
@@ -149,8 +151,8 @@ func TestPendingEditServiceIntegrationSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (s *PendingEditServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (s *PendingEditServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("pe-user-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("pe-user-%d", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
@@ -163,9 +165,9 @@ func (s *PendingEditServiceIntegrationTestSuite) createTestUser() *models.User {
 	return user
 }
 
-func (s *PendingEditServiceIntegrationTestSuite) createTestArtist(name string) *models.Artist {
+func (s *PendingEditServiceIntegrationTestSuite) createTestArtist(name string) *catalogm.Artist {
 	slug := fmt.Sprintf("test-artist-%d", time.Now().UnixNano())
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -174,9 +176,9 @@ func (s *PendingEditServiceIntegrationTestSuite) createTestArtist(name string) *
 	return artist
 }
 
-func (s *PendingEditServiceIntegrationTestSuite) createTestVenue(name string) *models.Venue {
+func (s *PendingEditServiceIntegrationTestSuite) createTestVenue(name string) *catalogm.Venue {
 	slug := fmt.Sprintf("test-venue-%d", time.Now().UnixNano())
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:  name,
 		Slug:  &slug,
 		City:  "Phoenix",
@@ -187,9 +189,9 @@ func (s *PendingEditServiceIntegrationTestSuite) createTestVenue(name string) *m
 	return venue
 }
 
-func (s *PendingEditServiceIntegrationTestSuite) createTestFestival(name string) *models.Festival {
+func (s *PendingEditServiceIntegrationTestSuite) createTestFestival(name string) *catalogm.Festival {
 	slug := fmt.Sprintf("test-festival-%d", time.Now().UnixNano())
-	festival := &models.Festival{
+	festival := &catalogm.Festival{
 		Name:        name,
 		Slug:        slug,
 		SeriesSlug:  slug,
@@ -202,8 +204,8 @@ func (s *PendingEditServiceIntegrationTestSuite) createTestFestival(name string)
 	return festival
 }
 
-func makeChanges(field, oldVal, newVal string) []models.FieldChange {
-	return []models.FieldChange{{Field: field, OldValue: oldVal, NewValue: newVal}}
+func makeChanges(field, oldVal, newVal string) []adminm.FieldChange {
+	return []adminm.FieldChange{{Field: field, OldValue: oldVal, NewValue: newVal}}
 }
 
 // =============================================================================
@@ -227,7 +229,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_ArtistSuc
 	s.Equal("artist", resp.EntityType)
 	s.Equal(artist.ID, resp.EntityID)
 	s.Equal(user.ID, resp.SubmittedBy)
-	s.Equal(models.PendingEditStatusPending, resp.Status)
+	s.Equal(adminm.PendingEditStatusPending, resp.Status)
 	s.Equal("Fix artist name", resp.Summary)
 	s.Len(resp.FieldChanges, 1)
 	s.Equal("name", resp.FieldChanges[0].Field)
@@ -242,7 +244,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_VenueSucc
 		EntityType: "venue",
 		EntityID:   venue.ID,
 		UserID:     user.ID,
-		Changes: []models.FieldChange{
+		Changes: []adminm.FieldChange{
 			{Field: "name", OldValue: "Test Venue", NewValue: "The Test Venue"},
 			{Field: "city", OldValue: "Phoenix", NewValue: "Tempe"},
 		},
@@ -310,7 +312,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_EmptyChan
 		EntityType: "artist",
 		EntityID:   artist.ID,
 		UserID:     user.ID,
-		Changes:    []models.FieldChange{},
+		Changes:    []adminm.FieldChange{},
 		Summary:    "test",
 	})
 
@@ -589,7 +591,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesC
 
 	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
 		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
-		Changes: []models.FieldChange{
+		Changes: []adminm.FieldChange{
 			{Field: "name", OldValue: "Old Name", NewValue: "New Name"},
 			{Field: "city", OldValue: nil, NewValue: "Phoenix"},
 		},
@@ -600,13 +602,13 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesC
 	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
 	s.NoError(err)
 	s.Require().NotNil(resp)
-	s.Equal(models.PendingEditStatusApproved, resp.Status)
+	s.Equal(adminm.PendingEditStatusApproved, resp.Status)
 	s.Require().NotNil(resp.ReviewedBy)
 	s.Equal(reviewer.ID, *resp.ReviewedBy)
 	s.NotNil(resp.ReviewedAt)
 
 	// Verify entity was updated
-	var updated models.Artist
+	var updated catalogm.Artist
 	s.db.First(&updated, artist.ID)
 	s.Equal("New Name", updated.Name)
 	s.Require().NotNil(updated.City)
@@ -628,7 +630,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesC
 	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
 	s.NoError(err)
 
-	var updated models.Venue
+	var updated catalogm.Venue
 	s.db.First(&updated, venue.ID)
 	s.Equal("New Venue", updated.Name)
 }
@@ -647,14 +649,14 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RecordsR
 	s.NoError(err)
 
 	// Verify revision was created
-	var revision models.Revision
+	var revision adminm.Revision
 	err = s.db.Where("entity_type = ? AND entity_id = ?", "artist", artist.ID).First(&revision).Error
 	s.NoError(err)
 	s.Equal(user.ID, revision.UserID) // Attributed to submitter, not reviewer
 	s.Require().NotNil(revision.Summary)
 	s.Equal("Update name", *revision.Summary)
 
-	var changes []models.FieldChange
+	var changes []adminm.FieldChange
 	s.Require().NoError(json.Unmarshal(*revision.FieldChanges, &changes))
 	s.Len(changes, 1)
 	s.Equal("name", changes[0].Field)
@@ -741,14 +743,14 @@ func (s *PendingEditServiceIntegrationTestSuite) TestRejectPendingEdit_Success()
 	resp, err := s.svc.RejectPendingEdit(created.ID, reviewer.ID, "Name doesn't follow our naming conventions")
 	s.NoError(err)
 	s.Require().NotNil(resp)
-	s.Equal(models.PendingEditStatusRejected, resp.Status)
+	s.Equal(adminm.PendingEditStatusRejected, resp.Status)
 	s.Require().NotNil(resp.RejectionReason)
 	s.Equal("Name doesn't follow our naming conventions", *resp.RejectionReason)
 	s.Require().NotNil(resp.ReviewedBy)
 	s.Equal(reviewer.ID, *resp.ReviewedBy)
 
 	// Verify entity was NOT changed
-	var artist2 models.Artist
+	var artist2 catalogm.Artist
 	s.db.First(&artist2, artist.ID)
 	s.Equal("Test", artist2.Name)
 }
@@ -883,27 +885,27 @@ func TestDisplayName(t *testing.T) {
 	email := "john@test.com"
 
 	t.Run("PreferUsername", func(t *testing.T) {
-		u := &models.User{Username: &username, FirstName: &first, Email: &email}
+		u := &authm.User{Username: &username, FirstName: &first, Email: &email}
 		assert.Equal(t, "testuser", displayName(u))
 	})
 
 	t.Run("FallbackToFirstLast", func(t *testing.T) {
-		u := &models.User{FirstName: &first, LastName: &last, Email: &email}
+		u := &authm.User{FirstName: &first, LastName: &last, Email: &email}
 		assert.Equal(t, "John Doe", displayName(u))
 	})
 
 	t.Run("FallbackToFirstOnly", func(t *testing.T) {
-		u := &models.User{FirstName: &first, Email: &email}
+		u := &authm.User{FirstName: &first, Email: &email}
 		assert.Equal(t, "John", displayName(u))
 	})
 
 	t.Run("FallbackToEmail", func(t *testing.T) {
-		u := &models.User{Email: &email}
+		u := &authm.User{Email: &email}
 		assert.Equal(t, "john@test.com", displayName(u))
 	})
 
 	t.Run("EmptyUser", func(t *testing.T) {
-		u := &models.User{}
+		u := &authm.User{}
 		assert.Equal(t, "", displayName(u))
 	})
 }
@@ -954,7 +956,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_EmailErr
 	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Equal(models.PendingEditStatusApproved, resp.Status)
+	s.Equal(adminm.PendingEditStatusApproved, resp.Status)
 	s.Len(s.mockEmail.editApprovedCalls, 1) // Email was attempted
 }
 
@@ -999,7 +1001,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestRejectPendingEdit_EmailErro
 	resp, err := s.svc.RejectPendingEdit(created.ID, reviewer.ID, "incorrect info")
 	s.NoError(err)
 	s.NotNil(resp)
-	s.Equal(models.PendingEditStatusRejected, resp.Status)
+	s.Equal(adminm.PendingEditStatusRejected, resp.Status)
 	s.Len(s.mockEmail.editRejectedCalls, 1) // Email was attempted
 }
 
@@ -1051,8 +1053,8 @@ func TestPendingEditService_NilEmailServiceDoesNotPanic(t *testing.T) {
 	assert.NotNil(t, svc)
 
 	// sendApprovalEmail and sendRejectionEmail should not panic with nil email service
-	svc.sendApprovalEmail(&models.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1})
-	svc.sendRejectionEmail(&models.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1}, "reason")
+	svc.sendApprovalEmail(&adminm.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1})
+	svc.sendRejectionEmail(&adminm.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1}, "reason")
 }
 
 func TestPendingEditService_UnconfiguredEmailServiceDoesNotPanic(t *testing.T) {
@@ -1060,8 +1062,8 @@ func TestPendingEditService_UnconfiguredEmailServiceDoesNotPanic(t *testing.T) {
 	svc := NewPendingEditService(nil, nil, mockEmail, "http://localhost:3000")
 
 	// Should return early without attempting to send
-	svc.sendApprovalEmail(&models.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1})
-	svc.sendRejectionEmail(&models.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1}, "reason")
+	svc.sendApprovalEmail(&adminm.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1})
+	svc.sendRejectionEmail(&adminm.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1}, "reason")
 
 	assert.Len(t, mockEmail.editApprovedCalls, 0)
 	assert.Len(t, mockEmail.editRejectedCalls, 0)

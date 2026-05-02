@@ -49,4 +49,3 @@ func ErrVenueHasShows(venueID uint, count int64) *VenueError {
 		VenueID: venueID,
 	}
 }
-

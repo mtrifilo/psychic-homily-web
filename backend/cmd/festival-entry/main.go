@@ -15,7 +15,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
@@ -78,14 +78,14 @@ type LineupArtistInput struct {
 // --- Stats tracking ---
 
 type importStats struct {
-	festivalCreated   bool
-	artistsMatched    int
-	artistsCreated    int
-	artistsSkipped    int
-	venuesMatched     int
-	venuesSkipped     int
+	festivalCreated    bool
+	artistsMatched     int
+	artistsCreated     int
+	artistsSkipped     int
+	venuesMatched      int
+	venuesSkipped      int
 	lineupEntriesAdded int
-	errors            int
+	errors             int
 }
 
 func main() {
@@ -214,7 +214,7 @@ func createFestivalFromInput(database *gorm.DB, festivalService *catalog.Festiva
 		EditionYear: input.EditionYear,
 		StartDate:   input.StartDate,
 		EndDate:     input.EndDate,
-		Status:      string(models.FestivalStatusAnnounced),
+		Status:      string(catalogm.FestivalStatusAnnounced),
 	}
 
 	if input.Description != "" {
@@ -506,8 +506,8 @@ func connectToDatabase() *gorm.DB {
 	return db.GetDB()
 }
 
-func findExistingFestival(database *gorm.DB, seriesSlug string, editionYear int) *models.Festival {
-	var festival models.Festival
+func findExistingFestival(database *gorm.DB, seriesSlug string, editionYear int) *catalogm.Festival {
+	var festival catalogm.Festival
 	err := database.Where("series_slug = ? AND edition_year = ?", seriesSlug, editionYear).First(&festival).Error
 	if err != nil {
 		return nil
@@ -515,8 +515,8 @@ func findExistingFestival(database *gorm.DB, seriesSlug string, editionYear int)
 	return &festival
 }
 
-func findArtistByName(database *gorm.DB, name string) *models.Artist {
-	var artist models.Artist
+func findArtistByName(database *gorm.DB, name string) *catalogm.Artist {
+	var artist catalogm.Artist
 	err := database.Where("LOWER(name) = LOWER(?)", name).First(&artist).Error
 	if err != nil {
 		return nil
@@ -524,8 +524,8 @@ func findArtistByName(database *gorm.DB, name string) *models.Artist {
 	return &artist
 }
 
-func findVenueByName(database *gorm.DB, name string) *models.Venue {
-	var venue models.Venue
+func findVenueByName(database *gorm.DB, name string) *catalogm.Venue {
+	var venue catalogm.Venue
 	err := database.Where("LOWER(name) = LOWER(?)", name).First(&venue).Error
 	if err != nil {
 		return nil
@@ -537,11 +537,11 @@ func createMinimalArtist(database *gorm.DB, name string) (uint, error) {
 	baseSlug := utils.GenerateArtistSlug(name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		database.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+		database.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}

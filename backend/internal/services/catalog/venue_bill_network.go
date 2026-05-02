@@ -22,7 +22,7 @@ import (
 	"strings"
 	"time"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -30,9 +30,9 @@ import (
 // service treats anything unrecognized as "all" so a malformed query param
 // degrades gracefully rather than 500ing.
 const (
-	venueWindowAll    = "all"
-	venueWindow12M    = "12m"
-	venueWindowYear   = "year"
+	venueWindowAll     = "all"
+	venueWindow12M     = "12m"
+	venueWindowYear    = "year"
 	venueWindowDefault = venueWindowAll
 
 	// Minimum shared shows for a co-bill edge to surface. Mirrors the
@@ -121,9 +121,9 @@ func (s *VenueService) GetVenueBillNetwork(venueID uint, window string, year *in
 	//    on a show that listed an artist twice).
 	showsByID := make(map[uint]venueBillSourceShow)
 	type artistAggregate struct {
-		ID                uint
-		AtVenueShowCount  int
-		LastPlayedAt      time.Time
+		ID               uint
+		AtVenueShowCount int
+		LastPlayedAt     time.Time
 	}
 	artistsByID := make(map[uint]*artistAggregate)
 	byShow := make(map[uint]map[uint]struct{})
@@ -237,7 +237,7 @@ func (s *VenueService) GetVenueBillNetwork(venueID uint, window string, year *in
 		resp.Links = append(resp.Links, contracts.VenueBillNetworkLink{
 			SourceID:       key.A,
 			TargetID:       key.B,
-			Type:           models.RelationshipTypeSharedBills,
+			Type:           catalogm.RelationshipTypeSharedBills,
 			Score:          score,
 			Detail:         detail,
 			IsCrossCluster: false, // v1 has no clusters; ForceGraphView styles the edge anyway
@@ -292,7 +292,9 @@ func normalizeVenueWindow(raw string) string {
 //
 // 12m: rolling — events from 12 months ago up to now.
 // year: calendar year YYYY-01-01 inclusive to YYYY+1-01-01 exclusive. If
-//        Year is nil, falls back to all-time (defensive — handler validates).
+//
+//	Year is nil, falls back to all-time (defensive — handler validates).
+//
 // all: no bounds.
 func resolveVenueWindowBounds(window string, year *int) (time.Time, time.Time) {
 	switch window {
@@ -320,7 +322,7 @@ func (s *VenueService) queryVenueBillSourceRows(venueID uint, startDate, endDate
 		Select("sa.show_id AS show_id, s.event_date AS event_date, sa.artist_id AS artist_id").
 		Joins("JOIN shows s ON s.id = sa.show_id").
 		Joins("JOIN show_venues sv ON sv.show_id = sa.show_id").
-		Where("sv.venue_id = ? AND s.status = ?", venueID, models.ShowStatusApproved)
+		Where("sv.venue_id = ? AND s.status = ?", venueID, catalogm.ShowStatusApproved)
 	if !startDate.IsZero() {
 		q = q.Where("s.event_date >= ?", startDate)
 	}
@@ -394,7 +396,7 @@ func (s *VenueService) batchVenueBillUpcomingShowCount(artistIDs []uint) map[uin
 		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) AS show_count").
 		Joins("JOIN shows ON shows.id = show_artists.show_id").
 		Where("show_artists.artist_id IN ? AND shows.status = ? AND shows.event_date > NOW()",
-			artistIDs, models.ShowStatusApproved).
+			artistIDs, catalogm.ShowStatusApproved).
 		Group("show_artists.artist_id").
 		Scan(&rows)
 	for _, r := range rows {

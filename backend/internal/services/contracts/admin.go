@@ -28,7 +28,7 @@ type AdminDashboardStats struct {
 	UsersRegisteredLast7Days int64 `json:"users_registered_last_7_days"`
 
 	// Period-over-period trends (current 7 days vs previous 7 days)
-	TotalShowsTrend   int64 `json:"total_shows_trend"`   // delta: current - previous
+	TotalShowsTrend   int64 `json:"total_shows_trend"` // delta: current - previous
 	TotalVenuesTrend  int64 `json:"total_venues_trend"`
 	TotalArtistsTrend int64 `json:"total_artists_trend"`
 	TotalUsersTrend   int64 `json:"total_users_trend"`
@@ -71,12 +71,12 @@ type APITokenResponse struct {
 
 // APITokenCreateResponse includes the plaintext token (only returned on creation)
 type APITokenCreateResponse struct {
-	ID          uint       `json:"id"`
-	Token       string     `json:"token"` // Plaintext token - only shown once!
-	Description *string    `json:"description"`
-	Scope       string     `json:"scope"`
-	CreatedAt   time.Time  `json:"created_at"`
-	ExpiresAt   time.Time  `json:"expires_at"`
+	ID          uint      `json:"id"`
+	Token       string    `json:"token"` // Plaintext token - only shown once!
+	Description *string   `json:"description"`
+	Scope       string    `json:"scope"`
+	CreatedAt   time.Time `json:"created_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
 }
 
 // ──────────────────────────────────────────────

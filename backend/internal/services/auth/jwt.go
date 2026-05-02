@@ -9,7 +9,7 @@ import (
 
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -26,7 +26,7 @@ func NewJWTService(database interface{}, cfg *config.Config, userService contrac
 }
 
 // CreateToken generates a JWT for a user
-func (s *JWTService) CreateToken(user *models.User) (string, error) {
+func (s *JWTService) CreateToken(user *authm.User) (string, error) {
 	claims := jwt.MapClaims{
 		"user_id": user.ID,
 		"email":   user.Email,
@@ -42,7 +42,7 @@ func (s *JWTService) CreateToken(user *models.User) (string, error) {
 
 // ValidateToken validates and extracts user info from JWT
 // Fetches the full user from the database to ensure we have current admin status
-func (s *JWTService) ValidateToken(tokenString string) (*models.User, error) {
+func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
@@ -90,7 +90,7 @@ func (s *JWTService) RefreshToken(tokenString string) (string, error) {
 // ValidateTokenLenient validates a JWT but allows tokens that expired within a grace period.
 // This is used for token refresh — the client sends an expired token to get a new one.
 // The grace period prevents forcing re-login when the token expired recently.
-func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*models.User, error) {
+func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error) {
 	// First try strict validation (covers the case where token is still valid)
 	user, err := s.ValidateToken(tokenString)
 	if err == nil {

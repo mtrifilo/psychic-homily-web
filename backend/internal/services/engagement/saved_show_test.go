@@ -9,7 +9,9 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -55,8 +57,8 @@ func TestSavedShowServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *SavedShowServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *SavedShowServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -68,13 +70,13 @@ func (suite *SavedShowServiceIntegrationTestSuite) createTestUser() *models.User
 	return user
 }
 
-func (suite *SavedShowServiceIntegrationTestSuite) createApprovedShow(title string, userID uint) *models.Show {
-	show := &models.Show{
+func (suite *SavedShowServiceIntegrationTestSuite) createApprovedShow(title string, userID uint) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
@@ -82,21 +84,21 @@ func (suite *SavedShowServiceIntegrationTestSuite) createApprovedShow(title stri
 	return show
 }
 
-func (suite *SavedShowServiceIntegrationTestSuite) createShowWithVenueAndArtist(title string, userID uint) (*models.Show, *models.Venue, *models.Artist) {
-	venue := &models.Venue{
+func (suite *SavedShowServiceIntegrationTestSuite) createShowWithVenueAndArtist(title string, userID uint) (*catalogm.Show, *catalogm.Venue, *catalogm.Artist) {
+	venue := &catalogm.Venue{
 		Name:  fmt.Sprintf("Venue for %s", title),
 		City:  "Phoenix",
 		State: "AZ",
 	}
 	suite.db.Create(venue)
 
-	artist := &models.Artist{Name: fmt.Sprintf("Artist for %s", title)}
+	artist := &catalogm.Artist{Name: fmt.Sprintf("Artist for %s", title)}
 	suite.db.Create(artist)
 
 	show := suite.createApprovedShow(title, userID)
 
-	suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
-	suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0})
 
 	return show, venue, artist
 }
@@ -115,8 +117,8 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestSaveShow_Success() {
 
 	// Verify in DB
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
-		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave).
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -145,8 +147,8 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestSaveShow_Idempotent() {
 
 	// Should still only be one record
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
-		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave).
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -167,8 +169,8 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestUnsaveShow_Success() {
 
 	// Verify removed
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
-		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave).
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave).
 		Count(&count)
 	suite.Equal(int64(0), count)
 }

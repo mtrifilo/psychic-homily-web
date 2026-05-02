@@ -1,21 +1,20 @@
 package contracts
 
 import (
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"time"
-
-	"psychic-homily-backend/internal/models"
 )
 
 // MaxCollectionDescriptionLength is the maximum length, in bytes, accepted for
-// a collection's `description` field. Aliases models.MaxCommentBodyLength
+// a collection's `description` field. Aliases engagementm.MaxCommentBodyLength
 // (10,000) so the markdown editor experience and limits are consistent across
 // comments, field notes, and collections (PSY-349) — there is no parallel
 // limit to keep in sync.
-const MaxCollectionDescriptionLength = models.MaxCommentBodyLength
+const MaxCollectionDescriptionLength = engagementm.MaxCommentBodyLength
 
 // MaxCollectionItemNotesLength is the maximum length, in bytes, accepted for
-// per-item `notes` on a collection item. Aliases models.MaxCommentBodyLength.
-const MaxCollectionItemNotesLength = models.MaxCommentBodyLength
+// per-item `notes` on a collection item. Aliases engagementm.MaxCommentBodyLength.
+const MaxCollectionItemNotesLength = engagementm.MaxCommentBodyLength
 
 // ──────────────────────────────────────────────
 // Collection types
@@ -97,26 +96,26 @@ const CollectionSortPopular = "popular"
 // matching the comment-system policy. Description (raw) is preserved so editors
 // can re-populate the textarea without re-parsing HTML back to markdown.
 type CollectionDetailResponse struct {
-	ID               uint                     `json:"id"`
-	Title            string                   `json:"title"`
-	Slug             string                   `json:"slug"`
-	Description      string                   `json:"description"`
-	DescriptionHTML  string                   `json:"description_html,omitempty"`
-	CreatorID        uint                     `json:"creator_id"`
-	CreatorName      string                   `json:"creator_name"`
+	ID              uint   `json:"id"`
+	Title           string `json:"title"`
+	Slug            string `json:"slug"`
+	Description     string `json:"description"`
+	DescriptionHTML string `json:"description_html,omitempty"`
+	CreatorID       uint   `json:"creator_id"`
+	CreatorName     string `json:"creator_name"`
 	// CreatorUsername is the creator's username when set, used by the
 	// frontend to link the attribution to /users/:username. Pointer so the
 	// JSON encodes null (not "") for accounts that never set a username —
 	// the frontend renders the name as plain text in that case (PSY-353).
-	CreatorUsername  *string                  `json:"creator_username"`
-	Collaborative    bool                     `json:"collaborative"`
-	CoverImageURL    *string                  `json:"cover_image_url"`
-	IsPublic         bool                     `json:"is_public"`
-	IsFeatured       bool                     `json:"is_featured"`
-	DisplayMode      string                   `json:"display_mode"`
-	ItemCount        int                      `json:"item_count"`
-	SubscriberCount  int                      `json:"subscriber_count"`
-	ContributorCount int                      `json:"contributor_count"`
+	CreatorUsername  *string `json:"creator_username"`
+	Collaborative    bool    `json:"collaborative"`
+	CoverImageURL    *string `json:"cover_image_url"`
+	IsPublic         bool    `json:"is_public"`
+	IsFeatured       bool    `json:"is_featured"`
+	DisplayMode      string  `json:"display_mode"`
+	ItemCount        int     `json:"item_count"`
+	SubscriberCount  int     `json:"subscriber_count"`
+	ContributorCount int     `json:"contributor_count"`
 	// ForksCount is a public social signal — number of collections that
 	// declared this one as their `forked_from_collection_id`. Computed live
 	// on read (see CollectionService.batchCountForks). PSY-351.
@@ -160,23 +159,23 @@ type ForkedFromInfo struct {
 // DescriptionHTML mirrors the detail response — sanitized markdown render of
 // Description, computed on read. See CollectionDetailResponse for rationale.
 type CollectionListResponse struct {
-	ID               uint           `json:"id"`
-	Title            string         `json:"title"`
-	Slug             string         `json:"slug"`
-	Description      string         `json:"description"`
-	DescriptionHTML  string         `json:"description_html,omitempty"`
-	CreatorID        uint           `json:"creator_id"`
-	CreatorName      string         `json:"creator_name"`
+	ID              uint   `json:"id"`
+	Title           string `json:"title"`
+	Slug            string `json:"slug"`
+	Description     string `json:"description"`
+	DescriptionHTML string `json:"description_html,omitempty"`
+	CreatorID       uint   `json:"creator_id"`
+	CreatorName     string `json:"creator_name"`
 	// CreatorUsername mirrors CollectionDetailResponse — see PSY-353.
-	CreatorUsername  *string        `json:"creator_username"`
-	Collaborative    bool           `json:"collaborative"`
-	CoverImageURL    *string        `json:"cover_image_url"`
-	IsPublic         bool           `json:"is_public"`
-	IsFeatured       bool           `json:"is_featured"`
-	DisplayMode      string         `json:"display_mode"`
-	ItemCount        int            `json:"item_count"`
-	SubscriberCount  int            `json:"subscriber_count"`
-	ContributorCount int            `json:"contributor_count"`
+	CreatorUsername  *string `json:"creator_username"`
+	Collaborative    bool    `json:"collaborative"`
+	CoverImageURL    *string `json:"cover_image_url"`
+	IsPublic         bool    `json:"is_public"`
+	IsFeatured       bool    `json:"is_featured"`
+	DisplayMode      string  `json:"display_mode"`
+	ItemCount        int     `json:"item_count"`
+	SubscriberCount  int     `json:"subscriber_count"`
+	ContributorCount int     `json:"contributor_count"`
 	// ForksCount is a public social signal exposed on list cards too,
 	// so original collections can advertise how often they've been forked.
 	// PSY-351.

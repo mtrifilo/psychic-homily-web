@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -49,8 +50,8 @@ func TestCommentVoteServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *CommentVoteServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *CommentVoteServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -62,14 +63,14 @@ func (suite *CommentVoteServiceIntegrationTestSuite) createTestUser() *models.Us
 	return user
 }
 
-func (suite *CommentVoteServiceIntegrationTestSuite) createTestComment(userID uint) *models.Comment {
-	comment := &models.Comment{
-		Kind:       models.CommentKindComment,
+func (suite *CommentVoteServiceIntegrationTestSuite) createTestComment(userID uint) *engagementm.Comment {
+	comment := &engagementm.Comment{
+		Kind:       engagementm.CommentKindComment,
 		EntityType: "show",
 		EntityID:   1,
 		UserID:     userID,
 		Body:       "Test comment",
-		Visibility: models.CommentVisibilityVisible,
+		Visibility: engagementm.CommentVisibilityVisible,
 	}
 	err := suite.db.Create(comment).Error
 	suite.Require().NoError(err)
@@ -94,7 +95,7 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteUp() {
 	suite.Equal(1, *vote)
 
 	// Verify aggregates updated
-	var updated models.Comment
+	var updated engagementm.Comment
 	suite.db.First(&updated, comment.ID)
 	suite.Equal(1, updated.Ups)
 	suite.Equal(0, updated.Downs)
@@ -113,7 +114,7 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteDown() {
 	suite.NotNil(vote)
 	suite.Equal(-1, *vote)
 
-	var updated models.Comment
+	var updated engagementm.Comment
 	suite.db.First(&updated, comment.ID)
 	suite.Equal(0, updated.Ups)
 	suite.Equal(1, updated.Downs)
@@ -129,7 +130,7 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestChangeVoteDirection() {
 	err := suite.service.Vote(user.ID, comment.ID, 1)
 	suite.NoError(err)
 
-	var afterUp models.Comment
+	var afterUp engagementm.Comment
 	suite.db.First(&afterUp, comment.ID)
 	suite.Equal(1, afterUp.Ups)
 	suite.Equal(0, afterUp.Downs)
@@ -143,7 +144,7 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestChangeVoteDirection() {
 	suite.NotNil(vote)
 	suite.Equal(-1, *vote)
 
-	var afterDown models.Comment
+	var afterDown engagementm.Comment
 	suite.db.First(&afterDown, comment.ID)
 	suite.Equal(0, afterDown.Ups)
 	suite.Equal(1, afterDown.Downs)
@@ -159,7 +160,7 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteSameDirectionIdempo
 	err = suite.service.Vote(user.ID, comment.ID, 1)
 	suite.NoError(err)
 
-	var updated models.Comment
+	var updated engagementm.Comment
 	suite.db.First(&updated, comment.ID)
 	suite.Equal(1, updated.Ups)
 	suite.Equal(0, updated.Downs)
@@ -195,7 +196,7 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestUnvote() {
 	suite.NoError(err)
 
 	// Verify aggregates
-	var afterVote models.Comment
+	var afterVote engagementm.Comment
 	suite.db.First(&afterVote, comment.ID)
 	suite.Equal(1, afterVote.Ups)
 
@@ -209,7 +210,7 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestUnvote() {
 	suite.Nil(vote)
 
 	// Aggregates should be zero
-	var afterUnvote models.Comment
+	var afterUnvote engagementm.Comment
 	suite.db.First(&afterUnvote, comment.ID)
 	suite.Equal(0, afterUnvote.Ups)
 	suite.Equal(0, afterUnvote.Downs)
@@ -315,7 +316,7 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestWilsonScoreComputedCorr
 		suite.NoError(suite.service.Vote(u.ID, comment.ID, -1))
 	}
 
-	var updated models.Comment
+	var updated engagementm.Comment
 	suite.db.First(&updated, comment.ID)
 	suite.Equal(8, updated.Ups)
 	suite.Equal(2, updated.Downs)

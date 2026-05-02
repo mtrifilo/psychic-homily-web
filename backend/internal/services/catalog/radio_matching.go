@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -28,7 +28,7 @@ func (m *RadioMatchingEngine) MatchPlaysForEpisode(episodeID uint) (*contracts.M
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var plays []models.RadioPlay
+	var plays []catalogm.RadioPlay
 	err := m.db.Where("episode_id = ? AND artist_id IS NULL", episodeID).Find(&plays).Error
 	if err != nil {
 		return nil, fmt.Errorf("loading unmatched plays: %w", err)
@@ -56,7 +56,7 @@ func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var plays []models.RadioPlay
+	var plays []catalogm.RadioPlay
 	err := m.db.Where("artist_id IS NULL").Find(&plays).Error
 	if err != nil {
 		return nil, fmt.Errorf("loading unmatched plays: %w", err)
@@ -80,7 +80,7 @@ func (m *RadioMatchingEngine) MatchAllUnmatched() (*contracts.MatchResult, error
 
 // matchPlay attempts to match a single play to entities in our knowledge graph.
 // Returns true if at least the artist was matched. Updates the play record in the DB.
-func (m *RadioMatchingEngine) matchPlay(play *models.RadioPlay) bool {
+func (m *RadioMatchingEngine) matchPlay(play *catalogm.RadioPlay) bool {
 	updates := make(map[string]interface{})
 	artistMatched := false
 
@@ -114,20 +114,20 @@ func (m *RadioMatchingEngine) matchArtist(name string, mbID *string) *uint {
 	// Note: Artists table doesn't have a musicbrainz_id column yet,
 	// so we skip this path. When the column exists, uncomment:
 	// if mbID != nil && *mbID != "" {
-	// 	var artist models.Artist
+	// 	var artist catalogm.Artist
 	// 	if err := m.db.Where("musicbrainz_id = ?", *mbID).First(&artist).Error; err == nil {
 	// 		return &artist.ID
 	// 	}
 	// }
 
 	// 2. Exact name match (case-insensitive)
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := m.db.Where("LOWER(name) = LOWER(?)", strings.TrimSpace(name)).First(&artist).Error; err == nil {
 		return &artist.ID
 	}
 
 	// 3. Alias match (case-insensitive)
-	var alias models.ArtistAlias
+	var alias catalogm.ArtistAlias
 	if err := m.db.Where("LOWER(alias) = LOWER(?)", strings.TrimSpace(name)).First(&alias).Error; err == nil {
 		return &alias.ArtistID
 	}
@@ -144,7 +144,7 @@ func (m *RadioMatchingEngine) matchRelease(title *string, mbID *string) *uint {
 		return nil
 	}
 
-	var release models.Release
+	var release catalogm.Release
 	if err := m.db.Where("LOWER(title) = LOWER(?)", strings.TrimSpace(*title)).First(&release).Error; err == nil {
 		return &release.ID
 	}
@@ -158,7 +158,7 @@ func (m *RadioMatchingEngine) matchLabel(name *string) *uint {
 		return nil
 	}
 
-	var label models.Label
+	var label catalogm.Label
 	if err := m.db.Where("LOWER(name) = LOWER(?)", strings.TrimSpace(*name)).First(&label).Error; err == nil {
 		return &label.ID
 	}

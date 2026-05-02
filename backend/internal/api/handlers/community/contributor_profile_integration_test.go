@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	usersvc "psychic-homily-backend/internal/services/user"
 )
@@ -46,8 +46,8 @@ func TestContributorProfileHandlerIntegration(t *testing.T) {
 
 // --- Helpers ---
 
-func (s *ContributorProfileHandlerIntegrationSuite) createUserWithUsername(username string) *models.User {
-	user := &models.User{
+func (s *ContributorProfileHandlerIntegrationSuite) createUserWithUsername(username string) *authm.User {
+	user := &authm.User{
 		Email:         testhelpers.StringPtr(fmt.Sprintf("%s@test.com", username)),
 		Username:      testhelpers.StringPtr(username),
 		FirstName:     testhelpers.StringPtr("Test"),
@@ -59,14 +59,14 @@ func (s *ContributorProfileHandlerIntegrationSuite) createUserWithUsername(usern
 	return user
 }
 
-func (s *ContributorProfileHandlerIntegrationSuite) createPrivateUser(username string) *models.User {
+func (s *ContributorProfileHandlerIntegrationSuite) createPrivateUser(username string) *authm.User {
 	user := s.createUserWithUsername(username)
 	s.deps.DB.Model(user).Update("profile_visibility", "private")
 	user.ProfileVisibility = "private"
 	return user
 }
 
-func (s *ContributorProfileHandlerIntegrationSuite) setPrivacySettings(user *models.User, settings contracts.PrivacySettings) {
+func (s *ContributorProfileHandlerIntegrationSuite) setPrivacySettings(user *authm.User, settings contracts.PrivacySettings) {
 	raw, err := json.Marshal(settings)
 	s.Require().NoError(err)
 	rawMsg := json.RawMessage(raw)

@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -88,8 +88,8 @@ func TestFestivalIntelligenceTestSuite(t *testing.T) {
 // Helpers
 // ─────────────────────────────────────────────
 
-func (suite *FestivalIntelligenceTestSuite) createArtist(name string) *models.Artist {
-	a := &models.Artist{Name: name}
+func (suite *FestivalIntelligenceTestSuite) createArtist(name string) *catalogm.Artist {
+	a := &catalogm.Artist{Name: name}
 	suite.Require().NoError(suite.db.Create(a).Error)
 	return a
 }
@@ -129,7 +129,7 @@ func (suite *FestivalIntelligenceTestSuite) TestGetSimilarFestivals_WithOverlap(
 	f1 := suite.createFestival("Fest A", "a", 2026, "2026-03-01")
 	f2 := suite.createFestival("Fest B", "b", 2026, "2026-06-01")
 
-	shared := make([]*models.Artist, 4)
+	shared := make([]*catalogm.Artist, 4)
 	for i := 0; i < 4; i++ {
 		shared[i] = suite.createArtist(fmt.Sprintf("Shared Artist %d", i))
 	}
@@ -203,7 +203,7 @@ func (suite *FestivalIntelligenceTestSuite) TestGetSimilarFestivals_TierWeightin
 	f3 := suite.createFestival("Local Overlap", "lo", 2026, "2026-09-01")
 
 	// Create 3 shared artists
-	shared := make([]*models.Artist, 3)
+	shared := make([]*catalogm.Artist, 3)
 	for i := 0; i < 3; i++ {
 		shared[i] = suite.createArtist(fmt.Sprintf("Weight Artist %d", i))
 	}

@@ -8,7 +8,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -105,7 +105,7 @@ func (h *AdminDiscoveryHandler) DiscoveryImportHandler(ctx context.Context, req 
 	}
 
 	// Import events
-	result, err := h.discoveryService.ImportEvents(events, req.Body.DryRun, req.Body.AllowUpdates, models.ShowStatusApproved)
+	result, err := h.discoveryService.ImportEvents(events, req.Body.DryRun, req.Body.AllowUpdates, catalogm.ShowStatusApproved)
 	if err != nil {
 		logger.FromContext(ctx).Error("admin_discovery_import_failed",
 			"error", err.Error(),

@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -133,8 +135,8 @@ func TestAutoPromotionIntegrationSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (s *AutoPromotionIntegrationTestSuite) createUser(tier string, emailVerified bool, createdAt time.Time) *models.User {
-	user := &models.User{
+func (s *AutoPromotionIntegrationTestSuite) createUser(tier string, emailVerified bool, createdAt time.Time) *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("ap-user-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("ap-user-%d", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
@@ -155,16 +157,16 @@ func (s *AutoPromotionIntegrationTestSuite) createUser(tier string, emailVerifie
 }
 
 func (s *AutoPromotionIntegrationTestSuite) createApprovedPendingEdit(userID uint, entityType string, entityID uint) {
-	s.createPendingEditWithStatus(userID, entityType, entityID, models.PendingEditStatusApproved, time.Now())
+	s.createPendingEditWithStatus(userID, entityType, entityID, adminm.PendingEditStatusApproved, time.Now())
 }
 
 func (s *AutoPromotionIntegrationTestSuite) createRejectedPendingEdit(userID uint, entityType string, entityID uint) {
-	s.createPendingEditWithStatus(userID, entityType, entityID, models.PendingEditStatusRejected, time.Now())
+	s.createPendingEditWithStatus(userID, entityType, entityID, adminm.PendingEditStatusRejected, time.Now())
 }
 
-func (s *AutoPromotionIntegrationTestSuite) createPendingEditWithStatus(userID uint, entityType string, entityID uint, status models.PendingEditStatus, createdAt time.Time) {
+func (s *AutoPromotionIntegrationTestSuite) createPendingEditWithStatus(userID uint, entityType string, entityID uint, status adminm.PendingEditStatus, createdAt time.Time) {
 	raw := testRawJSON()
-	edit := &models.PendingEntityEdit{
+	edit := &adminm.PendingEntityEdit{
 		EntityType:   entityType,
 		EntityID:     entityID,
 		SubmittedBy:  userID,
@@ -182,7 +184,7 @@ func (s *AutoPromotionIntegrationTestSuite) createPendingEditWithStatus(userID u
 
 func (s *AutoPromotionIntegrationTestSuite) createRevision(userID uint, entityType string, entityID uint, createdAt time.Time) {
 	raw := testRawJSON()
-	rev := &models.Revision{
+	rev := &adminm.Revision{
 		EntityType:   entityType,
 		EntityID:     entityID,
 		UserID:       userID,
@@ -195,9 +197,9 @@ func (s *AutoPromotionIntegrationTestSuite) createRevision(userID uint, entityTy
 	s.Require().NoError(err)
 }
 
-func (s *AutoPromotionIntegrationTestSuite) createTestArtist(name string) *models.Artist {
+func (s *AutoPromotionIntegrationTestSuite) createTestArtist(name string) *catalogm.Artist {
 	slug := fmt.Sprintf("test-artist-%d", time.Now().UnixNano())
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -206,9 +208,9 @@ func (s *AutoPromotionIntegrationTestSuite) createTestArtist(name string) *model
 	return artist
 }
 
-func (s *AutoPromotionIntegrationTestSuite) createTestVenue(name, city, state string) *models.Venue {
+func (s *AutoPromotionIntegrationTestSuite) createTestVenue(name, city, state string) *catalogm.Venue {
 	slug := fmt.Sprintf("test-venue-%d", time.Now().UnixNano())
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:  name,
 		Slug:  &slug,
 		City:  city,
@@ -435,10 +437,10 @@ func (s *AutoPromotionIntegrationTestSuite) TestDemoteContributor_LowRolling30dA
 	artist := s.createTestArtist("Test Artist")
 
 	// 1 approved, 3 rejected in last 30 days (25% approval)
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusApproved, time.Now().Add(-5*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-2*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusApproved, time.Now().Add(-5*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-2*24*time.Hour))
 
 	result, err := s.svc.EvaluateUser(user.ID)
 	s.Require().NoError(err)
@@ -454,10 +456,10 @@ func (s *AutoPromotionIntegrationTestSuite) TestDemoteTrustedContributor() {
 	artist := s.createTestArtist("Test Artist")
 
 	// Low 30d rate: 1 approved, 3 rejected
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusApproved, time.Now().Add(-5*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-2*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusApproved, time.Now().Add(-5*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-2*24*time.Hour))
 
 	result, err := s.svc.EvaluateUser(user.ID)
 	s.Require().NoError(err)
@@ -471,9 +473,9 @@ func (s *AutoPromotionIntegrationTestSuite) TestNoDemotion_NewUserAlreadyAtBotto
 	artist := s.createTestArtist("Test Artist")
 
 	// Low 30d rate
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-5*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-5*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
 
 	result, err := s.svc.EvaluateUser(user.ID)
 	s.Require().NoError(err)
@@ -486,8 +488,8 @@ func (s *AutoPromotionIntegrationTestSuite) TestNoDemotion_TooFewEditsInWindow()
 	artist := s.createTestArtist("Test Artist")
 
 	// Only 2 rejected edits in 30d window
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-5*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-5*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
 
 	result, err := s.svc.EvaluateUser(user.ID)
 	s.Require().NoError(err)
@@ -500,9 +502,9 @@ func (s *AutoPromotionIntegrationTestSuite) TestNoDemotion_OldEditsOutsideWindow
 	artist := s.createTestArtist("Test Artist")
 
 	// Old rejected edits (> 30 days ago)
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-45*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-40*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-35*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-45*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-40*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-35*24*time.Hour))
 
 	result, err := s.svc.EvaluateUser(user.ID)
 	s.Require().NoError(err)
@@ -524,10 +526,10 @@ func (s *AutoPromotionIntegrationTestSuite) TestEvaluateAllUsers_MultipleMixed()
 
 	// User 2: should be demoted (contributor -> new_user due to low 30d rate)
 	user2 := s.createUser(TierContributor, true, time.Now().Add(-60*24*time.Hour))
-	s.createPendingEditWithStatus(user2.ID, "artist", artist.ID, models.PendingEditStatusApproved, time.Now().Add(-5*24*time.Hour))
-	s.createPendingEditWithStatus(user2.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
-	s.createPendingEditWithStatus(user2.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
-	s.createPendingEditWithStatus(user2.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-2*24*time.Hour))
+	s.createPendingEditWithStatus(user2.ID, "artist", artist.ID, adminm.PendingEditStatusApproved, time.Now().Add(-5*24*time.Hour))
+	s.createPendingEditWithStatus(user2.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
+	s.createPendingEditWithStatus(user2.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
+	s.createPendingEditWithStatus(user2.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-2*24*time.Hour))
 
 	// User 3: unchanged (new_user, no edits)
 	_ = s.createUser(TierNewUser, false, time.Now())
@@ -563,7 +565,7 @@ func (s *AutoPromotionIntegrationTestSuite) TestEvaluateAllUsers_AppliesTierChan
 	s.Require().NoError(err)
 
 	// Reload user from DB and verify tier was updated
-	var updatedUser models.User
+	var updatedUser authm.User
 	s.Require().NoError(s.db.First(&updatedUser, user.ID).Error)
 	s.Equal(TierContributor, updatedUser.UserTier)
 }
@@ -572,7 +574,7 @@ func (s *AutoPromotionIntegrationTestSuite) TestEvaluateAllUsers_SkipsAdminUsers
 	artist := s.createTestArtist("Test Artist")
 
 	// Create an admin user that would otherwise be promotable
-	adminUser := &models.User{
+	adminUser := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("admin-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("admin-%d", time.Now().UnixNano())),
 		IsActive:      true,
@@ -599,7 +601,7 @@ func (s *AutoPromotionIntegrationTestSuite) TestEvaluateAllUsers_SkipsInactiveUs
 	artist := s.createTestArtist("Test Artist")
 
 	// Create an inactive user
-	inactiveUser := &models.User{
+	inactiveUser := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("inactive-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("inactive-%d", time.Now().UnixNano())),
 		IsActive:      false,
@@ -691,14 +693,14 @@ func (s *AutoPromotionIntegrationTestSuite) TestDemotionTakesPriorityOverPromoti
 
 	// 25 old approved edits (outside 30-day window) — qualifies for promotion criteria
 	for i := 0; i < 25; i++ {
-		s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusApproved, time.Now().Add(-40*24*time.Hour))
+		s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusApproved, time.Now().Add(-40*24*time.Hour))
 	}
 
 	// Recent bad edits in 30-day window
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusApproved, time.Now().Add(-5*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-2*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusApproved, time.Now().Add(-5*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-3*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-2*24*time.Hour))
 
 	result, err := s.svc.EvaluateUser(user.ID)
 	s.Require().NoError(err)
@@ -728,8 +730,8 @@ func (s *AutoPromotionIntegrationTestSuite) TestRolling30dIncludesRevisions() {
 	artist := s.createTestArtist("Test Artist")
 
 	// 2 rejected pending edits in 30d window
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-5*24*time.Hour))
-	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, models.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-5*24*time.Hour))
+	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
 
 	// 7 recent revisions (count as approved) in 30d window
 	for i := 0; i < 7; i++ {

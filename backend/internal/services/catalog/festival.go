@@ -6,9 +6,9 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -37,17 +37,17 @@ func (s *FestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (
 	baseSlug := utils.GenerateArtistSlug(req.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Festival{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Festival{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
 	// Determine status, default to "announced"
-	status := models.FestivalStatus(req.Status)
+	status := catalogm.FestivalStatus(req.Status)
 	if status == "" {
-		status = models.FestivalStatusAnnounced
+		status = catalogm.FestivalStatusAnnounced
 	}
 
-	festival := &models.Festival{
+	festival := &catalogm.Festival{
 		Name:         req.Name,
 		Slug:         slug,
 		SeriesSlug:   req.SeriesSlug,
@@ -79,7 +79,7 @@ func (s *FestivalService) GetFestival(festivalID uint) (*contracts.FestivalDetai
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var festival models.Festival
+	var festival catalogm.Festival
 	err := s.db.First(&festival, festivalID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -97,7 +97,7 @@ func (s *FestivalService) GetFestivalBySlug(slug string) (*contracts.FestivalDet
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var festival models.Festival
+	var festival catalogm.Festival
 	err := s.db.Where("slug = ?", slug).First(&festival).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -115,7 +115,7 @@ func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*cont
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Model(&models.Festival{})
+	query := s.db.Model(&catalogm.Festival{})
 
 	// Apply filters
 	if city, ok := filters["city"].(string); ok && city != "" {
@@ -149,7 +149,7 @@ func (s *FestivalService) ListFestivals(filters map[string]interface{}) ([]*cont
 	// Order by start_date DESC, name ASC
 	query = query.Order("start_date DESC, name ASC")
 
-	var festivals []models.Festival
+	var festivals []catalogm.Festival
 	err := query.Find(&festivals).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list festivals: %w", err)
@@ -226,7 +226,7 @@ func (s *FestivalService) SearchFestivals(query string) ([]*contracts.FestivalLi
 		return []*contracts.FestivalListResponse{}, nil
 	}
 
-	var festivals []models.Festival
+	var festivals []catalogm.Festival
 	var err error
 
 	if len(query) <= 2 {
@@ -316,7 +316,7 @@ func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateF
 	}
 
 	// Check if festival exists
-	var festival models.Festival
+	var festival catalogm.Festival
 	err := s.db.First(&festival, festivalID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -333,7 +333,7 @@ func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateF
 		baseSlug := utils.GenerateArtistSlug(*req.Name)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.Festival{}).Where("slug = ? AND id != ?", candidate, festivalID).Count(&count)
+			s.db.Model(&catalogm.Festival{}).Where("slug = ? AND id != ?", candidate, festivalID).Count(&count)
 			return count > 0
 		})
 		updates["slug"] = slug
@@ -382,7 +382,7 @@ func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateF
 	}
 
 	if len(updates) > 0 {
-		err = s.db.Model(&models.Festival{}).Where("id = ?", festivalID).Updates(updates).Error
+		err = s.db.Model(&catalogm.Festival{}).Where("id = ?", festivalID).Updates(updates).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to update festival: %w", err)
 		}
@@ -398,7 +398,7 @@ func (s *FestivalService) DeleteFestival(festivalID uint) error {
 	}
 
 	// Check if festival exists
-	var festival models.Festival
+	var festival catalogm.Festival
 	err := s.db.First(&festival, festivalID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -423,7 +423,7 @@ func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) (
 	}
 
 	// Verify festival exists
-	var festival models.Festival
+	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
@@ -436,7 +436,7 @@ func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) (
 		query = query.Where("day_date = ?", *dayDate)
 	}
 
-	var festivalArtists []models.FestivalArtist
+	var festivalArtists []catalogm.FestivalArtist
 	// Order: billing tier priority (headliner first via CASE), then position
 	err := query.Order(`
 		CASE billing_tier
@@ -464,8 +464,8 @@ func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) (
 		artistIDs[i] = fa.ArtistID
 	}
 
-	artistMap := make(map[uint]*models.Artist)
-	var artists []models.Artist
+	artistMap := make(map[uint]*catalogm.Artist)
+	var artists []catalogm.Artist
 	s.db.Where("id IN ?", artistIDs).Find(&artists)
 	for i := range artists {
 		artistMap[artists[i].ID] = &artists[i]
@@ -508,7 +508,7 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 	}
 
 	// Verify festival exists
-	var festival models.Festival
+	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
@@ -517,7 +517,7 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, req.ArtistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("artist not found")
@@ -525,12 +525,12 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	billingTier := models.BillingTier(req.BillingTier)
+	billingTier := catalogm.BillingTier(req.BillingTier)
 	if billingTier == "" {
-		billingTier = models.BillingTierMidCard
+		billingTier = catalogm.BillingTierMidCard
 	}
 
-	fa := &models.FestivalArtist{
+	fa := &catalogm.FestivalArtist{
 		FestivalID:  festivalID,
 		ArtistID:    req.ArtistID,
 		BillingTier: billingTier,
@@ -571,7 +571,7 @@ func (s *FestivalService) UpdateFestivalArtist(festivalID, artistID uint, req *c
 	}
 
 	// Find the festival_artist junction entry
-	var fa models.FestivalArtist
+	var fa catalogm.FestivalArtist
 	err := s.db.Where("festival_id = ? AND artist_id = ?", festivalID, artistID).First(&fa).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -601,7 +601,7 @@ func (s *FestivalService) UpdateFestivalArtist(festivalID, artistID uint, req *c
 	}
 
 	if len(updates) > 0 {
-		err = s.db.Model(&models.FestivalArtist{}).Where("id = ?", fa.ID).Updates(updates).Error
+		err = s.db.Model(&catalogm.FestivalArtist{}).Where("id = ?", fa.ID).Updates(updates).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to update festival artist: %w", err)
 		}
@@ -611,7 +611,7 @@ func (s *FestivalService) UpdateFestivalArtist(festivalID, artistID uint, req *c
 	s.db.First(&fa, fa.ID)
 
 	// Load artist details
-	var artist models.Artist
+	var artist catalogm.Artist
 	s.db.First(&artist, fa.ArtistID)
 	artistSlug := ""
 	if artist.Slug != nil {
@@ -638,7 +638,7 @@ func (s *FestivalService) RemoveFestivalArtist(festivalID, artistID uint) error 
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Where("festival_id = ? AND artist_id = ?", festivalID, artistID).Delete(&models.FestivalArtist{})
+	result := s.db.Where("festival_id = ? AND artist_id = ?", festivalID, artistID).Delete(&catalogm.FestivalArtist{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to remove artist from festival: %w", result.Error)
 	}
@@ -656,7 +656,7 @@ func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*contracts.Festi
 	}
 
 	// Verify festival exists
-	var festival models.Festival
+	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
@@ -664,7 +664,7 @@ func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*contracts.Festi
 		return nil, fmt.Errorf("failed to get festival: %w", err)
 	}
 
-	var festivalVenues []models.FestivalVenue
+	var festivalVenues []catalogm.FestivalVenue
 	err := s.db.Where("festival_id = ?", festivalID).Order("is_primary DESC, id ASC").Find(&festivalVenues).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get festival venues: %w", err)
@@ -680,8 +680,8 @@ func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*contracts.Festi
 		venueIDs[i] = fv.VenueID
 	}
 
-	venueMap := make(map[uint]*models.Venue)
-	var venues []models.Venue
+	venueMap := make(map[uint]*catalogm.Venue)
+	var venues []catalogm.Venue
 	s.db.Where("id IN ?", venueIDs).Find(&venues)
 	for i := range venues {
 		venueMap[venues[i].ID] = &venues[i]
@@ -719,7 +719,7 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 	}
 
 	// Verify festival exists
-	var festival models.Festival
+	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
@@ -728,7 +728,7 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 	}
 
 	// Verify venue exists
-	var venue models.Venue
+	var venue catalogm.Venue
 	if err := s.db.First(&venue, req.VenueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("venue not found")
@@ -736,7 +736,7 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
 
-	fv := &models.FestivalVenue{
+	fv := &catalogm.FestivalVenue{
 		FestivalID: festivalID,
 		VenueID:    req.VenueID,
 		IsPrimary:  req.IsPrimary,
@@ -768,7 +768,7 @@ func (s *FestivalService) RemoveFestivalVenue(festivalID, venueID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Where("festival_id = ? AND venue_id = ?", festivalID, venueID).Delete(&models.FestivalVenue{})
+	result := s.db.Where("festival_id = ? AND venue_id = ?", festivalID, venueID).Delete(&catalogm.FestivalVenue{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to remove venue from festival: %w", result.Error)
 	}
@@ -786,7 +786,7 @@ func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts.Art
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrArtistNotFound(artistID)
@@ -795,7 +795,7 @@ func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts.Art
 	}
 
 	// Get festival_artist entries for this artist
-	var festivalArtists []models.FestivalArtist
+	var festivalArtists []catalogm.FestivalArtist
 	if err := s.db.Where("artist_id = ?", artistID).Find(&festivalArtists).Error; err != nil {
 		return nil, fmt.Errorf("failed to get artist festivals: %w", err)
 	}
@@ -817,7 +817,7 @@ func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts.Art
 	}
 
 	// Fetch festivals
-	var festivals []models.Festival
+	var festivals []catalogm.Festival
 	if err := s.db.Where("id IN ?", festivalIDs).Order("start_date DESC, name ASC").Find(&festivals).Error; err != nil {
 		return nil, fmt.Errorf("failed to get festivals: %w", err)
 	}
@@ -881,7 +881,7 @@ func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts.Art
 }
 
 // buildDetailResponse converts a Festival model to contracts.FestivalDetailResponse
-func (s *FestivalService) buildDetailResponse(festival *models.Festival) (*contracts.FestivalDetailResponse, error) {
+func (s *FestivalService) buildDetailResponse(festival *catalogm.Festival) (*contracts.FestivalDetailResponse, error) {
 	// Count artists
 	var artistCount int64
 	s.db.Table("festival_artists").Where("festival_id = ?", festival.ID).Count(&artistCount)

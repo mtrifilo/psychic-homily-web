@@ -6,7 +6,8 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -29,7 +30,7 @@ func TestAdminCreateVenueHandler_NoAuth(t *testing.T) {
 
 func TestAdminCreateVenueHandler_NonAdmin(t *testing.T) {
 	h := testVenueHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &AdminCreateVenueRequest{}
 	req.Body.Name = "Test Venue"
 	req.Body.City = "Phoenix"
@@ -55,7 +56,7 @@ func TestUpdateVenueHandler_NonAdmin(t *testing.T) {
 	h := testVenueHandler()
 	// Even a venue submitter can't direct-update via this endpoint; they
 	// must use PUT /venues/{id}/suggest-edit through SuggestVenueEditHandler.
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &UpdateVenueRequest{VenueID: "1"}
 
 	_, err := h.UpdateVenueHandler(ctx, req)
@@ -64,7 +65,7 @@ func TestUpdateVenueHandler_NonAdmin(t *testing.T) {
 
 func TestUpdateVenueHandler_InvalidID(t *testing.T) {
 	h := testVenueHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &UpdateVenueRequest{VenueID: "abc"}
 
 	_, err := h.UpdateVenueHandler(ctx, req)
@@ -83,7 +84,7 @@ func TestDeleteVenueHandler_NoAuth(t *testing.T) {
 
 func TestDeleteVenueHandler_InvalidID(t *testing.T) {
 	h := testVenueHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &DeleteVenueRequest{VenueID: "abc"}
 
 	_, err := h.DeleteVenueHandler(ctx, req)
@@ -134,26 +135,26 @@ func TestUpdateVenueHandler_ZeroID(t *testing.T) {
 		},
 	}
 	h := NewVenueHandler(mock, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	_, err := h.UpdateVenueHandler(ctx, &UpdateVenueRequest{VenueID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestDeleteVenueHandler_ZeroID(t *testing.T) {
 	mock := &testhelpers.MockVenueService{
-		GetVenueModelFn: func(venueID uint) (*models.Venue, error) {
+		GetVenueModelFn: func(venueID uint) (*catalogm.Venue, error) {
 			return nil, apperrors.ErrVenueNotFound(venueID)
 		},
 	}
 	h := NewVenueHandler(mock, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.DeleteVenueHandler(ctx, &DeleteVenueRequest{VenueID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestDeleteVenueHandler_OverflowID(t *testing.T) {
 	h := testVenueHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.DeleteVenueHandler(ctx, &DeleteVenueRequest{VenueID: "99999999999"})
 	testhelpers.AssertHumaError(t, err, 400)
 }

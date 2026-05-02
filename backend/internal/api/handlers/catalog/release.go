@@ -11,7 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -371,26 +371,26 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 }
 
 // computeReleaseChanges compares old and new release detail responses and returns field-level diffs.
-func computeReleaseChanges(old, new *contracts.ReleaseDetailResponse) []models.FieldChange {
-	var changes []models.FieldChange
+func computeReleaseChanges(old, new *contracts.ReleaseDetailResponse) []adminm.FieldChange {
+	var changes []adminm.FieldChange
 
 	if old.Title != new.Title {
-		changes = append(changes, models.FieldChange{Field: "title", OldValue: old.Title, NewValue: new.Title})
+		changes = append(changes, adminm.FieldChange{Field: "title", OldValue: old.Title, NewValue: new.Title})
 	}
 	if old.ReleaseType != new.ReleaseType {
-		changes = append(changes, models.FieldChange{Field: "release_type", OldValue: old.ReleaseType, NewValue: new.ReleaseType})
+		changes = append(changes, adminm.FieldChange{Field: "release_type", OldValue: old.ReleaseType, NewValue: new.ReleaseType})
 	}
 	if !intPtrEq(old.ReleaseYear, new.ReleaseYear) {
-		changes = append(changes, models.FieldChange{Field: "release_year", OldValue: intPtrVal(old.ReleaseYear), NewValue: intPtrVal(new.ReleaseYear)})
+		changes = append(changes, adminm.FieldChange{Field: "release_year", OldValue: intPtrVal(old.ReleaseYear), NewValue: intPtrVal(new.ReleaseYear)})
 	}
 	if ptrToStr(old.ReleaseDate) != ptrToStr(new.ReleaseDate) {
-		changes = append(changes, models.FieldChange{Field: "release_date", OldValue: ptrToStr(old.ReleaseDate), NewValue: ptrToStr(new.ReleaseDate)})
+		changes = append(changes, adminm.FieldChange{Field: "release_date", OldValue: ptrToStr(old.ReleaseDate), NewValue: ptrToStr(new.ReleaseDate)})
 	}
 	if ptrToStr(old.CoverArtURL) != ptrToStr(new.CoverArtURL) {
-		changes = append(changes, models.FieldChange{Field: "cover_art_url", OldValue: ptrToStr(old.CoverArtURL), NewValue: ptrToStr(new.CoverArtURL)})
+		changes = append(changes, adminm.FieldChange{Field: "cover_art_url", OldValue: ptrToStr(old.CoverArtURL), NewValue: ptrToStr(new.CoverArtURL)})
 	}
 	if ptrToStr(old.Description) != ptrToStr(new.Description) {
-		changes = append(changes, models.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
+		changes = append(changes, adminm.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
 	}
 
 	return changes

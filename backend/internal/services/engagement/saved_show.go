@@ -7,9 +7,10 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // SavedShowService handles saved show business logic
@@ -30,7 +31,6 @@ func NewSavedShowService(database *gorm.DB) *SavedShowService {
 	}
 }
 
-
 // SaveShow saves a show to a user's list
 // Note: Unlike the original plan, this allows saving shows of any status (pending/approved/rejected)
 // as per user requirements
@@ -40,7 +40,7 @@ func (s *SavedShowService) SaveShow(userID, showID uint) error {
 	}
 
 	// Check if show exists
-	var show models.Show
+	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.ErrShowNotFound(showID)
@@ -48,7 +48,7 @@ func (s *SavedShowService) SaveShow(userID, showID uint) error {
 		return fmt.Errorf("failed to verify show: %w", err)
 	}
 
-	if err := s.bookmark.CreateBookmark(userID, models.BookmarkEntityShow, showID, models.BookmarkActionSave); err != nil {
+	if err := s.bookmark.CreateBookmark(userID, engagementm.BookmarkEntityShow, showID, engagementm.BookmarkActionSave); err != nil {
 		return fmt.Errorf("failed to save show: %w", err)
 	}
 
@@ -61,7 +61,7 @@ func (s *SavedShowService) UnsaveShow(userID, showID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	err := s.bookmark.DeleteBookmark(userID, models.BookmarkEntityShow, showID, models.BookmarkActionSave)
+	err := s.bookmark.DeleteBookmark(userID, engagementm.BookmarkEntityShow, showID, engagementm.BookmarkActionSave)
 	if err != nil {
 		if err.Error() == "bookmark not found" {
 			return fmt.Errorf("show was not saved")
@@ -80,7 +80,7 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 	}
 
 	// Get bookmarks with pagination
-	bookmarks, total, err := s.bookmark.GetUserBookmarks(userID, models.BookmarkEntityShow, models.BookmarkActionSave, limit, offset)
+	bookmarks, total, err := s.bookmark.GetUserBookmarks(userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave, limit, offset)
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get saved shows: %w", err)
 	}
@@ -98,7 +98,7 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 	}
 
 	// Fetch shows with associations (no status filter - user can save any show)
-	var shows []models.Show
+	var shows []catalogm.Show
 	err = s.db.Preload("Venues").
 		Where("id IN ?", showIDs).
 		Find(&shows).Error
@@ -108,13 +108,13 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 	}
 
 	// Create a map for O(1) lookup
-	showMap := make(map[uint]*models.Show)
+	showMap := make(map[uint]*catalogm.Show)
 	for i := range shows {
 		showMap[shows[i].ID] = &shows[i]
 	}
 
 	// Batch-load all ShowArtist records for all shows
-	var allShowArtists []models.ShowArtist
+	var allShowArtists []catalogm.ShowArtist
 	if len(showIDs) > 0 {
 		s.db.Where("show_id IN ?", showIDs).Order("position ASC").Find(&allShowArtists)
 	}
@@ -126,9 +126,9 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 	}
 
 	// Batch-fetch all artists in one query
-	artistMap := make(map[uint]*models.Artist)
+	artistMap := make(map[uint]*catalogm.Artist)
 	if len(allArtistIDs) > 0 {
-		var allArtists []models.Artist
+		var allArtists []catalogm.Artist
 		s.db.Where("id IN ?", allArtistIDs).Find(&allArtists)
 		for i := range allArtists {
 			artistMap[allArtists[i].ID] = &allArtists[i]
@@ -188,9 +188,9 @@ func (s *SavedShowService) GetUserSavedShows(userID uint, limit, offset int) ([]
 	return responses, total, nil
 }
 
-// buildShowResponse builds a ShowResponse from a models.Show
+// buildShowResponse builds a ShowResponse from a catalogm.Show
 // artistsByShow contains pre-loaded artist responses keyed by show ID
-func (s *SavedShowService) buildShowResponse(show *models.Show, artistsByShow map[uint][]contracts.ArtistResponse) *contracts.ShowResponse {
+func (s *SavedShowService) buildShowResponse(show *catalogm.Show, artistsByShow map[uint][]contracts.ArtistResponse) *contracts.ShowResponse {
 	// Build venue responses
 	venues := make([]contracts.VenueResponse, len(show.Venues))
 	for i, venue := range show.Venues {
@@ -248,7 +248,7 @@ func (s *SavedShowService) IsShowSaved(userID, showID uint) (bool, error) {
 		return false, fmt.Errorf("database not initialized")
 	}
 
-	return s.bookmark.IsBookmarked(userID, models.BookmarkEntityShow, showID, models.BookmarkActionSave)
+	return s.bookmark.IsBookmarked(userID, engagementm.BookmarkEntityShow, showID, engagementm.BookmarkActionSave)
 }
 
 // GetSavedShowIDs returns a set of show IDs that a user has saved
@@ -258,5 +258,5 @@ func (s *SavedShowService) GetSavedShowIDs(userID uint, showIDs []uint) (map[uin
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	return s.bookmark.GetBookmarkedEntityIDs(userID, models.BookmarkEntityShow, models.BookmarkActionSave, showIDs)
+	return s.bookmark.GetBookmarkedEntityIDs(userID, engagementm.BookmarkEntityShow, engagementm.BookmarkActionSave, showIDs)
 }

@@ -7,7 +7,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -33,14 +34,14 @@ func (s *ShowReportService) CreateReport(userID, showID uint, reportType string,
 	}
 
 	// Validate report type
-	if reportType != string(models.ShowReportTypeCancelled) &&
-		reportType != string(models.ShowReportTypeSoldOut) &&
-		reportType != string(models.ShowReportTypeInaccurate) {
+	if reportType != string(communitym.ShowReportTypeCancelled) &&
+		reportType != string(communitym.ShowReportTypeSoldOut) &&
+		reportType != string(communitym.ShowReportTypeInaccurate) {
 		return nil, fmt.Errorf("invalid report type: %s", reportType)
 	}
 
 	// Verify show exists
-	var show models.Show
+	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("show not found")
@@ -50,7 +51,7 @@ func (s *ShowReportService) CreateReport(userID, showID uint, reportType string,
 
 	// Check for existing report from this user for this show
 	var existingCount int64
-	if err := s.db.Model(&models.ShowReport{}).
+	if err := s.db.Model(&communitym.ShowReport{}).
 		Where("show_id = ? AND reported_by = ?", showID, userID).
 		Count(&existingCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to check existing report: %w", err)
@@ -61,12 +62,12 @@ func (s *ShowReportService) CreateReport(userID, showID uint, reportType string,
 	}
 
 	// Create the report
-	report := models.ShowReport{
+	report := communitym.ShowReport{
 		ShowID:     showID,
 		ReportedBy: userID,
-		ReportType: models.ShowReportType(reportType),
+		ReportType: communitym.ShowReportType(reportType),
 		Details:    details,
-		Status:     models.ShowReportStatusPending,
+		Status:     communitym.ShowReportStatusPending,
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
@@ -84,7 +85,7 @@ func (s *ShowReportService) GetUserReportForShow(userID, showID uint) (*contract
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.ShowReport
+	var report communitym.ShowReport
 	err := s.db.Where("show_id = ? AND reported_by = ?", showID, userID).
 		First(&report).Error
 
@@ -106,16 +107,16 @@ func (s *ShowReportService) GetPendingReports(limit, offset int) ([]*contracts.S
 
 	// Get total count
 	var total int64
-	if err := s.db.Model(&models.ShowReport{}).
-		Where("status = ?", models.ShowReportStatusPending).
+	if err := s.db.Model(&communitym.ShowReport{}).
+		Where("status = ?", communitym.ShowReportStatusPending).
 		Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count pending reports: %w", err)
 	}
 
 	// Get reports with show info
-	var reports []models.ShowReport
+	var reports []communitym.ShowReport
 	err := s.db.Preload("Show").
-		Where("status = ?", models.ShowReportStatusPending).
+		Where("status = ?", communitym.ShowReportStatusPending).
 		Order("created_at DESC").
 		Limit(limit).
 		Offset(offset).
@@ -140,7 +141,7 @@ func (s *ShowReportService) DismissReport(reportID, adminID uint, notes *string)
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.ShowReport
+	var report communitym.ShowReport
 	if err := s.db.Preload("Show").First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("report not found")
@@ -148,12 +149,12 @@ func (s *ShowReportService) DismissReport(reportID, adminID uint, notes *string)
 		return nil, fmt.Errorf("failed to get report: %w", err)
 	}
 
-	if report.Status != models.ShowReportStatusPending {
+	if report.Status != communitym.ShowReportStatusPending {
 		return nil, fmt.Errorf("report has already been reviewed")
 	}
 
 	now := time.Now().UTC()
-	report.Status = models.ShowReportStatusDismissed
+	report.Status = communitym.ShowReportStatusDismissed
 	report.ReviewedBy = &adminID
 	report.ReviewedAt = &now
 	report.AdminNotes = notes
@@ -179,7 +180,7 @@ func (s *ShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes 
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.ShowReport
+	var report communitym.ShowReport
 	if err := s.db.Preload("Show").First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("report not found")
@@ -187,14 +188,14 @@ func (s *ShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes 
 		return nil, fmt.Errorf("failed to get report: %w", err)
 	}
 
-	if report.Status != models.ShowReportStatusPending {
+	if report.Status != communitym.ShowReportStatusPending {
 		return nil, fmt.Errorf("report has already been reviewed")
 	}
 
 	// Use transaction if we're updating show flag
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		now := time.Now().UTC()
-		report.Status = models.ShowReportStatusResolved
+		report.Status = communitym.ShowReportStatusResolved
 		report.ReviewedBy = &adminID
 		report.ReviewedAt = &now
 		report.AdminNotes = notes
@@ -208,14 +209,14 @@ func (s *ShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes 
 		if setShowFlag {
 			var updateField string
 			switch report.ReportType {
-			case models.ShowReportTypeCancelled:
+			case communitym.ShowReportTypeCancelled:
 				updateField = "is_cancelled"
-			case models.ShowReportTypeSoldOut:
+			case communitym.ShowReportTypeSoldOut:
 				updateField = "is_sold_out"
 			}
 
 			if updateField != "" {
-				if err := tx.Model(&models.Show{}).
+				if err := tx.Model(&catalogm.Show{}).
 					Where("id = ?", report.ShowID).
 					Update(updateField, true).Error; err != nil {
 					return fmt.Errorf("failed to update show flag: %w", err)
@@ -239,12 +240,12 @@ func (s *ShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes 
 }
 
 // GetReportByID returns a report by ID (used for Discord notifications)
-func (s *ShowReportService) GetReportByID(reportID uint) (*models.ShowReport, error) {
+func (s *ShowReportService) GetReportByID(reportID uint) (*communitym.ShowReport, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.ShowReport
+	var report communitym.ShowReport
 	if err := s.db.Preload("Show").First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("report not found")
@@ -256,7 +257,7 @@ func (s *ShowReportService) GetReportByID(reportID uint) (*models.ShowReport, er
 }
 
 // buildReportResponse builds a contracts.ShowReportResponse from a model
-func (s *ShowReportService) buildReportResponse(report *models.ShowReport, show *models.Show) *contracts.ShowReportResponse {
+func (s *ShowReportService) buildReportResponse(report *communitym.ShowReport, show *catalogm.Show) *contracts.ShowReportResponse {
 	resp := &contracts.ShowReportResponse{
 		ID:         report.ID,
 		ShowID:     report.ShowID,

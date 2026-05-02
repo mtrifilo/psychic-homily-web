@@ -11,7 +11,8 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -68,7 +69,7 @@ var allowedEditFields = map[string]map[string]bool{
 }
 
 // canEditDirectly returns true if the user can bypass the pending queue.
-func canEditDirectly(user *models.User) bool {
+func canEditDirectly(user *authm.User) bool {
 	if user.IsAdmin {
 		return true
 	}
@@ -85,7 +86,7 @@ func canEditDirectly(user *models.User) bool {
 type SuggestEntityEditRequest struct {
 	EntityID string `path:"entity_id" doc:"Entity ID"`
 	Body     struct {
-		Changes []models.FieldChange `json:"changes" doc:"Field changes to propose"`
+		Changes []adminm.FieldChange `json:"changes" doc:"Field changes to propose"`
 		Summary string               `json:"summary" doc:"Why you are making this change"`
 	}
 }
@@ -531,7 +532,7 @@ func (h *PendingEditHandler) AdminGetEntityPendingEditsHandler(ctx context.Conte
 		return nil, err
 	}
 
-	if !models.IsValidPendingEditEntityType(req.EntityType) {
+	if !adminm.IsValidPendingEditEntityType(req.EntityType) {
 		return nil, huma.Error400BadRequest(fmt.Sprintf("Invalid entity type: %s", req.EntityType))
 	}
 

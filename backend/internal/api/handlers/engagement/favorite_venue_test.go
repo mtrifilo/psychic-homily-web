@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -26,7 +26,7 @@ func TestFavoriteVenueHandler_FavoriteVenue_NoAuth(t *testing.T) {
 
 func TestFavoriteVenueHandler_FavoriteVenue_InvalidID(t *testing.T) {
 	h := testFavoriteVenueHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &FavoriteVenueRequest{VenueID: "abc"}
 
 	_, err := h.FavoriteVenueHandler(ctx, req)
@@ -43,7 +43,7 @@ func TestFavoriteVenueHandler_FavoriteVenue_Success(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.FavoriteVenueHandler(ctx, &FavoriteVenueRequest{VenueID: "5"})
 	if err != nil {
@@ -61,7 +61,7 @@ func TestFavoriteVenueHandler_FavoriteVenue_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.FavoriteVenueHandler(ctx, &FavoriteVenueRequest{VenueID: "5"})
 	testhelpers.AssertHumaError(t, err, 422)
@@ -79,7 +79,7 @@ func TestFavoriteVenueHandler_UnfavoriteVenue_NoAuth(t *testing.T) {
 
 func TestFavoriteVenueHandler_UnfavoriteVenue_InvalidID(t *testing.T) {
 	h := testFavoriteVenueHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnfavoriteVenueRequest{VenueID: "abc"}
 
 	_, err := h.UnfavoriteVenueHandler(ctx, req)
@@ -96,7 +96,7 @@ func TestFavoriteVenueHandler_UnfavoriteVenue_Success(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.UnfavoriteVenueHandler(ctx, &UnfavoriteVenueRequest{VenueID: "5"})
 	if err != nil {
@@ -114,7 +114,7 @@ func TestFavoriteVenueHandler_UnfavoriteVenue_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UnfavoriteVenueHandler(ctx, &UnfavoriteVenueRequest{VenueID: "5"})
 	testhelpers.AssertHumaError(t, err, 422)
@@ -141,7 +141,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_Success(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetFavoriteVenuesHandler(ctx, &GetFavoriteVenuesRequest{Limit: 10})
 	if err != nil {
@@ -162,7 +162,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetFavoriteVenuesHandler(ctx, &GetFavoriteVenuesRequest{Limit: 10})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -178,7 +178,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_PaginationClamping(t *testing.T)
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	// limit=0 → 50, offset=-1 → 0
 	resp, err := h.GetFavoriteVenuesHandler(ctx, &GetFavoriteVenuesRequest{Limit: 0, Offset: -1})
@@ -214,7 +214,7 @@ func TestFavoriteVenueHandler_CheckFavorited_NoAuth(t *testing.T) {
 
 func TestFavoriteVenueHandler_CheckFavorited_InvalidID(t *testing.T) {
 	h := testFavoriteVenueHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &CheckFavoritedRequest{VenueID: "abc"}
 
 	_, err := h.CheckFavoritedHandler(ctx, req)
@@ -228,7 +228,7 @@ func TestFavoriteVenueHandler_CheckFavorited_True(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.CheckFavoritedHandler(ctx, &CheckFavoritedRequest{VenueID: "5"})
 	if err != nil {
@@ -246,7 +246,7 @@ func TestFavoriteVenueHandler_CheckFavorited_False(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.CheckFavoritedHandler(ctx, &CheckFavoritedRequest{VenueID: "5"})
 	if err != nil {
@@ -264,7 +264,7 @@ func TestFavoriteVenueHandler_CheckFavorited_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.CheckFavoritedHandler(ctx, &CheckFavoritedRequest{VenueID: "5"})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -294,7 +294,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_Success(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetFavoriteVenueShowsHandler(ctx, &GetFavoriteVenueShowsRequest{Timezone: "US/Eastern", Limit: 10})
 	if err != nil {
@@ -315,7 +315,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetFavoriteVenueShowsHandler(ctx, &GetFavoriteVenueShowsRequest{Timezone: "US/Eastern", Limit: 10})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -330,7 +330,7 @@ func TestFavoriteVenueHandler_GetFavoriteVenueShows_DefaultTimezone(t *testing.T
 		},
 	}
 	h := NewFavoriteVenueHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetFavoriteVenueShowsHandler(ctx, &GetFavoriteVenueShowsRequest{Timezone: "", Limit: 10})
 	if err != nil {

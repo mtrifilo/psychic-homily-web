@@ -10,7 +10,8 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -80,8 +81,8 @@ func TestArtistServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *ArtistServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *ArtistServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -93,8 +94,8 @@ func (suite *ArtistServiceIntegrationTestSuite) createTestUser() *models.User {
 	return user
 }
 
-func (suite *ArtistServiceIntegrationTestSuite) createTestArtist(name string) *models.Artist {
-	artist := &models.Artist{
+func (suite *ArtistServiceIntegrationTestSuite) createTestArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name: name,
 	}
 	err := suite.db.Create(artist).Error
@@ -102,8 +103,8 @@ func (suite *ArtistServiceIntegrationTestSuite) createTestArtist(name string) *m
 	return artist
 }
 
-func (suite *ArtistServiceIntegrationTestSuite) createTestVenue(name, city, state string) *models.Venue {
-	venue := &models.Venue{
+func (suite *ArtistServiceIntegrationTestSuite) createTestVenue(name, city, state string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:  name,
 		City:  city,
 		State: state,
@@ -113,24 +114,24 @@ func (suite *ArtistServiceIntegrationTestSuite) createTestVenue(name, city, stat
 	return venue
 }
 
-func (suite *ArtistServiceIntegrationTestSuite) createApprovedShowWithArtist(artistID, venueID, userID uint, eventDate time.Time) *models.Show {
-	show := &models.Show{
+func (suite *ArtistServiceIntegrationTestSuite) createApprovedShowWithArtist(artistID, venueID, userID uint, eventDate time.Time) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       fmt.Sprintf("Show-%d", time.Now().UnixNano()),
 		EventDate:   eventDate,
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 
 	// Link show to venue
-	err = suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
+	err = suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
 	suite.Require().NoError(err)
 
 	// Link show to artist
-	err = suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
+	err = suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
 	suite.Require().NoError(err)
 
 	return show
@@ -587,7 +588,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_IncludesOt
 	show := suite.createApprovedShowWithArtist(artist1.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 
 	// Also add artist2 to the same show
-	err := suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artist2.ID, Position: 1}).Error
+	err := suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist2.ID, Position: 1}).Error
 	suite.Require().NoError(err)
 
 	resp, _, err := suite.artistService.GetShowsForArtist(artist1.ID, "UTC", 10, "upcoming")
@@ -609,30 +610,30 @@ func (suite *ArtistServiceIntegrationTestSuite) TestGetShowsForArtist_ExcludesNo
 	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 
 	// Create a pending show manually
-	pendingShow := &models.Show{
+	pendingShow := &catalogm.Show{
 		Title:       "Pending Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 14),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusPending,
+		Status:      catalogm.ShowStatusPending,
 		SubmittedBy: &user.ID,
 	}
 	suite.db.Create(pendingShow)
-	suite.db.Create(&models.ShowVenue{ShowID: pendingShow.ID, VenueID: venue.ID})
-	suite.db.Create(&models.ShowArtist{ShowID: pendingShow.ID, ArtistID: artist.ID, Position: 0})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: pendingShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowArtist{ShowID: pendingShow.ID, ArtistID: artist.ID, Position: 0})
 
 	// Create a rejected show
-	rejectedShow := &models.Show{
+	rejectedShow := &catalogm.Show{
 		Title:       "Rejected Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 21),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusRejected,
+		Status:      catalogm.ShowStatusRejected,
 		SubmittedBy: &user.ID,
 	}
 	suite.db.Create(rejectedShow)
-	suite.db.Create(&models.ShowVenue{ShowID: rejectedShow.ID, VenueID: venue.ID})
-	suite.db.Create(&models.ShowArtist{ShowID: rejectedShow.ID, ArtistID: artist.ID, Position: 0})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: rejectedShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowArtist{ShowID: rejectedShow.ID, ArtistID: artist.ID, Position: 0})
 
 	resp, total, err := suite.artistService.GetShowsForArtist(artist.ID, "UTC", 10, "upcoming")
 
@@ -958,7 +959,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_ShowConflictDed
 
 	// Both artists are on the same show
 	show := suite.createApprovedShowWithArtist(canonical.ID, venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
-	suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: mergeFrom.ID, Position: 1})
+	suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: mergeFrom.ID, Position: 1})
 
 	result, err := suite.artistService.MergeArtists(canonical.ID, mergeFrom.ID)
 
@@ -968,7 +969,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_ShowConflictDed
 
 	// Verify show still has exactly 1 artist (canonical)
 	var count int64
-	suite.db.Model(&models.ShowArtist{}).Where("show_id = ?", show.ID).Count(&count)
+	suite.db.Model(&catalogm.ShowArtist{}).Where("show_id = ?", show.ID).Count(&count)
 	suite.Equal(int64(1), count)
 }
 

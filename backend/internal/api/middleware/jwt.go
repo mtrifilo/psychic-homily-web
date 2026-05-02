@@ -13,9 +13,9 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
-	"psychic-homily-backend/internal/services/auth"
+	authm "psychic-homily-backend/internal/models/auth"
 	adminsvc "psychic-homily-backend/internal/services/admin"
+	"psychic-homily-backend/internal/services/auth"
 )
 
 type contextKey string
@@ -172,7 +172,7 @@ func HumaJWTMiddleware(jwtService *auth.JWTService, sessionConfig ...config.Sess
 			"source", tokenSource,
 		)
 
-		var user *models.User
+		var user *authm.User
 
 		// Check if this is an API token (starts with "phk_")
 		if strings.HasPrefix(token, APITokenPrefix) {
@@ -340,7 +340,7 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 			return
 		}
 
-		var user *models.User
+		var user *authm.User
 
 		if strings.HasPrefix(token, APITokenPrefix) {
 			apiUser, _, err := apiTokenService.ValidateToken(token)
@@ -370,8 +370,8 @@ func OptionalHumaJWTMiddleware(jwtService *auth.JWTService) func(ctx huma.Contex
 }
 
 // GetUserFromContext extracts user from request context
-func GetUserFromContext(ctx context.Context) *models.User {
-	if user, ok := ctx.Value(UserContextKey).(*models.User); ok {
+func GetUserFromContext(ctx context.Context) *authm.User {
+	if user, ok := ctx.Value(UserContextKey).(*authm.User); ok {
 		return user
 	}
 	return nil

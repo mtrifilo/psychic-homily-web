@@ -10,7 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -318,7 +318,7 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 	// Fire-and-forget: match notification filters for this newly approved show
 	if h.notificationFilterService != nil {
 		go func() {
-			showModel := &models.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
+			showModel := &catalogm.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
 			if show.City != nil {
 				showModel.City = show.City
 			}
@@ -424,7 +424,7 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 				if err != nil || show == nil {
 					continue
 				}
-				showModel := &models.Show{ID: showID, Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
+				showModel := &catalogm.Show{ID: showID, Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
 				if show.City != nil {
 					showModel.City = show.City
 				}

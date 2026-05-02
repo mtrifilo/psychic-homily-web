@@ -53,11 +53,11 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 
 func TestSqlString_EscapesApostrophes(t *testing.T) {
 	cases := map[string]string{
-		"hello":          "'hello'",
+		"hello":           "'hello'",
 		"KEXP's flagship": "'KEXP''s flagship'",
-		"don't":          "'don''t'",
-		"o'b'r'ien":      "'o''b''r''ien'",
-		"":               "''",
+		"don't":           "'don''t'",
+		"o'b'r'ien":       "'o''b''r''ien'",
+		"":                "''",
 	}
 	for in, want := range cases {
 		if got := sqlString(in); got != want {

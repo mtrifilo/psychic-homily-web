@@ -16,12 +16,12 @@ func TestSecurityHeaders_DefaultHeaders(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	expected := map[string]string{
-		"X-Content-Type-Options":          "nosniff",
-		"X-Frame-Options":                 "DENY",
-		"X-Xss-Protection":               "1; mode=block",
-		"Referrer-Policy":                 "strict-origin-when-cross-origin",
-		"Permissions-Policy":              "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
-		"Content-Security-Policy":         "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
+		"X-Content-Type-Options":            "nosniff",
+		"X-Frame-Options":                   "DENY",
+		"X-Xss-Protection":                  "1; mode=block",
+		"Referrer-Policy":                   "strict-origin-when-cross-origin",
+		"Permissions-Policy":                "geolocation=(), microphone=(), camera=(), payment=(), usb=()",
+		"Content-Security-Policy":           "default-src 'none'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'",
 		"X-Permitted-Cross-Domain-Policies": "none",
 	}
 

@@ -10,7 +10,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -37,7 +38,6 @@ func NewAPITokenService(database *gorm.DB) *APITokenService {
 		db: database,
 	}
 }
-
 
 // generateToken creates a cryptographically secure random token
 func generateToken() (string, error) {
@@ -74,7 +74,7 @@ func (s *APITokenService) CreateToken(userID uint, description *string, expirati
 	tokenHash := hashToken(plainToken)
 
 	// Create the token record
-	token := &models.APIToken{
+	token := &adminm.APIToken{
 		UserID:      userID,
 		TokenHash:   tokenHash,
 		Description: description,
@@ -97,7 +97,7 @@ func (s *APITokenService) CreateToken(userID uint, description *string, expirati
 }
 
 // ValidateToken checks if a token is valid and returns the associated user
-func (s *APITokenService) ValidateToken(plainToken string) (*models.User, *models.APIToken, error) {
+func (s *APITokenService) ValidateToken(plainToken string) (*authm.User, *adminm.APIToken, error) {
 	if s.db == nil {
 		return nil, nil, fmt.Errorf("database not initialized")
 	}
@@ -106,7 +106,7 @@ func (s *APITokenService) ValidateToken(plainToken string) (*models.User, *model
 	tokenHash := hashToken(plainToken)
 
 	// Look up the token
-	var token models.APIToken
+	var token adminm.APIToken
 	err := s.db.Preload("User").Where("token_hash = ?", tokenHash).First(&token).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -149,7 +149,7 @@ func (s *APITokenService) ListTokens(userID uint) ([]contracts.APITokenResponse,
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var tokens []models.APIToken
+	var tokens []adminm.APIToken
 	err := s.db.Where("user_id = ? AND revoked_at IS NULL", userID).
 		Order("created_at DESC").
 		Find(&tokens).Error
@@ -180,7 +180,7 @@ func (s *APITokenService) RevokeToken(userID uint, tokenID uint) error {
 	}
 
 	now := time.Now()
-	result := s.db.Model(&models.APIToken{}).
+	result := s.db.Model(&adminm.APIToken{}).
 		Where("id = ? AND user_id = ? AND revoked_at IS NULL", tokenID, userID).
 		Update("revoked_at", now)
 
@@ -201,7 +201,7 @@ func (s *APITokenService) GetToken(userID uint, tokenID uint) (*contracts.APITok
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var token models.APIToken
+	var token adminm.APIToken
 	err := s.db.Where("id = ? AND user_id = ?", tokenID, userID).First(&token).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -233,7 +233,7 @@ func (s *APITokenService) CleanupExpiredTokens() (int64, error) {
 	result := s.db.Where(
 		"(expires_at < ? AND expires_at < ?) OR (revoked_at IS NOT NULL AND revoked_at < ?)",
 		time.Now(), cutoff, cutoff,
-	).Delete(&models.APIToken{})
+	).Delete(&adminm.APIToken{})
 
 	if result.Error != nil {
 		return 0, fmt.Errorf("failed to cleanup expired tokens: %w", result.Error)

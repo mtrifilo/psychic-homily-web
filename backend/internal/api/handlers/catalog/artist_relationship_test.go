@@ -5,7 +5,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -145,7 +145,7 @@ func TestCreateRelationship_NoAuth(t *testing.T) {
 
 func TestCreateRelationship_MissingSourceID(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &CreateRelationshipRequest{}
 	req.Body.TargetArtistID = 2
 	req.Body.Type = "similar"
@@ -156,7 +156,7 @@ func TestCreateRelationship_MissingSourceID(t *testing.T) {
 
 func TestCreateRelationship_MissingType(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &CreateRelationshipRequest{}
 	req.Body.SourceArtistID = 1
 	req.Body.TargetArtistID = 2
@@ -179,7 +179,7 @@ func TestVote_NoAuth(t *testing.T) {
 
 func TestVote_InvalidSourceID(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteRelationshipRequest{SourceID: "abc", TargetID: "2"}
 	req.Body.Type = "similar"
 
@@ -189,7 +189,7 @@ func TestVote_InvalidSourceID(t *testing.T) {
 
 func TestVote_InvalidTargetID(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteRelationshipRequest{SourceID: "1", TargetID: "abc"}
 	req.Body.Type = "similar"
 
@@ -199,7 +199,7 @@ func TestVote_InvalidTargetID(t *testing.T) {
 
 func TestVote_MissingType(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteRelationshipRequest{SourceID: "1", TargetID: "2"}
 
 	_, err := h.VoteHandler(ctx, req)
@@ -218,7 +218,7 @@ func TestRemoveVote_NoAuth(t *testing.T) {
 
 func TestRemoveVote_MissingType(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &RemoveRelationshipVoteRequest{SourceID: "1", TargetID: "2"}
 
 	_, err := h.RemoveVoteHandler(ctx, req)
@@ -237,7 +237,7 @@ func TestDeleteRelationship_NoAuth(t *testing.T) {
 
 func TestDeleteRelationship_NonAdmin(t *testing.T) {
 	h := testArtistRelationshipHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &DeleteRelationshipRequest{SourceID: "1", TargetID: "2", Type: "similar"}
 
 	_, err := h.DeleteRelationshipHandler(ctx, req)
