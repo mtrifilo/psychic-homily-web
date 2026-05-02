@@ -12,7 +12,7 @@ const (
 	CodeCollectionItemNotFound   = "COLLECTION_ITEM_NOT_FOUND"
 	CodeCollectionInvalidRequest = "COLLECTION_INVALID_REQUEST"
 	// CodeCollectionTagLimitExceeded is returned when a curator tries to add
-	// an 11th tag to a collection (PSY-354). Maps to HTTP 400.
+	// an 11th tag to a collection (PSY-354). Maps to HTTP 422 (PSY-524).
 	CodeCollectionTagLimitExceeded = "COLLECTION_TAG_LIMIT_EXCEEDED"
 )
 
@@ -72,7 +72,7 @@ func ErrCollectionItemNotFound(itemID uint) *CollectionError {
 
 // ErrCollectionInvalidRequest creates an invalid-request error for the
 // collection domain (bad enum value, malformed input, etc.). The message is
-// surfaced verbatim to the API caller as a 400.
+// surfaced verbatim to the API caller as a 422 (PSY-524).
 func ErrCollectionInvalidRequest(message string) *CollectionError {
 	return &CollectionError{
 		Code:    CodeCollectionInvalidRequest,
@@ -81,8 +81,8 @@ func ErrCollectionInvalidRequest(message string) *CollectionError {
 }
 
 // ErrCollectionTagLimitExceeded creates an error for the collection-tag cap
-// (PSY-354). Surfaced verbatim to the caller as a 400 so the curator UI can
-// show the cap and current count.
+// (PSY-354). Surfaced verbatim to the caller as a 422 (PSY-524) so the
+// curator UI can show the cap and current count.
 func ErrCollectionTagLimitExceeded(currentCount, maxAllowed int) *CollectionError {
 	return &CollectionError{
 		Code: CodeCollectionTagLimitExceeded,

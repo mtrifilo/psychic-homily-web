@@ -177,7 +177,7 @@ func TestListRadioShows_MissingStationID(t *testing.T) {
 	mock := &testhelpers.MockRadioService{}
 	h := testRadioHandler(mock)
 	_, err := h.ListRadioShowsHandler(context.Background(), &ListRadioShowsRequest{StationID: 0})
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -640,7 +640,7 @@ func TestAdminCreateRadioStation_MissingName(t *testing.T) {
 	req.Body.BroadcastType = "both"
 
 	_, err := h.AdminCreateRadioStationHandler(radioAdminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminCreateRadioStation_MissingBroadcastType(t *testing.T) {
@@ -650,7 +650,7 @@ func TestAdminCreateRadioStation_MissingBroadcastType(t *testing.T) {
 	req.Body.Name = "KEXP"
 
 	_, err := h.AdminCreateRadioStationHandler(radioAdminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminCreateRadioStation_ServiceError(t *testing.T) {
@@ -775,7 +775,7 @@ func TestAdminCreateRadioShow_MissingName(t *testing.T) {
 	req := &AdminCreateRadioShowRequest{StationID: 1}
 
 	_, err := h.AdminCreateRadioShowHandler(radioAdminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminCreateRadioShow_StationNotFound(t *testing.T) {
@@ -1027,7 +1027,7 @@ func TestAdminCreateImportJob_MissingSince(t *testing.T) {
 	req.Body.Until = "2025-12-31"
 
 	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminCreateImportJob_MissingUntil(t *testing.T) {
@@ -1038,7 +1038,7 @@ func TestAdminCreateImportJob_MissingUntil(t *testing.T) {
 	req.Body.Until = ""
 
 	_, err := h.AdminCreateImportJobHandler(radioAdminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminCreateImportJob_ServiceError(t *testing.T) {

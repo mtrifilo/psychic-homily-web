@@ -203,7 +203,7 @@ func (h *TestFixtureHandler) Reset(ctx context.Context, req *ResetTestFixturesRe
 
 	// Defense 4: require the test header independent of auth.
 	if req.TestFixturesToken != "1" {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("%s header is required", TestFixturesHeader))
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("%s header is required", TestFixturesHeader))
 	}
 
 	// Defense 3: admin only. Route lives on the rc.Admin group (PSY-423) so
@@ -212,11 +212,11 @@ func (h *TestFixtureHandler) Reset(ctx context.Context, req *ResetTestFixturesRe
 	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.Tables) == 0 {
-		return nil, huma.Error400BadRequest("tables: at least one scope is required")
+		return nil, huma.Error422UnprocessableEntity("tables: at least one scope is required")
 	}
 
 	// Validate each requested scope against the allowlist before doing any DB
-	// work. Unknown -> 400, no partial work.
+	// work. Unknown -> 422, no partial work.
 	scopes := make([]testFixtureScope, 0, len(req.Body.Tables))
 	for _, name := range req.Body.Tables {
 		scope, ok := testFixtureScopeByName(name)
@@ -225,7 +225,7 @@ func (h *TestFixtureHandler) Reset(ctx context.Context, req *ResetTestFixturesRe
 			for _, s := range testFixtureAllowlist {
 				known = append(known, s.displayName)
 			}
-			return nil, huma.Error400BadRequest(fmt.Sprintf(
+			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf(
 				"unknown table %q; allowed: %s", name, strings.Join(known, ", "),
 			))
 		}

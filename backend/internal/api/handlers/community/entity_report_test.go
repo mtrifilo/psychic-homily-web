@@ -63,7 +63,7 @@ func TestReportEntity_EmptyReportType(t *testing.T) {
 	req := &ReportEntityRequest{EntityID: "1"}
 	req.Body.ReportType = ""
 	_, err := h.ReportArtistHandler(entityReportUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestReportEntity_InvalidReportType(t *testing.T) {
@@ -71,7 +71,7 @@ func TestReportEntity_InvalidReportType(t *testing.T) {
 	req := &ReportEntityRequest{EntityID: "1"}
 	req.Body.ReportType = "cancelled" // not valid for artist
 	_, err := h.ReportArtistHandler(entityReportUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================

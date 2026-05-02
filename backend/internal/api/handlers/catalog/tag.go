@@ -61,7 +61,7 @@ func (h *TagHandler) ListTagsHandler(ctx context.Context, req *ListTagsRequest) 
 	}
 
 	if req.EntityType != "" && !catalogm.IsValidTagEntityType(req.EntityType) {
-		return nil, huma.Error400BadRequest("Invalid entity_type")
+		return nil, huma.Error422UnprocessableEntity("Invalid entity_type")
 	}
 
 	tags, total, err := h.tagService.ListTags(req.Category, req.Search, parentID, req.Sort, req.Limit, req.Offset, req.EntityType)
@@ -192,7 +192,7 @@ type SearchTagsResponse struct {
 
 func (h *TagHandler) SearchTagsHandler(ctx context.Context, req *SearchTagsRequest) (*SearchTagsResponse, error) {
 	if req.Query == "" {
-		return nil, huma.Error400BadRequest("Query parameter 'q' is required")
+		return nil, huma.Error422UnprocessableEntity("Query parameter 'q' is required")
 	}
 
 	results, err := h.tagService.SearchTags(req.Query, req.Limit, req.Category)
@@ -282,7 +282,7 @@ func (h *TagHandler) AddTagToEntityHandler(ctx context.Context, req *AddTagToEnt
 	}
 
 	if req.Body.TagID == 0 && req.Body.TagName == "" {
-		return nil, huma.Error400BadRequest("Either tag_id or tag_name is required")
+		return nil, huma.Error422UnprocessableEntity("Either tag_id or tag_name is required")
 	}
 
 	_, err = h.tagService.AddTagToEntity(req.Body.TagID, req.Body.TagName, req.EntityType, uint(entityID), user.ID, req.Body.Category)
@@ -439,10 +439,10 @@ func (h *TagHandler) CreateTagHandler(ctx context.Context, req *CreateTagRequest
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
-		return nil, huma.Error400BadRequest("Name is required")
+		return nil, huma.Error422UnprocessableEntity("Name is required")
 	}
 	if req.Body.Category == "" {
-		return nil, huma.Error400BadRequest("Category is required")
+		return nil, huma.Error422UnprocessableEntity("Category is required")
 	}
 
 	tag, err := h.tagService.CreateTag(req.Body.Name, req.Body.Description, req.Body.ParentID, req.Body.Category, req.Body.IsOfficial, &user.ID)
@@ -622,7 +622,7 @@ func (h *TagHandler) CreateAliasHandler(ctx context.Context, req *CreateAliasReq
 	}
 
 	if req.Body.Alias == "" {
-		return nil, huma.Error400BadRequest("Alias is required")
+		return nil, huma.Error422UnprocessableEntity("Alias is required")
 	}
 
 	alias, err := h.tagService.CreateAlias(uint(id), req.Body.Alias)
@@ -734,7 +734,7 @@ func (h *TagHandler) MergeTagsPreviewHandler(ctx context.Context, req *MergeTags
 		return nil, huma.Error400BadRequest("Invalid source tag ID")
 	}
 	if req.TargetID == 0 {
-		return nil, huma.Error400BadRequest("target_id is required")
+		return nil, huma.Error422UnprocessableEntity("target_id is required")
 	}
 
 	preview, err := h.tagService.PreviewMergeTags(uint(sourceID), req.TargetID)
@@ -772,7 +772,7 @@ func (h *TagHandler) MergeTagsHandler(ctx context.Context, req *MergeTagsRequest
 		return nil, huma.Error400BadRequest("Invalid source tag ID")
 	}
 	if req.Body.TargetID == 0 {
-		return nil, huma.Error400BadRequest("target_id is required")
+		return nil, huma.Error422UnprocessableEntity("target_id is required")
 	}
 
 	result, err := h.tagService.MergeTags(uint(sourceID), req.Body.TargetID, user.ID)
@@ -813,10 +813,10 @@ func (h *TagHandler) BulkImportAliasesHandler(ctx context.Context, req *BulkImpo
 	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.Items) == 0 {
-		return nil, huma.Error400BadRequest("items is required and must not be empty")
+		return nil, huma.Error422UnprocessableEntity("items is required and must not be empty")
 	}
 	if len(req.Body.Items) > maxBulkAliasImportRows {
-		return nil, huma.Error400BadRequest(
+		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("items exceeds max of %d rows", maxBulkAliasImportRows),
 		)
 	}
@@ -912,10 +912,10 @@ func (h *TagHandler) BulkLowQualityTagsHandler(ctx context.Context, req *BulkLow
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Action == "" {
-		return nil, huma.Error400BadRequest("action is required")
+		return nil, huma.Error422UnprocessableEntity("action is required")
 	}
 	if len(req.Body.TagIDs) == 0 {
-		return nil, huma.Error400BadRequest("tag_ids is required and must not be empty")
+		return nil, huma.Error422UnprocessableEntity("tag_ids is required and must not be empty")
 	}
 
 	result, err := h.tagService.BulkActionLowQualityTags(req.Body.Action, req.Body.TagIDs)

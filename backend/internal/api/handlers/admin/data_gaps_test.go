@@ -254,7 +254,7 @@ func TestDataGapsHandler_InvalidEntityType(t *testing.T) {
 		EntityType: "invalid",
 		IDOrSlug:   "something",
 	})
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestDataGapsHandler_Unauthenticated(t *testing.T) {

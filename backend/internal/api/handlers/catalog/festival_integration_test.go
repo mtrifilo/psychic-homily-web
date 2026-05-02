@@ -169,7 +169,7 @@ func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_EmptyName() {
 	req.Body.EndDate = "2026-06-03"
 
 	_, err := s.handler.CreateFestivalHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_MissingSeriesSlug() {
@@ -184,7 +184,7 @@ func (s *FestivalHandlerIntegrationSuite) TestCreateFestival_MissingSeriesSlug()
 	req.Body.EndDate = "2026-06-03"
 
 	_, err := s.handler.CreateFestivalHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // --- UpdateFestivalHandler ---
@@ -305,7 +305,7 @@ func (s *FestivalHandlerIntegrationSuite) TestAddFestivalArtist_MissingArtistID(
 	req.Body.ArtistID = 0
 
 	_, err := s.handler.AddFestivalArtistHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // --- UpdateFestivalArtistHandler ---
@@ -423,7 +423,7 @@ func (s *FestivalHandlerIntegrationSuite) TestAddFestivalVenue_MissingVenueID() 
 	req.Body.VenueID = 0
 
 	_, err := s.handler.AddFestivalVenueHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // --- RemoveFestivalVenueHandler ---

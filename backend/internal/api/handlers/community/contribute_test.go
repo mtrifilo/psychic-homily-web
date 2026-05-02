@@ -186,7 +186,7 @@ func TestContributeHandler_Category_InvalidCategory(t *testing.T) {
 	_, err := h.GetOpportunityCategoryHandler(context.Background(), &GetOpportunityCategoryRequest{
 		Category: "nonexistent",
 	})
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestContributeHandler_Category_ServiceError(t *testing.T) {

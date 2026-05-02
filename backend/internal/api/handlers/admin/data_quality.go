@@ -109,7 +109,7 @@ func (h *DataQualityHandler) GetDataQualityCategoryHandler(ctx context.Context, 
 	if err != nil {
 		// Check if it's an unknown category error
 		if err.Error() == "unknown category: "+req.Category {
-			return nil, huma.Error400BadRequest("Unknown data quality category: " + req.Category)
+			return nil, huma.Error422UnprocessableEntity("Unknown data quality category: " + req.Category)
 		}
 		logger.FromContext(ctx).Error("data_quality_category_failed",
 			"category", req.Category,

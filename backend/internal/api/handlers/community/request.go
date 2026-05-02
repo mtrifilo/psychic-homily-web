@@ -59,10 +59,10 @@ func (h *RequestHandler) CreateRequestHandler(ctx context.Context, req *CreateRe
 	}
 
 	if req.Body.Title == "" {
-		return nil, huma.Error400BadRequest("Title is required")
+		return nil, huma.Error422UnprocessableEntity("Title is required")
 	}
 	if req.Body.EntityType == "" {
-		return nil, huma.Error400BadRequest("Entity type is required")
+		return nil, huma.Error422UnprocessableEntity("Entity type is required")
 	}
 
 	description := ""

@@ -185,7 +185,7 @@ func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelR
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
-		return nil, huma.Error400BadRequest("Name is required")
+		return nil, huma.Error422UnprocessableEntity("Name is required")
 	}
 
 	// PSY-525: URL scheme validation (http/https only) for social URL fields.
@@ -291,7 +291,7 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 	}
 
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
-		return nil, huma.Error400BadRequest("Image URL must be 2048 characters or fewer")
+		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 	}
 	// PSY-525: URL scheme validation (http/https only) for image_url + social URL fields.
 	if err := validateImageURL(req.Body.ImageURL); err != nil {
@@ -595,7 +595,7 @@ func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArti
 	}
 
 	if req.Body.ArtistID == 0 {
-		return nil, huma.Error400BadRequest("artist_id is required")
+		return nil, huma.Error422UnprocessableEntity("artist_id is required")
 	}
 
 	err = h.labelService.AddArtistToLabel(labelID, req.Body.ArtistID)
@@ -667,7 +667,7 @@ func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddRel
 	}
 
 	if req.Body.ReleaseID == 0 {
-		return nil, huma.Error400BadRequest("release_id is required")
+		return nil, huma.Error422UnprocessableEntity("release_id is required")
 	}
 
 	err = h.labelService.AddReleaseToLabel(labelID, req.Body.ReleaseID, req.Body.CatalogNumber)

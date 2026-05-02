@@ -355,12 +355,12 @@ func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *Admin
 	// Validate name
 	name := strings.TrimSpace(req.Body.Name)
 	if name == "" {
-		return nil, huma.Error400BadRequest("Artist name cannot be empty")
+		return nil, huma.Error422UnprocessableEntity("Artist name cannot be empty")
 	}
 
 	// Validate description length if provided
 	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
-		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
+		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
 	}
 
 	// PSY-525: URL scheme validation (http/https only) for social URL fields.
@@ -475,7 +475,7 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 	// Validate URL format if provided and not empty
 	if req.Body.BandcampEmbedURL != nil && *req.Body.BandcampEmbedURL != "" {
 		if !isValidBandcampURL(*req.Body.BandcampEmbedURL) {
-			return nil, huma.Error400BadRequest("Invalid Bandcamp URL format. URL must be a bandcamp.com album or track URL.")
+			return nil, huma.Error422UnprocessableEntity("Invalid Bandcamp URL format. URL must be a bandcamp.com album or track URL.")
 		}
 	}
 
@@ -612,7 +612,7 @@ func (h *ArtistHandler) UpdateArtistSpotifyHandler(ctx context.Context, req *Upd
 	// Validate URL format if provided and not empty
 	if req.Body.SpotifyURL != nil && *req.Body.SpotifyURL != "" {
 		if !isValidSpotifyURL(*req.Body.SpotifyURL) {
-			return nil, huma.Error400BadRequest("Invalid Spotify URL format. URL must be in format: open.spotify.com/artist/{id}")
+			return nil, huma.Error422UnprocessableEntity("Invalid Spotify URL format. URL must be in format: open.spotify.com/artist/{id}")
 		}
 	}
 
@@ -778,12 +778,12 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 
 	// Validate name if provided
 	if req.Body.Name != nil && strings.TrimSpace(*req.Body.Name) == "" {
-		return nil, huma.Error400BadRequest("Artist name cannot be empty")
+		return nil, huma.Error422UnprocessableEntity("Artist name cannot be empty")
 	}
 
 	// Validate description length if provided
 	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
-		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
+		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
 	}
 
 	// PSY-525: URL scheme validation (http/https only) for social URL fields.
@@ -843,7 +843,7 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	}
 
 	if len(updates) == 0 {
-		return nil, huma.Error400BadRequest("No fields to update")
+		return nil, huma.Error422UnprocessableEntity("No fields to update")
 	}
 
 	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
@@ -1058,7 +1058,7 @@ func (h *ArtistHandler) AddArtistAliasHandler(ctx context.Context, req *AddArtis
 	}
 
 	if strings.TrimSpace(req.Body.Alias) == "" {
-		return nil, huma.Error400BadRequest("Alias cannot be empty")
+		return nil, huma.Error422UnprocessableEntity("Alias cannot be empty")
 	}
 
 	alias, err := h.artistService.AddArtistAlias(uint(artistID), req.Body.Alias)
@@ -1157,7 +1157,7 @@ func (h *ArtistHandler) MergeArtistsHandler(ctx context.Context, req *MergeArtis
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.CanonicalArtistID == 0 || req.Body.MergeFromArtistID == 0 {
-		return nil, huma.Error400BadRequest("Both canonical_artist_id and merge_from_artist_id are required")
+		return nil, huma.Error422UnprocessableEntity("Both canonical_artist_id and merge_from_artist_id are required")
 	}
 
 	result, err := h.artistService.MergeArtists(req.Body.CanonicalArtistID, req.Body.MergeFromArtistID)
@@ -1167,7 +1167,7 @@ func (h *ArtistHandler) MergeArtistsHandler(ctx context.Context, req *MergeArtis
 			return nil, huma.Error404NotFound("Artist not found")
 		}
 		if strings.Contains(err.Error(), "cannot merge an artist with itself") {
-			return nil, huma.Error400BadRequest("Cannot merge an artist with itself")
+			return nil, huma.Error422UnprocessableEntity("Cannot merge an artist with itself")
 		}
 		logger.FromContext(ctx).Error("merge_artists_failed",
 			"canonical_id", req.Body.CanonicalArtistID,

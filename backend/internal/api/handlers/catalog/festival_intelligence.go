@@ -166,11 +166,11 @@ type GetSeriesComparisonRequest struct {
 
 func (h *FestivalIntelligenceHandler) GetSeriesComparisonHandler(ctx context.Context, req *GetSeriesComparisonRequest) (*shared.BodyResponse[*contracts.SeriesComparison], error) {
 	if req.SeriesSlug == "" {
-		return nil, huma.Error400BadRequest("Series slug is required")
+		return nil, huma.Error422UnprocessableEntity("Series slug is required")
 	}
 
 	if req.Years == "" {
-		return nil, huma.Error400BadRequest("Years parameter is required (comma-separated)")
+		return nil, huma.Error422UnprocessableEntity("Years parameter is required (comma-separated)")
 	}
 
 	yearStrs := strings.Split(req.Years, ",")
@@ -185,7 +185,7 @@ func (h *FestivalIntelligenceHandler) GetSeriesComparisonHandler(ctx context.Con
 	}
 
 	if len(years) < 2 {
-		return nil, huma.Error400BadRequest("At least 2 years required for comparison")
+		return nil, huma.Error422UnprocessableEntity("At least 2 years required for comparison")
 	}
 
 	comparison, err := h.intelligenceService.GetSeriesComparison(req.SeriesSlug, years)
@@ -194,7 +194,7 @@ func (h *FestivalIntelligenceHandler) GetSeriesComparisonHandler(ctx context.Con
 			return nil, huma.Error404NotFound(err.Error())
 		}
 		if strings.Contains(err.Error(), "at least 2 years") {
-			return nil, huma.Error400BadRequest(err.Error())
+			return nil, huma.Error422UnprocessableEntity(err.Error())
 		}
 		return nil, huma.Error500InternalServerError("Failed to compute series comparison", err)
 	}

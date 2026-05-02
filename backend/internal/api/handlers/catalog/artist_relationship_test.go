@@ -151,7 +151,7 @@ func TestCreateRelationship_MissingSourceID(t *testing.T) {
 	req.Body.Type = "similar"
 
 	_, err := h.CreateRelationshipHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestCreateRelationship_MissingType(t *testing.T) {
@@ -162,7 +162,7 @@ func TestCreateRelationship_MissingType(t *testing.T) {
 	req.Body.TargetArtistID = 2
 
 	_, err := h.CreateRelationshipHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- VoteHandler ---
@@ -203,7 +203,7 @@ func TestVote_MissingType(t *testing.T) {
 	req := &VoteRelationshipRequest{SourceID: "1", TargetID: "2"}
 
 	_, err := h.VoteHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- RemoveVoteHandler ---
@@ -222,7 +222,7 @@ func TestRemoveVote_MissingType(t *testing.T) {
 	req := &RemoveRelationshipVoteRequest{SourceID: "1", TargetID: "2"}
 
 	_, err := h.RemoveVoteHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- splitAndTrim ---

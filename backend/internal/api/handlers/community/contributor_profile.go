@@ -367,7 +367,7 @@ func (h *ContributorProfileHandler) UpdateProfileVisibilityHandler(ctx context.C
 
 	visibility := req.Body.Visibility
 	if visibility != "public" && visibility != "private" {
-		return nil, huma.Error400BadRequest("Visibility must be 'public' or 'private'")
+		return nil, huma.Error422UnprocessableEntity("Visibility must be 'public' or 'private'")
 	}
 
 	_, err := h.userService.UpdateUser(user.ID, map[string]any{
@@ -417,7 +417,7 @@ func (h *ContributorProfileHandler) UpdatePrivacySettingsHandler(ctx context.Con
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		return nil, huma.Error400BadRequest(err.Error())
+		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 
 	logger.FromContext(ctx).Info("privacy_settings_updated", "user_id", user.ID)
@@ -541,7 +541,7 @@ func (h *ContributorProfileHandler) CreateSectionHandler(ctx context.Context, re
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		return nil, huma.Error400BadRequest(err.Error())
+		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 
 	logger.FromContext(ctx).Info("profile_section_created",
@@ -581,7 +581,7 @@ func (h *ContributorProfileHandler) UpdateSectionHandler(ctx context.Context, re
 	}
 
 	if len(updates) == 0 {
-		return nil, huma.Error400BadRequest("No fields to update")
+		return nil, huma.Error422UnprocessableEntity("No fields to update")
 	}
 
 	section, err := h.profileService.UpdateSection(user.ID, uint(sectionID), updates)
@@ -595,7 +595,7 @@ func (h *ContributorProfileHandler) UpdateSectionHandler(ctx context.Context, re
 		if err.Error() == "profile section not found" {
 			return nil, huma.Error404NotFound("Profile section not found")
 		}
-		return nil, huma.Error400BadRequest(err.Error())
+		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 
 	logger.FromContext(ctx).Info("profile_section_updated",

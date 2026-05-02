@@ -157,28 +157,28 @@ func (s *TestFixturesSuite) TestReset_HappyPath_DeletesAllowlistedScopes() {
 	// predicate + this row count going to zero without side effects.
 }
 
-func (s *TestFixturesSuite) TestReset_HeaderMissing_Returns400() {
+func (s *TestFixturesSuite) TestReset_HeaderMissing_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)
 	_, err := s.call(admin, target.ID, []string{"user_bookmarks"}, "")
 	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
-func (s *TestFixturesSuite) TestReset_HeaderWrongValue_Returns400() {
+func (s *TestFixturesSuite) TestReset_HeaderWrongValue_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)
 	_, err := s.call(admin, target.ID, []string{"user_bookmarks"}, "yes")
 	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
-func (s *TestFixturesSuite) TestReset_UnknownTable_Returns400() {
+func (s *TestFixturesSuite) TestReset_UnknownTable_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)
 	_, err := s.call(admin, target.ID, []string{"user_bookmarks", "totally_unknown_table"}, "1")
 	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 
 	// Even partially-valid request: no DB work should happen. Seed then
 	// confirm nothing was deleted.
@@ -213,12 +213,12 @@ func (s *TestFixturesSuite) TestReset_UnknownUser_Returns404() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
-func (s *TestFixturesSuite) TestReset_EmptyTables_Returns400() {
+func (s *TestFixturesSuite) TestReset_EmptyTables_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)
 	_, err := s.call(admin, target.ID, []string{}, "1")
 	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TestFixturesSuite) TestReset_PendingShowsScope_PreservesApproved() {

@@ -227,7 +227,7 @@ type ListRadioShowsResponse struct {
 // ListRadioShowsHandler handles GET /radio-shows
 func (h *RadioHandler) ListRadioShowsHandler(ctx context.Context, req *ListRadioShowsRequest) (*ListRadioShowsResponse, error) {
 	if req.StationID == 0 {
-		return nil, huma.Error400BadRequest("station_id query parameter is required")
+		return nil, huma.Error422UnprocessableEntity("station_id query parameter is required")
 	}
 
 	shows, err := h.showReader.ListShows(req.StationID)
@@ -620,10 +620,10 @@ func (h *RadioHandler) AdminCreateRadioStationHandler(ctx context.Context, req *
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
-		return nil, huma.Error400BadRequest("Name is required")
+		return nil, huma.Error422UnprocessableEntity("Name is required")
 	}
 	if req.Body.BroadcastType == "" {
-		return nil, huma.Error400BadRequest("Broadcast type is required")
+		return nil, huma.Error422UnprocessableEntity("Broadcast type is required")
 	}
 
 	serviceReq := &contracts.CreateRadioStationRequest{
@@ -847,7 +847,7 @@ func (h *RadioHandler) AdminCreateRadioShowHandler(ctx context.Context, req *Adm
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
-		return nil, huma.Error400BadRequest("Name is required")
+		return nil, huma.Error422UnprocessableEntity("Name is required")
 	}
 
 	serviceReq := &contracts.CreateRadioShowRequest{
@@ -1217,10 +1217,10 @@ func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *Admin
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.ArtistName == "" {
-		return nil, huma.Error400BadRequest("artist_name is required")
+		return nil, huma.Error422UnprocessableEntity("artist_name is required")
 	}
 	if req.Body.ArtistID == 0 {
-		return nil, huma.Error400BadRequest("artist_id is required")
+		return nil, huma.Error422UnprocessableEntity("artist_id is required")
 	}
 
 	bulkReq := &contracts.BulkLinkRequest{
@@ -1288,10 +1288,10 @@ func (h *RadioHandler) AdminCreateImportJobHandler(ctx context.Context, req *Adm
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Since == "" {
-		return nil, huma.Error400BadRequest("since date is required")
+		return nil, huma.Error422UnprocessableEntity("since date is required")
 	}
 	if req.Body.Until == "" {
-		return nil, huma.Error400BadRequest("until date is required")
+		return nil, huma.Error422UnprocessableEntity("until date is required")
 	}
 
 	job, err := h.importJobManager.CreateImportJob(req.ShowID, req.Body.Since, req.Body.Until)

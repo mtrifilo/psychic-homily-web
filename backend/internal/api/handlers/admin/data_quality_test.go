@@ -171,7 +171,7 @@ func TestDataQualityHandler_Category_InvalidCategory(t *testing.T) {
 	_, err := h.GetDataQualityCategoryHandler(dataQualityAdminCtx(), &GetDataQualityCategoryRequest{
 		Category: "nonexistent",
 	})
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestDataQualityHandler_Category_ServiceError(t *testing.T) {

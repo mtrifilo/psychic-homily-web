@@ -51,7 +51,7 @@ func TestAdminUpdateArtist_EmptyName(t *testing.T) {
 	req.Body.Name = &empty
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminUpdateArtist_NoFields(t *testing.T) {
@@ -60,7 +60,7 @@ func TestAdminUpdateArtist_NoFields(t *testing.T) {
 	req := &AdminUpdateArtistRequest{ArtistID: "1"}
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // PSY-525: URL scheme validation rejects non-http(s) schemes on social URL
@@ -126,7 +126,7 @@ func TestUpdateBandcamp_InvalidURL(t *testing.T) {
 	req.Body.BandcampEmbedURL = &url
 
 	_, err := h.UpdateArtistBandcampHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestUpdateBandcamp_ProfileOnlyURL(t *testing.T) {
@@ -137,7 +137,7 @@ func TestUpdateBandcamp_ProfileOnlyURL(t *testing.T) {
 	req.Body.BandcampEmbedURL = &url
 
 	_, err := h.UpdateArtistBandcampHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- UpdateArtistSpotifyHandler ---
@@ -176,7 +176,7 @@ func TestUpdateSpotify_InvalidURL(t *testing.T) {
 	req.Body.SpotifyURL = &url
 
 	_, err := h.UpdateArtistSpotifyHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // --- Helper function tests ---
@@ -887,7 +887,7 @@ func TestAddArtistAlias_EmptyAlias(t *testing.T) {
 	req.Body.Alias = "   "
 
 	_, err := h.AddArtistAliasHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAddArtistAlias_Success(t *testing.T) {
@@ -974,7 +974,7 @@ func TestMergeArtists_MissingIDs(t *testing.T) {
 	req.Body.MergeFromArtistID = 0
 
 	_, err := h.MergeArtistsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestMergeArtists_SelfMerge(t *testing.T) {
@@ -990,7 +990,7 @@ func TestMergeArtists_SelfMerge(t *testing.T) {
 	req.Body.MergeFromArtistID = 5
 
 	_, err := h.MergeArtistsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestMergeArtists_Success(t *testing.T) {
@@ -1052,7 +1052,7 @@ func TestAdminCreateArtist_EmptyName(t *testing.T) {
 	req.Body.Name = "   "
 
 	_, err := h.AdminCreateArtistHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminCreateArtist_Success(t *testing.T) {

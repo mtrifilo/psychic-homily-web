@@ -128,7 +128,7 @@ func (h *OAuthAccountHandler) UnlinkOAuthAccountHandler(ctx context.Context, req
 
 	// Validate provider
 	if req.Provider != "google" && req.Provider != "github" {
-		return nil, huma.Error400BadRequest("Invalid provider")
+		return nil, huma.Error422UnprocessableEntity("Invalid provider")
 	}
 
 	// Check if user can safely unlink (has other auth methods)
@@ -150,7 +150,7 @@ func (h *OAuthAccountHandler) UnlinkOAuthAccountHandler(ctx context.Context, req
 			"reason", reason,
 			"request_id", requestID,
 		)
-		return nil, huma.Error400BadRequest(reason)
+		return nil, huma.Error422UnprocessableEntity(reason)
 	}
 
 	// Unlink the OAuth account

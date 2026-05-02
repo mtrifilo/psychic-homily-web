@@ -194,19 +194,19 @@ func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *Create
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
-		return nil, huma.Error400BadRequest("Name is required")
+		return nil, huma.Error422UnprocessableEntity("Name is required")
 	}
 	if req.Body.SeriesSlug == "" {
-		return nil, huma.Error400BadRequest("Series slug is required")
+		return nil, huma.Error422UnprocessableEntity("Series slug is required")
 	}
 	if req.Body.EditionYear == 0 {
-		return nil, huma.Error400BadRequest("Edition year is required")
+		return nil, huma.Error422UnprocessableEntity("Edition year is required")
 	}
 	if req.Body.StartDate == "" {
-		return nil, huma.Error400BadRequest("Start date is required")
+		return nil, huma.Error422UnprocessableEntity("Start date is required")
 	}
 	if req.Body.EndDate == "" {
-		return nil, huma.Error400BadRequest("End date is required")
+		return nil, huma.Error422UnprocessableEntity("End date is required")
 	}
 
 	// PSY-525: URL scheme validation (http/https only) for the festival's
@@ -512,7 +512,7 @@ func (h *FestivalHandler) AddFestivalArtistHandler(ctx context.Context, req *Add
 	}
 
 	if req.Body.ArtistID == 0 {
-		return nil, huma.Error400BadRequest("Artist ID is required")
+		return nil, huma.Error422UnprocessableEntity("Artist ID is required")
 	}
 
 	serviceReq := &contracts.AddFestivalArtistRequest{
@@ -738,7 +738,7 @@ func (h *FestivalHandler) AddFestivalVenueHandler(ctx context.Context, req *AddF
 	}
 
 	if req.Body.VenueID == 0 {
-		return nil, huma.Error400BadRequest("Venue ID is required")
+		return nil, huma.Error422UnprocessableEntity("Venue ID is required")
 	}
 
 	serviceReq := &contracts.AddFestivalVenueRequest{
