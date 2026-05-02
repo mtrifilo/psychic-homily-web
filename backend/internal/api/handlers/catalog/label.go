@@ -8,7 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
-	"psychic-homily-backend/internal/api/handlers/shared"
+	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -182,10 +182,7 @@ type CreateLabelResponse struct {
 func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelRequest) (*CreateLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Name == "" {
 		return nil, huma.Error400BadRequest("Name is required")
@@ -272,10 +269,7 @@ type UpdateLabelResponse struct {
 func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelRequest) (*UpdateLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve label ID
 	labelID, err := h.resolveLabelID(req.LabelID)
@@ -424,10 +418,7 @@ type DeleteLabelRequest struct {
 func (h *LabelHandler) DeleteLabelHandler(ctx context.Context, req *DeleteLabelRequest) (*struct{}, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve label ID
 	labelID, err := h.resolveLabelID(req.LabelID)
@@ -572,10 +563,7 @@ type AddArtistToLabelResponse struct {
 func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArtistToLabelRequest) (*AddArtistToLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve label ID
 	labelID, err := h.resolveLabelID(req.LabelID)
@@ -647,10 +635,7 @@ type AddReleaseToLabelResponse struct {
 func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddReleaseToLabelRequest) (*AddReleaseToLabelResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	user, err := shared.RequireAdmin(ctx)
-	if err != nil {
-		return nil, err
-	}
+	user := middleware.GetUserFromContext(ctx)
 
 	// Resolve label ID
 	labelID, err := h.resolveLabelID(req.LabelID)
