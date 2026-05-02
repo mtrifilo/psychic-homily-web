@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -83,8 +83,8 @@ func (s *RadioUnmatchedSuite) TearDownTest() {
 }
 
 // createTestStation creates a station for testing.
-func (s *RadioUnmatchedSuite) createTestStation(name, slug, source string) *models.RadioStation {
-	station := &models.RadioStation{
+func (s *RadioUnmatchedSuite) createTestStation(name, slug, source string) *catalogm.RadioStation {
+	station := &catalogm.RadioStation{
 		Name:           name,
 		Slug:           slug,
 		BroadcastType:  "internet",
@@ -95,8 +95,8 @@ func (s *RadioUnmatchedSuite) createTestStation(name, slug, source string) *mode
 }
 
 // createTestShow creates a radio show for testing.
-func (s *RadioUnmatchedSuite) createTestShow(stationID uint, name, slug string) *models.RadioShow {
-	show := &models.RadioShow{
+func (s *RadioUnmatchedSuite) createTestShow(stationID uint, name, slug string) *catalogm.RadioShow {
+	show := &catalogm.RadioShow{
 		StationID: stationID,
 		Name:      name,
 		Slug:      slug,
@@ -106,8 +106,8 @@ func (s *RadioUnmatchedSuite) createTestShow(stationID uint, name, slug string) 
 }
 
 // createTestEpisode creates a radio episode for testing.
-func (s *RadioUnmatchedSuite) createTestEpisode(showID uint, airDate string) *models.RadioEpisode {
-	ep := &models.RadioEpisode{
+func (s *RadioUnmatchedSuite) createTestEpisode(showID uint, airDate string) *catalogm.RadioEpisode {
+	ep := &catalogm.RadioEpisode{
 		ShowID:  showID,
 		AirDate: airDate,
 	}
@@ -116,8 +116,8 @@ func (s *RadioUnmatchedSuite) createTestEpisode(showID uint, airDate string) *mo
 }
 
 // createTestPlay creates a radio play for testing.
-func (s *RadioUnmatchedSuite) createTestPlay(episodeID uint, artistName string, artistID *uint) *models.RadioPlay {
-	play := &models.RadioPlay{
+func (s *RadioUnmatchedSuite) createTestPlay(episodeID uint, artistName string, artistID *uint) *catalogm.RadioPlay {
+	play := &catalogm.RadioPlay{
 		EpisodeID:  episodeID,
 		ArtistName: artistName,
 		ArtistID:   artistID,
@@ -128,8 +128,8 @@ func (s *RadioUnmatchedSuite) createTestPlay(episodeID uint, artistName string, 
 }
 
 // createTestArtist creates an artist for testing.
-func (s *RadioUnmatchedSuite) createTestArtist(name, slug string) *models.Artist {
-	artist := &models.Artist{
+func (s *RadioUnmatchedSuite) createTestArtist(name, slug string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -243,7 +243,7 @@ func (s *RadioUnmatchedSuite) TestLinkPlay_Success() {
 	s.Require().NoError(err)
 
 	// Verify the play is now linked
-	var updated models.RadioPlay
+	var updated catalogm.RadioPlay
 	s.db.First(&updated, play.ID)
 	s.Require().NotNil(updated.ArtistID)
 	s.Equal(artist.ID, *updated.ArtistID)
@@ -282,12 +282,12 @@ func (s *RadioUnmatchedSuite) TestBulkLinkPlays_UpdatesCorrectPlays() {
 	s.Equal(3, result.Updated)
 
 	// Verify only Radiohead plays were updated
-	var radioheadPlays []models.RadioPlay
+	var radioheadPlays []catalogm.RadioPlay
 	s.db.Where("artist_name = ? AND artist_id IS NOT NULL", "Radiohead").Find(&radioheadPlays)
 	s.Len(radioheadPlays, 3)
 
 	// Bjork play should still be unmatched
-	var bjorkPlays []models.RadioPlay
+	var bjorkPlays []catalogm.RadioPlay
 	s.db.Where("artist_name = ? AND artist_id IS NULL", "Bjork").Find(&bjorkPlays)
 	s.Len(bjorkPlays, 1)
 }
@@ -340,7 +340,7 @@ func (s *RadioUnmatchedSuite) TestComputeAffinity_TwoCoOccurringArtists() {
 	s.Require().NoError(err)
 
 	// Should have one affinity row with canonical ordering
-	var affinity models.RadioArtistAffinity
+	var affinity catalogm.RadioArtistAffinity
 	err = s.db.Where("artist_a_id = ? AND artist_b_id = ?", lowID, highID).First(&affinity).Error
 	s.Require().NoError(err)
 	s.Equal(2, affinity.CoOccurrenceCount)
@@ -372,7 +372,7 @@ func (s *RadioUnmatchedSuite) TestComputeAffinity_CanonicalOrdering() {
 	s.Require().NoError(err)
 
 	// Should be stored with canonical ordering (lower ID first)
-	var affinity models.RadioArtistAffinity
+	var affinity catalogm.RadioArtistAffinity
 	err = s.db.Where("artist_a_id = ? AND artist_b_id = ?", lowID, highID).First(&affinity).Error
 	s.Require().NoError(err)
 	s.Equal(lowID, affinity.ArtistAID)
@@ -395,7 +395,7 @@ func (s *RadioUnmatchedSuite) TestComputeAffinity_MinimumThreshold() {
 
 	// Should NOT have an affinity row (threshold is 2)
 	var count int64
-	s.db.Model(&models.RadioArtistAffinity{}).Count(&count)
+	s.db.Model(&catalogm.RadioArtistAffinity{}).Count(&count)
 	s.Equal(int64(0), count)
 }
 
@@ -427,7 +427,7 @@ func (s *RadioUnmatchedSuite) TestComputeAffinity_CrossStationWeighting() {
 	err := s.svc.ComputeAffinity()
 	s.Require().NoError(err)
 
-	var affinity models.RadioArtistAffinity
+	var affinity catalogm.RadioArtistAffinity
 	err = s.db.Where("artist_a_id = ? AND artist_b_id = ?", lowID, highID).First(&affinity).Error
 	s.Require().NoError(err)
 	s.Equal(2, affinity.CoOccurrenceCount)
@@ -453,7 +453,7 @@ func (s *RadioUnmatchedSuite) TestComputeAffinity_TruncateAndRecompute() {
 	s.Require().NoError(err)
 
 	var count1 int64
-	s.db.Model(&models.RadioArtistAffinity{}).Count(&count1)
+	s.db.Model(&catalogm.RadioArtistAffinity{}).Count(&count1)
 	s.Equal(int64(1), count1)
 
 	// Second computation should give same result (truncate + recompute)
@@ -461,7 +461,7 @@ func (s *RadioUnmatchedSuite) TestComputeAffinity_TruncateAndRecompute() {
 	s.Require().NoError(err)
 
 	var count2 int64
-	s.db.Model(&models.RadioArtistAffinity{}).Count(&count2)
+	s.db.Model(&catalogm.RadioArtistAffinity{}).Count(&count2)
 	s.Equal(int64(1), count2)
 }
 
@@ -499,7 +499,7 @@ func (s *RadioUnmatchedSuite) TestGetActiveStationsWithPlaylistSource() {
 	s.createTestStation("KEXP", "kexp-asps", kexpSrc)
 
 	// Inactive station — need to create active first, then update to inactive
-	inactive := &models.RadioStation{
+	inactive := &catalogm.RadioStation{
 		Name:           "Inactive",
 		Slug:           "inactive-asps",
 		BroadcastType:  "internet",
@@ -510,7 +510,7 @@ func (s *RadioUnmatchedSuite) TestGetActiveStationsWithPlaylistSource() {
 	s.db.Model(inactive).Update("is_active", false)
 
 	// Station without playlist source
-	s.db.Create(&models.RadioStation{
+	s.db.Create(&catalogm.RadioStation{
 		Name:          "No Source",
 		Slug:          "no-source-asps",
 		BroadcastType: "internet",

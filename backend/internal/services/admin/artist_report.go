@@ -7,7 +7,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -33,13 +34,13 @@ func (s *ArtistReportService) CreateReport(userID, artistID uint, reportType str
 	}
 
 	// Validate report type
-	if reportType != string(models.ArtistReportTypeInaccurate) &&
-		reportType != string(models.ArtistReportTypeRemovalRequest) {
+	if reportType != string(communitym.ArtistReportTypeInaccurate) &&
+		reportType != string(communitym.ArtistReportTypeRemovalRequest) {
 		return nil, fmt.Errorf("invalid report type: %s", reportType)
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("artist not found")
@@ -49,7 +50,7 @@ func (s *ArtistReportService) CreateReport(userID, artistID uint, reportType str
 
 	// Check for existing report from this user for this artist
 	var existingCount int64
-	if err := s.db.Model(&models.ArtistReport{}).
+	if err := s.db.Model(&communitym.ArtistReport{}).
 		Where("artist_id = ? AND reported_by = ?", artistID, userID).
 		Count(&existingCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to check existing report: %w", err)
@@ -60,12 +61,12 @@ func (s *ArtistReportService) CreateReport(userID, artistID uint, reportType str
 	}
 
 	// Create the report
-	report := models.ArtistReport{
+	report := communitym.ArtistReport{
 		ArtistID:   artistID,
 		ReportedBy: userID,
-		ReportType: models.ArtistReportType(reportType),
+		ReportType: communitym.ArtistReportType(reportType),
 		Details:    details,
-		Status:     models.ShowReportStatusPending,
+		Status:     communitym.ShowReportStatusPending,
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
@@ -83,7 +84,7 @@ func (s *ArtistReportService) GetUserReportForArtist(userID, artistID uint) (*co
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.ArtistReport
+	var report communitym.ArtistReport
 	err := s.db.Where("artist_id = ? AND reported_by = ?", artistID, userID).
 		First(&report).Error
 
@@ -105,16 +106,16 @@ func (s *ArtistReportService) GetPendingReports(limit, offset int) ([]*contracts
 
 	// Get total count
 	var total int64
-	if err := s.db.Model(&models.ArtistReport{}).
-		Where("status = ?", models.ShowReportStatusPending).
+	if err := s.db.Model(&communitym.ArtistReport{}).
+		Where("status = ?", communitym.ShowReportStatusPending).
 		Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count pending reports: %w", err)
 	}
 
 	// Get reports with artist info
-	var reports []models.ArtistReport
+	var reports []communitym.ArtistReport
 	err := s.db.Preload("Artist").
-		Where("status = ?", models.ShowReportStatusPending).
+		Where("status = ?", communitym.ShowReportStatusPending).
 		Order("created_at DESC").
 		Limit(limit).
 		Offset(offset).
@@ -139,7 +140,7 @@ func (s *ArtistReportService) DismissReport(reportID, adminID uint, notes *strin
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.ArtistReport
+	var report communitym.ArtistReport
 	if err := s.db.Preload("Artist").First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("report not found")
@@ -147,12 +148,12 @@ func (s *ArtistReportService) DismissReport(reportID, adminID uint, notes *strin
 		return nil, fmt.Errorf("failed to get report: %w", err)
 	}
 
-	if report.Status != models.ShowReportStatusPending {
+	if report.Status != communitym.ShowReportStatusPending {
 		return nil, fmt.Errorf("report has already been reviewed")
 	}
 
 	now := time.Now().UTC()
-	report.Status = models.ShowReportStatusDismissed
+	report.Status = communitym.ShowReportStatusDismissed
 	report.ReviewedBy = &adminID
 	report.ReviewedAt = &now
 	report.AdminNotes = notes
@@ -171,7 +172,7 @@ func (s *ArtistReportService) ResolveReport(reportID, adminID uint, notes *strin
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.ArtistReport
+	var report communitym.ArtistReport
 	if err := s.db.Preload("Artist").First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("report not found")
@@ -179,12 +180,12 @@ func (s *ArtistReportService) ResolveReport(reportID, adminID uint, notes *strin
 		return nil, fmt.Errorf("failed to get report: %w", err)
 	}
 
-	if report.Status != models.ShowReportStatusPending {
+	if report.Status != communitym.ShowReportStatusPending {
 		return nil, fmt.Errorf("report has already been reviewed")
 	}
 
 	now := time.Now().UTC()
-	report.Status = models.ShowReportStatusResolved
+	report.Status = communitym.ShowReportStatusResolved
 	report.ReviewedBy = &adminID
 	report.ReviewedAt = &now
 	report.AdminNotes = notes
@@ -198,12 +199,12 @@ func (s *ArtistReportService) ResolveReport(reportID, adminID uint, notes *strin
 }
 
 // GetReportByID returns a report by ID (used for Discord notifications)
-func (s *ArtistReportService) GetReportByID(reportID uint) (*models.ArtistReport, error) {
+func (s *ArtistReportService) GetReportByID(reportID uint) (*communitym.ArtistReport, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.ArtistReport
+	var report communitym.ArtistReport
 	if err := s.db.Preload("Artist").First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("report not found")
@@ -215,7 +216,7 @@ func (s *ArtistReportService) GetReportByID(reportID uint) (*models.ArtistReport
 }
 
 // buildReportResponse builds an contracts.ArtistReportResponse from a model
-func (s *ArtistReportService) buildReportResponse(report *models.ArtistReport, artist *models.Artist) *contracts.ArtistReportResponse {
+func (s *ArtistReportService) buildReportResponse(report *communitym.ArtistReport, artist *catalogm.Artist) *contracts.ArtistReportResponse {
 	resp := &contracts.ArtistReportResponse{
 		ID:         report.ID,
 		ArtistID:   report.ArtistID,

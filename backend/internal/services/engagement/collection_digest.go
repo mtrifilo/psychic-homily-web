@@ -17,7 +17,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -405,7 +405,7 @@ func (s *CollectionDigestService) markDigested(userID uint, collectionIDs []uint
 		return nil
 	}
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		return tx.Model(&models.CollectionSubscriber{}).
+		return tx.Model(&communitym.CollectionSubscriber{}).
 			Where("user_id = ? AND collection_id IN ?", userID, collectionIDs).
 			Update("last_digest_sent_at", now).Error
 	})
@@ -416,37 +416,37 @@ func (s *CollectionDigestService) markDigested(userID uint, collectionIDs []uint
 // since URL building is centralized below.
 func (s *CollectionDigestService) resolveEntityName(entityType string, entityID uint) string {
 	switch entityType {
-	case models.CollectionEntityArtist:
+	case communitym.CollectionEntityArtist:
 		var name string
 		_ = s.db.Table("artists").Where("id = ?", entityID).Pluck("name", &name).Error
 		if name != "" {
 			return name
 		}
-	case models.CollectionEntityVenue:
+	case communitym.CollectionEntityVenue:
 		var name string
 		_ = s.db.Table("venues").Where("id = ?", entityID).Pluck("name", &name).Error
 		if name != "" {
 			return name
 		}
-	case models.CollectionEntityShow:
+	case communitym.CollectionEntityShow:
 		var title string
 		_ = s.db.Table("shows").Where("id = ?", entityID).Pluck("title", &title).Error
 		if title != "" {
 			return title
 		}
-	case models.CollectionEntityRelease:
+	case communitym.CollectionEntityRelease:
 		var title string
 		_ = s.db.Table("releases").Where("id = ?", entityID).Pluck("title", &title).Error
 		if title != "" {
 			return title
 		}
-	case models.CollectionEntityLabel:
+	case communitym.CollectionEntityLabel:
 		var name string
 		_ = s.db.Table("labels").Where("id = ?", entityID).Pluck("name", &name).Error
 		if name != "" {
 			return name
 		}
-	case models.CollectionEntityFestival:
+	case communitym.CollectionEntityFestival:
 		var name string
 		_ = s.db.Table("festivals").Where("id = ?", entityID).Pluck("name", &name).Error
 		if name != "" {
@@ -483,17 +483,17 @@ func (s *CollectionDigestService) buildCollectionURL(slug string) string {
 // a collection entity type. Empty values signal "unknown type".
 func digestEntityPathAndTable(entityType string) (string, string) {
 	switch entityType {
-	case models.CollectionEntityArtist:
+	case communitym.CollectionEntityArtist:
 		return "artists", "artists"
-	case models.CollectionEntityVenue:
+	case communitym.CollectionEntityVenue:
 		return "venues", "venues"
-	case models.CollectionEntityShow:
+	case communitym.CollectionEntityShow:
 		return "shows", "shows"
-	case models.CollectionEntityRelease:
+	case communitym.CollectionEntityRelease:
 		return "releases", "releases"
-	case models.CollectionEntityLabel:
+	case communitym.CollectionEntityLabel:
 		return "labels", "labels"
-	case models.CollectionEntityFestival:
+	case communitym.CollectionEntityFestival:
 		return "festivals", "festivals"
 	}
 	return "", ""
@@ -562,4 +562,3 @@ func ComputeCollectionDigestUnsubscribeSignature(userID uint, secret string) str
 	mac.Write([]byte(fmt.Sprintf("unsubscribe:collection-digest:%d", userID)))
 	return hex.EncodeToString(mac.Sum(nil))
 }
-

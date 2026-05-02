@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -27,7 +27,7 @@ func TestFollowEntityHandler_NoAuth(t *testing.T) {
 
 func TestFollowEntityHandler_InvalidEntityType(t *testing.T) {
 	h := NewFollowHandler(&testhelpers.MockFollowService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &FollowRequest{EntityType: "shows", EntityID: "1"}
 
 	_, err := h.FollowEntityHandler(ctx, req)
@@ -36,7 +36,7 @@ func TestFollowEntityHandler_InvalidEntityType(t *testing.T) {
 
 func TestFollowEntityHandler_InvalidID(t *testing.T) {
 	h := NewFollowHandler(&testhelpers.MockFollowService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &FollowRequest{EntityType: "artists", EntityID: "abc"}
 
 	_, err := h.FollowEntityHandler(ctx, req)
@@ -53,7 +53,7 @@ func TestFollowEntityHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &FollowRequest{EntityType: "artists", EntityID: "42"}
 
 	resp, err := h.FollowEntityHandler(ctx, req)
@@ -72,7 +72,7 @@ func TestFollowEntityHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &FollowRequest{EntityType: "artists", EntityID: "42"}
 
 	_, err := h.FollowEntityHandler(ctx, req)
@@ -90,7 +90,7 @@ func TestFollowEntityHandler_AllEntityTypes(t *testing.T) {
 				},
 			}
 			h := NewFollowHandler(mock)
-			ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 			req := &FollowRequest{EntityType: entityType, EntityID: "1"}
 
 			_, err := h.FollowEntityHandler(ctx, req)
@@ -118,7 +118,7 @@ func TestUnfollowEntityHandler_NoAuth(t *testing.T) {
 
 func TestUnfollowEntityHandler_InvalidEntityType(t *testing.T) {
 	h := NewFollowHandler(&testhelpers.MockFollowService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnfollowRequest{EntityType: "bananas", EntityID: "1"}
 
 	_, err := h.UnfollowEntityHandler(ctx, req)
@@ -127,7 +127,7 @@ func TestUnfollowEntityHandler_InvalidEntityType(t *testing.T) {
 
 func TestUnfollowEntityHandler_InvalidID(t *testing.T) {
 	h := NewFollowHandler(&testhelpers.MockFollowService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnfollowRequest{EntityType: "artists", EntityID: "xyz"}
 
 	_, err := h.UnfollowEntityHandler(ctx, req)
@@ -144,7 +144,7 @@ func TestUnfollowEntityHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnfollowRequest{EntityType: "venues", EntityID: "42"}
 
 	resp, err := h.UnfollowEntityHandler(ctx, req)
@@ -163,7 +163,7 @@ func TestUnfollowEntityHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnfollowRequest{EntityType: "artists", EntityID: "42"}
 
 	_, err := h.UnfollowEntityHandler(ctx, req)
@@ -222,7 +222,7 @@ func TestGetFollowersHandler_Success_WithAuth(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetFollowersRequest{EntityType: "artists", EntityID: "5"}
 
 	resp, err := h.GetFollowersHandler(ctx, req)
@@ -260,7 +260,7 @@ func TestGetFollowersHandler_IsFollowingError_GracefulDegradation(t *testing.T) 
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetFollowersRequest{EntityType: "artists", EntityID: "5"}
 
 	resp, err := h.GetFollowersHandler(ctx, req)
@@ -373,7 +373,7 @@ func TestBatchFollowHandler_Success_WithAuth(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = []int{1, 2, 3}
@@ -433,7 +433,7 @@ func TestBatchFollowHandler_UserFollowingError_GracefulDegradation(t *testing.T)
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &BatchFollowRequest{}
 	req.Body.EntityType = "artist"
 	req.Body.EntityIDs = []int{1, 2}
@@ -489,7 +489,7 @@ func TestGetMyFollowingHandler_NoAuth(t *testing.T) {
 
 func TestGetMyFollowingHandler_InvalidType(t *testing.T) {
 	h := NewFollowHandler(&testhelpers.MockFollowService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetMyFollowingRequest{Type: "banana"}
 
 	_, err := h.GetMyFollowingHandler(ctx, req)
@@ -519,7 +519,7 @@ func TestGetMyFollowingHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetMyFollowingRequest{Type: "all", Limit: 20, Offset: 0}
 
 	resp, err := h.GetMyFollowingHandler(ctx, req)
@@ -543,7 +543,7 @@ func TestGetMyFollowingHandler_WithTypeFilter(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetMyFollowingRequest{Type: "venue", Limit: 20}
 
 	_, err := h.GetMyFollowingHandler(ctx, req)
@@ -562,7 +562,7 @@ func TestGetMyFollowingHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetMyFollowingRequest{Type: "all", Limit: 20}
 
 	_, err := h.GetMyFollowingHandler(ctx, req)
@@ -579,7 +579,7 @@ func TestGetMyFollowingHandler_PaginationClamping(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	// limit=0 -> 20, offset=-1 -> 0
 	_, err := h.GetMyFollowingHandler(ctx, &GetMyFollowingRequest{Type: "all", Limit: 0, Offset: -1})
@@ -611,7 +611,7 @@ func TestGetMyFollowingHandler_AllValidTypeFilters(t *testing.T) {
 				},
 			}
 			h := NewFollowHandler(mock)
-			ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 			req := &GetMyFollowingRequest{Type: typeFilter, Limit: 20}
 
 			_, err := h.GetMyFollowingHandler(ctx, req)
@@ -634,7 +634,7 @@ func TestGetMyFollowingHandler_DefaultType(t *testing.T) {
 		},
 	}
 	h := NewFollowHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	// Empty type defaults to "" (all)
 	_, err := h.GetMyFollowingHandler(ctx, &GetMyFollowingRequest{Type: "", Limit: 20})

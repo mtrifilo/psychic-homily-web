@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 type FavoriteVenueHandlerIntegrationSuite struct {
@@ -219,12 +219,12 @@ func (s *FavoriteVenueHandlerIntegrationSuite) TestGetFavoriteVenueShows_WithSho
 	s.NoError(err)
 
 	// Create a future show at this venue
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       "Upcoming Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)

@@ -10,7 +10,9 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -52,22 +54,22 @@ func TestTagHierarchyIntegration(t *testing.T) {
 // Helpers
 // ──────────────────────────────────────────────
 
-func (s *TagHierarchyIntegrationSuite) createUser(name string) *models.User {
+func (s *TagHierarchyIntegrationSuite) createUser(name string) *authm.User {
 	email := fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())
-	u := &models.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
+	u := &authm.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.db.Create(u).Error)
 	return u
 }
 
 // createGenre creates a genre tag (no parent).
-func (s *TagHierarchyIntegrationSuite) createGenre(name string) *models.Tag {
-	tag, err := s.tagService.CreateTag(name, nil, nil, models.TagCategoryGenre, false, nil)
+func (s *TagHierarchyIntegrationSuite) createGenre(name string) *catalogm.Tag {
+	tag, err := s.tagService.CreateTag(name, nil, nil, catalogm.TagCategoryGenre, false, nil)
 	s.Require().NoError(err)
 	return tag
 }
 
 // createTagWithCategory creates a tag in a specific category (for rejection tests).
-func (s *TagHierarchyIntegrationSuite) createTagWithCategory(name, category string) *models.Tag {
+func (s *TagHierarchyIntegrationSuite) createTagWithCategory(name, category string) *catalogm.Tag {
 	tag, err := s.tagService.CreateTag(name, nil, nil, category, false, nil)
 	s.Require().NoError(err)
 	return tag
@@ -85,7 +87,7 @@ func (s *TagHierarchyIntegrationSuite) TestSetTagParent_Simple() {
 	err := s.tagService.SetTagParent(child.ID, &parent.ID, admin.ID)
 	s.Require().NoError(err)
 
-	var reloaded models.Tag
+	var reloaded catalogm.Tag
 	s.Require().NoError(s.db.First(&reloaded, child.ID).Error)
 	s.Require().NotNil(reloaded.ParentID)
 	s.Equal(parent.ID, *reloaded.ParentID)
@@ -100,7 +102,7 @@ func (s *TagHierarchyIntegrationSuite) TestSetTagParent_Clear() {
 	s.Require().NoError(s.tagService.SetTagParent(child.ID, &parent.ID, admin.ID))
 	s.Require().NoError(s.tagService.SetTagParent(child.ID, nil, admin.ID))
 
-	var reloaded models.Tag
+	var reloaded catalogm.Tag
 	s.Require().NoError(s.db.First(&reloaded, child.ID).Error)
 	s.Nil(reloaded.ParentID, "parent_id should be NULL after clearing")
 }
@@ -199,7 +201,7 @@ func (s *TagHierarchyIntegrationSuite) TestSetTagParent_SiblingMove_Allowed() {
 func (s *TagHierarchyIntegrationSuite) TestSetTagParent_NonGenreSource_Rejected() {
 	admin := s.createUser("admin")
 	parent := s.createGenre("post-punk")
-	locale := s.createTagWithCategory("arizona", models.TagCategoryLocale)
+	locale := s.createTagWithCategory("arizona", catalogm.TagCategoryLocale)
 
 	err := s.tagService.SetTagParent(locale.ID, &parent.ID, admin.ID)
 	s.Require().Error(err)
@@ -212,7 +214,7 @@ func (s *TagHierarchyIntegrationSuite) TestSetTagParent_NonGenreSource_Rejected(
 func (s *TagHierarchyIntegrationSuite) TestSetTagParent_NonGenreParent_Rejected() {
 	admin := s.createUser("admin")
 	child := s.createGenre("shoegaze")
-	locale := s.createTagWithCategory("arizona", models.TagCategoryLocale)
+	locale := s.createTagWithCategory("arizona", catalogm.TagCategoryLocale)
 
 	err := s.tagService.SetTagParent(child.ID, &locale.ID, admin.ID)
 	s.Require().Error(err)
@@ -256,8 +258,8 @@ func (s *TagHierarchyIntegrationSuite) TestGetGenreHierarchy_OnlyGenres() {
 	g1 := s.createGenre("rock")
 	g2 := s.createGenre("post-rock")
 	// Non-genre tags must not appear.
-	_ = s.createTagWithCategory("arizona", models.TagCategoryLocale)
-	_ = s.createTagWithCategory("misc", models.TagCategoryOther)
+	_ = s.createTagWithCategory("arizona", catalogm.TagCategoryLocale)
+	_ = s.createTagWithCategory("misc", catalogm.TagCategoryOther)
 
 	// Wire up a parent link.
 	s.Require().NoError(s.tagService.SetTagParent(g2.ID, &g1.ID, admin.ID))
@@ -266,7 +268,7 @@ func (s *TagHierarchyIntegrationSuite) TestGetGenreHierarchy_OnlyGenres() {
 	s.Require().NoError(err)
 	s.Len(tags, 2, "hierarchy should include only genre tags")
 
-	byName := map[string]*models.Tag{}
+	byName := map[string]*catalogm.Tag{}
 	for _, t := range tags {
 		byName[t.Name] = t
 	}
@@ -349,7 +351,7 @@ func (s *TagHierarchyIntegrationSuite) TestUpdateTag_SetsParent_WithCycleGuard()
 func (s *TagHierarchyIntegrationSuite) TestUpdateTag_NonGenreWithParentID_Rejected() {
 	admin := s.createUser("admin")
 	genre := s.createGenre("rock")
-	locale := s.createTagWithCategory("arizona", models.TagCategoryLocale)
+	locale := s.createTagWithCategory("arizona", catalogm.TagCategoryLocale)
 
 	_, err := s.tagService.UpdateTag(locale.ID, nil, nil, &genre.ID, nil, nil)
 	s.Require().Error(err)
@@ -372,7 +374,7 @@ func (s *TagHierarchyIntegrationSuite) TestSetTagParent_WritesAuditLog() {
 	s.Require().NoError(err)
 
 	// Fire-and-forget audit log — poll briefly so the goroutine wins.
-	var log models.AuditLog
+	var log adminm.AuditLog
 	for i := 0; i < 40; i++ {
 		err := s.db.Where("action = ? AND entity_id = ?", AuditActionSetTagParent, child.ID).First(&log).Error
 		if err == nil {
@@ -404,7 +406,7 @@ func (s *TagHierarchyIntegrationSuite) TestSetTagParent_ClearParent_AuditReflect
 	// Poll until the first audit log arrives so we don't race the clear below.
 	for i := 0; i < 40; i++ {
 		var count int64
-		s.db.Model(&models.AuditLog{}).
+		s.db.Model(&adminm.AuditLog{}).
 			Where("action = ? AND entity_id = ?", AuditActionSetTagParent, child.ID).
 			Count(&count)
 		if count > 0 {
@@ -416,7 +418,7 @@ func (s *TagHierarchyIntegrationSuite) TestSetTagParent_ClearParent_AuditReflect
 	s.Require().NoError(s.tagService.SetTagParent(child.ID, nil, admin.ID))
 
 	// Wait for the second audit entry (the clear).
-	var logs []models.AuditLog
+	var logs []adminm.AuditLog
 	for i := 0; i < 40; i++ {
 		s.db.Where("action = ? AND entity_id = ?", AuditActionSetTagParent, child.ID).
 			Order("id ASC").Find(&logs)

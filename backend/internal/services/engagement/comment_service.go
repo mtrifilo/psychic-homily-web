@@ -16,7 +16,9 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -115,17 +117,17 @@ func wilsonScore(ups, downs int) float64 {
 }
 
 // validateCommentEntityType checks if the entity type is supported.
-func validateCommentEntityType(entityType string) (models.CommentEntityType, error) {
-	ct := models.CommentEntityType(entityType)
-	if _, ok := models.ValidCommentEntityTypes[ct]; !ok {
+func validateCommentEntityType(entityType string) (engagementm.CommentEntityType, error) {
+	ct := engagementm.CommentEntityType(entityType)
+	if _, ok := engagementm.ValidCommentEntityTypes[ct]; !ok {
 		return "", fmt.Errorf("unsupported entity type: %s", entityType)
 	}
 	return ct, nil
 }
 
 // validateEntityExists checks that the referenced entity actually exists in the database.
-func (s *CommentService) validateEntityExists(entityType models.CommentEntityType, entityID uint) error {
-	tableName, ok := models.ValidCommentEntityTypes[entityType]
+func (s *CommentService) validateEntityExists(entityType engagementm.CommentEntityType, entityID uint) error {
+	tableName, ok := engagementm.ValidCommentEntityTypes[entityType]
 	if !ok {
 		return fmt.Errorf("unsupported entity type: %s", entityType)
 	}
@@ -142,7 +144,7 @@ func (s *CommentService) validateEntityExists(entityType models.CommentEntityTyp
 }
 
 // commentToResponse maps a Comment model to a CommentResponse.
-func commentToResponse(c *models.Comment) *contracts.CommentResponse {
+func commentToResponse(c *engagementm.Comment) *contracts.CommentResponse {
 	resp := &contracts.CommentResponse{
 		ID:              c.ID,
 		EntityType:      string(c.EntityType),
@@ -197,15 +199,15 @@ func userTierHourlyLimit(tier string) int {
 }
 
 // computeInitialVisibility determines the initial visibility based on user trust tier.
-func computeInitialVisibility(user *models.User) models.CommentVisibility {
+func computeInitialVisibility(user *authm.User) engagementm.CommentVisibility {
 	if user.IsAdmin {
-		return models.CommentVisibilityVisible
+		return engagementm.CommentVisibilityVisible
 	}
 	switch user.UserTier {
 	case "contributor", "trusted_contributor", "local_ambassador":
-		return models.CommentVisibilityVisible
+		return engagementm.CommentVisibilityVisible
 	default: // "new_user" or empty
-		return models.CommentVisibilityPendingReview
+		return engagementm.CommentVisibilityPendingReview
 	}
 }
 
@@ -220,7 +222,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	// work. This is deliberately at the top of the function to minimize
 	// merge conflict with sibling PRs touching the tail of CreateComment.
 	if req.ParentID != nil && *req.ParentID > 0 {
-		var parentPerm models.Comment
+		var parentPerm engagementm.Comment
 		if err := s.db.Select("id, user_id, reply_permission").
 			First(&parentPerm, *req.ParentID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -229,11 +231,11 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 			return nil, fmt.Errorf("failed to load parent comment: %w", err)
 		}
 		switch parentPerm.ReplyPermission {
-		case models.ReplyPermissionAuthorOnly:
+		case engagementm.ReplyPermissionAuthorOnly:
 			if parentPerm.UserID != userID {
 				return nil, errors.New("replies to this comment are disabled")
 			}
-		case models.ReplyPermissionFollowers:
+		case engagementm.ReplyPermissionFollowers:
 			// Author can always reply to their own comment; otherwise the
 			// replier must follow the parent author.
 			if parentPerm.UserID != userID {
@@ -248,7 +250,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 					return nil, errors.New("only followers of the author can reply to this comment")
 				}
 			}
-		case models.ReplyPermissionAnyone, "":
+		case engagementm.ReplyPermissionAnyone, "":
 			// allow
 		default:
 			// Unrecognized value stored on the parent — fail closed to be safe.
@@ -258,11 +260,11 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 
 	// Validate body length
 	body := strings.TrimSpace(req.Body)
-	if len(body) < models.MinCommentBodyLength {
+	if len(body) < engagementm.MinCommentBodyLength {
 		return nil, errors.New("comment body is required")
 	}
-	if len(body) > models.MaxCommentBodyLength {
-		return nil, fmt.Errorf("comment body exceeds maximum length of %d characters", models.MaxCommentBodyLength)
+	if len(body) > engagementm.MaxCommentBodyLength {
+		return nil, fmt.Errorf("comment body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength)
 	}
 
 	// Validate entity type
@@ -277,7 +279,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	}
 
 	// Look up user for trust tier and rate limiting
-	var user models.User
+	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("user not found")
@@ -287,7 +289,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 
 	// Rate limiting: per-entity cooldown (60s between comments on same entity)
 	var recentEntityCount int64
-	if err := s.db.Model(&models.Comment{}).
+	if err := s.db.Model(&engagementm.Comment{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND created_at > ?",
 			userID, entityType, req.EntityID, time.Now().Add(-60*time.Second)).
 		Count(&recentEntityCount).Error; err != nil {
@@ -301,7 +303,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	hourlyLimit := userTierHourlyLimit(user.UserTier)
 	if hourlyLimit >= 0 { // -1 means unlimited
 		var hourlyCount int64
-		if err := s.db.Model(&models.Comment{}).
+		if err := s.db.Model(&engagementm.Comment{}).
 			Where("user_id = ? AND created_at > ?", userID, time.Now().Add(-1*time.Hour)).
 			Count(&hourlyCount).Error; err != nil {
 			return nil, fmt.Errorf("failed to check hourly rate limit: %w", err)
@@ -318,9 +320,9 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	}
 
 	// Determine kind
-	kind := models.CommentKindComment
-	if req.Kind == string(models.CommentKindFieldNote) {
-		kind = models.CommentKindFieldNote
+	kind := engagementm.CommentKindComment
+	if req.Kind == string(engagementm.CommentKindFieldNote) {
+		kind = engagementm.CommentKindFieldNote
 	}
 
 	// Determine reply permission.
@@ -328,18 +330,18 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	//  1. Explicit value on the request (validated).
 	//  2. Per-user default preference (top-level comments only).
 	//  3. Fallback: 'anyone'.
-	replyPerm := models.ReplyPermissionAnyone
+	replyPerm := engagementm.ReplyPermissionAnyone
 	if req.ReplyPermission != "" {
-		if !models.IsValidReplyPermission(req.ReplyPermission) {
+		if !engagementm.IsValidReplyPermission(req.ReplyPermission) {
 			return nil, fmt.Errorf("invalid reply_permission: %s", req.ReplyPermission)
 		}
-		replyPerm = models.ReplyPermission(req.ReplyPermission)
+		replyPerm = engagementm.ReplyPermission(req.ReplyPermission)
 	} else if req.ParentID == nil || *req.ParentID == 0 {
 		// Top-level comment: apply the user's default preference if set.
-		var prefs models.UserPreferences
+		var prefs authm.UserPreferences
 		if err := s.db.Where("user_id = ?", userID).First(&prefs).Error; err == nil {
-			if prefs.DefaultReplyPermission != "" && models.IsValidReplyPermission(prefs.DefaultReplyPermission) {
-				replyPerm = models.ReplyPermission(prefs.DefaultReplyPermission)
+			if prefs.DefaultReplyPermission != "" && engagementm.IsValidReplyPermission(prefs.DefaultReplyPermission) {
+				replyPerm = engagementm.ReplyPermission(prefs.DefaultReplyPermission)
 			}
 		}
 		// gorm.ErrRecordNotFound is fine — user has no prefs row yet.
@@ -352,7 +354,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 
 	if req.ParentID != nil && *req.ParentID > 0 {
 		// Validate parent exists and belongs to the same entity
-		var parent models.Comment
+		var parent engagementm.Comment
 		if err := s.db.First(&parent, *req.ParentID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, errors.New("parent comment not found")
@@ -367,8 +369,8 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 
 		// Enforce max depth
 		depth = parent.Depth + 1
-		if depth > models.MaxCommentDepth {
-			return nil, fmt.Errorf("maximum reply depth of %d exceeded", models.MaxCommentDepth)
+		if depth > engagementm.MaxCommentDepth {
+			return nil, fmt.Errorf("maximum reply depth of %d exceeded", engagementm.MaxCommentDepth)
 		}
 
 		parentID = req.ParentID
@@ -387,7 +389,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	// Determine initial visibility based on trust tier
 	visibility := computeInitialVisibility(&user)
 
-	comment := &models.Comment{
+	comment := &engagementm.Comment{
 		EntityType:      entityType,
 		EntityID:        req.EntityID,
 		Kind:            kind,
@@ -406,7 +408,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	}
 
 	// Auto-subscribe the commenter to this entity's comments (fire-and-forget)
-	sub := models.CommentSubscription{
+	sub := engagementm.CommentSubscription{
 		UserID:       userID,
 		EntityType:   string(entityType),
 		EntityID:     req.EntityID,
@@ -427,7 +429,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	// comments — pending_review comments should not trigger emails until
 	// approved. Added at the END of the function so parallel agents working
 	// on the top of this method (e.g. reply-permission gate) don't conflict.
-	if s.notifier != nil && comment.Visibility == models.CommentVisibilityVisible {
+	if s.notifier != nil && comment.Visibility == engagementm.CommentVisibilityVisible {
 		commentID := comment.ID
 		go func() {
 			if nErr := s.notifier.NotifySubscribers(commentID); nErr != nil {
@@ -450,7 +452,7 @@ func (s *CommentService) GetComment(commentID uint) (*contracts.CommentResponse,
 		return nil, errors.New("database not initialized")
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.Preload("User").First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("comment not found")
@@ -484,14 +486,14 @@ func (s *CommentService) ListCommentsForEntity(entityType string, entityID uint,
 	}
 
 	// Build base query for top-level comments only
-	query := s.db.Model(&models.Comment{}).
+	query := s.db.Model(&engagementm.Comment{}).
 		Where("entity_type = ? AND entity_id = ? AND parent_id IS NULL", et, entityID)
 
 	// Filter by visibility (default: visible only)
 	if filters.Visibility != "" {
 		query = query.Where("visibility = ?", filters.Visibility)
 	} else {
-		query = query.Where("visibility = ?", models.CommentVisibilityVisible)
+		query = query.Where("visibility = ?", engagementm.CommentVisibilityVisible)
 	}
 
 	// Filter by kind
@@ -518,7 +520,7 @@ func (s *CommentService) ListCommentsForEntity(entityType string, entityID uint,
 	}
 
 	// Fetch comments with user preload
-	var comments []models.Comment
+	var comments []engagementm.Comment
 	if err := query.Preload("User").Limit(limit).Offset(offset).Find(&comments).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch comments: %w", err)
 	}
@@ -538,9 +540,9 @@ func (s *CommentService) ListCommentsForEntity(entityType string, entityID uint,
 			Count    int
 		}
 		var rows []replyCountRow
-		if err := s.db.Model(&models.Comment{}).
+		if err := s.db.Model(&engagementm.Comment{}).
 			Select("parent_id, COUNT(*) AS count").
-			Where("parent_id IN ? AND visibility = ?", parentIDs, models.CommentVisibilityVisible).
+			Where("parent_id IN ? AND visibility = ?", parentIDs, engagementm.CommentVisibilityVisible).
 			Group("parent_id").
 			Scan(&rows).Error; err != nil {
 			return nil, fmt.Errorf("failed to count replies: %w", err)
@@ -571,7 +573,7 @@ func (s *CommentService) GetThread(rootID uint) ([]*contracts.CommentResponse, e
 	}
 
 	// Verify the root comment exists
-	var root models.Comment
+	var root engagementm.Comment
 	if err := s.db.First(&root, rootID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("thread root comment not found")
@@ -585,7 +587,7 @@ func (s *CommentService) GetThread(rootID uint) ([]*contracts.CommentResponse, e
 	}
 
 	// Load root + all descendants
-	var comments []models.Comment
+	var comments []engagementm.Comment
 	if err := s.db.Preload("User").
 		Where("id = ? OR root_id = ?", rootID, rootID).
 		Order("created_at ASC").
@@ -611,14 +613,14 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 
 	// Validate body
 	body := strings.TrimSpace(req.Body)
-	if len(body) < models.MinCommentBodyLength {
+	if len(body) < engagementm.MinCommentBodyLength {
 		return nil, errors.New("comment body is required")
 	}
-	if len(body) > models.MaxCommentBodyLength {
-		return nil, fmt.Errorf("comment body exceeds maximum length of %d characters", models.MaxCommentBodyLength)
+	if len(body) > engagementm.MaxCommentBodyLength {
+		return nil, fmt.Errorf("comment body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength)
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("comment not found")
@@ -639,7 +641,7 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 	editorID := userID
 	txErr := s.db.Transaction(func(tx *gorm.DB) error {
 		// Append old body to comment_edits before we overwrite it.
-		edit := &models.CommentEdit{
+		edit := &engagementm.CommentEdit{
 			CommentID:    comment.ID,
 			OldBody:      comment.Body,
 			EditedAt:     now,
@@ -680,11 +682,11 @@ func (s *CommentService) UpdateReplyPermission(userID uint, commentID uint, perm
 	if s.db == nil {
 		return nil, errors.New("database not initialized")
 	}
-	if !models.IsValidReplyPermission(permission) {
+	if !engagementm.IsValidReplyPermission(permission) {
 		return nil, fmt.Errorf("invalid reply_permission: %s", permission)
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("comment not found")
@@ -719,7 +721,7 @@ func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint)
 
 	// Gate on admin. We do this in the service so the handler doesn't need to
 	// double-check, and so any future internal callers inherit the same gate.
-	var requester models.User
+	var requester authm.User
 	if err := s.db.First(&requester, requesterID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("admin access required")
@@ -731,7 +733,7 @@ func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint)
 	}
 
 	// Fetch the comment (we need the current body + to verify it exists).
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("comment not found")
@@ -740,7 +742,7 @@ func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint)
 	}
 
 	// Fetch edits oldest-first, preloading the editor so we can include display info.
-	var edits []models.CommentEdit
+	var edits []engagementm.CommentEdit
 	if err := s.db.Preload("Editor").
 		Where("comment_id = ?", commentID).
 		Order("edited_at ASC, id ASC").
@@ -783,7 +785,7 @@ func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool
 		return errors.New("database not initialized")
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("comment not found")
@@ -796,9 +798,9 @@ func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool
 		return errors.New("only the comment author or an admin can delete this comment")
 	}
 
-	visibility := models.CommentVisibilityHiddenByUser
+	visibility := engagementm.CommentVisibilityHiddenByUser
 	if isAdmin && comment.UserID != userID {
-		visibility = models.CommentVisibilityHiddenByMod
+		visibility = engagementm.CommentVisibilityHiddenByMod
 	}
 
 	if err := s.db.Model(&comment).Updates(map[string]interface{}{
@@ -824,11 +826,11 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 
 	// Validate body
 	body := strings.TrimSpace(req.Body)
-	if len(body) < models.MinCommentBodyLength {
+	if len(body) < engagementm.MinCommentBodyLength {
 		return nil, errors.New("field note body is required")
 	}
-	if len(body) > models.MaxCommentBodyLength {
-		return nil, fmt.Errorf("field note body exceeds maximum length of %d characters", models.MaxCommentBodyLength)
+	if len(body) > engagementm.MaxCommentBodyLength {
+		return nil, fmt.Errorf("field note body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength)
 	}
 
 	// Validate sound_quality range (1-5)
@@ -842,7 +844,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 	}
 
 	// Look up the show and verify it's in the past
-	var show models.Show
+	var show catalogm.Show
 	if err := s.db.First(&show, req.ShowID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("show not found")
@@ -857,7 +859,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 	// Validate show_artist_id belongs to this show (if provided)
 	if req.ShowArtistID != nil {
 		var count int64
-		if err := s.db.Model(&models.ShowArtist{}).
+		if err := s.db.Model(&catalogm.ShowArtist{}).
 			Where("show_id = ? AND artist_id = ?", req.ShowID, *req.ShowArtistID).
 			Count(&count).Error; err != nil {
 			return nil, fmt.Errorf("failed to validate show artist: %w", err)
@@ -868,7 +870,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 	}
 
 	// Look up user for trust tier and rate limiting
-	var user models.User
+	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, errors.New("user not found")
@@ -878,9 +880,9 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 
 	// Rate limiting: per-entity cooldown (60s between comments on same entity)
 	var recentEntityCount int64
-	if err := s.db.Model(&models.Comment{}).
+	if err := s.db.Model(&engagementm.Comment{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND created_at > ?",
-			userID, models.CommentEntityShow, req.ShowID, time.Now().Add(-60*time.Second)).
+			userID, engagementm.CommentEntityShow, req.ShowID, time.Now().Add(-60*time.Second)).
 		Count(&recentEntityCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to check rate limit: %w", err)
 	}
@@ -892,7 +894,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 	hourlyLimit := userTierHourlyLimit(user.UserTier)
 	if hourlyLimit >= 0 {
 		var hourlyCount int64
-		if err := s.db.Model(&models.Comment{}).
+		if err := s.db.Model(&engagementm.Comment{}).
 			Where("user_id = ? AND created_at > ?", userID, time.Now().Add(-1*time.Hour)).
 			Count(&hourlyCount).Error; err != nil {
 			return nil, fmt.Errorf("failed to check hourly rate limit: %w", err)
@@ -910,10 +912,10 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 
 	// Compute verified attendee: user marked "going" before the show date
 	isVerifiedAttendee := false
-	var goingBookmark models.UserBookmark
+	var goingBookmark engagementm.UserBookmark
 	err := s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-		userID, models.BookmarkEntityShow, req.ShowID, models.BookmarkActionGoing,
+		userID, engagementm.BookmarkEntityShow, req.ShowID, engagementm.BookmarkActionGoing,
 	).First(&goingBookmark).Error
 	if err == nil {
 		// User has a "going" bookmark — verified if created before the show date
@@ -944,16 +946,16 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 	// Determine initial visibility based on trust tier
 	visibility := computeInitialVisibility(&user)
 
-	comment := &models.Comment{
-		EntityType:      models.CommentEntityShow,
+	comment := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityShow,
 		EntityID:        req.ShowID,
-		Kind:            models.CommentKindFieldNote,
+		Kind:            engagementm.CommentKindFieldNote,
 		UserID:          userID,
 		Body:            body,
 		BodyHTML:        bodyHTML,
 		StructuredData:  &rawJSON,
 		Visibility:      visibility,
-		ReplyPermission: models.ReplyPermissionAnyone,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
 	}
 
 	if err := s.db.Create(comment).Error; err != nil {
@@ -961,9 +963,9 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 	}
 
 	// Auto-subscribe the user to this show's comments (fire-and-forget)
-	sub := models.CommentSubscription{
+	sub := engagementm.CommentSubscription{
 		UserID:       userID,
-		EntityType:   string(models.CommentEntityShow),
+		EntityType:   string(engagementm.CommentEntityShow),
 		EntityID:     req.ShowID,
 		SubscribedAt: time.Now().UTC(),
 	}
@@ -994,9 +996,9 @@ func (s *CommentService) ListFieldNotesForShow(showID uint, limit, offset int) (
 	}
 
 	// Base query: field notes on this show that are visible
-	query := s.db.Model(&models.Comment{}).
+	query := s.db.Model(&engagementm.Comment{}).
 		Where("entity_type = ? AND entity_id = ? AND kind = ? AND visibility = ?",
-			models.CommentEntityShow, showID, models.CommentKindFieldNote, models.CommentVisibilityVisible)
+			engagementm.CommentEntityShow, showID, engagementm.CommentKindFieldNote, engagementm.CommentVisibilityVisible)
 
 	// Count total
 	var total int64
@@ -1006,7 +1008,7 @@ func (s *CommentService) ListFieldNotesForShow(showID uint, limit, offset int) (
 
 	// Sort by song_position ASC (NULLs first), then score DESC
 	// We extract song_position from the JSONB structured_data column.
-	var comments []models.Comment
+	var comments []engagementm.Comment
 	if err := query.Preload("User").
 		Order("(structured_data->>'song_position')::int ASC NULLS FIRST, score DESC").
 		Limit(limit).
@@ -1037,7 +1039,7 @@ func (s *CommentService) HideComment(adminUserID uint, commentID uint, reason st
 		return errors.New("database not initialized")
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("comment not found")
@@ -1047,7 +1049,7 @@ func (s *CommentService) HideComment(adminUserID uint, commentID uint, reason st
 
 	now := time.Now()
 	if err := s.db.Model(&comment).Updates(map[string]interface{}{
-		"visibility":        models.CommentVisibilityHiddenByMod,
+		"visibility":        engagementm.CommentVisibilityHiddenByMod,
 		"hidden_reason":     reason,
 		"hidden_by_user_id": adminUserID,
 		"hidden_at":         now,
@@ -1065,7 +1067,7 @@ func (s *CommentService) RestoreComment(adminUserID uint, commentID uint) error 
 		return errors.New("database not initialized")
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("comment not found")
@@ -1073,12 +1075,12 @@ func (s *CommentService) RestoreComment(adminUserID uint, commentID uint) error 
 		return fmt.Errorf("failed to fetch comment: %w", err)
 	}
 
-	if comment.Visibility == models.CommentVisibilityVisible {
+	if comment.Visibility == engagementm.CommentVisibilityVisible {
 		return errors.New("comment is already visible")
 	}
 
 	if err := s.db.Model(&comment).Updates(map[string]interface{}{
-		"visibility":        models.CommentVisibilityVisible,
+		"visibility":        engagementm.CommentVisibilityVisible,
 		"hidden_reason":     nil,
 		"hidden_by_user_id": nil,
 		"hidden_at":         nil,
@@ -1104,15 +1106,15 @@ func (s *CommentService) ListPendingComments(limit, offset int) ([]*contracts.Co
 	}
 
 	var total int64
-	if err := s.db.Model(&models.Comment{}).
-		Where("visibility = ?", models.CommentVisibilityPendingReview).
+	if err := s.db.Model(&engagementm.Comment{}).
+		Where("visibility = ?", engagementm.CommentVisibilityPendingReview).
 		Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count pending comments: %w", err)
 	}
 
-	var comments []models.Comment
+	var comments []engagementm.Comment
 	if err := s.db.Preload("User").
-		Where("visibility = ?", models.CommentVisibilityPendingReview).
+		Where("visibility = ?", engagementm.CommentVisibilityPendingReview).
 		Order("created_at ASC").
 		Limit(limit).
 		Offset(offset).
@@ -1134,7 +1136,7 @@ func (s *CommentService) ApproveComment(adminUserID uint, commentID uint) error 
 		return errors.New("database not initialized")
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("comment not found")
@@ -1142,12 +1144,12 @@ func (s *CommentService) ApproveComment(adminUserID uint, commentID uint) error 
 		return fmt.Errorf("failed to fetch comment: %w", err)
 	}
 
-	if comment.Visibility != models.CommentVisibilityPendingReview {
+	if comment.Visibility != engagementm.CommentVisibilityPendingReview {
 		return errors.New("comment is not pending review")
 	}
 
 	if err := s.db.Model(&comment).Updates(map[string]interface{}{
-		"visibility": models.CommentVisibilityVisible,
+		"visibility": engagementm.CommentVisibilityVisible,
 		"updated_at": time.Now(),
 	}).Error; err != nil {
 		return fmt.Errorf("failed to approve comment: %w", err)
@@ -1162,7 +1164,7 @@ func (s *CommentService) RejectComment(adminUserID uint, commentID uint, reason 
 		return errors.New("database not initialized")
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("comment not found")
@@ -1170,13 +1172,13 @@ func (s *CommentService) RejectComment(adminUserID uint, commentID uint, reason 
 		return fmt.Errorf("failed to fetch comment: %w", err)
 	}
 
-	if comment.Visibility != models.CommentVisibilityPendingReview {
+	if comment.Visibility != engagementm.CommentVisibilityPendingReview {
 		return errors.New("comment is not pending review")
 	}
 
 	now := time.Now()
 	if err := s.db.Model(&comment).Updates(map[string]interface{}{
-		"visibility":        models.CommentVisibilityHiddenByMod,
+		"visibility":        engagementm.CommentVisibilityHiddenByMod,
 		"hidden_reason":     reason,
 		"hidden_by_user_id": adminUserID,
 		"hidden_at":         now,

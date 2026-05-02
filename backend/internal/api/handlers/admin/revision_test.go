@@ -8,7 +8,8 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // ============================================================================
@@ -20,15 +21,15 @@ func testRevisionHandler() *RevisionHandler {
 }
 
 func revisionAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }
 
 func revisionNonAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false})
+	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: false})
 }
 
-func makeTestRevision(id uint) models.Revision {
-	changes := []models.FieldChange{
+func makeTestRevision(id uint) adminm.Revision {
+	changes := []adminm.FieldChange{
 		{Field: "name", OldValue: "Old Name", NewValue: "New Name"},
 	}
 	changesJSON, _ := json.Marshal(changes)
@@ -36,7 +37,7 @@ func makeTestRevision(id uint) models.Revision {
 	summary := "Updated name"
 	username := "testuser"
 
-	return models.Revision{
+	return adminm.Revision{
 		ID:           id,
 		EntityType:   "artist",
 		EntityID:     10,
@@ -44,7 +45,7 @@ func makeTestRevision(id uint) models.Revision {
 		FieldChanges: &raw,
 		Summary:      &summary,
 		CreatedAt:    time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
-		User: models.User{
+		User: authm.User{
 			ID:       5,
 			Username: &username,
 		},
@@ -76,11 +77,11 @@ func TestRevisionHandler_GetEntityHistory_Success(t *testing.T) {
 	rev := makeTestRevision(1)
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
 				if entityType != "artist" || entityID != 10 {
 					t.Errorf("unexpected params: type=%s, id=%d", entityType, entityID)
 				}
-				return []models.Revision{rev}, 1, nil
+				return []adminm.Revision{rev}, 1, nil
 			},
 		},
 		nil,
@@ -144,7 +145,7 @@ func TestRevisionHandler_GetEntityHistory_InvalidEntityID(t *testing.T) {
 func TestRevisionHandler_GetEntityHistory_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
@@ -162,7 +163,7 @@ func TestRevisionHandler_GetEntityHistory_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error) {
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
 				receivedLimit = limit
 				return nil, 0, nil
 			},
@@ -209,7 +210,7 @@ func TestRevisionHandler_GetRevision_Success(t *testing.T) {
 	rev := makeTestRevision(42)
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetRevisionFn: func(revisionID uint) (*models.Revision, error) {
+			GetRevisionFn: func(revisionID uint) (*adminm.Revision, error) {
 				if revisionID != 42 {
 					t.Errorf("expected revisionID=42, got %d", revisionID)
 				}
@@ -234,7 +235,7 @@ func TestRevisionHandler_GetRevision_Success(t *testing.T) {
 func TestRevisionHandler_GetRevision_NotFound(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetRevisionFn: func(revisionID uint) (*models.Revision, error) {
+			GetRevisionFn: func(revisionID uint) (*adminm.Revision, error) {
 				return nil, nil // not found
 			},
 		},
@@ -255,7 +256,7 @@ func TestRevisionHandler_GetRevision_InvalidID(t *testing.T) {
 func TestRevisionHandler_GetRevision_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetRevisionFn: func(revisionID uint) (*models.Revision, error) {
+			GetRevisionFn: func(revisionID uint) (*adminm.Revision, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		},
@@ -274,11 +275,11 @@ func TestRevisionHandler_GetUserRevisions_Success(t *testing.T) {
 	rev := makeTestRevision(1)
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
+			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]adminm.Revision, int64, error) {
 				if userID != 5 {
 					t.Errorf("expected userID=5, got %d", userID)
 				}
-				return []models.Revision{rev}, 1, nil
+				return []adminm.Revision{rev}, 1, nil
 			},
 		},
 		nil,
@@ -306,7 +307,7 @@ func TestRevisionHandler_GetUserRevisions_InvalidUserID(t *testing.T) {
 func TestRevisionHandler_GetUserRevisions_ServiceError(t *testing.T) {
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
+			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]adminm.Revision, int64, error) {
 				return nil, 0, fmt.Errorf("database error")
 			},
 		},
@@ -321,7 +322,7 @@ func TestRevisionHandler_GetUserRevisions_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewRevisionHandler(
 		&testhelpers.MockRevisionService{
-			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]models.Revision, int64, error) {
+			GetUserRevisionsFn: func(userID uint, limit, offset int) ([]adminm.Revision, int64, error) {
 				receivedLimit = limit
 				return nil, 0, nil
 			},
@@ -413,7 +414,7 @@ func TestRevisionHandler_Rollback_NilAuditLog(t *testing.T) {
 // ============================================================================
 
 func TestMapRevisionToResponse_NilFieldChanges(t *testing.T) {
-	r := models.Revision{
+	r := adminm.Revision{
 		ID:           1,
 		EntityType:   "artist",
 		EntityID:     10,
@@ -430,14 +431,14 @@ func TestMapRevisionToResponse_NilFieldChanges(t *testing.T) {
 
 func TestMapRevisionToResponse_FallbackToFirstName(t *testing.T) {
 	firstName := "John"
-	r := models.Revision{
+	r := adminm.Revision{
 		ID:           1,
 		EntityType:   "artist",
 		EntityID:     10,
 		UserID:       5,
 		FieldChanges: nil,
 		CreatedAt:    time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
-		User: models.User{
+		User: authm.User{
 			ID:        5,
 			Username:  nil,
 			FirstName: &firstName,

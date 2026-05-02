@@ -11,7 +11,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -59,12 +59,12 @@ type LoginRequest struct {
 type LoginResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool         `json:"success" example:"true" doc:"Success status"`
-		Message   string       `json:"message" example:"Login successful" doc:"Response message"`
-		Token     string       `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients (e.g. mobile apps)"`
-		ErrorCode string       `json:"error_code,omitempty" example:"INVALID_CREDENTIALS" doc:"Error code for programmatic handling"`
-		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
-		User      *models.User `json:"user,omitempty" doc:"User information"`
+		Success   bool        `json:"success" example:"true" doc:"Success status"`
+		Message   string      `json:"message" example:"Login successful" doc:"Response message"`
+		Token     string      `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients (e.g. mobile apps)"`
+		ErrorCode string      `json:"error_code,omitempty" example:"INVALID_CREDENTIALS" doc:"Error code for programmatic handling"`
+		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		User      *authm.User `json:"user,omitempty" doc:"User information"`
 	}
 }
 
@@ -204,9 +204,9 @@ func (h *AuthHandler) OAuthLoginHandler(ctx context.Context, input *OAuthLoginRe
 // OAuthCallbackResponse represents OAuth callback response
 type OAuthCallbackResponse struct {
 	Body struct {
-		Success bool         `json:"success" example:"true" doc:"Success status"`
-		User    *models.User `json:"user,omitempty" doc:"User information"`
-		Message string       `json:"message" example:"Login successful" doc:"Response message"`
+		Success bool        `json:"success" example:"true" doc:"Success status"`
+		User    *authm.User `json:"user,omitempty" doc:"User information"`
+		Message string      `json:"message" example:"Login successful" doc:"Response message"`
 	}
 }
 
@@ -243,11 +243,11 @@ func (h *AuthHandler) LogoutHandler(ctx context.Context, input *struct{}) (*Logo
 // UserProfileResponse represents user profile response
 type UserProfileResponse struct {
 	Body struct {
-		Success   bool         `json:"success" example:"true" doc:"Success status"`
-		User      *models.User `json:"user,omitempty" doc:"User information"`
-		Message   string       `json:"message" example:"Profile retrieved" doc:"Response message"`
-		ErrorCode string       `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
-		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success   bool        `json:"success" example:"true" doc:"Success status"`
+		User      *authm.User `json:"user,omitempty" doc:"User information"`
+		Message   string      `json:"message" example:"Profile retrieved" doc:"Response message"`
+		ErrorCode string      `json:"error_code,omitempty" example:"UNAUTHORIZED" doc:"Error code for programmatic handling"`
+		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 
@@ -389,12 +389,12 @@ type RegisterRequest struct {
 type RegisterResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool         `json:"success" example:"true" doc:"Success status"`
-		Message   string       `json:"message" example:"Registration successful" doc:"Response message"`
-		Token     string       `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients (e.g. mobile apps)"`
-		ErrorCode string       `json:"error_code,omitempty" example:"USER_EXISTS" doc:"Error code for programmatic handling"`
-		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
-		User      *models.User `json:"user,omitempty" doc:"User information"`
+		Success   bool        `json:"success" example:"true" doc:"Success status"`
+		Message   string      `json:"message" example:"Registration successful" doc:"Response message"`
+		Token     string      `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients (e.g. mobile apps)"`
+		ErrorCode string      `json:"error_code,omitempty" example:"USER_EXISTS" doc:"Error code for programmatic handling"`
+		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		User      *authm.User `json:"user,omitempty" doc:"User information"`
 	}
 }
 
@@ -859,12 +859,12 @@ type VerifyMagicLinkRequest struct {
 type VerifyMagicLinkResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool         `json:"success" example:"true" doc:"Success status"`
-		Message   string       `json:"message" example:"Login successful" doc:"Response message"`
-		Token     string       `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients"`
-		User      *models.User `json:"user,omitempty" doc:"User information"`
-		ErrorCode string       `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
-		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success   bool        `json:"success" example:"true" doc:"Success status"`
+		Message   string      `json:"message" example:"Login successful" doc:"Response message"`
+		Token     string      `json:"token,omitempty" example:"eyJhbGciOiJIUzI1NiIs..." doc:"JWT token for non-cookie clients"`
+		User      *authm.User `json:"user,omitempty" doc:"User information"`
+		ErrorCode string      `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
+		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 
@@ -1273,11 +1273,11 @@ type RecoverAccountRequest struct {
 type RecoverAccountResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool         `json:"success" example:"true" doc:"Success status"`
-		Message   string       `json:"message" example:"Account recovered successfully" doc:"Response message"`
-		User      *models.User `json:"user,omitempty" doc:"User information"`
-		ErrorCode string       `json:"error_code,omitempty" example:"ACCOUNT_NOT_RECOVERABLE" doc:"Error code for programmatic handling"`
-		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success   bool        `json:"success" example:"true" doc:"Success status"`
+		Message   string      `json:"message" example:"Account recovered successfully" doc:"Response message"`
+		User      *authm.User `json:"user,omitempty" doc:"User information"`
+		ErrorCode string      `json:"error_code,omitempty" example:"ACCOUNT_NOT_RECOVERABLE" doc:"Error code for programmatic handling"`
+		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 
@@ -1311,11 +1311,11 @@ type ConfirmAccountRecoveryRequest struct {
 type ConfirmAccountRecoveryResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool         `json:"success" example:"true" doc:"Success status"`
-		Message   string       `json:"message" example:"Account recovered successfully" doc:"Response message"`
-		User      *models.User `json:"user,omitempty" doc:"User information"`
-		ErrorCode string       `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
-		RequestID string       `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
+		Success   bool        `json:"success" example:"true" doc:"Success status"`
+		Message   string      `json:"message" example:"Account recovered successfully" doc:"Response message"`
+		User      *authm.User `json:"user,omitempty" doc:"User information"`
+		ErrorCode string      `json:"error_code,omitempty" example:"INVALID_TOKEN" doc:"Error code for programmatic handling"`
+		RequestID string      `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
 
@@ -1822,11 +1822,11 @@ type UpdateProfileRequest struct {
 // UpdateProfileResponse represents the response for updating profile identity fields.
 type UpdateProfileResponse struct {
 	Body struct {
-		Success   bool         `json:"success"`
-		User      *models.User `json:"user,omitempty"`
-		Message   string       `json:"message"`
-		ErrorCode string       `json:"error_code,omitempty"`
-		RequestID string       `json:"request_id,omitempty"`
+		Success   bool        `json:"success"`
+		User      *authm.User `json:"user,omitempty"`
+		Message   string      `json:"message"`
+		ErrorCode string      `json:"error_code,omitempty"`
+		RequestID string      `json:"request_id,omitempty"`
 	}
 }
 

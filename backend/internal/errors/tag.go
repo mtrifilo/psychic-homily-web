@@ -6,18 +6,18 @@ import (
 
 // Tag error codes
 const (
-	CodeTagNotFound              = "TAG_NOT_FOUND"
-	CodeTagExists                = "TAG_EXISTS"
-	CodeTagAliasExists           = "TAG_ALIAS_EXISTS"
-	CodeEntityTagExists          = "ENTITY_TAG_EXISTS"
-	CodeEntityTagNotFound        = "ENTITY_TAG_NOT_FOUND"
-	CodeTagCreationForbidden     = "TAG_CREATION_FORBIDDEN"
-	CodeTagNameInvalid           = "TAG_NAME_INVALID"
-	CodeTagMergeInvalid          = "TAG_MERGE_INVALID"
-	CodeTagMergeAliasConflict    = "TAG_MERGE_ALIAS_CONFLICT"
-	CodeTagHierarchyCycle        = "TAG_HIERARCHY_CYCLE"
-	CodeTagHierarchyNotGenre     = "TAG_HIERARCHY_NOT_GENRE"
-	CodeTagBulkActionInvalid     = "TAG_BULK_ACTION_INVALID"
+	CodeTagNotFound           = "TAG_NOT_FOUND"
+	CodeTagExists             = "TAG_EXISTS"
+	CodeTagAliasExists        = "TAG_ALIAS_EXISTS"
+	CodeEntityTagExists       = "ENTITY_TAG_EXISTS"
+	CodeEntityTagNotFound     = "ENTITY_TAG_NOT_FOUND"
+	CodeTagCreationForbidden  = "TAG_CREATION_FORBIDDEN"
+	CodeTagNameInvalid        = "TAG_NAME_INVALID"
+	CodeTagMergeInvalid       = "TAG_MERGE_INVALID"
+	CodeTagMergeAliasConflict = "TAG_MERGE_ALIAS_CONFLICT"
+	CodeTagHierarchyCycle     = "TAG_HIERARCHY_CYCLE"
+	CodeTagHierarchyNotGenre  = "TAG_HIERARCHY_NOT_GENRE"
+	CodeTagBulkActionInvalid  = "TAG_BULK_ACTION_INVALID"
 )
 
 // TagError represents a tag-related error with additional context.

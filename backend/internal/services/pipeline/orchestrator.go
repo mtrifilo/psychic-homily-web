@@ -5,7 +5,8 @@ import (
 	"log"
 	"time"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -126,14 +127,14 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*contracts.Pi
 	// 6. Check for changes (static only -- dynamic/screenshot always proceed)
 	if !fetchResult.Changed && renderMethod == contracts.RenderMethodStatic {
 		result := &contracts.PipelineResult{
-			VenueID:      venueID,
-			VenueName:    venue.Name,
-			RenderMethod: renderMethod,
-			Skipped:      true,
-			SkipReason:   "page unchanged (hash match)",
-			DurationMs:   time.Since(start).Milliseconds(),
-			DryRun:       dryRun,
-			InitialStatus: string(models.ShowStatusPending),
+			VenueID:       venueID,
+			VenueName:     venue.Name,
+			RenderMethod:  renderMethod,
+			Skipped:       true,
+			SkipReason:    "page unchanged (hash match)",
+			DurationMs:    time.Since(start).Milliseconds(),
+			DryRun:        dryRun,
+			InitialStatus: string(catalogm.ShowStatusPending),
 		}
 		s.recordRun(venueID, renderMethod, config.PreferredSource, 0, 0, &fetchResult.ContentHash, fetchResult.HTTPStatus, start, nil)
 		return result, nil
@@ -185,9 +186,9 @@ func (s *PipelineService) ExtractVenue(venueID uint, dryRun bool) (*contracts.Pi
 	discoveredEvents := CalendarEventsToDiscoveredEvents(venueSlug, musicEvents)
 
 	// 11. Determine initial status based on auto_approve
-	initialStatus := models.ShowStatusPending
+	initialStatus := catalogm.ShowStatusPending
 	if config.AutoApprove {
-		initialStatus = models.ShowStatusApproved
+		initialStatus = catalogm.ShowStatusApproved
 	}
 
 	// 12. Import events (unless dry run)
@@ -240,7 +241,7 @@ func filterMusicEvents(events []contracts.CalendarEvent) []contracts.CalendarEve
 
 // recordRun persists an extraction run record (fire-and-forget).
 func (s *PipelineService) recordRun(venueID uint, renderMethod, preferredSource string, extracted, imported int, contentHash *string, httpStatus int, start time.Time, runErr error) {
-	run := &models.VenueExtractionRun{
+	run := &adminm.VenueExtractionRun{
 		VenueID:         venueID,
 		RenderMethod:    strPtrIfNonEmpty(renderMethod),
 		PreferredSource: strPtrIfNonEmpty(preferredSource),
@@ -282,7 +283,7 @@ func intPtrIfNonZero(i int) *int {
 
 // extractFromFeed fetches and parses a venue's iCal or RSS feed.
 // Returns nil result if the feed is empty or fails (caller should fall back to AI).
-func (s *PipelineService) extractFromFeed(venue *models.Venue, config *models.VenueSourceConfig, dryRun bool, start time.Time) (*contracts.PipelineResult, error) {
+func (s *PipelineService) extractFromFeed(venue *catalogm.Venue, config *adminm.VenueSourceConfig, dryRun bool, start time.Time) (*contracts.PipelineResult, error) {
 	feedURL := *config.FeedURL
 	feedType := config.PreferredSource // "ical" or "rss"
 
@@ -305,14 +306,14 @@ func (s *PipelineService) extractFromFeed(venue *models.Venue, config *models.Ve
 	// Check for changes
 	if !fetchResult.Changed {
 		result := &contracts.PipelineResult{
-			VenueID:      venue.ID,
-			VenueName:    venue.Name,
-			RenderMethod: feedType,
-			Skipped:      true,
-			SkipReason:   "feed unchanged (hash match)",
-			DurationMs:   time.Since(start).Milliseconds(),
-			DryRun:       dryRun,
-			InitialStatus: string(models.ShowStatusPending),
+			VenueID:       venue.ID,
+			VenueName:     venue.Name,
+			RenderMethod:  feedType,
+			Skipped:       true,
+			SkipReason:    "feed unchanged (hash match)",
+			DurationMs:    time.Since(start).Milliseconds(),
+			DryRun:        dryRun,
+			InitialStatus: string(catalogm.ShowStatusPending),
 		}
 		s.recordRun(venue.ID, feedType, feedType, 0, 0, &fetchResult.ContentHash, fetchResult.HTTPStatus, start, nil)
 		return result, nil
@@ -334,9 +335,9 @@ func (s *PipelineService) extractFromFeed(venue *models.Venue, config *models.Ve
 	eventsExtracted := len(parsed.Events)
 
 	// Determine initial status
-	initialStatus := models.ShowStatusPending
+	initialStatus := catalogm.ShowStatusPending
 	if config.AutoApprove {
-		initialStatus = models.ShowStatusApproved
+		initialStatus = catalogm.ShowStatusApproved
 	}
 
 	// Import events (unless dry run)

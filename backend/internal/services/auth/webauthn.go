@@ -12,7 +12,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -67,9 +67,9 @@ func NewWebAuthnService(database *gorm.DB, cfg *config.Config) (*WebAuthnService
 }
 
 // BeginRegistration starts the passkey registration process
-func (s *WebAuthnService) BeginRegistration(user *models.User) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
+func (s *WebAuthnService) BeginRegistration(user *authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error) {
 	// Get existing credentials to exclude
-	var existingCreds []models.WebAuthnCredential
+	var existingCreds []authm.WebAuthnCredential
 	if err := s.db.Where("user_id = ?", user.ID).Find(&existingCreds).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to get existing credentials: %w", err)
 	}
@@ -98,7 +98,7 @@ func (s *WebAuthnService) BeginRegistration(user *models.User) (*protocol.Creden
 }
 
 // FinishRegistration completes the passkey registration process
-func (s *WebAuthnService) FinishRegistration(user *models.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*models.WebAuthnCredential, error) {
+func (s *WebAuthnService) FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error) {
 	// Complete the registration
 	credential, err := s.webAuthn.CreateCredential(user, *session, response)
 	if err != nil {
@@ -106,7 +106,7 @@ func (s *WebAuthnService) FinishRegistration(user *models.User, session *webauth
 	}
 
 	// Convert to our model
-	webauthnCred := models.ToWebAuthnCredential(user.ID, credential, displayName)
+	webauthnCred := authm.ToWebAuthnCredential(user.ID, credential, displayName)
 
 	// Save to database
 	if err := s.db.Create(webauthnCred).Error; err != nil {
@@ -117,7 +117,7 @@ func (s *WebAuthnService) FinishRegistration(user *models.User, session *webauth
 }
 
 // BeginLogin starts the passkey login process
-func (s *WebAuthnService) BeginLogin(user *models.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
+func (s *WebAuthnService) BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error) {
 	// Load user's credentials
 	if err := s.db.Preload("PasskeyCredentials").First(user, user.ID).Error; err != nil {
 		return nil, nil, fmt.Errorf("failed to load user: %w", err)
@@ -147,7 +147,7 @@ func (s *WebAuthnService) BeginDiscoverableLogin() (*protocol.CredentialAssertio
 }
 
 // FinishLogin completes the passkey login process
-func (s *WebAuthnService) FinishLogin(user *models.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*models.WebAuthnCredential, error) {
+func (s *WebAuthnService) FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error) {
 	// Complete the login
 	credential, err := s.webAuthn.ValidateLogin(user, *session, response)
 	if err != nil {
@@ -155,7 +155,7 @@ func (s *WebAuthnService) FinishLogin(user *models.User, session *webauthn.Sessi
 	}
 
 	// Find and update the credential
-	var webauthnCred models.WebAuthnCredential
+	var webauthnCred authm.WebAuthnCredential
 	if err := s.db.Where("user_id = ? AND credential_id = ?", user.ID, credential.ID).First(&webauthnCred).Error; err != nil {
 		return nil, fmt.Errorf("credential not found: %w", err)
 	}
@@ -174,15 +174,15 @@ func (s *WebAuthnService) FinishLogin(user *models.User, session *webauthn.Sessi
 }
 
 // FinishDiscoverableLogin completes a discoverable login and returns the user
-func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*models.User, *models.WebAuthnCredential, error) {
+func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error) {
 	// Find the credential by ID
-	var webauthnCred models.WebAuthnCredential
+	var webauthnCred authm.WebAuthnCredential
 	if err := s.db.Where("credential_id = ?", response.RawID).Preload("User").First(&webauthnCred).Error; err != nil {
 		return nil, nil, fmt.Errorf("credential not found: %w", err)
 	}
 
 	// Load the user with all credentials
-	var user models.User
+	var user authm.User
 	if err := s.db.Preload("PasskeyCredentials").First(&user, webauthnCred.UserID).Error; err != nil {
 		return nil, nil, fmt.Errorf("user not found: %w", err)
 	}
@@ -213,11 +213,11 @@ func (s *WebAuthnService) FinishDiscoverableLogin(session *webauthn.SessionData,
 }
 
 // GetUserCredentials returns all passkey credentials for a user
-func (s *WebAuthnService) GetUserCredentials(userID uint) ([]models.WebAuthnCredential, error) {
+func (s *WebAuthnService) GetUserCredentials(userID uint) ([]authm.WebAuthnCredential, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	var credentials []models.WebAuthnCredential
+	var credentials []authm.WebAuthnCredential
 	if err := s.db.Where("user_id = ?", userID).Order("created_at DESC").Find(&credentials).Error; err != nil {
 		return nil, fmt.Errorf("failed to get credentials: %w", err)
 	}
@@ -229,7 +229,7 @@ func (s *WebAuthnService) DeleteCredential(userID uint, credentialID uint) error
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
-	result := s.db.Where("id = ? AND user_id = ?", credentialID, userID).Delete(&models.WebAuthnCredential{})
+	result := s.db.Where("id = ? AND user_id = ?", credentialID, userID).Delete(&authm.WebAuthnCredential{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete credential: %w", result.Error)
 	}
@@ -241,7 +241,7 @@ func (s *WebAuthnService) DeleteCredential(userID uint, credentialID uint) error
 
 // UpdateCredentialName updates the display name of a credential
 func (s *WebAuthnService) UpdateCredentialName(userID uint, credentialID uint, displayName string) error {
-	result := s.db.Model(&models.WebAuthnCredential{}).
+	result := s.db.Model(&authm.WebAuthnCredential{}).
 		Where("id = ? AND user_id = ?", credentialID, userID).
 		Update("display_name", displayName)
 	if result.Error != nil {
@@ -265,7 +265,7 @@ func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionD
 		return "", fmt.Errorf("failed to marshal session: %w", err)
 	}
 
-	challenge := models.WebAuthnChallenge{
+	challenge := authm.WebAuthnChallenge{
 		ID:          uuid.New().String(),
 		UserID:      userID,
 		Challenge:   []byte(session.Challenge),
@@ -283,7 +283,7 @@ func (s *WebAuthnService) StoreChallenge(userID uint, session *webauthn.SessionD
 
 // GetChallenge retrieves and validates a WebAuthn challenge
 func (s *WebAuthnService) GetChallenge(challengeID string, operation string) (*webauthn.SessionData, uint, error) {
-	var challenge models.WebAuthnChallenge
+	var challenge authm.WebAuthnChallenge
 	if err := s.db.Where("id = ? AND operation = ?", challengeID, operation).First(&challenge).Error; err != nil {
 		return nil, 0, fmt.Errorf("challenge not found: %w", err)
 	}
@@ -305,12 +305,12 @@ func (s *WebAuthnService) GetChallenge(challengeID string, operation string) (*w
 
 // DeleteChallenge removes a used challenge
 func (s *WebAuthnService) DeleteChallenge(challengeID string) error {
-	return s.db.Where("id = ?", challengeID).Delete(&models.WebAuthnChallenge{}).Error
+	return s.db.Where("id = ?", challengeID).Delete(&authm.WebAuthnChallenge{}).Error
 }
 
 // CleanupExpiredChallenges removes expired challenges (can be run periodically)
 func (s *WebAuthnService) CleanupExpiredChallenges() error {
-	return s.db.Where("expires_at < ?", time.Now()).Delete(&models.WebAuthnChallenge{}).Error
+	return s.db.Where("expires_at < ?", time.Now()).Delete(&authm.WebAuthnChallenge{}).Error
 }
 
 // --- Passkey Signup (passkey-first registration) methods ---
@@ -376,7 +376,7 @@ func (s *WebAuthnService) StoreChallengeWithEmail(email string, session *webauth
 		return "", fmt.Errorf("failed to marshal session: %w", err)
 	}
 
-	challenge := models.WebAuthnChallenge{
+	challenge := authm.WebAuthnChallenge{
 		ID:          uuid.New().String(),
 		UserID:      0, // No user yet for signup
 		Challenge:   []byte(session.Challenge),
@@ -394,7 +394,7 @@ func (s *WebAuthnService) StoreChallengeWithEmail(email string, session *webauth
 
 // GetChallengeWithEmail retrieves a signup challenge and returns session + email
 func (s *WebAuthnService) GetChallengeWithEmail(challengeID string, operation string) (*webauthn.SessionData, string, error) {
-	var challenge models.WebAuthnChallenge
+	var challenge authm.WebAuthnChallenge
 	if err := s.db.Where("id = ? AND operation = ?", challengeID, operation).First(&challenge).Error; err != nil {
 		return nil, "", fmt.Errorf("challenge not found: %w", err)
 	}
@@ -416,7 +416,7 @@ func (s *WebAuthnService) GetChallengeWithEmail(challengeID string, operation st
 
 // FinishSignupRegistration completes registration, creates user, and stores credential.
 // Legacy path without legal acceptance metadata.
-func (s *WebAuthnService) FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*models.User, error) {
+func (s *WebAuthnService) FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.User, error) {
 	return s.FinishSignupRegistrationWithLegal(email, session, response, displayName, contracts.LegalAcceptance{})
 }
 
@@ -427,7 +427,7 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	response *protocol.ParsedCredentialCreationData,
 	displayName string,
 	acceptance contracts.LegalAcceptance,
-) (*models.User, error) {
+) (*authm.User, error) {
 	// Use the same temp user for credential creation
 	tempUser := &signupUser{email: email}
 
@@ -446,7 +446,7 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	}()
 
 	// Create user without password
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: false,
@@ -469,7 +469,7 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	}
 
 	// Create default preferences
-	preferences := &models.UserPreferences{
+	preferences := &authm.UserPreferences{
 		UserID: user.ID,
 	}
 
@@ -479,7 +479,7 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 	}
 
 	// Convert and save credential with real user ID
-	webauthnCred := models.ToWebAuthnCredential(user.ID, credential, displayName)
+	webauthnCred := authm.ToWebAuthnCredential(user.ID, credential, displayName)
 
 	if err := tx.Create(webauthnCred).Error; err != nil {
 		tx.Rollback()

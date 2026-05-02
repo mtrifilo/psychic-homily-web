@@ -8,7 +8,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -41,12 +41,12 @@ type AppleCallbackRequest struct {
 type AppleCallbackResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`
 	Body      struct {
-		Success   bool         `json:"success" example:"true" doc:"Success status"`
-		Message   string       `json:"message" example:"Login successful" doc:"Response message"`
-		Token     string       `json:"token,omitempty" doc:"JWT token for non-cookie clients"`
-		User      *models.User `json:"user,omitempty" doc:"User information"`
-		ErrorCode string       `json:"error_code,omitempty" doc:"Error code for programmatic handling"`
-		RequestID string       `json:"request_id,omitempty" doc:"Request ID for debugging"`
+		Success   bool        `json:"success" example:"true" doc:"Success status"`
+		Message   string      `json:"message" example:"Login successful" doc:"Response message"`
+		Token     string      `json:"token,omitempty" doc:"JWT token for non-cookie clients"`
+		User      *authm.User `json:"user,omitempty" doc:"User information"`
+		ErrorCode string      `json:"error_code,omitempty" doc:"Error code for programmatic handling"`
+		RequestID string      `json:"request_id,omitempty" doc:"Request ID for debugging"`
 	}
 }
 

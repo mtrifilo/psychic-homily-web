@@ -6,9 +6,9 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -37,18 +37,18 @@ func (s *ReleaseService) CreateRelease(req *contracts.CreateReleaseRequest) (*co
 	baseSlug := utils.GenerateArtistSlug(req.Title)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Release{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Release{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
 	// Determine release type, default to "lp"
-	releaseType := models.ReleaseType(req.ReleaseType)
+	releaseType := catalogm.ReleaseType(req.ReleaseType)
 	if releaseType == "" {
-		releaseType = models.ReleaseTypeLP
+		releaseType = catalogm.ReleaseTypeLP
 	}
 
 	// Create the release
-	release := &models.Release{
+	release := &catalogm.Release{
 		Title:       req.Title,
 		Slug:        &slug,
 		ReleaseType: releaseType,
@@ -67,12 +67,12 @@ func (s *ReleaseService) CreateRelease(req *contracts.CreateReleaseRequest) (*co
 		for i, artistEntry := range req.Artists {
 			role := artistEntry.Role
 			if role == "" {
-				role = string(models.ArtistReleaseRoleMain)
+				role = string(catalogm.ArtistReleaseRoleMain)
 			}
-			ar := &models.ArtistRelease{
+			ar := &catalogm.ArtistRelease{
 				ArtistID:  artistEntry.ArtistID,
 				ReleaseID: release.ID,
-				Role:      models.ArtistReleaseRole(role),
+				Role:      catalogm.ArtistReleaseRole(role),
 				Position:  i,
 			}
 			if err := tx.Create(ar).Error; err != nil {
@@ -82,7 +82,7 @@ func (s *ReleaseService) CreateRelease(req *contracts.CreateReleaseRequest) (*co
 
 		// Create external links
 		for _, linkEntry := range req.ExternalLinks {
-			link := &models.ReleaseExternalLink{
+			link := &catalogm.ReleaseExternalLink{
 				ReleaseID: release.ID,
 				Platform:  linkEntry.Platform,
 				URL:       linkEntry.URL,
@@ -108,7 +108,7 @@ func (s *ReleaseService) GetRelease(releaseID uint) (*contracts.ReleaseDetailRes
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var release models.Release
+	var release catalogm.Release
 	err := s.db.Preload("ExternalLinks").First(&release, releaseID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -126,7 +126,7 @@ func (s *ReleaseService) GetReleaseBySlug(slug string) (*contracts.ReleaseDetail
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var release models.Release
+	var release catalogm.Release
 	err := s.db.Preload("ExternalLinks").Where("slug = ?", slug).First(&release).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -145,7 +145,7 @@ func (s *ReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Model(&models.Release{})
+	query := s.db.Model(&catalogm.Release{})
 
 	// Apply filters
 	if filters.ArtistID > 0 {
@@ -177,7 +177,7 @@ func (s *ReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*
 		)
 	}
 	if len(filters.TagSlugs) > 0 {
-		query = ApplyTagFilter(query, s.db, models.TagEntityRelease, "releases.id", TagFilter{
+		query = ApplyTagFilter(query, s.db, catalogm.TagEntityRelease, "releases.id", TagFilter{
 			TagSlugs: filters.TagSlugs,
 			MatchAny: filters.TagMatchAny,
 		})
@@ -216,7 +216,7 @@ func (s *ReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*
 		query = query.Offset(filters.Offset)
 	}
 
-	var releases []models.Release
+	var releases []catalogm.Release
 	err := query.Find(&releases).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to list releases: %w", err)
@@ -240,7 +240,7 @@ func (s *ReleaseService) SearchReleases(query string) ([]*contracts.ReleaseListR
 		return []*contracts.ReleaseListResponse{}, nil
 	}
 
-	var releases []models.Release
+	var releases []catalogm.Release
 	var err error
 
 	if len(query) <= 2 {
@@ -273,7 +273,7 @@ func (s *ReleaseService) UpdateRelease(releaseID uint, req *contracts.UpdateRele
 	}
 
 	// Check if release exists
-	var release models.Release
+	var release catalogm.Release
 	err := s.db.First(&release, releaseID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -290,7 +290,7 @@ func (s *ReleaseService) UpdateRelease(releaseID uint, req *contracts.UpdateRele
 		baseSlug := utils.GenerateArtistSlug(*req.Title)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.Release{}).Where("slug = ? AND id != ?", candidate, releaseID).Count(&count)
+			s.db.Model(&catalogm.Release{}).Where("slug = ? AND id != ?", candidate, releaseID).Count(&count)
 			return count > 0
 		})
 		updates["slug"] = slug
@@ -312,7 +312,7 @@ func (s *ReleaseService) UpdateRelease(releaseID uint, req *contracts.UpdateRele
 	}
 
 	if len(updates) > 0 {
-		err = s.db.Model(&models.Release{}).Where("id = ?", releaseID).Updates(updates).Error
+		err = s.db.Model(&catalogm.Release{}).Where("id = ?", releaseID).Updates(updates).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to update release: %w", err)
 		}
@@ -328,7 +328,7 @@ func (s *ReleaseService) DeleteRelease(releaseID uint) error {
 	}
 
 	// Check if release exists
-	var release models.Release
+	var release catalogm.Release
 	err := s.db.First(&release, releaseID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -353,7 +353,7 @@ func (s *ReleaseService) GetReleasesForArtist(artistID uint) ([]*contracts.Relea
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrArtistNotFound(artistID)
@@ -372,7 +372,7 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*contra
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrArtistNotFound(artistID)
@@ -381,7 +381,7 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*contra
 	}
 
 	// Get artist_releases junction entries for this artist (includes role)
-	var artistReleases []models.ArtistRelease
+	var artistReleases []catalogm.ArtistRelease
 	if err := s.db.Where("artist_id = ?", artistID).Find(&artistReleases).Error; err != nil {
 		return nil, fmt.Errorf("failed to get artist releases: %w", err)
 	}
@@ -402,7 +402,7 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*contra
 	}
 
 	// Fetch releases
-	var releases []models.Release
+	var releases []catalogm.Release
 	if err := s.db.Where("id IN ?", releaseIDs).Order("release_year DESC NULLS LAST, title ASC").Find(&releases).Error; err != nil {
 		return nil, fmt.Errorf("failed to get releases: %w", err)
 	}
@@ -432,7 +432,7 @@ func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (
 	}
 
 	// Verify release exists
-	var release models.Release
+	var release catalogm.Release
 	if err := s.db.First(&release, releaseID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrReleaseNotFound(releaseID)
@@ -440,7 +440,7 @@ func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (
 		return nil, fmt.Errorf("failed to get release: %w", err)
 	}
 
-	link := &models.ReleaseExternalLink{
+	link := &catalogm.ReleaseExternalLink{
 		ReleaseID: releaseID,
 		Platform:  platform,
 		URL:       url,
@@ -463,7 +463,7 @@ func (s *ReleaseService) RemoveExternalLink(linkID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Delete(&models.ReleaseExternalLink{}, linkID)
+	result := s.db.Delete(&catalogm.ReleaseExternalLink{}, linkID)
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete external link: %w", result.Error)
 	}
@@ -476,7 +476,7 @@ func (s *ReleaseService) RemoveExternalLink(linkID uint) error {
 
 // buildListResponses converts a slice of Release models to ReleaseListResponse, batch-loading
 // artist counts, artist names, and primary label info.
-func (s *ReleaseService) buildListResponses(releases []models.Release) ([]*contracts.ReleaseListResponse, error) {
+func (s *ReleaseService) buildListResponses(releases []catalogm.Release) ([]*contracts.ReleaseListResponse, error) {
 	if len(releases) == 0 {
 		return []*contracts.ReleaseListResponse{}, nil
 	}
@@ -601,14 +601,14 @@ func (s *ReleaseService) buildListResponses(releases []models.Release) ([]*contr
 }
 
 // buildDetailResponse converts a Release model to contracts.ReleaseDetailResponse
-func (s *ReleaseService) buildDetailResponse(release *models.Release) (*contracts.ReleaseDetailResponse, error) {
+func (s *ReleaseService) buildDetailResponse(release *catalogm.Release) (*contracts.ReleaseDetailResponse, error) {
 	slug := ""
 	if release.Slug != nil {
 		slug = *release.Slug
 	}
 
 	// Load artist_releases with artist data
-	var artistReleases []models.ArtistRelease
+	var artistReleases []catalogm.ArtistRelease
 	s.db.Where("release_id = ?", release.ID).Order("position ASC").Find(&artistReleases)
 
 	// Batch-load artist models
@@ -617,9 +617,9 @@ func (s *ReleaseService) buildDetailResponse(release *models.Release) (*contract
 		artistIDs[i] = ar.ArtistID
 	}
 
-	artistMap := make(map[uint]*models.Artist)
+	artistMap := make(map[uint]*catalogm.Artist)
 	if len(artistIDs) > 0 {
-		var artists []models.Artist
+		var artists []catalogm.Artist
 		s.db.Where("id IN ?", artistIDs).Find(&artists)
 		for i := range artists {
 			artistMap[artists[i].ID] = &artists[i]
@@ -654,7 +654,7 @@ func (s *ReleaseService) buildDetailResponse(release *models.Release) (*contract
 	}
 
 	// Load labels via release_labels junction table
-	var releaseLabels []models.ReleaseLabel
+	var releaseLabels []catalogm.ReleaseLabel
 	s.db.Where("release_id = ?", release.ID).Find(&releaseLabels)
 
 	labelIDs := make([]uint, len(releaseLabels))
@@ -664,10 +664,10 @@ func (s *ReleaseService) buildDetailResponse(release *models.Release) (*contract
 
 	labelResponses := make([]contracts.ReleaseLabelResponse, 0, len(releaseLabels))
 	if len(labelIDs) > 0 {
-		var labels []models.Label
+		var labels []catalogm.Label
 		s.db.Where("id IN ?", labelIDs).Find(&labels)
 
-		labelMap := make(map[uint]*models.Label)
+		labelMap := make(map[uint]*catalogm.Label)
 		for i := range labels {
 			labelMap[labels[i].ID] = &labels[i]
 		}

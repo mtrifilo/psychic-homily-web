@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -51,29 +52,29 @@ func TestTagLowQualityIntegration(t *testing.T) {
 // Helpers
 // ──────────────────────────────────────────────
 
-func (s *TagLowQualityIntegrationSuite) createUser(name string) *models.User {
+func (s *TagLowQualityIntegrationSuite) createUser(name string) *authm.User {
 	email := fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())
-	u := &models.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
+	u := &authm.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.db.Create(u).Error)
 	return u
 }
 
 func (s *TagLowQualityIntegrationSuite) createArtist(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	a := &models.Artist{Name: name, Slug: &slug}
+	a := &catalogm.Artist{Name: name, Slug: &slug}
 	s.Require().NoError(s.db.Create(a).Error)
 	return a.ID
 }
 
 // createTagRaw inserts a tag bypassing the service's validations so we can set
 // arbitrary created_at, name lengths, usage_count, etc. for queue criteria.
-func (s *TagLowQualityIntegrationSuite) createTagRaw(name string, opts tagOpts) *models.Tag {
+func (s *TagLowQualityIntegrationSuite) createTagRaw(name string, opts tagOpts) *catalogm.Tag {
 	createdAt := time.Now().UTC()
 	if !opts.createdAt.IsZero() {
 		createdAt = opts.createdAt
 	}
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	tag := &models.Tag{
+	tag := &catalogm.Tag{
 		Name:       name,
 		Slug:       slug,
 		Category:   "other",
@@ -98,7 +99,7 @@ type tagOpts struct {
 // (tag, entity, user) PK is never violated across different test scenarios.
 func (s *TagLowQualityIntegrationSuite) castVote(tagID uint, userID uint, value int) {
 	artistID := s.createArtist(fmt.Sprintf("artist-%d-%d", tagID, userID))
-	v := &models.TagVote{
+	v := &catalogm.TagVote{
 		TagID:      tagID,
 		EntityType: "artist",
 		EntityID:   artistID,
@@ -299,7 +300,7 @@ func (s *TagLowQualityIntegrationSuite) TestSnoozeLowQualityTag_SetsReviewedAt()
 	err := s.tagService.SnoozeLowQualityTag(tag.ID, actor.ID)
 	s.Require().NoError(err)
 
-	var refreshed models.Tag
+	var refreshed catalogm.Tag
 	s.Require().NoError(s.db.First(&refreshed, tag.ID).Error)
 	s.Require().NotNil(refreshed.ReviewedAt)
 	s.Assert().WithinDuration(time.Now().UTC(), *refreshed.ReviewedAt, 10*time.Second)
@@ -335,7 +336,7 @@ func (s *TagLowQualityIntegrationSuite) TestBulkAction_Snooze_HappyPath() {
 
 	// reviewed_at should now be set on all three.
 	for _, id := range []uint{t1.ID, t2.ID, t3.ID} {
-		var refreshed models.Tag
+		var refreshed catalogm.Tag
 		s.Require().NoError(s.db.First(&refreshed, id).Error)
 		s.Require().NotNil(refreshed.ReviewedAt)
 	}
@@ -355,7 +356,7 @@ func (s *TagLowQualityIntegrationSuite) TestBulkAction_Delete_RemovesTags() {
 	s.Assert().EqualValues(2, res.Affected)
 
 	var count int64
-	s.Require().NoError(s.db.Model(&models.Tag{}).Where("id IN ?", []uint{t1.ID, t2.ID}).Count(&count).Error)
+	s.Require().NoError(s.db.Model(&catalogm.Tag{}).Where("id IN ?", []uint{t1.ID, t2.ID}).Count(&count).Error)
 	s.Assert().EqualValues(0, count)
 }
 
@@ -368,7 +369,7 @@ func (s *TagLowQualityIntegrationSuite) TestBulkAction_MarkOfficial_FlipsFlag() 
 	s.Assert().EqualValues(2, res.Affected)
 
 	for _, id := range []uint{t1.ID, t2.ID} {
-		var refreshed models.Tag
+		var refreshed catalogm.Tag
 		s.Require().NoError(s.db.First(&refreshed, id).Error)
 		s.Assert().True(refreshed.IsOfficial)
 	}

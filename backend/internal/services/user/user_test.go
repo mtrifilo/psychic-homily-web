@@ -12,7 +12,8 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -55,21 +56,21 @@ func TestVerifyPassword_Wrong(t *testing.T) {
 
 func TestIsAccountLocked_NotLocked(t *testing.T) {
 	svc := &UserService{}
-	user := &models.User{LockedUntil: nil}
+	user := &authm.User{LockedUntil: nil}
 	assert.False(t, svc.IsAccountLocked(user))
 }
 
 func TestIsAccountLocked_Locked(t *testing.T) {
 	svc := &UserService{}
 	future := time.Now().Add(10 * time.Minute)
-	user := &models.User{LockedUntil: &future}
+	user := &authm.User{LockedUntil: &future}
 	assert.True(t, svc.IsAccountLocked(user))
 }
 
 func TestIsAccountLocked_Expired(t *testing.T) {
 	svc := &UserService{}
 	past := time.Now().Add(-10 * time.Minute)
-	user := &models.User{LockedUntil: &past}
+	user := &authm.User{LockedUntil: &past}
 	assert.False(t, svc.IsAccountLocked(user))
 }
 
@@ -77,13 +78,13 @@ func TestGetLockTimeRemaining(t *testing.T) {
 	svc := &UserService{}
 
 	t.Run("nil LockedUntil", func(t *testing.T) {
-		user := &models.User{LockedUntil: nil}
+		user := &authm.User{LockedUntil: nil}
 		assert.Equal(t, time.Duration(0), svc.GetLockTimeRemaining(user))
 	})
 
 	t.Run("future lock", func(t *testing.T) {
 		future := time.Now().Add(10 * time.Minute)
-		user := &models.User{LockedUntil: &future}
+		user := &authm.User{LockedUntil: &future}
 		remaining := svc.GetLockTimeRemaining(user)
 		assert.True(t, remaining > 9*time.Minute)
 		assert.True(t, remaining <= 10*time.Minute)
@@ -91,7 +92,7 @@ func TestGetLockTimeRemaining(t *testing.T) {
 
 	t.Run("expired lock", func(t *testing.T) {
 		past := time.Now().Add(-10 * time.Minute)
-		user := &models.User{LockedUntil: &past}
+		user := &authm.User{LockedUntil: &past}
 		assert.Equal(t, time.Duration(0), svc.GetLockTimeRemaining(user))
 	})
 }
@@ -107,21 +108,21 @@ func TestIsAccountRecoverable_Nil(t *testing.T) {
 
 func TestIsAccountRecoverable_Active(t *testing.T) {
 	svc := &UserService{}
-	user := &models.User{IsActive: true}
+	user := &authm.User{IsActive: true}
 	assert.False(t, svc.IsAccountRecoverable(user))
 }
 
 func TestIsAccountRecoverable_WithinGrace(t *testing.T) {
 	svc := &UserService{}
 	deletedAt := time.Now().Add(-5 * 24 * time.Hour) // 5 days ago
-	user := &models.User{IsActive: false, DeletedAt: &deletedAt}
+	user := &authm.User{IsActive: false, DeletedAt: &deletedAt}
 	assert.True(t, svc.IsAccountRecoverable(user))
 }
 
 func TestIsAccountRecoverable_Expired(t *testing.T) {
 	svc := &UserService{}
 	deletedAt := time.Now().Add(-31 * 24 * time.Hour) // 31 days ago
-	user := &models.User{IsActive: false, DeletedAt: &deletedAt}
+	user := &authm.User{IsActive: false, DeletedAt: &deletedAt}
 	assert.False(t, svc.IsAccountRecoverable(user))
 }
 
@@ -133,13 +134,13 @@ func TestGetDaysUntilPermanentDeletion(t *testing.T) {
 	})
 
 	t.Run("active user", func(t *testing.T) {
-		user := &models.User{IsActive: true}
+		user := &authm.User{IsActive: true}
 		assert.Equal(t, 0, svc.GetDaysUntilPermanentDeletion(user))
 	})
 
 	t.Run("deleted 5 days ago", func(t *testing.T) {
 		deletedAt := time.Now().Add(-5 * 24 * time.Hour)
-		user := &models.User{IsActive: false, DeletedAt: &deletedAt}
+		user := &authm.User{IsActive: false, DeletedAt: &deletedAt}
 		days := svc.GetDaysUntilPermanentDeletion(user)
 		// 30 - 5 = 25 days remaining (+ rounding up = 25 or 26)
 		assert.True(t, days >= 24 && days <= 26, "expected ~25 days, got %d", days)
@@ -147,12 +148,12 @@ func TestGetDaysUntilPermanentDeletion(t *testing.T) {
 
 	t.Run("deleted 31 days ago", func(t *testing.T) {
 		deletedAt := time.Now().Add(-31 * 24 * time.Hour)
-		user := &models.User{IsActive: false, DeletedAt: &deletedAt}
+		user := &authm.User{IsActive: false, DeletedAt: &deletedAt}
 		assert.Equal(t, 0, svc.GetDaysUntilPermanentDeletion(user))
 	})
 
 	t.Run("nil DeletedAt", func(t *testing.T) {
-		user := &models.User{IsActive: false, DeletedAt: nil}
+		user := &authm.User{IsActive: false, DeletedAt: nil}
 		assert.Equal(t, 0, svc.GetDaysUntilPermanentDeletion(user))
 	})
 }
@@ -185,7 +186,7 @@ func (suite *UserServiceIntegrationTestSuite) TearDownSuite() {
 
 // TestGetUserByID_Success tests successful user retrieval by ID
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByID_Success() {
-	user := &models.User{
+	user := &authm.User{
 		Email:         stringPtr("test@example.com"),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -209,7 +210,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByID_Success() {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmail_Success() {
-	user := &models.User{
+	user := &authm.User{
 		Email:         stringPtr("email@example.com"),
 		FirstName:     stringPtr("Email"),
 		LastName:      stringPtr("User"),
@@ -238,7 +239,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmail_NotFound() {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestUpdateUser_Success() {
-	user := &models.User{
+	user := &authm.User{
 		Email:         stringPtr("update@example.com"),
 		FirstName:     stringPtr("Original"),
 		LastName:      stringPtr("Name"),
@@ -288,18 +289,18 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_NewUser() {
 	assert.True(suite.T(), user.EmailVerified)
 
 	var oauthCount int64
-	err = suite.db.Model(&models.OAuthAccount{}).Where("user_id = ? AND provider = ?", user.ID, "google").Count(&oauthCount).Error
+	err = suite.db.Model(&authm.OAuthAccount{}).Where("user_id = ? AND provider = ?", user.ID, "google").Count(&oauthCount).Error
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), int64(1), oauthCount)
 
 	var prefCount int64
-	err = suite.db.Model(&models.UserPreferences{}).Where("user_id = ?", user.ID).Count(&prefCount).Error
+	err = suite.db.Model(&authm.UserPreferences{}).Where("user_id = ?", user.ID).Count(&prefCount).Error
 	assert.NoError(suite.T(), err)
 	assert.Equal(suite.T(), int64(1), prefCount)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_ExistingOAuthAccount() {
-	user := &models.User{
+	user := &authm.User{
 		Email:         stringPtr("existing@example.com"),
 		FirstName:     stringPtr("Existing"),
 		LastName:      stringPtr("User"),
@@ -311,7 +312,7 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_ExistingOAuth
 	err := suite.db.Create(user).Error
 	assert.NoError(suite.T(), err)
 
-	oauthAccount := &models.OAuthAccount{
+	oauthAccount := &authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "github",
 		ProviderUserID: "github_123",
@@ -345,7 +346,7 @@ func TestUserServiceIntegrationTestSuite(t *testing.T) {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_NewAccount() {
-	user := &models.User{
+	user := &authm.User{
 		Email: stringPtr("linktest@example.com"),
 	}
 
@@ -383,7 +384,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_NewAccount() 
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_UpdateExisting() {
-	user := &models.User{
+	user := &authm.User{
 		Email: stringPtr("updatetest@example.com"),
 	}
 
@@ -391,7 +392,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_UpdateExistin
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
 
-	existingOAuth := &models.OAuthAccount{
+	existingOAuth := &authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "google_update_existing_12345",
@@ -434,7 +435,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_UpdateExistin
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_WithoutExpiresAt() {
-	user := &models.User{
+	user := &authm.User{
 		Email: stringPtr("noexpiry@example.com"),
 	}
 
@@ -469,7 +470,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_WithoutExpire
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_MultipleProviders() {
-	user := &models.User{
+	user := &authm.User{
 		Email: stringPtr("multiprovider@example.com"),
 	}
 
@@ -513,7 +514,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_MultipleProvi
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_EmptyFields() {
-	user := &models.User{
+	user := &authm.User{
 		Email: stringPtr("emptyfields@example.com"),
 	}
 
@@ -548,7 +549,7 @@ func (suite *UserServiceIntegrationTestSuite) TestLinkOAuthAccount_EmptyFields()
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_Success() {
 	username := "testuser123"
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("username@example.com"),
 		Username: &username,
 	}
@@ -577,7 +578,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_NotFound() {
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAccounts() {
 	username := "oauthuser456"
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("oauthuser@example.com"),
 		Username: &username,
 	}
@@ -586,7 +587,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAcc
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
 
-	oauthAccount := &models.OAuthAccount{
+	oauthAccount := &authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "google_oauth_test_123",
@@ -617,7 +618,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAcc
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithPreferences() {
 	username := "prefuser789"
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("prefuser@example.com"),
 		Username: &username,
 	}
@@ -626,7 +627,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithPreferen
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
 
-	preferences := &models.UserPreferences{
+	preferences := &authm.UserPreferences{
 		UserID:            user.ID,
 		NotificationEmail: true,
 		NotificationPush:  false,
@@ -658,7 +659,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithPreferen
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAndPreferences() {
 	username := "fulluser999"
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("fulluser@example.com"),
 		Username: &username,
 	}
@@ -667,7 +668,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_WithOAuthAnd
 	suite.Require().NoError(err)
 	suite.Require().NotZero(user.ID)
 
-	oauthAccount := &models.OAuthAccount{
+	oauthAccount := &authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "github",
 		ProviderUserID: "github_full_test_456",
@@ -718,7 +719,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_EmptyUsernam
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_SpecialCharacters() {
 	username := "user-name_with.underscores+plus"
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("special@example.com"),
 		Username: &username,
 	}
@@ -738,7 +739,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_SpecialChara
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByUsername_VeryLongUsername() {
 	username := "very_long_username_that_is_quite_lengthy_and_might_test_boundaries_123456789"
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("longuser@example.com"),
 		Username: &username,
 	}
@@ -804,7 +805,7 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Prefere
 	suite.Require().NoError(err)
 
 	var prefCount int64
-	suite.db.Model(&models.UserPreferences{}).Where("user_id = ?", user.ID).Count(&prefCount)
+	suite.db.Model(&authm.UserPreferences{}).Where("user_id = ?", user.ID).Count(&prefCount)
 	suite.Equal(int64(1), prefCount)
 }
 
@@ -834,7 +835,7 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_Success() {
 	suite.Require().NoError(err)
 
 	// Must set email_verified and is_active for auth to succeed
-	suite.db.Model(&models.User{}).Where("email = ?", "authsuccess@example.com").
+	suite.db.Model(&authm.User{}).Where("email = ?", "authsuccess@example.com").
 		Update("email_verified", true)
 
 	user, err := suite.userService.AuthenticateUserWithPassword(
@@ -863,7 +864,7 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_WrongPassword() {
 	suite.Equal(apperrors.CodeInvalidCredentials, authErr.Code)
 
 	// Verify failed attempts were incremented
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.Where("email = ?", "authwrong@example.com").First(&dbUser)
 	suite.Equal(1, dbUser.FailedLoginAttempts)
 }
@@ -904,7 +905,7 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_LockedAccount() {
 
 	// Lock the account
 	lockUntil := time.Now().Add(15 * time.Minute)
-	suite.db.Model(&models.User{}).Where("email = ?", "authlocked@example.com").
+	suite.db.Model(&authm.User{}).Where("email = ?", "authlocked@example.com").
 		Updates(map[string]interface{}{
 			"locked_until":          lockUntil,
 			"failed_login_attempts": 5,
@@ -928,7 +929,7 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_InactiveUser() {
 	suite.Require().NoError(err)
 
 	// Soft-delete (is_active = false)
-	suite.db.Model(&models.User{}).Where("email = ?", "authinactive@example.com").
+	suite.db.Model(&authm.User{}).Where("email = ?", "authinactive@example.com").
 		Update("is_active", false)
 
 	user, err := suite.userService.AuthenticateUserWithPassword(
@@ -945,7 +946,7 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_InactiveUser() {
 // =============================================================================
 
 func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_BelowThreshold() {
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("lockout1@example.com"),
 		IsActive: true,
 	}
@@ -954,14 +955,14 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_BelowT
 	err := suite.userService.IncrementFailedAttempts(user.ID)
 	suite.Require().NoError(err)
 
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.First(&dbUser, user.ID)
 	suite.Equal(1, dbUser.FailedLoginAttempts)
 	suite.Nil(dbUser.LockedUntil)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_AtThreshold() {
-	user := &models.User{
+	user := &authm.User{
 		Email:               stringPtr("lockout5@example.com"),
 		IsActive:            true,
 		FailedLoginAttempts: 4, // One more will hit threshold of 5
@@ -971,7 +972,7 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_AtThre
 	err := suite.userService.IncrementFailedAttempts(user.ID)
 	suite.Require().NoError(err)
 
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.First(&dbUser, user.ID)
 	suite.Equal(5, dbUser.FailedLoginAttempts)
 	suite.NotNil(dbUser.LockedUntil)
@@ -982,7 +983,7 @@ func (suite *UserServiceIntegrationTestSuite) TestIncrementFailedAttempts_AtThre
 
 func (suite *UserServiceIntegrationTestSuite) TestResetFailedAttempts_Success() {
 	lockUntil := time.Now().Add(15 * time.Minute)
-	user := &models.User{
+	user := &authm.User{
 		Email:               stringPtr("resetattempts@example.com"),
 		IsActive:            true,
 		FailedLoginAttempts: 3,
@@ -993,7 +994,7 @@ func (suite *UserServiceIntegrationTestSuite) TestResetFailedAttempts_Success() 
 	err := suite.userService.ResetFailedAttempts(user.ID)
 	suite.Require().NoError(err)
 
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.First(&dbUser, user.ID)
 	suite.Equal(0, dbUser.FailedLoginAttempts)
 	suite.Nil(dbUser.LockedUntil)
@@ -1013,7 +1014,7 @@ func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_Success() {
 	suite.Require().NoError(err)
 
 	// Verify old password no longer works
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.First(&dbUser, user.ID)
 	suite.Error(suite.userService.VerifyPassword(*dbUser.PasswordHash, "OldPassword1!"))
 
@@ -1036,7 +1037,7 @@ func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_WrongCurrent() 
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestSetEmailVerified_Success() {
-	user := &models.User{
+	user := &authm.User{
 		Email:         stringPtr("verifyemail@example.com"),
 		IsActive:      true,
 		EmailVerified: false,
@@ -1046,7 +1047,7 @@ func (suite *UserServiceIntegrationTestSuite) TestSetEmailVerified_Success() {
 	err := suite.userService.SetEmailVerified(user.ID, true)
 	suite.Require().NoError(err)
 
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.First(&dbUser, user.ID)
 	suite.True(dbUser.EmailVerified)
 }
@@ -1056,7 +1057,7 @@ func (suite *UserServiceIntegrationTestSuite) TestSetEmailVerified_Success() {
 // =============================================================================
 
 func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_Success() {
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("softdelete@example.com"),
 		IsActive: true,
 	}
@@ -1065,14 +1066,14 @@ func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_Success() {
 	err := suite.userService.SoftDeleteAccount(user.ID, nil)
 	suite.Require().NoError(err)
 
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.First(&dbUser, user.ID)
 	suite.False(dbUser.IsActive)
 	suite.NotNil(dbUser.DeletedAt)
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_WithReason() {
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("softdeletereason@example.com"),
 		IsActive: true,
 	}
@@ -1082,7 +1083,7 @@ func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_WithReason()
 	err := suite.userService.SoftDeleteAccount(user.ID, &reason)
 	suite.Require().NoError(err)
 
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.First(&dbUser, user.ID)
 	suite.False(dbUser.IsActive)
 	suite.NotNil(dbUser.DeletedAt)
@@ -1099,7 +1100,7 @@ func (suite *UserServiceIntegrationTestSuite) TestSoftDeleteAccount_NotFound() {
 func (suite *UserServiceIntegrationTestSuite) TestRestoreAccount_Success() {
 	now := time.Now()
 	reason := "testing"
-	user := &models.User{
+	user := &authm.User{
 		Email:          stringPtr("restoreacct@example.com"),
 		IsActive:       true, // create as true first (GORM zero-value gotcha)
 		DeletedAt:      &now,
@@ -1107,12 +1108,12 @@ func (suite *UserServiceIntegrationTestSuite) TestRestoreAccount_Success() {
 	}
 	suite.db.Create(user)
 	// Then set is_active to false
-	suite.db.Model(&models.User{}).Where("id = ?", user.ID).Update("is_active", false)
+	suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", false)
 
 	err := suite.userService.RestoreAccount(user.ID)
 	suite.Require().NoError(err)
 
-	var dbUser models.User
+	var dbUser authm.User
 	suite.db.First(&dbUser, user.ID)
 	suite.True(dbUser.IsActive)
 	suite.Nil(dbUser.DeletedAt)
@@ -1128,12 +1129,12 @@ func (suite *UserServiceIntegrationTestSuite) TestRestoreAccount_NotFound() {
 func (suite *UserServiceIntegrationTestSuite) TestGetExpiredDeletedAccounts() {
 	// Create an expired deleted account (31 days ago)
 	expiredTime := time.Now().Add(-31 * 24 * time.Hour)
-	expiredUser := &models.User{
+	expiredUser := &authm.User{
 		Email:    stringPtr("expired-del@example.com"),
 		IsActive: true,
 	}
 	suite.db.Create(expiredUser)
-	suite.db.Model(&models.User{}).Where("id = ?", expiredUser.ID).
+	suite.db.Model(&authm.User{}).Where("id = ?", expiredUser.ID).
 		Updates(map[string]interface{}{
 			"is_active":  false,
 			"deleted_at": expiredTime,
@@ -1141,12 +1142,12 @@ func (suite *UserServiceIntegrationTestSuite) TestGetExpiredDeletedAccounts() {
 
 	// Create a recent deleted account (5 days ago)
 	recentTime := time.Now().Add(-5 * 24 * time.Hour)
-	recentUser := &models.User{
+	recentUser := &authm.User{
 		Email:    stringPtr("recent-del@example.com"),
 		IsActive: true,
 	}
 	suite.db.Create(recentUser)
-	suite.db.Model(&models.User{}).Where("id = ?", recentUser.ID).
+	suite.db.Model(&authm.User{}).Where("id = ?", recentUser.ID).
 		Updates(map[string]interface{}{
 			"is_active":  false,
 			"deleted_at": recentTime,
@@ -1172,7 +1173,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetExpiredDeletedAccounts() {
 
 func (suite *UserServiceIntegrationTestSuite) TestGetDeletionSummary_Success() {
 	// Create user
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("delsummary@example.com"),
 		IsActive: true,
 	}
@@ -1188,11 +1189,11 @@ func (suite *UserServiceIntegrationTestSuite) TestGetDeletionSummary_Success() {
 		"Summary Show 2", user.ID).Scan(&show2ID).Error)
 
 	// Create saved show (as bookmark)
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
 		UserID:     user.ID,
-		EntityType: models.BookmarkEntityShow,
+		EntityType: engagementm.BookmarkEntityShow,
 		EntityID:   show1ID,
-		Action:     models.BookmarkActionSave,
+		Action:     engagementm.BookmarkActionSave,
 		CreatedAt:  time.Now(),
 	}).Error)
 
@@ -1212,17 +1213,17 @@ func (suite *UserServiceIntegrationTestSuite) TestGetDeletionSummary_Success() {
 
 func (suite *UserServiceIntegrationTestSuite) TestPermanentlyDeleteUser() {
 	// Create user with related data
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("permdelete@example.com"),
 		IsActive: true,
 	}
 	suite.Require().NoError(suite.db.Create(user).Error)
 
 	// Create preferences
-	suite.Require().NoError(suite.db.Create(&models.UserPreferences{UserID: user.ID}).Error)
+	suite.Require().NoError(suite.db.Create(&authm.UserPreferences{UserID: user.ID}).Error)
 
 	// Create OAuth account
-	suite.Require().NoError(suite.db.Create(&models.OAuthAccount{
+	suite.Require().NoError(suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "perm_del_google_123",
@@ -1236,11 +1237,11 @@ func (suite *UserServiceIntegrationTestSuite) TestPermanentlyDeleteUser() {
 		"Perm Delete Show", user.ID).Scan(&showID).Error)
 
 	// Create saved show (as bookmark)
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
 		UserID:     user.ID,
-		EntityType: models.BookmarkEntityShow,
+		EntityType: engagementm.BookmarkEntityShow,
 		EntityID:   showID,
-		Action:     models.BookmarkActionSave,
+		Action:     engagementm.BookmarkActionSave,
 		CreatedAt:  time.Now(),
 	}).Error)
 
@@ -1249,11 +1250,11 @@ func (suite *UserServiceIntegrationTestSuite) TestPermanentlyDeleteUser() {
 	suite.Require().NoError(suite.db.Raw(
 		`INSERT INTO venues (name, city, state, created_at, updated_at) VALUES (?, ?, ?, NOW(), NOW()) RETURNING id`,
 		"Del Venue", "Nashville", "TN").Scan(&venueID).Error)
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
 		UserID:     user.ID,
-		EntityType: models.BookmarkEntityVenue,
+		EntityType: engagementm.BookmarkEntityVenue,
 		EntityID:   venueID,
-		Action:     models.BookmarkActionFollow,
+		Action:     engagementm.BookmarkActionFollow,
 		CreatedAt:  time.Now(),
 	}).Error)
 
@@ -1268,17 +1269,17 @@ func (suite *UserServiceIntegrationTestSuite) TestPermanentlyDeleteUser() {
 
 	// Verify user is gone
 	var count int64
-	suite.db.Model(&models.User{}).Where("id = ?", user.ID).Count(&count)
+	suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Count(&count)
 	suite.Equal(int64(0), count)
 
 	// Verify cascaded data is gone
-	suite.db.Model(&models.OAuthAccount{}).Where("user_id = ?", user.ID).Count(&count)
+	suite.db.Model(&authm.OAuthAccount{}).Where("user_id = ?", user.ID).Count(&count)
 	suite.Equal(int64(0), count)
 
-	suite.db.Model(&models.UserPreferences{}).Where("user_id = ?", user.ID).Count(&count)
+	suite.db.Model(&authm.UserPreferences{}).Where("user_id = ?", user.ID).Count(&count)
 	suite.Equal(int64(0), count)
 
-	suite.db.Model(&models.UserBookmark{}).Where("user_id = ?", user.ID).Count(&count)
+	suite.db.Model(&engagementm.UserBookmark{}).Where("user_id = ?", user.ID).Count(&count)
 	suite.Equal(int64(0), count)
 
 	var passkeyCount int64
@@ -1333,7 +1334,7 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserData_Success() {
 	suite.Require().NoError(err)
 
 	// Add OAuth account
-	suite.Require().NoError(suite.db.Create(&models.OAuthAccount{
+	suite.Require().NoError(suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "export_google_123",
@@ -1348,11 +1349,11 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserData_Success() {
 		"Export Show", user.ID).Scan(&showID).Error)
 
 	// Save the show (as bookmark)
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
 		UserID:     user.ID,
-		EntityType: models.BookmarkEntityShow,
+		EntityType: engagementm.BookmarkEntityShow,
 		EntityID:   showID,
-		Action:     models.BookmarkActionSave,
+		Action:     engagementm.BookmarkActionSave,
 		CreatedAt:  time.Now(),
 	}).Error)
 
@@ -1422,19 +1423,19 @@ func (suite *UserServiceIntegrationTestSuite) TestExportUserDataJSON() {
 // =============================================================================
 
 func (suite *UserServiceIntegrationTestSuite) TestGetOAuthAccounts_Success() {
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("getoauth@example.com"),
 		IsActive: true,
 	}
 	suite.db.Create(user)
 
-	suite.db.Create(&models.OAuthAccount{
+	suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "get_oauth_google_123",
 		ProviderEmail:  stringPtr("getoauth@example.com"),
 	})
-	suite.db.Create(&models.OAuthAccount{
+	suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "github",
 		ProviderUserID: "get_oauth_github_456",
@@ -1453,7 +1454,7 @@ func (suite *UserServiceIntegrationTestSuite) TestCanUnlinkOAuthAccount_HasPassw
 	)
 	suite.Require().NoError(err)
 
-	suite.db.Create(&models.OAuthAccount{
+	suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "canunlink_google_123",
@@ -1471,7 +1472,7 @@ func (suite *UserServiceIntegrationTestSuite) TestCanUnlinkOAuthAccount_OnlyAuth
 	user, err := suite.userService.CreateUserWithoutPassword("canunlink-only@example.com")
 	suite.Require().NoError(err)
 
-	suite.db.Create(&models.OAuthAccount{
+	suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "canunlink_only_google_123",
@@ -1491,13 +1492,13 @@ func (suite *UserServiceIntegrationTestSuite) TestUnlinkOAuthAccount_Success() {
 	)
 	suite.Require().NoError(err)
 
-	suite.db.Create(&models.OAuthAccount{
+	suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "unlink_google_123",
 		ProviderEmail:  stringPtr("unlinktest@example.com"),
 	})
-	suite.db.Create(&models.OAuthAccount{
+	suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "github",
 		ProviderUserID: "unlink_github_456",
@@ -1519,7 +1520,7 @@ func (suite *UserServiceIntegrationTestSuite) TestUnlinkOAuthAccount_Success() {
 // =============================================================================
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted_Active() {
-	user := &models.User{
+	user := &authm.User{
 		Email:    stringPtr("incldeleted-active@example.com"),
 		IsActive: true,
 	}
@@ -1533,13 +1534,13 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted
 
 func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted_Deleted() {
 	now := time.Now()
-	user := &models.User{
+	user := &authm.User{
 		Email:     stringPtr("incldeleted-gone@example.com"),
 		IsActive:  true,
 		DeletedAt: &now,
 	}
 	suite.db.Create(user)
-	suite.db.Model(&models.User{}).Where("id = ?", user.ID).Update("is_active", false)
+	suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", false)
 
 	found, err := suite.userService.GetUserByEmailIncludingDeleted("incldeleted-gone@example.com")
 	suite.Require().NoError(err)
@@ -1561,7 +1562,7 @@ func (suite *UserServiceIntegrationTestSuite) TestGetUserByEmailIncludingDeleted
 func (suite *UserServiceIntegrationTestSuite) TestListUsers_Success() {
 	// Create 3 users with unique prefix for search isolation
 	for i := 1; i <= 3; i++ {
-		suite.db.Create(&models.User{
+		suite.db.Create(&authm.User{
 			Email:    stringPtr(fmt.Sprintf("listuser%d@listtest.example.com", i)),
 			IsActive: true,
 		})
@@ -1576,11 +1577,11 @@ func (suite *UserServiceIntegrationTestSuite) TestListUsers_Success() {
 }
 
 func (suite *UserServiceIntegrationTestSuite) TestListUsers_WithSearch() {
-	suite.db.Create(&models.User{
+	suite.db.Create(&authm.User{
 		Email:    stringPtr("searchmatch@uniquesearch.example.com"),
 		IsActive: true,
 	})
-	suite.db.Create(&models.User{
+	suite.db.Create(&authm.User{
 		Email:    stringPtr("nomatch@other.example.com"),
 		IsActive: true,
 	})
@@ -1601,7 +1602,7 @@ func (suite *UserServiceIntegrationTestSuite) TestListUsers_WithAuthMethods() {
 	)
 	suite.Require().NoError(err)
 
-	suite.db.Create(&models.OAuthAccount{
+	suite.db.Create(&authm.OAuthAccount{
 		UserID:         user.ID,
 		Provider:       "google",
 		ProviderUserID: "listauth_google_123",
@@ -1653,7 +1654,7 @@ func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_Crea
 	err = suite.userService.SetDefaultReplyPermission(user.ID, "followers")
 	suite.Require().NoError(err)
 
-	var prefs models.UserPreferences
+	var prefs authm.UserPreferences
 	err = suite.db.Where("user_id = ?", user.ID).First(&prefs).Error
 	suite.Require().NoError(err)
 	suite.Equal("followers", prefs.DefaultReplyPermission)
@@ -1670,7 +1671,7 @@ func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_Upda
 	suite.Require().NoError(suite.userService.SetDefaultReplyPermission(user.ID, "followers"))
 	suite.Require().NoError(suite.userService.SetDefaultReplyPermission(user.ID, "author_only"))
 
-	var reload models.UserPreferences
+	var reload authm.UserPreferences
 	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&reload).Error)
 	suite.Equal("author_only", reload.DefaultReplyPermission)
 }

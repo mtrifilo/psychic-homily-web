@@ -51,24 +51,24 @@ type CreateShowRequest struct {
 
 // ShowResponse represents the show data returned to clients
 type ShowResponse struct {
-	ID              uint             `json:"id"`
-	Slug            string           `json:"slug"`
-	Title           string           `json:"title"`
-	EventDate       time.Time        `json:"event_date"`
-	City            *string          `json:"city"`
-	State           *string          `json:"state"`
-	Price           *float64         `json:"price"`
-	AgeRequirement  *string          `json:"age_requirement"`
-	Description     *string          `json:"description"`
-	TicketURL       *string          `json:"ticket_url,omitempty"`
-	Status          string           `json:"status"`
-	SubmittedBy     *uint            `json:"submitted_by,omitempty"`
+	ID                uint             `json:"id"`
+	Slug              string           `json:"slug"`
+	Title             string           `json:"title"`
+	EventDate         time.Time        `json:"event_date"`
+	City              *string          `json:"city"`
+	State             *string          `json:"state"`
+	Price             *float64         `json:"price"`
+	AgeRequirement    *string          `json:"age_requirement"`
+	Description       *string          `json:"description"`
+	TicketURL         *string          `json:"ticket_url,omitempty"`
+	Status            string           `json:"status"`
+	SubmittedBy       *uint            `json:"submitted_by,omitempty"`
 	RejectionReason   *string          `json:"rejection_reason,omitempty"`
 	RejectionCategory *string          `json:"rejection_category,omitempty"`
 	Venues            []VenueResponse  `json:"venues"`
-	Artists         []ArtistResponse `json:"artists"`
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
+	Artists           []ArtistResponse `json:"artists"`
+	CreatedAt         time.Time        `json:"created_at"`
+	UpdatedAt         time.Time        `json:"updated_at"`
 
 	// Status flags (admin-controlled)
 	IsSoldOut   bool `json:"is_sold_out"`
@@ -91,7 +91,7 @@ type VenueResponse struct {
 	Address    *string `json:"address"`
 	City       string  `json:"city"`
 	State      string  `json:"state"`
-	Verified   bool    `json:"verified"`    // Admin-verified as legitimate venue
+	Verified   bool    `json:"verified"`     // Admin-verified as legitimate venue
 	IsNewVenue *bool   `json:"is_new_venue"` // True if venue was created during this show submission
 }
 
@@ -158,7 +158,6 @@ type UpcomingShowsFilter struct {
 	// (default) the shows must have every tag in TagSlugs (AND).
 	TagMatchAny bool
 }
-
 
 // ShowCityResponse represents a city with the count of upcoming shows
 type ShowCityResponse struct {
@@ -331,7 +330,7 @@ type VenueDetailResponse struct {
 	Country     *string        `json:"country,omitempty"`
 	Zipcode     *string        `json:"zipcode"`
 	Description *string        `json:"description,omitempty"`
-	Verified    bool           `json:"verified"`    // Admin-verified as legitimate venue
+	Verified    bool           `json:"verified"`     // Admin-verified as legitimate venue
 	SubmittedBy *uint          `json:"submitted_by"` // User ID who originally submitted this venue
 	Social      SocialResponse `json:"social"`
 	CreatedAt   time.Time      `json:"created_at"`
@@ -533,12 +532,12 @@ type SceneListResponse struct {
 
 // SceneDetailResponse represents the full computed scene for a city
 type SceneDetailResponse struct {
-	City        string      `json:"city"`
-	State       string      `json:"state"`
-	Slug        string      `json:"slug"`
-	Description *string     `json:"description"` // nil until scenes table exists
-	Stats       SceneStats  `json:"stats"`
-	Pulse       ScenePulse  `json:"pulse"`
+	City        string     `json:"city"`
+	State       string     `json:"state"`
+	Slug        string     `json:"slug"`
+	Description *string    `json:"description"` // nil until scenes table exists
+	Stats       SceneStats `json:"stats"`
+	Pulse       ScenePulse `json:"pulse"`
 }
 
 // SceneStats holds aggregate counts for a scene
@@ -634,8 +633,8 @@ type SceneGraphNode struct {
 	City              string `json:"city,omitempty"`
 	State             string `json:"state,omitempty"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
-	ClusterID         string `json:"cluster_id"`  // matches SceneGraphCluster.ID; "other" for tail
-	IsIsolate         bool   `json:"is_isolate"`  // true when the artist has no in-scene edges (post type-filter)
+	ClusterID         string `json:"cluster_id"` // matches SceneGraphCluster.ID; "other" for tail
+	IsIsolate         bool   `json:"is_isolate"` // true when the artist has no in-scene edges (post type-filter)
 }
 
 // SceneGraphLink represents an in-scene relationship between two artists.

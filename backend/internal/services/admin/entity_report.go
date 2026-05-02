@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -30,10 +30,10 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	if !models.IsValidEntityReportEntityType(req.EntityType) {
+	if !communitym.IsValidEntityReportEntityType(req.EntityType) {
 		return nil, fmt.Errorf("invalid entity type: %s", req.EntityType)
 	}
-	if !models.IsValidReportType(req.EntityType, req.ReportType) {
+	if !communitym.IsValidReportType(req.EntityType, req.ReportType) {
 		return nil, fmt.Errorf("invalid report type '%s' for entity type '%s'", req.ReportType, req.EntityType)
 	}
 
@@ -53,9 +53,9 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 
 	// Check for existing pending report from this user for this entity
 	var existingCount int64
-	if err := s.db.Model(&models.EntityReport{}).
+	if err := s.db.Model(&communitym.EntityReport{}).
 		Where("entity_type = ? AND entity_id = ? AND reported_by = ? AND status = ?",
-			req.EntityType, req.EntityID, req.UserID, models.EntityReportStatusPending).
+			req.EntityType, req.EntityID, req.UserID, communitym.EntityReportStatusPending).
 		Count(&existingCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to check existing report: %w", err)
 	}
@@ -63,13 +63,13 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 		return nil, fmt.Errorf("you already have a pending report for this entity")
 	}
 
-	report := &models.EntityReport{
+	report := &communitym.EntityReport{
 		EntityType: req.EntityType,
 		EntityID:   req.EntityID,
 		ReportedBy: req.UserID,
 		ReportType: req.ReportType,
 		Details:    req.Details,
-		Status:     models.EntityReportStatusPending,
+		Status:     communitym.EntityReportStatusPending,
 	}
 
 	if err := s.db.Create(report).Error; err != nil {
@@ -79,9 +79,9 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	// Auto-hide comments with 3+ reports
 	if req.EntityType == "comment" {
 		var totalReports int64
-		if err := s.db.Model(&models.EntityReport{}).
+		if err := s.db.Model(&communitym.EntityReport{}).
 			Where("entity_type = 'comment' AND entity_id = ? AND status = ?",
-				req.EntityID, models.EntityReportStatusPending).
+				req.EntityID, communitym.EntityReportStatusPending).
 			Count(&totalReports).Error; err == nil && totalReports >= 3 {
 			// Auto-hide the comment
 			s.db.Table("comments").Where("id = ? AND visibility = 'visible'", req.EntityID).
@@ -103,7 +103,7 @@ func (s *EntityReportService) GetEntityReport(reportID uint) (*contracts.EntityR
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.EntityReport
+	var report communitym.EntityReport
 	err := s.db.Preload("Reporter").Preload("Reviewer").First(&report, reportID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -121,7 +121,7 @@ func (s *EntityReportService) GetEntityReports(entityType string, entityID uint)
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var reports []models.EntityReport
+	var reports []communitym.EntityReport
 	err := s.db.Where("entity_type = ? AND entity_id = ?", entityType, entityID).
 		Preload("Reporter").
 		Preload("Reviewer").
@@ -151,7 +151,7 @@ func (s *EntityReportService) ListEntityReports(filters *contracts.EntityReportF
 		}
 	}
 
-	query := s.db.Model(&models.EntityReport{})
+	query := s.db.Model(&communitym.EntityReport{})
 
 	if filters != nil {
 		if filters.Status != "" {
@@ -165,7 +165,7 @@ func (s *EntityReportService) ListEntityReports(filters *contracts.EntityReportF
 	var total int64
 	query.Count(&total)
 
-	var reports []models.EntityReport
+	var reports []communitym.EntityReport
 	err := query.
 		Preload("Reporter").
 		Preload("Reviewer").
@@ -186,7 +186,7 @@ func (s *EntityReportService) ResolveEntityReport(reportID uint, reviewerID uint
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.EntityReport
+	var report communitym.EntityReport
 	if err := s.db.First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("report not found")
@@ -194,13 +194,13 @@ func (s *EntityReportService) ResolveEntityReport(reportID uint, reviewerID uint
 		return nil, fmt.Errorf("failed to get report: %w", err)
 	}
 
-	if report.Status != models.EntityReportStatusPending {
+	if report.Status != communitym.EntityReportStatusPending {
 		return nil, fmt.Errorf("report has already been reviewed (status: %s)", report.Status)
 	}
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"status":      models.EntityReportStatusResolved,
+		"status":      communitym.EntityReportStatusResolved,
 		"reviewed_by": reviewerID,
 		"reviewed_at": now,
 	}
@@ -221,7 +221,7 @@ func (s *EntityReportService) DismissEntityReport(reportID uint, reviewerID uint
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var report models.EntityReport
+	var report communitym.EntityReport
 	if err := s.db.First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("report not found")
@@ -229,13 +229,13 @@ func (s *EntityReportService) DismissEntityReport(reportID uint, reviewerID uint
 		return nil, fmt.Errorf("failed to get report: %w", err)
 	}
 
-	if report.Status != models.EntityReportStatusPending {
+	if report.Status != communitym.EntityReportStatusPending {
 		return nil, fmt.Errorf("report has already been reviewed (status: %s)", report.Status)
 	}
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"status":      models.EntityReportStatusDismissed,
+		"status":      communitym.EntityReportStatusDismissed,
 		"reviewed_by": reviewerID,
 		"reviewed_at": now,
 	}
@@ -251,7 +251,7 @@ func (s *EntityReportService) DismissEntityReport(reportID uint, reviewerID uint
 }
 
 // toResponse converts an EntityReport model to a response DTO.
-func (s *EntityReportService) toResponse(report *models.EntityReport) *contracts.EntityReportResponse {
+func (s *EntityReportService) toResponse(report *communitym.EntityReport) *contracts.EntityReportResponse {
 	resp := &contracts.EntityReportResponse{
 		ID:         report.ID,
 		EntityType: report.EntityType,
@@ -281,7 +281,7 @@ func (s *EntityReportService) toResponse(report *models.EntityReport) *contracts
 }
 
 // toResponses converts a slice of models to response DTOs.
-func (s *EntityReportService) toResponses(reports []models.EntityReport) []contracts.EntityReportResponse {
+func (s *EntityReportService) toResponses(reports []communitym.EntityReport) []contracts.EntityReportResponse {
 	responses := make([]contracts.EntityReportResponse, len(reports))
 	for i := range reports {
 		responses[i] = *s.toResponse(&reports[i])

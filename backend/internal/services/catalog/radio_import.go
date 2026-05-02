@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -14,11 +14,11 @@ import (
 // getProvider returns the appropriate RadioPlaylistProvider for a station's playlist_source.
 func (s *RadioService) getProvider(source string) (RadioPlaylistProvider, error) {
 	switch source {
-	case models.PlaylistSourceKEXP:
+	case catalogm.PlaylistSourceKEXP:
 		return NewKEXPProvider(), nil
-	case models.PlaylistSourceWFMU:
+	case catalogm.PlaylistSourceWFMU:
 		return NewWFMUProvider(), nil
-	case models.PlaylistSourceNTS:
+	case catalogm.PlaylistSourceNTS:
 		return NewNTSProvider(), nil
 	default:
 		return nil, fmt.Errorf("unsupported playlist source: %s", source)
@@ -31,7 +31,7 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var station models.RadioStation
+	var station catalogm.RadioStation
 	if err := s.db.First(&station, stationID).Error; err != nil {
 		return nil, fmt.Errorf("station not found: %w", err)
 	}
@@ -100,7 +100,7 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var station models.RadioStation
+	var station catalogm.RadioStation
 	if err := s.db.First(&station, stationID).Error; err != nil {
 		return nil, fmt.Errorf("station not found: %w", err)
 	}
@@ -124,7 +124,7 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 	result := &contracts.RadioImportResult{}
 
 	// Get active shows for this station
-	var shows []models.RadioShow
+	var shows []catalogm.RadioShow
 	if err := s.db.Where("station_id = ? AND is_active = ?", stationID, true).Find(&shows).Error; err != nil {
 		return nil, fmt.Errorf("loading shows: %w", err)
 	}
@@ -166,7 +166,7 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 	}
 
 	// Look up show and station to get the provider
-	var show models.RadioShow
+	var show catalogm.RadioShow
 	if err := s.db.Preload("Station").First(&show, showID).Error; err != nil {
 		return nil, fmt.Errorf("show not found: %w", err)
 	}
@@ -182,7 +182,7 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 	defer closeProvider(provider)
 
 	// Find the episode by external_id
-	var episode models.RadioEpisode
+	var episode catalogm.RadioEpisode
 	err = s.db.Where("show_id = ? AND external_id = ?", showID, episodeExternalID).First(&episode).Error
 	if err != nil {
 		return nil, fmt.Errorf("episode not found: %w", err)
@@ -228,7 +228,7 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var station models.RadioStation
+	var station catalogm.RadioStation
 	if err := s.db.First(&station, stationID).Error; err != nil {
 		return nil, fmt.Errorf("station not found: %w", err)
 	}
@@ -294,7 +294,7 @@ func (s *RadioService) importShowEpisodesWithProgress(
 		return nil, fmt.Errorf("invalid until date %q: %w", until, err)
 	}
 
-	var show models.RadioShow
+	var show catalogm.RadioShow
 	if err := s.db.Preload("Station").First(&show, showID).Error; err != nil {
 		return nil, fmt.Errorf("show not found: %w", err)
 	}
@@ -386,7 +386,7 @@ func (s *RadioService) ImportShowEpisodes(showID uint, since string, until strin
 // admin-curated or migration-seeded values.
 func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImport) (uint, error) {
 	// Try matching by external_id first (canonical path)
-	var existing models.RadioShow
+	var existing catalogm.RadioShow
 	err := s.db.Where("station_id = ? AND external_id = ?", stationID, importShow.ExternalID).First(&existing).Error
 	if err == nil {
 		// Only fill in fields that are currently empty — never overwrite curated data.
@@ -423,11 +423,11 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 	// Create new show
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.RadioShow{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.RadioShow{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	show := &models.RadioShow{
+	show := &catalogm.RadioShow{
 		StationID:   stationID,
 		Name:        importShow.Name,
 		Slug:        slug,
@@ -448,7 +448,7 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 // buildNullSafeShowUpdates returns a map of fields to update, only including
 // fields that are currently empty/NULL in the existing record. This preserves
 // admin-curated or migration-seeded values.
-func (s *RadioService) buildNullSafeShowUpdates(existing *models.RadioShow, importShow RadioShowImport) map[string]interface{} {
+func (s *RadioService) buildNullSafeShowUpdates(existing *catalogm.RadioShow, importShow RadioShowImport) map[string]interface{} {
 	updates := map[string]interface{}{}
 
 	if existing.Name == "" && importShow.Name != "" {
@@ -472,7 +472,7 @@ func (s *RadioService) buildNullSafeShowUpdates(existing *models.RadioShow, impo
 // importEpisode imports a single episode and its playlist.
 func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provider RadioPlaylistProvider) (*contracts.EpisodeImportResult, error) {
 	// Check for existing episode (dedup by show_id + external_id)
-	var existing models.RadioEpisode
+	var existing catalogm.RadioEpisode
 	err := s.db.Where("show_id = ? AND external_id = ?", showID, ep.ExternalID).First(&existing).Error
 	if err == nil {
 		// Episode already exists — skip to avoid duplicates
@@ -483,7 +483,7 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	}
 
 	// Create episode
-	episode := &models.RadioEpisode{
+	episode := &catalogm.RadioEpisode{
 		ShowID:          showID,
 		Title:           ep.Title,
 		AirDate:         ep.AirDate,
@@ -530,9 +530,9 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 		return 0, nil
 	}
 
-	records := make([]models.RadioPlay, 0, len(plays))
+	records := make([]catalogm.RadioPlay, 0, len(plays))
 	for _, p := range plays {
-		record := models.RadioPlay{
+		record := catalogm.RadioPlay{
 			EpisodeID:              episodeID,
 			Position:               p.Position,
 			ArtistName:             p.ArtistName,
@@ -567,4 +567,3 @@ func closeProvider(provider RadioPlaylistProvider) {
 		closer.Close()
 	}
 }
-

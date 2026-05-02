@@ -6,12 +6,12 @@ import (
 	"testing"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/api/middleware"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // ============================================================================
@@ -24,7 +24,7 @@ func testDataGapsHandler() *DataGapsHandler {
 
 func dataGapsCtxWithUser() context.Context {
 	username := "testuser"
-	return context.WithValue(context.Background(), middleware.UserContextKey, &models.User{ID: 1, Username: &username})
+	return context.WithValue(context.Background(), middleware.UserContextKey, &authm.User{ID: 1, Username: &username})
 }
 
 // ============================================================================

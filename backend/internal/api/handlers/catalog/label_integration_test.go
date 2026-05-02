@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -45,15 +45,15 @@ func (s *LabelHandlerIntegrationSuite) createLabelViaService(name string) *contr
 	return resp
 }
 
-func (s *LabelHandlerIntegrationSuite) createArtistForLabel(name string) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (s *LabelHandlerIntegrationSuite) createArtistForLabel(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	s.deps.DB.Create(artist)
 	return artist
 }
 
-func (s *LabelHandlerIntegrationSuite) createReleaseForLabel(title string) *models.Release {
+func (s *LabelHandlerIntegrationSuite) createReleaseForLabel(title string) *catalogm.Release {
 	slug := title
-	release := &models.Release{Title: title, Slug: &slug}
+	release := &catalogm.Release{Title: title, Slug: &slug}
 	s.deps.DB.Create(release)
 	return release
 }

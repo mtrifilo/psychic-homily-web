@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -161,14 +163,14 @@ func TestHMAC_MentionRoundTrip(t *testing.T) {
 
 func TestStripMarkdownToPlain(t *testing.T) {
 	cases := map[string]string{
-		"plain text":                      "plain text",
-		"# heading":                       "heading",
-		"**bold** and *italic*":           "**bold** and *italic*",
+		"plain text":                       "plain text",
+		"# heading":                        "heading",
+		"**bold** and *italic*":            "**bold** and *italic*",
 		"[link text](https://example.com)": "link text",
-		"- item one\n- item two":          "item one item two",
-		"> quoted text":                   "quoted text",
+		"- item one\n- item two":           "item one item two",
+		"> quoted text":                    "quoted text",
 		"```\ncode\nblock\n```":            "",
-		"mix `inline` and text":           "mix and text",
+		"mix `inline` and text":            "mix and text",
 	}
 	for in, want := range cases {
 		t.Run(in, func(t *testing.T) {
@@ -197,11 +199,11 @@ func TestBuildExcerpt_TruncatesLongBodies(t *testing.T) {
 // captureEmailService records all Send* calls. Drop-in mock — zero behavior
 // beyond recording.
 type captureEmailService struct {
-	mu                      sync.Mutex
-	commentCalls            []commentEmailCall
-	mentionCalls            []mentionEmailCall
-	fail                    bool
-	configured              bool
+	mu           sync.Mutex
+	commentCalls []commentEmailCall
+	mentionCalls []mentionEmailCall
+	fail         bool
+	configured   bool
 }
 
 type commentEmailCall struct {
@@ -339,11 +341,11 @@ func TestCommentNotificationServiceIntegrationSuite(t *testing.T) {
 
 // -- helpers
 
-func (s *CommentNotificationServiceIntegrationSuite) createUser(username string) *models.User {
+func (s *CommentNotificationServiceIntegrationSuite) createUser(username string) *authm.User {
 	email := fmt.Sprintf("%s-%d@test.local", username, time.Now().UnixNano())
 	un := username
 	fn := "First"
-	u := &models.User{
+	u := &authm.User{
 		Email:         &email,
 		Username:      &un,
 		FirstName:     &fn,
@@ -359,9 +361,9 @@ func (s *CommentNotificationServiceIntegrationSuite) createUser(username string)
 // the two PSY-289 bools. Uses Create-then-Update for the false cases because
 // GORM skips zero-value bools on Create (the "GORM bool gotcha" — DB default
 // of true would win otherwise).
-func (s *CommentNotificationServiceIntegrationSuite) createUserWithPrefs(username string, notifyComment, notifyMention bool) *models.User {
+func (s *CommentNotificationServiceIntegrationSuite) createUserWithPrefs(username string, notifyComment, notifyMention bool) *authm.User {
 	u := s.createUser(username)
-	prefs := &models.UserPreferences{
+	prefs := &authm.UserPreferences{
 		UserID:                      u.ID,
 		NotifyOnCommentSubscription: true,
 		NotifyOnMention:             true,
@@ -375,36 +377,36 @@ func (s *CommentNotificationServiceIntegrationSuite) createUserWithPrefs(usernam
 		updates["notify_on_mention"] = false
 	}
 	if len(updates) > 0 {
-		s.Require().NoError(s.db.Model(&models.UserPreferences{}).Where("user_id = ?", u.ID).Updates(updates).Error)
+		s.Require().NoError(s.db.Model(&authm.UserPreferences{}).Where("user_id = ?", u.ID).Updates(updates).Error)
 	}
 	return u
 }
 
 func (s *CommentNotificationServiceIntegrationSuite) createArtist(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	a := &models.Artist{Name: name, Slug: &slug}
+	a := &catalogm.Artist{Name: name, Slug: &slug}
 	s.Require().NoError(s.db.Create(a).Error)
 	return a.ID
 }
 
-func (s *CommentNotificationServiceIntegrationSuite) insertComment(userID uint, entityID uint, body string) *models.Comment {
-	c := &models.Comment{
-		EntityType: models.CommentEntityArtist,
+func (s *CommentNotificationServiceIntegrationSuite) insertComment(userID uint, entityID uint, body string) *engagementm.Comment {
+	c := &engagementm.Comment{
+		EntityType: engagementm.CommentEntityArtist,
 		EntityID:   entityID,
-		Kind:       models.CommentKindComment,
+		Kind:       engagementm.CommentKindComment,
 		UserID:     userID,
 		Body:       body,
 		BodyHTML:   "<p>" + body + "</p>",
-		Visibility: models.CommentVisibilityVisible,
+		Visibility: engagementm.CommentVisibilityVisible,
 	}
 	s.Require().NoError(s.db.Create(c).Error)
 	return c
 }
 
 func (s *CommentNotificationServiceIntegrationSuite) subscribe(userID uint, entityID uint) {
-	sub := &models.CommentSubscription{
+	sub := &engagementm.CommentSubscription{
 		UserID:       userID,
-		EntityType:   string(models.CommentEntityArtist),
+		EntityType:   string(engagementm.CommentEntityArtist),
 		EntityID:     entityID,
 		SubscribedAt: time.Now().UTC(),
 	}
@@ -440,7 +442,7 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifySubscribers_Happy
 
 	// last_notified_at should be set on the two non-author subscribers but
 	// NOT on the author's own subscription.
-	var subs []models.CommentSubscription
+	var subs []engagementm.CommentSubscription
 	s.Require().NoError(s.db.Order("user_id ASC").Find(&subs).Error)
 	for _, sub := range subs {
 		if sub.UserID == author.ID {
@@ -471,7 +473,7 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifySubscribers_Dedup
 
 	// Simulate passage of time: set last_notified_at to >1h ago.
 	past := time.Now().UTC().Add(-2 * time.Hour)
-	s.Require().NoError(s.db.Model(&models.CommentSubscription{}).
+	s.Require().NoError(s.db.Model(&engagementm.CommentSubscription{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ?", sub.ID, "artist", artistID).
 		Update("last_notified_at", past).Error)
 
@@ -512,9 +514,9 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifySubscribers_Skips
 	s.subscribe(deleted.ID, artistID)
 
 	// Flip flags via UPDATE (Create skips zero-value false for IsActive).
-	s.Require().NoError(s.db.Model(&models.User{}).Where("id = ?", inactive.ID).Update("is_active", false).Error)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", inactive.ID).Update("is_active", false).Error)
 	now := time.Now().UTC()
-	s.Require().NoError(s.db.Model(&models.User{}).Where("id = ?", deleted.ID).Update("deleted_at", now).Error)
+	s.Require().NoError(s.db.Model(&authm.User{}).Where("id = ?", deleted.ID).Update("deleted_at", now).Error)
 
 	c := s.insertComment(author.ID, artistID, "filter test")
 	s.Require().NoError(s.svc.NotifySubscribers(c.ID))
@@ -601,10 +603,10 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifyMentioned_Unknown
 func (s *CommentNotificationServiceIntegrationSuite) TestNotifySubscribers_NoEmail() {
 	author := s.createUser("author")
 	// Create a user with a NULL email.
-	u := &models.User{
-		Username:  stringPtr("noemail"),
-		IsActive:  true,
-		UserTier:  "contributor",
+	u := &authm.User{
+		Username: stringPtr("noemail"),
+		IsActive: true,
+		UserTier: "contributor",
 	}
 	s.Require().NoError(s.db.Create(u).Error)
 
@@ -617,7 +619,7 @@ func (s *CommentNotificationServiceIntegrationSuite) TestNotifySubscribers_NoEma
 	// No email call because no email address; also, last_notified_at should
 	// remain NULL because we short-circuit before sending.
 	s.Assert().Len(s.mock.commentCalls, 0)
-	var sub models.CommentSubscription
+	var sub engagementm.CommentSubscription
 	s.Require().NoError(s.db.Where("user_id = ?", u.ID).First(&sub).Error)
 	s.Assert().Nil(sub.LastNotifiedAt)
 }

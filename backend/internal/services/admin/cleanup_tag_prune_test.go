@@ -12,7 +12,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -75,10 +77,10 @@ func TestCleanupTagPruneTestSuite(t *testing.T) {
 
 var userCounter int
 
-func (s *CleanupTagPruneTestSuite) createUser() *models.User {
+func (s *CleanupTagPruneTestSuite) createUser() *authm.User {
 	userCounter++
 	email := fmt.Sprintf("prune-%d-%d@test.com", time.Now().UnixNano(), userCounter)
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -87,12 +89,12 @@ func (s *CleanupTagPruneTestSuite) createUser() *models.User {
 	return user
 }
 
-func (s *CleanupTagPruneTestSuite) createTag(name string) *models.Tag {
+func (s *CleanupTagPruneTestSuite) createTag(name string) *catalogm.Tag {
 	userCounter++
-	tag := &models.Tag{
+	tag := &catalogm.Tag{
 		Name:     name,
 		Slug:     fmt.Sprintf("%s-%d-%d", name, time.Now().UnixNano(), userCounter),
-		Category: models.TagCategoryGenre,
+		Category: catalogm.TagCategoryGenre,
 	}
 	s.Require().NoError(s.db.Create(tag).Error)
 	return tag
@@ -100,9 +102,9 @@ func (s *CleanupTagPruneTestSuite) createTag(name string) *models.Tag {
 
 // applyTag creates an entity_tag and casts the given up/down votes against it,
 // using unique per-vote users to satisfy the composite primary key.
-func (s *CleanupTagPruneTestSuite) applyTag(tag *models.Tag, entityType string, entityID uint, ups, downs int) *models.EntityTag {
+func (s *CleanupTagPruneTestSuite) applyTag(tag *catalogm.Tag, entityType string, entityID uint, ups, downs int) *catalogm.EntityTag {
 	adder := s.createUser()
-	et := &models.EntityTag{
+	et := &catalogm.EntityTag{
 		TagID:         tag.ID,
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -112,7 +114,7 @@ func (s *CleanupTagPruneTestSuite) applyTag(tag *models.Tag, entityType string, 
 
 	for i := 0; i < ups; i++ {
 		voter := s.createUser()
-		vote := &models.TagVote{
+		vote := &catalogm.TagVote{
 			TagID:      tag.ID,
 			EntityType: entityType,
 			EntityID:   entityID,
@@ -123,7 +125,7 @@ func (s *CleanupTagPruneTestSuite) applyTag(tag *models.Tag, entityType string, 
 	}
 	for i := 0; i < downs; i++ {
 		voter := s.createUser()
-		vote := &models.TagVote{
+		vote := &catalogm.TagVote{
 			TagID:      tag.ID,
 			EntityType: entityType,
 			EntityID:   entityID,
@@ -137,13 +139,13 @@ func (s *CleanupTagPruneTestSuite) applyTag(tag *models.Tag, entityType string, 
 
 func (s *CleanupTagPruneTestSuite) entityTagExists(id uint) bool {
 	var count int64
-	s.db.Model(&models.EntityTag{}).Where("id = ?", id).Count(&count)
+	s.db.Model(&catalogm.EntityTag{}).Where("id = ?", id).Count(&count)
 	return count == 1
 }
 
 func (s *CleanupTagPruneTestSuite) tagRowExists(id uint) bool {
 	var count int64
-	s.db.Model(&models.Tag{}).Where("id = ?", id).Count(&count)
+	s.db.Model(&catalogm.Tag{}).Where("id = ?", id).Count(&count)
 	return count == 1
 }
 
@@ -265,7 +267,7 @@ func (s *CleanupTagPruneTestSuite) TestRunTagPruneCycle_Disabled_NoOp() {
 
 	// No audit log entry.
 	var count int64
-	s.db.Model(&models.AuditLog{}).
+	s.db.Model(&adminm.AuditLog{}).
 		Where("action = ?", AuditActionPruneDownvotedTags).
 		Count(&count)
 	s.Equal(int64(0), count)
@@ -279,7 +281,7 @@ func (s *CleanupTagPruneTestSuite) TestRunTagPruneCycle_WritesAuditLog() {
 
 	s.service.runTagPruneCycle(context.Background())
 
-	var log models.AuditLog
+	var log adminm.AuditLog
 	err := s.db.
 		Where("action = ?", AuditActionPruneDownvotedTags).
 		First(&log).Error
@@ -299,11 +301,11 @@ func (s *CleanupTagPruneTestSuite) TestRunTagPruneCycle_WritesAuditLog() {
 // Multiple entities across entity_types pruned in a single pass.
 func (s *CleanupTagPruneTestSuite) TestPrune_MultipleEntities_MixedOutcomes() {
 	tag := s.createTag("mixed")
-	pruneA := s.applyTag(tag, "artist", 500, 0, 2) // pruned
-	pruneB := s.applyTag(tag, "release", 500, 1, 3) // pruned (downs > ups, downs >= 2)
-	keepTie := s.applyTag(tag, "artist", 501, 2, 2) // tie — keep
+	pruneA := s.applyTag(tag, "artist", 500, 0, 2)     // pruned
+	pruneB := s.applyTag(tag, "release", 500, 1, 3)    // pruned (downs > ups, downs >= 2)
+	keepTie := s.applyTag(tag, "artist", 501, 2, 2)    // tie — keep
 	keepOneDown := s.applyTag(tag, "label", 500, 0, 1) // below threshold — keep
-	keepLoved := s.applyTag(tag, "show", 600, 10, 1) // ups dominate — keep
+	keepLoved := s.applyTag(tag, "show", 600, 10, 1)   // ups dominate — keep
 
 	deleted, err := s.service.pruneDownvotedEntityTags(context.Background())
 	s.Require().NoError(err)
@@ -323,8 +325,8 @@ func (s *CleanupTagPruneTestSuite) TestPrune_MultipleEntities_MixedOutcomes() {
 // same tag on different entities are unaffected.
 func (s *CleanupTagPruneTestSuite) TestPrune_OnlyTargetApplicationRemoved() {
 	tag := s.createTag("selective")
-	bad := s.applyTag(tag, "artist", 700, 0, 2) // pruned
-	goodA := s.applyTag(tag, "artist", 701, 3, 0) // keep
+	bad := s.applyTag(tag, "artist", 700, 0, 2)    // pruned
+	goodA := s.applyTag(tag, "artist", 701, 3, 0)  // keep
 	goodB := s.applyTag(tag, "release", 700, 0, 0) // keep (no votes)
 
 	deleted, err := s.service.pruneDownvotedEntityTags(context.Background())

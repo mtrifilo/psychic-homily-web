@@ -38,17 +38,17 @@ type UserTierChange struct {
 
 // UserEvaluationResult contains the detailed evaluation of a single user.
 type UserEvaluationResult struct {
-	UserID         uint          `json:"user_id"`
-	CurrentTier    string        `json:"current_tier"`
-	ApprovedEdits  int           `json:"approved_edits"`
-	TotalEdits     int           `json:"total_edits"`
-	ApprovalRate   float64       `json:"approval_rate"`
-	AccountAge     time.Duration `json:"account_age"`
-	EmailVerified  bool          `json:"email_verified"`
-	CityEditCount  int           `json:"city_edit_count"`
-	Changed        bool          `json:"changed"`
-	NewTier        string        `json:"new_tier"`
-	Reason         string        `json:"reason"`
-	Rolling30dRate float64       `json:"rolling_30d_rate"`
-	Rolling30dTotal int          `json:"rolling_30d_total"`
+	UserID          uint          `json:"user_id"`
+	CurrentTier     string        `json:"current_tier"`
+	ApprovedEdits   int           `json:"approved_edits"`
+	TotalEdits      int           `json:"total_edits"`
+	ApprovalRate    float64       `json:"approval_rate"`
+	AccountAge      time.Duration `json:"account_age"`
+	EmailVerified   bool          `json:"email_verified"`
+	CityEditCount   int           `json:"city_edit_count"`
+	Changed         bool          `json:"changed"`
+	NewTier         string        `json:"new_tier"`
+	Reason          string        `json:"reason"`
+	Rolling30dRate  float64       `json:"rolling_30d_rate"`
+	Rolling30dTotal int           `json:"rolling_30d_total"`
 }

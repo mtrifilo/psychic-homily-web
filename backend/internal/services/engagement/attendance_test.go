@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -54,8 +56,8 @@ func TestAttendanceServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *AttendanceServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *AttendanceServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -67,13 +69,13 @@ func (suite *AttendanceServiceIntegrationTestSuite) createTestUser() *models.Use
 	return user
 }
 
-func (suite *AttendanceServiceIntegrationTestSuite) createApprovedShow(title string, userID uint) *models.Show {
-	show := &models.Show{
+func (suite *AttendanceServiceIntegrationTestSuite) createApprovedShow(title string, userID uint) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7), // 1 week from now (upcoming)
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
@@ -81,13 +83,13 @@ func (suite *AttendanceServiceIntegrationTestSuite) createApprovedShow(title str
 	return show
 }
 
-func (suite *AttendanceServiceIntegrationTestSuite) createPastShow(title string, userID uint) *models.Show {
-	show := &models.Show{
+func (suite *AttendanceServiceIntegrationTestSuite) createPastShow(title string, userID uint) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, -7), // 1 week ago
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
@@ -95,8 +97,8 @@ func (suite *AttendanceServiceIntegrationTestSuite) createPastShow(title string,
 	return show
 }
 
-func (suite *AttendanceServiceIntegrationTestSuite) createShowWithVenue(title string, userID uint) (*models.Show, *models.Venue) {
-	venue := &models.Venue{
+func (suite *AttendanceServiceIntegrationTestSuite) createShowWithVenue(title string, userID uint) (*catalogm.Show, *catalogm.Venue) {
+	venue := &catalogm.Venue{
 		Name:  fmt.Sprintf("Venue for %s", title),
 		City:  "Phoenix",
 		State: "AZ",
@@ -104,7 +106,7 @@ func (suite *AttendanceServiceIntegrationTestSuite) createShowWithVenue(title st
 	suite.db.Create(venue)
 
 	show := suite.createApprovedShow(title, userID)
-	suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
 
 	return show, venue
 }
@@ -122,9 +124,9 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_Going() {
 
 	// Verify in DB
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionGoing).
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -137,9 +139,9 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_Interested
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionInterested).
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionInterested).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -155,16 +157,16 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_ToggleGoin
 	suite.Require().NoError(err)
 
 	var goingCount int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionGoing).
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing).
 		Count(&goingCount)
 	suite.Equal(int64(0), goingCount)
 
 	var interestedCount int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionInterested).
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionInterested).
 		Count(&interestedCount)
 	suite.Equal(int64(1), interestedCount)
 }
@@ -180,16 +182,16 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_ToggleInte
 	suite.Require().NoError(err)
 
 	var interestedCount int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionInterested).
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionInterested).
 		Count(&interestedCount)
 	suite.Equal(int64(0), interestedCount)
 
 	var goingCount int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionGoing).
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing).
 		Count(&goingCount)
 	suite.Equal(int64(1), goingCount)
 }
@@ -205,10 +207,10 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_ClearWithE
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action IN ?",
-			user.ID, models.BookmarkEntityShow, show.ID,
-			[]models.BookmarkAction{models.BookmarkActionGoing, models.BookmarkActionInterested}).
+			user.ID, engagementm.BookmarkEntityShow, show.ID,
+			[]engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested}).
 		Count(&count)
 	suite.Equal(int64(0), count)
 }
@@ -240,9 +242,9 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_Idempotent
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionGoing).
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -262,10 +264,10 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestRemoveAttendance_Removes
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
+	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action IN ?",
-			user.ID, models.BookmarkEntityShow, show.ID,
-			[]models.BookmarkAction{models.BookmarkActionGoing, models.BookmarkActionInterested}).
+			user.ID, engagementm.BookmarkEntityShow, show.ID,
+			[]engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested}).
 		Count(&count)
 	suite.Equal(int64(0), count)
 }
@@ -474,12 +476,12 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_On
 	user := suite.createTestUser()
 	approvedShow, _ := suite.createShowWithVenue("Approved Show", user.ID)
 
-	pendingShow := &models.Show{
+	pendingShow := &catalogm.Show{
 		Title:       "Pending Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusPending,
+		Status:      catalogm.ShowStatusPending,
 		SubmittedBy: &user.ID,
 	}
 	suite.db.Create(pendingShow)

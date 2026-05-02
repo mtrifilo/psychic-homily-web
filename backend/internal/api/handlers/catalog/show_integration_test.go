@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 type ShowHandlerIntegrationSuite struct {
@@ -91,7 +92,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_AdminAutoApproved() {
 }
 
 func (s *ShowHandlerIntegrationSuite) TestCreateShow_UnverifiedEmailBlocked() {
-	user := &models.User{
+	user := &authm.User{
 		Email:         testhelpers.StringPtr("unverified@test.com"),
 		FirstName:     testhelpers.StringPtr("Test"),
 		LastName:      testhelpers.StringPtr("User"),
@@ -328,7 +329,7 @@ func (s *ShowHandlerIntegrationSuite) TestCreateShow_WithInstagramHandle() {
 	s.Equal("@new_ig", *resp.Body.Artists[0].Socials.Instagram)
 
 	// Verify in DB
-	var artist models.Artist
+	var artist catalogm.Artist
 	s.NoError(s.deps.DB.Where("name = ?", "New IG Artist").First(&artist).Error)
 	s.Require().NotNil(artist.Social.Instagram)
 	s.Equal("@new_ig", *artist.Social.Instagram)
@@ -353,7 +354,7 @@ func (s *ShowHandlerIntegrationSuite) TestUpdateShow_WithInstagramOnNewArtist() 
 	s.Equal("@updated_ig", *resp.Body.Artists[0].Socials.Instagram)
 
 	// Verify in DB
-	var artist models.Artist
+	var artist catalogm.Artist
 	s.NoError(s.deps.DB.Where("name = ?", "Updated IG Artist").First(&artist).Error)
 	s.Require().NotNil(artist.Social.Instagram)
 	s.Equal("@updated_ig", *artist.Social.Instagram)
@@ -478,17 +479,17 @@ func (s *ShowHandlerIntegrationSuite) createShowForSearch(
 	supportingArtistNames []string,
 	venueName string,
 	eventDate time.Time,
-) *models.Show {
+) *catalogm.Show {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	venue := testhelpers.CreateVerifiedVenue(s.deps.DB, venueName, "Phoenix", "AZ")
 	headliner := testhelpers.CreateArtist(s.deps.DB, headlinerName)
 
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   eventDate,
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)

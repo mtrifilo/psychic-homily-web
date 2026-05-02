@@ -13,7 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/notification"
 )
@@ -92,18 +92,18 @@ func (s *AuthHandlerIntegrationSuite) newAuthHandler(emailConfigured bool) *Auth
 	)
 }
 
-func (s *AuthHandlerIntegrationSuite) createUserWithPassword(email, password string) *models.User {
+func (s *AuthHandlerIntegrationSuite) createUserWithPassword(email, password string) *authm.User {
 	user, err := s.deps.UserService.CreateUserWithPassword(email, password, "Test", "User")
 	s.Require().NoError(err)
 	return user
 }
 
-func (s *AuthHandlerIntegrationSuite) ctxWithUser(user *models.User) context.Context {
+func (s *AuthHandlerIntegrationSuite) ctxWithUser(user *authm.User) context.Context {
 	return context.WithValue(context.Background(), middleware.UserContextKey, user)
 }
 
 func (s *AuthHandlerIntegrationSuite) softDeleteUser(userID uint) {
-	err := s.deps.DB.Model(&models.User{}).Where("id = ?", userID).
+	err := s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"is_active":  false,
 			"deleted_at": time.Now(),
@@ -112,7 +112,7 @@ func (s *AuthHandlerIntegrationSuite) softDeleteUser(userID uint) {
 }
 
 func (s *AuthHandlerIntegrationSuite) softDeleteUserExpired(userID uint) {
-	err := s.deps.DB.Model(&models.User{}).Where("id = ?", userID).
+	err := s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"is_active":  false,
 			"deleted_at": time.Now().AddDate(0, 0, -31),
@@ -121,7 +121,7 @@ func (s *AuthHandlerIntegrationSuite) softDeleteUserExpired(userID uint) {
 }
 
 func (s *AuthHandlerIntegrationSuite) lockAccount(userID uint) {
-	err := s.deps.DB.Model(&models.User{}).Where("id = ?", userID).
+	err := s.deps.DB.Model(&authm.User{}).Where("id = ?", userID).
 		Updates(map[string]interface{}{
 			"failed_login_attempts": 5,
 			"locked_until":          time.Now().Add(15 * time.Minute),
@@ -134,7 +134,7 @@ func (s *AuthHandlerIntegrationSuite) verifyEmail(userID uint) {
 	s.Require().NoError(err)
 }
 
-func (s *AuthHandlerIntegrationSuite) reloadUser(userID uint) *models.User {
+func (s *AuthHandlerIntegrationSuite) reloadUser(userID uint) *authm.User {
 	user, err := s.deps.UserService.GetUserByID(userID)
 	s.Require().NoError(err)
 	return user
@@ -303,7 +303,7 @@ func (s *AuthHandlerIntegrationSuite) TestSendVerification_NotConfigured() {
 func (s *AuthHandlerIntegrationSuite) TestSendVerification_NoEmail() {
 	h := s.newAuthHandler(true) // email configured
 	// Create a user with nil email via context
-	user := &models.User{
+	user := &authm.User{
 		ID:            999,
 		Email:         nil,
 		EmailVerified: false,

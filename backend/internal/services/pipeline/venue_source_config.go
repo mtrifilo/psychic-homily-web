@@ -8,7 +8,8 @@ import (
 	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -28,12 +29,12 @@ func NewVenueSourceConfigService(database *gorm.DB) *VenueSourceConfigService {
 }
 
 // GetByVenueID returns the source config for a venue, or nil if not configured.
-func (s *VenueSourceConfigService) GetByVenueID(venueID uint) (*models.VenueSourceConfig, error) {
+func (s *VenueSourceConfigService) GetByVenueID(venueID uint) (*adminm.VenueSourceConfig, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var config models.VenueSourceConfig
+	var config adminm.VenueSourceConfig
 	err := s.db.Where("venue_id = ?", venueID).First(&config).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -47,7 +48,7 @@ func (s *VenueSourceConfigService) GetByVenueID(venueID uint) (*models.VenueSour
 
 // CreateOrUpdate upserts a venue source config. If a config for the venue already
 // exists, it updates the mutable fields; otherwise it creates a new record.
-func (s *VenueSourceConfigService) CreateOrUpdate(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+func (s *VenueSourceConfigService) CreateOrUpdate(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -78,7 +79,7 @@ func (s *VenueSourceConfigService) UpdateAfterRun(venueID uint, contentHash, eta
 	}
 
 	now := time.Now()
-	result := s.db.Model(&models.VenueSourceConfig{}).
+	result := s.db.Model(&adminm.VenueSourceConfig{}).
 		Where("venue_id = ?", venueID).
 		Updates(map[string]interface{}{
 			"last_extracted_at":    now,
@@ -105,7 +106,7 @@ func (s *VenueSourceConfigService) IncrementFailures(venueID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.VenueSourceConfig{}).
+	result := s.db.Model(&adminm.VenueSourceConfig{}).
 		Where("venue_id = ?", venueID).
 		Updates(map[string]interface{}{
 			"consecutive_failures": gorm.Expr("consecutive_failures + 1"),
@@ -123,7 +124,7 @@ func (s *VenueSourceConfigService) IncrementFailures(venueID uint) error {
 }
 
 // RecordRun inserts a new extraction run record.
-func (s *VenueSourceConfigService) RecordRun(run *models.VenueExtractionRun) error {
+func (s *VenueSourceConfigService) RecordRun(run *adminm.VenueExtractionRun) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -140,7 +141,7 @@ func (s *VenueSourceConfigService) RecordRun(run *models.VenueExtractionRun) err
 }
 
 // GetRecentRuns returns the most recent extraction runs for a venue, ordered by run_at desc.
-func (s *VenueSourceConfigService) GetRecentRuns(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+func (s *VenueSourceConfigService) GetRecentRuns(venueID uint, limit int) ([]adminm.VenueExtractionRun, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -152,7 +153,7 @@ func (s *VenueSourceConfigService) GetRecentRuns(venueID uint, limit int) ([]mod
 		limit = 100
 	}
 
-	var runs []models.VenueExtractionRun
+	var runs []adminm.VenueExtractionRun
 	err := s.db.Where("venue_id = ?", venueID).
 		Order("run_at DESC").
 		Limit(limit).
@@ -174,7 +175,7 @@ func (s *VenueSourceConfigService) GetRejectionStats(venueID uint) (*VenueReject
 	}
 
 	// Get the venue's slug for matching source_venue
-	var venue models.Venue
+	var venue catalogm.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
 		return nil, fmt.Errorf("venue not found: %w", err)
 	}
@@ -188,7 +189,7 @@ func (s *VenueSourceConfigService) GetRejectionStats(venueID uint) (*VenueReject
 		Count  int64
 	}
 	var statusCounts []statusCount
-	err := s.db.Model(&models.Show{}).
+	err := s.db.Model(&catalogm.Show{}).
 		Select("status, COUNT(*) as count").
 		Where("source = ? AND source_venue = ?", "discovery", *venue.Slug).
 		Group("status").
@@ -218,7 +219,7 @@ func (s *VenueSourceConfigService) GetRejectionStats(venueID uint) (*VenueReject
 		Count             int64
 	}
 	var categoryCounts []categoryCount
-	err = s.db.Model(&models.Show{}).
+	err = s.db.Model(&catalogm.Show{}).
 		Select("COALESCE(rejection_category, 'uncategorized') as rejection_category, COUNT(*) as count").
 		Where("source = ? AND source_venue = ? AND status = ?", "discovery", *venue.Slug, "rejected").
 		Group("rejection_category").
@@ -249,7 +250,7 @@ func (s *VenueSourceConfigService) UpdateExtractionNotes(venueID uint, notes *st
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.VenueSourceConfig{}).
+	result := s.db.Model(&adminm.VenueSourceConfig{}).
 		Where("venue_id = ?", venueID).
 		Updates(map[string]interface{}{
 			"extraction_notes": notes,
@@ -272,7 +273,7 @@ func (s *VenueSourceConfigService) ResetRenderMethod(venueID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Model(&models.VenueSourceConfig{}).
+	result := s.db.Model(&adminm.VenueSourceConfig{}).
 		Where("venue_id = ?", venueID).
 		Updates(map[string]interface{}{
 			"render_method": nil,
@@ -311,12 +312,12 @@ func (s *VenueSourceConfigService) GetAllRecentRuns(limit, offset int) ([]Import
 
 	// Count total runs
 	var total int64
-	if err := s.db.Model(&models.VenueExtractionRun{}).Count(&total).Error; err != nil {
+	if err := s.db.Model(&adminm.VenueExtractionRun{}).Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count extraction runs: %w", err)
 	}
 
 	// Fetch runs with venue info
-	var runs []models.VenueExtractionRun
+	var runs []adminm.VenueExtractionRun
 	err := s.db.Preload("Venue").
 		Order("run_at DESC").
 		Limit(limit).
@@ -328,7 +329,7 @@ func (s *VenueSourceConfigService) GetAllRecentRuns(limit, offset int) ([]Import
 
 	// Build a map of venue_id -> preferred_source from configs
 	configMap := make(map[uint]string)
-	var configs []models.VenueSourceConfig
+	var configs []adminm.VenueSourceConfig
 	if err := s.db.Select("venue_id, preferred_source").Find(&configs).Error; err == nil {
 		for _, cfg := range configs {
 			configMap[cfg.VenueID] = cfg.PreferredSource
@@ -368,12 +369,12 @@ func (s *VenueSourceConfigService) GetAllRecentRuns(limit, offset int) ([]Import
 }
 
 // ListConfigured returns all venue source configs, preloading the venue association.
-func (s *VenueSourceConfigService) ListConfigured() ([]models.VenueSourceConfig, error) {
+func (s *VenueSourceConfigService) ListConfigured() ([]adminm.VenueSourceConfig, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var configs []models.VenueSourceConfig
+	var configs []adminm.VenueSourceConfig
 	err := s.db.Preload("Venue").Find(&configs).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list configured venues: %w", err)

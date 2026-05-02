@@ -11,7 +11,8 @@ import (
 	"github.com/getsentry/sentry-go"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -71,7 +72,7 @@ func (s *DiscordService) IsConfigured() bool {
 }
 
 // NotifyNewUser sends a notification when a new user registers
-func (s *DiscordService) NotifyNewUser(user *models.User) {
+func (s *DiscordService) NotifyNewUser(user *authm.User) {
 	if !s.IsConfigured() || user == nil {
 		return
 	}
@@ -209,7 +210,7 @@ func (s *DiscordService) NotifyShowRejected(show *contracts.ShowResponse, reason
 }
 
 // NotifyShowReport sends a notification when a user reports a show issue
-func (s *DiscordService) NotifyShowReport(report *models.ShowReport, reporterEmail string) {
+func (s *DiscordService) NotifyShowReport(report *communitym.ShowReport, reporterEmail string) {
 	if !s.IsConfigured() || report == nil {
 		return
 	}
@@ -217,11 +218,11 @@ func (s *DiscordService) NotifyShowReport(report *models.ShowReport, reporterEma
 	// Format report type for display
 	reportTypeDisplay := string(report.ReportType)
 	switch report.ReportType {
-	case models.ShowReportTypeCancelled:
+	case communitym.ShowReportTypeCancelled:
 		reportTypeDisplay = "Cancelled"
-	case models.ShowReportTypeSoldOut:
+	case communitym.ShowReportTypeSoldOut:
 		reportTypeDisplay = "Sold Out"
-	case models.ShowReportTypeInaccurate:
+	case communitym.ShowReportTypeInaccurate:
 		reportTypeDisplay = "Inaccurate Info"
 	}
 
@@ -263,7 +264,7 @@ func (s *DiscordService) NotifyShowReport(report *models.ShowReport, reporterEma
 }
 
 // NotifyArtistReport sends a notification when a user reports an artist issue
-func (s *DiscordService) NotifyArtistReport(report *models.ArtistReport, reporterEmail string) {
+func (s *DiscordService) NotifyArtistReport(report *communitym.ArtistReport, reporterEmail string) {
 	if !s.IsConfigured() || report == nil {
 		return
 	}
@@ -271,9 +272,9 @@ func (s *DiscordService) NotifyArtistReport(report *models.ArtistReport, reporte
 	// Format report type for display
 	reportTypeDisplay := string(report.ReportType)
 	switch report.ReportType {
-	case models.ArtistReportTypeInaccurate:
+	case communitym.ArtistReportTypeInaccurate:
 		reportTypeDisplay = "Inaccurate Info"
-	case models.ArtistReportTypeRemovalRequest:
+	case communitym.ArtistReportTypeRemovalRequest:
 		reportTypeDisplay = "Removal Request"
 	}
 
@@ -402,7 +403,7 @@ func HashEmail(email string) string {
 }
 
 // buildUserName builds a display name from user fields
-func buildUserName(user *models.User) string {
+func buildUserName(user *authm.User) string {
 	if user == nil {
 		return "N/A"
 	}

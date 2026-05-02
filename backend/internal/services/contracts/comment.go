@@ -11,12 +11,12 @@ import (
 
 // CreateCommentRequest contains the fields needed to create a comment.
 type CreateCommentRequest struct {
-	EntityType      string  `json:"entity_type"`
-	EntityID        uint    `json:"entity_id"`
-	Body            string  `json:"body"`
-	ParentID        *uint   `json:"parent_id,omitempty"`
-	Kind            string  `json:"kind,omitempty"`             // default "comment"
-	ReplyPermission string  `json:"reply_permission,omitempty"` // default "anyone"
+	EntityType      string `json:"entity_type"`
+	EntityID        uint   `json:"entity_id"`
+	Body            string `json:"body"`
+	ParentID        *uint  `json:"parent_id,omitempty"`
+	Kind            string `json:"kind,omitempty"`             // default "comment"
+	ReplyPermission string `json:"reply_permission,omitempty"` // default "anyone"
 }
 
 // UpdateCommentRequest contains the fields that can be updated on a comment.
@@ -38,13 +38,13 @@ type CreateFieldNoteRequest struct {
 
 // FieldNoteStructuredData represents the JSONB structured data stored with field note comments.
 type FieldNoteStructuredData struct {
-	ShowArtistID     *uint   `json:"show_artist_id,omitempty"`
-	SongPosition     *int    `json:"song_position,omitempty"`
-	SoundQuality     *int    `json:"sound_quality,omitempty"`
-	CrowdEnergy      *int    `json:"crowd_energy,omitempty"`
-	NotableMoments   *string `json:"notable_moments,omitempty"`
-	SetlistSpoiler   bool    `json:"setlist_spoiler"`
-	IsVerifiedAttendee bool  `json:"is_verified_attendee"`
+	ShowArtistID       *uint   `json:"show_artist_id,omitempty"`
+	SongPosition       *int    `json:"song_position,omitempty"`
+	SoundQuality       *int    `json:"sound_quality,omitempty"`
+	CrowdEnergy        *int    `json:"crowd_energy,omitempty"`
+	NotableMoments     *string `json:"notable_moments,omitempty"`
+	SetlistSpoiler     bool    `json:"setlist_spoiler"`
+	IsVerifiedAttendee bool    `json:"is_verified_attendee"`
 }
 
 // CommentListFilters defines filtering and sorting options for listing comments.
@@ -86,10 +86,10 @@ type CommentResponse struct {
 	// Currently populated only by ListCommentsForEntity for top-level comments so
 	// the UI can suppress an "expand replies" affordance on zero-reply threads
 	// (PSY-514). Other paths leave this at the zero value.
-	ReplyCount      int              `json:"reply_count"`
-	UserVote        *int             `json:"user_vote,omitempty"` // 1, -1, or nil if no vote
-	CreatedAt       time.Time        `json:"created_at"`
-	UpdatedAt       time.Time        `json:"updated_at"`
+	ReplyCount int       `json:"reply_count"`
+	UserVote   *int      `json:"user_vote,omitempty"` // 1, -1, or nil if no vote
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // CommentListResponse wraps a list of comments with pagination metadata.
@@ -119,6 +119,7 @@ type FieldNoteServiceInterface interface {
 	CreateFieldNote(userID uint, req *CreateFieldNoteRequest) (*CommentResponse, error)
 	ListFieldNotesForShow(showID uint, limit, offset int) (*CommentListResponse, error)
 }
+
 // ──────────────────────────────────────────────
 // Comment admin service interface
 // ──────────────────────────────────────────────
@@ -166,10 +167,10 @@ type CommentAdminServiceInterface interface {
 
 // CommentVoteResponse contains vote counts and the current user's vote.
 type CommentVoteResponse struct {
-	Ups      int      `json:"ups"`
-	Downs    int      `json:"downs"`
-	Score    float64  `json:"score"`
-	UserVote *int     `json:"user_vote"` // 1, -1, or null
+	Ups      int     `json:"ups"`
+	Downs    int     `json:"downs"`
+	Score    float64 `json:"score"`
+	UserVote *int    `json:"user_vote"` // 1, -1, or null
 }
 
 // ──────────────────────────────────────────────

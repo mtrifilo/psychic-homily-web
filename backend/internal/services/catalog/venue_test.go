@@ -10,7 +10,8 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -62,8 +63,8 @@ func TestVenueServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *VenueServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *VenueServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -75,8 +76,8 @@ func (suite *VenueServiceIntegrationTestSuite) createTestUser() *models.User {
 	return user
 }
 
-func (suite *VenueServiceIntegrationTestSuite) createTestVenue(name, city, state string, verified bool) *models.Venue {
-	venue := &models.Venue{
+func (suite *VenueServiceIntegrationTestSuite) createTestVenue(name, city, state string, verified bool) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -87,20 +88,20 @@ func (suite *VenueServiceIntegrationTestSuite) createTestVenue(name, city, state
 	return venue
 }
 
-func (suite *VenueServiceIntegrationTestSuite) createApprovedShow(venueID, userID uint) *models.Show {
-	show := &models.Show{
+func (suite *VenueServiceIntegrationTestSuite) createApprovedShow(venueID, userID uint) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       fmt.Sprintf("Show-%d", time.Now().UnixNano()),
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 
 	// Link show to venue
-	showVenue := &models.ShowVenue{
+	showVenue := &catalogm.ShowVenue{
 		ShowID:  show.ID,
 		VenueID: venueID,
 	}
@@ -510,7 +511,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_AdminVerifi
 
 func (suite *VenueServiceIntegrationTestSuite) TestFindOrCreateVenue_BackfillsSlug() {
 	// Create a venue directly in DB without a slug
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:     "No Slug Venue",
 		City:     "Phoenix",
 		State:    "AZ",
@@ -667,28 +668,28 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_Upcoming() {
 	user := suite.createTestUser()
 
 	// Create a future show
-	futureShow := &models.Show{
+	futureShow := &catalogm.Show{
 		Title:       "Future Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	suite.db.Create(futureShow)
-	suite.db.Create(&models.ShowVenue{ShowID: futureShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: futureShow.ID, VenueID: venue.ID})
 
 	// Create a past show
-	pastShow := &models.Show{
+	pastShow := &catalogm.Show{
 		Title:       "Past Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, -7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	suite.db.Create(pastShow)
-	suite.db.Create(&models.ShowVenue{ShowID: pastShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: pastShow.ID, VenueID: venue.ID})
 
 	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "upcoming")
 
@@ -703,28 +704,28 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_Past() {
 	user := suite.createTestUser()
 
 	// Create a future show
-	futureShow := &models.Show{
+	futureShow := &catalogm.Show{
 		Title:       "Future Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	suite.db.Create(futureShow)
-	suite.db.Create(&models.ShowVenue{ShowID: futureShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: futureShow.ID, VenueID: venue.ID})
 
 	// Create a past show
-	pastShow := &models.Show{
+	pastShow := &catalogm.Show{
 		Title:       "Past Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, -7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	suite.db.Create(pastShow)
-	suite.db.Create(&models.ShowVenue{ShowID: pastShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: pastShow.ID, VenueID: venue.ID})
 
 	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "past")
 
@@ -739,16 +740,16 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_All() {
 	user := suite.createTestUser()
 
 	for _, offset := range []int{-7, 7} {
-		show := &models.Show{
+		show := &catalogm.Show{
 			Title:       fmt.Sprintf("Show %+d days", offset),
 			EventDate:   time.Now().UTC().AddDate(0, 0, offset),
 			City:        stringPtr("Phoenix"),
 			State:       stringPtr("AZ"),
-			Status:      models.ShowStatusApproved,
+			Status:      catalogm.ShowStatusApproved,
 			SubmittedBy: &user.ID,
 		}
 		suite.db.Create(show)
-		suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
+		suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
 	}
 
 	resp, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 10, "all")
@@ -907,29 +908,29 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenueModel_NotFound() {
 // Group: GetVenueGenreProfile
 // =============================================================================
 
-func (suite *VenueServiceIntegrationTestSuite) createArtist(name string) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (suite *VenueServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
 }
 
-func (suite *VenueServiceIntegrationTestSuite) createApprovedShowWithArtist(venueID, artistID, userID uint) *models.Show {
-	show := &models.Show{
+func (suite *VenueServiceIntegrationTestSuite) createApprovedShowWithArtist(venueID, artistID, userID uint) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       fmt.Sprintf("Show-%d", time.Now().UnixNano()),
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 
-	err = suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
+	err = suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
 	suite.Require().NoError(err)
 
-	err = suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
+	err = suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
 	suite.Require().NoError(err)
 
 	return show
@@ -1023,9 +1024,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetVenuesWithShowCounts_Limit
 func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_LimitZero() {
 	venue := suite.createTestVenue("ZeroLimit ShowVenue", "Phoenix", "AZ", true)
 	user := suite.createTestUser()
-	futureShow := &models.Show{Title: "ZL Future Show", EventDate: time.Now().UTC().AddDate(0, 0, 7), City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: models.ShowStatusApproved, SubmittedBy: &user.ID}
+	futureShow := &catalogm.Show{Title: "ZL Future Show", EventDate: time.Now().UTC().AddDate(0, 0, 7), City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: catalogm.ShowStatusApproved, SubmittedBy: &user.ID}
 	suite.db.Create(futureShow)
-	suite.db.Create(&models.ShowVenue{ShowID: futureShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: futureShow.ID, VenueID: venue.ID})
 	shows, total, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 0, "upcoming")
 	suite.Require().NoError(err)
 	suite.GreaterOrEqual(total, int64(1), "total should reflect shows")
@@ -1037,9 +1038,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestGetShowsForVenue_ShowAtExactM
 	user := suite.createTestUser()
 	now := time.Now().UTC()
 	midnight := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
-	midnightShow := &models.Show{Title: "Venue Midnight Show", EventDate: midnight, City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: models.ShowStatusApproved, SubmittedBy: &user.ID}
+	midnightShow := &catalogm.Show{Title: "Venue Midnight Show", EventDate: midnight, City: stringPtr("Phoenix"), State: stringPtr("AZ"), Status: catalogm.ShowStatusApproved, SubmittedBy: &user.ID}
 	suite.db.Create(midnightShow)
-	suite.db.Create(&models.ShowVenue{ShowID: midnightShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: midnightShow.ID, VenueID: venue.ID})
 	shows, _, err := suite.venueService.GetShowsForVenue(venue.ID, "UTC", 50, "upcoming")
 	suite.Require().NoError(err)
 	found := false

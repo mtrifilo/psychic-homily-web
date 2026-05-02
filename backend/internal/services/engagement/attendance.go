@@ -7,7 +7,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -34,7 +35,7 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 		return fmt.Errorf("database not initialized")
 	}
 
-	if status != string(models.BookmarkActionGoing) && status != string(models.BookmarkActionInterested) && status != "" {
+	if status != string(engagementm.BookmarkActionGoing) && status != string(engagementm.BookmarkActionInterested) && status != "" {
 		return fmt.Errorf("invalid attendance status: %s", status)
 	}
 
@@ -44,7 +45,7 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 	}
 
 	// Check that the show exists
-	var show models.Show
+	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return fmt.Errorf("show not found")
@@ -53,35 +54,35 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 	}
 
 	// Determine which status to set and which to remove
-	setAction := models.BookmarkAction(status)
-	var removeAction models.BookmarkAction
-	if setAction == models.BookmarkActionGoing {
-		removeAction = models.BookmarkActionInterested
+	setAction := engagementm.BookmarkAction(status)
+	var removeAction engagementm.BookmarkAction
+	if setAction == engagementm.BookmarkActionGoing {
+		removeAction = engagementm.BookmarkActionInterested
 	} else {
-		removeAction = models.BookmarkActionGoing
+		removeAction = engagementm.BookmarkActionGoing
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Remove the opposite status (if any) — ignore "not found"
 		tx.Where(
 			"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			userID, models.BookmarkEntityShow, showID, removeAction,
-		).Delete(&models.UserBookmark{})
+			userID, engagementm.BookmarkEntityShow, showID, removeAction,
+		).Delete(&engagementm.UserBookmark{})
 
 		// Upsert the desired status
-		bookmark := models.UserBookmark{
+		bookmark := engagementm.UserBookmark{
 			UserID:     userID,
-			EntityType: models.BookmarkEntityShow,
+			EntityType: engagementm.BookmarkEntityShow,
 			EntityID:   showID,
 			Action:     setAction,
 			CreatedAt:  time.Now().UTC(),
 		}
-		return tx.Where(models.UserBookmark{
+		return tx.Where(engagementm.UserBookmark{
 			UserID:     userID,
-			EntityType: models.BookmarkEntityShow,
+			EntityType: engagementm.BookmarkEntityShow,
 			EntityID:   showID,
 			Action:     setAction,
-		}).Assign(models.UserBookmark{
+		}).Assign(engagementm.UserBookmark{
 			CreatedAt: bookmark.CreatedAt,
 		}).FirstOrCreate(&bookmark).Error
 	})
@@ -95,9 +96,9 @@ func (s *AttendanceService) RemoveAttendance(userID, showID uint) error {
 
 	result := s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id = ? AND action IN ?",
-		userID, models.BookmarkEntityShow, showID,
-		[]models.BookmarkAction{models.BookmarkActionGoing, models.BookmarkActionInterested},
-	).Delete(&models.UserBookmark{})
+		userID, engagementm.BookmarkEntityShow, showID,
+		[]engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested},
+	).Delete(&engagementm.UserBookmark{})
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to remove attendance: %w", result.Error)
@@ -113,11 +114,11 @@ func (s *AttendanceService) GetUserAttendance(userID, showID uint) (string, erro
 		return "", fmt.Errorf("database not initialized")
 	}
 
-	var bookmark models.UserBookmark
+	var bookmark engagementm.UserBookmark
 	err := s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id = ? AND action IN ?",
-		userID, models.BookmarkEntityShow, showID,
-		[]models.BookmarkAction{models.BookmarkActionGoing, models.BookmarkActionInterested},
+		userID, engagementm.BookmarkEntityShow, showID,
+		[]engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested},
 	).First(&bookmark).Error
 
 	if err != nil {
@@ -142,11 +143,11 @@ func (s *AttendanceService) GetAttendanceCounts(showID uint) (*contracts.Attenda
 	}
 	var rows []countRow
 
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Select("action, COUNT(*) as count").
 		Where("entity_type = ? AND entity_id = ? AND action IN ?",
-			models.BookmarkEntityShow, showID,
-			[]models.BookmarkAction{models.BookmarkActionGoing, models.BookmarkActionInterested},
+			engagementm.BookmarkEntityShow, showID,
+			[]engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested},
 		).
 		Group("action").
 		Find(&rows).Error
@@ -157,10 +158,10 @@ func (s *AttendanceService) GetAttendanceCounts(showID uint) (*contracts.Attenda
 
 	resp := &contracts.AttendanceCountsResponse{ShowID: showID}
 	for _, row := range rows {
-		switch models.BookmarkAction(row.Action) {
-		case models.BookmarkActionGoing:
+		switch engagementm.BookmarkAction(row.Action) {
+		case engagementm.BookmarkActionGoing:
 			resp.GoingCount = row.Count
-		case models.BookmarkActionInterested:
+		case engagementm.BookmarkActionInterested:
 			resp.InterestedCount = row.Count
 		}
 	}
@@ -191,11 +192,11 @@ func (s *AttendanceService) GetBatchAttendanceCounts(showIDs []uint) (map[uint]*
 	}
 	var rows []countRow
 
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Select("entity_id, action, COUNT(*) as count").
 		Where("entity_type = ? AND entity_id IN ? AND action IN ?",
-			models.BookmarkEntityShow, showIDs,
-			[]models.BookmarkAction{models.BookmarkActionGoing, models.BookmarkActionInterested},
+			engagementm.BookmarkEntityShow, showIDs,
+			[]engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested},
 		).
 		Group("entity_id, action").
 		Find(&rows).Error
@@ -209,10 +210,10 @@ func (s *AttendanceService) GetBatchAttendanceCounts(showIDs []uint) (map[uint]*
 		if !ok {
 			continue
 		}
-		switch models.BookmarkAction(row.Action) {
-		case models.BookmarkActionGoing:
+		switch engagementm.BookmarkAction(row.Action) {
+		case engagementm.BookmarkActionGoing:
 			resp.GoingCount = row.Count
-		case models.BookmarkActionInterested:
+		case engagementm.BookmarkActionInterested:
 			resp.InterestedCount = row.Count
 		}
 	}
@@ -232,11 +233,11 @@ func (s *AttendanceService) GetBatchUserAttendance(userID uint, showIDs []uint) 
 		return result, nil
 	}
 
-	var bookmarks []models.UserBookmark
+	var bookmarks []engagementm.UserBookmark
 	err := s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id IN ? AND action IN ?",
-		userID, models.BookmarkEntityShow, showIDs,
-		[]models.BookmarkAction{models.BookmarkActionGoing, models.BookmarkActionInterested},
+		userID, engagementm.BookmarkEntityShow, showIDs,
+		[]engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested},
 	).Find(&bookmarks).Error
 
 	if err != nil {
@@ -259,22 +260,22 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 	}
 
 	// Build the bookmark filter
-	actions := []models.BookmarkAction{models.BookmarkActionGoing, models.BookmarkActionInterested}
-	if status == string(models.BookmarkActionGoing) {
-		actions = []models.BookmarkAction{models.BookmarkActionGoing}
-	} else if status == string(models.BookmarkActionInterested) {
-		actions = []models.BookmarkAction{models.BookmarkActionInterested}
+	actions := []engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested}
+	if status == string(engagementm.BookmarkActionGoing) {
+		actions = []engagementm.BookmarkAction{engagementm.BookmarkActionGoing}
+	} else if status == string(engagementm.BookmarkActionInterested) {
+		actions = []engagementm.BookmarkAction{engagementm.BookmarkActionInterested}
 	}
 
 	now := time.Now().UTC()
 
 	// Count total matching shows
 	var total int64
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Joins("JOIN shows ON shows.id = user_bookmarks.entity_id").
 		Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action IN ?",
-			userID, models.BookmarkEntityShow, actions).
-		Where("shows.status = ? AND shows.event_date >= ?", models.ShowStatusApproved, now).
+			userID, engagementm.BookmarkEntityShow, actions).
+		Where("shows.status = ? AND shows.event_date >= ?", catalogm.ShowStatusApproved, now).
 		Count(&total).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count attending shows: %w", err)
@@ -315,8 +316,8 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 		Joins("LEFT JOIN show_venues ON show_venues.show_id = shows.id").
 		Joins("LEFT JOIN venues ON venues.id = show_venues.venue_id").
 		Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action IN ?",
-			userID, models.BookmarkEntityShow, actions).
-		Where("shows.status = ? AND shows.event_date >= ?", models.ShowStatusApproved, now).
+			userID, engagementm.BookmarkEntityShow, actions).
+		Where("shows.status = ? AND shows.event_date >= ?", catalogm.ShowStatusApproved, now).
 		Order("shows.event_date ASC").
 		Limit(limit).
 		Offset(offset).

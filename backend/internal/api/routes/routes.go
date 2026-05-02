@@ -30,11 +30,11 @@ import (
 // RouteContext holds the shared dependencies passed to every route setup function.
 // Each function uses only what it needs from the struct.
 type RouteContext struct {
-	Router    *chi.Mux                  // The chi mux (for Chi-level middleware groups and raw HTTP routes)
-	API       huma.API                  // The public Huma API wrapper
-	Protected *huma.Group               // Protected (auth-required) Huma API group
+	Router    *chi.Mux                   // The chi mux (for Chi-level middleware groups and raw HTTP routes)
+	API       huma.API                   // The public Huma API wrapper
+	Protected *huma.Group                // Protected (auth-required) Huma API group
 	SC        *services.ServiceContainer // All instantiated services
-	Cfg       *config.Config            // Application configuration
+	Cfg       *config.Config             // Application configuration
 }
 
 // SetupRoutes configures all API routes
@@ -193,8 +193,8 @@ func setupAuthRoutes(rc RouteContext) {
 		authRateLimiter = noopRateLimiter()
 	} else {
 		authRateLimiter = httprate.Limit(
-			10,              // requests
-			1*time.Minute,   // per duration
+			10,            // requests
+			1*time.Minute, // per duration
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		)
@@ -265,8 +265,8 @@ func setupPasskeyRoutes(rc RouteContext) {
 		passkeyRateLimiter = noopRateLimiter()
 	} else {
 		passkeyRateLimiter = httprate.Limit(
-			20,              // requests
-			1*time.Minute,   // per duration
+			20,            // requests
+			1*time.Minute, // per duration
 			httprate.WithKeyFuncs(httprate.KeyByIP),
 			httprate.WithLimitHandler(rateLimitHandler),
 		)

@@ -13,12 +13,12 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // RequireAdmin verifies the request is from an admin user.
 // Returns the user on success, or a 403 Forbidden error.
-func RequireAdmin(ctx context.Context) (*models.User, error) {
+func RequireAdmin(ctx context.Context) (*authm.User, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil || !user.IsAdmin {
 		logger.FromContext(ctx).Warn("admin_access_denied",
@@ -31,7 +31,7 @@ func RequireAdmin(ctx context.Context) (*models.User, error) {
 }
 
 // GetUserID safely gets user ID or returns 0 if user is nil.
-func GetUserID(user *models.User) uint {
+func GetUserID(user *authm.User) uint {
 	if user == nil {
 		return 0
 	}

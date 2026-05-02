@@ -152,7 +152,7 @@ func main() {
 		AllowedMethods:   cfg.CORS.AllowedMethods,
 		AllowedHeaders:   cfg.CORS.AllowedHeaders,
 		AllowCredentials: cfg.CORS.AllowCredentials,
-		MaxAge:           300,            // Cache preflight for 5 minutes
+		MaxAge:           300,           // Cache preflight for 5 minutes
 		Debug:            !isProduction, // Only enable debug logging in development
 	})
 

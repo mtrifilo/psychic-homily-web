@@ -90,7 +90,7 @@ var customDefaults = map[string]methodDefault{
 		body: `	return &contracts.ActivityFeedResponse{Events: []contracts.ActivityEvent{}}, nil`,
 	},
 	"MockUserService.GetFavoriteCities": {
-		body: `	return []models.FavoriteCity{}, nil`,
+		body: `	return []authm.FavoriteCity{}, nil`,
 	},
 	"MockPasswordValidator.ValidatePassword": {
 		body: `	return &contracts.PasswordValidationResult{Valid: true}, nil`,
@@ -199,32 +199,32 @@ var customDefaults = map[string]methodDefault{
 	},
 	"MockRequestService.CreateRequest": {
 		body: `	desc := description
-	return &models.Request{
+	return &communitym.Request{
 		ID:          1,
 		Title:       title,
 		Description: &desc,
 		EntityType:  entityType,
-		Status:      models.RequestStatusPending,
+		Status:      communitym.RequestStatusPending,
 		RequesterID: userID,
 	}, nil`,
 	},
 	"MockRequestService.GetRequest": {
-		body: `	return &models.Request{
+		body: `	return &communitym.Request{
 		ID:          requestID,
 		Title:       "Test Request",
 		EntityType:  "artist",
-		Status:      models.RequestStatusPending,
+		Status:      communitym.RequestStatusPending,
 		RequesterID: 1,
 	}, nil`,
 	},
 	"MockRequestService.ListRequests": {
-		body: `	return []models.Request{
-		{ID: 1, Title: "Request 1", EntityType: "artist", Status: models.RequestStatusPending, RequesterID: 1},
+		body: `	return []communitym.Request{
+		{ID: 1, Title: "Request 1", EntityType: "artist", Status: communitym.RequestStatusPending, RequesterID: 1},
 	}, 1, nil`,
 	},
 	"MockRequestService.UpdateRequest": {
 		body: `	t := "Updated"
-	return &models.Request{ID: requestID, Title: t, EntityType: "artist", Status: models.RequestStatusPending, RequesterID: userID}, nil`,
+	return &communitym.Request{ID: requestID, Title: t, EntityType: "artist", Status: communitym.RequestStatusPending, RequesterID: userID}, nil`,
 	},
 }
 
@@ -419,7 +419,7 @@ func typeString(node ast.Node) string {
 		}
 		return n.Name
 	case *ast.SelectorExpr:
-		// Already qualified (e.g., models.User, goth.User)
+		// Already qualified (e.g., authm.User, goth.User)
 		return typeString(n.X) + "." + n.Sel.Name
 	case *ast.StarExpr:
 		return "*" + typeString(n.X)
@@ -516,8 +516,13 @@ import (
 	"github.com/markbates/goth"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/services/contracts"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
+	engagementm "psychic-homily-backend/internal/models/engagement"
+	notificationm "psychic-homily-backend/internal/models/notification"
 )
 
 // Suppress unused import warnings.
@@ -530,6 +535,12 @@ var (
 	_ *webauthn.SessionData
 	_ goth.User
 	_ *gorm.DB
+	_ adminm.APIToken
+	_ authm.User
+	_ catalogm.Show
+	_ communitym.Request
+	_ engagementm.UserBookmark
+	_ notificationm.NotificationFilter
 )`)
 
 	for _, iface := range ifaces {

@@ -8,7 +8,11 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -67,7 +71,6 @@ func parsePrivacySettings(raw *json.RawMessage) contracts.PrivacySettings {
 	return ps
 }
 
-
 // contributionRow is a raw scan target for the UNION query.
 type contributionRow struct {
 	ID         uint
@@ -102,7 +105,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var user models.User
+	var user authm.User
 	err := s.db.Where("username = ?", username).First(&user).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -193,7 +196,7 @@ func (s *ContributorProfileService) GetOwnProfile(userID uint) (*contracts.Publi
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var user models.User
+	var user authm.User
 	err := s.db.First(&user, userID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -254,7 +257,7 @@ func (s *ContributorProfileService) UpdatePrivacySettings(userID uint, settings 
 	}
 	rawMsg := json.RawMessage(raw)
 
-	if err := s.db.Model(&models.User{}).Where("id = ?", userID).Update("privacy_settings", &rawMsg).Error; err != nil {
+	if err := s.db.Model(&authm.User{}).Where("id = ?", userID).Update("privacy_settings", &rawMsg).Error; err != nil {
 		return nil, fmt.Errorf("failed to update privacy settings: %w", err)
 	}
 
@@ -274,10 +277,10 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 	stats := &contracts.ContributionStats{}
 
 	// Count submissions from entity tables
-	s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&stats.ShowsSubmitted)
-	s.db.Model(&models.Venue{}).Where("submitted_by = ?", userID).Count(&stats.VenuesSubmitted)
+	s.db.Model(&catalogm.Show{}).Where("submitted_by = ?", userID).Count(&stats.ShowsSubmitted)
+	s.db.Model(&catalogm.Venue{}).Where("submitted_by = ?", userID).Count(&stats.VenuesSubmitted)
 	s.db.Table("pending_entity_edits").
-		Where("submitted_by = ? AND entity_type = ?", userID, models.PendingEditEntityVenue).
+		Where("submitted_by = ? AND entity_type = ?", userID, adminm.PendingEditEntityVenue).
 		Count(&stats.VenueEditsSubmitted)
 
 	// Count actions from audit_log grouped by action
@@ -286,7 +289,7 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 		Count  int64
 	}
 	var actionCounts []actionCount
-	s.db.Model(&models.AuditLog{}).
+	s.db.Model(&adminm.AuditLog{}).
 		Select("action, count(*) as count").
 		Where("actor_id = ?", userID).
 		Group("action").
@@ -313,48 +316,48 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 	}
 
 	// Revisions made
-	s.db.Model(&models.Revision{}).Where("user_id = ?", userID).Count(&stats.RevisionsMade)
+	s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID).Count(&stats.RevisionsMade)
 
 	// Pending entity edits submitted
-	s.db.Model(&models.PendingEntityEdit{}).Where("submitted_by = ?", userID).Count(&stats.PendingEditsSubmitted)
+	s.db.Model(&adminm.PendingEntityEdit{}).Where("submitted_by = ?", userID).Count(&stats.PendingEditsSubmitted)
 
 	// Community participation: votes
-	s.db.Model(&models.TagVote{}).Where("user_id = ?", userID).Count(&stats.TagVotesCast)
-	s.db.Model(&models.ArtistRelationshipVote{}).Where("user_id = ?", userID).Count(&stats.RelationshipVotesCast)
-	s.db.Model(&models.RequestVote{}).Where("user_id = ?", userID).Count(&stats.RequestVotesCast)
+	s.db.Model(&catalogm.TagVote{}).Where("user_id = ?", userID).Count(&stats.TagVotesCast)
+	s.db.Model(&catalogm.ArtistRelationshipVote{}).Where("user_id = ?", userID).Count(&stats.RelationshipVotesCast)
+	s.db.Model(&communitym.RequestVote{}).Where("user_id = ?", userID).Count(&stats.RequestVotesCast)
 
 	// Community participation: collections
-	s.db.Model(&models.CollectionItem{}).Where("added_by_user_id = ?", userID).Count(&stats.CollectionItemsAdded)
-	s.db.Model(&models.CollectionSubscriber{}).Where("user_id = ?", userID).Count(&stats.CollectionSubscriptions)
+	s.db.Model(&communitym.CollectionItem{}).Where("added_by_user_id = ?", userID).Count(&stats.CollectionItemsAdded)
+	s.db.Model(&communitym.CollectionSubscriber{}).Where("user_id = ?", userID).Count(&stats.CollectionSubscriptions)
 
 	// Shows attended (user_bookmarks with action = 'going')
-	s.db.Model(&models.UserBookmark{}).Where("user_id = ? AND action = ?", userID, models.BookmarkActionGoing).Count(&stats.ShowsAttended)
+	s.db.Model(&engagementm.UserBookmark{}).Where("user_id = ? AND action = ?", userID, engagementm.BookmarkActionGoing).Count(&stats.ShowsAttended)
 
 	// Reports filed (entity_reports + show_reports + artist_reports)
 	var entityReportsFiled, showReportsFiled, artistReportsFiled int64
-	s.db.Model(&models.EntityReport{}).Where("reported_by = ?", userID).Count(&entityReportsFiled)
-	s.db.Model(&models.ShowReport{}).Where("reported_by = ?", userID).Count(&showReportsFiled)
-	s.db.Model(&models.ArtistReport{}).Where("reported_by = ?", userID).Count(&artistReportsFiled)
+	s.db.Model(&communitym.EntityReport{}).Where("reported_by = ?", userID).Count(&entityReportsFiled)
+	s.db.Model(&communitym.ShowReport{}).Where("reported_by = ?", userID).Count(&showReportsFiled)
+	s.db.Model(&communitym.ArtistReport{}).Where("reported_by = ?", userID).Count(&artistReportsFiled)
 	stats.ReportsFiled = entityReportsFiled + showReportsFiled + artistReportsFiled
 
 	// Reports resolved (entity_reports reviewed by this user with resolved/dismissed status)
 	var entityReportsResolved, showReportsResolved, artistReportsResolved int64
-	s.db.Model(&models.EntityReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&entityReportsResolved)
-	s.db.Model(&models.ShowReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&showReportsResolved)
-	s.db.Model(&models.ArtistReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&artistReportsResolved)
+	s.db.Model(&communitym.EntityReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&entityReportsResolved)
+	s.db.Model(&communitym.ShowReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&showReportsResolved)
+	s.db.Model(&communitym.ArtistReport{}).Where("reviewed_by = ? AND status IN ?", userID, []string{"resolved", "dismissed"}).Count(&artistReportsResolved)
 	stats.ReportsResolved = entityReportsResolved + showReportsResolved + artistReportsResolved
 
 	// Social: followers and following via user_bookmarks with action = 'follow'
 	// Followers = other users who follow entities that *are* this user (not applicable with current schema)
 	// Following = entities this user follows
-	s.db.Model(&models.UserBookmark{}).Where("user_id = ? AND action = ?", userID, models.BookmarkActionFollow).Count(&stats.FollowingCount)
+	s.db.Model(&engagementm.UserBookmark{}).Where("user_id = ? AND action = ?", userID, engagementm.BookmarkActionFollow).Count(&stats.FollowingCount)
 	// FollowersCount is not directly queryable in the current schema (bookmarks are entity-based, not user-to-user)
 	// Leave at 0 until a user-to-user follow system exists
 
 	// Approval rate from pending_entity_edits
 	var approved, rejected int64
-	s.db.Model(&models.PendingEntityEdit{}).Where("submitted_by = ? AND status = ?", userID, models.PendingEditStatusApproved).Count(&approved)
-	s.db.Model(&models.PendingEntityEdit{}).Where("submitted_by = ? AND status = ?", userID, models.PendingEditStatusRejected).Count(&rejected)
+	s.db.Model(&adminm.PendingEntityEdit{}).Where("submitted_by = ? AND status = ?", userID, adminm.PendingEditStatusApproved).Count(&approved)
+	s.db.Model(&adminm.PendingEntityEdit{}).Where("submitted_by = ? AND status = ?", userID, adminm.PendingEditStatusRejected).Count(&rejected)
 	if total := approved + rejected; total > 0 {
 		rate := float64(approved) / float64(total)
 		stats.ApprovalRate = &rate
@@ -538,7 +541,7 @@ func (s *ContributorProfileService) GetUserSections(userID uint) ([]*contracts.P
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var sections []models.UserProfileSection
+	var sections []authm.UserProfileSection
 	err := s.db.Where("user_id = ? AND is_visible = ?", userID, true).
 		Order("position ASC").
 		Find(&sections).Error
@@ -555,7 +558,7 @@ func (s *ContributorProfileService) GetOwnSections(userID uint) ([]*contracts.Pr
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var sections []models.UserProfileSection
+	var sections []authm.UserProfileSection
 	err := s.db.Where("user_id = ?", userID).
 		Order("position ASC").
 		Find(&sections).Error
@@ -584,12 +587,12 @@ func (s *ContributorProfileService) CreateSection(userID uint, title string, con
 
 	// Check section count
 	var count int64
-	s.db.Model(&models.UserProfileSection{}).Where("user_id = ?", userID).Count(&count)
+	s.db.Model(&authm.UserProfileSection{}).Where("user_id = ?", userID).Count(&count)
 	if count >= int64(maxProfileSections) {
 		return nil, fmt.Errorf("maximum %d profile sections allowed", maxProfileSections)
 	}
 
-	section := models.UserProfileSection{
+	section := authm.UserProfileSection{
 		UserID:    userID,
 		Title:     title,
 		Content:   content,
@@ -610,7 +613,7 @@ func (s *ContributorProfileService) UpdateSection(userID uint, sectionID uint, u
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var section models.UserProfileSection
+	var section authm.UserProfileSection
 	err := s.db.Where("id = ? AND user_id = ?", sectionID, userID).First(&section).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -655,7 +658,7 @@ func (s *ContributorProfileService) DeleteSection(userID uint, sectionID uint) e
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Where("id = ? AND user_id = ?", sectionID, userID).Delete(&models.UserProfileSection{})
+	result := s.db.Where("id = ? AND user_id = ?", sectionID, userID).Delete(&authm.UserProfileSection{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete profile section: %w", result.Error)
 	}
@@ -666,7 +669,7 @@ func (s *ContributorProfileService) DeleteSection(userID uint, sectionID uint) e
 	return nil
 }
 
-func buildSectionResponses(sections []models.UserProfileSection) []*contracts.ProfileSectionResponse {
+func buildSectionResponses(sections []authm.UserProfileSection) []*contracts.ProfileSectionResponse {
 	responses := make([]*contracts.ProfileSectionResponse, len(sections))
 	for i := range sections {
 		responses[i] = buildSectionResponse(&sections[i])
@@ -674,7 +677,7 @@ func buildSectionResponses(sections []models.UserProfileSection) []*contracts.Pr
 	return responses
 }
 
-func buildSectionResponse(section *models.UserProfileSection) *contracts.ProfileSectionResponse {
+func buildSectionResponse(section *authm.UserProfileSection) *contracts.ProfileSectionResponse {
 	return &contracts.ProfileSectionResponse{
 		ID:        section.ID,
 		Title:     section.Title,
@@ -714,7 +717,7 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 
 	// Check total active users
 	var totalUsers int64
-	if err := s.db.Model(&models.User{}).Where("is_active = ?", true).Count(&totalUsers).Error; err != nil {
+	if err := s.db.Model(&authm.User{}).Where("is_active = ?", true).Count(&totalUsers).Error; err != nil {
 		return nil, fmt.Errorf("failed to count active users: %w", err)
 	}
 	if totalUsers < 10 {
@@ -726,31 +729,31 @@ func (s *ContributorProfileService) GetPercentileRankings(userID uint) (*contrac
 
 	// shows_submitted
 	var showCount int64
-	s.db.Model(&models.Show{}).Where("submitted_by = ?", userID).Count(&showCount)
+	s.db.Model(&catalogm.Show{}).Where("submitted_by = ?", userID).Count(&showCount)
 	userCounts["shows_submitted"] = showCount
 
 	// venues_submitted
 	var venueCount int64
-	s.db.Model(&models.Venue{}).Where("submitted_by = ?", userID).Count(&venueCount)
+	s.db.Model(&catalogm.Venue{}).Where("submitted_by = ?", userID).Count(&venueCount)
 	userCounts["venues_submitted"] = venueCount
 
 	// tags_applied
 	var tagCount int64
-	s.db.Model(&models.EntityTag{}).Where("added_by_user_id = ?", userID).Count(&tagCount)
+	s.db.Model(&catalogm.EntityTag{}).Where("added_by_user_id = ?", userID).Count(&tagCount)
 	userCounts["tags_applied"] = tagCount
 
 	// edits_approved: pending_entity_edits approved + revisions
 	var pendingEditsApproved int64
-	s.db.Model(&models.PendingEntityEdit{}).
-		Where("submitted_by = ? AND status = ?", userID, models.PendingEditStatusApproved).
+	s.db.Model(&adminm.PendingEntityEdit{}).
+		Where("submitted_by = ? AND status = ?", userID, adminm.PendingEditStatusApproved).
 		Count(&pendingEditsApproved)
 	var revisionCount int64
-	s.db.Model(&models.Revision{}).Where("user_id = ?", userID).Count(&revisionCount)
+	s.db.Model(&adminm.Revision{}).Where("user_id = ?", userID).Count(&revisionCount)
 	userCounts["edits_approved"] = pendingEditsApproved + revisionCount
 
 	// requests_fulfilled
 	var requestsFulfilledCount int64
-	s.db.Model(&models.Request{}).Where("fulfiller_id = ?", userID).Count(&requestsFulfilledCount)
+	s.db.Model(&communitym.Request{}).Where("fulfiller_id = ?", userID).Count(&requestsFulfilledCount)
 	userCounts["requests_fulfilled"] = requestsFulfilledCount
 
 	// For each dimension, compute the percentile.

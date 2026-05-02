@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 )
 
 // Uses auto-generated testhelpers.MockCommentVoteService from handler_unit_mock_helpers_test.go
@@ -30,7 +30,7 @@ func TestVoteComment_NoAuth(t *testing.T) {
 
 func TestVoteComment_InvalidCommentID(t *testing.T) {
 	h := testCommentVoteHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "abc"}
 	req.Body.Direction = 1
 
@@ -40,7 +40,7 @@ func TestVoteComment_InvalidCommentID(t *testing.T) {
 
 func TestVoteComment_InvalidDirectionZero(t *testing.T) {
 	h := testCommentVoteHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "1"}
 	req.Body.Direction = 0
 
@@ -50,7 +50,7 @@ func TestVoteComment_InvalidDirectionZero(t *testing.T) {
 
 func TestVoteComment_InvalidDirectionTwo(t *testing.T) {
 	h := testCommentVoteHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "1"}
 	req.Body.Direction = 2
 
@@ -75,7 +75,7 @@ func TestVoteComment_Success(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "42"}
 	req.Body.Direction = 1
 
@@ -102,7 +102,7 @@ func TestVoteComment_CommentNotFound(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "99"}
 	req.Body.Direction = 1
 
@@ -117,7 +117,7 @@ func TestVoteComment_ServiceError(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &VoteCommentRequest{CommentID: "1"}
 	req.Body.Direction = 1
 
@@ -139,7 +139,7 @@ func TestUnvoteComment_NoAuth(t *testing.T) {
 
 func TestUnvoteComment_InvalidCommentID(t *testing.T) {
 	h := testCommentVoteHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnvoteCommentRequest{CommentID: "abc"}
 
 	_, err := h.UnvoteCommentHandler(ctx, req)
@@ -156,7 +156,7 @@ func TestUnvoteComment_Success(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnvoteCommentRequest{CommentID: "42"}
 
 	resp, err := h.UnvoteCommentHandler(ctx, req)
@@ -179,7 +179,7 @@ func TestUnvoteComment_CommentNotFound(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnvoteCommentRequest{CommentID: "99"}
 
 	_, err := h.UnvoteCommentHandler(ctx, req)
@@ -193,7 +193,7 @@ func TestUnvoteComment_ServiceError(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnvoteCommentRequest{CommentID: "1"}
 
 	_, err := h.UnvoteCommentHandler(ctx, req)

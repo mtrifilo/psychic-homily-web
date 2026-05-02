@@ -10,7 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -50,13 +50,13 @@ type RevisionResponseItem struct {
 	EntityID   uint                 `json:"entity_id"`
 	UserID     uint                 `json:"user_id"`
 	UserName   string               `json:"user_name,omitempty"`
-	Changes    []models.FieldChange `json:"changes"`
+	Changes    []adminm.FieldChange `json:"changes"`
 	Summary    string               `json:"summary,omitempty"`
 	CreatedAt  string               `json:"created_at"`
 }
 
-// mapRevisionToResponse converts a models.Revision to a RevisionResponseItem.
-func mapRevisionToResponse(r models.Revision) RevisionResponseItem {
+// mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem.
+func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 	item := RevisionResponseItem{
 		ID:         r.ID,
 		EntityType: r.EntityType,
@@ -78,13 +78,13 @@ func mapRevisionToResponse(r models.Revision) RevisionResponseItem {
 
 	// Unmarshal field changes from JSONB
 	if r.FieldChanges != nil {
-		var changes []models.FieldChange
+		var changes []adminm.FieldChange
 		if err := json.Unmarshal(*r.FieldChanges, &changes); err == nil {
 			item.Changes = changes
 		}
 	}
 	if item.Changes == nil {
-		item.Changes = []models.FieldChange{}
+		item.Changes = []adminm.FieldChange{}
 	}
 
 	return item

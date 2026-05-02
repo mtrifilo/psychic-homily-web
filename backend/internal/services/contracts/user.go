@@ -157,23 +157,23 @@ func DefaultPrivacySettings() PrivacySettings {
 // ContributionStats represents aggregated contribution counts.
 type ContributionStats struct {
 	// Content creation
-	ShowsSubmitted      int64 `json:"shows_submitted"`
-	VenuesSubmitted     int64 `json:"venues_submitted"`
-	VenueEditsSubmitted int64 `json:"venue_edits_submitted"`
-	ReleasesCreated     int64 `json:"releases_created"`
-	LabelsCreated       int64 `json:"labels_created"`
-	FestivalsCreated    int64 `json:"festivals_created"`
-	ArtistsEdited       int64 `json:"artists_edited"`
-	RevisionsMade       int64 `json:"revisions_made"`
+	ShowsSubmitted        int64 `json:"shows_submitted"`
+	VenuesSubmitted       int64 `json:"venues_submitted"`
+	VenueEditsSubmitted   int64 `json:"venue_edits_submitted"`
+	ReleasesCreated       int64 `json:"releases_created"`
+	LabelsCreated         int64 `json:"labels_created"`
+	FestivalsCreated      int64 `json:"festivals_created"`
+	ArtistsEdited         int64 `json:"artists_edited"`
+	RevisionsMade         int64 `json:"revisions_made"`
 	PendingEditsSubmitted int64 `json:"pending_edits_submitted"`
 
 	// Community participation
-	TagVotesCast              int64 `json:"tag_votes_cast"`
-	RelationshipVotesCast     int64 `json:"relationship_votes_cast"`
-	RequestVotesCast          int64 `json:"request_votes_cast"`
-	CollectionItemsAdded      int64 `json:"collection_items_added"`
-	CollectionSubscriptions   int64 `json:"collection_subscriptions"`
-	ShowsAttended             int64 `json:"shows_attended"`
+	TagVotesCast            int64 `json:"tag_votes_cast"`
+	RelationshipVotesCast   int64 `json:"relationship_votes_cast"`
+	RequestVotesCast        int64 `json:"request_votes_cast"`
+	CollectionItemsAdded    int64 `json:"collection_items_added"`
+	CollectionSubscriptions int64 `json:"collection_subscriptions"`
+	ShowsAttended           int64 `json:"shows_attended"`
 
 	// Reports
 	ReportsFiled    int64 `json:"reports_filed"`
@@ -193,17 +193,17 @@ type ContributionStats struct {
 
 // PublicProfileResponse is the response for the public profile endpoint.
 type PublicProfileResponse struct {
-	Username          string                   `json:"username"`
-	Bio               *string                  `json:"bio,omitempty"`
-	AvatarURL         *string                  `json:"avatar_url,omitempty"`
-	FirstName         *string                  `json:"first_name,omitempty"`
-	ProfileVisibility string                   `json:"profile_visibility"`
-	UserTier          string                   `json:"user_tier"`
-	PrivacySettings   *PrivacySettings         `json:"privacy_settings,omitempty"`
-	JoinedAt          time.Time                `json:"joined_at"`
-	LastActive        *time.Time               `json:"last_active,omitempty"`
-	Stats             *ContributionStats       `json:"stats,omitempty"`
-	StatsCount        *int64                   `json:"stats_count,omitempty"`
+	Username          string                    `json:"username"`
+	Bio               *string                   `json:"bio,omitempty"`
+	AvatarURL         *string                   `json:"avatar_url,omitempty"`
+	FirstName         *string                   `json:"first_name,omitempty"`
+	ProfileVisibility string                    `json:"profile_visibility"`
+	UserTier          string                    `json:"user_tier"`
+	PrivacySettings   *PrivacySettings          `json:"privacy_settings,omitempty"`
+	JoinedAt          time.Time                 `json:"joined_at"`
+	LastActive        *time.Time                `json:"last_active,omitempty"`
+	Stats             *ContributionStats        `json:"stats,omitempty"`
+	StatsCount        *int64                    `json:"stats_count,omitempty"`
 	Sections          []*ProfileSectionResponse `json:"sections,omitempty"`
 }
 
@@ -220,7 +220,7 @@ type ProfileSectionResponse struct {
 
 // ActivityDay represents a single day's contribution count for the activity heatmap.
 type ActivityDay struct {
-	Date  string `json:"date"`  // "2026-03-31"
+	Date  string `json:"date"` // "2026-03-31"
 	Count int    `json:"count"`
 }
 

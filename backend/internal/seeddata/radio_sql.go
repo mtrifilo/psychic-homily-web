@@ -108,7 +108,7 @@ func RenderRadioSeedSQL(w io.Writer) error {
 }
 
 // sqlString quotes a value as an SQL string literal, escaping any embedded
-// single-quote characters via the Postgres-standard doubling (`'` -> `''`).
+// single-quote characters via the Postgres-standard doubling (`'` -> `”`).
 func sqlString(v string) string {
 	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }

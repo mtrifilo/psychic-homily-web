@@ -8,7 +8,7 @@ import (
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/catalog"
 )
 
@@ -136,12 +136,12 @@ func (s *AdminHandlerIntegrationSuite) TestApproveShow_WithVerifyVenues() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 
 	// Create pending show with unverified venue
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       "Show With Unverified Venue",
 		EventDate:   futureDate(7),
 		City:        testhelpers.StringPtr("Phoenix"),
 		State:       testhelpers.StringPtr("AZ"),
-		Status:      models.ShowStatusPending,
+		Status:      catalogm.ShowStatusPending,
 		SubmittedBy: &user.ID,
 	}
 	s.deps.DB.Create(show)
@@ -476,6 +476,6 @@ func futureDate(daysFromNow int) time.Time {
 
 // Ensure imports are used
 var (
-	_ *models.Show
+	_ *catalogm.Show
 	_ *catalog.ShowService
 )

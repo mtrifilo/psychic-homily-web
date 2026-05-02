@@ -9,8 +9,11 @@ import (
 	"github.com/go-webauthn/webauthn/webauthn"
 	"github.com/markbates/goth"
 	"gorm.io/gorm"
-
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 )
 
 // ShowServiceInterface defines the contract for core show CRUD and search operations.
@@ -80,13 +83,13 @@ type VenueServiceInterface interface {
 	UpdateVenue(venueID uint, updates map[string]interface{}) (*VenueDetailResponse, error)
 	DeleteVenue(venueID uint) error
 	SearchVenues(query string) ([]*VenueDetailResponse, error)
-	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, bool, error)
+	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error)
 	VerifyVenue(venueID uint) (*VenueDetailResponse, error)
 	GetVenuesWithShowCounts(filters VenueListFilters, limit, offset int) ([]*VenueWithShowCountResponse, int64, error)
 	GetUpcomingShowsForVenue(venueID uint, timezone string, limit int) ([]*VenueShowResponse, int64, error)
 	GetShowsForVenue(venueID uint, timezone string, limit int, timeFilter string) ([]*VenueShowResponse, int64, error)
 	GetVenueCities() ([]*VenueCityResponse, error)
-	GetVenueModel(venueID uint) (*models.Venue, error)
+	GetVenueModel(venueID uint) (*catalogm.Venue, error)
 	GetUnverifiedVenues(limit, offset int) ([]*UnverifiedVenueResponse, int64, error)
 	GetVenueGenreProfile(venueID uint) ([]GenreCount, error)
 	// PSY-365: venue-rooted co-bill network. Edges are weighted by the
@@ -137,13 +140,13 @@ type FavoriteVenueServiceInterface interface {
 
 // BookmarkServiceInterface defines the contract for generic bookmark operations.
 type BookmarkServiceInterface interface {
-	CreateBookmark(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) error
-	DeleteBookmark(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) error
-	IsBookmarked(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) (bool, error)
-	GetBookmarkedEntityIDs(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction, entityIDs []uint) (map[uint]bool, error)
-	GetUserBookmarks(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction, limit, offset int) ([]models.UserBookmark, int64, error)
-	GetUserBookmarksByEntityType(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction) ([]models.UserBookmark, error)
-	CountUserBookmarks(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction) (int64, error)
+	CreateBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) error
+	DeleteBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) error
+	IsBookmarked(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) (bool, error)
+	GetBookmarkedEntityIDs(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction, entityIDs []uint) (map[uint]bool, error)
+	GetUserBookmarks(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction, limit, offset int) ([]engagementm.UserBookmark, int64, error)
+	GetUserBookmarksByEntityType(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction) ([]engagementm.UserBookmark, error)
+	CountUserBookmarks(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction) (int64, error)
 }
 
 // ShowReportServiceInterface defines the contract for show report operations.
@@ -154,7 +157,7 @@ type ShowReportServiceInterface interface {
 	DismissReport(reportID, adminID uint, notes *string) (*ShowReportResponse, error)
 	ResolveReport(reportID, adminID uint, notes *string) (*ShowReportResponse, error)
 	ResolveReportWithFlag(reportID, adminID uint, notes *string, setShowFlag bool) (*ShowReportResponse, error)
-	GetReportByID(reportID uint) (*models.ShowReport, error)
+	GetReportByID(reportID uint) (*communitym.ShowReport, error)
 }
 
 // ArtistReportServiceInterface defines the contract for artist report operations.
@@ -164,7 +167,7 @@ type ArtistReportServiceInterface interface {
 	GetPendingReports(limit, offset int) ([]*ArtistReportResponse, int64, error)
 	DismissReport(reportID, adminID uint, notes *string) (*ArtistReportResponse, error)
 	ResolveReport(reportID, adminID uint, notes *string) (*ArtistReportResponse, error)
-	GetReportByID(reportID uint) (*models.ArtistReport, error)
+	GetReportByID(reportID uint) (*communitym.ArtistReport, error)
 }
 
 // AuditLogServiceInterface defines the contract for audit log operations.
@@ -176,20 +179,20 @@ type AuditLogServiceInterface interface {
 // AuthServiceInterface defines the contract for authentication operations.
 type AuthServiceInterface interface {
 	OAuthLogin(w http.ResponseWriter, r *http.Request, provider string) error
-	OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*models.User, string, error)
-	OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *OAuthSignupConsent) (*models.User, string, error)
-	GetUserProfile(userID uint) (*models.User, error)
-	RefreshUserToken(user *models.User) (string, error)
+	OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error)
+	OAuthCallbackWithConsent(w http.ResponseWriter, r *http.Request, provider string, consent *OAuthSignupConsent) (*authm.User, string, error)
+	GetUserProfile(userID uint) (*authm.User, error)
+	RefreshUserToken(user *authm.User) (string, error)
 	Logout(w http.ResponseWriter, r *http.Request) error
 	SetOAuthCompleter(completer OAuthCompleter)
 }
 
 // JWTServiceInterface defines the contract for JWT token operations.
 type JWTServiceInterface interface {
-	CreateToken(user *models.User) (string, error)
-	ValidateToken(tokenString string) (*models.User, error)
+	CreateToken(user *authm.User) (string, error)
+	ValidateToken(tokenString string) (*authm.User, error)
 	RefreshToken(tokenString string) (string, error)
-	ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*models.User, error)
+	ValidateTokenLenient(tokenString string, gracePeriod time.Duration) (*authm.User, error)
 	CreateVerificationToken(userID uint, email string) (string, error)
 	ValidateVerificationToken(tokenString string) (*VerificationTokenClaims, error)
 	CreateMagicLinkToken(userID uint, email string) (string, error)
@@ -201,39 +204,39 @@ type JWTServiceInterface interface {
 // UserServiceInterface defines the contract for user operations.
 type UserServiceInterface interface {
 	ListUsers(limit, offset int, filters AdminUserFilters) ([]*AdminUserResponse, int64, error)
-	FindOrCreateUser(gothUser goth.User, provider string) (*models.User, error)
-	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*models.User, error)
-	AuthenticateUserWithPassword(email, password string) (*models.User, error)
-	CreateUserWithPassword(email, password, firstName, lastName string) (*models.User, error)
-	CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance LegalAcceptance) (*models.User, error)
-	GetUserByID(userID uint) (*models.User, error)
-	GetUserByEmail(email string) (*models.User, error)
-	GetUserByUsername(username string) (*models.User, error)
-	UpdateUser(userID uint, updates map[string]any) (*models.User, error)
+	FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error)
+	FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *OAuthSignupConsent) (*authm.User, error)
+	AuthenticateUserWithPassword(email, password string) (*authm.User, error)
+	CreateUserWithPassword(email, password, firstName, lastName string) (*authm.User, error)
+	CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance LegalAcceptance) (*authm.User, error)
+	GetUserByID(userID uint) (*authm.User, error)
+	GetUserByEmail(email string) (*authm.User, error)
+	GetUserByUsername(username string) (*authm.User, error)
+	UpdateUser(userID uint, updates map[string]any) (*authm.User, error)
 	HashPassword(password string) (string, error)
 	VerifyPassword(hashedPassword, password string) error
-	IsAccountLocked(user *models.User) bool
-	GetLockTimeRemaining(user *models.User) time.Duration
+	IsAccountLocked(user *authm.User) bool
+	GetLockTimeRemaining(user *authm.User) time.Duration
 	IncrementFailedAttempts(userID uint) error
 	ResetFailedAttempts(userID uint) error
 	UpdatePassword(userID uint, currentPassword, newPassword string) error
 	SetEmailVerified(userID uint, verified bool) error
 	GetDeletionSummary(userID uint) (*DeletionSummary, error)
 	SoftDeleteAccount(userID uint, reason *string) error
-	CreateUserWithoutPassword(email string) (*models.User, error)
+	CreateUserWithoutPassword(email string) (*authm.User, error)
 	ExportUserData(userID uint) (*UserDataExport, error)
 	ExportUserDataJSON(userID uint) ([]byte, error)
-	GetOAuthAccounts(userID uint) ([]models.OAuthAccount, error)
-	GetUserByEmailIncludingDeleted(email string) (*models.User, error)
-	IsAccountRecoverable(user *models.User) bool
-	GetDaysUntilPermanentDeletion(user *models.User) int
+	GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error)
+	GetUserByEmailIncludingDeleted(email string) (*authm.User, error)
+	IsAccountRecoverable(user *authm.User) bool
+	GetDaysUntilPermanentDeletion(user *authm.User) int
 	RestoreAccount(userID uint) error
-	GetExpiredDeletedAccounts() ([]models.User, error)
+	GetExpiredDeletedAccounts() ([]authm.User, error)
 	PermanentlyDeleteUser(userID uint) error
 	CanUnlinkOAuthAccount(userID uint, provider string) (bool, string, error)
 	UnlinkOAuthAccount(userID uint, provider string) error
-	GetFavoriteCities(userID uint) ([]models.FavoriteCity, error)
-	SetFavoriteCities(userID uint, cities []models.FavoriteCity) error
+	GetFavoriteCities(userID uint) ([]authm.FavoriteCity, error)
+	SetFavoriteCities(userID uint, cities []authm.FavoriteCity) error
 	SetShowReminders(userID uint, enabled bool) error
 	// PSY-296: default reply permission applied to new top-level comments.
 	SetDefaultReplyPermission(userID uint, permission string) error
@@ -292,13 +295,13 @@ type ReminderServiceInterface interface {
 // DiscordServiceInterface defines the contract for Discord notification operations.
 type DiscordServiceInterface interface {
 	IsConfigured() bool
-	NotifyNewUser(user *models.User)
+	NotifyNewUser(user *authm.User)
 	NotifyNewShow(show *ShowResponse, submitterEmail string)
 	NotifyShowStatusChange(showTitle string, showID uint, oldStatus, newStatus, actorEmail string)
 	NotifyShowApproved(show *ShowResponse)
 	NotifyShowRejected(show *ShowResponse, reason string)
-	NotifyShowReport(report *models.ShowReport, reporterEmail string)
-	NotifyArtistReport(report *models.ArtistReport, reporterEmail string)
+	NotifyShowReport(report *communitym.ShowReport, reporterEmail string)
+	NotifyArtistReport(report *communitym.ArtistReport, reporterEmail string)
 	NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string)
 }
 
@@ -324,19 +327,19 @@ type MusicDiscoveryServiceInterface interface {
 // AppleAuthServiceInterface defines the contract for Apple authentication operations.
 type AppleAuthServiceInterface interface {
 	ValidateIdentityToken(identityToken string) (*AppleIdentityTokenClaims, error)
-	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string) (*models.User, error)
-	GenerateToken(user *models.User) (string, error)
+	FindOrCreateAppleUser(claims *AppleIdentityTokenClaims, firstName, lastName string) (*authm.User, error)
+	GenerateToken(user *authm.User) (string, error)
 }
 
 // WebAuthnServiceInterface defines the contract for WebAuthn/passkey operations.
 type WebAuthnServiceInterface interface {
-	BeginRegistration(user *models.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)
-	FinishRegistration(user *models.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*models.WebAuthnCredential, error)
-	BeginLogin(user *models.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
+	BeginRegistration(user *authm.User) (*protocol.CredentialCreation, *webauthn.SessionData, error)
+	FinishRegistration(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.WebAuthnCredential, error)
+	BeginLogin(user *authm.User) (*protocol.CredentialAssertion, *webauthn.SessionData, error)
 	BeginDiscoverableLogin() (*protocol.CredentialAssertion, *webauthn.SessionData, error)
-	FinishLogin(user *models.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*models.WebAuthnCredential, error)
-	FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*models.User, *models.WebAuthnCredential, error)
-	GetUserCredentials(userID uint) ([]models.WebAuthnCredential, error)
+	FinishLogin(user *authm.User, session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.WebAuthnCredential, error)
+	FinishDiscoverableLogin(session *webauthn.SessionData, response *protocol.ParsedCredentialAssertionData) (*authm.User, *authm.WebAuthnCredential, error)
+	GetUserCredentials(userID uint) ([]authm.WebAuthnCredential, error)
 	DeleteCredential(userID uint, credentialID uint) error
 	UpdateCredentialName(userID uint, credentialID uint, displayName string) error
 	StoreChallenge(userID uint, session *webauthn.SessionData, operation string) (string, error)
@@ -346,8 +349,8 @@ type WebAuthnServiceInterface interface {
 	BeginRegistrationForEmail(email string) (*protocol.CredentialCreation, *webauthn.SessionData, error)
 	StoreChallengeWithEmail(email string, session *webauthn.SessionData, operation string) (string, error)
 	GetChallengeWithEmail(challengeID string, operation string) (*webauthn.SessionData, string, error)
-	FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*models.User, error)
-	FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance LegalAcceptance) (*models.User, error)
+	FinishSignupRegistration(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string) (*authm.User, error)
+	FinishSignupRegistrationWithLegal(email string, session *webauthn.SessionData, response *protocol.ParsedCredentialCreationData, displayName string, acceptance LegalAcceptance) (*authm.User, error)
 }
 
 // DiscoveryServiceInterface defines the contract for venue discovery/import operations.
@@ -355,13 +358,13 @@ type DiscoveryServiceInterface interface {
 	ImportFromJSON(filepath string, dryRun bool) (*ImportResult, error)
 	ImportFromJSONWithDB(filepath string, dryRun bool, database *gorm.DB) (*ImportResult, error)
 	CheckEvents(events []CheckEventInput) (*CheckEventsResult, error)
-	ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*ImportResult, error)
+	ImportEvents(events []DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*ImportResult, error)
 }
 
 // APITokenServiceInterface defines the contract for API token operations.
 type APITokenServiceInterface interface {
 	CreateToken(userID uint, description *string, expirationDays int) (*APITokenCreateResponse, error)
-	ValidateToken(plainToken string) (*models.User, *models.APIToken, error)
+	ValidateToken(plainToken string) (*authm.User, *adminm.APIToken, error)
 	ListTokens(userID uint) ([]APITokenResponse, error)
 	RevokeToken(userID uint, tokenID uint) error
 	GetToken(userID uint, tokenID uint) (*APITokenResponse, error)
@@ -466,7 +469,7 @@ type CalendarServiceInterface interface {
 	CreateToken(userID uint, apiBaseURL string) (*CalendarTokenCreateResponse, error)
 	GetTokenStatus(userID uint) (*CalendarTokenStatusResponse, error)
 	DeleteToken(userID uint) error
-	ValidateCalendarToken(plainToken string) (*models.User, error)
+	ValidateCalendarToken(plainToken string) (*authm.User, error)
 	GenerateICSFeed(userID uint, frontendURL string) ([]byte, error)
 }
 
@@ -477,14 +480,14 @@ type PipelineServiceInterface interface {
 
 // VenueSourceConfigServiceInterface defines the contract for venue source config operations.
 type VenueSourceConfigServiceInterface interface {
-	GetByVenueID(venueID uint) (*models.VenueSourceConfig, error)
-	CreateOrUpdate(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error)
+	GetByVenueID(venueID uint) (*adminm.VenueSourceConfig, error)
+	CreateOrUpdate(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error)
 	UpdateAfterRun(venueID uint, contentHash, etag *string, eventsExtracted int) error
 	IncrementFailures(venueID uint) error
-	RecordRun(run *models.VenueExtractionRun) error
-	GetRecentRuns(venueID uint, limit int) ([]models.VenueExtractionRun, error)
+	RecordRun(run *adminm.VenueExtractionRun) error
+	GetRecentRuns(venueID uint, limit int) ([]adminm.VenueExtractionRun, error)
 	GetAllRecentRuns(limit, offset int) ([]ImportHistoryEntry, int64, error)
-	ListConfigured() ([]models.VenueSourceConfig, error)
+	ListConfigured() ([]adminm.VenueSourceConfig, error)
 	GetRejectionStats(venueID uint) (*VenueRejectionStats, error)
 	UpdateExtractionNotes(venueID uint, notes *string) error
 	ResetRenderMethod(venueID uint) error
@@ -512,10 +515,10 @@ type EnrichmentWorkerInterface interface {
 
 // RevisionServiceInterface defines the contract for revision history operations.
 type RevisionServiceInterface interface {
-	RecordRevision(entityType string, entityID uint, userID uint, changes []models.FieldChange, summary string) error
-	GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]models.Revision, int64, error)
-	GetRevision(revisionID uint) (*models.Revision, error)
-	GetUserRevisions(userID uint, limit, offset int) ([]models.Revision, int64, error)
+	RecordRevision(entityType string, entityID uint, userID uint, changes []adminm.FieldChange, summary string) error
+	GetEntityHistory(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error)
+	GetRevision(revisionID uint) (*adminm.Revision, error)
+	GetUserRevisions(userID uint, limit, offset int) ([]adminm.Revision, int64, error)
 	Rollback(revisionID uint, adminUserID uint) error
 }
 

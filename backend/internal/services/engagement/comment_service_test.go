@@ -10,7 +10,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -117,12 +119,12 @@ func TestCommentService_UpdateReplyPermission_InvalidValue(t *testing.T) {
 }
 
 func TestIsValidReplyPermission(t *testing.T) {
-	assert.True(t, models.IsValidReplyPermission("anyone"))
-	assert.True(t, models.IsValidReplyPermission("followers"))
-	assert.True(t, models.IsValidReplyPermission("author_only"))
-	assert.False(t, models.IsValidReplyPermission(""))
-	assert.False(t, models.IsValidReplyPermission("banana"))
-	assert.False(t, models.IsValidReplyPermission("EVERYONE"))
+	assert.True(t, engagementm.IsValidReplyPermission("anyone"))
+	assert.True(t, engagementm.IsValidReplyPermission("followers"))
+	assert.True(t, engagementm.IsValidReplyPermission("author_only"))
+	assert.False(t, engagementm.IsValidReplyPermission(""))
+	assert.False(t, engagementm.IsValidReplyPermission("banana"))
+	assert.False(t, engagementm.IsValidReplyPermission("EVERYONE"))
 }
 
 func TestCommentService_InvalidEntityType(t *testing.T) {
@@ -166,7 +168,7 @@ func TestCommentService_BodyValidation(t *testing.T) {
 		_, err := svc.CreateComment(1, &contracts.CreateCommentRequest{
 			EntityType: "artist",
 			EntityID:   1,
-			Body:       strings.Repeat("a", models.MaxCommentBodyLength+1),
+			Body:       strings.Repeat("a", engagementm.MaxCommentBodyLength+1),
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds maximum length")
@@ -180,7 +182,7 @@ func TestCommentService_BodyValidation(t *testing.T) {
 
 	t.Run("UpdateComment_TooLongBody", func(t *testing.T) {
 		_, err := svc.UpdateComment(1, 1, &contracts.UpdateCommentRequest{
-			Body: strings.Repeat("a", models.MaxCommentBodyLength+1),
+			Body: strings.Repeat("a", engagementm.MaxCommentBodyLength+1),
 		})
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "exceeds maximum length")
@@ -258,28 +260,28 @@ func TestMarkdownRendering(t *testing.T) {
 
 func TestComputeInitialVisibility(t *testing.T) {
 	t.Run("AdminAlwaysVisible", func(t *testing.T) {
-		user := &models.User{IsAdmin: true, UserTier: "new_user"}
-		assert.Equal(t, models.CommentVisibilityVisible, computeInitialVisibility(user))
+		user := &authm.User{IsAdmin: true, UserTier: "new_user"}
+		assert.Equal(t, engagementm.CommentVisibilityVisible, computeInitialVisibility(user))
 	})
 	t.Run("NewUser_PendingReview", func(t *testing.T) {
-		user := &models.User{UserTier: "new_user"}
-		assert.Equal(t, models.CommentVisibilityPendingReview, computeInitialVisibility(user))
+		user := &authm.User{UserTier: "new_user"}
+		assert.Equal(t, engagementm.CommentVisibilityPendingReview, computeInitialVisibility(user))
 	})
 	t.Run("EmptyTier_PendingReview", func(t *testing.T) {
-		user := &models.User{UserTier: ""}
-		assert.Equal(t, models.CommentVisibilityPendingReview, computeInitialVisibility(user))
+		user := &authm.User{UserTier: ""}
+		assert.Equal(t, engagementm.CommentVisibilityPendingReview, computeInitialVisibility(user))
 	})
 	t.Run("Contributor_Visible", func(t *testing.T) {
-		user := &models.User{UserTier: "contributor"}
-		assert.Equal(t, models.CommentVisibilityVisible, computeInitialVisibility(user))
+		user := &authm.User{UserTier: "contributor"}
+		assert.Equal(t, engagementm.CommentVisibilityVisible, computeInitialVisibility(user))
 	})
 	t.Run("TrustedContributor_Visible", func(t *testing.T) {
-		user := &models.User{UserTier: "trusted_contributor"}
-		assert.Equal(t, models.CommentVisibilityVisible, computeInitialVisibility(user))
+		user := &authm.User{UserTier: "trusted_contributor"}
+		assert.Equal(t, engagementm.CommentVisibilityVisible, computeInitialVisibility(user))
 	})
 	t.Run("LocalAmbassador_Visible", func(t *testing.T) {
-		user := &models.User{UserTier: "local_ambassador"}
-		assert.Equal(t, models.CommentVisibilityVisible, computeInitialVisibility(user))
+		user := &authm.User{UserTier: "local_ambassador"}
+		assert.Equal(t, engagementm.CommentVisibilityVisible, computeInitialVisibility(user))
 	})
 }
 
@@ -374,8 +376,8 @@ func TestCommentServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *CommentServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *CommentServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("user%d", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
@@ -389,8 +391,8 @@ func (suite *CommentServiceIntegrationTestSuite) createTestUser() *models.User {
 	return user
 }
 
-func (suite *CommentServiceIntegrationTestSuite) createTestNewUser() *models.User {
-	user := &models.User{
+func (suite *CommentServiceIntegrationTestSuite) createTestNewUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("newuser-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("newuser%d", time.Now().UnixNano())),
 		FirstName:     stringPtr("New"),
@@ -404,8 +406,8 @@ func (suite *CommentServiceIntegrationTestSuite) createTestNewUser() *models.Use
 	return user
 }
 
-func (suite *CommentServiceIntegrationTestSuite) createTestAdmin() *models.User {
-	user := &models.User{
+func (suite *CommentServiceIntegrationTestSuite) createTestAdmin() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("admin-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("admin%d", time.Now().UnixNano())),
 		FirstName:     stringPtr("Admin"),
@@ -421,7 +423,7 @@ func (suite *CommentServiceIntegrationTestSuite) createTestAdmin() *models.User 
 
 func (suite *CommentServiceIntegrationTestSuite) createTestArtist(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -432,7 +434,7 @@ func (suite *CommentServiceIntegrationTestSuite) createTestArtist(name string) u
 
 func (suite *CommentServiceIntegrationTestSuite) createTestVenue(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:  name,
 		Slug:  &slug,
 		City:  "Phoenix",
@@ -445,21 +447,21 @@ func (suite *CommentServiceIntegrationTestSuite) createTestVenue(name string) ui
 
 // insertComment creates a comment directly in the DB, bypassing rate limiting.
 // Used for test setup where we need multiple comments rapidly.
-func (suite *CommentServiceIntegrationTestSuite) insertComment(userID uint, entityType string, entityID uint, body string, parentID *uint, rootID *uint, depth int) *models.Comment {
+func (suite *CommentServiceIntegrationTestSuite) insertComment(userID uint, entityType string, entityID uint, body string, parentID *uint, rootID *uint, depth int) *engagementm.Comment {
 	svc := suite.commentService
 	bodyHTML := svc.renderMarkdown(body)
-	comment := &models.Comment{
-		EntityType:      models.CommentEntityType(entityType),
+	comment := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityType(entityType),
 		EntityID:        entityID,
-		Kind:            models.CommentKindComment,
+		Kind:            engagementm.CommentKindComment,
 		UserID:          userID,
 		ParentID:        parentID,
 		RootID:          rootID,
 		Depth:           depth,
 		Body:            body,
 		BodyHTML:        bodyHTML,
-		Visibility:      models.CommentVisibilityVisible,
-		ReplyPermission: models.ReplyPermissionAnyone,
+		Visibility:      engagementm.CommentVisibilityVisible,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
 	}
 	err := suite.db.Create(comment).Error
 	suite.Require().NoError(err)
@@ -468,11 +470,11 @@ func (suite *CommentServiceIntegrationTestSuite) insertComment(userID uint, enti
 
 func (suite *CommentServiceIntegrationTestSuite) createTestShow(title string) uint {
 	slug := fmt.Sprintf("%s-%d", title, time.Now().UnixNano())
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:     title,
 		Slug:      &slug,
 		EventDate: time.Now().Add(24 * time.Hour),
-		Status:    models.ShowStatusApproved,
+		Status:    catalogm.ShowStatusApproved,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
@@ -808,8 +810,8 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_SortByBest() {
 	c2 := suite.insertComment(user.ID, "artist", artistID, "High score", nil, nil, 0)
 
 	// Manually set scores (simulate voting)
-	suite.db.Model(&models.Comment{}).Where("id = ?", c1.ID).Update("score", 0.1)
-	suite.db.Model(&models.Comment{}).Where("id = ?", c2.ID).Update("score", 0.9)
+	suite.db.Model(&engagementm.Comment{}).Where("id = ?", c1.ID).Update("score", 0.1)
+	suite.db.Model(&engagementm.Comment{}).Where("id = ?", c2.ID).Update("score", 0.9)
 
 	result, err := suite.commentService.ListCommentsForEntity("artist", artistID, contracts.CommentListFilters{
 		Sort: "best",
@@ -827,15 +829,15 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_FilterByKind()
 	// Direct insert to bypass rate limiting — one comment and one field_note
 	comment := suite.insertComment(user.ID, "show", showID, "Regular comment", nil, nil, 0)
 	// Insert a field_note directly
-	fnComment := &models.Comment{
-		EntityType:      models.CommentEntityShow,
+	fnComment := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityShow,
 		EntityID:        showID,
-		Kind:            models.CommentKindFieldNote,
+		Kind:            engagementm.CommentKindFieldNote,
 		UserID:          user.ID,
 		Body:            "Field note content",
 		BodyHTML:        "<p>Field note content</p>",
-		Visibility:      models.CommentVisibilityVisible,
-		ReplyPermission: models.ReplyPermissionAnyone,
+		Visibility:      engagementm.CommentVisibilityVisible,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
 	}
 	suite.Require().NoError(suite.db.Create(fnComment).Error)
 	_ = comment
@@ -890,9 +892,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_ReplyCount() {
 	rootHiddenReply := suite.insertComment(user.ID, "artist", artistID, "Hidden reply only", nil, nil, 0)
 	hiddenReply := suite.insertComment(user.ID, "artist", artistID, "Soft-deleted reply", &rootHiddenReply.ID, &rootHiddenReply.ID, 1)
 	suite.Require().NoError(
-		suite.db.Model(&models.Comment{}).
+		suite.db.Model(&engagementm.Comment{}).
 			Where("id = ?", hiddenReply.ID).
-			Update("visibility", models.CommentVisibilityHiddenByUser).Error,
+			Update("visibility", engagementm.CommentVisibilityHiddenByUser).Error,
 	)
 
 	rootNoReplies := suite.insertComment(user.ID, "artist", artistID, "No replies", nil, nil, 0)
@@ -996,7 +998,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestUpdateComment_EditHistoryAp
 	})
 
 	// Check edit history
-	var edits []models.CommentEdit
+	var edits []engagementm.CommentEdit
 	suite.db.Where("comment_id = ?", original.ID).Order("edited_at ASC").Find(&edits)
 	suite.Len(edits, 2)
 	suite.Equal("Version 1", edits[0].OldBody)
@@ -1049,9 +1051,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestDeleteComment_OwnComment() 
 	suite.Require().NoError(err)
 
 	// Verify visibility changed
-	var c models.Comment
+	var c engagementm.Comment
 	suite.db.First(&c, comment.ID)
-	suite.Equal(models.CommentVisibilityHiddenByUser, c.Visibility)
+	suite.Equal(engagementm.CommentVisibilityHiddenByUser, c.Visibility)
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TestDeleteComment_AdminDeletesOther() {
@@ -1069,9 +1071,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestDeleteComment_AdminDeletesO
 	suite.Require().NoError(err)
 
 	// Verify visibility changed to hidden_by_mod
-	var c models.Comment
+	var c engagementm.Comment
 	suite.db.First(&c, comment.ID)
-	suite.Equal(models.CommentVisibilityHiddenByMod, c.Visibility)
+	suite.Equal(engagementm.CommentVisibilityHiddenByMod, c.Visibility)
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TestDeleteComment_NonAuthorNonAdminFails() {
@@ -1110,9 +1112,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestDeleteComment_AdminDeletesO
 	err := suite.commentService.DeleteComment(admin.ID, comment.ID, true)
 	suite.Require().NoError(err)
 
-	var c models.Comment
+	var c engagementm.Comment
 	suite.db.First(&c, comment.ID)
-	suite.Equal(models.CommentVisibilityHiddenByUser, c.Visibility)
+	suite.Equal(engagementm.CommentVisibilityHiddenByUser, c.Visibility)
 }
 
 // =============================================================================
@@ -1128,9 +1130,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_SortByTop() {
 	c2 := suite.insertComment(user.ID, "artist", artistID, "High net", nil, nil, 0)
 
 	// c1: 2 ups, 3 downs = -1 net
-	suite.db.Model(&models.Comment{}).Where("id = ?", c1.ID).Updates(map[string]interface{}{"ups": 2, "downs": 3})
+	suite.db.Model(&engagementm.Comment{}).Where("id = ?", c1.ID).Updates(map[string]interface{}{"ups": 2, "downs": 3})
 	// c2: 10 ups, 1 down = 9 net
-	suite.db.Model(&models.Comment{}).Where("id = ?", c2.ID).Updates(map[string]interface{}{"ups": 10, "downs": 1})
+	suite.db.Model(&engagementm.Comment{}).Where("id = ?", c2.ID).Updates(map[string]interface{}{"ups": 10, "downs": 1})
 
 	result, err := suite.commentService.ListCommentsForEntity("artist", artistID, contracts.CommentListFilters{
 		Sort: "top",
@@ -1149,9 +1151,9 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_SortByControve
 	c2 := suite.insertComment(user.ID, "artist", artistID, "Very controversial", nil, nil, 0)
 
 	// c1: 1 up, 0 down — 1 total, 1 abs diff
-	suite.db.Model(&models.Comment{}).Where("id = ?", c1.ID).Updates(map[string]interface{}{"ups": 1, "downs": 0})
+	suite.db.Model(&engagementm.Comment{}).Where("id = ?", c1.ID).Updates(map[string]interface{}{"ups": 1, "downs": 0})
 	// c2: 50 ups, 50 downs — 100 total, 0 abs diff (most controversial)
-	suite.db.Model(&models.Comment{}).Where("id = ?", c2.ID).Updates(map[string]interface{}{"ups": 50, "downs": 50})
+	suite.db.Model(&engagementm.Comment{}).Where("id = ?", c2.ID).Updates(map[string]interface{}{"ups": 50, "downs": 50})
 
 	result, err := suite.commentService.ListCommentsForEntity("artist", artistID, contracts.CommentListFilters{
 		Sort: "controversial",
@@ -1198,14 +1200,14 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_MaxLengthBody
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Max Length Artist")
 
-	body := strings.Repeat("a", models.MaxCommentBodyLength)
+	body := strings.Repeat("a", engagementm.MaxCommentBodyLength)
 	comment, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
 		EntityType: "artist",
 		EntityID:   artistID,
 		Body:       body,
 	})
 	suite.Require().NoError(err)
-	suite.Equal(models.MaxCommentBodyLength, len(comment.Body))
+	suite.Equal(engagementm.MaxCommentBodyLength, len(comment.Body))
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_TrimsWhitespace() {
@@ -1540,7 +1542,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestUpdateComment_RecordsEditor
 	suite.Require().NoError(err)
 
 	// Verify the edit row has editor_user_id populated
-	var edit models.CommentEdit
+	var edit engagementm.CommentEdit
 	err = suite.db.Where("comment_id = ?", original.ID).First(&edit).Error
 	suite.Require().NoError(err)
 	suite.Require().NotNil(edit.EditorUserID, "editor_user_id must be populated on new edits")
@@ -1566,7 +1568,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestUpdateComment_TransactionAt
 
 	// Three edits should produce exactly three comment_edits rows, oldest-first
 	// capturing "v1", "v2", "v3" as the prior bodies.
-	suite.Require().NoError(suite.db.Model(&models.Comment{}).Where("id = ?", c.ID).Update("updated_at", time.Now().Add(-time.Hour)).Error)
+	suite.Require().NoError(suite.db.Model(&engagementm.Comment{}).Where("id = ?", c.ID).Update("updated_at", time.Now().Add(-time.Hour)).Error)
 	_, err := suite.commentService.UpdateComment(user.ID, c.ID, &contracts.UpdateCommentRequest{Body: "v2"})
 	suite.Require().NoError(err)
 	_, err = suite.commentService.UpdateComment(user.ID, c.ID, &contracts.UpdateCommentRequest{Body: "v3"})
@@ -1574,7 +1576,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestUpdateComment_TransactionAt
 	_, err = suite.commentService.UpdateComment(user.ID, c.ID, &contracts.UpdateCommentRequest{Body: "v4"})
 	suite.Require().NoError(err)
 
-	var edits []models.CommentEdit
+	var edits []engagementm.CommentEdit
 	suite.Require().NoError(suite.db.Where("comment_id = ?", c.ID).Order("edited_at ASC, id ASC").Find(&edits).Error)
 	suite.Require().Len(edits, 3)
 	suite.Equal("v1", edits[0].OldBody)
@@ -1582,7 +1584,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestUpdateComment_TransactionAt
 	suite.Equal("v3", edits[2].OldBody)
 
 	// The current comment body should be v4.
-	var current models.Comment
+	var current engagementm.Comment
 	suite.Require().NoError(suite.db.First(&current, c.ID).Error)
 	suite.Equal("v4", current.Body)
 	suite.Equal(3, current.EditCount)
@@ -1891,7 +1893,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_DefaultReplyP
 	artistID := suite.createTestArtist("Default Perm Artist")
 
 	// Seed user preferences with default_reply_permission = 'author_only'.
-	prefs := &models.UserPreferences{
+	prefs := &authm.UserPreferences{
 		UserID:                 user.ID,
 		DefaultReplyPermission: "author_only",
 	}
@@ -1910,7 +1912,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_ExplicitPermi
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Override Perm Artist")
 
-	prefs := &models.UserPreferences{
+	prefs := &authm.UserPreferences{
 		UserID:                 user.ID,
 		DefaultReplyPermission: "author_only",
 	}

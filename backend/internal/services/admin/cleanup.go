@@ -13,7 +13,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/notification"
 )
 
@@ -32,7 +33,7 @@ const AuditActionPruneDownvotedTags = "prune_downvoted_tags"
 
 // cleanupUserService is the minimal interface CleanupService needs from UserService.
 type cleanupUserService interface {
-	GetExpiredDeletedAccounts() ([]models.User, error)
+	GetExpiredDeletedAccounts() ([]authm.User, error)
 	PermanentlyDeleteUser(userID uint) error
 }
 
@@ -308,7 +309,7 @@ func (s *CleanupService) writeTagPruneAuditLog(deleted int64) {
 	}
 
 	raw := json.RawMessage(metadataJSON)
-	auditLog := models.AuditLog{
+	auditLog := adminm.AuditLog{
 		ActorID:    nil,
 		Action:     AuditActionPruneDownvotedTags,
 		EntityType: "entity_tags",

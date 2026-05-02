@@ -15,7 +15,8 @@ import (
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -33,10 +34,10 @@ func TestEnrichmentService_ValidEnrichmentTypes(t *testing.T) {
 	// We can't call QueueShowForEnrichment with a zero-value gorm.DB because
 	// GORM panics, so we just verify the type constants are defined properly.
 	validTypes := []string{
-		models.EnrichmentTypeArtistMatch,
-		models.EnrichmentTypeMusicBrainz,
-		models.EnrichmentTypeAPICrossRef,
-		models.EnrichmentTypeAll,
+		adminm.EnrichmentTypeArtistMatch,
+		adminm.EnrichmentTypeMusicBrainz,
+		adminm.EnrichmentTypeAPICrossRef,
+		adminm.EnrichmentTypeAll,
 	}
 	assert.Equal(t, "artist_match", validTypes[0])
 	assert.Equal(t, "musicbrainz", validTypes[1])
@@ -196,35 +197,35 @@ func (s *EnrichmentIntegrationTestSuite) SetupTest() {
 }
 
 func (s *EnrichmentIntegrationTestSuite) createTestShow() uint {
-	show := models.Show{
+	show := catalogm.Show{
 		Title:     "Test Show",
 		EventDate: time.Now().Add(24 * time.Hour),
-		Status:    models.ShowStatusApproved,
-		Source:    models.ShowSourceDiscovery,
+		Status:    catalogm.ShowStatusApproved,
+		Source:    catalogm.ShowSourceDiscovery,
 	}
 	s.Require().NoError(s.db.Create(&show).Error)
 	return show.ID
 }
 
 func (s *EnrichmentIntegrationTestSuite) createTestShowWithArtist() (uint, uint) {
-	artist := models.Artist{Name: fmt.Sprintf("Test Artist %d-%d", time.Now().UnixNano(), rand.Intn(1000000))}
+	artist := catalogm.Artist{Name: fmt.Sprintf("Test Artist %d-%d", time.Now().UnixNano(), rand.Intn(1000000))}
 	s.Require().NoError(s.db.Create(&artist).Error)
 
-	venue := models.Venue{Name: fmt.Sprintf("Test Venue %d-%d", time.Now().UnixNano(), rand.Intn(1000000)), City: "Phoenix", State: "AZ"}
+	venue := catalogm.Venue{Name: fmt.Sprintf("Test Venue %d-%d", time.Now().UnixNano(), rand.Intn(1000000)), City: "Phoenix", State: "AZ"}
 	s.Require().NoError(s.db.Create(&venue).Error)
 
-	show := models.Show{
+	show := catalogm.Show{
 		Title:     "Test Show with Artist",
 		EventDate: time.Now().Add(24 * time.Hour),
-		Status:    models.ShowStatusApproved,
-		Source:    models.ShowSourceDiscovery,
+		Status:    catalogm.ShowStatusApproved,
+		Source:    catalogm.ShowSourceDiscovery,
 	}
 	s.Require().NoError(s.db.Create(&show).Error)
 
-	showArtist := models.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, SetType: "headliner"}
+	showArtist := catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, SetType: "headliner"}
 	s.Require().NoError(s.db.Create(&showArtist).Error)
 
-	showVenue := models.ShowVenue{ShowID: show.ID, VenueID: venue.ID}
+	showVenue := catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}
 	s.Require().NoError(s.db.Create(&showVenue).Error)
 
 	return show.ID, artist.ID
@@ -234,15 +235,15 @@ func (s *EnrichmentIntegrationTestSuite) createTestShowWithArtist() (uint, uint)
 func (s *EnrichmentIntegrationTestSuite) TestQueueShowForEnrichment() {
 	showID := s.createTestShow()
 
-	err := s.svc.QueueShowForEnrichment(showID, models.EnrichmentTypeAll)
+	err := s.svc.QueueShowForEnrichment(showID, adminm.EnrichmentTypeAll)
 	s.Require().NoError(err)
 
 	// Verify item was created
-	var item models.EnrichmentQueueItem
+	var item adminm.EnrichmentQueueItem
 	err = s.db.Where("show_id = ?", showID).First(&item).Error
 	s.Require().NoError(err)
-	s.Equal(models.EnrichmentStatusPending, item.Status)
-	s.Equal(models.EnrichmentTypeAll, item.EnrichmentType)
+	s.Equal(adminm.EnrichmentStatusPending, item.Status)
+	s.Equal(adminm.EnrichmentTypeAll, item.EnrichmentType)
 	s.Equal(0, item.Attempts)
 	s.Equal(3, item.MaxAttempts)
 }
@@ -259,7 +260,7 @@ func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_ProcessesPending() {
 	showID, _ := s.createTestShowWithArtist()
 
 	// Queue the show
-	err := s.svc.QueueShowForEnrichment(showID, models.EnrichmentTypeAll)
+	err := s.svc.QueueShowForEnrichment(showID, adminm.EnrichmentTypeAll)
 	s.Require().NoError(err)
 
 	// Process the queue
@@ -268,10 +269,10 @@ func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_ProcessesPending() {
 	s.Equal(1, processed)
 
 	// Verify item was completed
-	var item models.EnrichmentQueueItem
+	var item adminm.EnrichmentQueueItem
 	err = s.db.Where("show_id = ?", showID).First(&item).Error
 	s.Require().NoError(err)
-	s.Equal(models.EnrichmentStatusCompleted, item.Status)
+	s.Equal(adminm.EnrichmentStatusCompleted, item.Status)
 	s.Equal(1, item.Attempts)
 	s.NotNil(item.CompletedAt)
 	s.NotNil(item.Results)
@@ -282,7 +283,7 @@ func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_RespectsBatchSize() {
 	// Create 3 shows and queue them
 	for i := 0; i < 3; i++ {
 		showID, _ := s.createTestShowWithArtist()
-		s.Require().NoError(s.svc.QueueShowForEnrichment(showID, models.EnrichmentTypeAll))
+		s.Require().NoError(s.svc.QueueShowForEnrichment(showID, adminm.EnrichmentTypeAll))
 	}
 
 	// Process only 2
@@ -292,8 +293,8 @@ func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_RespectsBatchSize() {
 
 	// Verify 1 still pending
 	var pendingCount int64
-	s.db.Model(&models.EnrichmentQueueItem{}).
-		Where("status = ?", models.EnrichmentStatusPending).
+	s.db.Model(&adminm.EnrichmentQueueItem{}).
+		Where("status = ?", adminm.EnrichmentStatusPending).
 		Count(&pendingCount)
 	s.Equal(int64(1), pendingCount)
 }
@@ -303,12 +304,12 @@ func (s *EnrichmentIntegrationTestSuite) TestProcessQueue_SkipsMaxAttempts() {
 	showID := s.createTestShow()
 
 	// Create a queue item already at max attempts
-	item := &models.EnrichmentQueueItem{
+	item := &adminm.EnrichmentQueueItem{
 		ShowID:         showID,
-		Status:         models.EnrichmentStatusPending,
+		Status:         adminm.EnrichmentStatusPending,
 		Attempts:       3,
 		MaxAttempts:    3,
-		EnrichmentType: models.EnrichmentTypeAll,
+		EnrichmentType: adminm.EnrichmentTypeAll,
 	}
 	s.Require().NoError(s.db.Create(item).Error)
 
@@ -359,15 +360,15 @@ func (s *EnrichmentIntegrationTestSuite) TestGetQueueStats() {
 	showID2 := s.createTestShow()
 	showID3 := s.createTestShow()
 
-	s.db.Create(&models.EnrichmentQueueItem{
-		ShowID: showID1, Status: models.EnrichmentStatusPending, EnrichmentType: models.EnrichmentTypeAll,
+	s.db.Create(&adminm.EnrichmentQueueItem{
+		ShowID: showID1, Status: adminm.EnrichmentStatusPending, EnrichmentType: adminm.EnrichmentTypeAll,
 	})
-	s.db.Create(&models.EnrichmentQueueItem{
-		ShowID: showID2, Status: models.EnrichmentStatusProcessing, EnrichmentType: models.EnrichmentTypeAll,
+	s.db.Create(&adminm.EnrichmentQueueItem{
+		ShowID: showID2, Status: adminm.EnrichmentStatusProcessing, EnrichmentType: adminm.EnrichmentTypeAll,
 	})
 	now := time.Now()
-	s.db.Create(&models.EnrichmentQueueItem{
-		ShowID: showID3, Status: models.EnrichmentStatusCompleted, EnrichmentType: models.EnrichmentTypeAll,
+	s.db.Create(&adminm.EnrichmentQueueItem{
+		ShowID: showID3, Status: adminm.EnrichmentStatusCompleted, EnrichmentType: adminm.EnrichmentTypeAll,
 		CompletedAt: &now,
 	})
 

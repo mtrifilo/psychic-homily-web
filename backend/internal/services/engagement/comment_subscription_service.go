@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
-	"psychic-homily-backend/internal/models"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -33,7 +33,7 @@ func (s *CommentSubscriptionService) Subscribe(userID uint, entityType string, e
 		return err
 	}
 
-	sub := models.CommentSubscription{
+	sub := engagementm.CommentSubscription{
 		UserID:       userID,
 		EntityType:   entityType,
 		EntityID:     entityID,
@@ -56,7 +56,7 @@ func (s *CommentSubscriptionService) Unsubscribe(userID uint, entityType string,
 	return s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id = ?",
 		userID, entityType, entityID,
-	).Delete(&models.CommentSubscription{}).Error
+	).Delete(&engagementm.CommentSubscription{}).Error
 }
 
 // IsSubscribed checks whether a user is subscribed to an entity's comments.
@@ -70,7 +70,7 @@ func (s *CommentSubscriptionService) IsSubscribed(userID uint, entityType string
 	}
 
 	var count int64
-	err := s.db.Model(&models.CommentSubscription{}).
+	err := s.db.Model(&engagementm.CommentSubscription{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ?", userID, entityType, entityID).
 		Count(&count).Error
 	if err != nil {
@@ -91,7 +91,7 @@ func (s *CommentSubscriptionService) MarkRead(userID uint, entityType string, en
 
 	// Find the max comment ID for this entity
 	var maxID uint
-	err := s.db.Model(&models.Comment{}).
+	err := s.db.Model(&engagementm.Comment{}).
 		Where("entity_type = ? AND entity_id = ?", entityType, entityID).
 		Select("COALESCE(MAX(id), 0)").
 		Scan(&maxID).Error
@@ -100,7 +100,7 @@ func (s *CommentSubscriptionService) MarkRead(userID uint, entityType string, en
 	}
 
 	// Upsert the last-read record
-	lastRead := models.CommentLastRead{
+	lastRead := engagementm.CommentLastRead{
 		UserID:            userID,
 		EntityType:        entityType,
 		EntityID:          entityID,
@@ -130,7 +130,7 @@ func (s *CommentSubscriptionService) GetUnreadCount(userID uint, entityType stri
 
 	// Get the last-read comment ID (0 if never read)
 	var lastReadID uint
-	err := s.db.Model(&models.CommentLastRead{}).
+	err := s.db.Model(&engagementm.CommentLastRead{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ?", userID, entityType, entityID).
 		Select("last_read_comment_id").
 		Scan(&lastReadID).Error
@@ -140,9 +140,9 @@ func (s *CommentSubscriptionService) GetUnreadCount(userID uint, entityType stri
 
 	// Count visible comments with ID > lastReadID
 	var count int64
-	err = s.db.Model(&models.Comment{}).
+	err = s.db.Model(&engagementm.Comment{}).
 		Where("entity_type = ? AND entity_id = ? AND visibility = ? AND id > ?",
-			entityType, entityID, models.CommentVisibilityVisible, lastReadID).
+			entityType, entityID, engagementm.CommentVisibilityVisible, lastReadID).
 		Count(&count).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to count unread comments: %w", err)
@@ -166,7 +166,7 @@ func (s *CommentSubscriptionService) GetSubscriptionsForUser(userID uint, limit,
 
 	// Count total subscriptions
 	var total int64
-	err := s.db.Model(&models.CommentSubscription{}).
+	err := s.db.Model(&engagementm.CommentSubscription{}).
 		Where("user_id = ?", userID).
 		Count(&total).Error
 	if err != nil {
@@ -178,7 +178,7 @@ func (s *CommentSubscriptionService) GetSubscriptionsForUser(userID uint, limit,
 	}
 
 	// Fetch subscriptions ordered by most recent first
-	var subs []models.CommentSubscription
+	var subs []engagementm.CommentSubscription
 	err = s.db.Where("user_id = ?", userID).
 		Order("subscribed_at DESC").
 		Limit(limit).Offset(offset).
@@ -213,7 +213,7 @@ func (s *CommentSubscriptionService) GetSubscribersForEntity(entityType string, 
 	}
 
 	var userIDs []uint
-	err := s.db.Model(&models.CommentSubscription{}).
+	err := s.db.Model(&engagementm.CommentSubscription{}).
 		Where("entity_type = ? AND entity_id = ?", entityType, entityID).
 		Pluck("user_id", &userIDs).Error
 	if err != nil {

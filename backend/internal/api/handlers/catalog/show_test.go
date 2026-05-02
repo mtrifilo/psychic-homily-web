@@ -10,7 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -22,7 +22,7 @@ func testShowHandler() *ShowHandler {
 
 func TestCreateShowHandler_UnverifiedEmail(t *testing.T) {
 	h := testShowHandler()
-	user := &models.User{ID: 1, IsAdmin: false, EmailVerified: false}
+	user := &authm.User{ID: 1, IsAdmin: false, EmailVerified: false}
 	ctx := testhelpers.CtxWithUser(user)
 	req := &CreateShowRequest{}
 
@@ -42,7 +42,7 @@ func TestUpdateShowHandler_NoAuth(t *testing.T) {
 
 func TestUpdateShowHandler_InvalidID(t *testing.T) {
 	h := testShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UpdateShowRequest{ShowID: "abc"}
 
 	_, err := h.UpdateShowHandler(ctx, req)
@@ -61,7 +61,7 @@ func TestDeleteShowHandler_NoAuth(t *testing.T) {
 
 func TestDeleteShowHandler_InvalidID(t *testing.T) {
 	h := testShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &DeleteShowRequest{ShowID: "abc"}
 
 	_, err := h.DeleteShowHandler(ctx, req)
@@ -80,7 +80,7 @@ func TestUnpublishShowHandler_NoAuth(t *testing.T) {
 
 func TestUnpublishShowHandler_InvalidID(t *testing.T) {
 	h := testShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnpublishShowRequest{ShowID: "abc"}
 
 	_, err := h.UnpublishShowHandler(ctx, req)
@@ -99,7 +99,7 @@ func TestMakePrivateShowHandler_NoAuth(t *testing.T) {
 
 func TestMakePrivateShowHandler_InvalidID(t *testing.T) {
 	h := testShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &MakePrivateShowRequest{ShowID: "abc"}
 
 	_, err := h.MakePrivateShowHandler(ctx, req)
@@ -118,7 +118,7 @@ func TestPublishShowHandler_NoAuth(t *testing.T) {
 
 func TestPublishShowHandler_InvalidID(t *testing.T) {
 	h := testShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &PublishShowRequest{ShowID: "abc"}
 
 	_, err := h.PublishShowHandler(ctx, req)
@@ -147,7 +147,7 @@ func TestSetShowSoldOutHandler_NoAuth(t *testing.T) {
 
 func TestSetShowSoldOutHandler_InvalidID(t *testing.T) {
 	h := testShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetShowSoldOutRequest{ShowID: "abc"}
 
 	_, err := h.SetShowSoldOutHandler(ctx, req)
@@ -166,7 +166,7 @@ func TestSetShowCancelledHandler_NoAuth(t *testing.T) {
 
 func TestSetShowCancelledHandler_InvalidID(t *testing.T) {
 	h := testShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetShowCancelledRequest{ShowID: "abc"}
 
 	_, err := h.SetShowCancelledHandler(ctx, req)
@@ -295,7 +295,7 @@ func TestGetShowHandler_NonApproved_Admin(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
 	if err != nil {
@@ -314,7 +314,7 @@ func TestGetShowHandler_NonApproved_Submitter(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	resp, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
 	if err != nil {
@@ -333,7 +333,7 @@ func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -453,7 +453,7 @@ func TestCreateShowHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, &testhelpers.MockSavedShowService{}, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, EmailVerified: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, EmailVerified: true})
 
 	venueID := uint(1)
 	artistName := "Test Band"
@@ -488,7 +488,7 @@ func TestCreateShowHandler_AutoSave(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, savedShowMock, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 7, EmailVerified: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, EmailVerified: true})
 
 	venueID := uint(1)
 	artistName := "Band"
@@ -518,7 +518,7 @@ func TestCreateShowHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, EmailVerified: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, EmailVerified: true})
 
 	venueID := uint(1)
 	artistName := "Band"
@@ -548,7 +548,7 @@ func TestUpdateShowHandler_OwnerSuccess(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	title := "Updated"
 	req := &UpdateShowRequest{ShowID: "1"}
 	req.Body.Title = &title
@@ -573,7 +573,7 @@ func TestUpdateShowHandler_AdminSuccess(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	title := "Admin Update"
 	req := &UpdateShowRequest{ShowID: "1"}
 	req.Body.Title = &title
@@ -591,7 +591,7 @@ func TestUpdateShowHandler_NotFound(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -605,7 +605,7 @@ func TestUpdateShowHandler_Unauthorized(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "1"})
 	testhelpers.AssertHumaError(t, err, 403)
@@ -622,7 +622,7 @@ func TestUpdateShowHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	title := "New"
 	req := &UpdateShowRequest{ShowID: "1"}
 	req.Body.Title = &title
@@ -649,7 +649,7 @@ func TestDeleteShowHandler_OwnerSuccess(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
 	if err != nil {
@@ -666,7 +666,7 @@ func TestDeleteShowHandler_AdminSuccess(t *testing.T) {
 		DeleteShowFn: func(_ uint) error { return nil },
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
 	if err != nil {
@@ -681,7 +681,7 @@ func TestDeleteShowHandler_NotFound(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -695,7 +695,7 @@ func TestDeleteShowHandler_Unauthorized(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
 	testhelpers.AssertHumaError(t, err, 403)
@@ -710,7 +710,7 @@ func TestDeleteShowHandler_ServiceError(t *testing.T) {
 		DeleteShowFn: func(_ uint) error { return fmt.Errorf("delete failed") },
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
 	testhelpers.AssertHumaError(t, err, 422)
@@ -727,7 +727,7 @@ func TestUnpublishShowHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
 	if err != nil {
@@ -745,7 +745,7 @@ func TestUnpublishShowHandler_NotFound(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -758,7 +758,7 @@ func TestUnpublishShowHandler_Unauthorized(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 403)
@@ -775,7 +775,7 @@ func TestMakePrivateShowHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
 	if err != nil {
@@ -793,7 +793,7 @@ func TestMakePrivateShowHandler_NotFound(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -806,7 +806,7 @@ func TestMakePrivateShowHandler_Unauthorized(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 403)
@@ -823,7 +823,7 @@ func TestPublishShowHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
 	if err != nil {
@@ -841,7 +841,7 @@ func TestPublishShowHandler_NotFound(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -854,7 +854,7 @@ func TestPublishShowHandler_Unauthorized(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
 	testhelpers.AssertHumaError(t, err, 403)
@@ -877,7 +877,7 @@ func TestSetShowSoldOutHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowSoldOutRequest{ShowID: "1"}
 	req.Body.Value = true
 
@@ -898,7 +898,7 @@ func TestSetShowSoldOutHandler_NotOwner(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowSoldOutRequest{ShowID: "1"}
 	req.Body.Value = true
 
@@ -923,7 +923,7 @@ func TestSetShowCancelledHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowCancelledRequest{ShowID: "1"}
 	req.Body.Value = true
 
@@ -944,7 +944,7 @@ func TestSetShowCancelledHandler_NotOwner(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 5})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowCancelledRequest{ShowID: "1"}
 	req.Body.Value = true
 
@@ -963,7 +963,7 @@ func TestGetMySubmissionsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetMySubmissionsHandler(ctx, &GetMySubmissionsRequest{Limit: 50})
 	if err != nil {
@@ -981,7 +981,7 @@ func TestGetMySubmissionsHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetMySubmissionsHandler(ctx, &GetMySubmissionsRequest{Limit: 50})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -1059,7 +1059,7 @@ func TestUpdateShowHandler_ZeroID(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -1071,14 +1071,14 @@ func TestDeleteShowHandler_ZeroID(t *testing.T) {
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestDeleteShowHandler_OverflowID(t *testing.T) {
 	h := testShowHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "99999999999"})
 	testhelpers.AssertHumaError(t, err, 400)
 }

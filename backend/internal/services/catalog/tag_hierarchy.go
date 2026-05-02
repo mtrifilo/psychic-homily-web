@@ -9,7 +9,8 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // AuditActionSetTagParent is the action name recorded when an admin sets a
@@ -30,15 +31,15 @@ const maxHierarchyWalkDepth = 64
 //
 // Bounded by maxHierarchyWalkDepth to protect against pre-existing looped
 // data. Cycle-detection on writes is the real guard; this is a safety net.
-func (s *TagService) GetTagAncestors(tagID uint) ([]*models.Tag, error) {
+func (s *TagService) GetTagAncestors(tagID uint) ([]*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	ancestors := make([]*models.Tag, 0, 4)
+	ancestors := make([]*catalogm.Tag, 0, 4)
 	seen := map[uint]struct{}{tagID: {}}
 
-	var tag models.Tag
+	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrTagNotFound(tagID)
@@ -56,7 +57,7 @@ func (s *TagService) GetTagAncestors(tagID uint) ([]*models.Tag, error) {
 			break
 		}
 
-		var parent models.Tag
+		var parent catalogm.Tag
 		if err := s.db.First(&parent, *currentParentID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				// Orphaned parent_id pointing at a deleted row — stop walking.
@@ -77,12 +78,12 @@ func (s *TagService) GetTagAncestors(tagID uint) ([]*models.Tag, error) {
 // GetTagChildren returns the direct children of a tag (one level down).
 // Ordered by usage_count DESC then name ASC for stable rendering. Returns
 // an empty slice (not nil) when the tag has no children.
-func (s *TagService) GetTagChildren(tagID uint) ([]*models.Tag, error) {
+func (s *TagService) GetTagChildren(tagID uint) ([]*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var children []models.Tag
+	var children []catalogm.Tag
 	err := s.db.Where("parent_id = ?", tagID).
 		Order("usage_count DESC, name ASC").
 		Find(&children).Error
@@ -90,7 +91,7 @@ func (s *TagService) GetTagChildren(tagID uint) ([]*models.Tag, error) {
 		return nil, fmt.Errorf("failed to load children: %w", err)
 	}
 
-	out := make([]*models.Tag, len(children))
+	out := make([]*catalogm.Tag, len(children))
 	for i := range children {
 		t := children[i]
 		out[i] = &t
@@ -102,20 +103,20 @@ func (s *TagService) GetTagChildren(tagID uint) ([]*models.Tag, error) {
 // populated; the frontend builds the tree client-side. Flat shape keeps
 // the query trivial (one indexed scan) and avoids a recursive CTE. Ordered
 // so the UI can render consistently without client-side sorting.
-func (s *TagService) GetGenreHierarchy() ([]*models.Tag, error) {
+func (s *TagService) GetGenreHierarchy() ([]*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var tags []models.Tag
-	err := s.db.Where("category = ?", models.TagCategoryGenre).
+	var tags []catalogm.Tag
+	err := s.db.Where("category = ?", catalogm.TagCategoryGenre).
 		Order("name ASC").
 		Find(&tags).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to load genre hierarchy: %w", err)
 	}
 
-	out := make([]*models.Tag, len(tags))
+	out := make([]*catalogm.Tag, len(tags))
 	for i := range tags {
 		t := tags[i]
 		out[i] = &t
@@ -140,7 +141,7 @@ func (s *TagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) 
 		return fmt.Errorf("database not initialized")
 	}
 
-	var tag models.Tag
+	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.ErrTagNotFound(tagID)
@@ -148,7 +149,7 @@ func (s *TagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) 
 		return fmt.Errorf("failed to load tag: %w", err)
 	}
 
-	if tag.Category != models.TagCategoryGenre {
+	if tag.Category != catalogm.TagCategoryGenre {
 		return apperrors.ErrTagHierarchyNotGenre(tag.Name, tag.Category)
 	}
 
@@ -160,7 +161,7 @@ func (s *TagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) 
 	// a concurrent rename still records the name we resolved against.
 	var parentName string
 	if parentID != nil {
-		var p models.Tag
+		var p catalogm.Tag
 		if err := s.db.First(&p, *parentID).Error; err == nil {
 			parentName = p.Name
 		}
@@ -168,7 +169,7 @@ func (s *TagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) 
 
 	// Use Select + Updates so GORM writes NULL when parentID is nil.
 	// A plain Updates map would skip the nil entry and leave parent_id unchanged.
-	if err := s.db.Model(&models.Tag{}).
+	if err := s.db.Model(&catalogm.Tag{}).
 		Where("id = ?", tagID).
 		Select("parent_id").
 		Updates(map[string]interface{}{"parent_id": parentID}).Error; err != nil {
@@ -189,7 +190,7 @@ func (s *TagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) 
 // Callers routing through UpdateTag want to preserve the historical behavior
 // of not rejecting hierarchy writes on non-genre tags that already have a
 // parent_id — but they SHOULD reject setting a new one. See UpdateTag.
-func (s *TagService) validateTagParent(tag *models.Tag, parentID *uint) error {
+func (s *TagService) validateTagParent(tag *catalogm.Tag, parentID *uint) error {
 	if parentID == nil {
 		return nil
 	}
@@ -197,14 +198,14 @@ func (s *TagService) validateTagParent(tag *models.Tag, parentID *uint) error {
 		return apperrors.ErrTagHierarchyCycle("cannot set a tag as its own parent")
 	}
 
-	var parent models.Tag
+	var parent catalogm.Tag
 	if err := s.db.First(&parent, *parentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.ErrTagNotFound(*parentID)
 		}
 		return fmt.Errorf("failed to load proposed parent: %w", err)
 	}
-	if parent.Category != models.TagCategoryGenre {
+	if parent.Category != catalogm.TagCategoryGenre {
 		return apperrors.ErrTagHierarchyNotGenre(parent.Name, parent.Category)
 	}
 
@@ -228,7 +229,7 @@ func (s *TagService) validateTagParent(tag *models.Tag, parentID *uint) error {
 		}
 		seen[*cursor] = struct{}{}
 
-		var anc models.Tag
+		var anc catalogm.Tag
 		if err := s.db.First(&anc, *cursor).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return nil
@@ -272,7 +273,7 @@ func (s *TagService) writeSetParentAuditLog(actorID, tagID uint, tagName string,
 		actor = &actorID
 	}
 
-	entry := models.AuditLog{
+	entry := adminm.AuditLog{
 		ActorID:    actor,
 		Action:     AuditActionSetTagParent,
 		EntityType: "tag",

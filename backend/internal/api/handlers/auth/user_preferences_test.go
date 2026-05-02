@@ -6,7 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/engagement"
 )
 
@@ -21,19 +21,19 @@ func TestSetFavoriteCitiesHandler_NoAuth(t *testing.T) {
 }
 
 func TestSetFavoriteCitiesHandler_Success(t *testing.T) {
-	var calledWith []models.FavoriteCity
+	var calledWith []authm.FavoriteCity
 	mock := &testhelpers.MockUserService{
-		SetFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
+		SetFavoriteCitiesFn: func(userID uint, cities []authm.FavoriteCity) error {
 			calledWith = cities
 			return nil
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	user := &models.User{ID: 1, IsActive: true}
+	user := &authm.User{ID: 1, IsActive: true}
 	ctx := testhelpers.CtxWithUser(user)
 
 	req := &SetFavoriteCitiesRequest{}
-	req.Body.Cities = []models.FavoriteCity{{City: "Phoenix", State: "AZ"}}
+	req.Body.Cities = []authm.FavoriteCity{{City: "Phoenix", State: "AZ"}}
 
 	resp, err := h.SetFavoriteCitiesHandler(ctx, req)
 	if err != nil {
@@ -49,7 +49,7 @@ func TestSetFavoriteCitiesHandler_Success(t *testing.T) {
 
 func TestSetFavoriteCitiesHandler_NilCities(t *testing.T) {
 	mock := &testhelpers.MockUserService{
-		SetFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
+		SetFavoriteCitiesFn: func(userID uint, cities []authm.FavoriteCity) error {
 			if cities == nil {
 				return errors.New("expected non-nil slice")
 			}
@@ -57,7 +57,7 @@ func TestSetFavoriteCitiesHandler_NilCities(t *testing.T) {
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	req := &SetFavoriteCitiesRequest{}
 	// Body.Cities is nil — handler should default to empty slice
@@ -73,12 +73,12 @@ func TestSetFavoriteCitiesHandler_NilCities(t *testing.T) {
 
 func TestSetFavoriteCitiesHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockUserService{
-		SetFavoriteCitiesFn: func(userID uint, cities []models.FavoriteCity) error {
+		SetFavoriteCitiesFn: func(userID uint, cities []authm.FavoriteCity) error {
 			return errors.New("db error")
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetFavoriteCitiesRequest{}
 
 	_, err := h.SetFavoriteCitiesHandler(ctx, req)
@@ -104,7 +104,7 @@ func TestSetShowRemindersHandler_Success_Enable(t *testing.T) {
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetShowRemindersRequest{}
 	req.Body.Enabled = true
 
@@ -127,7 +127,7 @@ func TestSetShowRemindersHandler_Success_Disable(t *testing.T) {
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetShowRemindersRequest{}
 	req.Body.Enabled = false
 
@@ -147,7 +147,7 @@ func TestSetShowRemindersHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetShowRemindersRequest{}
 	req.Body.Enabled = true
 
@@ -207,7 +207,7 @@ func TestSetCommentNotificationsHandler_NoAuth(t *testing.T) {
 
 func TestSetCommentNotificationsHandler_NoFieldsBadRequest(t *testing.T) {
 	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetCommentNotificationsRequest{}
 	_, err := h.SetCommentNotificationsHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -226,10 +226,10 @@ func TestSetCommentNotificationsHandler_Success(t *testing.T) {
 			mentionEnabled = &e
 			return nil
 		},
-		GetUserByIDFn: func(uid uint) (*models.User, error) {
-			return &models.User{
+		GetUserByIDFn: func(uid uint) (*authm.User, error) {
+			return &authm.User{
 				ID: uid,
-				Preferences: &models.UserPreferences{
+				Preferences: &authm.UserPreferences{
 					UserID:                      uid,
 					NotifyOnCommentSubscription: false,
 					NotifyOnMention:             true,
@@ -238,7 +238,7 @@ func TestSetCommentNotificationsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewUserPreferencesHandler(mock, "secret")
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	no := false
 	yes := true

@@ -11,7 +11,10 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 )
 
 // Env flag + allowed environment list for the test-fixtures reset endpoint.
@@ -67,14 +70,14 @@ var testFixtureAllowlist = []testFixtureScope{
 	{
 		displayName: "user_bookmarks",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
-			res := tx.Where("user_id = ?", userID).Delete(&models.UserBookmark{})
+			res := tx.Where("user_id = ?", userID).Delete(&engagementm.UserBookmark{})
 			return res.RowsAffected, res.Error
 		},
 	},
 	{
 		displayName: "collection_items",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
-			res := tx.Where("added_by_user_id = ?", userID).Delete(&models.CollectionItem{})
+			res := tx.Where("added_by_user_id = ?", userID).Delete(&communitym.CollectionItem{})
 			return res.RowsAffected, res.Error
 		},
 	},
@@ -91,21 +94,21 @@ var testFixtureAllowlist = []testFixtureScope{
 		// inherit prior likes from a previous run.
 		displayName: "collection_likes",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
-			res := tx.Where("user_id = ?", userID).Delete(&models.CollectionLike{})
+			res := tx.Where("user_id = ?", userID).Delete(&communitym.CollectionLike{})
 			return res.RowsAffected, res.Error
 		},
 	},
 	{
 		displayName: "collections",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
-			res := tx.Where("creator_id = ?", userID).Delete(&models.Collection{})
+			res := tx.Where("creator_id = ?", userID).Delete(&communitym.Collection{})
 			return res.RowsAffected, res.Error
 		},
 	},
 	{
 		displayName: "pending_shows",
 		delete: func(tx *gorm.DB, userID uint) (int64, error) {
-			res := tx.Where("submitted_by = ? AND status = ?", userID, models.ShowStatusPending).Delete(&models.Show{})
+			res := tx.Where("submitted_by = ? AND status = ?", userID, catalogm.ShowStatusPending).Delete(&catalogm.Show{})
 			return res.RowsAffected, res.Error
 		},
 	},
@@ -234,7 +237,7 @@ func (h *TestFixtureHandler) Reset(ctx context.Context, req *ResetTestFixturesRe
 	// Defense 5: target user must exist and have a @test.local email. Cheap
 	// sanity check with real teeth if the flag ever leaks into an env with
 	// real users.
-	var target models.User
+	var target authm.User
 	if err := h.db.Select("id, email").First(&target, req.Body.UserID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, huma.Error404NotFound("target user not found")

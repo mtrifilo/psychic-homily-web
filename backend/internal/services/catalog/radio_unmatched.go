@@ -8,7 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -118,7 +118,7 @@ func (s *RadioService) suggestArtistMatches(artistName string, limit int) []cont
 	normalizedName := strings.TrimSpace(strings.ToLower(artistName))
 
 	// 1. Exact match (case-insensitive)
-	var exactMatches []models.Artist
+	var exactMatches []catalogm.Artist
 	s.db.Where("LOWER(name) = ?", normalizedName).Limit(limit).Find(&exactMatches)
 	for _, a := range exactMatches {
 		slug := ""
@@ -171,7 +171,7 @@ func (s *RadioService) suggestArtistMatches(artistName string, limit int) []cont
 
 	// 3. LIKE match (prefix)
 	remaining = limit - len(matches)
-	var likeMatches []models.Artist
+	var likeMatches []catalogm.Artist
 	s.db.Where("LOWER(name) LIKE ?", normalizedName+"%").
 		Limit(remaining).
 		Find(&likeMatches)
@@ -201,7 +201,7 @@ func (s *RadioService) LinkPlay(playID uint, req *contracts.LinkPlayRequest) err
 		return fmt.Errorf("database not initialized")
 	}
 
-	var play models.RadioPlay
+	var play catalogm.RadioPlay
 	if err := s.db.First(&play, playID).Error; err != nil {
 		return fmt.Errorf("play not found: %w", err)
 	}
@@ -237,7 +237,7 @@ func (s *RadioService) BulkLinkPlays(req *contracts.BulkLinkRequest) (*contracts
 		return nil, fmt.Errorf("artist_id is required")
 	}
 
-	result := s.db.Model(&models.RadioPlay{}).
+	result := s.db.Model(&catalogm.RadioPlay{}).
 		Where("artist_name = ? AND artist_id IS NULL", req.ArtistName).
 		Update("artist_id", req.ArtistID)
 
@@ -306,7 +306,7 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 
 	// 1. Query all affinity pairs with co_occurrence_count >= 2
 	//    (the ComputeAffinity query already filters >= 2, but be safe)
-	var affinities []models.RadioArtistAffinity
+	var affinities []catalogm.RadioArtistAffinity
 	if err := s.db.Where("co_occurrence_count >= 2").Find(&affinities).Error; err != nil {
 		return nil, fmt.Errorf("querying affinity data: %w", err)
 	}
@@ -336,22 +336,22 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 		// Build JSONB detail
 		detail, _ := json.Marshal(map[string]interface{}{
 			"co_occurrence_count": aff.CoOccurrenceCount,
-			"station_count":      aff.StationCount,
-			"show_count":         aff.ShowCount,
+			"station_count":       aff.StationCount,
+			"show_count":          aff.ShowCount,
 		})
 		detailRaw := json.RawMessage(detail)
 
 		// Upsert into artist_relationships
-		var existing models.ArtistRelationship
+		var existing catalogm.ArtistRelationship
 		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			aff.ArtistAID, aff.ArtistBID, models.RelationshipTypeRadioCooccurrence).
+			aff.ArtistAID, aff.ArtistBID, catalogm.RelationshipTypeRadioCooccurrence).
 			First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
-			rel := &models.ArtistRelationship{
+			rel := &catalogm.ArtistRelationship{
 				SourceArtistID:   aff.ArtistAID,
 				TargetArtistID:   aff.ArtistBID,
-				RelationshipType: models.RelationshipTypeRadioCooccurrence,
+				RelationshipType: catalogm.RelationshipTypeRadioCooccurrence,
 				Score:            score,
 				AutoDerived:      true,
 				Detail:           &detailRaw,
@@ -369,16 +369,16 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 	}
 
 	// 2. Delete stale radio_cooccurrence relationships that no longer exist in affinity table
-	var staleRels []models.ArtistRelationship
-	s.db.Where("relationship_type = ? AND auto_derived = TRUE", models.RelationshipTypeRadioCooccurrence).
+	var staleRels []catalogm.ArtistRelationship
+	s.db.Where("relationship_type = ? AND auto_derived = TRUE", catalogm.RelationshipTypeRadioCooccurrence).
 		Find(&staleRels)
 
 	for _, rel := range staleRels {
 		pair := [2]uint{rel.SourceArtistID, rel.TargetArtistID}
 		if !affinityPairs[pair] {
 			if err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-				rel.SourceArtistID, rel.TargetArtistID, models.RelationshipTypeRadioCooccurrence).
-				Delete(&models.ArtistRelationship{}).Error; err == nil {
+				rel.SourceArtistID, rel.TargetArtistID, catalogm.RelationshipTypeRadioCooccurrence).
+				Delete(&catalogm.ArtistRelationship{}).Error; err == nil {
 				result.Deleted++
 			}
 		}
@@ -399,12 +399,12 @@ func (s *RadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
 }
 
 // GetActiveStationsWithPlaylistSource returns all active stations that have a playlist_source set.
-func (s *RadioService) GetActiveStationsWithPlaylistSource() ([]models.RadioStation, error) {
+func (s *RadioService) GetActiveStationsWithPlaylistSource() ([]catalogm.RadioStation, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var stations []models.RadioStation
+	var stations []catalogm.RadioStation
 	err := s.db.Where("is_active = TRUE AND playlist_source IS NOT NULL AND playlist_source != ''").
 		Find(&stations).Error
 	if err != nil {
@@ -422,6 +422,6 @@ func (s *RadioService) RecordFetchFailure(stationID uint) {
 // RecordFetchSuccess resets the consecutive failure tracking for a station.
 func (s *RadioService) RecordFetchSuccess(stationID uint) {
 	now := time.Now()
-	s.db.Model(&models.RadioStation{}).Where("id = ?", stationID).
+	s.db.Model(&catalogm.RadioStation{}).Where("id = ?", stationID).
 		Update("last_playlist_fetch_at", now)
 }

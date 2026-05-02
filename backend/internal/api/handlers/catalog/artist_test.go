@@ -7,7 +7,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -27,7 +27,7 @@ func TestDeleteArtist_NoAuth(t *testing.T) {
 
 func TestDeleteArtist_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &DeleteArtistRequest{ArtistID: "abc"}
 
 	_, err := h.DeleteArtistHandler(ctx, req)
@@ -46,7 +46,7 @@ func TestAdminUpdateArtist_NoUser(t *testing.T) {
 
 func TestAdminUpdateArtist_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &AdminUpdateArtistRequest{ArtistID: "1"}
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
@@ -55,7 +55,7 @@ func TestAdminUpdateArtist_NonAdmin(t *testing.T) {
 
 func TestAdminUpdateArtist_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "abc"}
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
@@ -64,7 +64,7 @@ func TestAdminUpdateArtist_InvalidID(t *testing.T) {
 
 func TestAdminUpdateArtist_EmptyName(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "1"}
 	empty := "   "
 	req.Body.Name = &empty
@@ -75,7 +75,7 @@ func TestAdminUpdateArtist_EmptyName(t *testing.T) {
 
 func TestAdminUpdateArtist_NoFields(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "1"}
 
 	_, err := h.AdminUpdateArtistHandler(ctx, req)
@@ -94,7 +94,7 @@ func TestUpdateBandcamp_NoUser(t *testing.T) {
 
 func TestUpdateBandcamp_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
 
 	_, err := h.UpdateArtistBandcampHandler(ctx, req)
@@ -103,7 +103,7 @@ func TestUpdateBandcamp_NonAdmin(t *testing.T) {
 
 func TestUpdateBandcamp_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &UpdateArtistBandcampRequest{ArtistID: "abc"}
 
 	_, err := h.UpdateArtistBandcampHandler(ctx, req)
@@ -112,7 +112,7 @@ func TestUpdateBandcamp_InvalidID(t *testing.T) {
 
 func TestUpdateBandcamp_InvalidURL(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	url := "https://example.com/music"
 	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
 	req.Body.BandcampEmbedURL = &url
@@ -123,7 +123,7 @@ func TestUpdateBandcamp_InvalidURL(t *testing.T) {
 
 func TestUpdateBandcamp_ProfileOnlyURL(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	url := "https://artist.bandcamp.com"
 	req := &UpdateArtistBandcampRequest{ArtistID: "1"}
 	req.Body.BandcampEmbedURL = &url
@@ -144,7 +144,7 @@ func TestUpdateSpotify_NoUser(t *testing.T) {
 
 func TestUpdateSpotify_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &UpdateArtistSpotifyRequest{ArtistID: "1"}
 
 	_, err := h.UpdateArtistSpotifyHandler(ctx, req)
@@ -153,7 +153,7 @@ func TestUpdateSpotify_NonAdmin(t *testing.T) {
 
 func TestUpdateSpotify_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &UpdateArtistSpotifyRequest{ArtistID: "abc"}
 
 	_, err := h.UpdateArtistSpotifyHandler(ctx, req)
@@ -162,7 +162,7 @@ func TestUpdateSpotify_InvalidID(t *testing.T) {
 
 func TestUpdateSpotify_InvalidURL(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	url := "https://example.com/music"
 	req := &UpdateArtistSpotifyRequest{ArtistID: "1"}
 	req.Body.SpotifyURL = &url
@@ -498,7 +498,7 @@ func TestDeleteArtist_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "42"})
 	if err != nil {
@@ -513,7 +513,7 @@ func TestDeleteArtist_NotFound(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -526,7 +526,7 @@ func TestDeleteArtist_HasShows(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "42"})
 	testhelpers.AssertHumaError(t, err, 409)
@@ -539,7 +539,7 @@ func TestDeleteArtist_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "42"})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -559,7 +559,7 @@ func TestAdminUpdateArtist_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	name := "Updated"
 	req := &AdminUpdateArtistRequest{ArtistID: "42"}
 	req.Body.Name = &name
@@ -580,7 +580,7 @@ func TestAdminUpdateArtist_NotFound(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	name := "Test"
 	req := &AdminUpdateArtistRequest{ArtistID: "99"}
 	req.Body.Name = &name
@@ -614,7 +614,7 @@ func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(artistMock, auditMock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	name := "New Name"
 	req := &AdminUpdateArtistRequest{ArtistID: "42"}
 	req.Body.Name = &name
@@ -650,7 +650,7 @@ func TestUpdateBandcamp_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	url := "https://artist.bandcamp.com/album/cool-album"
 	req := &UpdateArtistBandcampRequest{ArtistID: "42"}
 	req.Body.BandcampEmbedURL = &url
@@ -677,7 +677,7 @@ func TestUpdateBandcamp_ClearURL(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	empty := ""
 	req := &UpdateArtistBandcampRequest{ArtistID: "42"}
 	req.Body.BandcampEmbedURL = &empty
@@ -705,7 +705,7 @@ func TestUpdateSpotify_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	url := "https://open.spotify.com/artist/abc123"
 	req := &UpdateArtistSpotifyRequest{ArtistID: "42"}
 	req.Body.SpotifyURL = &url
@@ -896,7 +896,7 @@ func TestAddArtistAlias_NoUser(t *testing.T) {
 
 func TestAddArtistAlias_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &AddArtistAliasRequest{ArtistID: "1"}
 	req.Body.Alias = "test"
 
@@ -906,7 +906,7 @@ func TestAddArtistAlias_NonAdmin(t *testing.T) {
 
 func TestAddArtistAlias_InvalidID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AddArtistAliasRequest{ArtistID: "abc"}
 	req.Body.Alias = "test"
 
@@ -916,7 +916,7 @@ func TestAddArtistAlias_InvalidID(t *testing.T) {
 
 func TestAddArtistAlias_EmptyAlias(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AddArtistAliasRequest{ArtistID: "1"}
 	req.Body.Alias = "   "
 
@@ -934,7 +934,7 @@ func TestAddArtistAlias_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AddArtistAliasRequest{ArtistID: "42"}
 	req.Body.Alias = "New Alias"
 
@@ -954,7 +954,7 @@ func TestAddArtistAlias_Conflict(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AddArtistAliasRequest{ArtistID: "42"}
 	req.Body.Alias = "Test"
 
@@ -974,14 +974,14 @@ func TestDeleteArtistAlias_NoUser(t *testing.T) {
 
 func TestDeleteArtistAlias_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "1"})
 	testhelpers.AssertHumaError(t, err, 403)
 }
 
 func TestDeleteArtistAlias_InvalidAliasID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "abc"})
 	testhelpers.AssertHumaError(t, err, 400)
 }
@@ -996,7 +996,7 @@ func TestDeleteArtistAlias_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "5"})
 	if err != nil {
@@ -1011,7 +1011,7 @@ func TestDeleteArtistAlias_NotFound(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DeleteArtistAliasHandler(ctx, &DeleteArtistAliasRequest{ArtistID: "1", AliasID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -1033,7 +1033,7 @@ func TestMergeArtists_NoUser(t *testing.T) {
 
 func TestMergeArtists_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 1
 	req.Body.MergeFromArtistID = 2
@@ -1044,7 +1044,7 @@ func TestMergeArtists_NonAdmin(t *testing.T) {
 
 func TestMergeArtists_MissingIDs(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 1
 	req.Body.MergeFromArtistID = 0
@@ -1060,7 +1060,7 @@ func TestMergeArtists_SelfMerge(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 5
 	req.Body.MergeFromArtistID = 5
@@ -1088,7 +1088,7 @@ func TestMergeArtists_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 1
 	req.Body.MergeFromArtistID = 2
@@ -1112,7 +1112,7 @@ func TestMergeArtists_NotFound(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &MergeArtistsRequest{}
 	req.Body.CanonicalArtistID = 99
 	req.Body.MergeFromArtistID = 2
@@ -1136,7 +1136,7 @@ func TestAdminCreateArtist_NoUser(t *testing.T) {
 
 func TestAdminCreateArtist_NonAdmin(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Test Artist"
 
@@ -1146,7 +1146,7 @@ func TestAdminCreateArtist_NonAdmin(t *testing.T) {
 
 func TestAdminCreateArtist_EmptyName(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "   "
 
@@ -1164,7 +1164,7 @@ func TestAdminCreateArtist_Success(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "New Artist"
 
@@ -1205,7 +1205,7 @@ func TestAdminCreateArtist_WithSocials(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Social Artist"
 	city := "Phoenix"
@@ -1233,7 +1233,7 @@ func TestAdminCreateArtist_Conflict(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Existing"
 
@@ -1248,7 +1248,7 @@ func TestAdminCreateArtist_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Test"
 
@@ -1284,7 +1284,7 @@ func TestAdminCreateArtist_AuditLogCalled(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(artistMock, auditMock, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "Audit Test Artist"
 
@@ -1308,14 +1308,14 @@ func TestDeleteArtist_ZeroID(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
 
 func TestDeleteArtist_OverflowID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.DeleteArtistHandler(ctx, &DeleteArtistRequest{ArtistID: "99999999999"})
 	testhelpers.AssertHumaError(t, err, 400)
 }
@@ -1327,7 +1327,7 @@ func TestAdminUpdateArtist_ZeroID(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "0"}
 	name := "Test Name"
 	req.Body.Name = &name
@@ -1342,7 +1342,7 @@ func TestAdminUpdateArtist_VeryLargeID(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "4294967295"}
 	name := "Test Name"
 	req.Body.Name = &name
@@ -1352,7 +1352,7 @@ func TestAdminUpdateArtist_VeryLargeID(t *testing.T) {
 
 func TestAdminUpdateArtist_OverflowID(t *testing.T) {
 	h := testArtistHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminUpdateArtistRequest{ArtistID: "99999999999"}
 	name := "Test"
 	req.Body.Name = &name
@@ -1370,7 +1370,7 @@ func TestAdminCreateArtist_NameTrimmed(t *testing.T) {
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	req := &AdminCreateArtistRequest{}
 	req.Body.Name = "  Trimmed Name  "
 

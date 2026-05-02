@@ -11,7 +11,8 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -436,8 +437,8 @@ func (h *RequestHandler) CloseRequestHandler(ctx context.Context, req *CloseRequ
 // Helpers
 // ============================================================================
 
-// buildRequestResponse converts a models.Request to a RequestResponse.
-func buildRequestResponse(request *models.Request, userVote *int) *contracts.RequestResponse {
+// buildRequestResponse converts a communitym.Request to a RequestResponse.
+func buildRequestResponse(request *communitym.Request, userVote *int) *contracts.RequestResponse {
 	resp := &contracts.RequestResponse{
 		ID:                request.ID,
 		Title:             request.Title,
@@ -471,7 +472,7 @@ func buildRequestResponse(request *models.Request, userVote *int) *contracts.Req
 }
 
 // resolveUserDisplayName returns a display name for a user.
-func resolveUserDisplayName(user *models.User) string {
+func resolveUserDisplayName(user *authm.User) string {
 	if user.Username != nil && *user.Username != "" {
 		return *user.Username
 	}

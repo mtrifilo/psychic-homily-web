@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -114,8 +114,8 @@ func TestWebAuthnServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *WebAuthnServiceIntegrationTestSuite) createUser(email string) *models.User {
-	user := &models.User{
+func (suite *WebAuthnServiceIntegrationTestSuite) createUser(email string) *authm.User {
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -463,7 +463,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestStoreAndGetChallengeWithEm
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginRegistration_Success() {
 	email := "user@test.com"
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -479,7 +479,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginRegistration_Success(
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginRegistration_WithExclusions() {
 	email := "user@test.com"
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -499,7 +499,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginRegistration_WithExcl
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_NoCredentials() {
 	email := "user@test.com"
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -513,7 +513,7 @@ func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_NoCredentials()
 
 func (suite *WebAuthnServiceIntegrationTestSuite) TestBeginLogin_WithCredentials() {
 	email := "user@test.com"
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,

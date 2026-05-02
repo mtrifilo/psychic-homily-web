@@ -18,7 +18,7 @@ import (
 	gormlogger "gorm.io/gorm/logger"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 )
 
@@ -51,7 +51,7 @@ func main() {
 	}
 
 	// Resolve user
-	var user models.User
+	var user authm.User
 	if *email != "" {
 		if err := db.Where("email = ?", *email).First(&user).Error; err != nil {
 			fmt.Fprintf(os.Stderr, "User with email %q not found: %v\n", *email, err)

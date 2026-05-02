@@ -7,7 +7,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -42,7 +42,7 @@ func TestLikeCollection_Success(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 7})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7})
 	req := &LikeCollectionRequest{Slug: "my-collection"}
 
 	resp, err := h.LikeCollectionHandler(ctx, req)
@@ -67,7 +67,7 @@ func TestLikeCollection_Idempotent(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &LikeCollectionRequest{Slug: "x"}
 
 	for i := 0; i < 2; i++ {
@@ -91,7 +91,7 @@ func TestLikeCollection_NotFound(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &LikeCollectionRequest{Slug: "missing"}
 
 	_, err := h.LikeCollectionHandler(ctx, req)
@@ -105,7 +105,7 @@ func TestLikeCollection_Forbidden(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &LikeCollectionRequest{Slug: "private"}
 
 	_, err := h.LikeCollectionHandler(ctx, req)
@@ -119,7 +119,7 @@ func TestLikeCollection_ServiceError(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &LikeCollectionRequest{Slug: "x"}
 
 	_, err := h.LikeCollectionHandler(ctx, req)
@@ -145,7 +145,7 @@ func TestUnlikeCollection_Success(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnlikeCollectionRequest{Slug: "x"}
 
 	resp, err := h.UnlikeCollectionHandler(ctx, req)
@@ -167,7 +167,7 @@ func TestUnlikeCollection_NotLiked_NoOp(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnlikeCollectionRequest{Slug: "never-liked"}
 
 	resp, err := h.UnlikeCollectionHandler(ctx, req)
@@ -186,7 +186,7 @@ func TestUnlikeCollection_NotFound(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnlikeCollectionRequest{Slug: "gone"}
 
 	_, err := h.UnlikeCollectionHandler(ctx, req)
@@ -200,7 +200,7 @@ func TestUnlikeCollection_ServiceError(t *testing.T) {
 		},
 	})
 
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &UnlikeCollectionRequest{Slug: "x"}
 
 	_, err := h.UnlikeCollectionHandler(ctx, req)

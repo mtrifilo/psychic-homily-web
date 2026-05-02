@@ -17,7 +17,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -34,7 +34,7 @@ func TestAppleAuthService_GenerateToken(t *testing.T) {
 	jwtSvc := NewJWTService(nil, cfg, newNilDBUserService())
 	svc := NewAppleAuthService(nil, cfg, jwtSvc)
 
-	user := &models.User{ID: 42, Email: stringPtr("apple@example.com")}
+	user := &authm.User{ID: 42, Email: stringPtr("apple@example.com")}
 	token, err := svc.GenerateToken(user)
 	assert.NoError(t, err)
 	assert.NotEmpty(t, token)
@@ -418,13 +418,13 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingAppleU
 
 	// No duplicate OAuth accounts
 	var count int64
-	s.db.Model(&models.OAuthAccount{}).Where("provider = ? AND provider_user_id = ?", "apple", "apple-sub-existing").Count(&count)
+	s.db.Model(&authm.OAuthAccount{}).Where("provider = ? AND provider_user_id = ?", "apple", "apple-sub-existing").Count(&count)
 	s.Equal(int64(1), count)
 }
 
 func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_LinksAppleAccount() {
 	// Pre-create a user with email but no OAuth
-	existingUser := &models.User{
+	existingUser := &authm.User{
 		Email:         stringPtr("link-apple@example.com"),
 		FirstName:     stringPtr("Existing"),
 		LastName:      stringPtr("User"),
@@ -480,7 +480,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 
 	// Now user has two apple OAuth accounts
 	var count int64
-	s.db.Model(&models.OAuthAccount{}).Where("user_id = ? AND provider = ?", firstUser.ID, "apple").Count(&count)
+	s.db.Model(&authm.OAuthAccount{}).Where("user_id = ? AND provider = ?", firstUser.ID, "apple").Count(&count)
 	s.Equal(int64(2), count)
 }
 
@@ -490,7 +490,7 @@ func (s *AppleAuthIntegrationTestSuite) TestFindOrCreateAppleUser_ExistingEmail_
 
 func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_Success() {
 	// Pre-create user
-	user := &models.User{
+	user := &authm.User{
 		Email:     stringPtr("link-test@example.com"),
 		FirstName: stringPtr("Link"),
 		LastName:  stringPtr("Test"),
@@ -514,14 +514,14 @@ func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_Success() {
 
 func (s *AppleAuthIntegrationTestSuite) TestLinkAppleAccount_UserHasPreferences() {
 	// Pre-create user with preferences
-	user := &models.User{
+	user := &authm.User{
 		Email:     stringPtr("prefs-test@example.com"),
 		FirstName: stringPtr("Prefs"),
 		LastName:  stringPtr("Test"),
 		IsActive:  true,
 	}
 	s.Require().NoError(s.db.Create(user).Error)
-	prefs := &models.UserPreferences{UserID: user.ID}
+	prefs := &authm.UserPreferences{UserID: user.ID}
 	s.Require().NoError(s.db.Create(prefs).Error)
 
 	svc := s.newService()
@@ -576,7 +576,7 @@ func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_NoEmail() {
 
 func (s *AppleAuthIntegrationTestSuite) TestCreateAppleUser_DuplicateEmail() {
 	// Pre-create a user with the same email
-	existing := &models.User{
+	existing := &authm.User{
 		Email:    stringPtr("dupe@example.com"),
 		IsActive: true,
 	}

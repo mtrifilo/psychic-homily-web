@@ -10,7 +10,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -84,8 +85,8 @@ func TestAPITokenIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *APITokenIntegrationTestSuite) createTestUser(admin, active bool) *models.User {
-	user := &models.User{
+func (suite *APITokenIntegrationTestSuite) createTestUser(admin, active bool) *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("token-user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Token"),
 		LastName:      stringPtr("User"),
@@ -171,7 +172,7 @@ func (suite *APITokenIntegrationTestSuite) TestValidateToken_ExpiredToken() {
 	suite.Require().NoError(err)
 
 	// Manually set expires_at to the past
-	suite.db.Model(&models.APIToken{}).Where("id = ?", createResp.ID).
+	suite.db.Model(&adminm.APIToken{}).Where("id = ?", createResp.ID).
 		Update("expires_at", time.Now().Add(-1*time.Hour))
 
 	_, _, err = suite.svc.ValidateToken(createResp.Token)
@@ -198,7 +199,7 @@ func (suite *APITokenIntegrationTestSuite) TestValidateToken_InactiveUser() {
 	suite.Require().NoError(err)
 
 	// Deactivate the user after token creation (GORM skips false bool on Create due to zero value)
-	suite.db.Model(&models.User{}).Where("id = ?", user.ID).Update("is_active", false)
+	suite.db.Model(&authm.User{}).Where("id = ?", user.ID).Update("is_active", false)
 
 	_, _, err = suite.svc.ValidateToken(createResp.Token)
 	suite.Error(err)
@@ -347,7 +348,7 @@ func (suite *APITokenIntegrationTestSuite) TestCleanupExpiredTokens_RemovesOld()
 	suite.Require().NoError(err)
 
 	// Set expires_at to 31+ days ago
-	suite.db.Model(&models.APIToken{}).Where("id = ?", resp.ID).
+	suite.db.Model(&adminm.APIToken{}).Where("id = ?", resp.ID).
 		Update("expires_at", time.Now().Add(-32*24*time.Hour))
 
 	count, err := suite.svc.CleanupExpiredTokens()
@@ -356,7 +357,7 @@ func (suite *APITokenIntegrationTestSuite) TestCleanupExpiredTokens_RemovesOld()
 
 	// Verify it's gone
 	var remaining int64
-	suite.db.Model(&models.APIToken{}).Where("id = ?", resp.ID).Count(&remaining)
+	suite.db.Model(&adminm.APIToken{}).Where("id = ?", resp.ID).Count(&remaining)
 	suite.Zero(remaining)
 }
 
@@ -366,7 +367,7 @@ func (suite *APITokenIntegrationTestSuite) TestCleanupExpiredTokens_KeepsRecent(
 	suite.Require().NoError(err)
 
 	// Set expires_at to 1 day ago (within 30-day retention)
-	suite.db.Model(&models.APIToken{}).Where("id = ?", resp.ID).
+	suite.db.Model(&adminm.APIToken{}).Where("id = ?", resp.ID).
 		Update("expires_at", time.Now().Add(-1*24*time.Hour))
 
 	count, err := suite.svc.CleanupExpiredTokens()

@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -50,8 +52,8 @@ func TestArtistReportServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *ArtistReportServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *ArtistReportServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -63,9 +65,9 @@ func (suite *ArtistReportServiceIntegrationTestSuite) createTestUser() *models.U
 	return user
 }
 
-func (suite *ArtistReportServiceIntegrationTestSuite) createTestArtist(name string) *models.Artist {
+func (suite *ArtistReportServiceIntegrationTestSuite) createTestArtist(name string) *catalogm.Artist {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -74,12 +76,12 @@ func (suite *ArtistReportServiceIntegrationTestSuite) createTestArtist(name stri
 	return artist
 }
 
-func (suite *ArtistReportServiceIntegrationTestSuite) createPendingReport(userID, artistID uint, reportType string) *models.ArtistReport {
-	report := &models.ArtistReport{
+func (suite *ArtistReportServiceIntegrationTestSuite) createPendingReport(userID, artistID uint, reportType string) *communitym.ArtistReport {
+	report := &communitym.ArtistReport{
 		ArtistID:   artistID,
 		ReportedBy: userID,
-		ReportType: models.ArtistReportType(reportType),
-		Status:     models.ShowReportStatusPending,
+		ReportType: communitym.ArtistReportType(reportType),
+		Status:     communitym.ShowReportStatusPending,
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
@@ -455,7 +457,7 @@ func (suite *ArtistReportServiceIntegrationTestSuite) TestGetReportByID_Success(
 	suite.Require().NotNil(report)
 	suite.Equal(created.ID, report.ID)
 	suite.Equal(artist.ID, report.ArtistID)
-	suite.Equal(models.ArtistReportTypeInaccurate, report.ReportType)
+	suite.Equal(communitym.ArtistReportTypeInaccurate, report.ReportType)
 	// Artist should be preloaded
 	suite.Equal(artist.Name, report.Artist.Name)
 }

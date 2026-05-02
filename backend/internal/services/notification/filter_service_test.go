@@ -11,7 +11,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -139,7 +141,7 @@ func (s *NotificationFilterSuite) createTestUser() uint {
 	email := fmt.Sprintf("test-%d@example.com", time.Now().UnixNano())
 	firstName := "Test"
 	lastName := "User"
-	user := models.User{
+	user := authm.User{
 		Email:     &email,
 		FirstName: &firstName,
 		LastName:  &lastName,
@@ -151,7 +153,7 @@ func (s *NotificationFilterSuite) createTestUser() uint {
 // createTestArtist creates an artist for testing.
 func (s *NotificationFilterSuite) createTestArtist(name string) uint {
 	slug := name
-	artist := models.Artist{Name: name, Slug: &slug}
+	artist := catalogm.Artist{Name: name, Slug: &slug}
 	s.Require().NoError(s.db.Create(&artist).Error)
 	return artist.ID
 }
@@ -159,7 +161,7 @@ func (s *NotificationFilterSuite) createTestArtist(name string) uint {
 // createTestVenue creates a venue for testing.
 func (s *NotificationFilterSuite) createTestVenue(name string) uint {
 	slug := name
-	venue := models.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
+	venue := catalogm.Venue{Name: name, Slug: &slug, City: "Phoenix", State: "AZ"}
 	s.Require().NoError(s.db.Create(&venue).Error)
 	return venue.ID
 }
@@ -170,14 +172,14 @@ func (s *NotificationFilterSuite) createTestShow(title string, artistIDs []uint,
 	state := "AZ"
 	slug := title
 	price := 25.0
-	show := models.Show{
+	show := catalogm.Show{
 		Title:     title,
 		Slug:      &slug,
 		EventDate: time.Now().Add(24 * time.Hour),
 		City:      &city,
 		State:     &state,
 		Price:     &price,
-		Status:    models.ShowStatusApproved,
+		Status:    catalogm.ShowStatusApproved,
 	}
 	s.Require().NoError(s.db.Create(&show).Error)
 
@@ -444,7 +446,7 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_ArtistMatch() {
 	showID := s.createTestShow("Deafheaven live", []uint{artistID}, []uint{venueID})
 
 	// Get the show model
-	var show models.Show
+	var show catalogm.Show
 	s.Require().NoError(s.db.First(&show, showID).Error)
 
 	// Run matching
@@ -453,7 +455,7 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_ArtistMatch() {
 
 	// Verify notification log entry was created
 	var count int64
-	s.db.Model(&models.NotificationLog{}).
+	s.db.Model(&notificationm.NotificationLog{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ?", userID, "show", showID).
 		Count(&count)
 	s.Assert().Equal(int64(1), count)
@@ -473,14 +475,14 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_VenueMatch() {
 
 	showID := s.createTestShow("Some Band live", []uint{artistID}, []uint{venueID})
 
-	var show models.Show
+	var show catalogm.Show
 	s.Require().NoError(s.db.First(&show, showID).Error)
 
 	err = s.svc.MatchAndNotify(&show)
 	s.Require().NoError(err)
 
 	var count int64
-	s.db.Model(&models.NotificationLog{}).
+	s.db.Model(&notificationm.NotificationLog{}).
 		Where("user_id = ? AND entity_id = ?", userID, showID).
 		Count(&count)
 	s.Assert().Equal(int64(1), count)
@@ -500,14 +502,14 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_NoMatch() {
 
 	showID := s.createTestShow("Other show", []uint{artistID}, []uint{venueID})
 
-	var show models.Show
+	var show catalogm.Show
 	s.Require().NoError(s.db.First(&show, showID).Error)
 
 	err = s.svc.MatchAndNotify(&show)
 	s.Require().NoError(err)
 
 	var count int64
-	s.db.Model(&models.NotificationLog{}).
+	s.db.Model(&notificationm.NotificationLog{}).
 		Where("user_id = ?", userID).
 		Count(&count)
 	s.Assert().Zero(count)
@@ -526,17 +528,17 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_InactiveFilterIgnored() {
 	s.Require().NoError(err)
 
 	// Pause (set is_active = false) — use GORM directly since PauseFilter doesn't check user
-	s.db.Model(&models.NotificationFilter{}).Where("id = ?", filter.ID).Update("is_active", false)
+	s.db.Model(&notificationm.NotificationFilter{}).Where("id = ?", filter.ID).Update("is_active", false)
 
 	showID := s.createTestShow("Show", []uint{artistID}, []uint{venueID})
-	var show models.Show
+	var show catalogm.Show
 	s.Require().NoError(s.db.First(&show, showID).Error)
 
 	err = s.svc.MatchAndNotify(&show)
 	s.Require().NoError(err)
 
 	var count int64
-	s.db.Model(&models.NotificationLog{}).Where("user_id = ?", userID).Count(&count)
+	s.db.Model(&notificationm.NotificationLog{}).Where("user_id = ?", userID).Count(&count)
 	s.Assert().Zero(count)
 }
 
@@ -552,7 +554,7 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_Deduplication() {
 	s.Require().NoError(err)
 
 	showID := s.createTestShow("Show2", []uint{artistID}, []uint{venueID})
-	var show models.Show
+	var show catalogm.Show
 	s.Require().NoError(s.db.First(&show, showID).Error)
 
 	// First match — should create notification
@@ -564,7 +566,7 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_Deduplication() {
 	s.Require().NoError(err)
 
 	var count int64
-	s.db.Model(&models.NotificationLog{}).Where("user_id = ? AND entity_id = ?", userID, showID).Count(&count)
+	s.db.Model(&notificationm.NotificationLog{}).Where("user_id = ? AND entity_id = ?", userID, showID).Count(&count)
 	s.Assert().Equal(int64(1), count, "should not create duplicate notification")
 }
 
@@ -587,7 +589,7 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_MultipleFiltersOneShow() {
 	s.Require().NoError(err)
 
 	showID := s.createTestShow("Show3", []uint{artistID}, []uint{venueID})
-	var show models.Show
+	var show catalogm.Show
 	s.Require().NoError(s.db.First(&show, showID).Error)
 
 	err = s.svc.MatchAndNotify(&show)
@@ -595,7 +597,7 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_MultipleFiltersOneShow() {
 
 	// Both filters should have matched
 	var count int64
-	s.db.Model(&models.NotificationLog{}).Where("user_id = ? AND entity_id = ?", userID, showID).Count(&count)
+	s.db.Model(&notificationm.NotificationLog{}).Where("user_id = ? AND entity_id = ?", userID, showID).Count(&count)
 	s.Assert().Equal(int64(2), count)
 }
 
@@ -612,7 +614,7 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_UpdatesMatchCount() {
 	s.Assert().Equal(0, filter.MatchCount)
 
 	showID := s.createTestShow("Show4", []uint{artistID}, []uint{venueID})
-	var show models.Show
+	var show catalogm.Show
 	s.Require().NoError(s.db.First(&show, showID).Error)
 
 	err = s.svc.MatchAndNotify(&show)
@@ -641,14 +643,14 @@ func (s *NotificationFilterSuite) TestMatchAndNotify_ANDLogicAcrossCriteria() {
 
 	// Show at wrong venue — should NOT match
 	showID := s.createTestShow("Show5", []uint{artistID}, []uint{venueID2})
-	var show models.Show
+	var show catalogm.Show
 	s.Require().NoError(s.db.First(&show, showID).Error)
 
 	err = s.svc.MatchAndNotify(&show)
 	s.Require().NoError(err)
 
 	var count int64
-	s.db.Model(&models.NotificationLog{}).Where("user_id = ?", userID).Count(&count)
+	s.db.Model(&notificationm.NotificationLog{}).Where("user_id = ?", userID).Count(&count)
 	s.Assert().Zero(count, "should not match when venue doesn't overlap")
 }
 
@@ -668,15 +670,15 @@ func (s *NotificationFilterSuite) TestMatchAndNotifyBatch() {
 	showID1 := s.createTestShow("Batch1", []uint{artistID}, []uint{venueID})
 	showID2 := s.createTestShow("Batch2", []uint{artistID}, []uint{venueID})
 
-	var show1, show2 models.Show
+	var show1, show2 catalogm.Show
 	s.Require().NoError(s.db.First(&show1, showID1).Error)
 	s.Require().NoError(s.db.First(&show2, showID2).Error)
 
-	err = s.svc.MatchAndNotifyBatch([]models.Show{show1, show2})
+	err = s.svc.MatchAndNotifyBatch([]catalogm.Show{show1, show2})
 	s.Require().NoError(err)
 
 	var count int64
-	s.db.Model(&models.NotificationLog{}).Where("user_id = ?", userID).Count(&count)
+	s.db.Model(&notificationm.NotificationLog{}).Where("user_id = ?", userID).Count(&count)
 	s.Assert().Equal(int64(2), count)
 }
 
@@ -687,7 +689,7 @@ func (s *NotificationFilterSuite) TestGetUserNotifications() {
 
 	// Insert some notification log entries directly
 	for i := 0; i < 3; i++ {
-		s.db.Create(&models.NotificationLog{
+		s.db.Create(&notificationm.NotificationLog{
 			UserID:     userID,
 			EntityType: "show",
 			EntityID:   uint(i + 1),
@@ -705,10 +707,10 @@ func (s *NotificationFilterSuite) TestGetUnreadCount() {
 	userID := s.createTestUser()
 
 	// 2 unread, 1 read
-	s.db.Create(&models.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: time.Now().UTC()})
-	s.db.Create(&models.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: time.Now().UTC()})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: time.Now().UTC()})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: time.Now().UTC()})
 	now := time.Now().UTC()
-	s.db.Create(&models.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: time.Now().UTC(), ReadAt: &now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: time.Now().UTC(), ReadAt: &now})
 
 	count, err := s.svc.GetUnreadCount(userID)
 	s.Require().NoError(err)

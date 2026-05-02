@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -61,8 +61,8 @@ func TestReleaseServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *ReleaseServiceIntegrationTestSuite) createTestArtist(name string) *models.Artist {
-	artist := &models.Artist{
+func (suite *ReleaseServiceIntegrationTestSuite) createTestArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name: name,
 	}
 	err := suite.db.Create(artist).Error
@@ -70,9 +70,9 @@ func (suite *ReleaseServiceIntegrationTestSuite) createTestArtist(name string) *
 	return artist
 }
 
-func (suite *ReleaseServiceIntegrationTestSuite) createTestLabel(name string) *models.Label {
+func (suite *ReleaseServiceIntegrationTestSuite) createTestLabel(name string) *catalogm.Label {
 	slug := name // simplified slug for tests
-	label := &models.Label{
+	label := &catalogm.Label{
 		Name: name,
 		Slug: &slug,
 	}
@@ -82,7 +82,7 @@ func (suite *ReleaseServiceIntegrationTestSuite) createTestLabel(name string) *m
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) linkReleaseToLabel(releaseID, labelID uint) {
-	rl := &models.ReleaseLabel{
+	rl := &catalogm.ReleaseLabel{
 		ReleaseID: releaseID,
 		LabelID:   labelID,
 	}
@@ -501,12 +501,12 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestDeleteRelease_CascadesJunct
 
 	// Verify artist_releases cleaned up
 	var arCount int64
-	suite.db.Model(&models.ArtistRelease{}).Where("release_id = ?", created.ID).Count(&arCount)
+	suite.db.Model(&catalogm.ArtistRelease{}).Where("release_id = ?", created.ID).Count(&arCount)
 	suite.Equal(int64(0), arCount)
 
 	// Verify external_links cleaned up
 	var linkCount int64
-	suite.db.Model(&models.ReleaseExternalLink{}).Where("release_id = ?", created.ID).Count(&linkCount)
+	suite.db.Model(&catalogm.ReleaseExternalLink{}).Where("release_id = ?", created.ID).Count(&linkCount)
 	suite.Equal(int64(0), linkCount)
 }
 

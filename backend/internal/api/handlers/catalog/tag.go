@@ -10,7 +10,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -60,7 +60,7 @@ func (h *TagHandler) ListTagsHandler(ctx context.Context, req *ListTagsRequest) 
 		parentID = &req.ParentID
 	}
 
-	if req.EntityType != "" && !models.IsValidTagEntityType(req.EntityType) {
+	if req.EntityType != "" && !catalogm.IsValidTagEntityType(req.EntityType) {
 		return nil, huma.Error400BadRequest("Invalid entity_type")
 	}
 
@@ -1127,7 +1127,7 @@ func (h *TagHandler) SetTagParentHandler(ctx context.Context, req *SetTagParentR
 // ============================================================================
 
 // resolveTag resolves a tag by numeric ID or slug.
-func (h *TagHandler) resolveTag(idOrSlug string) *models.Tag {
+func (h *TagHandler) resolveTag(idOrSlug string) *catalogm.Tag {
 	// Try numeric ID first
 	if id, err := strconv.ParseUint(idOrSlug, 10, 32); err == nil {
 		tag, err := h.tagService.GetTag(uint(id))
@@ -1143,8 +1143,8 @@ func (h *TagHandler) resolveTag(idOrSlug string) *models.Tag {
 	return nil
 }
 
-// buildTagResponse converts a models.Tag to a TagResponse.
-func buildTagResponse(tag *models.Tag) *contracts.TagResponse {
+// buildTagResponse converts a catalogm.Tag to a TagResponse.
+func buildTagResponse(tag *catalogm.Tag) *contracts.TagResponse {
 	resp := &contracts.TagResponse{
 		ID:              tag.ID,
 		Name:            tag.Name,

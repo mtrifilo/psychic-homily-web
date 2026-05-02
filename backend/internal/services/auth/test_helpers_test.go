@@ -6,7 +6,7 @@ import (
 
 	"github.com/markbates/goth"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -19,39 +19,39 @@ func (n *nilDBUserService) ListUsers(limit, offset int, filters contracts.AdminU
 	return nil, 0, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) FindOrCreateUser(gothUser goth.User, provider string) (*models.User, error) {
+func (n *nilDBUserService) FindOrCreateUser(gothUser goth.User, provider string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*models.User, error) {
+func (n *nilDBUserService) FindOrCreateUserWithConsent(gothUser goth.User, provider string, consent *contracts.OAuthSignupConsent) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) AuthenticateUserWithPassword(email, password string) (*models.User, error) {
+func (n *nilDBUserService) AuthenticateUserWithPassword(email, password string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) CreateUserWithPassword(email, password, firstName, lastName string) (*models.User, error) {
+func (n *nilDBUserService) CreateUserWithPassword(email, password, firstName, lastName string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*models.User, error) {
+func (n *nilDBUserService) CreateUserWithPasswordWithLegal(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) GetUserByID(userID uint) (*models.User, error) {
+func (n *nilDBUserService) GetUserByID(userID uint) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) GetUserByEmail(email string) (*models.User, error) {
+func (n *nilDBUserService) GetUserByEmail(email string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) GetUserByUsername(username string) (*models.User, error) {
+func (n *nilDBUserService) GetUserByUsername(username string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) UpdateUser(userID uint, updates map[string]any) (*models.User, error) {
+func (n *nilDBUserService) UpdateUser(userID uint, updates map[string]any) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
@@ -63,9 +63,9 @@ func (n *nilDBUserService) VerifyPassword(hashedPassword, password string) error
 	return fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) IsAccountLocked(user *models.User) bool { return false }
+func (n *nilDBUserService) IsAccountLocked(user *authm.User) bool { return false }
 
-func (n *nilDBUserService) GetLockTimeRemaining(user *models.User) time.Duration { return 0 }
+func (n *nilDBUserService) GetLockTimeRemaining(user *authm.User) time.Duration { return 0 }
 
 func (n *nilDBUserService) IncrementFailedAttempts(userID uint) error {
 	return fmt.Errorf("database not initialized")
@@ -91,7 +91,7 @@ func (n *nilDBUserService) SoftDeleteAccount(userID uint, reason *string) error 
 	return fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) CreateUserWithoutPassword(email string) (*models.User, error) {
+func (n *nilDBUserService) CreateUserWithoutPassword(email string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
@@ -103,23 +103,23 @@ func (n *nilDBUserService) ExportUserDataJSON(userID uint) ([]byte, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) GetOAuthAccounts(userID uint) ([]models.OAuthAccount, error) {
+func (n *nilDBUserService) GetOAuthAccounts(userID uint) ([]authm.OAuthAccount, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) GetUserByEmailIncludingDeleted(email string) (*models.User, error) {
+func (n *nilDBUserService) GetUserByEmailIncludingDeleted(email string) (*authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) IsAccountRecoverable(user *models.User) bool { return false }
+func (n *nilDBUserService) IsAccountRecoverable(user *authm.User) bool { return false }
 
-func (n *nilDBUserService) GetDaysUntilPermanentDeletion(user *models.User) int { return 0 }
+func (n *nilDBUserService) GetDaysUntilPermanentDeletion(user *authm.User) int { return 0 }
 
 func (n *nilDBUserService) RestoreAccount(userID uint) error {
 	return fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) GetExpiredDeletedAccounts() ([]models.User, error) {
+func (n *nilDBUserService) GetExpiredDeletedAccounts() ([]authm.User, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
@@ -135,11 +135,11 @@ func (n *nilDBUserService) UnlinkOAuthAccount(userID uint, provider string) erro
 	return fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) GetFavoriteCities(userID uint) ([]models.FavoriteCity, error) {
+func (n *nilDBUserService) GetFavoriteCities(userID uint) ([]authm.FavoriteCity, error) {
 	return nil, fmt.Errorf("database not initialized")
 }
 
-func (n *nilDBUserService) SetFavoriteCities(userID uint, cities []models.FavoriteCity) error {
+func (n *nilDBUserService) SetFavoriteCities(userID uint, cities []authm.FavoriteCity) error {
 	return fmt.Errorf("database not initialized")
 }
 

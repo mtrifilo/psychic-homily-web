@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 )
 
 // BookmarkService handles generic bookmark operations for all entity types
@@ -27,12 +27,12 @@ func NewBookmarkService(database *gorm.DB) *BookmarkService {
 
 // CreateBookmark creates a bookmark for a user on an entity.
 // Idempotent: if the bookmark already exists, it updates the created_at timestamp.
-func (s *BookmarkService) CreateBookmark(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) error {
+func (s *BookmarkService) CreateBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
-	bookmark := models.UserBookmark{
+	bookmark := engagementm.UserBookmark{
 		UserID:     userID,
 		EntityType: entityType,
 		EntityID:   entityID,
@@ -40,12 +40,12 @@ func (s *BookmarkService) CreateBookmark(userID uint, entityType models.Bookmark
 		CreatedAt:  time.Now().UTC(),
 	}
 
-	err := s.db.Where(models.UserBookmark{
+	err := s.db.Where(engagementm.UserBookmark{
 		UserID:     userID,
 		EntityType: entityType,
 		EntityID:   entityID,
 		Action:     action,
-	}).Assign(models.UserBookmark{
+	}).Assign(engagementm.UserBookmark{
 		CreatedAt: bookmark.CreatedAt,
 	}).FirstOrCreate(&bookmark).Error
 
@@ -58,7 +58,7 @@ func (s *BookmarkService) CreateBookmark(userID uint, entityType models.Bookmark
 
 // DeleteBookmark removes a bookmark for a user on an entity.
 // Returns an error if the bookmark does not exist.
-func (s *BookmarkService) DeleteBookmark(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) error {
+func (s *BookmarkService) DeleteBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
@@ -66,7 +66,7 @@ func (s *BookmarkService) DeleteBookmark(userID uint, entityType models.Bookmark
 	result := s.db.Where(
 		"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
 		userID, entityType, entityID, action,
-	).Delete(&models.UserBookmark{})
+	).Delete(&engagementm.UserBookmark{})
 
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete bookmark: %w", result.Error)
@@ -80,13 +80,13 @@ func (s *BookmarkService) DeleteBookmark(userID uint, entityType models.Bookmark
 }
 
 // IsBookmarked checks if a user has a specific bookmark on an entity.
-func (s *BookmarkService) IsBookmarked(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) (bool, error) {
+func (s *BookmarkService) IsBookmarked(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) (bool, error) {
 	if s.db == nil {
 		return false, fmt.Errorf("database not initialized")
 	}
 
 	var count int64
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
 			userID, entityType, entityID, action).
 		Count(&count).Error
@@ -100,7 +100,7 @@ func (s *BookmarkService) IsBookmarked(userID uint, entityType models.BookmarkEn
 
 // GetBookmarkedEntityIDs returns the set of entity IDs that a user has bookmarked
 // with the given entity type and action, filtered to the provided entity IDs.
-func (s *BookmarkService) GetBookmarkedEntityIDs(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction, entityIDs []uint) (map[uint]bool, error) {
+func (s *BookmarkService) GetBookmarkedEntityIDs(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction, entityIDs []uint) (map[uint]bool, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -111,7 +111,7 @@ func (s *BookmarkService) GetBookmarkedEntityIDs(userID uint, entityType models.
 		return result, nil
 	}
 
-	var bookmarks []models.UserBookmark
+	var bookmarks []engagementm.UserBookmark
 	err := s.db.Where(
 		"user_id = ? AND entity_type = ? AND action = ? AND entity_id IN ?",
 		userID, entityType, action, entityIDs,
@@ -130,19 +130,19 @@ func (s *BookmarkService) GetBookmarkedEntityIDs(userID uint, entityType models.
 
 // GetUserBookmarks retrieves bookmarks for a user filtered by entity type and action,
 // ordered by created_at DESC with pagination.
-func (s *BookmarkService) GetUserBookmarks(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction, limit, offset int) ([]models.UserBookmark, int64, error) {
+func (s *BookmarkService) GetUserBookmarks(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction, limit, offset int) ([]engagementm.UserBookmark, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
 	var total int64
-	if err := s.db.Model(&models.UserBookmark{}).
+	if err := s.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND action = ?", userID, entityType, action).
 		Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count bookmarks: %w", err)
 	}
 
-	var bookmarks []models.UserBookmark
+	var bookmarks []engagementm.UserBookmark
 	err := s.db.Where("user_id = ? AND entity_type = ? AND action = ?", userID, entityType, action).
 		Order("created_at DESC").
 		Limit(limit).
@@ -158,12 +158,12 @@ func (s *BookmarkService) GetUserBookmarks(userID uint, entityType models.Bookma
 
 // GetUserBookmarksByEntityType retrieves all bookmarks for a user with a given entity type
 // (regardless of action), useful for queries like "all venue IDs the user follows."
-func (s *BookmarkService) GetUserBookmarksByEntityType(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction) ([]models.UserBookmark, error) {
+func (s *BookmarkService) GetUserBookmarksByEntityType(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction) ([]engagementm.UserBookmark, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var bookmarks []models.UserBookmark
+	var bookmarks []engagementm.UserBookmark
 	err := s.db.Where("user_id = ? AND entity_type = ? AND action = ?", userID, entityType, action).
 		Find(&bookmarks).Error
 
@@ -175,13 +175,13 @@ func (s *BookmarkService) GetUserBookmarksByEntityType(userID uint, entityType m
 }
 
 // CountUserBookmarks returns the count of bookmarks for a user with a given entity type and action.
-func (s *BookmarkService) CountUserBookmarks(userID uint, entityType models.BookmarkEntityType, action models.BookmarkAction) (int64, error) {
+func (s *BookmarkService) CountUserBookmarks(userID uint, entityType engagementm.BookmarkEntityType, action engagementm.BookmarkAction) (int64, error) {
 	if s.db == nil {
 		return 0, fmt.Errorf("database not initialized")
 	}
 
 	var count int64
-	err := s.db.Model(&models.UserBookmark{}).
+	err := s.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND action = ?", userID, entityType, action).
 		Count(&count).Error
 

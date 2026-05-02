@@ -6,7 +6,8 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	communitym "psychic-homily-backend/internal/models/community"
 )
 
 // ============================================================================
@@ -18,11 +19,11 @@ func testRequestHandler() *RequestHandler {
 }
 
 func requestUserCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 }
 
 func requestAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: true})
+	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: true})
 }
 
 // ============================================================================
@@ -80,7 +81,7 @@ func TestRequestHandler_RequiresAuth(t *testing.T) {
 
 func TestRequestHandler_Create_Success(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		CreateRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error) {
+		CreateRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*communitym.Request, error) {
 			if userID != 1 {
 				t.Errorf("expected userID=1, got %d", userID)
 			}
@@ -97,12 +98,12 @@ func TestRequestHandler_Create_Success(t *testing.T) {
 				t.Errorf("expected requestedEntityID=nil, got %v", requestedEntityID)
 			}
 			desc := description
-			return &models.Request{
+			return &communitym.Request{
 				ID:          1,
 				Title:       title,
 				Description: &desc,
 				EntityType:  entityType,
-				Status:      models.RequestStatusPending,
+				Status:      communitym.RequestStatusPending,
 				RequesterID: userID,
 			}, nil
 		},
@@ -145,7 +146,7 @@ func TestRequestHandler_Create_MissingEntityType(t *testing.T) {
 
 func TestRequestHandler_Create_ServiceError(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		CreateRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error) {
+		CreateRequestFn: func(userID uint, title, description, entityType string, requestedEntityID *uint) (*communitym.Request, error) {
 			return nil, fmt.Errorf("database error")
 		},
 	}, nil)
@@ -166,15 +167,15 @@ func TestRequestHandler_Create_ServiceError(t *testing.T) {
 
 func TestRequestHandler_Get_Success(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		GetRequestFn: func(requestID uint) (*models.Request, error) {
+		GetRequestFn: func(requestID uint) (*communitym.Request, error) {
 			if requestID != 42 {
 				t.Errorf("expected requestID=42, got %d", requestID)
 			}
-			return &models.Request{
+			return &communitym.Request{
 				ID:          requestID,
 				Title:       "Test Request",
 				EntityType:  "artist",
-				Status:      models.RequestStatusPending,
+				Status:      communitym.RequestStatusPending,
 				RequesterID: 1,
 			}, nil
 		},
@@ -198,7 +199,7 @@ func TestRequestHandler_Get_InvalidID(t *testing.T) {
 
 func TestRequestHandler_Get_NotFound(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		GetRequestFn: func(requestID uint) (*models.Request, error) {
+		GetRequestFn: func(requestID uint) (*communitym.Request, error) {
 			return nil, nil
 		},
 	}, nil)
@@ -209,7 +210,7 @@ func TestRequestHandler_Get_NotFound(t *testing.T) {
 
 func TestRequestHandler_Get_ServiceError(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		GetRequestFn: func(requestID uint) (*models.Request, error) {
+		GetRequestFn: func(requestID uint) (*communitym.Request, error) {
 			return nil, fmt.Errorf("db error")
 		},
 	}, nil)
@@ -224,7 +225,7 @@ func TestRequestHandler_Get_ServiceError(t *testing.T) {
 
 func TestRequestHandler_List_Success(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
+		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]communitym.Request, int64, error) {
 			if limit != 20 {
 				t.Errorf("expected limit=20, got %d", limit)
 			}
@@ -240,8 +241,8 @@ func TestRequestHandler_List_Success(t *testing.T) {
 			if sortBy != "votes" {
 				t.Errorf("expected sortBy='votes', got %q", sortBy)
 			}
-			return []models.Request{
-				{ID: 1, Title: "Request 1", EntityType: "artist", Status: models.RequestStatusPending, RequesterID: 1},
+			return []communitym.Request{
+				{ID: 1, Title: "Request 1", EntityType: "artist", Status: communitym.RequestStatusPending, RequesterID: 1},
 			}, 1, nil
 		},
 	}, nil)
@@ -267,9 +268,9 @@ func TestRequestHandler_List_Success(t *testing.T) {
 func TestRequestHandler_List_DefaultLimit(t *testing.T) {
 	var receivedLimit int
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
+		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]communitym.Request, int64, error) {
 			receivedLimit = limit
-			return []models.Request{}, 0, nil
+			return []communitym.Request{}, 0, nil
 		},
 	}, nil)
 
@@ -284,7 +285,7 @@ func TestRequestHandler_List_DefaultLimit(t *testing.T) {
 
 func TestRequestHandler_List_ServiceError(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
+		ListRequestsFn: func(status string, entityType string, sortBy string, limit, offset int) ([]communitym.Request, int64, error) {
 			return nil, 0, fmt.Errorf("database error")
 		},
 	}, nil)
@@ -312,7 +313,7 @@ func TestRequestHandler_List_NoAuth_Succeeds(t *testing.T) {
 
 func TestRequestHandler_Update_Success(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		UpdateRequestFn: func(requestID, userID uint, title, description *string) (*models.Request, error) {
+		UpdateRequestFn: func(requestID, userID uint, title, description *string) (*communitym.Request, error) {
 			if requestID != 7 {
 				t.Errorf("expected requestID=7, got %d", requestID)
 			}
@@ -325,7 +326,7 @@ func TestRequestHandler_Update_Success(t *testing.T) {
 			if description != nil {
 				t.Errorf("expected description=nil, got %v", description)
 			}
-			return &models.Request{ID: requestID, Title: *title, EntityType: "artist", Status: models.RequestStatusPending, RequesterID: userID}, nil
+			return &communitym.Request{ID: requestID, Title: *title, EntityType: "artist", Status: communitym.RequestStatusPending, RequesterID: userID}, nil
 		},
 	}, nil)
 
@@ -352,7 +353,7 @@ func TestRequestHandler_Update_InvalidID(t *testing.T) {
 
 func TestRequestHandler_Update_ServiceError_NotFound(t *testing.T) {
 	h := NewRequestHandler(&testhelpers.MockRequestService{
-		UpdateRequestFn: func(requestID, userID uint, title, description *string) (*models.Request, error) {
+		UpdateRequestFn: func(requestID, userID uint, title, description *string) (*communitym.Request, error) {
 			return nil, fmt.Errorf("REQUEST_NOT_FOUND: not found")
 		},
 	}, nil)
@@ -624,16 +625,16 @@ func (e *errorWithCode) Error() string { return e.code + ": " + e.message }
 
 func TestBuildRequestResponse(t *testing.T) {
 	username := "testuser"
-	request := &models.Request{
+	request := &communitym.Request{
 		ID:          1,
 		Title:       "Test",
 		EntityType:  "artist",
-		Status:      models.RequestStatusPending,
+		Status:      communitym.RequestStatusPending,
 		RequesterID: 10,
 		Upvotes:     3,
 		Downvotes:   1,
 		VoteScore:   2,
-		Requester:   models.User{ID: 10, Username: &username},
+		Requester:   authm.User{ID: 10, Username: &username},
 	}
 
 	userVote := 1
@@ -657,11 +658,11 @@ func TestBuildRequestResponse(t *testing.T) {
 }
 
 func TestBuildRequestResponse_NoVote(t *testing.T) {
-	request := &models.Request{
+	request := &communitym.Request{
 		ID:          1,
 		Title:       "Test",
 		EntityType:  "artist",
-		Status:      models.RequestStatusPending,
+		Status:      communitym.RequestStatusPending,
 		RequesterID: 10,
 	}
 
@@ -678,13 +679,13 @@ func TestResolveUserDisplayName(t *testing.T) {
 
 	tests := []struct {
 		name     string
-		user     *models.User
+		user     *authm.User
 		expected string
 	}{
-		{"username", &models.User{Username: &username}, "cooluser"},
-		{"first+last", &models.User{FirstName: &firstName, LastName: &lastName}, "Jane Doe"},
-		{"first only", &models.User{FirstName: &firstName}, "Jane"},
-		{"empty", &models.User{}, "Unknown"},
+		{"username", &authm.User{Username: &username}, "cooluser"},
+		{"first+last", &authm.User{FirstName: &firstName, LastName: &lastName}, "Jane Doe"},
+		{"first only", &authm.User{FirstName: &firstName}, "Jane"},
+		{"empty", &authm.User{}, "Unknown"},
 	}
 
 	for _, tc := range tests {

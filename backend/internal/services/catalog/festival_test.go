@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/utils"
@@ -66,8 +66,8 @@ func TestFestivalServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *FestivalServiceIntegrationTestSuite) createTestArtistForFestival(name string) *models.Artist {
-	artist := &models.Artist{
+func (suite *FestivalServiceIntegrationTestSuite) createTestArtistForFestival(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name: name,
 	}
 	err := suite.db.Create(artist).Error
@@ -75,8 +75,8 @@ func (suite *FestivalServiceIntegrationTestSuite) createTestArtistForFestival(na
 	return artist
 }
 
-func (suite *FestivalServiceIntegrationTestSuite) createTestVenue(name, city, state string) *models.Venue {
-	venue := &models.Venue{
+func (suite *FestivalServiceIntegrationTestSuite) createTestVenue(name, city, state string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -430,11 +430,11 @@ func (suite *FestivalServiceIntegrationTestSuite) TestDeleteFestival_CascadesJun
 
 	// Verify junction records cleaned up
 	var faCount int64
-	suite.db.Model(&models.FestivalArtist{}).Where("festival_id = ?", created.ID).Count(&faCount)
+	suite.db.Model(&catalogm.FestivalArtist{}).Where("festival_id = ?", created.ID).Count(&faCount)
 	suite.Equal(int64(0), faCount)
 
 	var fvCount int64
-	suite.db.Model(&models.FestivalVenue{}).Where("festival_id = ?", created.ID).Count(&fvCount)
+	suite.db.Model(&catalogm.FestivalVenue{}).Where("festival_id = ?", created.ID).Count(&fvCount)
 	suite.Equal(int64(0), fvCount)
 }
 

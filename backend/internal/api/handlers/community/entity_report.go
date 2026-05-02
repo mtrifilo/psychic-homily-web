@@ -10,7 +10,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -91,7 +91,7 @@ func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType strin
 		return nil, huma.Error400BadRequest("Report type is required")
 	}
 
-	if !models.IsValidReportType(entityType, reportType) {
+	if !communitym.IsValidReportType(entityType, reportType) {
 		return nil, huma.Error400BadRequest("Invalid report type '" + reportType + "' for " + entityType)
 	}
 

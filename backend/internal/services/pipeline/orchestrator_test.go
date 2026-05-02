@@ -6,7 +6,8 @@ import (
 
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -67,7 +68,7 @@ func (s *stubExtraction) ExtractCalendarPage(venueName, content, contentType str
 }
 
 type stubDiscovery struct {
-	importEventsFn func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error)
+	importEventsFn func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error)
 }
 
 func (s *stubDiscovery) ImportFromJSON(filepath string, dryRun bool) (*contracts.ImportResult, error) {
@@ -79,7 +80,7 @@ func (s *stubDiscovery) ImportFromJSONWithDB(filepath string, dryRun bool, datab
 func (s *stubDiscovery) CheckEvents(events []contracts.CheckEventInput) (*contracts.CheckEventsResult, error) {
 	return nil, fmt.Errorf("not implemented in stub")
 }
-func (s *stubDiscovery) ImportEvents(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
+func (s *stubDiscovery) ImportEvents(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error) {
 	if s.importEventsFn != nil {
 		return s.importEventsFn(events, dryRun, allowUpdates, initialStatus)
 	}
@@ -87,22 +88,22 @@ func (s *stubDiscovery) ImportEvents(events []contracts.DiscoveredEvent, dryRun 
 }
 
 type stubVenueConfig struct {
-	getByVenueIDFn      func(venueID uint) (*models.VenueSourceConfig, error)
-	createOrUpdateFn    func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error)
+	getByVenueIDFn      func(venueID uint) (*adminm.VenueSourceConfig, error)
+	createOrUpdateFn    func(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error)
 	updateAfterRunFn    func(venueID uint, contentHash, etag *string, eventsExtracted int) error
 	incrementFailuresFn func(venueID uint) error
-	recordRunFn         func(run *models.VenueExtractionRun) error
-	getRecentRunsFn     func(venueID uint, limit int) ([]models.VenueExtractionRun, error)
-	listConfiguredFn    func() ([]models.VenueSourceConfig, error)
+	recordRunFn         func(run *adminm.VenueExtractionRun) error
+	getRecentRunsFn     func(venueID uint, limit int) ([]adminm.VenueExtractionRun, error)
+	listConfiguredFn    func() ([]adminm.VenueSourceConfig, error)
 }
 
-func (s *stubVenueConfig) GetByVenueID(venueID uint) (*models.VenueSourceConfig, error) {
+func (s *stubVenueConfig) GetByVenueID(venueID uint) (*adminm.VenueSourceConfig, error) {
 	if s.getByVenueIDFn != nil {
 		return s.getByVenueIDFn(venueID)
 	}
 	return nil, nil
 }
-func (s *stubVenueConfig) CreateOrUpdate(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+func (s *stubVenueConfig) CreateOrUpdate(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error) {
 	if s.createOrUpdateFn != nil {
 		return s.createOrUpdateFn(config)
 	}
@@ -120,13 +121,13 @@ func (s *stubVenueConfig) IncrementFailures(venueID uint) error {
 	}
 	return nil
 }
-func (s *stubVenueConfig) RecordRun(run *models.VenueExtractionRun) error {
+func (s *stubVenueConfig) RecordRun(run *adminm.VenueExtractionRun) error {
 	if s.recordRunFn != nil {
 		return s.recordRunFn(run)
 	}
 	return nil
 }
-func (s *stubVenueConfig) GetRecentRuns(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+func (s *stubVenueConfig) GetRecentRuns(venueID uint, limit int) ([]adminm.VenueExtractionRun, error) {
 	if s.getRecentRunsFn != nil {
 		return s.getRecentRunsFn(venueID, limit)
 	}
@@ -135,7 +136,7 @@ func (s *stubVenueConfig) GetRecentRuns(venueID uint, limit int) ([]models.Venue
 func (s *stubVenueConfig) GetAllRecentRuns(limit, offset int) ([]contracts.ImportHistoryEntry, int64, error) {
 	return nil, 0, nil
 }
-func (s *stubVenueConfig) ListConfigured() ([]models.VenueSourceConfig, error) {
+func (s *stubVenueConfig) ListConfigured() ([]adminm.VenueSourceConfig, error) {
 	if s.listConfiguredFn != nil {
 		return s.listConfiguredFn()
 	}
@@ -152,7 +153,7 @@ func (s *stubVenueConfig) ResetRenderMethod(venueID uint) error {
 }
 
 type stubVenueService struct {
-	getVenueModelFn func(venueID uint) (*models.Venue, error)
+	getVenueModelFn func(venueID uint) (*catalogm.Venue, error)
 }
 
 // Satisfy the full VenueServiceInterface with panics for methods we don't use.
@@ -175,7 +176,7 @@ func (s *stubVenueService) DeleteVenue(venueID uint) error { panic("not implemen
 func (s *stubVenueService) SearchVenues(query string) ([]*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*models.Venue, bool, error) {
+func (s *stubVenueService) FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error) {
 	panic("not implemented")
 }
 func (s *stubVenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResponse, error) {
@@ -193,12 +194,12 @@ func (s *stubVenueService) GetShowsForVenue(venueID uint, timezone string, limit
 func (s *stubVenueService) GetVenueCities() ([]*contracts.VenueCityResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) GetVenueModel(venueID uint) (*models.Venue, error) {
+func (s *stubVenueService) GetVenueModel(venueID uint) (*catalogm.Venue, error) {
 	if s.getVenueModelFn != nil {
 		return s.getVenueModelFn(venueID)
 	}
 	slug := "test-venue"
-	return &models.Venue{ID: venueID, Name: "Test Venue", Slug: &slug, City: "Phoenix", State: "AZ"}, nil
+	return &catalogm.Venue{ID: venueID, Name: "Test Venue", Slug: &slug, City: "Phoenix", State: "AZ"}, nil
 }
 func (s *stubVenueService) GetUnverifiedVenues(limit, offset int) ([]*contracts.UnverifiedVenueResponse, int64, error) {
 	panic("not implemented")
@@ -253,10 +254,10 @@ func withVenue(v contracts.VenueServiceInterface) func(*testPipelineOpts) {
 }
 
 // defaultConfig returns a VenueSourceConfig with calendar URL and static render method.
-func defaultConfig() *models.VenueSourceConfig {
+func defaultConfig() *adminm.VenueSourceConfig {
 	calURL := "https://example.com/events"
 	rm := "static"
-	return &models.VenueSourceConfig{
+	return &adminm.VenueSourceConfig{
 		ID:              1,
 		VenueID:         1,
 		CalendarURL:     &calURL,
@@ -277,15 +278,15 @@ func TestPipeline_NewPipelineService(t *testing.T) {
 }
 
 func TestPipeline_ExtractVenue_Success(t *testing.T) {
-	var recordedRun *models.VenueExtractionRun
+	var recordedRun *adminm.VenueExtractionRun
 	var updatedHash *string
 
 	ps := newTestPipeline(
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
-			recordRunFn: func(run *models.VenueExtractionRun) error {
+			recordRunFn: func(run *adminm.VenueExtractionRun) error {
 				recordedRun = run
 				return nil
 			},
@@ -348,12 +349,12 @@ func TestPipeline_ExtractVenue_DryRun(t *testing.T) {
 
 	ps := newTestPipeline(
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error) {
 				importCalled = true
 				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
@@ -382,7 +383,7 @@ func TestPipeline_ExtractVenue_DryRun(t *testing.T) {
 func TestPipeline_ExtractVenue_NoConfig(t *testing.T) {
 	ps := newTestPipeline(
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return nil, nil // no config
 			},
 		}),
@@ -400,8 +401,8 @@ func TestPipeline_ExtractVenue_NoConfig(t *testing.T) {
 func TestPipeline_ExtractVenue_NoCalendarURL(t *testing.T) {
 	ps := newTestPipeline(
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
-				return &models.VenueSourceConfig{
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
+				return &adminm.VenueSourceConfig{
 					ID:      1,
 					VenueID: 1,
 					// CalendarURL is nil
@@ -422,9 +423,9 @@ func TestPipeline_ExtractVenue_NoCalendarURL(t *testing.T) {
 func TestPipeline_ExtractVenue_EmptyCalendarURL(t *testing.T) {
 	ps := newTestPipeline(
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				empty := ""
-				return &models.VenueSourceConfig{
+				return &adminm.VenueSourceConfig{
 					ID:          1,
 					VenueID:     1,
 					CalendarURL: &empty,
@@ -440,7 +441,7 @@ func TestPipeline_ExtractVenue_EmptyCalendarURL(t *testing.T) {
 }
 
 func TestPipeline_ExtractVenue_UnchangedPage(t *testing.T) {
-	var recordedRun *models.VenueExtractionRun
+	var recordedRun *adminm.VenueExtractionRun
 
 	ps := newTestPipeline(
 		withFetcher(&stubFetcher{
@@ -449,10 +450,10 @@ func TestPipeline_ExtractVenue_UnchangedPage(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
-			recordRunFn: func(run *models.VenueExtractionRun) error {
+			recordRunFn: func(run *adminm.VenueExtractionRun) error {
 				recordedRun = run
 				return nil
 			},
@@ -482,7 +483,7 @@ func TestPipeline_ExtractVenue_UnchangedPage(t *testing.T) {
 
 func TestPipeline_ExtractVenue_AutoDetection(t *testing.T) {
 	detectedMethod := ""
-	var savedConfig *models.VenueSourceConfig
+	var savedConfig *adminm.VenueSourceConfig
 
 	ps := newTestPipeline(
 		withFetcher(&stubFetcher{
@@ -494,9 +495,9 @@ func TestPipeline_ExtractVenue_AutoDetection(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				calURL := "https://example.com/events"
-				return &models.VenueSourceConfig{
+				return &adminm.VenueSourceConfig{
 					ID:              1,
 					VenueID:         1,
 					CalendarURL:     &calURL,
@@ -504,7 +505,7 @@ func TestPipeline_ExtractVenue_AutoDetection(t *testing.T) {
 					RenderMethod:    nil, // not set — trigger auto-detect
 				}, nil
 			},
-			createOrUpdateFn: func(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+			createOrUpdateFn: func(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error) {
 				savedConfig = config
 				if config.RenderMethod != nil {
 					detectedMethod = *config.RenderMethod
@@ -540,9 +541,9 @@ func TestPipeline_ExtractVenue_AutoDetectionFails(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				calURL := "https://example.com/events"
-				return &models.VenueSourceConfig{
+				return &adminm.VenueSourceConfig{
 					ID:              1,
 					VenueID:         1,
 					CalendarURL:     &calURL,
@@ -550,7 +551,7 @@ func TestPipeline_ExtractVenue_AutoDetectionFails(t *testing.T) {
 					RenderMethod:    nil, // trigger auto-detect
 				}, nil
 			},
-			recordRunFn: func(run *models.VenueExtractionRun) error {
+			recordRunFn: func(run *adminm.VenueExtractionRun) error {
 				failureRecorded = run.Error != nil
 				return nil
 			},
@@ -577,10 +578,10 @@ func TestPipeline_ExtractVenue_ExtractionFails(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
-			recordRunFn: func(run *models.VenueExtractionRun) error {
+			recordRunFn: func(run *adminm.VenueExtractionRun) error {
 				failureRecorded = run.Error != nil
 				return nil
 			},
@@ -616,7 +617,7 @@ func TestPipeline_ExtractVenue_ExtractionReturnsError(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
 			incrementFailuresFn: func(venueID uint) error {
@@ -646,10 +647,10 @@ func TestPipeline_ExtractVenue_FetchFails(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
-			recordRunFn: func(run *models.VenueExtractionRun) error {
+			recordRunFn: func(run *adminm.VenueExtractionRun) error {
 				failureRecorded = run.Error != nil
 				return nil
 			},
@@ -683,10 +684,10 @@ func TestPipeline_ExtractVenue_DynamicRenderMethod(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				calURL := "https://example.com/events"
 				rm := "dynamic"
-				return &models.VenueSourceConfig{
+				return &adminm.VenueSourceConfig{
 					ID:              1,
 					VenueID:         1,
 					CalendarURL:     &calURL,
@@ -730,10 +731,10 @@ func TestPipeline_ExtractVenue_ScreenshotRenderMethod(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				calURL := "https://example.com/events"
 				rm := "screenshot"
-				return &models.VenueSourceConfig{
+				return &adminm.VenueSourceConfig{
 					ID:              1,
 					VenueID:         1,
 					CalendarURL:     &calURL,
@@ -762,7 +763,7 @@ func TestPipeline_ExtractVenue_ScreenshotRenderMethod(t *testing.T) {
 func TestPipeline_ExtractVenue_VenueNotFound(t *testing.T) {
 	ps := newTestPipeline(
 		withVenue(&stubVenueService{
-			getVenueModelFn: func(venueID uint) (*models.Venue, error) {
+			getVenueModelFn: func(venueID uint) (*catalogm.Venue, error) {
 				return nil, fmt.Errorf("venue not found")
 			},
 		}),
@@ -779,10 +780,10 @@ func TestPipeline_ExtractVenue_UnknownRenderMethod(t *testing.T) {
 
 	ps := newTestPipeline(
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				calURL := "https://example.com/events"
 				rm := "unknown_method"
-				return &models.VenueSourceConfig{
+				return &adminm.VenueSourceConfig{
 					ID:              1,
 					VenueID:         1,
 					CalendarURL:     &calURL,
@@ -810,12 +811,12 @@ func TestPipeline_ExtractVenue_ImportFails_NonFatal(t *testing.T) {
 	// Import failure should NOT cause the pipeline to error — extraction still succeeded
 	ps := newTestPipeline(
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error) {
 				return nil, fmt.Errorf("database error")
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
 		}),
@@ -845,7 +846,7 @@ func TestPipeline_ExtractVenue_NoEventsExtracted(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
 		}),
@@ -871,10 +872,10 @@ func TestPipeline_ExtractVenue_DynamicAlwaysProceeds(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				calURL := "https://example.com/events"
 				rm := "dynamic"
-				return &models.VenueSourceConfig{
+				return &adminm.VenueSourceConfig{
 					ID:              1,
 					VenueID:         1,
 					CalendarURL:     &calURL,
@@ -926,18 +927,18 @@ func TestPipeline_IntPtrIfNonZero(t *testing.T) {
 // ============================================================================
 
 func TestPipeline_ExtractVenue_AutoApproveFalse_ImportsPending(t *testing.T) {
-	var capturedStatus models.ShowStatus
+	var capturedStatus catalogm.ShowStatus
 
 	ps := newTestPipeline(
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				cfg := defaultConfig()
 				cfg.AutoApprove = false // explicitly false
 				return cfg, nil
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error) {
 				capturedStatus = initialStatus
 				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
@@ -949,27 +950,27 @@ func TestPipeline_ExtractVenue_AutoApproveFalse_ImportsPending(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if capturedStatus != models.ShowStatusPending {
+	if capturedStatus != catalogm.ShowStatusPending {
 		t.Errorf("expected initial status=pending, got %s", capturedStatus)
 	}
-	if result.InitialStatus != string(models.ShowStatusPending) {
+	if result.InitialStatus != string(catalogm.ShowStatusPending) {
 		t.Errorf("expected result initial_status=pending, got %s", result.InitialStatus)
 	}
 }
 
 func TestPipeline_ExtractVenue_AutoApproveTrue_ImportsApproved(t *testing.T) {
-	var capturedStatus models.ShowStatus
+	var capturedStatus catalogm.ShowStatus
 
 	ps := newTestPipeline(
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				cfg := defaultConfig()
 				cfg.AutoApprove = true
 				return cfg, nil
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error) {
 				capturedStatus = initialStatus
 				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},
@@ -981,10 +982,10 @@ func TestPipeline_ExtractVenue_AutoApproveTrue_ImportsApproved(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 
-	if capturedStatus != models.ShowStatusApproved {
+	if capturedStatus != catalogm.ShowStatusApproved {
 		t.Errorf("expected initial status=approved, got %s", capturedStatus)
 	}
-	if result.InitialStatus != string(models.ShowStatusApproved) {
+	if result.InitialStatus != string(catalogm.ShowStatusApproved) {
 		t.Errorf("expected result initial_status=approved, got %s", result.InitialStatus)
 	}
 }
@@ -1008,12 +1009,12 @@ func TestPipeline_ExtractVenue_FiltersNonMusicEvents(t *testing.T) {
 			},
 		}),
 		withVenueConfig(&stubVenueConfig{
-			getByVenueIDFn: func(venueID uint) (*models.VenueSourceConfig, error) {
+			getByVenueIDFn: func(venueID uint) (*adminm.VenueSourceConfig, error) {
 				return defaultConfig(), nil
 			},
 		}),
 		withDiscovery(&stubDiscovery{
-			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus models.ShowStatus) (*contracts.ImportResult, error) {
+			importEventsFn: func(events []contracts.DiscoveredEvent, dryRun bool, allowUpdates bool, initialStatus catalogm.ShowStatus) (*contracts.ImportResult, error) {
 				importedEvents = events
 				return &contracts.ImportResult{Total: len(events), Imported: len(events)}, nil
 			},

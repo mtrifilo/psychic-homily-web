@@ -13,7 +13,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/utils"
@@ -34,11 +34,11 @@ func TestParseReleaseYear(t *testing.T) {
 		{"1998", 1998},
 		{"", 0},
 		{"abc", 0},
-		{"12", 0},        // too short
-		{"0000", 0},      // out of range
-		{"9999", 0},      // out of range
-		{"1899", 0},      // out of range (< 1900)
-		{"2101", 0},      // out of range (> 2100)
+		{"12", 0},   // too short
+		{"0000", 0}, // out of range
+		{"9999", 0}, // out of range
+		{"1899", 0}, // out of range (< 1900)
+		{"2101", 0}, // out of range (> 2100)
 	}
 
 	for _, tt := range tests {
@@ -900,7 +900,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_ExactNameMatch() {
 	suite.Equal(0, result.Unmatched)
 
 	// Verify play is now linked
-	var play models.RadioPlay
+	var play catalogm.RadioPlay
 	suite.db.Where("episode_id = ?", ep.ID).First(&play)
 	suite.NotNil(play.ArtistID)
 }
@@ -927,7 +927,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_AliasMatch() {
 
 	// Create artist with alias
 	artist := suite.createArtist("Radiohead")
-	alias := &models.ArtistAlias{
+	alias := &catalogm.ArtistAlias{
 		ArtistID: artist.ID,
 		Alias:    "Thom Yorke",
 	}
@@ -939,7 +939,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_AliasMatch() {
 	suite.Equal(1, result.Matched)
 
 	// Verify linked to the canonical artist
-	var play models.RadioPlay
+	var play catalogm.RadioPlay
 	suite.db.Where("episode_id = ?", ep.ID).First(&play)
 	suite.NotNil(play.ArtistID)
 	suite.Equal(artist.ID, *play.ArtistID)
@@ -959,7 +959,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_Unmatched() {
 	suite.Equal(1, result.Unmatched)
 
 	// Verify play still has no artist_id
-	var play models.RadioPlay
+	var play catalogm.RadioPlay
 	suite.db.Where("episode_id = ?", ep.ID).First(&play)
 	suite.Nil(play.ArtistID)
 }
@@ -970,7 +970,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_LabelMatch() {
 	ep := suite.createEpisode(show.ID, "2026-01-15")
 
 	labelName := "Sub Pop"
-	play := &models.RadioPlay{
+	play := &catalogm.RadioPlay{
 		EpisodeID:  ep.ID,
 		Position:   0,
 		ArtistName: "Fleet Foxes",
@@ -988,7 +988,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_LabelMatch() {
 	suite.Equal(1, result.Matched) // Artist matched
 
 	// Verify label also matched
-	var updated models.RadioPlay
+	var updated catalogm.RadioPlay
 	suite.db.First(&updated, play.ID)
 	suite.NotNil(updated.ArtistID)
 	suite.NotNil(updated.LabelID)
@@ -1000,7 +1000,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_ReleaseMatch() {
 	ep := suite.createEpisode(show.ID, "2026-01-15")
 
 	albumTitle := "Kid A"
-	play := &models.RadioPlay{
+	play := &catalogm.RadioPlay{
 		EpisodeID:  ep.ID,
 		Position:   0,
 		ArtistName: "Radiohead",
@@ -1016,7 +1016,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_ReleaseMatch() {
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Matched)
 
-	var updated models.RadioPlay
+	var updated catalogm.RadioPlay
 	suite.db.First(&updated, play.ID)
 	suite.NotNil(updated.ArtistID)
 	suite.NotNil(updated.ReleaseID)
@@ -1030,7 +1030,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_SkipsAlreadyMatched
 	artist := suite.createArtist("Radiohead")
 
 	// Create a play that's already matched
-	play := &models.RadioPlay{
+	play := &catalogm.RadioPlay{
 		EpisodeID:  ep.ID,
 		Position:   0,
 		ArtistName: "Radiohead",
@@ -1151,10 +1151,10 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 	defer server.Close()
 
 	// Create station with a temporary provider override
-	source := models.PlaylistSourceKEXP
+	source := catalogm.PlaylistSourceKEXP
 	stationResp, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
 		Name:           "KEXP",
-		BroadcastType:  models.BroadcastTypeBoth,
+		BroadcastType:  catalogm.BroadcastTypeBoth,
 		PlaylistSource: &source,
 	})
 	suite.Require().NoError(err)
@@ -1175,7 +1175,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 func (suite *RadioImportIntegrationTestSuite) TestImportStation_NoPlaylistSource() {
 	stationResp, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
 		Name:          "No Source",
-		BroadcastType: models.BroadcastTypeBoth,
+		BroadcastType: catalogm.BroadcastTypeBoth,
 	})
 	suite.Require().NoError(err)
 
@@ -1204,7 +1204,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_CreateNew() {
 	suite.NotZero(showID)
 
 	// Verify show was created
-	var show models.RadioShow
+	var show catalogm.RadioShow
 	suite.db.First(&show, showID)
 	suite.Equal("The Morning Show", show.Name)
 	suite.Equal("John Richards", *show.HostName)
@@ -1218,7 +1218,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_PreservesCurat
 	extID := "42"
 	curatedDesc := "Curated description by admin"
 	curatedHost := "Kennady Quille"
-	show := &models.RadioShow{
+	show := &catalogm.RadioShow{
 		StationID:   station.ID,
 		Name:        "Audioasis",
 		Slug:        "audioasis",
@@ -1243,10 +1243,10 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_PreservesCurat
 	suite.Equal(show.ID, showID)
 
 	// Verify curated values are preserved
-	var updated models.RadioShow
+	var updated catalogm.RadioShow
 	suite.db.First(&updated, showID)
-	suite.Equal("Audioasis", updated.Name)              // kept curated name
-	suite.Equal("Kennady Quille", *updated.HostName)    // kept curated host
+	suite.Equal("Audioasis", updated.Name)                            // kept curated name
+	suite.Equal("Kennady Quille", *updated.HostName)                  // kept curated host
 	suite.Equal("Curated description by admin", *updated.Description) // kept curated description
 	// ImageURL was NULL, so it gets filled from import data
 	suite.Require().NotNil(updated.ImageURL)
@@ -1258,7 +1258,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_FillsEmptyFiel
 
 	// Create initial show with minimal data (no host, no description)
 	extID := "42"
-	show := &models.RadioShow{
+	show := &catalogm.RadioShow{
 		StationID:  station.ID,
 		Name:       "New Show",
 		Slug:       "new-show",
@@ -1279,11 +1279,11 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_FillsEmptyFiel
 	suite.Require().NoError(err)
 	suite.Equal(show.ID, showID)
 
-	var updated models.RadioShow
+	var updated catalogm.RadioShow
 	suite.db.First(&updated, showID)
-	suite.Equal("New Show", updated.Name)                // name was non-empty, kept
-	suite.Equal("DJ Host", *updated.HostName)            // was nil, filled
-	suite.Equal("A great show", *updated.Description)    // was nil, filled
+	suite.Equal("New Show", updated.Name)                           // name was non-empty, kept
+	suite.Equal("DJ Host", *updated.HostName)                       // was nil, filled
+	suite.Equal("A great show", *updated.Description)               // was nil, filled
 	suite.Equal("https://example.com/archive", *updated.ArchiveURL) // was nil, filled
 }
 
@@ -1294,7 +1294,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_SlugFallback()
 	// The seed had external_id='1' for "The Morning Show", but the real
 	// KEXP API program ID is '16'.
 	wrongExtID := "1"
-	show := &models.RadioShow{
+	show := &catalogm.RadioShow{
 		StationID:  station.ID,
 		Name:       "The Morning Show",
 		Slug:       "the-morning-show",
@@ -1315,7 +1315,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_SlugFallback()
 	suite.Equal(show.ID, showID, "should match the existing show by slug, not create a new one")
 
 	// Verify external_id was updated to the correct value
-	var updated models.RadioShow
+	var updated catalogm.RadioShow
 	suite.db.First(&updated, showID)
 	suite.Equal("16", *updated.ExternalID)
 	suite.Equal("The Morning Show", updated.Name)
@@ -1323,7 +1323,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_SlugFallback()
 
 	// Verify no duplicate was created
 	var count int64
-	suite.db.Model(&models.RadioShow{}).Where("station_id = ?", station.ID).Count(&count)
+	suite.db.Model(&catalogm.RadioShow{}).Where("station_id = ?", station.ID).Count(&count)
 	suite.Equal(int64(1), count)
 }
 
@@ -1333,7 +1333,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_SlugFallbackDo
 
 	// Create show in station1 with slug "morning-show"
 	extID := "1"
-	show := &models.RadioShow{
+	show := &catalogm.RadioShow{
 		StationID:  station1.ID,
 		Name:       "Morning Show",
 		Slug:       "morning-show",
@@ -1383,7 +1383,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportEpisode_DeduplicatesByEx
 
 	// Verify only one episode exists
 	var count int64
-	suite.db.Model(&models.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&count)
+	suite.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&count)
 	suite.Equal(int64(1), count)
 }
 
@@ -1404,7 +1404,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_BatchInsert() {
 	suite.Equal(3, count)
 
 	// Verify plays in DB
-	var dbPlays []models.RadioPlay
+	var dbPlays []catalogm.RadioPlay
 	suite.db.Where("episode_id = ?", ep.ID).Order("position ASC").Find(&dbPlays)
 	suite.Len(dbPlays, 3)
 	suite.Equal("Radiohead", dbPlays[0].ArtistName)
@@ -1431,7 +1431,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_LabelCaseInsensitiv
 	ep := suite.createEpisode(show.ID, "2026-01-15")
 
 	labelName := "sub pop" // lowercase
-	play := &models.RadioPlay{
+	play := &catalogm.RadioPlay{
 		EpisodeID:  ep.ID,
 		Position:   0,
 		ArtistName: "Fleet Foxes",
@@ -1447,7 +1447,7 @@ func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_LabelCaseInsensitiv
 	suite.Require().NoError(err)
 	suite.Equal(1, result.Matched)
 
-	var updated models.RadioPlay
+	var updated catalogm.RadioPlay
 	suite.db.First(&updated, play.ID)
 	suite.NotNil(updated.LabelID) // Case-insensitive match
 }
@@ -1459,7 +1459,7 @@ func (suite *RadioImportIntegrationTestSuite) TestGetProvider_Unsupported() {
 }
 
 func (suite *RadioImportIntegrationTestSuite) TestGetProvider_KEXP() {
-	provider, err := suite.radioService.getProvider(models.PlaylistSourceKEXP)
+	provider, err := suite.radioService.getProvider(catalogm.PlaylistSourceKEXP)
 	suite.Require().NoError(err)
 	suite.NotNil(provider)
 	closeProvider(provider)
@@ -1472,7 +1472,7 @@ func (suite *RadioImportIntegrationTestSuite) TestGetProvider_KEXP() {
 func (suite *RadioImportIntegrationTestSuite) createStation(name string) *contracts.RadioStationDetailResponse {
 	resp, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
 		Name:          name,
-		BroadcastType: models.BroadcastTypeBoth,
+		BroadcastType: catalogm.BroadcastTypeBoth,
 	})
 	suite.Require().NoError(err)
 	return resp
@@ -1486,8 +1486,8 @@ func (suite *RadioImportIntegrationTestSuite) createShow(stationID uint, name st
 	return resp
 }
 
-func (suite *RadioImportIntegrationTestSuite) createEpisode(showID uint, airDate string) *models.RadioEpisode {
-	ep := &models.RadioEpisode{
+func (suite *RadioImportIntegrationTestSuite) createEpisode(showID uint, airDate string) *catalogm.RadioEpisode {
+	ep := &catalogm.RadioEpisode{
 		ShowID:  showID,
 		AirDate: airDate,
 	}
@@ -1496,8 +1496,8 @@ func (suite *RadioImportIntegrationTestSuite) createEpisode(showID uint, airDate
 	return ep
 }
 
-func (suite *RadioImportIntegrationTestSuite) createPlay(episodeID uint, position int, artistName string) *models.RadioPlay {
-	play := &models.RadioPlay{
+func (suite *RadioImportIntegrationTestSuite) createPlay(episodeID uint, position int, artistName string) *catalogm.RadioPlay {
+	play := &catalogm.RadioPlay{
 		EpisodeID:  episodeID,
 		Position:   position,
 		ArtistName: artistName,
@@ -1507,23 +1507,23 @@ func (suite *RadioImportIntegrationTestSuite) createPlay(episodeID uint, positio
 	return play
 }
 
-func (suite *RadioImportIntegrationTestSuite) createArtist(name string) *models.Artist {
+func (suite *RadioImportIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
 	slug := utils.GenerateArtistSlug(name)
-	artist := &models.Artist{Name: name, Slug: &slug}
+	artist := &catalogm.Artist{Name: name, Slug: &slug}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
 }
 
-func (suite *RadioImportIntegrationTestSuite) createRelease(title string) *models.Release {
-	release := &models.Release{Title: title}
+func (suite *RadioImportIntegrationTestSuite) createRelease(title string) *catalogm.Release {
+	release := &catalogm.Release{Title: title}
 	err := suite.db.Create(release).Error
 	suite.Require().NoError(err)
 	return release
 }
 
-func (suite *RadioImportIntegrationTestSuite) createLabel(name string) *models.Label {
-	label := &models.Label{Name: name, Status: models.LabelStatusActive}
+func (suite *RadioImportIntegrationTestSuite) createLabel(name string) *catalogm.Label {
+	label := &catalogm.Label{Name: name, Status: catalogm.LabelStatusActive}
 	err := suite.db.Create(label).Error
 	suite.Require().NoError(err)
 	return label
@@ -1531,7 +1531,7 @@ func (suite *RadioImportIntegrationTestSuite) createLabel(name string) *models.L
 
 // runImportWithProvider runs the import pipeline with a specific provider (bypassing getProvider).
 func (suite *RadioImportIntegrationTestSuite) runImportWithProvider(stationID uint, backfillDays int, provider RadioPlaylistProvider) *contracts.RadioImportResult {
-	var station models.RadioStation
+	var station catalogm.RadioStation
 	suite.Require().NoError(suite.db.First(&station, stationID).Error)
 
 	result := &contracts.RadioImportResult{}

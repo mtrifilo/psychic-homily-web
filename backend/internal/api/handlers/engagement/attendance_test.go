@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -28,7 +28,7 @@ func TestSetAttendanceHandler_NoAuth(t *testing.T) {
 
 func TestSetAttendanceHandler_InvalidID(t *testing.T) {
 	h := testAttendanceHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "abc"}
 	req.Body.Status = "going"
 
@@ -38,7 +38,7 @@ func TestSetAttendanceHandler_InvalidID(t *testing.T) {
 
 func TestSetAttendanceHandler_InvalidStatus(t *testing.T) {
 	h := NewAttendanceHandler(&testhelpers.MockAttendanceService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = "maybe"
 
@@ -56,7 +56,7 @@ func TestSetAttendanceHandler_Going_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = "going"
 
@@ -79,7 +79,7 @@ func TestSetAttendanceHandler_Interested_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = "interested"
 
@@ -102,7 +102,7 @@ func TestSetAttendanceHandler_Clear_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = ""
 
@@ -122,7 +122,7 @@ func TestSetAttendanceHandler_ShowNotFound(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "999"}
 	req.Body.Status = "going"
 
@@ -137,7 +137,7 @@ func TestSetAttendanceHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetAttendanceRequest{ShowID: "42"}
 	req.Body.Status = "going"
 
@@ -157,7 +157,7 @@ func TestRemoveAttendanceHandler_NoAuth(t *testing.T) {
 
 func TestRemoveAttendanceHandler_InvalidID(t *testing.T) {
 	h := testAttendanceHandler()
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &RemoveAttendanceRequest{ShowID: "abc"}
 
 	_, err := h.RemoveAttendanceHandler(ctx, req)
@@ -174,7 +174,7 @@ func TestRemoveAttendanceHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &RemoveAttendanceRequest{ShowID: "42"}
 
 	resp, err := h.RemoveAttendanceHandler(ctx, req)
@@ -193,7 +193,7 @@ func TestRemoveAttendanceHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &RemoveAttendanceRequest{ShowID: "42"}
 
 	_, err := h.RemoveAttendanceHandler(ctx, req)
@@ -252,7 +252,7 @@ func TestGetAttendanceHandler_Success_WithAuth(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetAttendanceRequest{ShowID: "42"}
 
 	resp, err := h.GetAttendanceHandler(ctx, req)
@@ -368,7 +368,7 @@ func TestBatchAttendanceHandler_Success_WithAuth(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &BatchAttendanceRequest{}
 	req.Body.ShowIDs = []int{1, 2, 3}
 
@@ -413,7 +413,7 @@ func TestGetMyShowsHandler_NoAuth(t *testing.T) {
 
 func TestGetMyShowsHandler_InvalidStatus(t *testing.T) {
 	h := NewAttendanceHandler(&testhelpers.MockAttendanceService{})
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetMyShowsRequest{Status: "maybe"}
 
 	_, err := h.GetMyShowsHandler(ctx, req)
@@ -443,7 +443,7 @@ func TestGetMyShowsHandler_Success(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetMyShowsRequest{Status: "all", Limit: 20, Offset: 0}
 
 	resp, err := h.GetMyShowsHandler(ctx, req)
@@ -465,7 +465,7 @@ func TestGetMyShowsHandler_ServiceError(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &GetMyShowsRequest{Status: "all", Limit: 20}
 
 	_, err := h.GetMyShowsHandler(ctx, req)
@@ -482,7 +482,7 @@ func TestGetMyShowsHandler_PaginationClamping(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	// limit=0 -> 20, offset=-1 -> 0
 	_, err := h.GetMyShowsHandler(ctx, &GetMyShowsRequest{Status: "all", Limit: 0, Offset: -1})
@@ -512,7 +512,7 @@ func TestGetMyShowsHandler_DefaultStatus(t *testing.T) {
 		},
 	}
 	h := NewAttendanceHandler(mock)
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	// Empty status defaults to "all"
 	_, err := h.GetMyShowsHandler(ctx, &GetMyShowsRequest{Status: "", Limit: 20})

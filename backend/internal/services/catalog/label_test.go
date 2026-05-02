@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -69,8 +69,8 @@ func (suite *LabelServiceIntegrationTestSuite) createTestLabel(name string) *con
 	return resp
 }
 
-func (suite *LabelServiceIntegrationTestSuite) createTestArtistForLabel(name string) *models.Artist {
-	artist := &models.Artist{
+func (suite *LabelServiceIntegrationTestSuite) createTestArtistForLabel(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name: name,
 	}
 	err := suite.db.Create(artist).Error
@@ -78,9 +78,9 @@ func (suite *LabelServiceIntegrationTestSuite) createTestArtistForLabel(name str
 	return artist
 }
 
-func (suite *LabelServiceIntegrationTestSuite) createTestReleaseForLabel(title string) *models.Release {
+func (suite *LabelServiceIntegrationTestSuite) createTestReleaseForLabel(title string) *catalogm.Release {
 	slug := title
-	release := &models.Release{
+	release := &catalogm.Release{
 		Title: title,
 		Slug:  &slug,
 	}

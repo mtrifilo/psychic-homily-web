@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -20,60 +22,60 @@ import (
 
 func TestEntityReportModel_Validation(t *testing.T) {
 	// Valid entity types
-	assert.True(t, models.IsValidEntityReportEntityType("artist"))
-	assert.True(t, models.IsValidEntityReportEntityType("venue"))
-	assert.True(t, models.IsValidEntityReportEntityType("festival"))
-	assert.True(t, models.IsValidEntityReportEntityType("show"))
-	assert.False(t, models.IsValidEntityReportEntityType(""))
-	assert.False(t, models.IsValidEntityReportEntityType("release"))
-	assert.False(t, models.IsValidEntityReportEntityType("label"))
+	assert.True(t, communitym.IsValidEntityReportEntityType("artist"))
+	assert.True(t, communitym.IsValidEntityReportEntityType("venue"))
+	assert.True(t, communitym.IsValidEntityReportEntityType("festival"))
+	assert.True(t, communitym.IsValidEntityReportEntityType("show"))
+	assert.False(t, communitym.IsValidEntityReportEntityType(""))
+	assert.False(t, communitym.IsValidEntityReportEntityType("release"))
+	assert.False(t, communitym.IsValidEntityReportEntityType("label"))
 
 	// Valid report types per entity
-	assert.True(t, models.IsValidReportType("artist", "inaccurate"))
-	assert.True(t, models.IsValidReportType("artist", "duplicate"))
-	assert.True(t, models.IsValidReportType("artist", "wrong_image"))
-	assert.True(t, models.IsValidReportType("artist", "removal_request"))
-	assert.True(t, models.IsValidReportType("artist", "missing_info"))
-	assert.False(t, models.IsValidReportType("artist", "cancelled"))
+	assert.True(t, communitym.IsValidReportType("artist", "inaccurate"))
+	assert.True(t, communitym.IsValidReportType("artist", "duplicate"))
+	assert.True(t, communitym.IsValidReportType("artist", "wrong_image"))
+	assert.True(t, communitym.IsValidReportType("artist", "removal_request"))
+	assert.True(t, communitym.IsValidReportType("artist", "missing_info"))
+	assert.False(t, communitym.IsValidReportType("artist", "cancelled"))
 
-	assert.True(t, models.IsValidReportType("venue", "closed_permanently"))
-	assert.True(t, models.IsValidReportType("venue", "wrong_address"))
-	assert.True(t, models.IsValidReportType("venue", "duplicate"))
-	assert.False(t, models.IsValidReportType("venue", "cancelled"))
+	assert.True(t, communitym.IsValidReportType("venue", "closed_permanently"))
+	assert.True(t, communitym.IsValidReportType("venue", "wrong_address"))
+	assert.True(t, communitym.IsValidReportType("venue", "duplicate"))
+	assert.False(t, communitym.IsValidReportType("venue", "cancelled"))
 
-	assert.True(t, models.IsValidReportType("festival", "cancelled"))
-	assert.True(t, models.IsValidReportType("festival", "wrong_dates"))
-	assert.False(t, models.IsValidReportType("festival", "sold_out"))
+	assert.True(t, communitym.IsValidReportType("festival", "cancelled"))
+	assert.True(t, communitym.IsValidReportType("festival", "wrong_dates"))
+	assert.False(t, communitym.IsValidReportType("festival", "sold_out"))
 
-	assert.True(t, models.IsValidReportType("show", "cancelled"))
-	assert.True(t, models.IsValidReportType("show", "sold_out"))
-	assert.True(t, models.IsValidReportType("show", "wrong_venue"))
-	assert.True(t, models.IsValidReportType("show", "wrong_date"))
-	assert.False(t, models.IsValidReportType("show", "removal_request"))
+	assert.True(t, communitym.IsValidReportType("show", "cancelled"))
+	assert.True(t, communitym.IsValidReportType("show", "sold_out"))
+	assert.True(t, communitym.IsValidReportType("show", "wrong_venue"))
+	assert.True(t, communitym.IsValidReportType("show", "wrong_date"))
+	assert.False(t, communitym.IsValidReportType("show", "removal_request"))
 
 	// Invalid entity type
-	assert.False(t, models.IsValidReportType("release", "inaccurate"))
+	assert.False(t, communitym.IsValidReportType("release", "inaccurate"))
 }
 
 func TestValidReportTypesForEntity(t *testing.T) {
-	artistTypes := models.ValidReportTypesForEntity("artist")
+	artistTypes := communitym.ValidReportTypesForEntity("artist")
 	assert.Len(t, artistTypes, 5)
 
-	venueTypes := models.ValidReportTypesForEntity("venue")
+	venueTypes := communitym.ValidReportTypesForEntity("venue")
 	assert.Len(t, venueTypes, 5)
 
-	festivalTypes := models.ValidReportTypesForEntity("festival")
+	festivalTypes := communitym.ValidReportTypesForEntity("festival")
 	assert.Len(t, festivalTypes, 4)
 
-	showTypes := models.ValidReportTypesForEntity("show")
+	showTypes := communitym.ValidReportTypesForEntity("show")
 	assert.Len(t, showTypes, 5)
 
-	unknownTypes := models.ValidReportTypesForEntity("release")
+	unknownTypes := communitym.ValidReportTypesForEntity("release")
 	assert.Nil(t, unknownTypes)
 }
 
 func TestValidEntityReportEntityTypes(t *testing.T) {
-	types := models.ValidEntityReportEntityTypes()
+	types := communitym.ValidEntityReportEntityTypes()
 	assert.Len(t, types, 5)
 	assert.Contains(t, types, "artist")
 	assert.Contains(t, types, "venue")
@@ -122,8 +124,8 @@ func TestEntityReportServiceIntegrationSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (s *EntityReportServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (s *EntityReportServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("er-user-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("er-user-%d", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
@@ -136,9 +138,9 @@ func (s *EntityReportServiceIntegrationTestSuite) createTestUser() *models.User 
 	return user
 }
 
-func (s *EntityReportServiceIntegrationTestSuite) createTestArtist(name string) *models.Artist {
+func (s *EntityReportServiceIntegrationTestSuite) createTestArtist(name string) *catalogm.Artist {
 	slug := fmt.Sprintf("test-artist-%d", time.Now().UnixNano())
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -147,9 +149,9 @@ func (s *EntityReportServiceIntegrationTestSuite) createTestArtist(name string) 
 	return artist
 }
 
-func (s *EntityReportServiceIntegrationTestSuite) createTestVenue(name string) *models.Venue {
+func (s *EntityReportServiceIntegrationTestSuite) createTestVenue(name string) *catalogm.Venue {
 	slug := fmt.Sprintf("test-venue-%d", time.Now().UnixNano())
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:  name,
 		Slug:  &slug,
 		City:  "Phoenix",
@@ -160,9 +162,9 @@ func (s *EntityReportServiceIntegrationTestSuite) createTestVenue(name string) *
 	return venue
 }
 
-func (s *EntityReportServiceIntegrationTestSuite) createTestFestival(name string) *models.Festival {
+func (s *EntityReportServiceIntegrationTestSuite) createTestFestival(name string) *catalogm.Festival {
 	slug := fmt.Sprintf("test-festival-%d", time.Now().UnixNano())
-	festival := &models.Festival{
+	festival := &catalogm.Festival{
 		Name:        name,
 		Slug:        slug,
 		SeriesSlug:  slug,
@@ -175,8 +177,8 @@ func (s *EntityReportServiceIntegrationTestSuite) createTestFestival(name string
 	return festival
 }
 
-func (s *EntityReportServiceIntegrationTestSuite) createTestShow() *models.Show {
-	show := &models.Show{
+func (s *EntityReportServiceIntegrationTestSuite) createTestShow() *catalogm.Show {
+	show := &catalogm.Show{
 		Title:     "Test Show",
 		EventDate: time.Date(2026, 6, 15, 20, 0, 0, 0, time.UTC),
 		Status:    "approved",

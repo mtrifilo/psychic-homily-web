@@ -10,7 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/notification"
 )
@@ -453,7 +453,7 @@ func (h *NotificationFilterHandler) UnsubscribeFilterHandler(ctx context.Context
 // ──────────────────────────────────────────────
 
 // filterToResponse converts a model to API response.
-func filterToResponse(f *models.NotificationFilter) contracts.NotificationFilterResponse {
+func filterToResponse(f *notificationm.NotificationFilter) contracts.NotificationFilterResponse {
 	resp := contracts.NotificationFilterResponse{
 		ID:            f.ID,
 		Name:          f.Name,

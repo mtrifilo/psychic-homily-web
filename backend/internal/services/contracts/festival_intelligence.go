@@ -59,11 +59,11 @@ type FestivalBreakouts struct {
 
 // ArtistBreakout represents an artist whose billing tier improved across festivals.
 type ArtistBreakout struct {
-	Artist          ArtistSummary   `json:"artist"`
-	CurrentTier     string          `json:"current_tier"`
+	Artist          ArtistSummary     `json:"artist"`
+	CurrentTier     string            `json:"current_tier"`
 	Trajectory      []TrajectoryEntry `json:"trajectory"`
-	TierImprovement int             `json:"tier_improvement"`
-	BreakoutScore   float64         `json:"breakout_score"`
+	TierImprovement int               `json:"tier_improvement"`
+	BreakoutScore   float64           `json:"breakout_score"`
 }
 
 // TrajectoryEntry is one stop in an artist's festival billing history.
@@ -84,21 +84,21 @@ type ArtistMilestone struct {
 
 // ArtistTrajectory is the full festival billing history for a single artist.
 type ArtistTrajectory struct {
-	Artist           ArtistSummary   `json:"artist"`
+	Artist           ArtistSummary     `json:"artist"`
 	Appearances      []TrajectoryEntry `json:"appearances"`
-	BestTier         string          `json:"best_tier"`
-	TotalAppearances int             `json:"total_appearances"`
-	BreakoutScore    float64         `json:"breakout_score"`
+	BestTier         string            `json:"best_tier"`
+	TotalAppearances int               `json:"total_appearances"`
+	BreakoutScore    float64           `json:"breakout_score"`
 }
 
 // SeriesComparison shows year-over-year analysis for a recurring festival series.
 type SeriesComparison struct {
-	SeriesSlug       string             `json:"series_slug"`
-	Editions         []SeriesEdition    `json:"editions"`
-	ReturningArtists []ReturningArtist  `json:"returning_artists"`
-	Newcomers        []SeriesNewcomer   `json:"newcomers"`
-	RetentionRate    float64            `json:"retention_rate"`
-	LineupGrowth     float64            `json:"lineup_growth"`
+	SeriesSlug       string            `json:"series_slug"`
+	Editions         []SeriesEdition   `json:"editions"`
+	ReturningArtists []ReturningArtist `json:"returning_artists"`
+	Newcomers        []SeriesNewcomer  `json:"newcomers"`
+	RetentionRate    float64           `json:"retention_rate"`
+	LineupGrowth     float64           `json:"lineup_growth"`
 }
 
 // SeriesEdition describes one year/edition in a festival series.

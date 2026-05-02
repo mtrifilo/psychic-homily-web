@@ -7,7 +7,8 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -20,23 +21,23 @@ func testPendingEditHandler() *PendingEditHandler {
 }
 
 func pendingEditAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true, UserTier: "new_user"})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true, UserTier: "new_user"})
 }
 
 func pendingEditTrustedCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 2, IsAdmin: false, UserTier: "trusted_contributor"})
+	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: false, UserTier: "trusted_contributor"})
 }
 
 func pendingEditNewUserCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 3, IsAdmin: false, UserTier: "new_user"})
+	return testhelpers.CtxWithUser(&authm.User{ID: 3, IsAdmin: false, UserTier: "new_user"})
 }
 
 func pendingEditContributorCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 4, IsAdmin: false, UserTier: "contributor"})
+	return testhelpers.CtxWithUser(&authm.User{ID: 4, IsAdmin: false, UserTier: "contributor"})
 }
 
 func pendingEditLocalAmbassadorCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 5, IsAdmin: false, UserTier: "local_ambassador"})
+	return testhelpers.CtxWithUser(&authm.User{ID: 5, IsAdmin: false, UserTier: "local_ambassador"})
 }
 
 func makePendingEditResponse(id uint) *contracts.PendingEditResponse {
@@ -47,11 +48,11 @@ func makePendingEditResponse(id uint) *contracts.PendingEditResponse {
 		EntityID:      10,
 		SubmittedBy:   3,
 		SubmitterName: "testuser",
-		FieldChanges: []models.FieldChange{
+		FieldChanges: []adminm.FieldChange{
 			{Field: "name", OldValue: "Old", NewValue: "New"},
 		},
 		Summary:   "Fix name",
-		Status:    models.PendingEditStatusPending,
+		Status:    adminm.PendingEditStatusPending,
 		CreatedAt: now,
 		UpdatedAt: now,
 	}
@@ -80,7 +81,7 @@ func TestSuggestEdit_InvalidEntityID(t *testing.T) {
 func TestSuggestEdit_NoChanges(t *testing.T) {
 	h := testPendingEditHandler()
 	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []models.FieldChange{}
+	req.Body.Changes = []adminm.FieldChange{}
 	req.Body.Summary = "test"
 	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -89,7 +90,7 @@ func TestSuggestEdit_NoChanges(t *testing.T) {
 func TestSuggestEdit_NoSummary(t *testing.T) {
 	h := testPendingEditHandler()
 	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []models.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 	req.Body.Summary = ""
 	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -98,7 +99,7 @@ func TestSuggestEdit_NoSummary(t *testing.T) {
 func TestSuggestEdit_DisallowedField(t *testing.T) {
 	h := testPendingEditHandler()
 	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []models.FieldChange{{Field: "is_active", OldValue: true, NewValue: false}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "is_active", OldValue: true, NewValue: false}}
 	req.Body.Summary = "hack"
 	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -107,7 +108,7 @@ func TestSuggestEdit_DisallowedField(t *testing.T) {
 func TestSuggestEdit_VenueDisallowedField(t *testing.T) {
 	h := testPendingEditHandler()
 	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []models.FieldChange{{Field: "verified", OldValue: false, NewValue: true}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "verified", OldValue: false, NewValue: true}}
 	req.Body.Summary = "verify"
 	_, err := h.SuggestVenueEditHandler(pendingEditNewUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -116,7 +117,7 @@ func TestSuggestEdit_VenueDisallowedField(t *testing.T) {
 func TestSuggestEdit_FestivalDisallowedField(t *testing.T) {
 	h := testPendingEditHandler()
 	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []models.FieldChange{{Field: "status", OldValue: "announced", NewValue: "cancelled"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "status", OldValue: "announced", NewValue: "cancelled"}}
 	req.Body.Summary = "cancel"
 	_, err := h.SuggestFestivalEditHandler(pendingEditNewUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 400)
@@ -141,7 +142,7 @@ func TestSuggestEdit_NewUser_CreatesPending(t *testing.T) {
 	)
 
 	req := &SuggestEntityEditRequest{EntityID: "10"}
-	req.Body.Changes = []models.FieldChange{{Field: "name", OldValue: "Old", NewValue: "New"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "name", OldValue: "Old", NewValue: "New"}}
 	req.Body.Summary = "Fix name"
 
 	resp, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
@@ -172,7 +173,7 @@ func TestSuggestEdit_Contributor_CreatesPending(t *testing.T) {
 	)
 
 	req := &SuggestEntityEditRequest{EntityID: "10"}
-	req.Body.Changes = []models.FieldChange{{Field: "city", OldValue: "", NewValue: "Phoenix"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "city", OldValue: "", NewValue: "Phoenix"}}
 	req.Body.Summary = "Add city"
 
 	resp, err := h.SuggestVenueEditHandler(pendingEditContributorCtx(), req)
@@ -191,7 +192,7 @@ func TestSuggestEdit_Contributor_CreatesPending(t *testing.T) {
 func TestSuggestEdit_TrustedContributor_AutoApplies(t *testing.T) {
 	created := makePendingEditResponse(3)
 	approved := makePendingEditResponse(3)
-	approved.Status = models.PendingEditStatusApproved
+	approved.Status = adminm.PendingEditStatusApproved
 
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
@@ -209,7 +210,7 @@ func TestSuggestEdit_TrustedContributor_AutoApplies(t *testing.T) {
 	)
 
 	req := &SuggestEntityEditRequest{EntityID: "10"}
-	req.Body.Changes = []models.FieldChange{{Field: "name", OldValue: "Old", NewValue: "New"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "name", OldValue: "Old", NewValue: "New"}}
 	req.Body.Summary = "Fix name"
 
 	resp, err := h.SuggestArtistEditHandler(pendingEditTrustedCtx(), req)
@@ -227,7 +228,7 @@ func TestSuggestEdit_TrustedContributor_AutoApplies(t *testing.T) {
 func TestSuggestEdit_LocalAmbassador_AutoApplies(t *testing.T) {
 	created := makePendingEditResponse(4)
 	approved := makePendingEditResponse(4)
-	approved.Status = models.PendingEditStatusApproved
+	approved.Status = adminm.PendingEditStatusApproved
 
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
@@ -242,7 +243,7 @@ func TestSuggestEdit_LocalAmbassador_AutoApplies(t *testing.T) {
 	)
 
 	req := &SuggestEntityEditRequest{EntityID: "10"}
-	req.Body.Changes = []models.FieldChange{{Field: "name", OldValue: "Old", NewValue: "New"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "name", OldValue: "Old", NewValue: "New"}}
 	req.Body.Summary = "Fix name"
 
 	resp, err := h.SuggestArtistEditHandler(pendingEditLocalAmbassadorCtx(), req)
@@ -257,7 +258,7 @@ func TestSuggestEdit_LocalAmbassador_AutoApplies(t *testing.T) {
 func TestSuggestEdit_Admin_AutoApplies(t *testing.T) {
 	created := makePendingEditResponse(5)
 	approved := makePendingEditResponse(5)
-	approved.Status = models.PendingEditStatusApproved
+	approved.Status = adminm.PendingEditStatusApproved
 
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
@@ -272,7 +273,7 @@ func TestSuggestEdit_Admin_AutoApplies(t *testing.T) {
 	)
 
 	req := &SuggestEntityEditRequest{EntityID: "10"}
-	req.Body.Changes = []models.FieldChange{{Field: "name", OldValue: "Old", NewValue: "New"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "name", OldValue: "Old", NewValue: "New"}}
 	req.Body.Summary = "Fix name"
 
 	resp, err := h.SuggestArtistEditHandler(pendingEditAdminCtx(), req)
@@ -299,7 +300,7 @@ func TestSuggestEdit_EntityNotFound(t *testing.T) {
 	)
 
 	req := &SuggestEntityEditRequest{EntityID: "99999"}
-	req.Body.Changes = []models.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 	req.Body.Summary = "test"
 
 	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
@@ -317,7 +318,7 @@ func TestSuggestEdit_DuplicatePending(t *testing.T) {
 	)
 
 	req := &SuggestEntityEditRequest{EntityID: "10"}
-	req.Body.Changes = []models.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
+	req.Body.Changes = []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 	req.Body.Summary = "test"
 
 	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
@@ -527,7 +528,7 @@ func TestAdminApprove_RequiresAdmin(t *testing.T) {
 
 func TestAdminApprove_Success(t *testing.T) {
 	approved := makePendingEditResponse(1)
-	approved.Status = models.PendingEditStatusApproved
+	approved.Status = adminm.PendingEditStatusApproved
 	reviewerID := uint(1)
 	approved.ReviewedBy = &reviewerID
 
@@ -547,7 +548,7 @@ func TestAdminApprove_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Status != models.PendingEditStatusApproved {
+	if resp.Body.Status != adminm.PendingEditStatusApproved {
 		t.Errorf("expected approved status, got %s", resp.Body.Status)
 	}
 }
@@ -602,7 +603,7 @@ func TestAdminReject_EmptyReason(t *testing.T) {
 
 func TestAdminReject_Success(t *testing.T) {
 	rejected := makePendingEditResponse(1)
-	rejected.Status = models.PendingEditStatusRejected
+	rejected.Status = adminm.PendingEditStatusRejected
 	reason := "Name should be 'The Rebel Lounge' not 'Rebel Lounge'"
 	rejected.RejectionReason = &reason
 
@@ -625,7 +626,7 @@ func TestAdminReject_Success(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Status != models.PendingEditStatusRejected {
+	if resp.Body.Status != adminm.PendingEditStatusRejected {
 		t.Errorf("expected rejected status, got %s", resp.Body.Status)
 	}
 	if resp.Body.RejectionReason == nil || *resp.Body.RejectionReason != reason {
@@ -701,14 +702,14 @@ func TestAdminGetEntityPendingEdits_Success(t *testing.T) {
 func TestCanEditDirectly(t *testing.T) {
 	tests := []struct {
 		name     string
-		user     *models.User
+		user     *authm.User
 		expected bool
 	}{
-		{"admin", &models.User{IsAdmin: true, UserTier: "new_user"}, true},
-		{"trusted_contributor", &models.User{IsAdmin: false, UserTier: "trusted_contributor"}, true},
-		{"local_ambassador", &models.User{IsAdmin: false, UserTier: "local_ambassador"}, true},
-		{"new_user", &models.User{IsAdmin: false, UserTier: "new_user"}, false},
-		{"contributor", &models.User{IsAdmin: false, UserTier: "contributor"}, false},
+		{"admin", &authm.User{IsAdmin: true, UserTier: "new_user"}, true},
+		{"trusted_contributor", &authm.User{IsAdmin: false, UserTier: "trusted_contributor"}, true},
+		{"local_ambassador", &authm.User{IsAdmin: false, UserTier: "local_ambassador"}, true},
+		{"new_user", &authm.User{IsAdmin: false, UserTier: "new_user"}, false},
+		{"contributor", &authm.User{IsAdmin: false, UserTier: "contributor"}, false},
 	}
 
 	for _, tt := range tests {

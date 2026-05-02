@@ -10,7 +10,7 @@ import (
 	"psychic-homily-backend/internal/api/handlers/pipeline"
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -47,7 +47,7 @@ func testAdminStatsHandler() *AdminStatsHandler {
 }
 
 func adminCtx() context.Context {
-	return testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: true})
+	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }
 
 // ============================================================================
@@ -176,7 +176,7 @@ func TestAdminHandler_RequiresAdmin(t *testing.T) {
 			testhelpers.AssertHumaError(t, err, 403)
 		})
 		t.Run(tc.name+"_NonAdmin", func(t *testing.T) {
-			ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 			err := tc.fn(ctx)
 			testhelpers.AssertHumaError(t, err, 403)
 		})
@@ -1258,7 +1258,7 @@ func TestBatchApproveShowsHandler_AdminRequired(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 403)
 
 	// Non-admin user
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	_, err = h.BatchApproveShowsHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 403)
 }
@@ -1314,7 +1314,7 @@ func TestBatchRejectShowsHandler_AdminRequired(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 403)
 
 	// Non-admin user
-	ctx := testhelpers.CtxWithUser(&models.User{ID: 1, IsAdmin: false})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 	_, err = h.BatchRejectShowsHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 403)
 }
@@ -1941,7 +1941,7 @@ func TestGetUserID_Nil(t *testing.T) {
 }
 
 func TestGetUserID_NonNil(t *testing.T) {
-	id := shared.GetUserID(&models.User{ID: 42})
+	id := shared.GetUserID(&authm.User{ID: 42})
 	if id != 42 {
 		t.Errorf("expected 42, got %d", id)
 	}

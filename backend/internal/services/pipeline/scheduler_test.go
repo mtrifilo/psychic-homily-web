@@ -11,7 +11,10 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -61,28 +64,28 @@ func (s *stubPipelineService) getCalls() []uint {
 
 // stubVenueConfigService is a test double for VenueSourceConfigServiceInterface.
 type stubVenueConfigService struct {
-	configs []models.VenueSourceConfig
-	byID    map[uint]*models.VenueSourceConfig
+	configs []adminm.VenueSourceConfig
+	byID    map[uint]*adminm.VenueSourceConfig
 }
 
 func newStubVenueConfigService() *stubVenueConfigService {
 	return &stubVenueConfigService{
-		byID: make(map[uint]*models.VenueSourceConfig),
+		byID: make(map[uint]*adminm.VenueSourceConfig),
 	}
 }
 
-func (s *stubVenueConfigService) ListConfigured() ([]models.VenueSourceConfig, error) {
+func (s *stubVenueConfigService) ListConfigured() ([]adminm.VenueSourceConfig, error) {
 	return s.configs, nil
 }
 
-func (s *stubVenueConfigService) GetByVenueID(venueID uint) (*models.VenueSourceConfig, error) {
+func (s *stubVenueConfigService) GetByVenueID(venueID uint) (*adminm.VenueSourceConfig, error) {
 	if cfg, ok := s.byID[venueID]; ok {
 		return cfg, nil
 	}
 	return nil, nil
 }
 
-func (s *stubVenueConfigService) CreateOrUpdate(config *models.VenueSourceConfig) (*models.VenueSourceConfig, error) {
+func (s *stubVenueConfigService) CreateOrUpdate(config *adminm.VenueSourceConfig) (*adminm.VenueSourceConfig, error) {
 	return config, nil
 }
 
@@ -94,11 +97,11 @@ func (s *stubVenueConfigService) IncrementFailures(venueID uint) error {
 	return nil
 }
 
-func (s *stubVenueConfigService) RecordRun(run *models.VenueExtractionRun) error {
+func (s *stubVenueConfigService) RecordRun(run *adminm.VenueExtractionRun) error {
 	return nil
 }
 
-func (s *stubVenueConfigService) GetRecentRuns(venueID uint, limit int) ([]models.VenueExtractionRun, error) {
+func (s *stubVenueConfigService) GetRecentRuns(venueID uint, limit int) ([]adminm.VenueExtractionRun, error) {
 	return nil, nil
 }
 
@@ -125,14 +128,14 @@ type stubDiscordService struct {
 
 func (s *stubDiscordService) IsConfigured() bool { return s.configured }
 
-func (s *stubDiscordService) NotifyNewUser(user *models.User)                               {}
+func (s *stubDiscordService) NotifyNewUser(user *authm.User)                                    {}
 func (s *stubDiscordService) NotifyNewShow(show *contracts.ShowResponse, submitterEmail string) {}
 func (s *stubDiscordService) NotifyShowStatusChange(showTitle string, showID uint, oldStatus, newStatus, actorEmail string) {
 }
-func (s *stubDiscordService) NotifyShowApproved(show *contracts.ShowResponse)              {}
-func (s *stubDiscordService) NotifyShowRejected(show *contracts.ShowResponse, reason string) {}
-func (s *stubDiscordService) NotifyShowReport(report *models.ShowReport, reporterEmail string) {}
-func (s *stubDiscordService) NotifyArtistReport(report *models.ArtistReport, reporterEmail string) {
+func (s *stubDiscordService) NotifyShowApproved(show *contracts.ShowResponse)                      {}
+func (s *stubDiscordService) NotifyShowRejected(show *contracts.ShowResponse, reason string)       {}
+func (s *stubDiscordService) NotifyShowReport(report *communitym.ShowReport, reporterEmail string) {}
+func (s *stubDiscordService) NotifyArtistReport(report *communitym.ArtistReport, reporterEmail string) {
 }
 func (s *stubDiscordService) NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string) {
 }
@@ -186,7 +189,7 @@ func TestSchedulerService_StartStop(t *testing.T) {
 // ── IsDueForExtraction tests ───────────────────────────────────────────
 
 func TestIsDueForExtraction_NoCalendarURL(t *testing.T) {
-	cfg := models.VenueSourceConfig{VenueID: 1}
+	cfg := adminm.VenueSourceConfig{VenueID: 1}
 	due, reason := IsDueForExtraction(cfg, 24*time.Hour, time.Now())
 	assert.False(t, due)
 	assert.Equal(t, "no calendar URL", reason)
@@ -194,7 +197,7 @@ func TestIsDueForExtraction_NoCalendarURL(t *testing.T) {
 
 func TestIsDueForExtraction_EmptyCalendarURL(t *testing.T) {
 	empty := ""
-	cfg := models.VenueSourceConfig{VenueID: 1, CalendarURL: &empty}
+	cfg := adminm.VenueSourceConfig{VenueID: 1, CalendarURL: &empty}
 	due, reason := IsDueForExtraction(cfg, 24*time.Hour, time.Now())
 	assert.False(t, due)
 	assert.Equal(t, "no calendar URL", reason)
@@ -202,7 +205,7 @@ func TestIsDueForExtraction_EmptyCalendarURL(t *testing.T) {
 
 func TestIsDueForExtraction_NeverExtracted(t *testing.T) {
 	url := "https://example.com/calendar"
-	cfg := models.VenueSourceConfig{VenueID: 1, CalendarURL: &url}
+	cfg := adminm.VenueSourceConfig{VenueID: 1, CalendarURL: &url}
 	due, reason := IsDueForExtraction(cfg, 24*time.Hour, time.Now())
 	assert.True(t, due)
 	assert.Equal(t, "never extracted", reason)
@@ -211,7 +214,7 @@ func TestIsDueForExtraction_NeverExtracted(t *testing.T) {
 func TestIsDueForExtraction_IntervalElapsed(t *testing.T) {
 	url := "https://example.com/calendar"
 	lastExtracted := time.Now().Add(-25 * time.Hour) // 25 hours ago
-	cfg := models.VenueSourceConfig{
+	cfg := adminm.VenueSourceConfig{
 		VenueID:         1,
 		CalendarURL:     &url,
 		LastExtractedAt: &lastExtracted,
@@ -224,7 +227,7 @@ func TestIsDueForExtraction_IntervalElapsed(t *testing.T) {
 func TestIsDueForExtraction_NotYetDue(t *testing.T) {
 	url := "https://example.com/calendar"
 	lastExtracted := time.Now().Add(-12 * time.Hour) // 12 hours ago, interval is 24
-	cfg := models.VenueSourceConfig{
+	cfg := adminm.VenueSourceConfig{
 		VenueID:         1,
 		CalendarURL:     &url,
 		LastExtractedAt: &lastExtracted,
@@ -237,7 +240,7 @@ func TestIsDueForExtraction_NotYetDue(t *testing.T) {
 func TestIsDueForExtraction_CircuitBreakerActive(t *testing.T) {
 	url := "https://example.com/calendar"
 	lastExtracted := time.Now().Add(-2 * 24 * time.Hour) // 2 days ago
-	cfg := models.VenueSourceConfig{
+	cfg := adminm.VenueSourceConfig{
 		VenueID:             1,
 		CalendarURL:         &url,
 		LastExtractedAt:     &lastExtracted,
@@ -251,7 +254,7 @@ func TestIsDueForExtraction_CircuitBreakerActive(t *testing.T) {
 func TestIsDueForExtraction_CircuitBreakerWeeklyRetry(t *testing.T) {
 	url := "https://example.com/calendar"
 	lastExtracted := time.Now().Add(-8 * 24 * time.Hour) // 8 days ago
-	cfg := models.VenueSourceConfig{
+	cfg := adminm.VenueSourceConfig{
 		VenueID:             1,
 		CalendarURL:         &url,
 		LastExtractedAt:     &lastExtracted,
@@ -265,7 +268,7 @@ func TestIsDueForExtraction_CircuitBreakerWeeklyRetry(t *testing.T) {
 func TestIsDueForExtraction_CircuitBreakerExactThreshold(t *testing.T) {
 	url := "https://example.com/calendar"
 	lastExtracted := time.Now().Add(-3 * 24 * time.Hour) // 3 days ago
-	cfg := models.VenueSourceConfig{
+	cfg := adminm.VenueSourceConfig{
 		VenueID:             1,
 		CalendarURL:         &url,
 		LastExtractedAt:     &lastExtracted,
@@ -279,7 +282,7 @@ func TestIsDueForExtraction_CircuitBreakerExactThreshold(t *testing.T) {
 func TestIsDueForExtraction_BelowCircuitBreaker(t *testing.T) {
 	url := "https://example.com/calendar"
 	lastExtracted := time.Now().Add(-25 * time.Hour)
-	cfg := models.VenueSourceConfig{
+	cfg := adminm.VenueSourceConfig{
 		VenueID:             1,
 		CalendarURL:         &url,
 		LastExtractedAt:     &lastExtracted,
@@ -304,13 +307,13 @@ func TestFilterDueVenues(t *testing.T) {
 	oldExtraction := now.Add(-25 * time.Hour)    // 25h ago
 	veryOld := now.Add(-8 * 24 * time.Hour)      // 8 days ago
 
-	configs := []models.VenueSourceConfig{
-		{VenueID: 1, CalendarURL: &url1, LastExtractedAt: nil},                                                                          // never extracted
-		{VenueID: 2, CalendarURL: &url2, LastExtractedAt: &recentExtraction},                                                            // not yet due
-		{VenueID: 3, CalendarURL: &url3, LastExtractedAt: &oldExtraction},                                                               // due (25h > 24h interval)
-		{VenueID: 4, CalendarURL: &url4, LastExtractedAt: &oldExtraction, ConsecutiveFailures: 6},                                       // circuit broken, recent
-		{VenueID: 5, CalendarURL: &url5, LastExtractedAt: &veryOld, ConsecutiveFailures: 6},                                             // circuit broken, weekly retry
-		{VenueID: 6},                                                                                                                     // no URL
+	configs := []adminm.VenueSourceConfig{
+		{VenueID: 1, CalendarURL: &url1, LastExtractedAt: nil},                                    // never extracted
+		{VenueID: 2, CalendarURL: &url2, LastExtractedAt: &recentExtraction},                      // not yet due
+		{VenueID: 3, CalendarURL: &url3, LastExtractedAt: &oldExtraction},                         // due (25h > 24h interval)
+		{VenueID: 4, CalendarURL: &url4, LastExtractedAt: &oldExtraction, ConsecutiveFailures: 6}, // circuit broken, recent
+		{VenueID: 5, CalendarURL: &url5, LastExtractedAt: &veryOld, ConsecutiveFailures: 6},       // circuit broken, weekly retry
+		{VenueID: 6}, // no URL
 	}
 
 	svc := &SchedulerService{interval: 24 * time.Hour, logger: newTestLogger()}
@@ -355,28 +358,28 @@ func TestSchedulerService_RunExtractionCycle(t *testing.T) {
 	pipelineSvc.errors[3] = fmt.Errorf("extraction failed: API error")
 
 	venueConfigSvc := newStubVenueConfigService()
-	venueConfigSvc.configs = []models.VenueSourceConfig{
+	venueConfigSvc.configs = []adminm.VenueSourceConfig{
 		{
 			VenueID:         1,
 			CalendarURL:     &url1,
 			LastExtractedAt: &oldExtraction,
-			Venue:           models.Venue{Name: "Venue One"},
+			Venue:           catalogm.Venue{Name: "Venue One"},
 		},
 		{
 			VenueID:         2,
 			CalendarURL:     &url2,
 			LastExtractedAt: &oldExtraction,
-			Venue:           models.Venue{Name: "Venue Two"},
+			Venue:           catalogm.Venue{Name: "Venue Two"},
 		},
 		{
 			VenueID:         3,
 			CalendarURL:     &url3,
 			LastExtractedAt: &oldExtraction,
-			Venue:           models.Venue{Name: "Venue Three"},
+			Venue:           catalogm.Venue{Name: "Venue Three"},
 		},
 	}
 	// For anomaly checking
-	venueConfigSvc.byID[3] = &models.VenueSourceConfig{
+	venueConfigSvc.byID[3] = &adminm.VenueSourceConfig{
 		VenueID:             3,
 		ConsecutiveFailures: 2, // below threshold, no notification
 	}
@@ -427,12 +430,12 @@ func TestSchedulerService_RunExtractionCycle_AllNotDue(t *testing.T) {
 
 	pipelineSvc := newStubPipelineService()
 	venueConfigSvc := newStubVenueConfigService()
-	venueConfigSvc.configs = []models.VenueSourceConfig{
+	venueConfigSvc.configs = []adminm.VenueSourceConfig{
 		{
 			VenueID:         1,
 			CalendarURL:     &url1,
 			LastExtractedAt: &recentExtraction,
-			Venue:           models.Venue{Name: "Venue One"},
+			Venue:           catalogm.Venue{Name: "Venue One"},
 		},
 	}
 
@@ -474,19 +477,19 @@ func TestSchedulerService_SkippedResult(t *testing.T) {
 
 	pipelineSvc := newStubPipelineService()
 	pipelineSvc.results[1] = &contracts.PipelineResult{
-		VenueID:   1,
-		VenueName: "Venue One",
-		Skipped:   true,
+		VenueID:    1,
+		VenueName:  "Venue One",
+		Skipped:    true,
 		SkipReason: "page unchanged (hash match)",
 	}
 
 	venueConfigSvc := newStubVenueConfigService()
-	venueConfigSvc.configs = []models.VenueSourceConfig{
+	venueConfigSvc.configs = []adminm.VenueSourceConfig{
 		{
 			VenueID:         1,
 			CalendarURL:     &url1,
 			LastExtractedAt: &oldExtraction,
-			Venue:           models.Venue{Name: "Venue One"},
+			Venue:           catalogm.Venue{Name: "Venue One"},
 		},
 	}
 

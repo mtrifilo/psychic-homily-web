@@ -8,7 +8,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -54,8 +56,8 @@ func TestShowReportServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *ShowReportServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *ShowReportServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -67,14 +69,14 @@ func (suite *ShowReportServiceIntegrationTestSuite) createTestUser() *models.Use
 	return user
 }
 
-func (suite *ShowReportServiceIntegrationTestSuite) createApprovedShow(title string) *models.Show {
+func (suite *ShowReportServiceIntegrationTestSuite) createApprovedShow(title string) *catalogm.Show {
 	user := suite.createTestUser()
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   time.Now().UTC().AddDate(0, 0, 7),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &user.ID,
 	}
 	err := suite.db.Create(show).Error
@@ -82,12 +84,12 @@ func (suite *ShowReportServiceIntegrationTestSuite) createApprovedShow(title str
 	return show
 }
 
-func (suite *ShowReportServiceIntegrationTestSuite) createPendingReport(userID, showID uint, reportType string) *models.ShowReport {
-	report := &models.ShowReport{
+func (suite *ShowReportServiceIntegrationTestSuite) createPendingReport(userID, showID uint, reportType string) *communitym.ShowReport {
+	report := &communitym.ShowReport{
 		ShowID:     showID,
 		ReportedBy: userID,
-		ReportType: models.ShowReportType(reportType),
-		Status:     models.ShowReportStatusPending,
+		ReportType: communitym.ShowReportType(reportType),
+		Status:     communitym.ShowReportStatusPending,
 		CreatedAt:  time.Now().UTC(),
 		UpdatedAt:  time.Now().UTC(),
 	}
@@ -385,7 +387,7 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestResolveReportWithFlag_Ca
 	suite.Equal("resolved", resp.Status)
 
 	// Verify show flag was set
-	var updatedShow models.Show
+	var updatedShow catalogm.Show
 	suite.db.First(&updatedShow, show.ID)
 	suite.True(updatedShow.IsCancelled, "show should be marked as cancelled")
 	suite.False(updatedShow.IsSoldOut, "sold_out should not be affected")
@@ -404,7 +406,7 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestResolveReportWithFlag_So
 	suite.Equal("resolved", resp.Status)
 
 	// Verify show flag was set
-	var updatedShow models.Show
+	var updatedShow catalogm.Show
 	suite.db.First(&updatedShow, show.ID)
 	suite.True(updatedShow.IsSoldOut, "show should be marked as sold out")
 	suite.False(updatedShow.IsCancelled, "cancelled should not be affected")
@@ -423,7 +425,7 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestResolveReportWithFlag_In
 	suite.Equal("resolved", resp.Status)
 
 	// Inaccurate reports don't set any flag
-	var updatedShow models.Show
+	var updatedShow catalogm.Show
 	suite.db.First(&updatedShow, show.ID)
 	suite.False(updatedShow.IsCancelled)
 	suite.False(updatedShow.IsSoldOut)
@@ -442,7 +444,7 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestResolveReportWithFlag_Fl
 	suite.Require().NoError(err)
 	suite.Equal("resolved", resp.Status)
 
-	var updatedShow models.Show
+	var updatedShow catalogm.Show
 	suite.db.First(&updatedShow, show.ID)
 	suite.False(updatedShow.IsCancelled, "flag should not be set when setShowFlag is false")
 }
@@ -463,7 +465,7 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestGetReportByID_Success() 
 	suite.Require().NotNil(report)
 	suite.Equal(created.ID, report.ID)
 	suite.Equal(show.ID, report.ShowID)
-	suite.Equal(models.ShowReportTypeSoldOut, report.ReportType)
+	suite.Equal(communitym.ShowReportTypeSoldOut, report.ReportType)
 	// Show should be preloaded
 	suite.Equal(show.Title, report.Show.Title)
 }

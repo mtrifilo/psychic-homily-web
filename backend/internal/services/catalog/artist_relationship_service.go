@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -32,7 +32,7 @@ func NewArtistRelationshipService(database *gorm.DB) *ArtistRelationshipService 
 // ──────────────────────────────────────────────
 
 // CreateRelationship creates a new artist relationship with canonical ordering.
-func (s *ArtistRelationshipService) CreateRelationship(sourceID, targetID uint, relType string, autoDerived bool) (*models.ArtistRelationship, error) {
+func (s *ArtistRelationshipService) CreateRelationship(sourceID, targetID uint, relType string, autoDerived bool) (*catalogm.ArtistRelationship, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -41,17 +41,17 @@ func (s *ArtistRelationshipService) CreateRelationship(sourceID, targetID uint, 
 		return nil, fmt.Errorf("cannot create relationship between an artist and itself")
 	}
 
-	src, tgt := models.CanonicalOrder(sourceID, targetID)
+	src, tgt := catalogm.CanonicalOrder(sourceID, targetID)
 
 	// Check for existing
-	var existing models.ArtistRelationship
+	var existing catalogm.ArtistRelationship
 	err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 		src, tgt, relType).First(&existing).Error
 	if err == nil {
 		return nil, fmt.Errorf("relationship already exists between artists %d and %d (type: %s)", src, tgt, relType)
 	}
 
-	rel := &models.ArtistRelationship{
+	rel := &catalogm.ArtistRelationship{
 		SourceArtistID:   src,
 		TargetArtistID:   tgt,
 		RelationshipType: relType,
@@ -66,14 +66,14 @@ func (s *ArtistRelationshipService) CreateRelationship(sourceID, targetID uint, 
 }
 
 // GetRelationship retrieves a relationship between two artists (order-independent).
-func (s *ArtistRelationshipService) GetRelationship(artistA, artistB uint, relType string) (*models.ArtistRelationship, error) {
+func (s *ArtistRelationshipService) GetRelationship(artistA, artistB uint, relType string) (*catalogm.ArtistRelationship, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	src, tgt := models.CanonicalOrder(artistA, artistB)
+	src, tgt := catalogm.CanonicalOrder(artistA, artistB)
 
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 		src, tgt, relType).First(&rel).Error
 	if err != nil {
@@ -98,7 +98,7 @@ func (s *ArtistRelationshipService) GetRelatedArtists(artistID uint, relType str
 	}
 
 	// Query both directions
-	query := s.db.Model(&models.ArtistRelationship{}).
+	query := s.db.Model(&catalogm.ArtistRelationship{}).
 		Where("source_artist_id = ? OR target_artist_id = ?", artistID, artistID)
 
 	if relType != "" {
@@ -107,7 +107,7 @@ func (s *ArtistRelationshipService) GetRelatedArtists(artistID uint, relType str
 
 	query = query.Order("score DESC").Limit(limit)
 
-	var rels []models.ArtistRelationship
+	var rels []catalogm.ArtistRelationship
 	if err := query.Find(&rels).Error; err != nil {
 		return nil, fmt.Errorf("failed to get related artists: %w", err)
 	}
@@ -121,7 +121,7 @@ func (s *ArtistRelationshipService) GetRelatedArtists(artistID uint, relType str
 		}
 
 		// Fetch artist info
-		var artist models.Artist
+		var artist catalogm.Artist
 		if err := s.db.First(&artist, otherID).Error; err != nil {
 			continue
 		}
@@ -158,15 +158,15 @@ func (s *ArtistRelationshipService) DeleteRelationship(artistA, artistB uint, re
 		return fmt.Errorf("database not initialized")
 	}
 
-	src, tgt := models.CanonicalOrder(artistA, artistB)
+	src, tgt := catalogm.CanonicalOrder(artistA, artistB)
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Delete votes first
 		tx.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			src, tgt, relType).Delete(&models.ArtistRelationshipVote{})
+			src, tgt, relType).Delete(&catalogm.ArtistRelationshipVote{})
 
 		result := tx.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			src, tgt, relType).Delete(&models.ArtistRelationship{})
+			src, tgt, relType).Delete(&catalogm.ArtistRelationship{})
 		if result.Error != nil {
 			return fmt.Errorf("failed to delete relationship: %w", result.Error)
 		}
@@ -187,10 +187,10 @@ func (s *ArtistRelationshipService) Vote(artistA, artistB uint, relType string, 
 		return fmt.Errorf("database not initialized")
 	}
 
-	src, tgt := models.CanonicalOrder(artistA, artistB)
+	src, tgt := catalogm.CanonicalOrder(artistA, artistB)
 
 	// Verify relationship exists
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 		src, tgt, relType).First(&rel).Error
 	if err != nil {
@@ -207,12 +207,12 @@ func (s *ArtistRelationshipService) Vote(artistA, artistB uint, relType string, 
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Upsert vote
-		var existing models.ArtistRelationshipVote
+		var existing catalogm.ArtistRelationshipVote
 		err := tx.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND user_id = ?",
 			src, tgt, relType, userID).First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
-			vote := models.ArtistRelationshipVote{
+			vote := catalogm.ArtistRelationshipVote{
 				SourceArtistID:   src,
 				TargetArtistID:   tgt,
 				RelationshipType: relType,
@@ -241,25 +241,25 @@ func (s *ArtistRelationshipService) RemoveVote(artistA, artistB uint, relType st
 		return fmt.Errorf("database not initialized")
 	}
 
-	src, tgt := models.CanonicalOrder(artistA, artistB)
+	src, tgt := catalogm.CanonicalOrder(artistA, artistB)
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		tx.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND user_id = ?",
-			src, tgt, relType, userID).Delete(&models.ArtistRelationshipVote{})
+			src, tgt, relType, userID).Delete(&catalogm.ArtistRelationshipVote{})
 
 		return s.recalculateScore(tx, src, tgt, relType)
 	})
 }
 
 // GetUserVote returns a user's vote on a relationship, or nil if not voted.
-func (s *ArtistRelationshipService) GetUserVote(artistA, artistB uint, relType string, userID uint) (*models.ArtistRelationshipVote, error) {
+func (s *ArtistRelationshipService) GetUserVote(artistA, artistB uint, relType string, userID uint) (*catalogm.ArtistRelationshipVote, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	src, tgt := models.CanonicalOrder(artistA, artistB)
+	src, tgt := catalogm.CanonicalOrder(artistA, artistB)
 
-	var vote models.ArtistRelationshipVote
+	var vote catalogm.ArtistRelationshipVote
 	err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND user_id = ?",
 		src, tgt, relType, userID).First(&vote).Error
 	if err != nil {
@@ -314,11 +314,11 @@ const festivalCobillTopFestivalNames = 3
 // the start date of the most recent shared festival (for recency-weighted
 // scoring + tooltip).
 type festivalCobillRow struct {
-	ArtistA          uint
-	ArtistB          uint
-	SharedCount      int
-	MostRecentStart  *time.Time
-	MostRecentYear   *int
+	ArtistA         uint
+	ArtistB         uint
+	SharedCount     int
+	MostRecentStart *time.Time
+	MostRecentYear  *int
 }
 
 // festivalNameRow is one festival name for a given artist pair, used to
@@ -341,7 +341,7 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 	}
 
 	// 1. Get center artist details
-	var centerArtist models.Artist
+	var centerArtist catalogm.Artist
 	if err := s.db.First(&centerArtist, artistID).Error; err != nil {
 		return nil, fmt.Errorf("artist not found: %w", err)
 	}
@@ -386,13 +386,13 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 	storedTypes := filterOutQueryTimeTypes(types)
 	wantFestivalCobill := isQueryTimeTypeRequested(types, festivalCobillType)
 
-	var rels []models.ArtistRelationship
+	var rels []catalogm.ArtistRelationship
 	// If types was non-empty AND every requested type was a query-time
 	// derived type, storedTypes will be empty here — skip the stored-rels
 	// query entirely. Otherwise (empty input = "all types", or any stored
 	// type requested) run the normal query.
 	if len(types) == 0 || len(storedTypes) > 0 {
-		query := s.db.Model(&models.ArtistRelationship{}).
+		query := s.db.Model(&catalogm.ArtistRelationship{}).
 			Where("source_artist_id = ? OR target_artist_id = ?", artistID, artistID)
 
 		if len(storedTypes) > 0 {
@@ -446,12 +446,12 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 	}
 
 	// 3. Fetch artist details for all related artists
-	var relatedArtists []models.Artist
+	var relatedArtists []catalogm.Artist
 	if err := s.db.Where("id IN ?", relatedIDs).Find(&relatedArtists).Error; err != nil {
 		return nil, fmt.Errorf("failed to get related artist details: %w", err)
 	}
 
-	artistMap := make(map[uint]models.Artist)
+	artistMap := make(map[uint]catalogm.Artist)
 	for _, a := range relatedArtists {
 		artistMap[a.ID] = a
 	}
@@ -529,8 +529,8 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 
 	// 7. Get cross-connections between related artists
 	if len(relatedIDs) > 1 {
-		var crossRels []models.ArtistRelationship
-		crossQuery := s.db.Model(&models.ArtistRelationship{}).
+		var crossRels []catalogm.ArtistRelationship
+		crossQuery := s.db.Model(&catalogm.ArtistRelationship{}).
 			Where("source_artist_id IN ? AND target_artist_id IN ?", relatedIDs, relatedIDs)
 
 		if len(storedTypes) > 0 {
@@ -635,7 +635,7 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 	}
 
 	// 1. Center artist
-	var centerArtist models.Artist
+	var centerArtist catalogm.Artist
 	if err := s.db.First(&centerArtist, artistID).Error; err != nil {
 		return nil, fmt.Errorf("artist not found: %w", err)
 	}
@@ -777,12 +777,12 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 		idList = append(idList, id)
 	}
 
-	var coArtists []models.Artist
+	var coArtists []catalogm.Artist
 	if err := s.db.Where("id IN ?", idList).Find(&coArtists).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch co-artist details: %w", err)
 	}
 
-	artistByID := make(map[uint]models.Artist, len(coArtists))
+	artistByID := make(map[uint]catalogm.Artist, len(coArtists))
 	for _, a := range coArtists {
 		artistByID[a.ID] = a
 	}
@@ -825,7 +825,7 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 		result.Graph.Links = append(result.Graph.Links, contracts.ArtistGraphLink{
 			SourceID: artistID,
 			TargetID: id,
-			Type:     models.RelationshipTypeSharedBills,
+			Type:     catalogm.RelationshipTypeSharedBills,
 			Score:    score,
 			Detail:   detail,
 		})
@@ -859,7 +859,7 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 				result.Graph.Links = append(result.Graph.Links, contracts.ArtistGraphLink{
 					SourceID: r.ArtistA,
 					TargetID: r.ArtistB,
-					Type:     models.RelationshipTypeSharedBills,
+					Type:     catalogm.RelationshipTypeSharedBills,
 					Score:    score,
 					Detail:   detail,
 				})
@@ -872,7 +872,7 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 
 // buildArtistGraphNode constructs the standard ArtistGraphNode from a model + a precomputed
 // upcoming-show count (callers are responsible for the count query so they can batch it).
-func buildArtistGraphNode(a models.Artist, upcomingShowCount int) contracts.ArtistGraphNode {
+func buildArtistGraphNode(a catalogm.Artist, upcomingShowCount int) contracts.ArtistGraphNode {
 	slug := ""
 	if a.Slug != nil {
 		slug = *a.Slug
@@ -899,7 +899,7 @@ func buildArtistGraphNode(a models.Artist, upcomingShowCount int) contracts.Arti
 // of BillCoArtist rows. Sort key: shared_count desc, then last_shared desc.
 func sortAndCapCoArtists(
 	best map[uint]*opensClosesEntry,
-	artistByID map[uint]models.Artist,
+	artistByID map[uint]catalogm.Artist,
 	upcomingByID map[uint]int,
 	cap int,
 ) []contracts.BillCoArtist {
@@ -1013,15 +1013,15 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 		detailRaw := json.RawMessage(detail)
 
 		// Upsert
-		var existing models.ArtistRelationship
+		var existing catalogm.ArtistRelationship
 		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			row.ArtistA, row.ArtistB, models.RelationshipTypeSharedBills).First(&existing).Error
+			row.ArtistA, row.ArtistB, catalogm.RelationshipTypeSharedBills).First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
-			rel := &models.ArtistRelationship{
+			rel := &catalogm.ArtistRelationship{
 				SourceArtistID:   row.ArtistA,
 				TargetArtistID:   row.ArtistB,
-				RelationshipType: models.RelationshipTypeSharedBills,
+				RelationshipType: catalogm.RelationshipTypeSharedBills,
 				Score:            score,
 				AutoDerived:      true,
 				Detail:           &detailRaw,
@@ -1043,10 +1043,10 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 
 // sharedLabelRow represents the result of the shared-labels co-occurrence query.
 type sharedLabelRow struct {
-	ArtistA      uint
-	ArtistB      uint
-	SharedCount  int
-	LabelNames   string
+	ArtistA     uint
+	ArtistB     uint
+	SharedCount int
+	LabelNames  string
 }
 
 // DeriveSharedLabels computes shared_label relationships from the artist_labels join table.
@@ -1093,15 +1093,15 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 		detailRaw := json.RawMessage(detail)
 
 		// Upsert
-		var existing models.ArtistRelationship
+		var existing catalogm.ArtistRelationship
 		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			row.ArtistA, row.ArtistB, models.RelationshipTypeSharedLabel).First(&existing).Error
+			row.ArtistA, row.ArtistB, catalogm.RelationshipTypeSharedLabel).First(&existing).Error
 
 		if err == gorm.ErrRecordNotFound {
-			rel := &models.ArtistRelationship{
+			rel := &catalogm.ArtistRelationship{
 				SourceArtistID:   row.ArtistA,
 				TargetArtistID:   row.ArtistB,
-				RelationshipType: models.RelationshipTypeSharedLabel,
+				RelationshipType: catalogm.RelationshipTypeSharedLabel,
 				Score:            score,
 				AutoDerived:      true,
 				Detail:           &detailRaw,
@@ -1533,10 +1533,10 @@ func pairKey(a, b uint) string {
 // getVoteCounts returns upvote and downvote counts for a relationship.
 func (s *ArtistRelationshipService) getVoteCounts(sourceID, targetID uint, relType string) (int, int) {
 	var upvotes, downvotes int64
-	s.db.Model(&models.ArtistRelationshipVote{}).
+	s.db.Model(&catalogm.ArtistRelationshipVote{}).
 		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND direction = 1",
 			sourceID, targetID, relType).Count(&upvotes)
-	s.db.Model(&models.ArtistRelationshipVote{}).
+	s.db.Model(&catalogm.ArtistRelationshipVote{}).
 		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND direction = -1",
 			sourceID, targetID, relType).Count(&downvotes)
 	return int(upvotes), int(downvotes)
@@ -1545,17 +1545,17 @@ func (s *ArtistRelationshipService) getVoteCounts(sourceID, targetID uint, relTy
 // recalculateScore recalculates the score for a relationship from vote counts.
 func (s *ArtistRelationshipService) recalculateScore(tx *gorm.DB, sourceID, targetID uint, relType string) error {
 	var upvotes, downvotes int64
-	tx.Model(&models.ArtistRelationshipVote{}).
+	tx.Model(&catalogm.ArtistRelationshipVote{}).
 		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND direction = 1",
 			sourceID, targetID, relType).Count(&upvotes)
-	tx.Model(&models.ArtistRelationshipVote{}).
+	tx.Model(&catalogm.ArtistRelationshipVote{}).
 		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND direction = -1",
 			sourceID, targetID, relType).Count(&downvotes)
 
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	score := float32(rel.WilsonScore(int(upvotes), int(downvotes)))
 
-	return tx.Model(&models.ArtistRelationship{}).
+	return tx.Model(&catalogm.ArtistRelationship{}).
 		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 			sourceID, targetID, relType).
 		Update("score", score).Error

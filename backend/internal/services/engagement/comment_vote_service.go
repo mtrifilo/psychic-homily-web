@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/scoring"
 )
 
@@ -38,7 +38,7 @@ func (s *CommentVoteService) Vote(userID uint, commentID uint, direction int) er
 	}
 
 	// Verify comment exists
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return fmt.Errorf("comment not found")
@@ -48,12 +48,12 @@ func (s *CommentVoteService) Vote(userID uint, commentID uint, direction int) er
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Upsert the vote
-		var existingVote models.CommentVote
+		var existingVote engagementm.CommentVote
 		err := tx.Where("comment_id = ? AND user_id = ?", commentID, userID).First(&existingVote).Error
 
 		if err == gorm.ErrRecordNotFound {
 			// New vote
-			vote := models.CommentVote{
+			vote := engagementm.CommentVote{
 				CommentID: commentID,
 				UserID:    userID,
 				Direction: int16(direction),
@@ -83,7 +83,7 @@ func (s *CommentVoteService) Unvote(userID uint, commentID uint) error {
 	}
 
 	// Verify comment exists
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return fmt.Errorf("comment not found")
@@ -92,7 +92,7 @@ func (s *CommentVoteService) Unvote(userID uint, commentID uint) error {
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Where("comment_id = ? AND user_id = ?", commentID, userID).Delete(&models.CommentVote{})
+		result := tx.Where("comment_id = ? AND user_id = ?", commentID, userID).Delete(&engagementm.CommentVote{})
 		if result.Error != nil {
 			return fmt.Errorf("failed to remove vote: %w", result.Error)
 		}
@@ -108,7 +108,7 @@ func (s *CommentVoteService) GetUserVote(userID uint, commentID uint) (*int, err
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var vote models.CommentVote
+	var vote engagementm.CommentVote
 	err := s.db.Where("comment_id = ? AND user_id = ?", commentID, userID).First(&vote).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -131,7 +131,7 @@ func (s *CommentVoteService) GetUserVotesForComments(userID uint, commentIDs []u
 		return make(map[uint]int), nil
 	}
 
-	var votes []models.CommentVote
+	var votes []engagementm.CommentVote
 	err := s.db.Where("user_id = ? AND comment_id IN ?", userID, commentIDs).Find(&votes).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get user votes: %w", err)
@@ -151,7 +151,7 @@ func (s *CommentVoteService) GetCommentVoteCounts(commentID uint) (int, int, flo
 		return 0, 0, 0, fmt.Errorf("database not initialized")
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	err := s.db.Select("ups", "downs", "score").First(&comment, commentID).Error
 	if err != nil {
 		return 0, 0, 0, fmt.Errorf("failed to get comment: %w", err)
@@ -164,17 +164,17 @@ func (s *CommentVoteService) GetCommentVoteCounts(commentID uint) (int, int, flo
 func (s *CommentVoteService) recomputeAggregates(tx *gorm.DB, commentID uint) error {
 	var ups, downs int64
 
-	tx.Model(&models.CommentVote{}).
+	tx.Model(&engagementm.CommentVote{}).
 		Where("comment_id = ? AND direction = 1", commentID).
 		Count(&ups)
 
-	tx.Model(&models.CommentVote{}).
+	tx.Model(&engagementm.CommentVote{}).
 		Where("comment_id = ? AND direction = -1", commentID).
 		Count(&downs)
 
 	score := scoring.WilsonScore(int(ups), int(downs))
 
-	return tx.Model(&models.Comment{}).
+	return tx.Model(&engagementm.Comment{}).
 		Where("id = ?", commentID).
 		Updates(map[string]interface{}{
 			"ups":   int(ups),

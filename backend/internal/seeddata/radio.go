@@ -34,9 +34,9 @@ type RadioStation struct {
 	Slug           string
 	Description    string
 	City           string
-	State          string  // empty -> NULL (e.g. UK/London has no state)
-	Country        string  // ISO two-letter code
-	Timezone       string  // IANA zone name
+	State          string // empty -> NULL (e.g. UK/London has no state)
+	Country        string // ISO two-letter code
+	Timezone       string // IANA zone name
 	StreamURL      string
 	Website        string
 	DonationURL    string
@@ -294,11 +294,11 @@ var RadioShows = []RadioShow{
 		ExternalID:      "floating-points",
 	},
 	{
-		StationSlug: "nts-radio",
-		Name:        "The Do!! You!!! Breakfast Show w/ Charlie Bones",
-		Slug:        "charlie-bones-nts",
-		HostName:    "Charlie Bones",
-		Description: "An eclectic morning show blending jazz, soul, funk, and left-field selections.",
+		StationSlug:     "nts-radio",
+		Name:            "The Do!! You!!! Breakfast Show w/ Charlie Bones",
+		Slug:            "charlie-bones-nts",
+		HostName:        "Charlie Bones",
+		Description:     "An eclectic morning show blending jazz, soul, funk, and left-field selections.",
 		ScheduleDisplay: "Weekdays 10 AM-1 PM GMT",
 		ArchiveURL:      "https://www.nts.live/shows/the-do-you-breakfast-show",
 		ExternalID:      "the-do-you-breakfast-show",
