@@ -79,10 +79,18 @@ const socialLinks = [
 
 /**
  * Normalize a social link value to a full URL.
+ *
+ * Post-PSY-525, the backend write path validates social URL fields as
+ * full http/https URLs, so any newly-submitted row is already a full URL.
+ * This function remains a tolerance layer for legacy rows submitted
+ * before the validator landed — those may still contain partial URLs or
+ * bare handles. New code should not rely on the lenient behavior; the
+ * canonical storage form is a full URL.
+ *
  * Handles cases where the value might be:
- * - A full URL (https://instagram.com/username)
- * - A partial URL (instagram.com/username)
- * - Just a handle/username (username)
+ * - A full URL (https://instagram.com/username) — pass through
+ * - A partial URL (instagram.com/username) — prepend https://
+ * - Just a handle/username — strip leading @, prepend the platform's baseUrl
  */
 function normalizeUrl(value: string, baseUrl: string | null): string {
   // If it already looks like a full URL, return it

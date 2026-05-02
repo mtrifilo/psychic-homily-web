@@ -266,9 +266,9 @@ type AdminCreateVenueRequest struct {
 		State      string  `json:"state" required:"true" doc:"Venue state" maxLength:"100"`
 		Address    *string `json:"address" required:"false" doc:"Street address" maxLength:"500"`
 		Zipcode    *string `json:"zipcode" required:"false" doc:"ZIP code" maxLength:"20"`
-		Instagram  *string `json:"instagram" required:"false" doc:"Instagram handle" maxLength:"255"`
+		Instagram  *string `json:"instagram" required:"false" doc:"Instagram URL" maxLength:"255"`
 		Facebook   *string `json:"facebook" required:"false" doc:"Facebook URL" maxLength:"500"`
-		Twitter    *string `json:"twitter" required:"false" doc:"Twitter handle" maxLength:"255"`
+		Twitter    *string `json:"twitter" required:"false" doc:"Twitter URL" maxLength:"255"`
 		YouTube    *string `json:"youtube" required:"false" doc:"YouTube URL" maxLength:"500"`
 		Spotify    *string `json:"spotify" required:"false" doc:"Spotify URL" maxLength:"500"`
 		SoundCloud *string `json:"soundcloud" required:"false" doc:"SoundCloud URL" maxLength:"500"`
@@ -288,6 +288,12 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 	requestID := logger.GetRequestID(ctx)
 
 	user := middleware.GetUserFromContext(ctx)
+
+	// PSY-525: URL scheme validation (http/https only) for social URL fields.
+	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
+	}
 
 	// Build service request
 	serviceReq := &contracts.CreateVenueRequest{
@@ -356,7 +362,7 @@ type UpdateVenueRequest struct {
 		State       *string `json:"state,omitempty" required:"false" doc:"Venue state"`
 		Country     *string `json:"country,omitempty" required:"false" doc:"Venue country"`
 		Zipcode     *string `json:"zipcode,omitempty" required:"false" doc:"Venue zipcode"`
-		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram handle or URL"`
+		Instagram   *string `json:"instagram,omitempty" required:"false" doc:"Instagram URL"`
 		Facebook    *string `json:"facebook,omitempty" required:"false" doc:"Facebook URL"`
 		Twitter     *string `json:"twitter,omitempty" required:"false" doc:"Twitter URL"`
 		YouTube     *string `json:"youtube,omitempty" required:"false" doc:"YouTube URL"`
@@ -401,6 +407,19 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	}
 	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
 		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
+	}
+
+	// PSY-525: URL scheme validation (http/https only) for image_url and social URL fields.
+	// Length check first (cheaper, reports bytes); URL scheme check second.
+	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
+		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
+	}
+	if err := validateImageURL(req.Body.ImageURL); err != nil {
+		return nil, err
+	}
+	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
 	}
 
 	logger.FromContext(ctx).Info("admin_venue_update",
@@ -462,9 +481,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		updates["description"] = utils.NilIfEmpty(*req.Body.Description)
 	}
 	if req.Body.ImageURL != nil {
-		if len(*req.Body.ImageURL) > 2048 {
-			return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
-		}
+		// Length + scheme already validated above (PSY-525); just persist.
 		updates["image_url"] = utils.NilIfEmpty(*req.Body.ImageURL)
 	}
 
