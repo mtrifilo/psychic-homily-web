@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -39,6 +40,10 @@ type GetSimilarFestivalsRequest struct {
 	Limit      int    `query:"limit" required:"false" doc:"Maximum number of similar festivals to return" example:"10"`
 }
 
+// GetSimilarFestivalsResponse keeps a bespoke struct because the body wraps
+// the slice in a named field (`similar`); a generic
+// `BodyResponse[[]contracts.SimilarFestival]` would emit a bare-array body
+// (wire-incompatible).
 type GetSimilarFestivalsResponse struct {
 	Body struct {
 		Similar []contracts.SimilarFestival `json:"similar" doc:"List of similar festivals ranked by overlap"`
@@ -78,11 +83,7 @@ type GetFestivalOverlapRequest struct {
 	FestivalBID string `path:"festival_b_id" doc:"Second festival ID or slug" example:"levitation-2026"`
 }
 
-type GetFestivalOverlapResponse struct {
-	Body *contracts.FestivalOverlap
-}
-
-func (h *FestivalIntelligenceHandler) GetFestivalOverlapHandler(ctx context.Context, req *GetFestivalOverlapRequest) (*GetFestivalOverlapResponse, error) {
+func (h *FestivalIntelligenceHandler) GetFestivalOverlapHandler(ctx context.Context, req *GetFestivalOverlapRequest) (*shared.BodyResponse[*contracts.FestivalOverlap], error) {
 	festivalAID, err := h.resolveFestivalID(req.FestivalAID)
 	if err != nil {
 		return nil, err
@@ -101,7 +102,7 @@ func (h *FestivalIntelligenceHandler) GetFestivalOverlapHandler(ctx context.Cont
 		return nil, huma.Error500InternalServerError("Failed to compute festival overlap", err)
 	}
 
-	return &GetFestivalOverlapResponse{Body: overlap}, nil
+	return &shared.BodyResponse[*contracts.FestivalOverlap]{Body: overlap}, nil
 }
 
 // ============================================================================
@@ -112,11 +113,7 @@ type GetFestivalBreakoutsRequest struct {
 	FestivalID string `path:"festival_id" doc:"Festival ID or slug" example:"m3f-2026"`
 }
 
-type GetFestivalBreakoutsResponse struct {
-	Body *contracts.FestivalBreakouts
-}
-
-func (h *FestivalIntelligenceHandler) GetFestivalBreakoutsHandler(ctx context.Context, req *GetFestivalBreakoutsRequest) (*GetFestivalBreakoutsResponse, error) {
+func (h *FestivalIntelligenceHandler) GetFestivalBreakoutsHandler(ctx context.Context, req *GetFestivalBreakoutsRequest) (*shared.BodyResponse[*contracts.FestivalBreakouts], error) {
 	festivalID, err := h.resolveFestivalID(req.FestivalID)
 	if err != nil {
 		return nil, err
@@ -130,7 +127,7 @@ func (h *FestivalIntelligenceHandler) GetFestivalBreakoutsHandler(ctx context.Co
 		return nil, huma.Error500InternalServerError("Failed to compute breakouts", err)
 	}
 
-	return &GetFestivalBreakoutsResponse{Body: breakouts}, nil
+	return &shared.BodyResponse[*contracts.FestivalBreakouts]{Body: breakouts}, nil
 }
 
 // ============================================================================
@@ -141,11 +138,7 @@ type GetArtistFestivalTrajectoryRequest struct {
 	ArtistID string `path:"artist_id" doc:"Artist ID or slug" example:"frozen-soul"`
 }
 
-type GetArtistFestivalTrajectoryResponse struct {
-	Body *contracts.ArtistTrajectory
-}
-
-func (h *FestivalIntelligenceHandler) GetArtistFestivalTrajectoryHandler(ctx context.Context, req *GetArtistFestivalTrajectoryRequest) (*GetArtistFestivalTrajectoryResponse, error) {
+func (h *FestivalIntelligenceHandler) GetArtistFestivalTrajectoryHandler(ctx context.Context, req *GetArtistFestivalTrajectoryRequest) (*shared.BodyResponse[*contracts.ArtistTrajectory], error) {
 	artistID, err := h.resolveArtistID(req.ArtistID)
 	if err != nil {
 		return nil, err
@@ -159,7 +152,7 @@ func (h *FestivalIntelligenceHandler) GetArtistFestivalTrajectoryHandler(ctx con
 		return nil, huma.Error500InternalServerError("Failed to compute trajectory", err)
 	}
 
-	return &GetArtistFestivalTrajectoryResponse{Body: trajectory}, nil
+	return &shared.BodyResponse[*contracts.ArtistTrajectory]{Body: trajectory}, nil
 }
 
 // ============================================================================
@@ -171,11 +164,7 @@ type GetSeriesComparisonRequest struct {
 	Years      string `query:"years" doc:"Comma-separated list of years to compare" example:"2024,2025,2026"`
 }
 
-type GetSeriesComparisonResponse struct {
-	Body *contracts.SeriesComparison
-}
-
-func (h *FestivalIntelligenceHandler) GetSeriesComparisonHandler(ctx context.Context, req *GetSeriesComparisonRequest) (*GetSeriesComparisonResponse, error) {
+func (h *FestivalIntelligenceHandler) GetSeriesComparisonHandler(ctx context.Context, req *GetSeriesComparisonRequest) (*shared.BodyResponse[*contracts.SeriesComparison], error) {
 	if req.SeriesSlug == "" {
 		return nil, huma.Error400BadRequest("Series slug is required")
 	}
@@ -210,7 +199,7 @@ func (h *FestivalIntelligenceHandler) GetSeriesComparisonHandler(ctx context.Con
 		return nil, huma.Error500InternalServerError("Failed to compute series comparison", err)
 	}
 
-	return &GetSeriesComparisonResponse{Body: comparison}, nil
+	return &shared.BodyResponse[*contracts.SeriesComparison]{Body: comparison}, nil
 }
 
 // ============================================================================
