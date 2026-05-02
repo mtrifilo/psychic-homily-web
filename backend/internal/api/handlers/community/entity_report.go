@@ -87,11 +87,11 @@ func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType strin
 
 	reportType := strings.TrimSpace(req.Body.ReportType)
 	if reportType == "" {
-		return nil, huma.Error400BadRequest("Report type is required")
+		return nil, huma.Error422UnprocessableEntity("Report type is required")
 	}
 
 	if !communitym.IsValidReportType(entityType, reportType) {
-		return nil, huma.Error400BadRequest("Invalid report type '" + reportType + "' for " + entityType)
+		return nil, huma.Error422UnprocessableEntity("Invalid report type '" + reportType + "' for " + entityType)
 	}
 
 	report, err := h.entityReportService.CreateEntityReport(&contracts.CreateEntityReportRequest{

@@ -51,7 +51,7 @@ func (h *AdminTokenHandler) CreateAPITokenHandler(ctx context.Context, req *Crea
 		expirationDays = 90 // Default
 	}
 	if expirationDays > 365 {
-		return nil, huma.Error400BadRequest("Token expiration cannot exceed 365 days")
+		return nil, huma.Error422UnprocessableEntity("Token expiration cannot exceed 365 days")
 	}
 
 	logger.FromContext(ctx).Debug("admin_create_token_attempt",

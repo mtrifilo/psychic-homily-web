@@ -112,7 +112,7 @@ type GetEntityHistoryResponse struct {
 func (h *RevisionHandler) GetEntityHistoryHandler(ctx context.Context, req *GetEntityHistoryRequest) (*GetEntityHistoryResponse, error) {
 	// Validate entity type
 	if !validEntityTypes[req.EntityType] {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("Invalid entity type: %s. Must be one of: artist, venue, show, release, label, festival", req.EntityType))
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Invalid entity type: %s. Must be one of: artist, venue, show, release, label, festival", req.EntityType))
 	}
 
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 64)

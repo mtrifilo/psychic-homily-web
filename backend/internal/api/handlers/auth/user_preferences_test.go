@@ -205,12 +205,12 @@ func TestSetCommentNotificationsHandler_NoAuth(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 401)
 }
 
-func TestSetCommentNotificationsHandler_NoFieldsBadRequest(t *testing.T) {
+func TestSetCommentNotificationsHandler_NoFieldsRejected(t *testing.T) {
 	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	req := &SetCommentNotificationsRequest{}
 	_, err := h.SetCommentNotificationsHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestSetCommentNotificationsHandler_Success(t *testing.T) {

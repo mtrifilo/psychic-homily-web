@@ -159,7 +159,7 @@ func (s *ReleaseHandlerIntegrationSuite) TestCreateRelease_EmptyTitle() {
 	req.Body.Title = ""
 
 	_, err := s.handler.CreateReleaseHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // --- UpdateReleaseHandler ---

@@ -158,7 +158,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_MissingName() {
 	req.Body.Category = catalogm.TagCategoryGenre
 
 	_, err := s.handler.CreateTagHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestCreateTag_MissingCategory() {
@@ -170,7 +170,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateTag_MissingCategory() {
 	req.Body.Category = ""
 
 	_, err := s.handler.CreateTagHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // ============================================================================
@@ -558,7 +558,7 @@ func (s *TagHandlerIntegrationSuite) TestListTags_InvalidEntityType() {
 
 	resp, err := s.handler.ListTagsHandler(s.deps.Ctx, &ListTagsRequest{EntityType: "user"})
 	s.Nil(resp)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // ============================================================================
@@ -592,7 +592,7 @@ func (s *TagHandlerIntegrationSuite) TestSearchTags_NoResults() {
 func (s *TagHandlerIntegrationSuite) TestSearchTags_EmptyQuery() {
 	req := &SearchTagsRequest{Query: ""}
 	_, err := s.handler.SearchTagsHandler(s.deps.Ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestSearchTags_WithLimit() {
@@ -815,7 +815,7 @@ func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_MissingFields() {
 	// Both TagID and TagName are zero/empty
 
 	_, err := s.handler.AddTagToEntityHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestAddTagToEntity_NoAuth() {
@@ -1206,7 +1206,7 @@ func (s *TagHandlerIntegrationSuite) TestCreateAlias_EmptyAlias() {
 	req.Body.Alias = ""
 
 	_, err := s.handler.CreateAliasHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestCreateAlias_DuplicateAlias() {
@@ -1539,7 +1539,7 @@ func (s *TagHandlerIntegrationSuite) TestMergeTags_MissingTarget() {
 	req.Body.TargetID = 0
 
 	_, err := s.handler.MergeTagsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestMergeTags_SelfMergeRejected() {
@@ -1551,7 +1551,7 @@ func (s *TagHandlerIntegrationSuite) TestMergeTags_SelfMergeRejected() {
 	req.Body.TargetID = tag.Body.ID
 
 	_, err := s.handler.MergeTagsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestMergeTags_InvalidSource() {
@@ -1726,7 +1726,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_MissingAction() {
 
 	ctx := testhelpers.CtxWithUser(admin)
 	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_EmptyIDs() {
@@ -1737,7 +1737,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_EmptyIDs() {
 
 	ctx := testhelpers.CtxWithUser(admin)
 	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_UnknownAction() {
@@ -1751,7 +1751,7 @@ func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_UnknownAction() {
 
 	ctx := testhelpers.CtxWithUser(admin)
 	_, err := s.handler.BulkLowQualityTagsHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TagHandlerIntegrationSuite) TestBulkLowQualityTags_NotFoundCounted() {

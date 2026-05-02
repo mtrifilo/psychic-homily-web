@@ -38,5 +38,5 @@ func TestUnlinkOAuthAccountHandler_InvalidProvider(t *testing.T) {
 	req := &UnlinkOAuthAccountRequest{Provider: "facebook"}
 
 	_, err := h.UnlinkOAuthAccountHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }

@@ -138,19 +138,19 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 	}
 
 	if len(req.Body.Changes) == 0 {
-		return nil, huma.Error400BadRequest("No changes provided")
+		return nil, huma.Error422UnprocessableEntity("No changes provided")
 	}
 
 	summary := strings.TrimSpace(req.Body.Summary)
 	if summary == "" {
-		return nil, huma.Error400BadRequest("Summary is required — explain why you are making this change")
+		return nil, huma.Error422UnprocessableEntity("Summary is required — explain why you are making this change")
 	}
 
 	// Validate fields against allowed list
 	allowed := allowedEditFields[entityType]
 	for _, change := range req.Body.Changes {
 		if !allowed[change.Field] {
-			return nil, huma.Error400BadRequest(fmt.Sprintf("Field '%s' is not editable on %s entities", change.Field, entityType))
+			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Field '%s' is not editable on %s entities", change.Field, entityType))
 		}
 	}
 
@@ -460,7 +460,7 @@ func (h *PendingEditHandler) AdminRejectPendingEditHandler(ctx context.Context, 
 
 	reason := strings.TrimSpace(req.Body.Reason)
 	if reason == "" {
-		return nil, huma.Error400BadRequest("Rejection reason is required — be specific to help the contributor learn")
+		return nil, huma.Error422UnprocessableEntity("Rejection reason is required — be specific to help the contributor learn")
 	}
 
 	rejected, err := h.pendingEditService.RejectPendingEdit(uint(editID), user.ID, reason)
@@ -515,7 +515,7 @@ type AdminGetEntityPendingEditsResponse struct {
 // AdminGetEntityPendingEditsHandler handles GET /admin/pending-edits/entity/{entity_type}/{entity_id}
 func (h *PendingEditHandler) AdminGetEntityPendingEditsHandler(ctx context.Context, req *AdminGetEntityPendingEditsRequest) (*AdminGetEntityPendingEditsResponse, error) {
 	if !adminm.IsValidPendingEditEntityType(req.EntityType) {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("Invalid entity type: %s", req.EntityType))
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Invalid entity type: %s", req.EntityType))
 	}
 
 	entityID, err := strconv.ParseUint(req.EntityID, 10, 64)

@@ -82,7 +82,7 @@ func (h *DataGapsHandler) GetDataGapsHandler(ctx context.Context, req *GetDataGa
 	case "label":
 		gaps, err = h.getLabelGaps(req.IDOrSlug)
 	default:
-		return nil, huma.Error400BadRequest("Invalid entity type: must be artist, venue, festival, release, or label")
+		return nil, huma.Error422UnprocessableEntity("Invalid entity type: must be artist, venue, festival, release, or label")
 	}
 
 	if err != nil {

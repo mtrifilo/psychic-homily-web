@@ -210,7 +210,7 @@ func (h *UserPreferencesHandler) SetDefaultReplyPermissionHandler(ctx context.Co
 
 	perm := req.Body.Permission
 	if !engagementm.IsValidReplyPermission(perm) {
-		return nil, huma.Error400BadRequest(
+		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("invalid reply_permission: %q (want anyone, followers, or author_only)", perm),
 		)
 	}
@@ -221,7 +221,7 @@ func (h *UserPreferencesHandler) SetDefaultReplyPermissionHandler(ctx context.Co
 			"user_id", user.ID,
 		)
 		if strings.Contains(err.Error(), "invalid reply_permission") {
-			return nil, huma.Error400BadRequest(err.Error())
+			return nil, huma.Error422UnprocessableEntity(err.Error())
 		}
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Failed to update default reply permission: %s", err.Error()),
@@ -277,7 +277,7 @@ func (h *UserPreferencesHandler) SetCommentNotificationsHandler(ctx context.Cont
 	}
 
 	if req.Body.NotifyOnCommentSubscription == nil && req.Body.NotifyOnMention == nil {
-		return nil, huma.Error400BadRequest("No preferences provided")
+		return nil, huma.Error422UnprocessableEntity("No preferences provided")
 	}
 
 	if req.Body.NotifyOnCommentSubscription != nil {

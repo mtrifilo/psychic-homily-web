@@ -84,7 +84,7 @@ func TestRejectShowHandler_EmptyReason(t *testing.T) {
 	// Body.Reason is empty
 
 	_, err := h.RejectShowHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // VerifyVenueHandler — invalid venue ID
@@ -123,7 +123,7 @@ func TestBulkExportShowsHandler_EmptyIDs(t *testing.T) {
 	// Body.ShowIDs is nil
 
 	_, err := h.BulkExportShowsHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // BulkExportShowsHandler — too many show IDs
@@ -133,7 +133,7 @@ func TestBulkExportShowsHandler_TooMany(t *testing.T) {
 	req.Body.ShowIDs = make([]uint, 51)
 
 	_, err := h.BulkExportShowsHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // BulkImportPreviewHandler — empty shows
@@ -142,7 +142,7 @@ func TestBulkImportPreviewHandler_EmptyShows(t *testing.T) {
 	req := &BulkImportPreviewRequest{}
 
 	_, err := h.BulkImportPreviewHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // BulkImportPreviewHandler — too many shows
@@ -152,7 +152,7 @@ func TestBulkImportPreviewHandler_TooMany(t *testing.T) {
 	req.Body.Shows = make([]string, 51)
 
 	_, err := h.BulkImportPreviewHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // BulkImportConfirmHandler — empty shows
@@ -161,7 +161,7 @@ func TestBulkImportConfirmHandler_EmptyShows(t *testing.T) {
 	req := &BulkImportConfirmRequest{}
 
 	_, err := h.BulkImportConfirmHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // BulkImportConfirmHandler — too many shows
@@ -171,7 +171,7 @@ func TestBulkImportConfirmHandler_TooMany(t *testing.T) {
 	req.Body.Shows = make([]string, 51)
 
 	_, err := h.BulkImportConfirmHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // Discovery handler tests live in pipeline/admin_discovery_test.go; the
@@ -186,7 +186,7 @@ func TestCreateAPITokenHandler_ExpirationTooLong(t *testing.T) {
 	req.Body.ExpirationDays = 400
 
 	_, err := h.CreateAPITokenHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // RevokeAPITokenHandler — invalid token ID
@@ -205,7 +205,7 @@ func TestDataImportHandler_EmptyItems(t *testing.T) {
 	// All slices are nil/empty, totalItems == 0
 
 	_, err := h.DataImportHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // DataImportHandler — too many items
@@ -215,7 +215,7 @@ func TestDataImportHandler_TooMany(t *testing.T) {
 	req.Body.Shows = make([]contracts.ExportedShow, 501)
 
 	_, err := h.DataImportHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ExportShowsHandler — invalid date format
@@ -1170,7 +1170,7 @@ func TestBatchRejectShowsHandler_RequiresReason(t *testing.T) {
 	req.Body.Reason = ""
 
 	_, err := h.BatchRejectShowsHandler(adminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================

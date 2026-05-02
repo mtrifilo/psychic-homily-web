@@ -99,7 +99,7 @@ func (h *ArtistRelationshipHandler) GetArtistBillCompositionHandler(ctx context.
 	}
 
 	if req.Months < 0 {
-		return nil, huma.Error400BadRequest("months must be >= 0")
+		return nil, huma.Error422UnprocessableEntity("months must be >= 0")
 	}
 
 	bc, err := h.relService.GetArtistBillComposition(uint(id), req.Months)
@@ -195,10 +195,10 @@ func (h *ArtistRelationshipHandler) CreateRelationshipHandler(ctx context.Contex
 	}
 
 	if req.Body.SourceArtistID == 0 || req.Body.TargetArtistID == 0 {
-		return nil, huma.Error400BadRequest("Both source_artist_id and target_artist_id are required")
+		return nil, huma.Error422UnprocessableEntity("Both source_artist_id and target_artist_id are required")
 	}
 	if req.Body.Type == "" {
-		return nil, huma.Error400BadRequest("Relationship type is required")
+		return nil, huma.Error422UnprocessableEntity("Relationship type is required")
 	}
 
 	_, err := h.relService.CreateRelationship(req.Body.SourceArtistID, req.Body.TargetArtistID, req.Body.Type, false)
@@ -256,7 +256,7 @@ func (h *ArtistRelationshipHandler) VoteHandler(ctx context.Context, req *VoteRe
 	}
 
 	if req.Body.Type == "" {
-		return nil, huma.Error400BadRequest("Relationship type is required")
+		return nil, huma.Error422UnprocessableEntity("Relationship type is required")
 	}
 
 	err = h.relService.Vote(uint(sourceID), uint(targetID), req.Body.Type, user.ID, req.Body.IsUpvote)
@@ -293,7 +293,7 @@ func (h *ArtistRelationshipHandler) RemoveVoteHandler(ctx context.Context, req *
 	}
 
 	if req.Type == "" {
-		return nil, huma.Error400BadRequest("Relationship type is required")
+		return nil, huma.Error422UnprocessableEntity("Relationship type is required")
 	}
 
 	err = h.relService.RemoveVote(uint(sourceID), uint(targetID), req.Type, user.ID)

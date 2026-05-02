@@ -131,7 +131,7 @@ func TestRequestHandler_Create_MissingTitle(t *testing.T) {
 	req.Body.EntityType = "artist"
 
 	_, err := h.CreateRequestHandler(requestUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestRequestHandler_Create_MissingEntityType(t *testing.T) {
@@ -141,7 +141,7 @@ func TestRequestHandler_Create_MissingEntityType(t *testing.T) {
 	req.Body.Title = "Test"
 
 	_, err := h.CreateRequestHandler(requestUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestRequestHandler_Create_ServiceError(t *testing.T) {

@@ -344,7 +344,7 @@ func (h *AdminShowHandler) RejectShowHandler(ctx context.Context, req *RejectSho
 
 	// Validate reason
 	if req.Body.Reason == "" {
-		return nil, huma.Error400BadRequest("Rejection reason is required")
+		return nil, huma.Error422UnprocessableEntity("Rejection reason is required")
 	}
 
 	logger.FromContext(ctx).Debug("admin_reject_show_attempt",
@@ -446,7 +446,7 @@ func (h *AdminShowHandler) BatchRejectShowsHandler(ctx context.Context, req *Bat
 
 	// Validate reason
 	if req.Body.Reason == "" {
-		return nil, huma.Error400BadRequest("Rejection reason is required")
+		return nil, huma.Error422UnprocessableEntity("Rejection reason is required")
 	}
 
 	result, err := h.showAdminService.BatchRejectShows(req.Body.ShowIDs, req.Body.Reason, req.Body.Category)
@@ -714,11 +714,11 @@ func (h *AdminShowHandler) BulkExportShowsHandler(ctx context.Context, req *Bulk
 	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.ShowIDs) == 0 {
-		return nil, huma.Error400BadRequest("At least one show ID is required")
+		return nil, huma.Error422UnprocessableEntity("At least one show ID is required")
 	}
 
 	if len(req.Body.ShowIDs) > 50 {
-		return nil, huma.Error400BadRequest("Maximum 50 shows can be exported at once")
+		return nil, huma.Error422UnprocessableEntity("Maximum 50 shows can be exported at once")
 	}
 
 	logger.FromContext(ctx).Debug("admin_bulk_export_attempt",
@@ -792,11 +792,11 @@ func (h *AdminShowHandler) BulkImportPreviewHandler(ctx context.Context, req *Bu
 	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.Shows) == 0 {
-		return nil, huma.Error400BadRequest("At least one show is required")
+		return nil, huma.Error422UnprocessableEntity("At least one show is required")
 	}
 
 	if len(req.Body.Shows) > 50 {
-		return nil, huma.Error400BadRequest("Maximum 50 shows can be imported at once")
+		return nil, huma.Error422UnprocessableEntity("Maximum 50 shows can be imported at once")
 	}
 
 	logger.FromContext(ctx).Debug("admin_bulk_import_preview_attempt",
@@ -906,11 +906,11 @@ func (h *AdminShowHandler) BulkImportConfirmHandler(ctx context.Context, req *Bu
 	user := middleware.GetUserFromContext(ctx)
 
 	if len(req.Body.Shows) == 0 {
-		return nil, huma.Error400BadRequest("At least one show is required")
+		return nil, huma.Error422UnprocessableEntity("At least one show is required")
 	}
 
 	if len(req.Body.Shows) > 50 {
-		return nil, huma.Error400BadRequest("Maximum 50 shows can be imported at once")
+		return nil, huma.Error422UnprocessableEntity("Maximum 50 shows can be imported at once")
 	}
 
 	logger.FromContext(ctx).Debug("admin_bulk_import_confirm_attempt",

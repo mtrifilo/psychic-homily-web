@@ -84,7 +84,7 @@ func TestSuggestEdit_NoChanges(t *testing.T) {
 	req.Body.Changes = []adminm.FieldChange{}
 	req.Body.Summary = "test"
 	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestSuggestEdit_NoSummary(t *testing.T) {
@@ -93,7 +93,7 @@ func TestSuggestEdit_NoSummary(t *testing.T) {
 	req.Body.Changes = []adminm.FieldChange{{Field: "name", OldValue: "a", NewValue: "b"}}
 	req.Body.Summary = ""
 	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestSuggestEdit_DisallowedField(t *testing.T) {
@@ -102,7 +102,7 @@ func TestSuggestEdit_DisallowedField(t *testing.T) {
 	req.Body.Changes = []adminm.FieldChange{{Field: "is_active", OldValue: true, NewValue: false}}
 	req.Body.Summary = "hack"
 	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestSuggestEdit_VenueDisallowedField(t *testing.T) {
@@ -111,7 +111,7 @@ func TestSuggestEdit_VenueDisallowedField(t *testing.T) {
 	req.Body.Changes = []adminm.FieldChange{{Field: "verified", OldValue: false, NewValue: true}}
 	req.Body.Summary = "verify"
 	_, err := h.SuggestVenueEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestSuggestEdit_FestivalDisallowedField(t *testing.T) {
@@ -120,7 +120,7 @@ func TestSuggestEdit_FestivalDisallowedField(t *testing.T) {
 	req.Body.Changes = []adminm.FieldChange{{Field: "status", OldValue: "announced", NewValue: "cancelled"}}
 	req.Body.Summary = "cancel"
 	_, err := h.SuggestFestivalEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -565,7 +565,7 @@ func TestAdminReject_EmptyReason(t *testing.T) {
 	req := &AdminRejectPendingEditRequest{EditID: "1"}
 	req.Body.Reason = ""
 	_, err := h.AdminRejectPendingEditHandler(pendingEditAdminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminReject_Success(t *testing.T) {
@@ -626,7 +626,7 @@ func TestAdminGetEntityPendingEdits_InvalidEntityType(t *testing.T) {
 	_, err := h.AdminGetEntityPendingEditsHandler(pendingEditAdminCtx(), &AdminGetEntityPendingEditsRequest{
 		EntityType: "show", EntityID: "1",
 	})
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestAdminGetEntityPendingEdits_Success(t *testing.T) {

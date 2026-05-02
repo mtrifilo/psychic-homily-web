@@ -234,10 +234,10 @@ func (h *AdminDataHandler) DataImportHandler(ctx context.Context, req *DataImpor
 	// Validate limits
 	totalItems := len(req.Body.Shows) + len(req.Body.Artists) + len(req.Body.Venues)
 	if totalItems == 0 {
-		return nil, huma.Error400BadRequest("At least one show, artist, or venue is required")
+		return nil, huma.Error422UnprocessableEntity("At least one show, artist, or venue is required")
 	}
 	if totalItems > 500 {
-		return nil, huma.Error400BadRequest("Maximum 500 total items can be imported at once")
+		return nil, huma.Error422UnprocessableEntity("Maximum 500 total items can be imported at once")
 	}
 
 	logger.FromContext(ctx).Debug("admin_data_import_attempt",

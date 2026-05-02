@@ -91,7 +91,7 @@ func (h *ContributeHandler) GetOpportunityCategoryHandler(ctx context.Context, r
 	if err != nil {
 		// Check if it's an unknown category error
 		if err.Error() == "unknown category: "+req.Category {
-			return nil, huma.Error400BadRequest("Unknown contribution category: " + req.Category)
+			return nil, huma.Error422UnprocessableEntity("Unknown contribution category: " + req.Category)
 		}
 		logger.FromContext(ctx).Error("contribute_category_failed",
 			"category", req.Category,

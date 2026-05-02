@@ -718,7 +718,7 @@ func (h *VenueHandler) GetVenueBillNetworkHandler(ctx context.Context, req *GetV
 	window := strings.ToLower(strings.TrimSpace(req.Window))
 	if window == "year" {
 		if req.Year == 0 {
-			return nil, huma.Error400BadRequest("Year is required when window=year")
+			return nil, huma.Error422UnprocessableEntity("Year is required when window=year")
 		}
 		y := req.Year
 		yearPtr = &y

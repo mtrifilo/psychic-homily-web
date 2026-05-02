@@ -813,22 +813,22 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 
 	// Validate text field lengths
 	if req.Body.Title != nil && len(*req.Body.Title) > 255 {
-		return nil, huma.Error400BadRequest("Title must be 255 characters or fewer")
+		return nil, huma.Error422UnprocessableEntity("Title must be 255 characters or fewer")
 	}
 	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
-		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
+		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
 	}
 	if req.Body.AgeRequirement != nil && len(*req.Body.AgeRequirement) > 50 {
-		return nil, huma.Error400BadRequest("Age requirement must be 50 characters or fewer")
+		return nil, huma.Error422UnprocessableEntity("Age requirement must be 50 characters or fewer")
 	}
 	if req.Body.Price != nil && (*req.Body.Price < 0 || *req.Body.Price > 10000) {
-		return nil, huma.Error400BadRequest("Price must be between 0 and 10000")
+		return nil, huma.Error422UnprocessableEntity("Price must be between 0 and 10000")
 	}
 	if req.Body.TicketURL != nil && len(*req.Body.TicketURL) > 500 {
-		return nil, huma.Error400BadRequest("Ticket URL must be 500 characters or fewer")
+		return nil, huma.Error422UnprocessableEntity("Ticket URL must be 500 characters or fewer")
 	}
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
-		return nil, huma.Error400BadRequest("Image URL must be 2048 characters or fewer")
+		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 	}
 	// PSY-525: URL scheme validation (http/https only) for image_url.
 	if err := validateImageURL(req.Body.ImageURL); err != nil {

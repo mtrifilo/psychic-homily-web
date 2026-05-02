@@ -157,28 +157,55 @@ func (s *TestFixturesSuite) TestReset_HappyPath_DeletesAllowlistedScopes() {
 	// predicate + this row count going to zero without side effects.
 }
 
-func (s *TestFixturesSuite) TestReset_HeaderMissing_Returns400() {
+func (s *TestFixturesSuite) TestReset_CollectionsScope_PreservesReservedWorkerCollection() {
+	admin := s.createTestLocalUser(true)
+	target := s.createTestLocalUser(false)
+	reserved := &communitym.Collection{
+		Title:     "E2E Worker Collection",
+		Slug:      fmt.Sprintf("%s%d", ReservedWorkerCollectionSlugPrefix, target.ID),
+		CreatorID: target.ID,
+	}
+	s.Require().NoError(s.deps.DB.Create(reserved).Error)
+	item := &communitym.CollectionItem{
+		CollectionID:  reserved.ID,
+		EntityType:    "show",
+		EntityID:      123,
+		AddedByUserID: target.ID,
+	}
+	s.Require().NoError(s.deps.DB.Create(item).Error)
+
+	_, err := s.call(admin, target.ID, []string{"collection_items", "collections"}, "1")
+	s.Require().NoError(err)
+
+	var collectionCount, itemCount int64
+	s.deps.DB.Model(&communitym.Collection{}).Where("id = ?", reserved.ID).Count(&collectionCount)
+	s.deps.DB.Model(&communitym.CollectionItem{}).Where("id = ?", item.ID).Count(&itemCount)
+	s.Equal(int64(1), collectionCount, "reserved worker collection must survive reset")
+	s.Zero(itemCount, "reserved worker collection items should still be reset")
+}
+
+func (s *TestFixturesSuite) TestReset_HeaderMissing_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)
 	_, err := s.call(admin, target.ID, []string{"user_bookmarks"}, "")
 	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
-func (s *TestFixturesSuite) TestReset_HeaderWrongValue_Returns400() {
+func (s *TestFixturesSuite) TestReset_HeaderWrongValue_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)
 	_, err := s.call(admin, target.ID, []string{"user_bookmarks"}, "yes")
 	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
-func (s *TestFixturesSuite) TestReset_UnknownTable_Returns400() {
+func (s *TestFixturesSuite) TestReset_UnknownTable_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)
 	_, err := s.call(admin, target.ID, []string{"user_bookmarks", "totally_unknown_table"}, "1")
 	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 
 	// Even partially-valid request: no DB work should happen. Seed then
 	// confirm nothing was deleted.
@@ -213,12 +240,12 @@ func (s *TestFixturesSuite) TestReset_UnknownUser_Returns404() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
-func (s *TestFixturesSuite) TestReset_EmptyTables_Returns400() {
+func (s *TestFixturesSuite) TestReset_EmptyTables_Returns422() {
 	admin := s.createTestLocalUser(true)
 	target := s.createTestLocalUser(false)
 	_, err := s.call(admin, target.ID, []string{}, "1")
 	s.Require().Error(err)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *TestFixturesSuite) TestReset_PendingShowsScope_PreservesApproved() {

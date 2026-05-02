@@ -143,7 +143,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_EmptyTitle() {
 	req.Body.Title = ""
 
 	_, err := s.handler.CreateCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // ============================================================================
@@ -296,7 +296,7 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_PopularSort_Acce
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_UnknownSort_Rejected() {
 	req := &ListCollectionsHandlerRequest{Sort: "bogus"}
 	_, err := s.handler.ListCollectionsHandler(context.Background(), req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter() {
@@ -759,7 +759,7 @@ func (s *CollectionHandlerIntegrationSuite) TestAddItem_MissingEntityType() {
 	req.Body.EntityID = 1
 
 	_, err := s.handler.AddItemHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_MissingEntityID() {
@@ -772,7 +772,7 @@ func (s *CollectionHandlerIntegrationSuite) TestAddItem_MissingEntityID() {
 	req.Body.EntityID = 0
 
 	_, err := s.handler.AddItemHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddItem_NotOwner() {
@@ -1330,7 +1330,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OriginalShowsFor
 // PSY-356: publish-gate handler integration
 // ============================================================================
 
-func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_PublicAtCreateRejectedAs400() {
+func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_PublicAtCreateRejectedAs422() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 
@@ -1339,10 +1339,10 @@ func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_PublicAtCreateR
 	req.Body.IsPublic = true
 
 	_, err := s.handler.CreateCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
-func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_FlipPublicBelowGateRejectedAs400() {
+func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_FlipPublicBelowGateRejectedAs422() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	priv := s.createCollectionViaService(user, "Flip Below Gate", false)
 
@@ -1352,7 +1352,7 @@ func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_FlipPublicBelow
 	req.Body.IsPublic = &pub
 
 	_, err := s.handler.UpdateCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 // ============================================================================
@@ -1416,7 +1416,7 @@ func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_MissingArgs() {
 	// no tag_id, no tag_name
 
 	_, err := s.handler.AddCollectionTagHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_NonOwner_Forbidden() {
@@ -1451,7 +1451,7 @@ func (s *CollectionHandlerIntegrationSuite) TestAddCollectionTag_LimitExceeded()
 	r := &AddCollectionTagHandlerRequest{Slug: coll.Slug}
 	r.Body.TagName = "one-too-many"
 	_, err := s.handler.AddCollectionTagHandler(ctx, r)
-	testhelpers.AssertHumaError(s.T(), err, 400)
+	testhelpers.AssertHumaError(s.T(), err, 422)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestRemoveCollectionTag_Success() {

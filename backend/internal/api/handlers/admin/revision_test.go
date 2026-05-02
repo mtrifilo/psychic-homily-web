@@ -116,7 +116,7 @@ func TestRevisionHandler_GetEntityHistory_InvalidEntityType(t *testing.T) {
 		EntityType: "invalid",
 		EntityID:   "1",
 	})
-	testhelpers.AssertHumaError(t, err, 400)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestRevisionHandler_GetEntityHistory_InvalidEntityID(t *testing.T) {

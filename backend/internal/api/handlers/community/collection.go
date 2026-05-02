@@ -66,7 +66,7 @@ func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *Lis
 	// be in the recognized set so unknown sorts produce a clean 400 rather
 	// than silently falling back to the default. PSY-352.
 	if req.Sort != "" && req.Sort != contracts.CollectionSortPopular {
-		return nil, huma.Error400BadRequest(fmt.Sprintf("Unsupported sort value: %q", req.Sort))
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Unsupported sort value: %q", req.Sort))
 	}
 
 	// PSY-355: empty / whitespace-only search short-circuits at the boundary
@@ -197,7 +197,7 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 	}
 
 	if req.Body.Title == "" {
-		return nil, huma.Error400BadRequest("Title is required")
+		return nil, huma.Error422UnprocessableEntity("Title is required")
 	}
 
 	serviceReq := &contracts.CreateCollectionRequest{
@@ -373,10 +373,10 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 	}
 
 	if req.Body.EntityType == "" {
-		return nil, huma.Error400BadRequest("Entity type is required")
+		return nil, huma.Error422UnprocessableEntity("Entity type is required")
 	}
 	if req.Body.EntityID == 0 {
-		return nil, huma.Error400BadRequest("Entity ID is required")
+		return nil, huma.Error422UnprocessableEntity("Entity ID is required")
 	}
 
 	serviceReq := &contracts.AddCollectionItemRequest{
@@ -740,7 +740,7 @@ func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req
 		"show": true, "venue": true, "festival": true,
 	}
 	if !validTypes[req.EntityType] {
-		return nil, huma.Error400BadRequest("Invalid entity type")
+		return nil, huma.Error422UnprocessableEntity("Invalid entity type")
 	}
 
 	limit := req.Limit
@@ -898,7 +898,7 @@ func (h *CollectionHandler) AddCollectionTagHandler(ctx context.Context, req *Ad
 	}
 
 	if req.Body.TagID == 0 && req.Body.TagName == "" {
-		return nil, huma.Error400BadRequest("Either tag_id or tag_name is required")
+		return nil, huma.Error422UnprocessableEntity("Either tag_id or tag_name is required")
 	}
 
 	serviceReq := &contracts.AddCollectionTagRequest{

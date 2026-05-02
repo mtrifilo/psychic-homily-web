@@ -206,7 +206,7 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 	user := middleware.GetUserFromContext(ctx)
 
 	if req.Body.Title == "" {
-		return nil, huma.Error400BadRequest("Title is required")
+		return nil, huma.Error422UnprocessableEntity("Title is required")
 	}
 
 	// Convert handler types to service types
@@ -544,7 +544,7 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 	}
 
 	if req.Body.Platform == "" || req.Body.URL == "" {
-		return nil, huma.Error400BadRequest("Platform and URL are required")
+		return nil, huma.Error422UnprocessableEntity("Platform and URL are required")
 	}
 
 	link, err := h.releaseService.AddExternalLink(uint(releaseID), req.Body.Platform, req.Body.URL)
