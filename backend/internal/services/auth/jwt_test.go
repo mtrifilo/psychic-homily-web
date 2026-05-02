@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -29,7 +29,7 @@ func TestJWTService_CreateToken(t *testing.T) {
 	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
 
 	t.Run("CreateToken_Success", func(t *testing.T) {
-		user := &models.User{
+		user := &authm.User{
 			ID:    123,
 			Email: stringPtr("test@example.com"),
 		}
@@ -58,7 +58,7 @@ func TestJWTService_CreateToken(t *testing.T) {
 	})
 
 	t.Run("CreateToken_WithNilEmail", func(t *testing.T) {
-		user := &models.User{
+		user := &authm.User{
 			ID:    456,
 			Email: nil,
 		}
@@ -83,7 +83,7 @@ func TestJWTService_CreateToken(t *testing.T) {
 	})
 
 	t.Run("CreateToken_ExpiryCalculation", func(t *testing.T) {
-		user := &models.User{
+		user := &authm.User{
 			ID:    789,
 			Email: stringPtr("expiry@example.com"),
 		}
@@ -155,7 +155,7 @@ func TestJWTService_ValidateToken(t *testing.T) {
 		}
 		jwtService1 := NewJWTService(nil, cfg1, newNilDBUserService())
 
-		user := &models.User{
+		user := &authm.User{
 			ID:    123,
 			Email: stringPtr("test@example.com"),
 		}
@@ -181,7 +181,7 @@ func TestJWTService_ValidateToken(t *testing.T) {
 		}
 		jwtServiceShort := NewJWTService(nil, cfgShort, newNilDBUserService())
 
-		user := &models.User{
+		user := &authm.User{
 			ID:    123,
 			Email: stringPtr("expired@example.com"),
 		}
@@ -202,7 +202,7 @@ func TestJWTService_ValidateToken(t *testing.T) {
 
 	t.Run("ValidateToken_TamperedToken", func(t *testing.T) {
 		// Create a valid token
-		user := &models.User{
+		user := &authm.User{
 			ID:    123,
 			Email: stringPtr("tampered@example.com"),
 		}
@@ -267,7 +267,7 @@ func TestJWTService_RefreshToken(t *testing.T) {
 		}
 		jwtServiceShort := NewJWTService(nil, cfgShort, newNilDBUserService())
 
-		user := &models.User{
+		user := &authm.User{
 			ID:    123,
 			Email: stringPtr("expired@example.com"),
 		}
@@ -544,4 +544,4 @@ func parseTokenClaims(t *testing.T, tokenString, secretKey string) jwt.MapClaims
 	claims, ok := token.Claims.(jwt.MapClaims)
 	require.True(t, ok)
 	return claims
-} 
+}

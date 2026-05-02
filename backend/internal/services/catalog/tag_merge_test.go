@@ -10,7 +10,9 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -52,25 +54,25 @@ func TestTagMergeIntegration(t *testing.T) {
 // Helpers
 // ──────────────────────────────────────────────
 
-func (s *TagMergeIntegrationSuite) createUser(name string) *models.User {
+func (s *TagMergeIntegrationSuite) createUser(name string) *authm.User {
 	email := fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())
-	u := &models.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
+	u := &authm.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.db.Create(u).Error)
 	return u
 }
 
-func (s *TagMergeIntegrationSuite) createTagWithOfficial(name string, official bool) *models.Tag {
-	tag, err := s.tagService.CreateTag(name, nil, nil, models.TagCategoryGenre, official, nil)
+func (s *TagMergeIntegrationSuite) createTagWithOfficial(name string, official bool) *catalogm.Tag {
+	tag, err := s.tagService.CreateTag(name, nil, nil, catalogm.TagCategoryGenre, official, nil)
 	s.Require().NoError(err)
 	return tag
 }
 
-func (s *TagMergeIntegrationSuite) createTag(name string) *models.Tag {
+func (s *TagMergeIntegrationSuite) createTag(name string) *catalogm.Tag {
 	return s.createTagWithOfficial(name, false)
 }
 
-func (s *TagMergeIntegrationSuite) applyTag(tagID uint, entityType string, entityID, userID uint) *models.EntityTag {
-	et := &models.EntityTag{
+func (s *TagMergeIntegrationSuite) applyTag(tagID uint, entityType string, entityID, userID uint) *catalogm.EntityTag {
+	et := &catalogm.EntityTag{
 		TagID:         tagID,
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -78,7 +80,7 @@ func (s *TagMergeIntegrationSuite) applyTag(tagID uint, entityType string, entit
 	}
 	s.Require().NoError(s.db.Create(et).Error)
 	// Mirror usage_count increment used by AddTagToEntity so counts stay sane.
-	s.db.Model(&models.Tag{}).Where("id = ?", tagID).
+	s.db.Model(&catalogm.Tag{}).Where("id = ?", tagID).
 		Update("usage_count", gorm.Expr("usage_count + 1"))
 	return et
 }
@@ -95,13 +97,13 @@ func (s *TagMergeIntegrationSuite) vote(tagID uint, entityType string, entityID,
 	if !up {
 		v = -1
 	}
-	s.Require().NoError(s.db.Create(&models.TagVote{
+	s.Require().NoError(s.db.Create(&catalogm.TagVote{
 		TagID: tagID, EntityType: entityType, EntityID: entityID, UserID: userID, Vote: v,
 	}).Error)
 }
 
 func (s *TagMergeIntegrationSuite) usageCount(tagID uint) int {
-	var t models.Tag
+	var t catalogm.Tag
 	s.Require().NoError(s.db.First(&t, tagID).Error)
 	return t.UsageCount
 }
@@ -140,14 +142,14 @@ func (s *TagMergeIntegrationSuite) TestMerge_HappyPath_MovesEverything() {
 
 	// Source is gone.
 	var srcCount int64
-	s.db.Model(&models.Tag{}).Where("id = ?", source.ID).Count(&srcCount)
+	s.db.Model(&catalogm.Tag{}).Where("id = ?", source.ID).Count(&srcCount)
 	s.Equal(int64(0), srcCount)
 
 	// usage_count is the real count of entity_tags on target (3).
 	s.Equal(3, s.usageCount(target.ID))
 
 	// Alias source.name → target exists.
-	var alias models.TagAlias
+	var alias catalogm.TagAlias
 	s.Require().NoError(s.db.Where("tag_id = ? AND LOWER(alias) = LOWER(?)", target.ID, source.Name).First(&alias).Error)
 }
 
@@ -176,7 +178,7 @@ func (s *TagMergeIntegrationSuite) TestMerge_EntityTagConflict_SourceRowDropped(
 
 	// Target has 2 rows (its original + the moved one), not 3.
 	var tgtCount int64
-	s.db.Model(&models.EntityTag{}).Where("tag_id = ?", target.ID).Count(&tgtCount)
+	s.db.Model(&catalogm.EntityTag{}).Where("tag_id = ?", target.ID).Count(&tgtCount)
 	s.Equal(int64(2), tgtCount)
 	s.Equal(2, s.usageCount(target.ID))
 }
@@ -197,7 +199,7 @@ func (s *TagMergeIntegrationSuite) TestMerge_VoteConflict_TargetWins() {
 	// their rows don't conflict on entity_tags, then place votes on both for
 	// the same user/entity/type combination.
 	s.applyTag(target.ID, "artist", 1, u1.ID)
-	s.applyTag(source.ID, "artist", 1, u1.ID) // will collide on entity_tags
+	s.applyTag(source.ID, "artist", 1, u1.ID)    // will collide on entity_tags
 	s.vote(source.ID, "artist", 1, u1.ID, true)  // upvote on source
 	s.vote(target.ID, "artist", 1, u1.ID, false) // downvote on target (wins)
 
@@ -208,7 +210,7 @@ func (s *TagMergeIntegrationSuite) TestMerge_VoteConflict_TargetWins() {
 	s.Equal(int64(1), result.SkippedVotes)
 
 	// Target's downvote survives.
-	var survivor models.TagVote
+	var survivor catalogm.TagVote
 	s.Require().NoError(s.db.Where("tag_id = ? AND entity_type = 'artist' AND entity_id = 1 AND user_id = ?", target.ID, u1.ID).First(&survivor).Error)
 	s.Equal(-1, survivor.Vote)
 }
@@ -325,7 +327,7 @@ func (s *TagMergeIntegrationSuite) TestMerge_AliasCollisionOnTarget_TargetWins()
 	s.Require().NoError(err)
 
 	// Only target's row survives, with its original casing.
-	var aliases []models.TagAlias
+	var aliases []catalogm.TagAlias
 	s.Require().NoError(s.db.Where("LOWER(alias) = LOWER(?)", "nu-gaze").Find(&aliases).Error)
 	s.Require().Len(aliases, 1)
 	s.Equal(target.ID, aliases[0].TagID)
@@ -350,7 +352,7 @@ func (s *TagMergeIntegrationSuite) TestMerge_SourceNameCollidesWithForeignAlias_
 	s.Equal(apperrors.CodeTagMergeAliasConflict, tagErr.Code)
 
 	// Source still exists (transaction rolled back).
-	var stillThere models.Tag
+	var stillThere catalogm.Tag
 	s.Require().NoError(s.db.First(&stillThere, source.ID).Error)
 }
 
@@ -366,7 +368,7 @@ func (s *TagMergeIntegrationSuite) TestMerge_OfficialSource_TargetBecomesOfficia
 	_, err := s.tagService.MergeTags(source.ID, target.ID, admin.ID)
 	s.Require().NoError(err)
 
-	var merged models.Tag
+	var merged catalogm.Tag
 	s.Require().NoError(s.db.First(&merged, target.ID).Error)
 	s.True(merged.IsOfficial, "official flag should carry forward from source")
 }
@@ -379,7 +381,7 @@ func (s *TagMergeIntegrationSuite) TestMerge_OfficialTarget_StaysOfficial() {
 	_, err := s.tagService.MergeTags(source.ID, target.ID, admin.ID)
 	s.Require().NoError(err)
 
-	var merged models.Tag
+	var merged catalogm.Tag
 	s.Require().NoError(s.db.First(&merged, target.ID).Error)
 	s.True(merged.IsOfficial)
 }
@@ -416,8 +418,8 @@ func (s *TagMergeIntegrationSuite) TestMerge_UsageCount_ReflectsActualCount() {
 	s.applyTag(source.ID, "artist", 2, u1.ID)
 	s.applyTag(target.ID, "artist", 3, u1.ID)
 	// Manually scramble the stored counts.
-	s.db.Model(&models.Tag{}).Where("id = ?", source.ID).Update("usage_count", 999)
-	s.db.Model(&models.Tag{}).Where("id = ?", target.ID).Update("usage_count", 77)
+	s.db.Model(&catalogm.Tag{}).Where("id = ?", source.ID).Update("usage_count", 999)
+	s.db.Model(&catalogm.Tag{}).Where("id = ?", target.ID).Update("usage_count", 77)
 
 	_, err := s.tagService.MergeTags(source.ID, target.ID, admin.ID)
 	s.Require().NoError(err)
@@ -442,7 +444,7 @@ func (s *TagMergeIntegrationSuite) TestMerge_WritesAuditLog() {
 
 	// Audit log write is fire-and-forget; poll briefly so the goroutine wins.
 	// Filter on entity_id so a log from a prior test can't satisfy the query.
-	var log models.AuditLog
+	var log adminm.AuditLog
 	for i := 0; i < 40; i++ {
 		err := s.db.Where("action = ? AND entity_id = ?", AuditActionMergeTags, target.ID).First(&log).Error
 		if err == nil {
@@ -490,15 +492,15 @@ func (s *TagMergeIntegrationSuite) TestMerge_TransactionRollback_OnAliasCollisio
 	s.Require().Error(err)
 
 	// Source still exists with its original 2 entity_tags.
-	var still models.Tag
+	var still catalogm.Tag
 	s.Require().NoError(s.db.First(&still, source.ID).Error)
 	var srcEntityCount int64
-	s.db.Model(&models.EntityTag{}).Where("tag_id = ?", source.ID).Count(&srcEntityCount)
+	s.db.Model(&catalogm.EntityTag{}).Where("tag_id = ?", source.ID).Count(&srcEntityCount)
 	s.Equal(int64(2), srcEntityCount)
 
 	// Target has nothing on it.
 	var tgtEntityCount int64
-	s.db.Model(&models.EntityTag{}).Where("tag_id = ?", target.ID).Count(&tgtEntityCount)
+	s.db.Model(&catalogm.EntityTag{}).Where("tag_id = ?", target.ID).Count(&tgtEntityCount)
 	s.Equal(int64(0), tgtEntityCount)
 }
 

@@ -11,7 +11,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -26,12 +27,12 @@ const (
 // EnrichmentService handles post-import enrichment of shows with artist matching,
 // MusicBrainz lookups, and API cross-referencing.
 type EnrichmentService struct {
-	db              *gorm.DB
-	artistService   contracts.ArtistServiceInterface
-	mbClient        *MusicBrainzClient
-	sgClient        *SeatGeekClient
-	logger          *slog.Logger
-	matchThreshold  float64
+	db             *gorm.DB
+	artistService  contracts.ArtistServiceInterface
+	mbClient       *MusicBrainzClient
+	sgClient       *SeatGeekClient
+	logger         *slog.Logger
+	matchThreshold float64
 }
 
 // NewEnrichmentService creates a new enrichment service.
@@ -61,18 +62,18 @@ func (s *EnrichmentService) QueueShowForEnrichment(showID uint, enrichmentType s
 
 	// Validate enrichment type
 	switch enrichmentType {
-	case models.EnrichmentTypeArtistMatch,
-		models.EnrichmentTypeMusicBrainz,
-		models.EnrichmentTypeAPICrossRef,
-		models.EnrichmentTypeAll:
+	case adminm.EnrichmentTypeArtistMatch,
+		adminm.EnrichmentTypeMusicBrainz,
+		adminm.EnrichmentTypeAPICrossRef,
+		adminm.EnrichmentTypeAll:
 		// valid
 	default:
 		return fmt.Errorf("invalid enrichment type: %s", enrichmentType)
 	}
 
-	item := &models.EnrichmentQueueItem{
+	item := &adminm.EnrichmentQueueItem{
 		ShowID:         showID,
-		Status:         models.EnrichmentStatusPending,
+		Status:         adminm.EnrichmentStatusPending,
 		EnrichmentType: enrichmentType,
 	}
 
@@ -91,8 +92,8 @@ func (s *EnrichmentService) ProcessQueue(ctx context.Context, batchSize int) (in
 	}
 
 	// Fetch pending items ordered by creation time
-	var items []models.EnrichmentQueueItem
-	err := s.db.Where("status = ? AND attempts < max_attempts", models.EnrichmentStatusPending).
+	var items []adminm.EnrichmentQueueItem
+	err := s.db.Where("status = ? AND attempts < max_attempts", adminm.EnrichmentStatusPending).
 		Order("created_at ASC").
 		Limit(batchSize).
 		Find(&items).Error
@@ -110,7 +111,7 @@ func (s *EnrichmentService) ProcessQueue(ctx context.Context, batchSize int) (in
 
 		// Mark as processing
 		s.db.Model(&item).Updates(map[string]interface{}{
-			"status":   models.EnrichmentStatusProcessing,
+			"status":   adminm.EnrichmentStatusProcessing,
 			"attempts": item.Attempts + 1,
 		})
 
@@ -121,13 +122,13 @@ func (s *EnrichmentService) ProcessQueue(ctx context.Context, batchSize int) (in
 			if item.Attempts+1 >= item.MaxAttempts {
 				// Max retries exceeded — mark as failed
 				s.db.Model(&item).Updates(map[string]interface{}{
-					"status":     models.EnrichmentStatusFailed,
+					"status":     adminm.EnrichmentStatusFailed,
 					"last_error": errStr,
 				})
 			} else {
 				// Retry later — reset to pending
 				s.db.Model(&item).Updates(map[string]interface{}{
-					"status":     models.EnrichmentStatusPending,
+					"status":     adminm.EnrichmentStatusPending,
 					"last_error": errStr,
 				})
 			}
@@ -142,7 +143,7 @@ func (s *EnrichmentService) ProcessQueue(ctx context.Context, batchSize int) (in
 			raw := json.RawMessage(resultJSON)
 			now := time.Now()
 			s.db.Model(&item).Updates(map[string]interface{}{
-				"status":       models.EnrichmentStatusCompleted,
+				"status":       adminm.EnrichmentStatusCompleted,
 				"results":      &raw,
 				"completed_at": &now,
 			})
@@ -165,13 +166,13 @@ func (s *EnrichmentService) EnrichShow(ctx context.Context, showID uint) (*contr
 	}
 
 	// Load the show with its artists and venues
-	var show models.Show
+	var show catalogm.Show
 	if err := s.db.Preload("Artists").Preload("Venues").First(&show, showID).Error; err != nil {
 		return nil, fmt.Errorf("show not found: %w", err)
 	}
 
 	// Load show_artists for detailed info (position, set_type)
-	var showArtists []models.ShowArtist
+	var showArtists []catalogm.ShowArtist
 	s.db.Where("show_id = ?", showID).Find(&showArtists)
 
 	result := &contracts.EnrichmentResult{
@@ -214,28 +215,28 @@ func (s *EnrichmentService) GetQueueStats() (*contracts.EnrichmentQueueStats, er
 
 	stats := &contracts.EnrichmentQueueStats{}
 
-	s.db.Model(&models.EnrichmentQueueItem{}).
-		Where("status = ?", models.EnrichmentStatusPending).
+	s.db.Model(&adminm.EnrichmentQueueItem{}).
+		Where("status = ?", adminm.EnrichmentStatusPending).
 		Count(&stats.Pending)
 
-	s.db.Model(&models.EnrichmentQueueItem{}).
-		Where("status = ?", models.EnrichmentStatusProcessing).
+	s.db.Model(&adminm.EnrichmentQueueItem{}).
+		Where("status = ?", adminm.EnrichmentStatusProcessing).
 		Count(&stats.Processing)
 
 	today := time.Now().Truncate(24 * time.Hour)
-	s.db.Model(&models.EnrichmentQueueItem{}).
-		Where("status = ? AND completed_at >= ?", models.EnrichmentStatusCompleted, today).
+	s.db.Model(&adminm.EnrichmentQueueItem{}).
+		Where("status = ? AND completed_at >= ?", adminm.EnrichmentStatusCompleted, today).
 		Count(&stats.CompletedToday)
 
-	s.db.Model(&models.EnrichmentQueueItem{}).
-		Where("status = ? AND updated_at >= ?", models.EnrichmentStatusFailed, today).
+	s.db.Model(&adminm.EnrichmentQueueItem{}).
+		Where("status = ? AND updated_at >= ?", adminm.EnrichmentStatusFailed, today).
 		Count(&stats.FailedToday)
 
 	return stats, nil
 }
 
 // enrichArtistMatching performs fuzzy artist matching for each show artist.
-func (s *EnrichmentService) enrichArtistMatching(artists []models.Artist, showArtists []models.ShowArtist) []contracts.ArtistMatchEnrichment {
+func (s *EnrichmentService) enrichArtistMatching(artists []catalogm.Artist, showArtists []catalogm.ShowArtist) []contracts.ArtistMatchEnrichment {
 	var results []contracts.ArtistMatchEnrichment
 
 	for _, artist := range artists {
@@ -281,7 +282,7 @@ func (s *EnrichmentService) enrichArtistMatching(artists []models.Artist, showAr
 }
 
 // enrichMusicBrainz performs MusicBrainz lookups for unlinked artists.
-func (s *EnrichmentService) enrichMusicBrainz(artists []models.Artist) []contracts.MBEnrichment {
+func (s *EnrichmentService) enrichMusicBrainz(artists []catalogm.Artist) []contracts.MBEnrichment {
 	var results []contracts.MBEnrichment
 
 	for _, artist := range artists {
@@ -291,7 +292,7 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []models.Artist) []contrac
 		}
 
 		// Skip if already has MusicBrainz data
-		if artist.DataSource != nil && *artist.DataSource == models.DataSourceMusicBrainz {
+		if artist.DataSource != nil && *artist.DataSource == catalogm.DataSourceMusicBrainz {
 			enrichment.AlreadyHadMBID = true
 			enrichment.Found = true
 			results = append(results, enrichment)
@@ -320,10 +321,10 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []models.Artist) []contrac
 		enrichment.Score = mbResult.Score
 
 		// Update artist's data provenance (fire-and-forget)
-		mbSource := models.DataSourceMusicBrainz
+		mbSource := catalogm.DataSourceMusicBrainz
 		mbConfidence := float64(mbResult.Score) / 100.0
 		now := time.Now()
-		updateErr := s.db.Model(&models.Artist{}).Where("id = ?", artist.ID).Updates(map[string]interface{}{
+		updateErr := s.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).Updates(map[string]interface{}{
 			"data_source":       &mbSource,
 			"source_confidence": &mbConfidence,
 			"last_verified_at":  &now,
@@ -342,7 +343,7 @@ func (s *EnrichmentService) enrichMusicBrainz(artists []models.Artist) []contrac
 }
 
 // enrichSeatGeek performs SeatGeek API cross-referencing for a show.
-func (s *EnrichmentService) enrichSeatGeek(show *models.Show) *contracts.SeatGeekEnrichment {
+func (s *EnrichmentService) enrichSeatGeek(show *catalogm.Show) *contracts.SeatGeekEnrichment {
 	if !s.sgClient.IsConfigured() {
 		return &contracts.SeatGeekEnrichment{Found: false}
 	}

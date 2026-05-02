@@ -12,7 +12,9 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -40,9 +42,16 @@ const (
 // render Description and per-item Notes on read. Sanitization is applied on
 // every response so existing plain-text rows are also rendered safely — the
 // sanitizer is the source of truth for XSS safety, not the input pipeline.
+//
+// tagService is the polymorphic tag system (PSY-354). Optional — nil when
+// the service is built bare (e.g. from older test paths). The
+// AddTagToCollection / RemoveTagFromCollection methods require it; tag
+// rendering on Get/List is gracefully no-op when nil so that older callers
+// keep working.
 type CollectionService struct {
-	db *gorm.DB
-	md *utils.MarkdownRenderer
+	db         *gorm.DB
+	md         *utils.MarkdownRenderer
+	tagService contracts.TagServiceInterface
 }
 
 // NewCollectionService creates a new collection service
@@ -54,6 +63,14 @@ func NewCollectionService(database *gorm.DB) *CollectionService {
 		db: database,
 		md: utils.NewMarkdownRenderer(),
 	}
+}
+
+// SetTagService injects the polymorphic tag service (PSY-354). Called by the
+// service container after both services are constructed (avoids the
+// constructor-ordering tangle that would otherwise force a TagService import
+// from the services root package). Idempotent — safe to call again in tests.
+func (s *CollectionService) SetTagService(tagService contracts.TagServiceInterface) {
+	s.tagService = tagService
 }
 
 // renderMarkdown returns sanitized HTML for the given markdown source. Returns
@@ -124,7 +141,7 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 	baseSlug := utils.GenerateArtistSlug(req.Title)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Collection{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&communitym.Collection{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
@@ -146,9 +163,9 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 		}
 	}
 
-	displayMode := models.CollectionDisplayModeUnranked
+	displayMode := communitym.CollectionDisplayModeUnranked
 	if req.DisplayMode != nil && *req.DisplayMode != "" {
-		if !models.IsValidCollectionDisplayMode(*req.DisplayMode) {
+		if !communitym.IsValidCollectionDisplayMode(*req.DisplayMode) {
 			return nil, apperrors.ErrCollectionInvalidRequest(
 				fmt.Sprintf("display_mode must be 'ranked' or 'unranked', got %q", *req.DisplayMode),
 			)
@@ -156,7 +173,7 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 		displayMode = *req.DisplayMode
 	}
 
-	collection := &models.Collection{
+	collection := &communitym.Collection{
 		Title:         req.Title,
 		Slug:          slug,
 		Description:   description,
@@ -189,7 +206,7 @@ func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.Crea
 
 	// Auto-subscribe creator
 	now := time.Now()
-	subscriber := &models.CollectionSubscriber{
+	subscriber := &communitym.CollectionSubscriber{
 		CollectionID:  collection.ID,
 		UserID:        creatorID,
 		LastVisitedAt: &now,
@@ -228,7 +245,7 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 	}
 
 	// Load source.
-	var src models.Collection
+	var src communitym.Collection
 	if err := s.db.Where("slug = ?", srcSlug).First(&src).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrCollectionNotFound(srcSlug)
@@ -246,12 +263,12 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 	baseSlug := utils.GenerateArtistSlug(forkTitle)
 	newSlug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Collection{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&communitym.Collection{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
 	srcID := src.ID
-	clone := &models.Collection{
+	clone := &communitym.Collection{
 		Title:                  forkTitle,
 		Slug:                   newSlug,
 		Description:            src.Description,
@@ -273,7 +290,7 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 		// Copy items. We re-query the items rather than relying on a
 		// preloaded slice so we can order them deterministically and
 		// tolerate concurrent edits to the source.
-		var srcItems []models.CollectionItem
+		var srcItems []communitym.CollectionItem
 		if err := tx.Where("collection_id = ?", srcID).
 			Order("position ASC, created_at ASC").
 			Find(&srcItems).Error; err != nil {
@@ -281,9 +298,9 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 		}
 
 		if len(srcItems) > 0 {
-			cloned := make([]models.CollectionItem, 0, len(srcItems))
+			cloned := make([]communitym.CollectionItem, 0, len(srcItems))
 			for _, item := range srcItems {
-				cloned = append(cloned, models.CollectionItem{
+				cloned = append(cloned, communitym.CollectionItem{
 					CollectionID:  clone.ID,
 					EntityType:    item.EntityType,
 					EntityID:      item.EntityID,
@@ -298,7 +315,7 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 		}
 
 		// Auto-subscribe the cloner — mirrors CreateCollection.
-		sub := &models.CollectionSubscriber{
+		sub := &communitym.CollectionSubscriber{
 			CollectionID:  clone.ID,
 			UserID:        callerID,
 			LastVisitedAt: &now,
@@ -323,7 +340,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -342,7 +359,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	creatorUsername := s.resolveUserUsername(collection.CreatorID)
 
 	// Load items
-	var items []models.CollectionItem
+	var items []communitym.CollectionItem
 	s.db.Where("collection_id = ?", collection.ID).Order("position ASC, created_at ASC").Find(&items)
 
 	// Resolve entity names for items
@@ -350,18 +367,18 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 
 	// Count subscribers
 	var subscriberCount int64
-	s.db.Model(&models.CollectionSubscriber{}).Where("collection_id = ?", collection.ID).Count(&subscriberCount)
+	s.db.Model(&communitym.CollectionSubscriber{}).Where("collection_id = ?", collection.ID).Count(&subscriberCount)
 
 	// Count distinct contributors
 	var contributorCount int64
-	s.db.Model(&models.CollectionItem{}).Where("collection_id = ?", collection.ID).
+	s.db.Model(&communitym.CollectionItem{}).Where("collection_id = ?", collection.ID).
 		Distinct("added_by_user_id").Count(&contributorCount)
 
 	// Count forks (public social signal — PSY-351). Live COUNT mirrors
 	// the existing collection counter pattern and is cheap thanks to the
 	// partial index added in migration 20260427173004.
 	var forksCount int64
-	s.db.Model(&models.Collection{}).
+	s.db.Model(&communitym.Collection{}).
 		Where("forked_from_collection_id = ?", collection.ID).
 		Count(&forksCount)
 
@@ -376,7 +393,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	isSubscribed := false
 	if viewerID > 0 {
 		var subCount int64
-		s.db.Model(&models.CollectionSubscriber{}).
+		s.db.Model(&communitym.CollectionSubscriber{}).
 			Where("collection_id = ? AND user_id = ?", collection.ID, viewerID).
 			Count(&subCount)
 		isSubscribed = subCount > 0
@@ -385,11 +402,11 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	// PSY-352: aggregate like count + caller's like state. UserLikesThis
 	// is always false for anonymous viewers (viewerID == 0).
 	var likeCount int64
-	s.db.Model(&models.CollectionLike{}).Where("collection_id = ?", collection.ID).Count(&likeCount)
+	s.db.Model(&communitym.CollectionLike{}).Where("collection_id = ?", collection.ID).Count(&likeCount)
 	userLikesThis := false
 	if viewerID > 0 {
 		var ulCount int64
-		s.db.Model(&models.CollectionLike{}).
+		s.db.Model(&communitym.CollectionLike{}).
 			Where("collection_id = ? AND user_id = ?", collection.ID, viewerID).
 			Count(&ulCount)
 		userLikesThis = ulCount > 0
@@ -414,13 +431,18 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 					log.Printf("warning: collection MarkVisited goroutine panicked for user %d collection %d: %v", uid, collectionID, r)
 				}
 			}()
-			if err := dbHandle.Model(&models.CollectionSubscriber{}).
+			if err := dbHandle.Model(&communitym.CollectionSubscriber{}).
 				Where("collection_id = ? AND user_id = ?", collectionID, uid).
 				Update("last_visited_at", time.Now()).Error; err != nil {
 				log.Printf("warning: failed to bump last_visited_at for user %d collection %d: %v", uid, collectionID, err)
 			}
 		}()
 	}
+
+	// PSY-354: tag chips on the detail response. Empty slice (not nil) when
+	// the collection has no tags or the tag service isn't wired (older
+	// test paths) — keeps the JSON shape stable and unblocks the frontend.
+	tags := s.listCollectionTags(collection.ID, viewerID)
 
 	return &contracts.CollectionDetailResponse{
 		ID:                     collection.ID,
@@ -446,6 +468,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		IsSubscribed:           isSubscribed,
 		LikeCount:              int(likeCount),
 		UserLikesThis:          userLikesThis,
+		Tags:                   tags,
 		CreatedAt:              collection.CreatedAt,
 		UpdatedAt:              collection.UpdatedAt,
 	}, nil
@@ -462,7 +485,7 @@ func (s *CollectionService) resolveForkedFromInfo(forkedFromID *uint) *contracts
 	if forkedFromID == nil || *forkedFromID == 0 {
 		return nil
 	}
-	var source models.Collection
+	var source communitym.Collection
 	err := s.db.Select("id, title, slug, creator_id").
 		Where("id = ?", *forkedFromID).First(&source).Error
 	if err != nil {
@@ -484,7 +507,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Model(&models.Collection{})
+	query := s.db.Model(&communitym.Collection{})
 
 	if filters.PublicOnly {
 		query = query.Where("is_public = ?", true)
@@ -504,14 +527,63 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	if filters.Featured {
 		query = query.Where("is_featured = ?", true)
 	}
-	if filters.Search != "" {
-		query = query.Where("title ILIKE ?", "%"+filters.Search+"%")
+	// PSY-355: expand search beyond title-only. We OR across four tiers:
+	//   1. collections.title           (exact field on the row)
+	//   2. collections.description     (raw markdown source on the row)
+	//   3. any item's notes            (correlated EXISTS over collection_items)
+	//   4. any applied tag name/alias  (correlated EXISTS over entity_tags +
+	//                                  tags + tag_aliases for the polymorphic
+	//                                  collection entity)
+	// Whitespace-only queries are short-circuited at the handler boundary
+	// (mirrors PSY-520 SearchShows). Any ILIKE pattern that is "" → "%" — also
+	// handled at the handler. For safety this code still trims the value here
+	// and skips the predicate when the trimmed string is empty, so direct
+	// service callers (e.g. tests) don't accidentally widen the result set.
+	//
+	// No new indexes are added for the MVP — current corpus is small. If the
+	// description / notes / tag-name predicates become hot, consider GIN
+	// trigram indexes (`pg_trgm`) on `collections.description`,
+	// `collection_items.notes`, `tags.name`, and `tag_aliases.alias`.
+	searchTerm := strings.TrimSpace(filters.Search)
+	if searchTerm != "" {
+		pattern := "%" + searchTerm + "%"
+		query = query.Where(`
+			collections.title ILIKE ?
+			OR collections.description ILIKE ?
+			OR EXISTS (
+				SELECT 1 FROM collection_items ci
+				WHERE ci.collection_id = collections.id
+				  AND ci.notes ILIKE ?
+			)
+			OR EXISTS (
+				SELECT 1 FROM entity_tags et
+				JOIN tags t ON t.id = et.tag_id
+				LEFT JOIN tag_aliases ta ON ta.tag_id = t.id
+				WHERE et.entity_type = ?
+				  AND et.entity_id = collections.id
+				  AND (t.name ILIKE ? OR ta.alias ILIKE ?)
+			)
+		`,
+			pattern, pattern, pattern,
+			catalogm.TagEntityCollection, pattern, pattern,
+		)
 	}
 	if filters.EntityType != "" {
 		query = query.Where("id IN (?)",
-			s.db.Model(&models.CollectionItem{}).
+			s.db.Model(&communitym.CollectionItem{}).
 				Select("DISTINCT collection_id").
 				Where("entity_type = ?", filters.EntityType),
+		)
+	}
+	// PSY-354: filter by a single tag slug when requested. Subquery joins
+	// entity_tags → tags so callers can use the user-facing slug rather than
+	// numeric tag IDs in the URL. No-op when no collection has the tag.
+	if filters.Tag != "" {
+		query = query.Where("collections.id IN (?)",
+			s.db.Table("entity_tags").
+				Select("entity_tags.entity_id").
+				Joins("JOIN tags ON tags.id = entity_tags.tag_id").
+				Where("entity_tags.entity_type = ? AND tags.slug = ?", catalogm.TagEntityCollection, filters.Tag),
 		)
 	}
 
@@ -525,9 +597,21 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	if limit <= 0 {
 		limit = 20
 	}
-	query = applyCollectionSort(query, filters.Sort).Limit(limit).Offset(offset)
+	// PSY-355: when search is active AND the caller hasn't asked for an
+	// explicit sort (e.g. ?sort=popular), lead with a tier rank that prefers
+	// title matches, then description, then item notes, then tag matches.
+	// `applyCollectionSort` always appends `updated_at DESC` as a fallback
+	// tiebreaker. An explicit `sort=popular` wins over relevance — that's
+	// the user's deliberate choice and mirrors how most browse UIs treat
+	// "sort + filter" combinations.
+	if searchTerm != "" && filters.Sort == "" {
+		pattern := "%" + searchTerm + "%"
+		query = applySearchRelevanceOrder(query, pattern).Limit(limit).Offset(offset)
+	} else {
+		query = applyCollectionSort(query, filters.Sort).Limit(limit).Offset(offset)
+	}
 
-	var collections []models.Collection
+	var collections []communitym.Collection
 	if err := query.Find(&collections).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to list collections: %w", err)
 	}
@@ -567,6 +651,11 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// Batch-load entity type counts
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 
+	// Batch-load tag chips (PSY-354). Returns map[collection_id][]TagSummary;
+	// missing keys decode as nil — we coerce to empty slice in the per-row
+	// build below so the JSON shape is always `tags: []`.
+	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
+
 	// Batch-load creator names
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
@@ -574,6 +663,10 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// Build responses
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
+		tags := tagsByCollection[c.ID]
+		if tags == nil {
+			tags = []contracts.TagSummary{}
+		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
 			Title:                  c.Title,
@@ -596,6 +689,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
 			UserLikesThis:          userLikes[c.ID],
+			Tags:                   tags,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -613,6 +707,10 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 // Unknown sort values fall back to the default — the handler validates
 // recognized values and rejects unknowns before reaching this point.
 // PSY-352.
+//
+// Note: when ?search is active and ?sort is unset, ListCollections calls
+// applySearchRelevanceOrder instead — relevance ranks title > description >
+// notes > tag matches. An explicit ?sort=popular still wins over relevance.
 func applyCollectionSort(query *gorm.DB, sort string) *gorm.DB {
 	if sort == contracts.CollectionSortPopular {
 		return query.Order(`(
@@ -625,13 +723,50 @@ func applyCollectionSort(query *gorm.DB, sort string) *gorm.DB {
 	return query.Order("updated_at DESC")
 }
 
+// applySearchRelevanceOrder is the search-rank ORDER BY clause used when
+// `filters.Search` is set and no explicit sort was requested. Tiers:
+//
+//	1 — title matches the query
+//	2 — description matches
+//	3 — any item's notes match
+//	4 — any applied tag name (or alias) matches
+//
+// Tiebreaker is updated_at DESC so the most-recently-edited collection in
+// each tier surfaces first. The same `pattern` value (already wrapped with
+// %s by the caller) is reused across all four CASE branches so it lines up
+// with the WHERE clause in ListCollections — adjusting one without the
+// other would silently mis-rank rows. PSY-355.
+func applySearchRelevanceOrder(query *gorm.DB, pattern string) *gorm.DB {
+	return query.Order(gorm.Expr(`
+		CASE
+			WHEN collections.title ILIKE ? THEN 1
+			WHEN collections.description ILIKE ? THEN 2
+			WHEN EXISTS (
+				SELECT 1 FROM collection_items ci
+				WHERE ci.collection_id = collections.id
+				  AND ci.notes ILIKE ?
+			) THEN 3
+			WHEN EXISTS (
+				SELECT 1 FROM entity_tags et
+				JOIN tags t ON t.id = et.tag_id
+				LEFT JOIN tag_aliases ta ON ta.tag_id = t.id
+				WHERE et.entity_type = ?
+				  AND et.entity_id = collections.id
+				  AND (t.name ILIKE ? OR ta.alias ILIKE ?)
+			) THEN 4
+			ELSE 5
+		END ASC
+	`, pattern, pattern, pattern, catalogm.TagEntityCollection, pattern, pattern)).
+		Order("collections.updated_at DESC")
+}
+
 // UpdateCollection updates an existing collection
 func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin bool, req *contracts.UpdateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -653,7 +788,7 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		baseSlug := utils.GenerateArtistSlug(*req.Title)
 		newSlug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.Collection{}).Where("slug = ? AND id != ?", candidate, collection.ID).Count(&count)
+			s.db.Model(&communitym.Collection{}).Where("slug = ? AND id != ?", candidate, collection.ID).Count(&count)
 			return count > 0
 		})
 		updates["slug"] = newSlug
@@ -677,7 +812,7 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		// and going from public to private is always allowed.
 		if *req.IsPublic && !collection.IsPublic {
 			var itemCount int64
-			if err := s.db.Model(&models.CollectionItem{}).
+			if err := s.db.Model(&communitym.CollectionItem{}).
 				Where("collection_id = ?", collection.ID).
 				Count(&itemCount).Error; err != nil {
 				return nil, fmt.Errorf("failed to count items for publish gate: %w", err)
@@ -696,7 +831,7 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 		updates["is_public"] = *req.IsPublic
 	}
 	if req.DisplayMode != nil {
-		if !models.IsValidCollectionDisplayMode(*req.DisplayMode) {
+		if !communitym.IsValidCollectionDisplayMode(*req.DisplayMode) {
 			return nil, apperrors.ErrCollectionInvalidRequest(
 				fmt.Sprintf("display_mode must be 'ranked' or 'unranked', got %q", *req.DisplayMode),
 			)
@@ -705,7 +840,7 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 	}
 
 	if len(updates) > 0 {
-		err = s.db.Model(&models.Collection{}).Where("id = ?", collection.ID).Updates(updates).Error
+		err = s.db.Model(&communitym.Collection{}).Where("id = ?", collection.ID).Updates(updates).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to update collection: %w", err)
 		}
@@ -726,7 +861,7 @@ func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin b
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -754,7 +889,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -775,7 +910,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 
 	// Check for duplicate
 	var existingCount int64
-	s.db.Model(&models.CollectionItem{}).
+	s.db.Model(&communitym.CollectionItem{}).
 		Where("collection_id = ? AND entity_type = ? AND entity_id = ?", collection.ID, req.EntityType, req.EntityID).
 		Count(&existingCount)
 	if existingCount > 0 {
@@ -784,7 +919,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 
 	// Get max position
 	var maxPosition int
-	row := s.db.Model(&models.CollectionItem{}).
+	row := s.db.Model(&communitym.CollectionItem{}).
 		Where("collection_id = ?", collection.ID).
 		Select("COALESCE(MAX(position), -1)").
 		Row()
@@ -792,7 +927,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		_ = row.Scan(&maxPosition)
 	}
 
-	item := &models.CollectionItem{
+	item := &communitym.CollectionItem{
 		CollectionID:  collection.ID,
 		EntityType:    req.EntityType,
 		EntityID:      req.EntityID,
@@ -837,7 +972,7 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -846,7 +981,7 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 		return nil, fmt.Errorf("failed to get collection: %w", err)
 	}
 
-	var item models.CollectionItem
+	var item communitym.CollectionItem
 	err = s.db.Where("id = ? AND collection_id = ?", itemID, collection.ID).First(&item).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -899,7 +1034,7 @@ func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, is
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -908,7 +1043,7 @@ func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, is
 		return fmt.Errorf("failed to get collection: %w", err)
 	}
 
-	var item models.CollectionItem
+	var item communitym.CollectionItem
 	err = s.db.Where("id = ? AND collection_id = ?", itemID, collection.ID).First(&item).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -935,7 +1070,7 @@ func (s *CollectionService) ReorderItems(slug string, userID uint, req *contract
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -952,7 +1087,7 @@ func (s *CollectionService) ReorderItems(slug string, userID uint, req *contract
 	// Update positions in a transaction
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		for _, item := range req.Items {
-			err := tx.Model(&models.CollectionItem{}).
+			err := tx.Model(&communitym.CollectionItem{}).
 				Where("id = ? AND collection_id = ?", item.ItemID, collection.ID).
 				Update("position", item.Position).Error
 			if err != nil {
@@ -969,7 +1104,7 @@ func (s *CollectionService) Subscribe(slug string, userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -984,7 +1119,7 @@ func (s *CollectionService) Subscribe(slug string, userID uint) error {
 	}
 
 	now := time.Now()
-	subscriber := &models.CollectionSubscriber{
+	subscriber := &communitym.CollectionSubscriber{
 		CollectionID:  collection.ID,
 		UserID:        userID,
 		LastVisitedAt: &now,
@@ -1006,7 +1141,7 @@ func (s *CollectionService) Unsubscribe(slug string, userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -1016,7 +1151,7 @@ func (s *CollectionService) Unsubscribe(slug string, userID uint) error {
 	}
 
 	result := s.db.Where("collection_id = ? AND user_id = ?", collection.ID, userID).
-		Delete(&models.CollectionSubscriber{})
+		Delete(&communitym.CollectionSubscriber{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to unsubscribe from collection: %w", result.Error)
 	}
@@ -1037,7 +1172,7 @@ func (s *CollectionService) Like(slug string, userID uint) (*contracts.Collectio
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -1071,7 +1206,7 @@ func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.Collect
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -1085,7 +1220,7 @@ func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.Collect
 	}
 
 	if err := s.db.Where("user_id = ? AND collection_id = ?", userID, collection.ID).
-		Delete(&models.CollectionLike{}).Error; err != nil {
+		Delete(&communitym.CollectionLike{}).Error; err != nil {
 		return nil, fmt.Errorf("failed to unlike collection: %w", err)
 	}
 
@@ -1096,7 +1231,7 @@ func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.Collect
 // like state for the given collection. PSY-352.
 func (s *CollectionService) buildLikeResponse(collectionID uint, userID uint) (*contracts.CollectionLikeResponse, error) {
 	var likeCount int64
-	if err := s.db.Model(&models.CollectionLike{}).
+	if err := s.db.Model(&communitym.CollectionLike{}).
 		Where("collection_id = ?", collectionID).
 		Count(&likeCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count likes: %w", err)
@@ -1105,7 +1240,7 @@ func (s *CollectionService) buildLikeResponse(collectionID uint, userID uint) (*
 	userLikes := false
 	if userID > 0 {
 		var ulCount int64
-		s.db.Model(&models.CollectionLike{}).
+		s.db.Model(&communitym.CollectionLike{}).
 			Where("collection_id = ? AND user_id = ?", collectionID, userID).
 			Count(&ulCount)
 		userLikes = ulCount > 0
@@ -1123,7 +1258,7 @@ func (s *CollectionService) MarkVisited(slug string, userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -1133,7 +1268,7 @@ func (s *CollectionService) MarkVisited(slug string, userID uint) error {
 	}
 
 	now := time.Now()
-	result := s.db.Model(&models.CollectionSubscriber{}).
+	result := s.db.Model(&communitym.CollectionSubscriber{}).
 		Where("collection_id = ? AND user_id = ?", collection.ID, userID).
 		Update("last_visited_at", now)
 	if result.Error != nil {
@@ -1149,7 +1284,7 @@ func (s *CollectionService) GetStats(slug string) (*contracts.CollectionStatsRes
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -1160,15 +1295,15 @@ func (s *CollectionService) GetStats(slug string) (*contracts.CollectionStatsRes
 
 	// Item count
 	var itemCount int64
-	s.db.Model(&models.CollectionItem{}).Where("collection_id = ?", collection.ID).Count(&itemCount)
+	s.db.Model(&communitym.CollectionItem{}).Where("collection_id = ?", collection.ID).Count(&itemCount)
 
 	// Subscriber count
 	var subscriberCount int64
-	s.db.Model(&models.CollectionSubscriber{}).Where("collection_id = ?", collection.ID).Count(&subscriberCount)
+	s.db.Model(&communitym.CollectionSubscriber{}).Where("collection_id = ?", collection.ID).Count(&subscriberCount)
 
 	// Contributor count (distinct users who added items)
 	var contributorCount int64
-	s.db.Model(&models.CollectionItem{}).Where("collection_id = ?", collection.ID).
+	s.db.Model(&communitym.CollectionItem{}).Where("collection_id = ?", collection.ID).
 		Distinct("added_by_user_id").Count(&contributorCount)
 
 	// Entity type counts
@@ -1177,7 +1312,7 @@ func (s *CollectionService) GetStats(slug string) (*contracts.CollectionStatsRes
 		Count      int
 	}
 	var typeCounts []TypeCount
-	s.db.Model(&models.CollectionItem{}).
+	s.db.Model(&communitym.CollectionItem{}).
 		Select("entity_type, COUNT(*) as count").
 		Where("collection_id = ?", collection.ID).
 		Group("entity_type").
@@ -1207,11 +1342,11 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	}
 
 	// Get collection IDs the user created or is subscribed to
-	subQuery := s.db.Model(&models.CollectionSubscriber{}).
+	subQuery := s.db.Model(&communitym.CollectionSubscriber{}).
 		Select("collection_id").
 		Where("user_id = ?", userID)
 
-	query := s.db.Model(&models.Collection{}).
+	query := s.db.Model(&communitym.Collection{}).
 		Where("creator_id = ? OR id IN (?)", userID, subQuery)
 
 	// Count total
@@ -1220,7 +1355,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 		return nil, 0, fmt.Errorf("failed to count user collections: %w", err)
 	}
 
-	var collections []models.Collection
+	var collections []communitym.Collection
 	if err := query.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&collections).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get user collections: %w", err)
 	}
@@ -1254,9 +1389,15 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	// PSY-352: like aggregates and viewer's own like state.
 	likeCounts := s.batchCountLikes(collectionIDs)
 	userLikes := s.batchCheckUserLikes(userID, collectionIDs)
+	// PSY-354: tag chips on library cards.
+	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
+		tags := tagsByCollection[c.ID]
+		if tags == nil {
+			tags = []contracts.TagSummary{}
+		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
 			Title:                  c.Title,
@@ -1280,6 +1421,7 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 			NewSinceLastVisit:      newCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
 			UserLikesThis:          userLikes[c.ID],
+			Tags:                   tags,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1300,7 +1442,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 
 	// Find collection IDs that contain this entity (public collections only)
 	var collectionIDs []uint
-	err := s.db.Model(&models.CollectionItem{}).
+	err := s.db.Model(&communitym.CollectionItem{}).
 		Select("DISTINCT collection_items.collection_id").
 		Joins("JOIN collections ON collections.id = collection_items.collection_id").
 		Where("collection_items.entity_type = ? AND collection_items.entity_id = ? AND collections.is_public = ?", entityType, entityID, true).
@@ -1314,7 +1456,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 		return []*contracts.CollectionListResponse{}, nil
 	}
 
-	var collections []models.Collection
+	var collections []communitym.Collection
 	if err := s.db.Where("id IN ?", collectionIDs).Order("updated_at DESC").Find(&collections).Error; err != nil {
 		return nil, fmt.Errorf("failed to load entity collections: %w", err)
 	}
@@ -1340,9 +1482,15 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	// so UserLikesThis is left false here (clients that need it should
 	// use the detail endpoint).
 	likeCounts := s.batchCountLikes(collectionIDs)
+	// PSY-354: tag chips on entity-collection cards.
+	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
+		tags := tagsByCollection[c.ID]
+		if tags == nil {
+			tags = []contracts.TagSummary{}
+		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
 			Title:                  c.Title,
@@ -1364,6 +1512,7 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
+			Tags:                   tags,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1382,7 +1531,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 		limit = 20
 	}
 
-	query := s.db.Model(&models.Collection{}).
+	query := s.db.Model(&communitym.Collection{}).
 		Where("creator_id = ? AND is_public = ?", userID, true)
 
 	var total int64
@@ -1390,7 +1539,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 		return nil, 0, fmt.Errorf("failed to count user public collections: %w", err)
 	}
 
-	var collections []models.Collection
+	var collections []communitym.Collection
 	if err := query.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&collections).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get user public collections: %w", err)
 	}
@@ -1420,9 +1569,15 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 	// PSY-352: like aggregate; viewer ID is not threaded through this call,
 	// so UserLikesThis is left false here.
 	likeCounts := s.batchCountLikes(collectionIDs)
+	// PSY-354: tag chips on profile-page cards.
+	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
 
 	responses := make([]*contracts.CollectionListResponse, len(collections))
 	for i, c := range collections {
+		tags := tagsByCollection[c.ID]
+		if tags == nil {
+			tags = []contracts.TagSummary{}
+		}
 		responses[i] = &contracts.CollectionListResponse{
 			ID:                     c.ID,
 			Title:                  c.Title,
@@ -1444,6 +1599,7 @@ func (s *CollectionService) GetUserPublicCollections(userID uint, limit, offset 
 			ForkedFromCollectionID: c.ForkedFromCollectionID,
 			EntityTypeCounts:       entityTypeCounts[c.ID],
 			LikeCount:              likeCounts[c.ID],
+			Tags:                   tags,
 			CreatedAt:              c.CreatedAt,
 			UpdatedAt:              c.UpdatedAt,
 		}
@@ -1459,7 +1615,7 @@ func (s *CollectionService) GetUserPublicCollectionsByUsername(username string, 
 	}
 
 	// Look up user by username
-	var user models.User
+	var user authm.User
 	err := s.db.Where("username = ?", username).First(&user).Error
 	if err != nil {
 		// User not found - return empty
@@ -1475,7 +1631,7 @@ func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -1500,7 +1656,7 @@ func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 // resolveUserName, which falls back to first/last/email so it can never be
 // safely used in a URL slug. PSY-353.
 func (s *CollectionService) resolveUserUsername(userID uint) *string {
-	var user models.User
+	var user authm.User
 	if err := s.db.Select("id, username").First(&user, userID).Error; err != nil {
 		return nil
 	}
@@ -1519,7 +1675,7 @@ func (s *CollectionService) batchResolveUserUsernames(userIDs []uint) map[uint]*
 	if len(userIDs) == 0 {
 		return result
 	}
-	var users []models.User
+	var users []authm.User
 	s.db.Select("id, username").Where("id IN ?", userIDs).Find(&users)
 	for _, user := range users {
 		if user.Username != nil && *user.Username != "" {
@@ -1534,7 +1690,7 @@ func (s *CollectionService) batchResolveUserUsernames(userIDs []uint) map[uint]*
 
 // resolveUserName returns the display name for a user ID
 func (s *CollectionService) resolveUserName(userID uint) string {
-	var user models.User
+	var user authm.User
 	if err := s.db.Select("id, username, first_name, last_name, email").First(&user, userID).Error; err != nil {
 		return "Anonymous"
 	}
@@ -1563,7 +1719,7 @@ func (s *CollectionService) batchResolveUserNames(userIDs []uint) map[uint]strin
 		return result
 	}
 
-	var users []models.User
+	var users []authm.User
 	s.db.Select("id, username, first_name, last_name, email").Where("id IN ?", userIDs).Find(&users)
 
 	for _, user := range users {
@@ -1592,8 +1748,8 @@ func (s *CollectionService) batchResolveUserNames(userIDs []uint) map[uint]strin
 // resolveEntityNameAndSlug resolves the name and slug for a single entity
 func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID uint) (string, string) {
 	switch entityType {
-	case models.CollectionEntityArtist:
-		var artist models.Artist
+	case communitym.CollectionEntityArtist:
+		var artist catalogm.Artist
 		if err := s.db.Select("id, name, slug").First(&artist, entityID).Error; err == nil {
 			slug := ""
 			if artist.Slug != nil {
@@ -1601,8 +1757,8 @@ func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID
 			}
 			return artist.Name, slug
 		}
-	case models.CollectionEntityVenue:
-		var venue models.Venue
+	case communitym.CollectionEntityVenue:
+		var venue catalogm.Venue
 		if err := s.db.Select("id, name, slug").First(&venue, entityID).Error; err == nil {
 			slug := ""
 			if venue.Slug != nil {
@@ -1610,8 +1766,8 @@ func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID
 			}
 			return venue.Name, slug
 		}
-	case models.CollectionEntityShow:
-		var show models.Show
+	case communitym.CollectionEntityShow:
+		var show catalogm.Show
 		if err := s.db.Select("id, title, slug").First(&show, entityID).Error; err == nil {
 			slug := ""
 			if show.Slug != nil {
@@ -1621,8 +1777,8 @@ func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID
 			}
 			return show.Title, slug
 		}
-	case models.CollectionEntityRelease:
-		var release models.Release
+	case communitym.CollectionEntityRelease:
+		var release catalogm.Release
 		if err := s.db.Select("id, title, slug").First(&release, entityID).Error; err == nil {
 			slug := ""
 			if release.Slug != nil {
@@ -1630,8 +1786,8 @@ func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID
 			}
 			return release.Title, slug
 		}
-	case models.CollectionEntityLabel:
-		var label models.Label
+	case communitym.CollectionEntityLabel:
+		var label catalogm.Label
 		if err := s.db.Select("id, name, slug").First(&label, entityID).Error; err == nil {
 			slug := ""
 			if label.Slug != nil {
@@ -1639,8 +1795,8 @@ func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID
 			}
 			return label.Name, slug
 		}
-	case models.CollectionEntityFestival:
-		var festival models.Festival
+	case communitym.CollectionEntityFestival:
+		var festival catalogm.Festival
 		if err := s.db.Select("id, name, slug").First(&festival, entityID).Error; err == nil {
 			return festival.Name, festival.Slug
 		}
@@ -1649,7 +1805,7 @@ func (s *CollectionService) resolveEntityNameAndSlug(entityType string, entityID
 }
 
 // buildItemResponses converts model items to response items with resolved entity names
-func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []contracts.CollectionItemResponse {
+func (s *CollectionService) buildItemResponses(items []communitym.CollectionItem) []contracts.CollectionItemResponse {
 	if len(items) == 0 {
 		return []contracts.CollectionItemResponse{}
 	}
@@ -1667,8 +1823,11 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 		}
 	}
 
-	// Batch-resolve entity names and slugs
-	entityNames, entitySlugs := s.batchResolveEntityNames(entityIDsByType)
+	// Batch-resolve entity names, slugs, and images. Images are returned as a
+	// separate map (rather than folded into the names/slugs tuple) because
+	// only release + festival populate it today, and a separate map keeps the
+	// nil-vs-empty distinction clean per row (PSY-360).
+	entityNames, entitySlugs, entityImages := s.batchResolveEntityNames(entityIDsByType)
 
 	// Batch-resolve user names
 	userNames := s.batchResolveUserNames(userIDs)
@@ -1683,6 +1842,7 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 			EntityID:      item.EntityID,
 			EntityName:    entityNames[key],
 			EntitySlug:    entitySlugs[key],
+			ImageURL:      entityImages[key],
 			Position:      item.Position,
 			AddedByUserID: item.AddedByUserID,
 			AddedByName:   userNames[item.AddedByUserID],
@@ -1695,10 +1855,15 @@ func (s *CollectionService) buildItemResponses(items []models.CollectionItem) []
 	return responses
 }
 
-// batchResolveEntityNames resolves names and slugs for groups of entities by type
-func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][]uint) (map[string]string, map[string]string) {
+// batchResolveEntityNames resolves names, slugs, and image URLs for groups of
+// entities by type. Each entity table stores its image in a column whose name
+// matches the entity's domain language: release.cover_art_url, festival.flyer_url,
+// and artist/venue/show/label.image_url (PSY-521). The batch resolver
+// normalizes them all into the same `images` map for the collection grid.
+func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][]uint) (map[string]string, map[string]string, map[string]*string) {
 	names := make(map[string]string)
 	slugs := make(map[string]string)
+	images := make(map[string]*string)
 
 	for entityType, ids := range entityIDsByType {
 		if len(ids) == 0 {
@@ -1706,31 +1871,33 @@ func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][
 		}
 
 		switch entityType {
-		case models.CollectionEntityArtist:
-			var artists []models.Artist
-			s.db.Select("id, name, slug").Where("id IN ?", ids).Find(&artists)
+		case communitym.CollectionEntityArtist:
+			var artists []catalogm.Artist
+			s.db.Select("id, name, slug, image_url").Where("id IN ?", ids).Find(&artists)
 			for _, a := range artists {
 				key := fmt.Sprintf("%s:%d", entityType, a.ID)
 				names[key] = a.Name
 				if a.Slug != nil {
 					slugs[key] = *a.Slug
 				}
+				images[key] = nonEmptyImageURL(a.ImageURL)
 			}
 
-		case models.CollectionEntityVenue:
-			var venues []models.Venue
-			s.db.Select("id, name, slug").Where("id IN ?", ids).Find(&venues)
+		case communitym.CollectionEntityVenue:
+			var venues []catalogm.Venue
+			s.db.Select("id, name, slug, image_url").Where("id IN ?", ids).Find(&venues)
 			for _, v := range venues {
 				key := fmt.Sprintf("%s:%d", entityType, v.ID)
 				names[key] = v.Name
 				if v.Slug != nil {
 					slugs[key] = *v.Slug
 				}
+				images[key] = nonEmptyImageURL(v.ImageURL)
 			}
 
-		case models.CollectionEntityShow:
-			var shows []models.Show
-			s.db.Select("id, title, slug").Where("id IN ?", ids).Find(&shows)
+		case communitym.CollectionEntityShow:
+			var shows []catalogm.Show
+			s.db.Select("id, title, slug, image_url").Where("id IN ?", ids).Find(&shows)
 			for _, sh := range shows {
 				key := fmt.Sprintf("%s:%d", entityType, sh.ID)
 				names[key] = sh.Title
@@ -1739,42 +1906,62 @@ func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][
 				} else {
 					slugs[key] = strconv.FormatUint(uint64(sh.ID), 10)
 				}
+				images[key] = nonEmptyImageURL(sh.ImageURL)
 			}
 
-		case models.CollectionEntityRelease:
-			var releases []models.Release
-			s.db.Select("id, title, slug").Where("id IN ?", ids).Find(&releases)
+		case communitym.CollectionEntityRelease:
+			var releases []catalogm.Release
+			s.db.Select("id, title, slug, cover_art_url").Where("id IN ?", ids).Find(&releases)
 			for _, r := range releases {
 				key := fmt.Sprintf("%s:%d", entityType, r.ID)
 				names[key] = r.Title
 				if r.Slug != nil {
 					slugs[key] = *r.Slug
 				}
+				images[key] = nonEmptyImageURL(r.CoverArtURL)
 			}
 
-		case models.CollectionEntityLabel:
-			var labels []models.Label
-			s.db.Select("id, name, slug").Where("id IN ?", ids).Find(&labels)
+		case communitym.CollectionEntityLabel:
+			var labels []catalogm.Label
+			s.db.Select("id, name, slug, image_url").Where("id IN ?", ids).Find(&labels)
 			for _, l := range labels {
 				key := fmt.Sprintf("%s:%d", entityType, l.ID)
 				names[key] = l.Name
 				if l.Slug != nil {
 					slugs[key] = *l.Slug
 				}
+				images[key] = nonEmptyImageURL(l.ImageURL)
 			}
 
-		case models.CollectionEntityFestival:
-			var festivals []models.Festival
-			s.db.Select("id, name, slug").Where("id IN ?", ids).Find(&festivals)
+		case communitym.CollectionEntityFestival:
+			var festivals []catalogm.Festival
+			s.db.Select("id, name, slug, flyer_url").Where("id IN ?", ids).Find(&festivals)
 			for _, f := range festivals {
 				key := fmt.Sprintf("%s:%d", entityType, f.ID)
 				names[key] = f.Name
 				slugs[key] = f.Slug
+				images[key] = nonEmptyImageURL(f.FlyerURL)
 			}
 		}
 	}
 
-	return names, slugs
+	return names, slugs, images
+}
+
+// nonEmptyImageURL normalizes an entity's nullable image column. Returns nil
+// when the source is nil OR when the stored value is whitespace-only — both
+// cases mean "no image" to the frontend grid (PSY-360). Without this, an
+// empty string would render an `<img src="">` tag in the browser, which most
+// browsers turn into a broken-image icon.
+func nonEmptyImageURL(src *string) *string {
+	if src == nil {
+		return nil
+	}
+	trimmed := strings.TrimSpace(*src)
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 // batchCountItems returns item counts per collection ID
@@ -1789,7 +1976,7 @@ func (s *CollectionService) batchCountItems(collectionIDs []uint) map[uint]int {
 		Count        int
 	}
 	var results []CountResult
-	s.db.Model(&models.CollectionItem{}).
+	s.db.Model(&communitym.CollectionItem{}).
 		Select("collection_id, COUNT(*) as count").
 		Where("collection_id IN ?", collectionIDs).
 		Group("collection_id").
@@ -1815,7 +2002,7 @@ func (s *CollectionService) batchEntityTypeCounts(collectionIDs []uint) map[uint
 		Count        int
 	}
 	var rows []Row
-	s.db.Model(&models.CollectionItem{}).
+	s.db.Model(&communitym.CollectionItem{}).
 		Select("collection_id, entity_type, COUNT(*) as count").
 		Where("collection_id IN ?", collectionIDs).
 		Group("collection_id, entity_type").
@@ -1842,7 +2029,7 @@ func (s *CollectionService) batchCountSubscribers(collectionIDs []uint) map[uint
 		Count        int
 	}
 	var results []CountResult
-	s.db.Model(&models.CollectionSubscriber{}).
+	s.db.Model(&communitym.CollectionSubscriber{}).
 		Select("collection_id, COUNT(*) as count").
 		Where("collection_id IN ?", collectionIDs).
 		Group("collection_id").
@@ -1912,7 +2099,7 @@ func (s *CollectionService) batchCountContributors(collectionIDs []uint) map[uin
 		Count        int
 	}
 	var results []CountResult
-	s.db.Model(&models.CollectionItem{}).
+	s.db.Model(&communitym.CollectionItem{}).
 		Select("collection_id, COUNT(DISTINCT added_by_user_id) as count").
 		Where("collection_id IN ?", collectionIDs).
 		Group("collection_id").
@@ -1938,7 +2125,7 @@ func (s *CollectionService) batchCountForks(collectionIDs []uint) map[uint]int {
 		Count                  int
 	}
 	var rows []Row
-	s.db.Model(&models.Collection{}).
+	s.db.Model(&communitym.Collection{}).
 		Select("forked_from_collection_id, COUNT(*) as count").
 		Where("forked_from_collection_id IN ?", collectionIDs).
 		Group("forked_from_collection_id").
@@ -1963,7 +2150,7 @@ func (s *CollectionService) batchCountLikes(collectionIDs []uint) map[uint]int {
 		Count        int
 	}
 	var results []CountResult
-	s.db.Model(&models.CollectionLike{}).
+	s.db.Model(&communitym.CollectionLike{}).
 		Select("collection_id, COUNT(*) as count").
 		Where("collection_id IN ?", collectionIDs).
 		Group("collection_id").
@@ -1984,13 +2171,204 @@ func (s *CollectionService) batchCheckUserLikes(userID uint, collectionIDs []uin
 		return result
 	}
 
-	var rows []models.CollectionLike
+	var rows []communitym.CollectionLike
 	s.db.Select("collection_id").
 		Where("user_id = ? AND collection_id IN ?", userID, collectionIDs).
 		Find(&rows)
 
 	for _, r := range rows {
 		result[r.CollectionID] = true
+	}
+	return result
+}
+
+// ============================================================================
+// Collection tags (PSY-354)
+// ============================================================================
+
+// canEditCollectionTags returns true when the user has permission to
+// add/remove tags on the given collection. Mirrors the AddItem rule:
+// the creator can always edit, plus any authenticated user when the
+// collection is collaborative. Anonymous callers (userID == 0) are
+// always rejected.
+func (s *CollectionService) canEditCollectionTags(collection *communitym.Collection, userID uint) bool {
+	if userID == 0 {
+		return false
+	}
+	if collection.CreatorID == userID {
+		return true
+	}
+	return collection.Collaborative
+}
+
+// AddTagToCollection applies a tag to a collection (PSY-354). Reuses the
+// polymorphic tag service for the tag/alias resolution + inline-creation
+// path, then enforces:
+//   - max-10 tags per collection (rejects 11th with 400),
+//   - edit-access (creator OR collaborative-and-authenticated),
+//   - default category "other" when creating a new tag inline.
+//
+// Returns the post-mutation tag list so the frontend can refresh the chip
+// row from a single round-trip.
+func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *contracts.AddCollectionTagRequest) (*contracts.AddCollectionTagResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if s.tagService == nil {
+		return nil, fmt.Errorf("tag service not initialized")
+	}
+	if req == nil {
+		return nil, apperrors.ErrCollectionInvalidRequest("request body is required")
+	}
+	if req.TagID == 0 && strings.TrimSpace(req.TagName) == "" {
+		return nil, apperrors.ErrCollectionInvalidRequest("tag_id or tag_name is required")
+	}
+
+	var collection communitym.Collection
+	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !s.canEditCollectionTags(&collection, userID) {
+		return nil, apperrors.ErrCollectionForbidden(slug)
+	}
+
+	// PSY-354: the per-collection cap (MaxCollectionTags) is now enforced
+	// inside catalog.TagService.AddTagToEntity so the same limit applies
+	// regardless of which endpoint the caller used. This wrapper still
+	// validates auth + edit-access and returns the post-mutation tag list
+	// for the dedicated endpoint's response shape.
+
+	category := req.Category
+	if category == "" {
+		// Collection meta-tags rarely fit "genre" or "locale"; default to
+		// "other" so the autocomplete doesn't accidentally pollute the genre
+		// taxonomy when the curator types a freeform term.
+		category = catalogm.TagCategoryOther
+	}
+
+	if _, err := s.tagService.AddTagToEntity(req.TagID, req.TagName, catalogm.TagEntityCollection, collection.ID, userID, category); err != nil {
+		return nil, err
+	}
+
+	// Re-list and return the post-mutation set.
+	tags, err := s.tagService.ListEntityTags(catalogm.TagEntityCollection, collection.ID, userID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to list collection tags: %w", err)
+	}
+	if tags == nil {
+		tags = []contracts.EntityTagResponse{}
+	}
+	return &contracts.AddCollectionTagResponse{Tags: tags}, nil
+}
+
+// RemoveTagFromCollection removes a tag from a collection (PSY-354). Same
+// edit-access rule as AddTagToCollection. Idempotency is delegated to the
+// tag service — removing a non-existent application returns ErrEntityTagNotFound.
+func (s *CollectionService) RemoveTagFromCollection(slug string, tagID uint, userID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if s.tagService == nil {
+		return fmt.Errorf("tag service not initialized")
+	}
+	if tagID == 0 {
+		return apperrors.ErrCollectionInvalidRequest("tag_id is required")
+	}
+
+	var collection communitym.Collection
+	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return apperrors.ErrCollectionNotFound(slug)
+		}
+		return fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	if !s.canEditCollectionTags(&collection, userID) {
+		return apperrors.ErrCollectionForbidden(slug)
+	}
+
+	return s.tagService.RemoveTagFromEntity(tagID, catalogm.TagEntityCollection, collection.ID)
+}
+
+// listCollectionTags returns the EntityTagResponse list for a single
+// collection. Returns an empty slice (never nil) so the JSON shape is
+// stable. Tag service unavailability is a no-op (older test paths build
+// CollectionService bare); callers always get an empty array, never an
+// error. Live errors from the tag service are logged and swallowed for
+// the same reason — a list/get must not fail because the tag side-channel
+// hiccupped.
+func (s *CollectionService) listCollectionTags(collectionID uint, viewerID uint) []contracts.EntityTagResponse {
+	if s.tagService == nil {
+		return []contracts.EntityTagResponse{}
+	}
+	tags, err := s.tagService.ListEntityTags(catalogm.TagEntityCollection, collectionID, viewerID)
+	if err != nil {
+		log.Printf("warning: failed to list tags for collection %d: %v", collectionID, err)
+		return []contracts.EntityTagResponse{}
+	}
+	if tags == nil {
+		return []contracts.EntityTagResponse{}
+	}
+	return tags
+}
+
+// batchListCollectionTagSummaries fetches lightweight tag summaries for
+// many collections in one query. Used by list endpoints (cards) where the
+// per-tag vote/upvote/wilson_score detail isn't needed. Mirrors the
+// batchCount* / batchCheck* helpers the rest of the service uses.
+//
+// SQL shape:
+//
+//	SELECT et.entity_id AS collection_id,
+//	       t.id, t.name, t.slug, t.category, t.is_official, t.usage_count
+//	FROM entity_tags et
+//	JOIN tags t ON t.id = et.tag_id
+//	WHERE et.entity_type = 'collection' AND et.entity_id IN (...)
+//	ORDER BY t.is_official DESC, t.usage_count DESC, t.name ASC
+//
+// Ordering keeps the most-curated chips first on the card.
+func (s *CollectionService) batchListCollectionTagSummaries(collectionIDs []uint) map[uint][]contracts.TagSummary {
+	result := make(map[uint][]contracts.TagSummary)
+	if len(collectionIDs) == 0 {
+		return result
+	}
+
+	type Row struct {
+		CollectionID uint
+		ID           uint
+		Name         string
+		Slug         string
+		Category     string
+		IsOfficial   bool
+		UsageCount   int
+	}
+	var rows []Row
+	err := s.db.Table("entity_tags").
+		Select(`entity_tags.entity_id AS collection_id,
+		        tags.id, tags.name, tags.slug, tags.category,
+		        tags.is_official, tags.usage_count`).
+		Joins("JOIN tags ON tags.id = entity_tags.tag_id").
+		Where("entity_tags.entity_type = ? AND entity_tags.entity_id IN ?", catalogm.TagEntityCollection, collectionIDs).
+		Order("tags.is_official DESC, tags.usage_count DESC, tags.name ASC").
+		Scan(&rows).Error
+	if err != nil {
+		log.Printf("warning: failed to batch list collection tags: %v", err)
+		return result
+	}
+
+	for _, r := range rows {
+		result[r.CollectionID] = append(result[r.CollectionID], contracts.TagSummary{
+			ID:         r.ID,
+			Name:       r.Name,
+			Slug:       r.Slug,
+			Category:   r.Category,
+			IsOfficial: r.IsOfficial,
+			UsageCount: r.UsageCount,
+		})
 	}
 	return result
 }
@@ -2096,7 +2474,7 @@ func (s *CollectionService) batchUpcomingShowCountForArtists(artistIDs []uint) m
 		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) AS show_count").
 		Joins("JOIN shows ON shows.id = show_artists.show_id").
 		Where("show_artists.artist_id IN ? AND shows.status = ? AND shows.event_date > NOW()",
-			artistIDs, models.ShowStatusApproved).
+			artistIDs, catalogm.ShowStatusApproved).
 		Group("show_artists.artist_id").
 		Scan(&rows)
 	for _, r := range rows {
@@ -2117,7 +2495,7 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var collection models.Collection
+	var collection communitym.Collection
 	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrCollectionNotFound(slug)
@@ -2141,9 +2519,9 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 		Links: []contracts.CollectionGraphLink{},
 	}
 
-	var items []models.CollectionItem
+	var items []communitym.CollectionItem
 	if err := s.db.
-		Where("collection_id = ? AND entity_type = ?", collection.ID, models.CollectionEntityArtist).
+		Where("collection_id = ? AND entity_type = ?", collection.ID, communitym.CollectionEntityArtist).
 		Order("position ASC, created_at ASC").
 		Find(&items).Error; err != nil {
 		return nil, fmt.Errorf("failed to load artist items: %w", err)

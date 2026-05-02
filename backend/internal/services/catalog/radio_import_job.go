@@ -5,7 +5,7 @@ import (
 	"log/slog"
 	"time"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -17,7 +17,7 @@ func (s *RadioService) CreateImportJob(showID uint, since, until string) (*contr
 	}
 
 	// Validate show exists and get station ID
-	var show models.RadioShow
+	var show catalogm.RadioShow
 	if err := s.db.Preload("Station").First(&show, showID).Error; err != nil {
 		return nil, fmt.Errorf("show not found: %w", err)
 	}
@@ -32,22 +32,22 @@ func (s *RadioService) CreateImportJob(showID uint, since, until string) (*contr
 
 	// Check for existing running/pending job
 	var activeCount int64
-	s.db.Model(&models.RadioImportJob{}).
+	s.db.Model(&catalogm.RadioImportJob{}).
 		Where("show_id = ? AND status IN ?", showID, []string{
-			models.RadioImportJobStatusPending,
-			models.RadioImportJobStatusRunning,
+			catalogm.RadioImportJobStatusPending,
+			catalogm.RadioImportJobStatusRunning,
 		}).
 		Count(&activeCount)
 	if activeCount > 0 {
 		return nil, fmt.Errorf("an import job is already running or pending for this show")
 	}
 
-	job := &models.RadioImportJob{
+	job := &catalogm.RadioImportJob{
 		ShowID:    showID,
 		StationID: show.StationID,
 		Since:     since,
 		Until:     until,
-		Status:    models.RadioImportJobStatusPending,
+		Status:    catalogm.RadioImportJobStatusPending,
 	}
 
 	if err := s.db.Create(job).Error; err != nil {
@@ -63,18 +63,18 @@ func (s *RadioService) StartImportJob(jobID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var job models.RadioImportJob
+	var job catalogm.RadioImportJob
 	if err := s.db.First(&job, jobID).Error; err != nil {
 		return fmt.Errorf("job not found: %w", err)
 	}
 
-	if job.Status != models.RadioImportJobStatusPending {
+	if job.Status != catalogm.RadioImportJobStatusPending {
 		return fmt.Errorf("job is not in pending status (current: %s)", job.Status)
 	}
 
 	now := time.Now()
 	s.db.Model(&job).Updates(map[string]interface{}{
-		"status":     models.RadioImportJobStatusRunning,
+		"status":     catalogm.RadioImportJobStatusRunning,
 		"started_at": now,
 	})
 
@@ -91,18 +91,18 @@ func (s *RadioService) CancelImportJob(jobID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var job models.RadioImportJob
+	var job catalogm.RadioImportJob
 	if err := s.db.First(&job, jobID).Error; err != nil {
 		return fmt.Errorf("job not found: %w", err)
 	}
 
-	if job.Status != models.RadioImportJobStatusRunning && job.Status != models.RadioImportJobStatusPending {
+	if job.Status != catalogm.RadioImportJobStatusRunning && job.Status != catalogm.RadioImportJobStatusPending {
 		return fmt.Errorf("job cannot be cancelled (current status: %s)", job.Status)
 	}
 
 	now := time.Now()
 	s.db.Model(&job).Updates(map[string]interface{}{
-		"status":       models.RadioImportJobStatusCancelled,
+		"status":       catalogm.RadioImportJobStatusCancelled,
 		"completed_at": now,
 	})
 
@@ -115,7 +115,7 @@ func (s *RadioService) GetImportJob(jobID uint) (*contracts.RadioImportJobRespon
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var job models.RadioImportJob
+	var job catalogm.RadioImportJob
 	if err := s.db.Preload("Show").Preload("Station").First(&job, jobID).Error; err != nil {
 		return nil, fmt.Errorf("job not found: %w", err)
 	}
@@ -129,7 +129,7 @@ func (s *RadioService) ListImportJobs(showID uint) ([]*contracts.RadioImportJobR
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var jobs []models.RadioImportJob
+	var jobs []catalogm.RadioImportJob
 	if err := s.db.Preload("Show").Preload("Station").
 		Where("show_id = ?", showID).
 		Order("created_at DESC").
@@ -153,7 +153,7 @@ func (s *RadioService) runImportJob(jobID uint) {
 	logger.Info("radio_import_job_started")
 
 	// Reload job from DB to get show/since/until
-	var job models.RadioImportJob
+	var job catalogm.RadioImportJob
 	if err := s.db.First(&job, jobID).Error; err != nil {
 		logger.Error("radio_import_job_load_failed", "error", err.Error())
 		return
@@ -164,7 +164,7 @@ func (s *RadioService) runImportJob(jobID uint) {
 	var lastEpisodeDate string
 
 	episodesFoundFn := func(count int) {
-		s.db.Model(&models.RadioImportJob{}).Where("id = ?", jobID).
+		s.db.Model(&catalogm.RadioImportJob{}).Where("id = ?", jobID).
 			Update("episodes_found", count)
 		logger.Info("radio_import_job_episodes_found", "in_date_range", count)
 	}
@@ -183,7 +183,7 @@ func (s *RadioService) runImportJob(jobID uint) {
 
 		// Batch update progress every 10 episodes
 		if totalProcessed%10 == 0 {
-			s.db.Model(&models.RadioImportJob{}).Where("id = ?", jobID).
+			s.db.Model(&catalogm.RadioImportJob{}).Where("id = ?", jobID).
 				Updates(map[string]interface{}{
 					"episodes_imported":    episodesImported,
 					"plays_imported":       playsImported,
@@ -209,7 +209,7 @@ func (s *RadioService) runImportJob(jobID uint) {
 	// Final update: mark completed
 	now := time.Now()
 	updates := map[string]interface{}{
-		"status":            models.RadioImportJobStatusCompleted,
+		"status":            catalogm.RadioImportJobStatusCompleted,
 		"episodes_imported": result.EpisodesImported,
 		"plays_imported":    result.PlaysImported,
 		"plays_matched":     result.PlaysMatched,
@@ -228,7 +228,7 @@ func (s *RadioService) runImportJob(jobID uint) {
 		updates["error_log"] = errorLog
 	}
 
-	s.db.Model(&models.RadioImportJob{}).Where("id = ?", jobID).Updates(updates)
+	s.db.Model(&catalogm.RadioImportJob{}).Where("id = ?", jobID).Updates(updates)
 
 	logger.Info("radio_import_job_completed",
 		"episodes_imported", result.EpisodesImported,
@@ -241,8 +241,8 @@ func (s *RadioService) runImportJob(jobID uint) {
 // failJob marks a job as failed with an error message.
 func (s *RadioService) failJob(jobID uint, errMsg string) {
 	now := time.Now()
-	s.db.Model(&models.RadioImportJob{}).Where("id = ?", jobID).Updates(map[string]interface{}{
-		"status":       models.RadioImportJobStatusFailed,
+	s.db.Model(&catalogm.RadioImportJob{}).Where("id = ?", jobID).Updates(map[string]interface{}{
+		"status":       catalogm.RadioImportJobStatusFailed,
 		"error_log":    errMsg,
 		"completed_at": now,
 	})
@@ -261,7 +261,7 @@ func normalizeDateString(s string) string {
 }
 
 // jobToResponse maps a model to a DTO response.
-func (s *RadioService) jobToResponse(job *models.RadioImportJob, showName, stationName string) *contracts.RadioImportJobResponse {
+func (s *RadioService) jobToResponse(job *catalogm.RadioImportJob, showName, stationName string) *contracts.RadioImportJobResponse {
 	return &contracts.RadioImportJobResponse{
 		ID:                 job.ID,
 		ShowID:             job.ShowID,
@@ -290,11 +290,11 @@ func (s *RadioService) ListAllActiveJobs() ([]*contracts.RadioImportJobResponse,
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var jobs []models.RadioImportJob
+	var jobs []catalogm.RadioImportJob
 	if err := s.db.Preload("Show").Preload("Station").
 		Where("status IN ?", []string{
-			models.RadioImportJobStatusPending,
-			models.RadioImportJobStatusRunning,
+			catalogm.RadioImportJobStatusPending,
+			catalogm.RadioImportJobStatusRunning,
 		}).
 		Order("created_at DESC").
 		Find(&jobs).Error; err != nil {
@@ -311,10 +311,9 @@ func (s *RadioService) ListAllActiveJobs() ([]*contracts.RadioImportJobResponse,
 
 // isJobCancelled checks if a job has been cancelled.
 func (s *RadioService) isJobCancelled(jobID uint) bool {
-	var job models.RadioImportJob
+	var job catalogm.RadioImportJob
 	if err := s.db.Select("status").First(&job, jobID).Error; err != nil {
 		return false
 	}
-	return job.Status == models.RadioImportJobStatusCancelled
+	return job.Status == catalogm.RadioImportJobStatusCancelled
 }
-

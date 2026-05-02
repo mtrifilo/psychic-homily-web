@@ -11,7 +11,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -62,7 +62,7 @@ func (s *AuthService) OAuthLogin(w http.ResponseWriter, r *http.Request, provide
 
 // OAuthCallback handles OAuth callback and user creation/linking.
 // This legacy path does not enforce signup consent requirements.
-func (s *AuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*models.User, string, error) {
+func (s *AuthService) OAuthCallback(w http.ResponseWriter, r *http.Request, provider string) (*authm.User, string, error) {
 	return s.oauthCallbackInternal(w, r, provider, nil, false)
 }
 
@@ -72,7 +72,7 @@ func (s *AuthService) OAuthCallbackWithConsent(
 	r *http.Request,
 	provider string,
 	consent *contracts.OAuthSignupConsent,
-) (*models.User, string, error) {
+) (*authm.User, string, error) {
 	return s.oauthCallbackInternal(w, r, provider, consent, true)
 }
 
@@ -82,7 +82,7 @@ func (s *AuthService) oauthCallbackInternal(
 	provider string,
 	consent *contracts.OAuthSignupConsent,
 	enforceConsent bool,
-) (*models.User, string, error) {
+) (*authm.User, string, error) {
 	// Check for nil request
 	if r == nil {
 		return nil, "", fmt.Errorf("request cannot be nil")
@@ -101,7 +101,7 @@ func (s *AuthService) oauthCallbackInternal(
 	log.Printf("DEBUG: Successfully completed OAuth! gothUser: %+v", gothUser)
 
 	// Find or create user using user service
-	var user *models.User
+	var user *authm.User
 	if enforceConsent {
 		user, err = s.userService.FindOrCreateUserWithConsent(gothUser, provider, consent)
 	} else {
@@ -121,12 +121,12 @@ func (s *AuthService) oauthCallbackInternal(
 }
 
 // GetUserProfile retrieves user profile using the user service
-func (s *AuthService) GetUserProfile(userID uint) (*models.User, error) {
+func (s *AuthService) GetUserProfile(userID uint) (*authm.User, error) {
 	return s.userService.GetUserByID(userID)
 }
 
 // RefreshUserToken generates a new JWT token for the user
-func (s *AuthService) RefreshUserToken(user *models.User) (string, error) {
+func (s *AuthService) RefreshUserToken(user *authm.User) (string, error) {
 	return s.jwtService.CreateToken(user)
 }
 

@@ -12,7 +12,8 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -39,17 +40,17 @@ func NewTagService(database *gorm.DB) *TagService {
 // ──────────────────────────────────────────────
 
 // CreateTag creates a new tag. If userID is non-nil, it records who created the tag.
-func (s *TagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*models.Tag, error) {
+func (s *TagService) CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	if !models.IsValidTagCategory(category) {
+	if !catalogm.IsValidTagCategory(category) {
 		return nil, fmt.Errorf("invalid tag category: %s", category)
 	}
 
 	// Check for duplicate name (case-insensitive)
-	var existing models.Tag
+	var existing catalogm.Tag
 	if err := s.db.Where("LOWER(name) = LOWER(?)", name).First(&existing).Error; err == nil {
 		return nil, apperrors.ErrTagExists(name)
 	}
@@ -58,11 +59,11 @@ func (s *TagService) CreateTag(name string, description *string, parentID *uint,
 	baseSlug := utils.GenerateSlug(name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Tag{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Tag{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	tag := &models.Tag{
+	tag := &catalogm.Tag{
 		Name:            name,
 		Slug:            slug,
 		Description:     description,
@@ -81,12 +82,12 @@ func (s *TagService) CreateTag(name string, description *string, parentID *uint,
 }
 
 // GetTag retrieves a tag by ID with relationships.
-func (s *TagService) GetTag(tagID uint) (*models.Tag, error) {
+func (s *TagService) GetTag(tagID uint) (*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var tag models.Tag
+	var tag catalogm.Tag
 	err := s.db.Preload("Parent").Preload("Children").Preload("Aliases").Preload("CreatedBy").First(&tag, tagID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -99,12 +100,12 @@ func (s *TagService) GetTag(tagID uint) (*models.Tag, error) {
 }
 
 // GetTagBySlug retrieves a tag by slug with relationships.
-func (s *TagService) GetTagBySlug(slug string) (*models.Tag, error) {
+func (s *TagService) GetTagBySlug(slug string) (*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var tag models.Tag
+	var tag catalogm.Tag
 	err := s.db.Preload("Parent").Preload("Children").Preload("Aliases").Preload("CreatedBy").
 		Where("slug = ?", slug).First(&tag).Error
 	if err != nil {
@@ -127,15 +128,15 @@ func (s *TagService) GetTagBySlug(slug string) (*models.Tag, error) {
 // is set so the facet on each browse page lists the most-applicable tags
 // first. entityType is validated against TagEntityTypes; an unknown value
 // returns an error.
-func (s *TagService) ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string) ([]models.Tag, int64, error) {
+func (s *TagService) ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string) ([]catalogm.Tag, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
-	if entityType != "" && !models.IsValidTagEntityType(entityType) {
+	if entityType != "" && !catalogm.IsValidTagEntityType(entityType) {
 		return nil, 0, fmt.Errorf("invalid entity type: %s", entityType)
 	}
 
-	query := s.db.Model(&models.Tag{})
+	query := s.db.Model(&catalogm.Tag{})
 
 	if category != "" {
 		query = query.Where("category = ?", category)
@@ -166,7 +167,7 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 	}
 	query = query.Limit(limit).Offset(offset)
 
-	var tags []models.Tag
+	var tags []catalogm.Tag
 	if err := query.Find(&tags).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to list tags: %w", err)
 	}
@@ -208,9 +209,9 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 // Tags absent from the relevant tables get 0 (missing from the returned map).
 func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint) (map[uint]int64, error) {
 	switch entityType {
-	case models.TagEntityShow:
+	case catalogm.TagEntityShow:
 		return CountTransitiveArtistTagUsage(s.db, "show_artists", "show_id", "artist_id", tagIDs)
-	case models.TagEntityFestival:
+	case catalogm.TagEntityFestival:
 		return CountTransitiveArtistTagUsage(s.db, "festival_artists", "festival_id", "artist_id", tagIDs)
 	}
 	// Default: direct count against entity_tags for the given entity type.
@@ -236,7 +237,7 @@ func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint
 
 // sortTagsByUsageDesc sorts in place by UsageCount DESC, name ASC. Used after
 // per-entity-type recount so the displayed order matches the new counts.
-func sortTagsByUsageDesc(tags []models.Tag) {
+func sortTagsByUsageDesc(tags []catalogm.Tag) {
 	sort.SliceStable(tags, func(i, j int) bool {
 		if tags[i].UsageCount != tags[j].UsageCount {
 			return tags[i].UsageCount > tags[j].UsageCount
@@ -246,12 +247,12 @@ func sortTagsByUsageDesc(tags []models.Tag) {
 }
 
 // UpdateTag updates a tag's fields.
-func (s *TagService) UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*models.Tag, error) {
+func (s *TagService) UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var tag models.Tag
+	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrTagNotFound(tagID)
@@ -266,7 +267,7 @@ func (s *TagService) UpdateTag(tagID uint, name *string, description *string, pa
 		baseSlug := utils.GenerateSlug(*name)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.Tag{}).Where("slug = ? AND id != ?", candidate, tagID).Count(&count)
+			s.db.Model(&catalogm.Tag{}).Where("slug = ? AND id != ?", candidate, tagID).Count(&count)
 			return count > 0
 		})
 		updates["slug"] = slug
@@ -278,7 +279,7 @@ func (s *TagService) UpdateTag(tagID uint, name *string, description *string, pa
 		// Hierarchy edits go through the same cycle + category guard that
 		// SetTagParent uses (PSY-311). Keep the check here so any caller
 		// that sets parent_id via generic update can't bypass validation.
-		if tag.Category != models.TagCategoryGenre {
+		if tag.Category != catalogm.TagCategoryGenre {
 			return nil, apperrors.ErrTagHierarchyNotGenre(tag.Name, tag.Category)
 		}
 		if err := s.validateTagParent(&tag, parentID); err != nil {
@@ -287,7 +288,7 @@ func (s *TagService) UpdateTag(tagID uint, name *string, description *string, pa
 		updates["parent_id"] = *parentID
 	}
 	if category != nil {
-		if !models.IsValidTagCategory(*category) {
+		if !catalogm.IsValidTagCategory(*category) {
 			return nil, fmt.Errorf("invalid tag category: %s", *category)
 		}
 		updates["category"] = *category
@@ -311,7 +312,7 @@ func (s *TagService) DeleteTag(tagID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Delete(&models.Tag{}, tagID)
+	result := s.db.Delete(&catalogm.Tag{}, tagID)
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete tag: %w", result.Error)
 	}
@@ -329,20 +330,40 @@ func (s *TagService) DeleteTag(tagID uint) error {
 // AddTagToEntity applies a tag to an entity. Supports tag ID or name (with alias resolution).
 // If tagName is provided and no existing tag or alias matches, creates the tag inline
 // for contributor+ users. The category parameter is used when creating new tags (defaults to "other").
-func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*models.EntityTag, error) {
+//
+// PSY-354: collections enforce a per-entity cap (MaxCollectionTags = 10). The
+// cap is checked HERE (before tag resolution / inline creation) so the same
+// limit applies whether the request comes through the dedicated
+// /collections/{slug}/tags endpoint or the polymorphic
+// /entities/collection/{id}/tags endpoint. Other entity types are uncapped
+// today; the if-statement keeps the bounded knowledge to the one entity that
+// has a cap rather than threading a per-entity-type limit map through.
+func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*catalogm.EntityTag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	if !models.IsValidTagEntityType(entityType) {
+	if !catalogm.IsValidTagEntityType(entityType) {
 		return nil, fmt.Errorf("invalid entity type: %s", entityType)
 	}
 
+	if entityType == catalogm.TagEntityCollection {
+		var existingCount int64
+		if err := s.db.Model(&catalogm.EntityTag{}).
+			Where("entity_type = ? AND entity_id = ?", entityType, entityID).
+			Count(&existingCount).Error; err != nil {
+			return nil, fmt.Errorf("failed to count collection tags: %w", err)
+		}
+		if int(existingCount) >= contracts.MaxCollectionTags {
+			return nil, apperrors.ErrCollectionTagLimitExceeded(int(existingCount), contracts.MaxCollectionTags)
+		}
+	}
+
 	// Resolve tag by ID or name
-	var tag *models.Tag
+	var tag *catalogm.Tag
 	var createdInline bool
 	if tagID > 0 {
-		var t models.Tag
+		var t catalogm.Tag
 		if err := s.db.First(&t, tagID).Error; err != nil {
 			if err == gorm.ErrRecordNotFound {
 				return nil, apperrors.ErrTagNotFound(tagID)
@@ -360,7 +381,7 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 			tag = resolved
 		} else {
 			// Try direct name match
-			var t models.Tag
+			var t catalogm.Tag
 			if err := s.db.Where("LOWER(name) = LOWER(?)", tagName).First(&t).Error; err != nil {
 				if err == gorm.ErrRecordNotFound {
 					// Tag not found — create inline if user has permission
@@ -382,14 +403,14 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 	}
 
 	// Check for existing application
-	var existing models.EntityTag
+	var existing catalogm.EntityTag
 	err := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?", tag.ID, entityType, entityID).
 		First(&existing).Error
 	if err == nil {
 		return nil, apperrors.ErrEntityTagExists(tag.ID, entityType, entityID)
 	}
 
-	entityTag := &models.EntityTag{
+	entityTag := &catalogm.EntityTag{
 		TagID:         tag.ID,
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -401,12 +422,12 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 	}
 
 	// Increment usage count atomically
-	s.db.Model(&models.Tag{}).Where("id = ?", tag.ID).
+	s.db.Model(&catalogm.Tag{}).Where("id = ?", tag.ID).
 		Update("usage_count", gorm.Expr("usage_count + 1"))
 
 	// Auto-upvote for the creator when tag was created inline
 	if createdInline {
-		autoVote := models.TagVote{
+		autoVote := catalogm.TagVote{
 			TagID:      tag.ID,
 			EntityType: entityType,
 			EntityID:   entityID,
@@ -422,9 +443,9 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 
 // createTagInline creates a new tag as part of the AddTagToEntity flow.
 // Only contributor+ users can create tags inline; new_user gets a 403.
-func (s *TagService) createTagInline(tagName string, category string, userID uint) (*models.Tag, error) {
+func (s *TagService) createTagInline(tagName string, category string, userID uint) (*catalogm.Tag, error) {
 	// Look up user to check trust tier
-	var user models.User
+	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
 		return nil, fmt.Errorf("failed to look up user: %w", err)
 	}
@@ -447,12 +468,12 @@ func (s *TagService) createTagInline(tagName string, category string, userID uin
 	if category == "" {
 		category = "other"
 	}
-	if !models.IsValidTagCategory(category) {
+	if !catalogm.IsValidTagCategory(category) {
 		return nil, fmt.Errorf("invalid tag category: %s", category)
 	}
 
 	// Check for duplicate after normalization (case-insensitive)
-	var existing models.Tag
+	var existing catalogm.Tag
 	if err := s.db.Where("LOWER(name) = LOWER(?)", normalized).First(&existing).Error; err == nil {
 		// Already exists after normalization — use existing
 		return &existing, nil
@@ -462,11 +483,11 @@ func (s *TagService) createTagInline(tagName string, category string, userID uin
 	baseSlug := utils.GenerateSlug(normalized)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Tag{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Tag{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	tag := &models.Tag{
+	tag := &catalogm.Tag{
 		Name:       normalized,
 		Slug:       slug,
 		Category:   category,
@@ -503,7 +524,7 @@ func (s *TagService) RemoveTagFromEntity(tagID uint, entityType string, entityID
 	}
 
 	result := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?", tagID, entityType, entityID).
-		Delete(&models.EntityTag{})
+		Delete(&catalogm.EntityTag{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to remove tag from entity: %w", result.Error)
 	}
@@ -512,12 +533,12 @@ func (s *TagService) RemoveTagFromEntity(tagID uint, entityType string, entityID
 	}
 
 	// Decrement usage count atomically (floor at 0)
-	s.db.Model(&models.Tag{}).Where("id = ? AND usage_count > 0", tagID).
+	s.db.Model(&catalogm.Tag{}).Where("id = ? AND usage_count > 0", tagID).
 		Update("usage_count", gorm.Expr("usage_count - 1"))
 
 	// Clean up votes for this tag-entity pair
 	s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?", tagID, entityType, entityID).
-		Delete(&models.TagVote{})
+		Delete(&catalogm.TagVote{})
 
 	return nil
 }
@@ -530,7 +551,7 @@ func (s *TagService) ListEntityTags(entityType string, entityID uint, userID uin
 	}
 
 	// Get entity tags with tag info and added-by user
-	var entityTags []models.EntityTag
+	var entityTags []catalogm.EntityTag
 	err := s.db.Preload("Tag").Preload("AddedBy").
 		Where("entity_type = ? AND entity_id = ?", entityType, entityID).
 		Find(&entityTags).Error
@@ -542,10 +563,10 @@ func (s *TagService) ListEntityTags(entityType string, entityID uint, userID uin
 	for i, et := range entityTags {
 		// Count votes
 		var upvotes, downvotes int64
-		s.db.Model(&models.TagVote{}).
+		s.db.Model(&catalogm.TagVote{}).
 			Where("tag_id = ? AND entity_type = ? AND entity_id = ? AND vote = 1", et.TagID, entityType, entityID).
 			Count(&upvotes)
-		s.db.Model(&models.TagVote{}).
+		s.db.Model(&catalogm.TagVote{}).
 			Where("tag_id = ? AND entity_type = ? AND entity_id = ? AND vote = -1", et.TagID, entityType, entityID).
 			Count(&downvotes)
 
@@ -577,7 +598,7 @@ func (s *TagService) ListEntityTags(entityType string, entityID uint, userID uin
 
 		// Include user's vote if authenticated
 		if userID > 0 {
-			var vote models.TagVote
+			var vote catalogm.TagVote
 			err := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ? AND user_id = ?",
 				et.TagID, entityType, entityID, userID).First(&vote).Error
 			if err == nil {
@@ -602,7 +623,7 @@ func (s *TagService) VoteOnTag(tagID uint, entityType string, entityID uint, use
 	}
 
 	// Verify the tag is actually applied to this entity
-	var entityTag models.EntityTag
+	var entityTag catalogm.EntityTag
 	err := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?", tagID, entityType, entityID).
 		First(&entityTag).Error
 	if err != nil {
@@ -618,12 +639,12 @@ func (s *TagService) VoteOnTag(tagID uint, entityType string, entityID uint, use
 	}
 
 	// Upsert vote
-	var existing models.TagVote
+	var existing catalogm.TagVote
 	err = s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ? AND user_id = ?",
 		tagID, entityType, entityID, userID).First(&existing).Error
 
 	if err == gorm.ErrRecordNotFound {
-		vote := models.TagVote{
+		vote := catalogm.TagVote{
 			TagID:      tagID,
 			EntityType: entityType,
 			EntityID:   entityID,
@@ -651,7 +672,7 @@ func (s *TagService) RemoveTagVote(tagID uint, entityType string, entityID uint,
 	}
 
 	result := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ? AND user_id = ?",
-		tagID, entityType, entityID, userID).Delete(&models.TagVote{})
+		tagID, entityType, entityID, userID).Delete(&catalogm.TagVote{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to remove vote: %w", result.Error)
 	}
@@ -664,13 +685,13 @@ func (s *TagService) RemoveTagVote(tagID uint, entityType string, entityID uint,
 // ──────────────────────────────────────────────
 
 // CreateAlias creates a new alias for a tag.
-func (s *TagService) CreateAlias(tagID uint, alias string) (*models.TagAlias, error) {
+func (s *TagService) CreateAlias(tagID uint, alias string) (*catalogm.TagAlias, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	// Verify tag exists
-	var tag models.Tag
+	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrTagNotFound(tagID)
@@ -679,18 +700,18 @@ func (s *TagService) CreateAlias(tagID uint, alias string) (*models.TagAlias, er
 	}
 
 	// Check for duplicate alias (case-insensitive)
-	var existing models.TagAlias
+	var existing catalogm.TagAlias
 	if err := s.db.Where("LOWER(alias) = LOWER(?)", alias).First(&existing).Error; err == nil {
 		return nil, apperrors.ErrTagAliasExists(alias)
 	}
 
 	// Also check if alias matches an existing tag name
-	var existingTag models.Tag
+	var existingTag catalogm.Tag
 	if err := s.db.Where("LOWER(name) = LOWER(?)", alias).First(&existingTag).Error; err == nil {
 		return nil, apperrors.ErrTagAliasExists(alias)
 	}
 
-	tagAlias := &models.TagAlias{
+	tagAlias := &catalogm.TagAlias{
 		TagID: tagID,
 		Alias: alias,
 	}
@@ -708,7 +729,7 @@ func (s *TagService) DeleteAlias(aliasID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Delete(&models.TagAlias{}, aliasID)
+	result := s.db.Delete(&catalogm.TagAlias{}, aliasID)
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete alias: %w", result.Error)
 	}
@@ -720,12 +741,12 @@ func (s *TagService) DeleteAlias(aliasID uint) error {
 }
 
 // ListAliases lists all aliases for a tag.
-func (s *TagService) ListAliases(tagID uint) ([]models.TagAlias, error) {
+func (s *TagService) ListAliases(tagID uint) ([]catalogm.TagAlias, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var aliases []models.TagAlias
+	var aliases []catalogm.TagAlias
 	if err := s.db.Where("tag_id = ?", tagID).Order("alias ASC").Find(&aliases).Error; err != nil {
 		return nil, fmt.Errorf("failed to list aliases: %w", err)
 	}
@@ -829,7 +850,7 @@ func (s *TagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*
 			continue
 		}
 
-		var tag models.Tag
+		var tag catalogm.Tag
 		err := s.db.Where("LOWER(slug) = LOWER(?) OR LOWER(name) = LOWER(?)", canonical, canonical).
 			First(&tag).Error
 		if err != nil {
@@ -845,7 +866,7 @@ func (s *TagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*
 			return nil, fmt.Errorf("failed to resolve canonical tag: %w", err)
 		}
 
-		var existingAlias models.TagAlias
+		var existingAlias catalogm.TagAlias
 		if err := s.db.Where("LOWER(alias) = LOWER(?)", alias).First(&existingAlias).Error; err == nil {
 			reason := fmt.Sprintf("alias already maps to tag ID %d", existingAlias.TagID)
 			if existingAlias.TagID == tag.ID {
@@ -860,7 +881,7 @@ func (s *TagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*
 			continue
 		}
 
-		var nameConflict models.Tag
+		var nameConflict catalogm.Tag
 		if err := s.db.Where("LOWER(name) = LOWER(?)", alias).First(&nameConflict).Error; err == nil {
 			result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
 				Row:       row,
@@ -871,7 +892,7 @@ func (s *TagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*
 			continue
 		}
 
-		if err := s.db.Create(&models.TagAlias{TagID: tag.ID, Alias: alias}).Error; err != nil {
+		if err := s.db.Create(&catalogm.TagAlias{TagID: tag.ID, Alias: alias}).Error; err != nil {
 			result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
 				Row:       row,
 				Alias:     alias,
@@ -889,12 +910,12 @@ func (s *TagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*
 }
 
 // ResolveAlias resolves an alias to its canonical tag.
-func (s *TagService) ResolveAlias(alias string) (*models.Tag, error) {
+func (s *TagService) ResolveAlias(alias string) (*catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var tagAlias models.TagAlias
+	var tagAlias catalogm.TagAlias
 	err := s.db.Where("LOWER(alias) = LOWER(?)", alias).First(&tagAlias).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -903,7 +924,7 @@ func (s *TagService) ResolveAlias(alias string) (*models.Tag, error) {
 		return nil, fmt.Errorf("failed to resolve alias: %w", err)
 	}
 
-	var tag models.Tag
+	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagAlias.TagID).Error; err != nil {
 		return nil, fmt.Errorf("failed to get canonical tag: %w", err)
 	}
@@ -940,7 +961,7 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]con
 	db := s.db.Where(
 		s.db.Where("LOWER(name) LIKE ?", "%"+q+"%").
 			Or("id IN (?)",
-				s.db.Model(&models.TagAlias{}).Select("tag_id").Where("LOWER(alias) LIKE ?", "%"+q+"%"),
+				s.db.Model(&catalogm.TagAlias{}).Select("tag_id").Where("LOWER(alias) LIKE ?", "%"+q+"%"),
 			),
 	)
 
@@ -948,7 +969,7 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]con
 		db = db.Where("category = ?", category)
 	}
 
-	var tags []models.Tag
+	var tags []catalogm.Tag
 	err := db.Order("usage_count DESC").
 		Limit(limit).
 		Find(&tags).Error
@@ -975,7 +996,7 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]con
 	if len(aliasMatchIDs) > 0 {
 		// Fetch matching aliases in one query, ordered so the first (lexicographic)
 		// match wins deterministically when a tag has multiple matching aliases.
-		var aliases []models.TagAlias
+		var aliases []catalogm.TagAlias
 		err := s.db.Where("tag_id IN ? AND LOWER(alias) LIKE ?", aliasMatchIDs, pattern).
 			Order("tag_id, alias ASC").
 			Find(&aliases).Error
@@ -1002,7 +1023,7 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]con
 }
 
 // GetTrendingTags returns the most used tags, optionally filtered by category.
-func (s *TagService) GetTrendingTags(limit int, category string) ([]models.Tag, error) {
+func (s *TagService) GetTrendingTags(limit int, category string) ([]catalogm.Tag, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1011,12 +1032,12 @@ func (s *TagService) GetTrendingTags(limit int, category string) ([]models.Tag, 
 		limit = 20
 	}
 
-	query := s.db.Model(&models.Tag{}).Where("usage_count > 0")
+	query := s.db.Model(&catalogm.Tag{}).Where("usage_count > 0")
 	if category != "" {
 		query = query.Where("category = ?", category)
 	}
 
-	var tags []models.Tag
+	var tags []catalogm.Tag
 	if err := query.Order("usage_count DESC").Limit(limit).Find(&tags).Error; err != nil {
 		return nil, fmt.Errorf("failed to get trending tags: %w", err)
 	}
@@ -1061,18 +1082,18 @@ func (s *TagService) PruneDownvotedTags() (int64, error) {
 	var totalPruned int64
 	for _, c := range candidates {
 		result := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?",
-			c.TagID, c.EntityType, c.EntityID).Delete(&models.EntityTag{})
+			c.TagID, c.EntityType, c.EntityID).Delete(&catalogm.EntityTag{})
 		if result.Error == nil {
 			totalPruned += result.RowsAffected
 			// Decrement usage count
 			if result.RowsAffected > 0 {
-				s.db.Model(&models.Tag{}).Where("id = ? AND usage_count > 0", c.TagID).
+				s.db.Model(&catalogm.Tag{}).Where("id = ? AND usage_count > 0", c.TagID).
 					Update("usage_count", gorm.Expr("usage_count - 1"))
 			}
 		}
 		// Also clean up the votes
 		s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?",
-			c.TagID, c.EntityType, c.EntityID).Delete(&models.TagVote{})
+			c.TagID, c.EntityType, c.EntityID).Delete(&catalogm.TagVote{})
 	}
 
 	return totalPruned, nil
@@ -1084,8 +1105,8 @@ func (s *TagService) PruneDownvotedTags() (int64, error) {
 
 // entityTableMap maps entity type strings to their DB table name and name column.
 var entityTableMap = map[string]struct {
-	table     string
-	nameCol   string
+	table   string
+	nameCol string
 }{
 	"artist":   {table: "artists", nameCol: "name"},
 	"venue":    {table: "venues", nameCol: "name"},
@@ -1107,9 +1128,9 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Model(&models.EntityTag{}).Where("tag_id = ?", tagID)
+	query := s.db.Model(&catalogm.EntityTag{}).Where("tag_id = ?", tagID)
 	if entityType != "" {
-		if !models.IsValidTagEntityType(entityType) {
+		if !catalogm.IsValidTagEntityType(entityType) {
 			return nil, 0, fmt.Errorf("invalid entity type: %s", entityType)
 		}
 		query = query.Where("entity_type = ?", entityType)
@@ -1129,7 +1150,7 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 		limit = 50
 	}
 
-	var entityTags []models.EntityTag
+	var entityTags []catalogm.EntityTag
 	if err := query.Order("created_at DESC").Limit(limit).Offset(offset).Find(&entityTags).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to list tagged entities: %w", err)
 	}
@@ -1626,7 +1647,7 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 	// Usage breakdown: count entity_tags per valid entity type. Initialize every
 	// valid entity type so the map always has a complete keyset (zero-counts
 	// included); the frontend decides whether to show or hide them.
-	for _, et := range models.TagEntityTypes {
+	for _, et := range catalogm.TagEntityTypes {
 		resp.UsageBreakdown[et] = 0
 	}
 	type breakdownRow struct {
@@ -1634,7 +1655,7 @@ func (s *TagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, err
 		Count      int64
 	}
 	var rows []breakdownRow
-	if err := s.db.Model(&models.EntityTag{}).
+	if err := s.db.Model(&catalogm.EntityTag{}).
 		Select("entity_type, COUNT(*) AS count").
 		Where("tag_id = ?", tagID).
 		Group("entity_type").

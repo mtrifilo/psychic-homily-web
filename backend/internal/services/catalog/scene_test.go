@@ -9,7 +9,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -82,8 +83,8 @@ func TestSceneServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *SceneServiceIntegrationTestSuite) createVerifiedVenue(name, city, state string) *models.Venue {
-	venue := &models.Venue{
+func (suite *SceneServiceIntegrationTestSuite) createVerifiedVenue(name, city, state string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -97,8 +98,8 @@ func (suite *SceneServiceIntegrationTestSuite) createVerifiedVenue(name, city, s
 	return venue
 }
 
-func (suite *SceneServiceIntegrationTestSuite) createUnverifiedVenue(name, city, state string) *models.Venue {
-	venue := &models.Venue{
+func (suite *SceneServiceIntegrationTestSuite) createUnverifiedVenue(name, city, state string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:  name,
 		City:  city,
 		State: state,
@@ -110,15 +111,15 @@ func (suite *SceneServiceIntegrationTestSuite) createUnverifiedVenue(name, city,
 	return venue
 }
 
-func (suite *SceneServiceIntegrationTestSuite) createArtist(name string) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (suite *SceneServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
 }
 
-func (suite *SceneServiceIntegrationTestSuite) createUser() *models.User {
-	user := &models.User{
+func (suite *SceneServiceIntegrationTestSuite) createUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("scene-user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -130,29 +131,29 @@ func (suite *SceneServiceIntegrationTestSuite) createUser() *models.User {
 	return user
 }
 
-func (suite *SceneServiceIntegrationTestSuite) createApprovedShow(title string, venueID, artistID, userID uint, eventDate time.Time) *models.Show {
-	show := &models.Show{
+func (suite *SceneServiceIntegrationTestSuite) createApprovedShow(title string, venueID, artistID, userID uint, eventDate time.Time) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   eventDate,
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 
-	err = suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
+	err = suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
 	suite.Require().NoError(err)
 
-	err = suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
+	err = suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artistID, Position: 0}).Error
 	suite.Require().NoError(err)
 
 	return show
 }
 
 func (suite *SceneServiceIntegrationTestSuite) createFestival(name, city, state string) {
-	festival := &models.Festival{
+	festival := &catalogm.Festival{
 		Name:        name,
 		Slug:        fmt.Sprintf("%s-%d", name, time.Now().UnixNano()),
 		SeriesSlug:  name,
@@ -168,18 +169,18 @@ func (suite *SceneServiceIntegrationTestSuite) createFestival(name, city, state 
 
 // seedSceneData creates data for Phoenix to qualify as a scene:
 // 3 verified venues + 5 upcoming shows with artists.
-func (suite *SceneServiceIntegrationTestSuite) seedSceneData() (venues []*models.Venue, artists []*models.Artist) {
+func (suite *SceneServiceIntegrationTestSuite) seedSceneData() (venues []*catalogm.Venue, artists []*catalogm.Artist) {
 	user := suite.createUser()
 
 	v1 := suite.createVerifiedVenue("Crescent Ballroom", "Phoenix", "AZ")
 	v2 := suite.createVerifiedVenue("Valley Bar", "Phoenix", "AZ")
 	v3 := suite.createVerifiedVenue("The Rebel Lounge", "Phoenix", "AZ")
-	venues = []*models.Venue{v1, v2, v3}
+	venues = []*catalogm.Venue{v1, v2, v3}
 
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
 	a3 := suite.createArtist("Band C")
-	artists = []*models.Artist{a1, a2, a3}
+	artists = []*catalogm.Artist{a1, a2, a3}
 
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	suite.createApprovedShow("Show 1", v1.ID, a1.ID, user.ID, future)
@@ -306,7 +307,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestListScenes_MultipleScenes() {
 
 	future := time.Now().UTC().AddDate(0, 0, 7)
 	for i := 0; i < 7; i++ {
-		venues := []*models.Venue{cv1, cv2, cv3}
+		venues := []*catalogm.Venue{cv1, cv2, cv3}
 		suite.createApprovedShow(
 			fmt.Sprintf("Chi Show %d", i),
 			venues[i%3].ID, ca.ID, user.ID,
@@ -404,7 +405,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseShowsByMo
 		showDate := thisMonthStart.AddDate(0, 1, -1) // last day of this month
 		suite.createApprovedShow(
 			fmt.Sprintf("This Month Show %d", i),
-			[]*models.Venue{v1, v2, v3}[i%3].ID, a.ID, user.ID,
+			[]*catalogm.Venue{v1, v2, v3}[i%3].ID, a.ID, user.ID,
 			showDate,
 		)
 	}
@@ -445,7 +446,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneDetail_PulseShowsTren
 		showDate := thisMonthStart.AddDate(0, 1, -1)
 		suite.createApprovedShow(
 			fmt.Sprintf("This Month %d", i),
-			[]*models.Venue{v1, v2, v3}[i%3].ID, a.ID, user.ID,
+			[]*catalogm.Venue{v1, v2, v3}[i%3].ID, a.ID, user.ID,
 			showDate,
 		)
 	}
@@ -746,7 +747,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetSceneGenreDistribution_Suc
 
 	// Create 35 artists with shows, tag them with genres
 	// This ensures we meet the 30 tagged artist threshold
-	venues := []*models.Venue{v1, v2, v3}
+	venues := []*catalogm.Venue{v1, v2, v3}
 	tags := []uint{punkTag, punkTag, indieTag, indieTag, indieTag, metalTag}
 	for i := 0; i < 35; i++ {
 		a := suite.createArtist(fmt.Sprintf("Genre Artist %d", i))
@@ -796,7 +797,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetGenreDiversityIndex_Insuff
 	punkTag := suite.createGenreTag("di-punk", "di-punk")
 
 	future := time.Now().UTC().AddDate(0, 0, 7)
-	venues := []*models.Venue{v1, v2, v3}
+	venues := []*catalogm.Venue{v1, v2, v3}
 
 	// 55 artists all tagged with one genre => only 1 genre, below 5 minimum
 	for i := 0; i < 55; i++ {
@@ -831,7 +832,7 @@ func (suite *SceneServiceIntegrationTestSuite) TestGetGenreDiversityIndex_Succes
 	}
 
 	future := time.Now().UTC().AddDate(0, 0, 7)
-	venues := []*models.Venue{v1, v2, v3}
+	venues := []*catalogm.Venue{v1, v2, v3}
 
 	// Create 55 artists evenly distributed across genres
 	for i := 0; i < 55; i++ {

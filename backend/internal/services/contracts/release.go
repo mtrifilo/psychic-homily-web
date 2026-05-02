@@ -8,14 +8,14 @@ import "time"
 
 // CreateReleaseRequest represents the data needed to create a new release
 type CreateReleaseRequest struct {
-	Title       string                      `json:"title" validate:"required"`
-	ReleaseType string                      `json:"release_type"`
-	ReleaseYear *int                        `json:"release_year"`
-	ReleaseDate *string                     `json:"release_date"`
-	CoverArtURL *string                     `json:"cover_art_url"`
-	Description *string                     `json:"description"`
-	Artists     []CreateReleaseArtistEntry  `json:"artists"`
-	ExternalLinks []CreateReleaseLinkEntry  `json:"external_links"`
+	Title         string                     `json:"title" validate:"required"`
+	ReleaseType   string                     `json:"release_type"`
+	ReleaseYear   *int                       `json:"release_year"`
+	ReleaseDate   *string                    `json:"release_date"`
+	CoverArtURL   *string                    `json:"cover_art_url"`
+	Description   *string                    `json:"description"`
+	Artists       []CreateReleaseArtistEntry `json:"artists"`
+	ExternalLinks []CreateReleaseLinkEntry   `json:"external_links"`
 }
 
 // CreateReleaseArtistEntry represents an artist-role pair for release creation
@@ -42,19 +42,19 @@ type UpdateReleaseRequest struct {
 
 // ReleaseDetailResponse represents the release data returned to clients
 type ReleaseDetailResponse struct {
-	ID            uint                         `json:"id"`
-	Title         string                       `json:"title"`
-	Slug          string                       `json:"slug"`
-	ReleaseType   string                       `json:"release_type"`
-	ReleaseYear   *int                         `json:"release_year"`
-	ReleaseDate   *string                      `json:"release_date"`
-	CoverArtURL   *string                      `json:"cover_art_url"`
-	Description   *string                      `json:"description"`
-	Artists       []ReleaseArtistResponse      `json:"artists"`
-	Labels        []ReleaseLabelResponse       `json:"labels"`
+	ID            uint                          `json:"id"`
+	Title         string                        `json:"title"`
+	Slug          string                        `json:"slug"`
+	ReleaseType   string                        `json:"release_type"`
+	ReleaseYear   *int                          `json:"release_year"`
+	ReleaseDate   *string                       `json:"release_date"`
+	CoverArtURL   *string                       `json:"cover_art_url"`
+	Description   *string                       `json:"description"`
+	Artists       []ReleaseArtistResponse       `json:"artists"`
+	Labels        []ReleaseLabelResponse        `json:"labels"`
 	ExternalLinks []ReleaseExternalLinkResponse `json:"external_links"`
-	CreatedAt     time.Time                    `json:"created_at"`
-	UpdatedAt     time.Time                    `json:"updated_at"`
+	CreatedAt     time.Time                     `json:"created_at"`
+	UpdatedAt     time.Time                     `json:"updated_at"`
 }
 
 // ReleaseArtistResponse represents an artist on a release

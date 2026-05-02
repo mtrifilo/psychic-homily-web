@@ -5,8 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
-
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
 )
 
 // stringPtr returns a pointer to a string. Test helper.
@@ -20,7 +19,7 @@ type testAuditLogHelper struct {
 
 // LogAction creates an audit log entry directly in the database.
 func (h *testAuditLogHelper) LogAction(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{}) {
-	log := models.AuditLog{
+	log := adminm.AuditLog{
 		ActorID:    &actorID,
 		Action:     action,
 		EntityType: entityType,

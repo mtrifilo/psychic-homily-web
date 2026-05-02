@@ -339,4 +339,69 @@ describe('CollectionCard', () => {
       expect(screen.queryByTestId('contributor-badge')).not.toBeInTheDocument()
     })
   })
+
+  // PSY-354: tag chip rendering on the card.
+  describe('tag chips (PSY-354)', () => {
+    it('does not render the chip row when tags is empty', () => {
+      render(<CollectionCard collection={baseCollection} />)
+      expect(
+        screen.queryByTestId('collection-card-tags')
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders a chip per tag, linking to /collections?tag=<slug>', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        tags: [
+          {
+            id: 1,
+            name: 'phoenix',
+            slug: 'phoenix',
+            category: 'locale',
+            is_official: false,
+            usage_count: 4,
+          },
+          {
+            id: 2,
+            name: 'best-of-2026',
+            slug: 'best-of-2026',
+            category: 'other',
+            is_official: false,
+            usage_count: 1,
+          },
+        ],
+      }
+      render(<CollectionCard collection={collection} />)
+      const row = screen.getByTestId('collection-card-tags')
+      expect(row).toBeInTheDocument()
+      const phoenix = screen.getByRole('link', { name: 'phoenix' })
+      expect(phoenix).toHaveAttribute(
+        'href',
+        '/collections?tag=phoenix'
+      )
+      const bestOf = screen.getByRole('link', { name: 'best-of-2026' })
+      expect(bestOf).toHaveAttribute(
+        'href',
+        '/collections?tag=best-of-2026'
+      )
+    })
+
+    it('caps visible chips at 5 and shows the overflow count', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        tags: Array.from({ length: 7 }, (_, i) => ({
+          id: i + 1,
+          name: `tag-${i + 1}`,
+          slug: `tag-${i + 1}`,
+          category: 'other',
+          is_official: false,
+          usage_count: 1,
+        })),
+      }
+      render(<CollectionCard collection={collection} />)
+      const row = screen.getByTestId('collection-card-tags')
+      expect(row.querySelectorAll('a').length).toBe(5)
+      expect(row.textContent).toContain('+2')
+    })
+  })
 })

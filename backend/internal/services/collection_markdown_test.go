@@ -95,7 +95,7 @@ func TestCollectionService_RenderNotes_RendersValue(t *testing.T) {
 }
 
 func TestCollectionService_MaxLengthConstantsMirrorComments(t *testing.T) {
-	// PSY-349: collection limits are aliases of models.MaxCommentBodyLength
+	// PSY-349: collection limits are aliases of engagementm.MaxCommentBodyLength
 	// (10,000). Guard the wiring so a future change to the comment limit
 	// flows through here automatically.
 	assert.Equal(t, 10000, contracts.MaxCollectionDescriptionLength)

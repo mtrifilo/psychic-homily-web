@@ -12,7 +12,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -170,7 +170,7 @@ func (s *SchedulerService) runExtractionCycle() {
 	)
 
 	// 3. Fan out to workers via buffered channel
-	jobs := make(chan models.VenueSourceConfig, len(dueVenues))
+	jobs := make(chan adminm.VenueSourceConfig, len(dueVenues))
 	results := make(chan venueExtractionResult, len(dueVenues))
 
 	// Start workers
@@ -194,11 +194,11 @@ func (s *SchedulerService) runExtractionCycle() {
 
 	// 4. Collect results
 	var (
-		totalProcessed  int
-		totalExtracted  int
-		totalImported   int
-		totalFailed     int
-		totalSkipped    int
+		totalProcessed int
+		totalExtracted int
+		totalImported  int
+		totalFailed    int
+		totalSkipped   int
 	)
 
 	for result := range results {
@@ -249,9 +249,9 @@ func (s *SchedulerService) runExtractionCycle() {
 }
 
 // filterDueVenues returns venues that need extraction in this cycle.
-func (s *SchedulerService) filterDueVenues(configs []models.VenueSourceConfig) []models.VenueSourceConfig {
+func (s *SchedulerService) filterDueVenues(configs []adminm.VenueSourceConfig) []adminm.VenueSourceConfig {
 	now := time.Now()
-	var due []models.VenueSourceConfig
+	var due []adminm.VenueSourceConfig
 
 	for _, cfg := range configs {
 		// Skip venues without a calendar URL
@@ -297,7 +297,7 @@ func (s *SchedulerService) filterDueVenues(configs []models.VenueSourceConfig) [
 // extractionWorker processes venue extraction jobs from the jobs channel.
 func (s *SchedulerService) extractionWorker(
 	workerID int,
-	jobs <-chan models.VenueSourceConfig,
+	jobs <-chan adminm.VenueSourceConfig,
 	results chan<- venueExtractionResult,
 	wg *sync.WaitGroup,
 ) {
@@ -421,7 +421,7 @@ func (s *SchedulerService) RunExtractionCycleNow() {
 // IsDueForExtraction checks whether a venue config is due for extraction
 // based on the scheduler's interval and the circuit breaker logic.
 // Exported for testing.
-func IsDueForExtraction(cfg models.VenueSourceConfig, interval time.Duration, now time.Time) (bool, string) {
+func IsDueForExtraction(cfg adminm.VenueSourceConfig, interval time.Duration, now time.Time) (bool, string) {
 	// Skip venues without a calendar URL
 	if cfg.CalendarURL == nil || *cfg.CalendarURL == "" {
 		return false, "no calendar URL"

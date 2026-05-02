@@ -10,6 +10,7 @@ import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tansta
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import type {
+  AddCollectionTagResponse,
   Collection,
   CollectionDetail,
   CollectionDisplayMode,
@@ -34,6 +35,11 @@ export interface CollectionListParams {
    * HN gravity (likes / age^1.8). Omit for default (recently-updated).
    */
   sort?: CollectionListSort
+  /**
+   * PSY-354: filter to collections tagged with this slug. Single-tag for
+   * the MVP — multi-tag intersection isn't supported yet on the server.
+   */
+  tag?: string
 }
 
 /** Fetch public collections list with optional filters */
@@ -46,6 +52,7 @@ export function useCollections(params?: CollectionListParams) {
       if (params?.featured) searchParams.set('featured', '1')
       if (params?.entityType) searchParams.set('entity_type', params.entityType)
       if (params?.sort) searchParams.set('sort', params.sort)
+      if (params?.tag) searchParams.set('tag', params.tag)
 
       const qs = searchParams.toString()
       const url = qs
@@ -554,5 +561,69 @@ export function useUserPublicCollections(
       })),
     enabled: (options?.enabled ?? true) && username.length > 0,
     staleTime: 5 * 60 * 1000,
+  })
+}
+
+// ──────────────────────────────────────────────
+// Tags (PSY-354)
+// ──────────────────────────────────────────────
+
+/**
+ * Apply a tag to a collection. Sends `tag_id` (existing tag) OR `tag_name`
+ * (free-form, with alias resolution + inline creation gated by trust tier
+ * server-side). Backend enforces the 10-tag cap and edit-access — the
+ * mutation surfaces the resulting 4xx via the apiRequest error path.
+ *
+ * Invalidates the detail query so the chip row refreshes from the server's
+ * authoritative list (cheap; the response also includes the new list, but
+ * the detail page is the one place where vote counts matter and we'd
+ * rather refetch once than try to reconcile two shapes).
+ */
+export function useAddCollectionTag() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      slug,
+      tag_id,
+      tag_name,
+      category,
+    }: {
+      slug: string
+      tag_id?: number
+      tag_name?: string
+      category?: string
+    }) =>
+      apiRequest<AddCollectionTagResponse>(API_ENDPOINTS.COLLECTIONS.TAGS(slug), {
+        method: 'POST',
+        body: JSON.stringify({ tag_id, tag_name, category }),
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.detail(variables.slug),
+      })
+      // Browse cards display tag chips too — invalidate the public + my
+      // lists so the next view reflects the new tag.
+      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+    },
+  })
+}
+
+/**
+ * Remove a tag from a collection. Server enforces the same edit-access
+ * gate as Add. Errors surface via apiRequest.
+ */
+export function useRemoveCollectionTag() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ slug, tagId }: { slug: string; tagId: number }) =>
+      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.TAG(slug, tagId), {
+        method: 'DELETE',
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.detail(variables.slug),
+      })
+      queryClient.invalidateQueries({ queryKey: queryKeys.collections.all })
+    },
   })
 }

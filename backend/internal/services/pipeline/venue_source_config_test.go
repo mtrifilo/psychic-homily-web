@@ -7,7 +7,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -37,7 +38,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TearDownSuite() {
 func (s *VenueSourceConfigIntegrationTestSuite) SetupTest() {
 	// Create a test venue
 	slug := "test-venue"
-	venue := models.Venue{
+	venue := catalogm.Venue{
 		Name:  "Test Venue",
 		Slug:  &slug,
 		City:  "Phoenix",
@@ -61,7 +62,7 @@ func TestVenueSourceConfigIntegrationSuite(t *testing.T) {
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestCreateOrUpdate_NewConfig() {
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
@@ -78,7 +79,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestCreateOrUpdate_NewConfig() {
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestCreateOrUpdate_UpdateExisting() {
 	url1 := "https://testvenue.com/old"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url1,
 	}
@@ -86,7 +87,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestCreateOrUpdate_UpdateExistin
 	s.NoError(err)
 
 	url2 := "https://testvenue.com/new"
-	updated := &models.VenueSourceConfig{
+	updated := &adminm.VenueSourceConfig{
 		VenueID:         s.venueID,
 		CalendarURL:     &url2,
 		PreferredSource: "ical",
@@ -99,7 +100,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestCreateOrUpdate_UpdateExistin
 }
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestCreateOrUpdate_VenueIDRequired() {
-	config := &models.VenueSourceConfig{}
+	config := &adminm.VenueSourceConfig{}
 	result, err := s.svc.CreateOrUpdate(config)
 	s.Error(err)
 	s.Contains(err.Error(), "venue_id is required")
@@ -110,7 +111,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestCreateOrUpdate_VenueIDRequir
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestGetByVenueID_Found() {
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
@@ -133,7 +134,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestGetByVenueID_NotFound() {
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestUpdateAfterRun_Success() {
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
@@ -156,7 +157,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestUpdateAfterRun_Success() {
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestUpdateAfterRun_RollingAverage() {
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
@@ -187,7 +188,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestUpdateAfterRun_NotFound() {
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestUpdateAfterRun_ResetsFailures() {
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
@@ -211,7 +212,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestUpdateAfterRun_ResetsFailure
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestIncrementFailures_Success() {
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
@@ -245,7 +246,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestRecordRun_Success() {
 	hash := "abc123"
 	status := 200
 
-	run := &models.VenueExtractionRun{
+	run := &adminm.VenueExtractionRun{
 		VenueID:         s.venueID,
 		RenderMethod:    &method,
 		PreferredSource: &source,
@@ -262,7 +263,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestRecordRun_Success() {
 }
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestRecordRun_VenueIDRequired() {
-	run := &models.VenueExtractionRun{}
+	run := &adminm.VenueExtractionRun{}
 	err := s.svc.RecordRun(run)
 	s.Error(err)
 	s.Contains(err.Error(), "venue_id is required")
@@ -271,7 +272,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestRecordRun_VenueIDRequired() 
 func (s *VenueSourceConfigIntegrationTestSuite) TestRecordRun_WithError() {
 	errMsg := "connection timeout"
 	status := 0
-	run := &models.VenueExtractionRun{
+	run := &adminm.VenueExtractionRun{
 		VenueID:    s.venueID,
 		HTTPStatus: &status,
 		Error:      &errMsg,
@@ -287,7 +288,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestRecordRun_WithError() {
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestGetRecentRuns_OrderByRunAtDesc() {
 	for i := 0; i < 3; i++ {
-		run := &models.VenueExtractionRun{
+		run := &adminm.VenueExtractionRun{
 			VenueID:         s.venueID,
 			RunAt:           time.Now().Add(time.Duration(i) * time.Hour),
 			EventsExtracted: i + 1,
@@ -307,7 +308,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestGetRecentRuns_OrderByRunAtDe
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestGetRecentRuns_RespectsLimit() {
 	for i := 0; i < 5; i++ {
-		run := &models.VenueExtractionRun{
+		run := &adminm.VenueExtractionRun{
 			VenueID:    s.venueID,
 			DurationMs: 100,
 		}
@@ -341,7 +342,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestListConfigured_Empty() {
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestListConfigured_WithConfigs() {
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
@@ -361,7 +362,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestListConfigured_WithConfigs()
 func (s *VenueSourceConfigIntegrationTestSuite) TestResetRenderMethod_Success() {
 	url := "https://testvenue.com/calendar"
 	method := "dynamic"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:      s.venueID,
 		CalendarURL:  &url,
 		RenderMethod: &method,
@@ -394,14 +395,14 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestResetRenderMethod_NotFound()
 
 func (s *VenueSourceConfigIntegrationTestSuite) TestCascadeDelete_VenueDeleteCleansUp() {
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
 	_, err := s.svc.CreateOrUpdate(config)
 	s.NoError(err)
 
-	run := &models.VenueExtractionRun{
+	run := &adminm.VenueExtractionRun{
 		VenueID:    s.venueID,
 		DurationMs: 100,
 	}
@@ -425,7 +426,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestCascadeDelete_VenueDeleteCle
 func (s *VenueSourceConfigIntegrationTestSuite) TestEndToEnd_ExtractionWorkflow() {
 	// 1. Create config
 	url := "https://testvenue.com/calendar"
-	config := &models.VenueSourceConfig{
+	config := &adminm.VenueSourceConfig{
 		VenueID:     s.venueID,
 		CalendarURL: &url,
 	}
@@ -442,7 +443,7 @@ func (s *VenueSourceConfigIntegrationTestSuite) TestEndToEnd_ExtractionWorkflow(
 	method := "static"
 	source := "ai"
 	status := 200
-	run := &models.VenueExtractionRun{
+	run := &adminm.VenueExtractionRun{
 		VenueID:         s.venueID,
 		RenderMethod:    &method,
 		PreferredSource: &source,

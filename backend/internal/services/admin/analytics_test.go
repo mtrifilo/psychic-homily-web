@@ -10,7 +10,11 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -90,8 +94,8 @@ func TestAnalyticsServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createUser(email, username string) *models.User {
-	user := &models.User{
+func (suite *AnalyticsServiceIntegrationTestSuite) createUser(email, username string) *authm.User {
+	user := &authm.User{
 		Email:    &email,
 		Username: &username,
 	}
@@ -100,15 +104,15 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createUser(email, username st
 	return user
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createArtist(name string) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (suite *AnalyticsServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createVenue(name, city, state string, verified bool) *models.Venue {
-	venue := &models.Venue{
+func (suite *AnalyticsServiceIntegrationTestSuite) createVenue(name, city, state string, verified bool) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -122,53 +126,53 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createVenue(name, city, state
 	return venue
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createShow(title string, status models.ShowStatus) *models.Show {
-	show := &models.Show{
+func (suite *AnalyticsServiceIntegrationTestSuite) createShow(title string, status catalogm.ShowStatus) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:     title,
 		EventDate: time.Now().Add(7 * 24 * time.Hour),
 		Status:    status,
-		Source:    models.ShowSourceUser,
+		Source:    catalogm.ShowSourceUser,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 	return show
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createShowWithDate(title string, status models.ShowStatus, date time.Time) *models.Show {
-	show := &models.Show{
+func (suite *AnalyticsServiceIntegrationTestSuite) createShowWithDate(title string, status catalogm.ShowStatus, date time.Time) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:     title,
 		EventDate: date,
 		Status:    status,
-		Source:    models.ShowSourceUser,
+		Source:    catalogm.ShowSourceUser,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 	return show
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createRelease(title string) *models.Release {
-	release := &models.Release{Title: title, ReleaseType: models.ReleaseTypeLP}
+func (suite *AnalyticsServiceIntegrationTestSuite) createRelease(title string) *catalogm.Release {
+	release := &catalogm.Release{Title: title, ReleaseType: catalogm.ReleaseTypeLP}
 	err := suite.db.Create(release).Error
 	suite.Require().NoError(err)
 	return release
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createLabel(name string) *models.Label {
-	label := &models.Label{Name: name}
+func (suite *AnalyticsServiceIntegrationTestSuite) createLabel(name string) *catalogm.Label {
+	label := &catalogm.Label{Name: name}
 	err := suite.db.Create(label).Error
 	suite.Require().NoError(err)
 	return label
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createTag(name, category string) *models.Tag {
-	tag := &models.Tag{Name: name, Category: category}
+func (suite *AnalyticsServiceIntegrationTestSuite) createTag(name, category string) *catalogm.Tag {
+	tag := &catalogm.Tag{Name: name, Category: category}
 	err := suite.db.Create(tag).Error
 	suite.Require().NoError(err)
 	return tag
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) createEntityTag(tagID, entityID, userID uint, entityType string) {
-	et := &models.EntityTag{
+	et := &catalogm.EntityTag{
 		TagID:         tagID,
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -179,7 +183,7 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createEntityTag(tagID, entity
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) createTagVote(tagID, entityID, userID uint, entityType string, vote int) {
-	tv := &models.TagVote{
+	tv := &catalogm.TagVote{
 		TagID:      tagID,
 		EntityType: entityType,
 		EntityID:   entityID,
@@ -190,8 +194,8 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createTagVote(tagID, entityID
 	suite.Require().NoError(err)
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createBookmark(userID uint, entityType models.BookmarkEntityType, entityID uint, action models.BookmarkAction) {
-	bm := &models.UserBookmark{
+func (suite *AnalyticsServiceIntegrationTestSuite) createBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) {
+	bm := &engagementm.UserBookmark{
 		UserID:     userID,
 		EntityType: entityType,
 		EntityID:   entityID,
@@ -201,8 +205,8 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createBookmark(userID uint, e
 	suite.Require().NoError(err)
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createCollection(userID uint, title, slug string) *models.Collection {
-	c := &models.Collection{
+func (suite *AnalyticsServiceIntegrationTestSuite) createCollection(userID uint, title, slug string) *communitym.Collection {
+	c := &communitym.Collection{
 		Title:     title,
 		Slug:      slug,
 		CreatorID: userID,
@@ -214,7 +218,7 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createCollection(userID uint,
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) createCollectionItem(collectionID, userID uint, entityType string, entityID uint) {
-	ci := &models.CollectionItem{
+	ci := &communitym.CollectionItem{
 		CollectionID:  collectionID,
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -224,8 +228,8 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createCollectionItem(collecti
 	suite.Require().NoError(err)
 }
 
-func (suite *AnalyticsServiceIntegrationTestSuite) createRequest(userID uint, title string) *models.Request {
-	r := &models.Request{
+func (suite *AnalyticsServiceIntegrationTestSuite) createRequest(userID uint, title string) *communitym.Request {
+	r := &communitym.Request{
 		RequesterID: userID,
 		Title:       title,
 		EntityType:  "artist",
@@ -237,7 +241,7 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createRequest(userID uint, ti
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) createRequestVote(requestID, userID uint, vote int) {
-	rv := &models.RequestVote{
+	rv := &communitym.RequestVote{
 		RequestID: requestID,
 		UserID:    userID,
 		Vote:      vote,
@@ -249,7 +253,7 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createRequestVote(requestID, 
 func (suite *AnalyticsServiceIntegrationTestSuite) createRevision(userID uint, entityType string, entityID uint) {
 	summary := "test revision"
 	changes := json.RawMessage(`[]`)
-	r := &models.Revision{
+	r := &adminm.Revision{
 		EntityType:   entityType,
 		EntityID:     entityID,
 		UserID:       userID,
@@ -261,13 +265,13 @@ func (suite *AnalyticsServiceIntegrationTestSuite) createRevision(userID uint, e
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) linkShowVenue(showID, venueID uint) {
-	sv := &models.ShowVenue{ShowID: showID, VenueID: venueID}
+	sv := &catalogm.ShowVenue{ShowID: showID, VenueID: venueID}
 	err := suite.db.Create(sv).Error
 	suite.Require().NoError(err)
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) linkArtistRelease(artistID, releaseID uint) {
-	ar := &models.ArtistRelease{ArtistID: artistID, ReleaseID: releaseID, Role: models.ArtistReleaseRoleMain}
+	ar := &catalogm.ArtistRelease{ArtistID: artistID, ReleaseID: releaseID, Role: catalogm.ArtistReleaseRoleMain}
 	err := suite.db.Create(ar).Error
 	suite.Require().NoError(err)
 }
@@ -293,8 +297,8 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetGrowthMetrics_Empty() 
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) TestGetGrowthMetrics_WithData() {
-	suite.createShow("Show 1", models.ShowStatusApproved)
-	suite.createShow("Show 2", models.ShowStatusPending)
+	suite.createShow("Show 1", catalogm.ShowStatusApproved)
+	suite.createShow("Show 2", catalogm.ShowStatusPending)
 	suite.createArtist("Artist 1")
 	suite.createVenue("Venue 1", "Phoenix", "AZ", true)
 	suite.createRelease("Release 1")
@@ -318,7 +322,7 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetGrowthMetrics_FillsMis
 	// Pin created_at to mid-month to avoid timezone boundary issues.
 	now := time.Now().UTC()
 	midMonth := time.Date(now.Year(), now.Month(), 15, 12, 0, 0, 0, time.UTC)
-	show := suite.createShow("Show 1", models.ShowStatusApproved)
+	show := suite.createShow("Show 1", catalogm.ShowStatusApproved)
 	suite.db.Model(show).Update("created_at", midMonth)
 
 	resp, err := suite.service.GetGrowthMetrics(3)
@@ -369,19 +373,19 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetEngagementMetrics_With
 	user := suite.createUser("engagement@test.com", "enguser")
 	artist := suite.createArtist("Artist 1")
 	tag := suite.createTag("rock", "genre")
-	show := suite.createShow("Show 1", models.ShowStatusApproved)
+	show := suite.createShow("Show 1", catalogm.ShowStatusApproved)
 	col := suite.createCollection(user.ID, "My Collection", "my-collection")
 
 	// Create various engagement actions
-	suite.createBookmark(user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave)
 	suite.createEntityTag(tag.ID, artist.ID, user.ID, "artist")
 	suite.createTagVote(tag.ID, artist.ID, user.ID, "artist", 1)
 	suite.createCollectionItem(col.ID, user.ID, "artist", artist.ID)
 	req := suite.createRequest(user.ID, "Add this band")
 	suite.createRequestVote(req.ID, user.ID, 1)
 	suite.createRevision(user.ID, "artist", artist.ID)
-	suite.createBookmark(user.ID, models.BookmarkEntityArtist, artist.ID, models.BookmarkActionFollow)
-	suite.createBookmark(user.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionGoing)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow)
+	suite.createBookmark(user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
 
 	resp, err := suite.service.GetEngagementMetrics(1)
 	suite.Require().NoError(err)
@@ -453,7 +457,7 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetCommunityHealth_TopCon
 	// User 1: 3 contributions (2 tags + 1 revision)
 	suite.createEntityTag(tag.ID, artist.ID, user1.ID, "artist")
 	suite.createRevision(user1.ID, "artist", artist.ID)
-	suite.createBookmark(user1.ID, models.BookmarkEntityArtist, artist.ID, models.BookmarkActionFollow)
+	suite.createBookmark(user1.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow)
 
 	// User 2: 1 contribution
 	suite.createTagVote(tag.ID, artist.ID, user2.ID, "artist", 1)
@@ -492,11 +496,11 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetDataQualityTrends_Empt
 }
 
 func (suite *AnalyticsServiceIntegrationTestSuite) TestGetDataQualityTrends_ShowCounts() {
-	suite.createShow("Approved 1", models.ShowStatusApproved)
-	suite.createShow("Approved 2", models.ShowStatusApproved)
-	suite.createShow("Rejected 1", models.ShowStatusRejected)
-	suite.createShow("Pending 1", models.ShowStatusPending)
-	suite.createShow("Pending 2", models.ShowStatusPending)
+	suite.createShow("Approved 1", catalogm.ShowStatusApproved)
+	suite.createShow("Approved 2", catalogm.ShowStatusApproved)
+	suite.createShow("Rejected 1", catalogm.ShowStatusRejected)
+	suite.createShow("Pending 1", catalogm.ShowStatusPending)
+	suite.createShow("Pending 2", catalogm.ShowStatusPending)
 
 	resp, err := suite.service.GetDataQualityTrends(1)
 	suite.Require().NoError(err)
@@ -525,7 +529,7 @@ func (suite *AnalyticsServiceIntegrationTestSuite) TestGetDataQualityTrends_Inac
 
 	// Verified venue with recent show (should NOT be counted)
 	activeVenue := suite.createVenue("Active Venue", "Phoenix", "AZ", true)
-	show := suite.createShowWithDate("Recent Show", models.ShowStatusApproved, time.Now().Add(-30*24*time.Hour))
+	show := suite.createShowWithDate("Recent Show", catalogm.ShowStatusApproved, time.Now().Add(-30*24*time.Hour))
 	suite.linkShowVenue(show.ID, activeVenue.ID)
 
 	// Unverified venue with no shows (should NOT be counted — only verified)

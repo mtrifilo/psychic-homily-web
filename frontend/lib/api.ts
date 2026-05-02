@@ -265,6 +265,11 @@ export const API_ENDPOINTS = {
     // PSY-352: like/unlike toggle. POST creates, DELETE removes; both
     // idempotent and return the post-mutation aggregate.
     LIKE: (slug: string) => `${API_BASE_URL}/collections/${slug}/like`,
+    // PSY-354: collection-level tag management. Same body shape as the
+    // entity-tag endpoints (tag_id OR tag_name + optional category).
+    TAGS: (slug: string) => `${API_BASE_URL}/collections/${slug}/tags`,
+    TAG: (slug: string, tagId: number) =>
+      `${API_BASE_URL}/collections/${slug}/tags/${tagId}`,
     // PSY-366: artist-relationship subgraph for the collection's artist items.
     GRAPH: (slug: string) => `${API_BASE_URL}/collections/${slug}/graph`,
     MY: `${API_BASE_URL}/auth/collections`,

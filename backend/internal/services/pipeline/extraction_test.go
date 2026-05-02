@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -696,7 +696,7 @@ func (s *testArtistSearcher) SearchArtists(query string) ([]*contracts.ArtistDet
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	var artists []models.Artist
+	var artists []catalogm.Artist
 	err := s.db.Where("LOWER(name) LIKE LOWER(?)", "%"+query+"%").Limit(10).Find(&artists).Error
 	if err != nil {
 		return nil, err
@@ -725,7 +725,7 @@ func (s *testVenueSearcher) SearchVenues(query string) ([]*contracts.VenueDetail
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	var venues []models.Venue
+	var venues []catalogm.Venue
 	err := s.db.Where("LOWER(name) LIKE LOWER(?)", "%"+query+"%").Limit(10).Find(&venues).Error
 	if err != nil {
 		return nil, err
@@ -907,17 +907,17 @@ func (s *ExtractionIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 }
 
-func (s *ExtractionIntegrationTestSuite) createArtist(name string) models.Artist {
+func (s *ExtractionIntegrationTestSuite) createArtist(name string) catalogm.Artist {
 	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-	artist := models.Artist{Name: name, Slug: &slug}
+	artist := catalogm.Artist{Name: name, Slug: &slug}
 	err := s.db.Create(&artist).Error
 	s.Require().NoError(err)
 	return artist
 }
 
-func (s *ExtractionIntegrationTestSuite) createVenue(name, city, state string) models.Venue {
+func (s *ExtractionIntegrationTestSuite) createVenue(name, city, state string) catalogm.Venue {
 	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-	venue := models.Venue{Name: name, City: city, State: state, Slug: &slug}
+	venue := catalogm.Venue{Name: name, City: city, State: state, Slug: &slug}
 	err := s.db.Create(&venue).Error
 	s.Require().NoError(err)
 	return venue

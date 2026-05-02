@@ -8,7 +8,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	communitym "psychic-homily-backend/internal/models/community"
 )
 
 // RequestService handles community request business logic.
@@ -26,16 +26,16 @@ func NewRequestService(database *gorm.DB) *RequestService {
 
 // validEntityTypes lists the allowed entity types for requests.
 var validRequestEntityTypes = map[string]bool{
-	models.RequestEntityArtist:   true,
-	models.RequestEntityRelease:  true,
-	models.RequestEntityLabel:    true,
-	models.RequestEntityShow:     true,
-	models.RequestEntityVenue:    true,
-	models.RequestEntityFestival: true,
+	communitym.RequestEntityArtist:   true,
+	communitym.RequestEntityRelease:  true,
+	communitym.RequestEntityLabel:    true,
+	communitym.RequestEntityShow:     true,
+	communitym.RequestEntityVenue:    true,
+	communitym.RequestEntityFestival: true,
 }
 
 // CreateRequest creates a new community request.
-func (s *RequestService) CreateRequest(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error) {
+func (s *RequestService) CreateRequest(userID uint, title, description, entityType string, requestedEntityID *uint) (*communitym.Request, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -49,12 +49,12 @@ func (s *RequestService) CreateRequest(userID uint, title, description, entityTy
 		desc = &description
 	}
 
-	request := &models.Request{
+	request := &communitym.Request{
 		Title:             title,
 		Description:       desc,
 		EntityType:        entityType,
 		RequestedEntityID: requestedEntityID,
-		Status:            models.RequestStatusPending,
+		Status:            communitym.RequestStatusPending,
 		RequesterID:       userID,
 	}
 
@@ -66,12 +66,12 @@ func (s *RequestService) CreateRequest(userID uint, title, description, entityTy
 }
 
 // GetRequest retrieves a request by ID with the requester preloaded.
-func (s *RequestService) GetRequest(requestID uint) (*models.Request, error) {
+func (s *RequestService) GetRequest(requestID uint) (*communitym.Request, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var request models.Request
+	var request communitym.Request
 	err := s.db.Preload("Requester").Preload("Fulfiller").First(&request, requestID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -84,12 +84,12 @@ func (s *RequestService) GetRequest(requestID uint) (*models.Request, error) {
 }
 
 // ListRequests retrieves requests with optional filtering and sorting.
-func (s *RequestService) ListRequests(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error) {
+func (s *RequestService) ListRequests(status string, entityType string, sortBy string, limit, offset int) ([]communitym.Request, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Model(&models.Request{})
+	query := s.db.Model(&communitym.Request{})
 
 	if status != "" {
 		query = query.Where("status = ?", status)
@@ -125,7 +125,7 @@ func (s *RequestService) ListRequests(status string, entityType string, sortBy s
 	}
 	query = query.Preload("Requester").Limit(limit).Offset(offset)
 
-	var requests []models.Request
+	var requests []communitym.Request
 	if err := query.Find(&requests).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to list requests: %w", err)
 	}
@@ -134,12 +134,12 @@ func (s *RequestService) ListRequests(status string, entityType string, sortBy s
 }
 
 // UpdateRequest updates a request. Only the requester can update.
-func (s *RequestService) UpdateRequest(requestID, userID uint, title, description *string) (*models.Request, error) {
+func (s *RequestService) UpdateRequest(requestID, userID uint, title, description *string) (*communitym.Request, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var request models.Request
+	var request communitym.Request
 	err := s.db.First(&request, requestID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -177,7 +177,7 @@ func (s *RequestService) DeleteRequest(requestID, userID uint, isAdmin bool) err
 		return fmt.Errorf("database not initialized")
 	}
 
-	var request models.Request
+	var request communitym.Request
 	err := s.db.First(&request, requestID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -192,7 +192,7 @@ func (s *RequestService) DeleteRequest(requestID, userID uint, isAdmin bool) err
 	}
 
 	// Delete votes first (FK cascade should handle this, but be explicit)
-	if err := s.db.Where("request_id = ?", requestID).Delete(&models.RequestVote{}).Error; err != nil {
+	if err := s.db.Where("request_id = ?", requestID).Delete(&communitym.RequestVote{}).Error; err != nil {
 		return fmt.Errorf("failed to delete request votes: %w", err)
 	}
 
@@ -210,7 +210,7 @@ func (s *RequestService) Vote(requestID, userID uint, isUpvote bool) error {
 	}
 
 	// Verify request exists
-	var request models.Request
+	var request communitym.Request
 	if err := s.db.First(&request, requestID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.ErrRequestNotFound(requestID)
@@ -225,12 +225,12 @@ func (s *RequestService) Vote(requestID, userID uint, isUpvote bool) error {
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Upsert the vote
-		var existingVote models.RequestVote
+		var existingVote communitym.RequestVote
 		err := tx.Where("request_id = ? AND user_id = ?", requestID, userID).First(&existingVote).Error
 
 		if err == gorm.ErrRecordNotFound {
 			// New vote
-			vote := models.RequestVote{
+			vote := communitym.RequestVote{
 				RequestID: requestID,
 				UserID:    userID,
 				Vote:      voteValue,
@@ -259,7 +259,7 @@ func (s *RequestService) RemoveVote(requestID, userID uint) error {
 	}
 
 	// Verify request exists
-	var request models.Request
+	var request communitym.Request
 	if err := s.db.First(&request, requestID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.ErrRequestNotFound(requestID)
@@ -268,7 +268,7 @@ func (s *RequestService) RemoveVote(requestID, userID uint) error {
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		result := tx.Where("request_id = ? AND user_id = ?", requestID, userID).Delete(&models.RequestVote{})
+		result := tx.Where("request_id = ? AND user_id = ?", requestID, userID).Delete(&communitym.RequestVote{})
 		if result.Error != nil {
 			return fmt.Errorf("failed to remove vote: %w", result.Error)
 		}
@@ -284,7 +284,7 @@ func (s *RequestService) FulfillRequest(requestID, fulfillerID uint, fulfilledEn
 		return fmt.Errorf("database not initialized")
 	}
 
-	var request models.Request
+	var request communitym.Request
 	err := s.db.First(&request, requestID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -294,13 +294,13 @@ func (s *RequestService) FulfillRequest(requestID, fulfillerID uint, fulfilledEn
 	}
 
 	// Only pending or in_progress requests can be fulfilled
-	if request.Status != models.RequestStatusPending && request.Status != models.RequestStatusInProgress {
+	if request.Status != communitym.RequestStatusPending && request.Status != communitym.RequestStatusInProgress {
 		return apperrors.ErrRequestAlreadyFulfilled(requestID)
 	}
 
 	now := time.Now()
 	updates := map[string]interface{}{
-		"status":       models.RequestStatusFulfilled,
+		"status":       communitym.RequestStatusFulfilled,
 		"fulfiller_id": fulfillerID,
 		"fulfilled_at": now,
 	}
@@ -321,7 +321,7 @@ func (s *RequestService) CloseRequest(requestID, userID uint, isAdmin bool) erro
 		return fmt.Errorf("database not initialized")
 	}
 
-	var request models.Request
+	var request communitym.Request
 	err := s.db.First(&request, requestID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -336,9 +336,9 @@ func (s *RequestService) CloseRequest(requestID, userID uint, isAdmin bool) erro
 	}
 
 	// Determine the new status
-	newStatus := models.RequestStatusCancelled
+	newStatus := communitym.RequestStatusCancelled
 	if isAdmin && request.RequesterID != userID {
-		newStatus = models.RequestStatusRejected
+		newStatus = communitym.RequestStatusRejected
 	}
 
 	if err := s.db.Model(&request).Update("status", newStatus).Error; err != nil {
@@ -349,12 +349,12 @@ func (s *RequestService) CloseRequest(requestID, userID uint, isAdmin bool) erro
 }
 
 // GetUserVote returns the user's vote on a request, or nil if not voted.
-func (s *RequestService) GetUserVote(requestID, userID uint) (*models.RequestVote, error) {
+func (s *RequestService) GetUserVote(requestID, userID uint) (*communitym.RequestVote, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var vote models.RequestVote
+	var vote communitym.RequestVote
 	err := s.db.Where("request_id = ? AND user_id = ?", requestID, userID).First(&vote).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -370,17 +370,17 @@ func (s *RequestService) GetUserVote(requestID, userID uint) (*models.RequestVot
 func (s *RequestService) recalculateVoteCounts(tx *gorm.DB, requestID uint) error {
 	var upvotes, downvotes int64
 
-	tx.Model(&models.RequestVote{}).
+	tx.Model(&communitym.RequestVote{}).
 		Where("request_id = ? AND vote = 1", requestID).
 		Count(&upvotes)
 
-	tx.Model(&models.RequestVote{}).
+	tx.Model(&communitym.RequestVote{}).
 		Where("request_id = ? AND vote = -1", requestID).
 		Count(&downvotes)
 
 	voteScore := int(upvotes - downvotes)
 
-	return tx.Model(&models.Request{}).
+	return tx.Model(&communitym.Request{}).
 		Where("id = ?", requestID).
 		Updates(map[string]interface{}{
 			"upvotes":    int(upvotes),

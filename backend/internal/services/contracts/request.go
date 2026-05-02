@@ -1,9 +1,8 @@
 package contracts
 
 import (
+	communitym "psychic-homily-backend/internal/models/community"
 	"time"
-
-	"psychic-homily-backend/internal/models"
 )
 
 // ──────────────────────────────────────────────
@@ -34,14 +33,14 @@ type RequestResponse struct {
 
 // RequestServiceInterface defines the contract for community request operations.
 type RequestServiceInterface interface {
-	CreateRequest(userID uint, title, description, entityType string, requestedEntityID *uint) (*models.Request, error)
-	GetRequest(requestID uint) (*models.Request, error)
-	ListRequests(status string, entityType string, sortBy string, limit, offset int) ([]models.Request, int64, error)
-	UpdateRequest(requestID, userID uint, title, description *string) (*models.Request, error)
+	CreateRequest(userID uint, title, description, entityType string, requestedEntityID *uint) (*communitym.Request, error)
+	GetRequest(requestID uint) (*communitym.Request, error)
+	ListRequests(status string, entityType string, sortBy string, limit, offset int) ([]communitym.Request, int64, error)
+	UpdateRequest(requestID, userID uint, title, description *string) (*communitym.Request, error)
 	DeleteRequest(requestID, userID uint, isAdmin bool) error
 	Vote(requestID, userID uint, isUpvote bool) error
 	RemoveVote(requestID, userID uint) error
 	FulfillRequest(requestID, fulfillerID uint, fulfilledEntityID *uint) error
 	CloseRequest(requestID, userID uint, isAdmin bool) error
-	GetUserVote(requestID, userID uint) (*models.RequestVote, error)
+	GetUserVote(requestID, userID uint) (*communitym.RequestVote, error)
 }

@@ -13,7 +13,9 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -165,15 +167,15 @@ func TestHashEmail(t *testing.T) {
 func TestBuildUserName(t *testing.T) {
 	tests := []struct {
 		name string
-		user *models.User
+		user *authm.User
 		want string
 	}{
-		{"full name", &models.User{FirstName: stringPtr("John"), LastName: stringPtr("Doe")}, "John Doe"},
-		{"first only", &models.User{FirstName: stringPtr("Jane")}, "Jane"},
-		{"last only", &models.User{LastName: stringPtr("Smith")}, "Smith"},
-		{"neither", &models.User{}, "Not provided"},
+		{"full name", &authm.User{FirstName: stringPtr("John"), LastName: stringPtr("Doe")}, "John Doe"},
+		{"first only", &authm.User{FirstName: stringPtr("Jane")}, "Jane"},
+		{"last only", &authm.User{LastName: stringPtr("Smith")}, "Smith"},
+		{"neither", &authm.User{}, "Not provided"},
 		{"nil user", nil, "N/A"},
-		{"empty strings", &models.User{FirstName: stringPtr(""), LastName: stringPtr("")}, "Not provided"},
+		{"empty strings", &authm.User{FirstName: stringPtr(""), LastName: stringPtr("")}, "Not provided"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -306,7 +308,7 @@ func TestSendWebhook_PayloadStructure(t *testing.T) {
 func TestNotifyNewUser_Success(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
 	email := "user@example.com"
-	user := &models.User{
+	user := &authm.User{
 		ID:        42,
 		Email:     &email,
 		FirstName: stringPtr("Jane"),
@@ -333,7 +335,7 @@ func TestNotifyNewUser_NotConfigured(t *testing.T) {
 	payloads := make(chan []byte, 1)
 
 	email := "test@test.com"
-	svc.NotifyNewUser(&models.User{Email: &email})
+	svc.NotifyNewUser(&authm.User{Email: &email})
 	assertNoPayload(t, payloads)
 }
 
@@ -347,7 +349,7 @@ func TestNotifyNewUser_NilUser(t *testing.T) {
 func TestNotifyNewUser_NoName(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
 	email := "anon@example.com"
-	user := &models.User{ID: 1, Email: &email}
+	user := &authm.User{ID: 1, Email: &email}
 
 	svc.NotifyNewUser(user)
 
@@ -512,10 +514,10 @@ func TestNotifyShowStatusChange_NonPendingNoActions(t *testing.T) {
 func TestNotifyShowReport_Success(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
 	details := "Wrong date listed"
-	report := &models.ShowReport{
-		ReportType: models.ShowReportTypeInaccurate,
+	report := &communitym.ShowReport{
+		ReportType: communitym.ShowReportTypeInaccurate,
 		Details:    &details,
-		Show: models.Show{
+		Show: catalogm.Show{
 			Title:     "Reported Show",
 			EventDate: time.Date(2026, 10, 1, 20, 0, 0, 0, time.UTC),
 		},
@@ -546,7 +548,7 @@ func TestNotifyShowReport_NotConfigured(t *testing.T) {
 	svc := &DiscordService{enabled: false}
 	payloads := make(chan []byte, 1)
 
-	svc.NotifyShowReport(&models.ShowReport{}, "x@y.com")
+	svc.NotifyShowReport(&communitym.ShowReport{}, "x@y.com")
 	assertNoPayload(t, payloads)
 }
 
@@ -563,10 +565,10 @@ func TestNotifyShowReport_LongDetails(t *testing.T) {
 	for i := 0; i < 250; i++ {
 		longDetails += "x"
 	}
-	report := &models.ShowReport{
-		ReportType: models.ShowReportTypeCancelled,
+	report := &communitym.ShowReport{
+		ReportType: communitym.ShowReportTypeCancelled,
 		Details:    &longDetails,
-		Show:       models.Show{Title: "Test"},
+		Show:       catalogm.Show{Title: "Test"},
 	}
 	report.Show.ID = 1
 
@@ -650,10 +652,10 @@ func TestNotifyArtistReport_Success(t *testing.T) {
 	// Override to sync (not goroutine) for test determinism
 	// Since NotifyArtistReport uses `go s.sendWebhook`, we use a channel-based approach
 	details := "Wrong genre listed"
-	report := &models.ArtistReport{
-		ReportType: models.ArtistReportTypeInaccurate,
+	report := &communitym.ArtistReport{
+		ReportType: communitym.ArtistReportTypeInaccurate,
 		Details:    &details,
-		Artist: models.Artist{
+		Artist: catalogm.Artist{
 			Name: "Test Band",
 		},
 	}
@@ -682,9 +684,9 @@ func TestNotifyArtistReport_Success(t *testing.T) {
 
 func TestNotifyArtistReport_RemovalRequest(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
-	report := &models.ArtistReport{
-		ReportType: models.ArtistReportTypeRemovalRequest,
-		Artist:     models.Artist{Name: "Remove Me"},
+	report := &communitym.ArtistReport{
+		ReportType: communitym.ArtistReportTypeRemovalRequest,
+		Artist:     catalogm.Artist{Name: "Remove Me"},
 	}
 	report.Artist.ID = 1
 
@@ -705,7 +707,7 @@ func TestNotifyArtistReport_NotConfigured(t *testing.T) {
 	svc := &DiscordService{enabled: false}
 	payloads := make(chan []byte, 1)
 
-	svc.NotifyArtistReport(&models.ArtistReport{}, "x@y.com")
+	svc.NotifyArtistReport(&communitym.ArtistReport{}, "x@y.com")
 	assertNoPayload(t, payloads)
 }
 
@@ -719,10 +721,10 @@ func TestNotifyArtistReport_NilReport(t *testing.T) {
 func TestNotifyArtistReport_LongDetails(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
 	longDetails := strings.Repeat("x", 250)
-	report := &models.ArtistReport{
-		ReportType: models.ArtistReportTypeInaccurate,
+	report := &communitym.ArtistReport{
+		ReportType: communitym.ArtistReportTypeInaccurate,
 		Details:    &longDetails,
-		Artist:     models.Artist{Name: "Test"},
+		Artist:     catalogm.Artist{Name: "Test"},
 	}
 	report.Artist.ID = 1
 
@@ -740,9 +742,9 @@ func TestNotifyArtistReport_LongDetails(t *testing.T) {
 
 func TestNotifyArtistReport_UnknownArtist(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
-	report := &models.ArtistReport{
-		ReportType: models.ArtistReportTypeInaccurate,
-		Artist:     models.Artist{}, // ID=0
+	report := &communitym.ArtistReport{
+		ReportType: communitym.ArtistReportTypeInaccurate,
+		Artist:     catalogm.Artist{}, // ID=0
 	}
 
 	svc.NotifyArtistReport(report, "r@t.com")

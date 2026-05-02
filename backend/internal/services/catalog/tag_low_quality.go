@@ -7,7 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -80,7 +80,7 @@ func (s *TagService) GetLowQualityTagQueue(limit, offset int) (*contracts.LowQua
 	// Build the candidate set. A single composite WHERE keeps pagination honest
 	// (count and page reflect the same filter) and avoids fetching all tags and
 	// filtering in Go.
-	candidateQuery := s.db.Model(&models.Tag{}).
+	candidateQuery := s.db.Model(&catalogm.Tag{}).
 		Where("is_official = ?", false).
 		Where("(reviewed_at IS NULL OR reviewed_at <= ?)", snoozeCutoff).
 		Where(s.db.
@@ -96,7 +96,7 @@ func (s *TagService) GetLowQualityTagQueue(limit, offset int) (*contracts.LowQua
 		return nil, fmt.Errorf("failed to count low-quality tags: %w", err)
 	}
 
-	var tags []models.Tag
+	var tags []catalogm.Tag
 	if err := candidateQuery.Order("created_at DESC").Limit(limit).Offset(offset).Find(&tags).Error; err != nil {
 		return nil, fmt.Errorf("failed to list low-quality tags: %w", err)
 	}
@@ -192,7 +192,7 @@ func (s *TagService) BulkActionLowQualityTags(action string, tagIDs []uint) (*co
 	// NotFound accurately even when the underlying op (Update / Delete) is
 	// idempotent for missing rows.
 	var existingIDs []uint
-	if err := s.db.Model(&models.Tag{}).
+	if err := s.db.Model(&catalogm.Tag{}).
 		Where("id IN ?", unique).
 		Pluck("id", &existingIDs).Error; err != nil {
 		return nil, fmt.Errorf("failed to resolve tag IDs: %w", err)
@@ -205,19 +205,19 @@ func (s *TagService) BulkActionLowQualityTags(action string, tagIDs []uint) (*co
 	switch action {
 	case BulkActionSnooze:
 		now := time.Now().UTC()
-		res := s.db.Model(&models.Tag{}).Where("id IN ?", existingIDs).Update("reviewed_at", now)
+		res := s.db.Model(&catalogm.Tag{}).Where("id IN ?", existingIDs).Update("reviewed_at", now)
 		if res.Error != nil {
 			return nil, fmt.Errorf("failed to bulk snooze tags: %w", res.Error)
 		}
 		result.Affected = res.RowsAffected
 	case BulkActionDelete:
-		res := s.db.Where("id IN ?", existingIDs).Delete(&models.Tag{})
+		res := s.db.Where("id IN ?", existingIDs).Delete(&catalogm.Tag{})
 		if res.Error != nil {
 			return nil, fmt.Errorf("failed to bulk delete tags: %w", res.Error)
 		}
 		result.Affected = res.RowsAffected
 	case BulkActionMarkOfficial:
-		res := s.db.Model(&models.Tag{}).Where("id IN ?", existingIDs).Update("is_official", true)
+		res := s.db.Model(&catalogm.Tag{}).Where("id IN ?", existingIDs).Update("is_official", true)
 		if res.Error != nil {
 			return nil, fmt.Errorf("failed to bulk mark tags official: %w", res.Error)
 		}
@@ -240,7 +240,7 @@ func (s *TagService) SnoozeLowQualityTag(tagID uint, actorUserID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var tag models.Tag
+	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.ErrTagNotFound(tagID)
@@ -275,7 +275,7 @@ type tagVoteAggregate struct {
 
 // aggregateTagVotes fetches per-tag upvote/downvote counts across all
 // applications of the tag. Empty input → empty map.
-func (s *TagService) aggregateTagVotes(tags []models.Tag) (map[uint]tagVoteAggregate, error) {
+func (s *TagService) aggregateTagVotes(tags []catalogm.Tag) (map[uint]tagVoteAggregate, error) {
 	out := make(map[uint]tagVoteAggregate, len(tags))
 	if len(tags) == 0 {
 		return out, nil
@@ -311,7 +311,7 @@ func (s *TagService) aggregateTagVotes(tags []models.Tag) (map[uint]tagVoteAggre
 // the tag triggers. A tag always has at least one reason (otherwise the SQL
 // filter wouldn't have returned it), but we re-evaluate rather than trust the
 // filter so the UI reflects the actual data the admin is looking at.
-func lowQualityReasons(t models.Tag, agingCutoff time.Time, agg tagVoteAggregate) []string {
+func lowQualityReasons(t catalogm.Tag, agingCutoff time.Time, agg tagVoteAggregate) []string {
 	reasons := make([]string, 0, 4)
 
 	if t.UsageCount == 0 {

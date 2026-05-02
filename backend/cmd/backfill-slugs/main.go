@@ -6,10 +6,10 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/utils"
 
 	"github.com/joho/godotenv"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 func main() {
@@ -35,7 +35,7 @@ func main() {
 
 	// Backfill artist slugs
 	fmt.Println("\n=== Backfilling Artist Slugs ===")
-	var artists []models.Artist
+	var artists []catalogm.Artist
 	database.Where("slug IS NULL OR slug = ''").Find(&artists)
 	fmt.Printf("Found %d artists without slugs\n", len(artists))
 
@@ -43,7 +43,7 @@ func main() {
 		baseSlug := utils.GenerateArtistSlug(artist.Name)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			database.Model(&models.Artist{}).Where("slug = ? AND id != ?", candidate, artist.ID).Count(&count)
+			database.Model(&catalogm.Artist{}).Where("slug = ? AND id != ?", candidate, artist.ID).Count(&count)
 			return count > 0
 		})
 		if err := database.Model(&artist).Update("slug", slug).Error; err != nil {
@@ -55,7 +55,7 @@ func main() {
 
 	// Backfill venue slugs
 	fmt.Println("\n=== Backfilling Venue Slugs ===")
-	var venues []models.Venue
+	var venues []catalogm.Venue
 	database.Where("slug IS NULL OR slug = ''").Find(&venues)
 	fmt.Printf("Found %d venues without slugs\n", len(venues))
 
@@ -63,7 +63,7 @@ func main() {
 		baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			database.Model(&models.Venue{}).Where("slug = ? AND id != ?", candidate, venue.ID).Count(&count)
+			database.Model(&catalogm.Venue{}).Where("slug = ? AND id != ?", candidate, venue.ID).Count(&count)
 			return count > 0
 		})
 		if err := database.Model(&venue).Update("slug", slug).Error; err != nil {
@@ -75,7 +75,7 @@ func main() {
 
 	// Backfill show slugs
 	fmt.Println("\n=== Backfilling Show Slugs ===")
-	var shows []models.Show
+	var shows []catalogm.Show
 	database.Preload("Artists").Preload("Venues").Where("slug IS NULL OR slug = ''").Find(&shows)
 	fmt.Printf("Found %d shows without slugs\n", len(shows))
 
@@ -84,9 +84,9 @@ func main() {
 		venueName := "unknown"
 
 		// Get headliner from show_artists
-		var showArtist models.ShowArtist
+		var showArtist catalogm.ShowArtist
 		if err := database.Where("show_id = ? AND set_type = ?", show.ID, "headliner").First(&showArtist).Error; err == nil {
-			var artist models.Artist
+			var artist catalogm.Artist
 			if err := database.First(&artist, showArtist.ArtistID).Error; err == nil {
 				headlinerName = artist.Name
 			}
@@ -109,7 +109,7 @@ func main() {
 		baseSlug := utils.GenerateShowSlug(show.EventDate, headlinerName, venueName, showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			database.Model(&models.Show{}).Where("slug = ? AND id != ?", candidate, show.ID).Count(&count)
+			database.Model(&catalogm.Show{}).Where("slug = ? AND id != ?", candidate, show.ID).Count(&count)
 			return count > 0
 		})
 		if err := database.Model(&show).Update("slug", slug).Error; err != nil {
@@ -123,9 +123,9 @@ func main() {
 
 	// Summary
 	var artistCount, venueCount, showCount int64
-	database.Model(&models.Artist{}).Where("slug IS NOT NULL AND slug != ''").Count(&artistCount)
-	database.Model(&models.Venue{}).Where("slug IS NOT NULL AND slug != ''").Count(&venueCount)
-	database.Model(&models.Show{}).Where("slug IS NOT NULL AND slug != ''").Count(&showCount)
+	database.Model(&catalogm.Artist{}).Where("slug IS NOT NULL AND slug != ''").Count(&artistCount)
+	database.Model(&catalogm.Venue{}).Where("slug IS NOT NULL AND slug != ''").Count(&venueCount)
+	database.Model(&catalogm.Show{}).Where("slug IS NOT NULL AND slug != ''").Count(&showCount)
 
 	fmt.Printf("\nFinal counts with slugs:\n")
 	fmt.Printf("  Artists: %d\n", artistCount)

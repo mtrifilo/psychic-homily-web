@@ -14,6 +14,17 @@
 // migrations. See docs/runbooks/migrations.md for the full rule.
 package seeddata
 
+// RadioNetwork is the canonical description of a network (a parent brand
+// grouping sibling stations under a common identity, e.g. WFMU's flagship
+// 91.1 broadcast plus its stream-only sub-channels). Networks are flat —
+// no hierarchy, no parent station, no nesting. RadioStations reference
+// a network by slug via NetworkSlug; the seed inserter resolves the slug
+// to radio_networks.id at insert time.
+type RadioNetwork struct {
+	Slug string
+	Name string
+}
+
 // RadioStation is the canonical description of a radio station to seed.
 // Zero values carry meaning: empty-string optional fields and a zero
 // FrequencyMHz map to SQL NULL (see RenderRadioSeedSQL and the mapping
@@ -23,15 +34,16 @@ type RadioStation struct {
 	Slug           string
 	Description    string
 	City           string
-	State          string  // empty -> NULL (e.g. UK/London has no state)
-	Country        string  // ISO two-letter code
-	Timezone       string  // IANA zone name
+	State          string // empty -> NULL (e.g. UK/London has no state)
+	Country        string // ISO two-letter code
+	Timezone       string // IANA zone name
 	StreamURL      string
 	Website        string
 	DonationURL    string
 	BroadcastType  string  // "fm" | "internet" | "both"
 	FrequencyMHz   float64 // 0 -> NULL (for internet-only stations)
 	PlaylistSource string  // provider tag used by the fetcher pipeline
+	NetworkSlug    string  // empty -> NULL (station has no parent network)
 }
 
 // RadioShow is the canonical description of a flagship show on a radio
@@ -48,8 +60,18 @@ type RadioShow struct {
 	ExternalID      string // provider-specific (KEXP numeric id, WFMU DJ code, NTS slug)
 }
 
+// RadioNetworks is the full seed set of radio networks. Currently the WFMU
+// network groups the 91.1 broadcast plus three stream-only sub-channels
+// (PSY-508). KEXP and NTS don't yet have networks — single-channel brands
+// don't need one. Add a network row only when a station belongs to a brand
+// with multiple sibling stations.
+var RadioNetworks = []RadioNetwork{
+	{Slug: "wfmu", Name: "WFMU"},
+}
+
 // RadioStations is the full seed set, matching what's currently in prod
-// after migrations 000068 / 000076 / 000077.
+// after migrations 000068 / 000076 / 000077 + the WFMU sub-stream
+// migrations from PSY-508.
 var RadioStations = []RadioStation{
 	{
 		Name:           "KEXP",
@@ -80,6 +102,60 @@ var RadioStations = []RadioStation{
 		BroadcastType:  "both",
 		FrequencyMHz:   91.1,
 		PlaylistSource: "wfmu_scrape",
+		NetworkSlug:    "wfmu",
+	},
+	{
+		// PSY-508: WFMU stream-only 24/7 sub-channel curated by Doug
+		// Schulkind. Distinct from his weekly 91.1 show "Give The Drummer
+		// Some". No discrete shows — the stream is the program.
+		Name:           "Give the Drummer Radio",
+		Slug:           "wfmu-drummer",
+		Description:    "WFMU stream-only 24/7 channel curated by Doug Schulkind. Eclectic blends of soul, jazz, gospel, country, and global grooves.",
+		City:           "Jersey City",
+		State:          "NJ",
+		Country:        "US",
+		Timezone:       "America/New_York",
+		StreamURL:      "https://wfmu.org/drummer",
+		Website:        "https://wfmu.org/drummer",
+		DonationURL:    "",
+		BroadcastType:  "internet",
+		FrequencyMHz:   0,
+		PlaylistSource: "wfmu_scrape",
+		NetworkSlug:    "wfmu",
+	},
+	{
+		// PSY-508: WFMU stream-only 24/7 sub-channel.
+		Name:           "Rock'n'Soul Radio",
+		Slug:           "wfmu-rocknsoulradio",
+		Description:    "WFMU stream-only 24/7 channel programming rock and soul.",
+		City:           "Jersey City",
+		State:          "NJ",
+		Country:        "US",
+		Timezone:       "America/New_York",
+		StreamURL:      "https://wfmu.org/rocknsoulradio",
+		Website:        "https://wfmu.org/rocknsoulradio",
+		DonationURL:    "",
+		BroadcastType:  "internet",
+		FrequencyMHz:   0,
+		PlaylistSource: "wfmu_scrape",
+		NetworkSlug:    "wfmu",
+	},
+	{
+		// PSY-508: WFMU stream-only 24/7 sub-channel.
+		Name:           "Sheena's Jungle Room",
+		Slug:           "wfmu-sheena",
+		Description:    "WFMU stream-only 24/7 channel.",
+		City:           "Jersey City",
+		State:          "NJ",
+		Country:        "US",
+		Timezone:       "America/New_York",
+		StreamURL:      "https://wfmu.org/sheena",
+		Website:        "https://wfmu.org/sheena",
+		DonationURL:    "",
+		BroadcastType:  "internet",
+		FrequencyMHz:   0,
+		PlaylistSource: "wfmu_scrape",
+		NetworkSlug:    "wfmu",
 	},
 	{
 		Name:           "NTS Radio",
@@ -218,11 +294,11 @@ var RadioShows = []RadioShow{
 		ExternalID:      "floating-points",
 	},
 	{
-		StationSlug: "nts-radio",
-		Name:        "The Do!! You!!! Breakfast Show w/ Charlie Bones",
-		Slug:        "charlie-bones-nts",
-		HostName:    "Charlie Bones",
-		Description: "An eclectic morning show blending jazz, soul, funk, and left-field selections.",
+		StationSlug:     "nts-radio",
+		Name:            "The Do!! You!!! Breakfast Show w/ Charlie Bones",
+		Slug:            "charlie-bones-nts",
+		HostName:        "Charlie Bones",
+		Description:     "An eclectic morning show blending jazz, soul, funk, and left-field selections.",
 		ScheduleDisplay: "Weekdays 10 AM-1 PM GMT",
 		ArchiveURL:      "https://www.nts.live/shows/the-do-you-breakfast-show",
 		ExternalID:      "the-do-you-breakfast-show",

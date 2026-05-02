@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -55,9 +55,9 @@ func TestDataSyncServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *DataSyncServiceIntegrationTestSuite) createVenue(name, city, state string, verified bool) *models.Venue {
+func (suite *DataSyncServiceIntegrationTestSuite) createVenue(name, city, state string, verified bool) *catalogm.Venue {
 	slug := fmt.Sprintf("%s-%s", strings.ToLower(strings.ReplaceAll(name, " ", "-")), strings.ToLower(city))
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:     name,
 		Slug:     &slug,
 		City:     city,
@@ -69,9 +69,9 @@ func (suite *DataSyncServiceIntegrationTestSuite) createVenue(name, city, state 
 	return venue
 }
 
-func (suite *DataSyncServiceIntegrationTestSuite) createArtist(name string) *models.Artist {
+func (suite *DataSyncServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
 	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -80,12 +80,12 @@ func (suite *DataSyncServiceIntegrationTestSuite) createArtist(name string) *mod
 	return artist
 }
 
-func (suite *DataSyncServiceIntegrationTestSuite) createArtistWithSocial(name string, instagram *string) *models.Artist {
+func (suite *DataSyncServiceIntegrationTestSuite) createArtistWithSocial(name string, instagram *string) *catalogm.Artist {
 	slug := strings.ToLower(strings.ReplaceAll(name, " ", "-"))
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
-		Social: models.Social{
+		Social: catalogm.Social{
 			Instagram: instagram,
 		},
 	}
@@ -94,15 +94,15 @@ func (suite *DataSyncServiceIntegrationTestSuite) createArtistWithSocial(name st
 	return artist
 }
 
-func (suite *DataSyncServiceIntegrationTestSuite) createVenueWithSocial(name, city, state string, instagram *string) *models.Venue {
+func (suite *DataSyncServiceIntegrationTestSuite) createVenueWithSocial(name, city, state string, instagram *string) *catalogm.Venue {
 	slug := fmt.Sprintf("%s-%s", strings.ToLower(strings.ReplaceAll(name, " ", "-")), strings.ToLower(city))
-	venue := &models.Venue{
+	venue := &catalogm.Venue{
 		Name:     name,
 		Slug:     &slug,
 		City:     city,
 		State:    state,
 		Verified: true,
-		Social: models.Social{
+		Social: catalogm.Social{
 			Instagram: instagram,
 		},
 	}
@@ -111,29 +111,29 @@ func (suite *DataSyncServiceIntegrationTestSuite) createVenueWithSocial(name, ci
 	return venue
 }
 
-func (suite *DataSyncServiceIntegrationTestSuite) createShow(title string, eventDate time.Time, status models.ShowStatus, venue *models.Venue, artists ...*models.Artist) *models.Show {
+func (suite *DataSyncServiceIntegrationTestSuite) createShow(title string, eventDate time.Time, status catalogm.ShowStatus, venue *catalogm.Venue, artists ...*catalogm.Artist) *catalogm.Show {
 	slug := strings.ToLower(strings.ReplaceAll(title, " ", "-"))
 	city := "NYC"
 	state := "NY"
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:     title,
 		Slug:      &slug,
 		EventDate: eventDate.UTC(),
 		City:      &city,
 		State:     &state,
 		Status:    status,
-		Source:    models.ShowSourceUser,
+		Source:    catalogm.ShowSourceUser,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 
 	if venue != nil {
-		sv := models.ShowVenue{ShowID: show.ID, VenueID: venue.ID}
+		sv := catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}
 		suite.db.Create(&sv)
 	}
 
 	for i, artist := range artists {
-		sa := models.ShowArtist{
+		sa := catalogm.ShowArtist{
 			ShowID:   show.ID,
 			ArtistID: artist.ID,
 			Position: i,
@@ -164,7 +164,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_DefaultLimit()
 	venue := suite.createVenue("Venue", "NYC", "NY", true)
 	// Create 60 shows
 	for i := 0; i < 60; i++ {
-		suite.createShow(fmt.Sprintf("Show %d", i), time.Now().Add(time.Duration(i)*time.Hour), models.ShowStatusApproved, venue)
+		suite.createShow(fmt.Sprintf("Show %d", i), time.Now().Add(time.Duration(i)*time.Hour), catalogm.ShowStatusApproved, venue)
 	}
 
 	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "all"})
@@ -182,9 +182,9 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_MaxLimit() {
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_Approved() {
 	venue := suite.createVenue("Venue", "NYC", "NY", true)
-	suite.createShow("Approved 1", time.Now(), models.ShowStatusApproved, venue)
-	suite.createShow("Approved 2", time.Now(), models.ShowStatusApproved, venue)
-	suite.createShow("Pending 1", time.Now(), models.ShowStatusPending, venue)
+	suite.createShow("Approved 1", time.Now(), catalogm.ShowStatusApproved, venue)
+	suite.createShow("Approved 2", time.Now(), catalogm.ShowStatusApproved, venue)
+	suite.createShow("Pending 1", time.Now(), catalogm.ShowStatusPending, venue)
 
 	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "approved"})
 	suite.Require().NoError(err)
@@ -194,8 +194,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_A
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_Pending() {
 	venue := suite.createVenue("Venue", "NYC", "NY", true)
-	suite.createShow("Approved 1", time.Now(), models.ShowStatusApproved, venue)
-	suite.createShow("Pending 1", time.Now(), models.ShowStatusPending, venue)
+	suite.createShow("Approved 1", time.Now(), catalogm.ShowStatusApproved, venue)
+	suite.createShow("Pending 1", time.Now(), catalogm.ShowStatusPending, venue)
 
 	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "pending"})
 	suite.Require().NoError(err)
@@ -204,9 +204,9 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_P
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_All() {
 	venue := suite.createVenue("Venue", "NYC", "NY", true)
-	suite.createShow("Approved", time.Now(), models.ShowStatusApproved, venue)
-	suite.createShow("Pending", time.Now().Add(time.Hour), models.ShowStatusPending, venue)
-	suite.createShow("Rejected", time.Now().Add(2*time.Hour), models.ShowStatusRejected, venue)
+	suite.createShow("Approved", time.Now(), catalogm.ShowStatusApproved, venue)
+	suite.createShow("Pending", time.Now().Add(time.Hour), catalogm.ShowStatusPending, venue)
+	suite.createShow("Rejected", time.Now().Add(2*time.Hour), catalogm.ShowStatusRejected, venue)
 
 	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "all"})
 	suite.Require().NoError(err)
@@ -216,8 +216,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_StatusFilter_A
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_DateFilter() {
 	venue := suite.createVenue("Venue", "NYC", "NY", true)
-	suite.createShow("Old Show", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), models.ShowStatusApproved, venue)
-	suite.createShow("New Show", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), models.ShowStatusApproved, venue)
+	suite.createShow("Old Show", time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved, venue)
+	suite.createShow("New Show", time.Date(2025, 6, 1, 0, 0, 0, 0, time.UTC), catalogm.ShowStatusApproved, venue)
 
 	fromDate := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
 	result, err := suite.service.ExportShows(contracts.ExportShowsParams{
@@ -233,8 +233,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_LocationFilter
 	venueNYC := suite.createVenue("NYC Venue", "New York", "NY", true)
 	venueLA := suite.createVenue("LA Venue", "Los Angeles", "CA", true)
 
-	showNYC := suite.createShow("NYC Show", time.Now(), models.ShowStatusApproved, venueNYC)
-	suite.createShow("LA Show", time.Now(), models.ShowStatusApproved, venueLA)
+	showNYC := suite.createShow("NYC Show", time.Now(), catalogm.ShowStatusApproved, venueNYC)
+	suite.createShow("LA Show", time.Now(), catalogm.ShowStatusApproved, venueLA)
 	// Shows have city set from the createShow helper
 	_ = showNYC
 
@@ -250,7 +250,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_WithArtistsAnd
 	venue := suite.createVenue("The Hall", "NYC", "NY", true)
 	artist1 := suite.createArtist("Band One")
 	artist2 := suite.createArtist("Band Two")
-	suite.createShow("Big Show", time.Now(), models.ShowStatusApproved, venue, artist1, artist2)
+	suite.createShow("Big Show", time.Now(), catalogm.ShowStatusApproved, venue, artist1, artist2)
 
 	result, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "all"})
 	suite.Require().NoError(err)
@@ -270,7 +270,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_WithArtistsAnd
 func (suite *DataSyncServiceIntegrationTestSuite) TestExportShows_Pagination() {
 	venue := suite.createVenue("Venue", "NYC", "NY", true)
 	for i := 0; i < 5; i++ {
-		suite.createShow(fmt.Sprintf("Show %d", i), time.Now().Add(time.Duration(i)*time.Hour), models.ShowStatusApproved, venue)
+		suite.createShow(fmt.Sprintf("Show %d", i), time.Now().Add(time.Duration(i)*time.Hour), catalogm.ShowStatusApproved, venue)
 	}
 
 	result, err := suite.service.ExportShows(contracts.ExportShowsParams{
@@ -424,7 +424,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_Success() {
 	suite.Contains(result.Artists.Messages[0], "IMPORTED")
 
 	// Verify created with slug
-	var artist models.Artist
+	var artist catalogm.Artist
 	err = suite.db.Where("name = ?", "New Band").First(&artist).Error
 	suite.Require().NoError(err)
 	suite.NotNil(artist.Slug)
@@ -445,7 +445,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_Duplicate() {
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_DuplicateBackfillSlug() {
 	// Create artist WITHOUT a slug
-	artist := &models.Artist{Name: "No Slug Band"}
+	artist := &catalogm.Artist{Name: "No Slug Band"}
 	suite.db.Create(artist)
 	suite.Nil(artist.Slug)
 
@@ -458,7 +458,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_DuplicateBack
 	suite.Equal(1, result.Artists.Duplicates)
 
 	// Verify slug was backfilled
-	var updated models.Artist
+	var updated catalogm.Artist
 	suite.db.First(&updated, artist.ID)
 	suite.NotNil(updated.Slug)
 }
@@ -487,7 +487,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportArtist_DryRun() {
 
 	// Verify NOT actually created
 	var count int64
-	suite.db.Model(&models.Artist{}).Where("name = ?", "Dry Run Band").Count(&count)
+	suite.db.Model(&catalogm.Artist{}).Where("name = ?", "Dry Run Band").Count(&count)
 	suite.Equal(int64(0), count)
 }
 
@@ -506,7 +506,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_Success() {
 	suite.Contains(result.Venues.Messages[0], "IMPORTED")
 
 	// Verify created with slug
-	var venue models.Venue
+	var venue catalogm.Venue
 	err = suite.db.Where("name = ?", "New Venue").First(&venue).Error
 	suite.Require().NoError(err)
 	suite.NotNil(venue.Slug)
@@ -548,7 +548,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_DryRun() {
 	suite.Contains(result.Venues.Messages[0], "WOULD IMPORT")
 
 	var count int64
-	suite.db.Model(&models.Venue{}).Where("name = ?", "Dry Run Venue").Count(&count)
+	suite.db.Model(&catalogm.Venue{}).Where("name = ?", "Dry Run Venue").Count(&count)
 	suite.Equal(int64(0), count)
 }
 
@@ -573,16 +573,16 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Success() {
 	suite.Contains(result.Shows.Messages[0], "IMPORTED")
 
 	// Verify show, venue, and artist all created
-	var show models.Show
+	var show catalogm.Show
 	err = suite.db.Where("title = ?", "New Show").First(&show).Error
 	suite.Require().NoError(err)
 	suite.NotNil(show.Slug)
 
-	var venue models.Venue
+	var venue catalogm.Venue
 	err = suite.db.Where("name = ?", "Test Venue").First(&venue).Error
 	suite.Require().NoError(err)
 
-	var artist models.Artist
+	var artist catalogm.Artist
 	err = suite.db.Where("name = ?", "Test Band").First(&artist).Error
 	suite.Require().NoError(err)
 }
@@ -590,7 +590,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Success() {
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Duplicate() {
 	venue := suite.createVenue("Dupe Venue", "NYC", "NY", true)
 	eventDate := time.Date(2025, 6, 15, 20, 0, 0, 0, time.UTC)
-	suite.createShow("Dupe Show", eventDate, models.ShowStatusApproved, venue)
+	suite.createShow("Dupe Show", eventDate, catalogm.ShowStatusApproved, venue)
 
 	result, err := suite.service.ImportData(contracts.DataImportRequest{
 		Shows: []contracts.ExportedShow{
@@ -609,21 +609,21 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Duplicate() {
 
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_DuplicateBackfillSlugs() {
 	// Create entities without slugs
-	venue := &models.Venue{Name: "No Slug Venue", City: "NYC", State: "NY", Verified: true}
+	venue := &catalogm.Venue{Name: "No Slug Venue", City: "NYC", State: "NY", Verified: true}
 	suite.db.Create(venue)
-	artist := &models.Artist{Name: "No Slug Artist"}
+	artist := &catalogm.Artist{Name: "No Slug Artist"}
 	suite.db.Create(artist)
 
 	eventDate := time.Date(2025, 7, 1, 20, 0, 0, 0, time.UTC)
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:     "No Slug Show",
 		EventDate: eventDate,
-		Status:    models.ShowStatusApproved,
-		Source:    models.ShowSourceUser,
+		Status:    catalogm.ShowStatusApproved,
+		Source:    catalogm.ShowSourceUser,
 	}
 	suite.db.Create(show)
-	suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
-	suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0, SetType: "performer"})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0, SetType: "performer"})
 
 	// Import duplicate — should backfill slugs
 	result, err := suite.service.ImportData(contracts.DataImportRequest{
@@ -641,15 +641,15 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_DuplicateBackfi
 	suite.Equal(1, result.Shows.Duplicates)
 
 	// Verify slugs backfilled
-	var updatedShow models.Show
+	var updatedShow catalogm.Show
 	suite.db.First(&updatedShow, show.ID)
 	suite.NotNil(updatedShow.Slug)
 
-	var updatedVenue models.Venue
+	var updatedVenue catalogm.Venue
 	suite.db.First(&updatedVenue, venue.ID)
 	suite.NotNil(updatedVenue.Slug)
 
-	var updatedArtist models.Artist
+	var updatedArtist catalogm.Artist
 	suite.db.First(&updatedArtist, artist.ID)
 	suite.NotNil(updatedArtist.Slug)
 }
@@ -693,14 +693,14 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_CreatesNewVenue
 	suite.Equal(1, result.Shows.Imported)
 
 	// Verify venue created with slug
-	var venue models.Venue
+	var venue catalogm.Venue
 	err = suite.db.Where("name = ?", "Brand New Venue").First(&venue).Error
 	suite.Require().NoError(err)
 	suite.NotNil(venue.Slug)
 	suite.Equal("Portland", venue.City)
 
 	// Verify artist created with slug
-	var artist models.Artist
+	var artist catalogm.Artist
 	err = suite.db.Where("name = ?", "Brand New Band").First(&artist).Error
 	suite.Require().NoError(err)
 	suite.NotNil(artist.Slug)
@@ -723,7 +723,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_DryRun() {
 	suite.Contains(result.Shows.Messages[0], "WOULD IMPORT")
 
 	var count int64
-	suite.db.Model(&models.Show{}).Where("title = ?", "Dry Run Show").Count(&count)
+	suite.db.Model(&catalogm.Show{}).Where("title = ?", "Dry Run Show").Count(&count)
 	suite.Equal(int64(0), count)
 }
 
@@ -759,17 +759,17 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_StatusParsing()
 	suite.Require().NoError(err)
 	suite.Equal(3, result.Shows.Imported)
 
-	var pendingShow models.Show
+	var pendingShow catalogm.Show
 	suite.db.Where("title = ?", "Pending Import").First(&pendingShow)
-	suite.Equal(models.ShowStatusPending, pendingShow.Status)
+	suite.Equal(catalogm.ShowStatusPending, pendingShow.Status)
 
-	var rejectedShow models.Show
+	var rejectedShow catalogm.Show
 	suite.db.Where("title = ?", "Rejected Import").First(&rejectedShow)
-	suite.Equal(models.ShowStatusRejected, rejectedShow.Status)
+	suite.Equal(catalogm.ShowStatusRejected, rejectedShow.Status)
 
-	var privateShow models.Show
+	var privateShow catalogm.Show
 	suite.db.Where("title = ?", "Private Import").First(&privateShow)
-	suite.Equal(models.ShowStatusPrivate, privateShow.Status)
+	suite.Equal(catalogm.ShowStatusPrivate, privateShow.Status)
 }
 
 // =============================================================================
@@ -782,7 +782,7 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_FullRoundTrip()
 	venue := suite.createVenueWithSocial("RT Venue", "NYC", "NY", &insta)
 	artist := suite.createArtist("RT Band")
 	eventDate := time.Date(2025, 8, 1, 20, 0, 0, 0, time.UTC)
-	suite.createShow("RT Show", eventDate, models.ShowStatusApproved, venue, artist)
+	suite.createShow("RT Show", eventDate, catalogm.ShowStatusApproved, venue, artist)
 
 	// Export
 	exportResult, err := suite.service.ExportShows(contracts.ExportShowsParams{Status: "approved"})
@@ -810,11 +810,11 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportData_FullRoundTrip()
 	suite.Equal(1, importResult.Shows.Imported)
 
 	// Verify re-created
-	var show models.Show
+	var show catalogm.Show
 	err = suite.db.Where("title = ?", "RT Show").Preload("Venues").Preload("Artists").First(&show).Error
 	suite.Require().NoError(err)
 	suite.NotNil(show.Slug)
-	suite.Equal(models.ShowStatusApproved, show.Status)
+	suite.Equal(catalogm.ShowStatusApproved, show.Status)
 	suite.Require().Len(show.Venues, 1)
 	suite.Equal("RT Venue", show.Venues[0].Name)
 	suite.Require().Len(show.Artists, 1)

@@ -8,7 +8,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -41,16 +41,16 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 		baseSlug := utils.GenerateArtistSlug(req.Name)
 		slug = utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.RadioStation{}).Where("slug = ?", candidate).Count(&count)
+			s.db.Model(&catalogm.RadioStation{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
 	}
 
-	if !models.IsValidBroadcastType(req.BroadcastType) {
+	if !catalogm.IsValidBroadcastType(req.BroadcastType) {
 		return nil, fmt.Errorf("invalid broadcast type: %s", req.BroadcastType)
 	}
 
-	station := &models.RadioStation{
+	station := &catalogm.RadioStation{
 		Name:             req.Name,
 		Slug:             slug,
 		Description:      req.Description,
@@ -84,8 +84,8 @@ func (s *RadioService) GetStation(stationID uint) (*contracts.RadioStationDetail
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var station models.RadioStation
-	err := s.db.First(&station, stationID).Error
+	var station catalogm.RadioStation
+	err := s.db.Preload("Network").First(&station, stationID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
@@ -102,8 +102,8 @@ func (s *RadioService) GetStationBySlug(slug string) (*contracts.RadioStationDet
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var station models.RadioStation
-	err := s.db.Where("slug = ?", slug).First(&station).Error
+	var station catalogm.RadioStation
+	err := s.db.Preload("Network").Where("slug = ?", slug).First(&station).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrRadioStationNotFound(0)
@@ -120,7 +120,7 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Model(&models.RadioStation{})
+	query := s.db.Model(&catalogm.RadioStation{})
 
 	if isActive, ok := filters["is_active"].(bool); ok {
 		query = query.Where("is_active = ?", isActive)
@@ -131,8 +131,8 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 
 	query = query.Order("name ASC")
 
-	var stations []models.RadioStation
-	if err := query.Find(&stations).Error; err != nil {
+	var stations []catalogm.RadioStation
+	if err := query.Preload("Network").Find(&stations).Error; err != nil {
 		return nil, fmt.Errorf("failed to list radio stations: %w", err)
 	}
 
@@ -149,7 +149,7 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 			Count     int
 		}
 		var counts []countResult
-		s.db.Model(&models.RadioShow{}).
+		s.db.Model(&catalogm.RadioShow{}).
 			Select("station_id, COUNT(*) as count").
 			Where("station_id IN ?", stationIDs).
 			Group("station_id").
@@ -162,6 +162,11 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 
 	responses := make([]*contracts.RadioStationListResponse, len(stations))
 	for i, st := range stations {
+		var networkSlug *string
+		if st.Network != nil {
+			slug := st.Network.Slug
+			networkSlug = &slug
+		}
 		responses[i] = &contracts.RadioStationListResponse{
 			ID:            st.ID,
 			Name:          st.Name,
@@ -173,6 +178,8 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 			FrequencyMHz:  st.FrequencyMHz,
 			LogoURL:       st.LogoURL,
 			IsActive:      st.IsActive,
+			NetworkID:     st.NetworkID,
+			NetworkSlug:   networkSlug,
 			ShowCount:     showCounts[st.ID],
 		}
 	}
@@ -186,7 +193,7 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var station models.RadioStation
+	var station catalogm.RadioStation
 	if err := s.db.First(&station, stationID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
@@ -235,7 +242,7 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 		updates["social"] = req.Social
 	}
 	if req.BroadcastType != nil {
-		if !models.IsValidBroadcastType(*req.BroadcastType) {
+		if !catalogm.IsValidBroadcastType(*req.BroadcastType) {
 			return nil, fmt.Errorf("invalid broadcast type: %s", *req.BroadcastType)
 		}
 		updates["broadcast_type"] = *req.BroadcastType
@@ -268,7 +275,7 @@ func (s *RadioService) DeleteStation(stationID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Delete(&models.RadioStation{}, stationID)
+	result := s.db.Delete(&catalogm.RadioStation{}, stationID)
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete radio station: %w", result.Error)
 	}
@@ -289,7 +296,7 @@ func (s *RadioService) CreateShow(stationID uint, req *contracts.CreateRadioShow
 	}
 
 	// Verify station exists
-	var station models.RadioStation
+	var station catalogm.RadioStation
 	if err := s.db.First(&station, stationID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
@@ -302,12 +309,12 @@ func (s *RadioService) CreateShow(stationID uint, req *contracts.CreateRadioShow
 		baseSlug := utils.GenerateArtistSlug(req.Name)
 		slug = utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.RadioShow{}).Where("slug = ?", candidate).Count(&count)
+			s.db.Model(&catalogm.RadioShow{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
 	}
 
-	show := &models.RadioShow{
+	show := &catalogm.RadioShow{
 		StationID:       stationID,
 		Name:            req.Name,
 		Slug:            slug,
@@ -334,7 +341,7 @@ func (s *RadioService) GetShow(showID uint) (*contracts.RadioShowDetailResponse,
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var show models.RadioShow
+	var show catalogm.RadioShow
 	err := s.db.Preload("Station").First(&show, showID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -352,7 +359,7 @@ func (s *RadioService) GetShowBySlug(slug string) (*contracts.RadioShowDetailRes
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var show models.RadioShow
+	var show catalogm.RadioShow
 	err := s.db.Preload("Station").Where("slug = ?", slug).First(&show).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -370,7 +377,7 @@ func (s *RadioService) ListShows(stationID uint) ([]*contracts.RadioShowListResp
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var shows []models.RadioShow
+	var shows []catalogm.RadioShow
 	err := s.db.Preload("Station").
 		Where("station_id = ?", stationID).
 		Order("name ASC").
@@ -392,7 +399,7 @@ func (s *RadioService) ListShows(stationID uint) ([]*contracts.RadioShowListResp
 			Count  int64
 		}
 		var counts []countResult
-		s.db.Model(&models.RadioEpisode{}).
+		s.db.Model(&catalogm.RadioEpisode{}).
 			Select("show_id, COUNT(*) as count").
 			Where("show_id IN ?", showIDs).
 			Group("show_id").
@@ -428,7 +435,7 @@ func (s *RadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowReq
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var show models.RadioShow
+	var show catalogm.RadioShow
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrRadioShowNotFound(showID)
@@ -480,7 +487,7 @@ func (s *RadioService) DeleteShow(showID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Delete(&models.RadioShow{}, showID)
+	result := s.db.Delete(&catalogm.RadioShow{}, showID)
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete radio show: %w", result.Error)
 	}
@@ -501,9 +508,9 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 	}
 
 	var total int64
-	s.db.Model(&models.RadioEpisode{}).Where("show_id = ?", showID).Count(&total)
+	s.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", showID).Count(&total)
 
-	var episodes []models.RadioEpisode
+	var episodes []catalogm.RadioEpisode
 	err := s.db.Where("show_id = ?", showID).
 		Order("air_date DESC").
 		Limit(limit).
@@ -537,7 +544,7 @@ func (s *RadioService) GetEpisodeByShowAndDate(showID uint, airDate string) (*co
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var episode models.RadioEpisode
+	var episode catalogm.RadioEpisode
 	err := s.db.Preload("Show.Station").
 		Where("show_id = ? AND air_date = ?", showID, airDate).
 		First(&episode).Error
@@ -557,7 +564,7 @@ func (s *RadioService) GetEpisodeDetail(episodeID uint) (*contracts.RadioEpisode
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var episode models.RadioEpisode
+	var episode catalogm.RadioEpisode
 	err := s.db.Preload("Show.Station").First(&episode, episodeID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -882,25 +889,25 @@ func (s *RadioService) GetRadioStats() (*contracts.RadioStatsResponse, error) {
 	var stats contracts.RadioStatsResponse
 
 	var stationCount int64
-	s.db.Model(&models.RadioStation{}).Where("is_active = TRUE").Count(&stationCount)
+	s.db.Model(&catalogm.RadioStation{}).Where("is_active = TRUE").Count(&stationCount)
 	stats.TotalStations = int(stationCount)
 
 	var showCount int64
-	s.db.Model(&models.RadioShow{}).Where("is_active = TRUE").Count(&showCount)
+	s.db.Model(&catalogm.RadioShow{}).Where("is_active = TRUE").Count(&showCount)
 	stats.TotalShows = int(showCount)
 
 	var episodeCount int64
-	s.db.Model(&models.RadioEpisode{}).Count(&episodeCount)
+	s.db.Model(&catalogm.RadioEpisode{}).Count(&episodeCount)
 	stats.TotalEpisodes = int(episodeCount)
 
-	s.db.Model(&models.RadioPlay{}).Count(&stats.TotalPlays)
+	s.db.Model(&catalogm.RadioPlay{}).Count(&stats.TotalPlays)
 
 	var matchedPlays int64
-	s.db.Model(&models.RadioPlay{}).Where("artist_id IS NOT NULL").Count(&matchedPlays)
+	s.db.Model(&catalogm.RadioPlay{}).Where("artist_id IS NOT NULL").Count(&matchedPlays)
 	stats.MatchedPlays = matchedPlays
 
 	var uniqueArtists int64
-	s.db.Model(&models.RadioPlay{}).Where("artist_id IS NOT NULL").Distinct("artist_id").Count(&uniqueArtists)
+	s.db.Model(&catalogm.RadioPlay{}).Where("artist_id IS NOT NULL").Distinct("artist_id").Count(&uniqueArtists)
 	stats.UniqueArtists = int(uniqueArtists)
 
 	return &stats, nil
@@ -910,9 +917,17 @@ func (s *RadioService) GetRadioStats() (*contracts.RadioStatsResponse, error) {
 // Response builders
 // =============================================================================
 
-func (s *RadioService) buildStationDetailResponse(station *models.RadioStation) (*contracts.RadioStationDetailResponse, error) {
+func (s *RadioService) buildStationDetailResponse(station *catalogm.RadioStation) (*contracts.RadioStationDetailResponse, error) {
 	var showCount int64
-	s.db.Model(&models.RadioShow{}).Where("station_id = ?", station.ID).Count(&showCount)
+	s.db.Model(&catalogm.RadioShow{}).Where("station_id = ?", station.ID).Count(&showCount)
+
+	// network_slug is convenience for clients that already know how to
+	// resolve a slug; full network objects are not embedded here.
+	var networkSlug *string
+	if station.Network != nil {
+		slug := station.Network.Slug
+		networkSlug = &slug
+	}
 
 	return &contracts.RadioStationDetailResponse{
 		ID:                  station.ID,
@@ -936,15 +951,17 @@ func (s *RadioService) buildStationDetailResponse(station *models.RadioStation) 
 		PlaylistConfig:      station.PlaylistConfig,
 		LastPlaylistFetchAt: station.LastPlaylistFetchAt,
 		IsActive:            station.IsActive,
+		NetworkID:           station.NetworkID,
+		NetworkSlug:         networkSlug,
 		ShowCount:           int(showCount),
 		CreatedAt:           station.CreatedAt,
 		UpdatedAt:           station.UpdatedAt,
 	}, nil
 }
 
-func (s *RadioService) buildShowDetailResponse(show *models.RadioShow) (*contracts.RadioShowDetailResponse, error) {
+func (s *RadioService) buildShowDetailResponse(show *catalogm.RadioShow) (*contracts.RadioShowDetailResponse, error) {
 	var episodeCount int64
-	s.db.Model(&models.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&episodeCount)
+	s.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&episodeCount)
 
 	return &contracts.RadioShowDetailResponse{
 		ID:              show.ID,
@@ -978,9 +995,9 @@ func normalizeDate(d string) string {
 	return d
 }
 
-func (s *RadioService) buildEpisodeDetailResponse(episode *models.RadioEpisode) (*contracts.RadioEpisodeDetailResponse, error) {
+func (s *RadioService) buildEpisodeDetailResponse(episode *catalogm.RadioEpisode) (*contracts.RadioEpisodeDetailResponse, error) {
 	// Load plays with linked entity data
-	var plays []models.RadioPlay
+	var plays []catalogm.RadioPlay
 	err := s.db.Where("episode_id = ?", episode.ID).
 		Preload("Artist").
 		Preload("Release").

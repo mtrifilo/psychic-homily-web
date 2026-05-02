@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -133,7 +133,7 @@ func (s *FestivalIntelligenceService) GetSimilarFestivals(festivalID uint, limit
 	}
 
 	// Verify festival exists
-	var festival models.Festival
+	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("festival not found")
@@ -374,7 +374,7 @@ func (s *FestivalIntelligenceService) GetFestivalOverlap(festivalAID, festivalBI
 	}
 
 	// Verify both festivals exist
-	var festA, festB models.Festival
+	var festA, festB catalogm.Festival
 	if err := s.db.First(&festA, festivalAID).Error; err != nil {
 		return nil, fmt.Errorf("festival A not found")
 	}
@@ -488,7 +488,7 @@ func (s *FestivalIntelligenceService) GetFestivalBreakouts(festivalID uint) (*co
 	}
 
 	// Verify festival exists and get its info
-	var festival models.Festival
+	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
 		return nil, fmt.Errorf("festival not found")
 	}
@@ -677,7 +677,7 @@ func (s *FestivalIntelligenceService) GetArtistFestivalTrajectory(artistID uint)
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		return nil, fmt.Errorf("artist not found")
 	}
@@ -777,7 +777,7 @@ func (s *FestivalIntelligenceService) GetSeriesComparison(seriesSlug string, yea
 	sort.Ints(years)
 
 	// Get festivals in this series for the requested years
-	var festivals []models.Festival
+	var festivals []catalogm.Festival
 	if err := s.db.Where("series_slug = ? AND edition_year IN ?", seriesSlug, years).
 		Order("edition_year ASC").
 		Find(&festivals).Error; err != nil {
@@ -979,7 +979,7 @@ func (s *FestivalIntelligenceService) loadArtistInfoMap(artistIDs []uint) map[ui
 		return result
 	}
 
-	var artists []models.Artist
+	var artists []catalogm.Artist
 	s.db.Where("id IN ?", artistIDs).Find(&artists)
 
 	for _, a := range artists {
@@ -999,7 +999,7 @@ func (s *FestivalIntelligenceService) loadFestivalInfoMap(festivalIDs []uint) ma
 		return result
 	}
 
-	var festivals []models.Festival
+	var festivals []catalogm.Festival
 	s.db.Where("id IN ?", festivalIDs).Find(&festivals)
 
 	for _, f := range festivals {

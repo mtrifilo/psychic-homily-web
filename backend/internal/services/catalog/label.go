@@ -6,9 +6,9 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/services/contracts"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -37,18 +37,18 @@ func (s *LabelService) CreateLabel(req *contracts.CreateLabelRequest) (*contract
 	baseSlug := utils.GenerateArtistSlug(req.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Label{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Label{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
 	// Determine status, default to "active"
-	status := models.LabelStatus(req.Status)
+	status := catalogm.LabelStatus(req.Status)
 	if status == "" {
-		status = models.LabelStatusActive
+		status = catalogm.LabelStatusActive
 	}
 
 	// Create the label
-	label := &models.Label{
+	label := &catalogm.Label{
 		Name:        req.Name,
 		Slug:        &slug,
 		City:        req.City,
@@ -57,7 +57,7 @@ func (s *LabelService) CreateLabel(req *contracts.CreateLabelRequest) (*contract
 		FoundedYear: req.FoundedYear,
 		Status:      status,
 		Description: req.Description,
-		Social: models.Social{
+		Social: catalogm.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
 			Twitter:    req.Twitter,
@@ -82,7 +82,7 @@ func (s *LabelService) GetLabel(labelID uint) (*contracts.LabelDetailResponse, e
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var label models.Label
+	var label catalogm.Label
 	err := s.db.First(&label, labelID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -100,7 +100,7 @@ func (s *LabelService) GetLabelBySlug(slug string) (*contracts.LabelDetailRespon
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var label models.Label
+	var label catalogm.Label
 	err := s.db.Where("slug = ?", slug).First(&label).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -118,7 +118,7 @@ func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*contracts.
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Model(&models.Label{})
+	query := s.db.Model(&catalogm.Label{})
 
 	// Apply filters
 	if status, ok := filters["status"].(string); ok && status != "" {
@@ -131,13 +131,13 @@ func (s *LabelService) ListLabels(filters map[string]interface{}) ([]*contracts.
 		query = query.Where("state = ?", state)
 	}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		query = ApplyTagFilter(query, s.db, models.TagEntityLabel, "labels.id", tf)
+		query = ApplyTagFilter(query, s.db, catalogm.TagEntityLabel, "labels.id", tf)
 	}
 
 	// Order by name ASC
 	query = query.Order("name ASC")
 
-	var labels []models.Label
+	var labels []catalogm.Label
 	err := query.Find(&labels).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list labels: %w", err)
@@ -214,7 +214,7 @@ func (s *LabelService) SearchLabels(query string) ([]*contracts.LabelListRespons
 		return []*contracts.LabelListResponse{}, nil
 	}
 
-	var labels []models.Label
+	var labels []catalogm.Label
 	var err error
 
 	if len(query) <= 2 {
@@ -304,7 +304,7 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 	}
 
 	// Check if label exists
-	var label models.Label
+	var label catalogm.Label
 	err := s.db.First(&label, labelID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -321,7 +321,7 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 		baseSlug := utils.GenerateArtistSlug(*req.Name)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.Label{}).Where("slug = ? AND id != ?", candidate, labelID).Count(&count)
+			s.db.Model(&catalogm.Label{}).Where("slug = ? AND id != ?", candidate, labelID).Count(&count)
 			return count > 0
 		})
 		updates["slug"] = slug
@@ -343,6 +343,9 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 	}
 	if req.Description != nil {
 		updates["description"] = *req.Description
+	}
+	if req.ImageURL != nil {
+		updates["image_url"] = *req.ImageURL
 	}
 	if req.Instagram != nil {
 		updates["instagram"] = *req.Instagram
@@ -370,7 +373,7 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 	}
 
 	if len(updates) > 0 {
-		err = s.db.Model(&models.Label{}).Where("id = ?", labelID).Updates(updates).Error
+		err = s.db.Model(&catalogm.Label{}).Where("id = ?", labelID).Updates(updates).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to update label: %w", err)
 		}
@@ -386,7 +389,7 @@ func (s *LabelService) DeleteLabel(labelID uint) error {
 	}
 
 	// Check if label exists
-	var label models.Label
+	var label catalogm.Label
 	err := s.db.First(&label, labelID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -411,7 +414,7 @@ func (s *LabelService) GetLabelRoster(labelID uint) ([]*contracts.LabelArtistRes
 	}
 
 	// Verify label exists
-	var label models.Label
+	var label catalogm.Label
 	if err := s.db.First(&label, labelID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrLabelNotFound(labelID)
@@ -420,7 +423,7 @@ func (s *LabelService) GetLabelRoster(labelID uint) ([]*contracts.LabelArtistRes
 	}
 
 	// Get artist IDs from junction table
-	var artistLabels []models.ArtistLabel
+	var artistLabels []catalogm.ArtistLabel
 	s.db.Where("label_id = ?", labelID).Find(&artistLabels)
 
 	if len(artistLabels) == 0 {
@@ -432,7 +435,7 @@ func (s *LabelService) GetLabelRoster(labelID uint) ([]*contracts.LabelArtistRes
 		artistIDs[i] = al.ArtistID
 	}
 
-	var artists []models.Artist
+	var artists []catalogm.Artist
 	s.db.Where("id IN ?", artistIDs).Order("name ASC").Find(&artists)
 
 	responses := make([]*contracts.LabelArtistResponse, len(artists))
@@ -458,7 +461,7 @@ func (s *LabelService) GetLabelCatalog(labelID uint) ([]*contracts.LabelReleaseR
 	}
 
 	// Verify label exists
-	var label models.Label
+	var label catalogm.Label
 	if err := s.db.First(&label, labelID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrLabelNotFound(labelID)
@@ -467,7 +470,7 @@ func (s *LabelService) GetLabelCatalog(labelID uint) ([]*contracts.LabelReleaseR
 	}
 
 	// Get release IDs and catalog numbers from junction table
-	var releaseLabels []models.ReleaseLabel
+	var releaseLabels []catalogm.ReleaseLabel
 	s.db.Where("label_id = ?", labelID).Find(&releaseLabels)
 
 	if len(releaseLabels) == 0 {
@@ -481,7 +484,7 @@ func (s *LabelService) GetLabelCatalog(labelID uint) ([]*contracts.LabelReleaseR
 		catalogMap[rl.ReleaseID] = rl.CatalogNumber
 	}
 
-	var releases []models.Release
+	var releases []catalogm.Release
 	s.db.Where("id IN ?", releaseIDs).Order("release_year DESC NULLS LAST, title ASC").Find(&releases)
 
 	responses := make([]*contracts.LabelReleaseResponse, len(releases))
@@ -511,7 +514,7 @@ func (s *LabelService) AddArtistToLabel(labelID, artistID uint) error {
 	}
 
 	// Verify label exists
-	var label models.Label
+	var label catalogm.Label
 	if err := s.db.First(&label, labelID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.ErrLabelNotFound(labelID)
@@ -520,7 +523,7 @@ func (s *LabelService) AddArtistToLabel(labelID, artistID uint) error {
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return fmt.Errorf("artist not found: %d", artistID)
@@ -529,7 +532,7 @@ func (s *LabelService) AddArtistToLabel(labelID, artistID uint) error {
 	}
 
 	// Idempotent: use FirstOrCreate to skip if already exists
-	al := models.ArtistLabel{
+	al := catalogm.ArtistLabel{
 		ArtistID: artistID,
 		LabelID:  labelID,
 	}
@@ -547,7 +550,7 @@ func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber 
 	}
 
 	// Verify label exists
-	var label models.Label
+	var label catalogm.Label
 	if err := s.db.First(&label, labelID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return apperrors.ErrLabelNotFound(labelID)
@@ -556,7 +559,7 @@ func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber 
 	}
 
 	// Verify release exists
-	var release models.Release
+	var release catalogm.Release
 	if err := s.db.First(&release, releaseID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return fmt.Errorf("release not found: %d", releaseID)
@@ -565,7 +568,7 @@ func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber 
 	}
 
 	// Idempotent: use FirstOrCreate to skip if already exists
-	rl := models.ReleaseLabel{
+	rl := catalogm.ReleaseLabel{
 		ReleaseID:     releaseID,
 		LabelID:       labelID,
 		CatalogNumber: catalogNumber,
@@ -578,7 +581,7 @@ func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber 
 }
 
 // buildDetailResponse converts a Label model to contracts.LabelDetailResponse
-func (s *LabelService) buildDetailResponse(label *models.Label) (*contracts.LabelDetailResponse, error) {
+func (s *LabelService) buildDetailResponse(label *catalogm.Label) (*contracts.LabelDetailResponse, error) {
 	slug := ""
 	if label.Slug != nil {
 		slug = *label.Slug
@@ -602,6 +605,7 @@ func (s *LabelService) buildDetailResponse(label *models.Label) (*contracts.Labe
 		FoundedYear: label.FoundedYear,
 		Status:      string(label.Status),
 		Description: label.Description,
+		ImageURL:    label.ImageURL,
 		Social: contracts.SocialResponse{
 			Instagram:  label.Social.Instagram,
 			Facebook:   label.Social.Facebook,

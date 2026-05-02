@@ -12,10 +12,10 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
 
 	"github.com/joho/godotenv"
 	"gorm.io/gorm"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // CLI flags
@@ -67,12 +67,12 @@ type mappingEntry struct {
 
 // linkStats tracks statistics across all strategies
 type linkStats struct {
-	mappingMatches    int
-	titleMatches      int
-	artistMatches     int
-	releaseInference  int
-	interactiveLinks  int
-	errors            int
+	mappingMatches   int
+	titleMatches     int
+	artistMatches    int
+	releaseInference int
+	interactiveLinks int
+	errors           int
 }
 
 func main() {
@@ -578,21 +578,21 @@ func getUnlinkedReleases(database *gorm.DB) []unlinkedRelease {
 // getAllLabels returns all labels in the database
 func getAllLabels(database *gorm.DB) []labelInfo {
 	var labels []labelInfo
-	database.Model(&models.Label{}).Select("id, name").Order("name").Find(&labels)
+	database.Model(&catalogm.Label{}).Select("id, name").Order("name").Find(&labels)
 	return labels
 }
 
 // getArtistLabelPairs returns all artist-label associations
 func getArtistLabelPairs(database *gorm.DB) []artistLabelPair {
 	var pairs []artistLabelPair
-	database.Model(&models.ArtistLabel{}).Select("artist_id, label_id").Find(&pairs)
+	database.Model(&catalogm.ArtistLabel{}).Select("artist_id, label_id").Find(&pairs)
 	return pairs
 }
 
 // getArtistIDsForRelease returns artist IDs associated with a release
 func getArtistIDsForRelease(database *gorm.DB, releaseID uint) []uint {
 	var ids []uint
-	database.Model(&models.ArtistRelease{}).
+	database.Model(&catalogm.ArtistRelease{}).
 		Where("release_id = ?", releaseID).
 		Pluck("artist_id", &ids)
 	return ids
@@ -600,7 +600,7 @@ func getArtistIDsForRelease(database *gorm.DB, releaseID uint) []uint {
 
 // linkReleaseToLabel creates a release_labels entry
 func linkReleaseToLabel(database *gorm.DB, releaseID, labelID uint, catalogNumber *string) error {
-	rl := models.ReleaseLabel{
+	rl := catalogm.ReleaseLabel{
 		ReleaseID:     releaseID,
 		LabelID:       labelID,
 		CatalogNumber: catalogNumber,
@@ -608,7 +608,7 @@ func linkReleaseToLabel(database *gorm.DB, releaseID, labelID uint, catalogNumbe
 
 	// Idempotent: skip if already exists
 	var count int64
-	database.Model(&models.ReleaseLabel{}).
+	database.Model(&catalogm.ReleaseLabel{}).
 		Where("release_id = ? AND label_id = ?", releaseID, labelID).
 		Count(&count)
 	if count > 0 {

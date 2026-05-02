@@ -7,7 +7,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -73,8 +74,8 @@ func (s *ChartsService) GetTrendingShows(limit int) ([]contracts.TrendingShow, e
 		GROUP BY s.id, s.title, s.slug, s.event_date, v.name, v.slug, v.city
 		ORDER BY total_attendance DESC, s.event_date ASC
 		LIMIT ?
-	`, models.BookmarkEntityShow, models.BookmarkActionGoing, models.BookmarkActionInterested,
-		models.ShowStatusApproved, now, limit).Scan(&rows).Error
+	`, engagementm.BookmarkEntityShow, engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested,
+		catalogm.ShowStatusApproved, now, limit).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get trending shows: %w", err)
 	}
@@ -179,8 +180,8 @@ func (s *ChartsService) GetPopularArtists(limit int) ([]contracts.PopularArtist,
 		WHERE (COALESCE(follow_counts.cnt, 0) > 0 OR COALESCE(show_counts.cnt, 0) > 0)
 		ORDER BY score DESC, a.name ASC
 		LIMIT ?
-	`, models.BookmarkEntityArtist, models.BookmarkActionFollow,
-		models.ShowStatusApproved, now, limit).Scan(&rows).Error
+	`, engagementm.BookmarkEntityArtist, engagementm.BookmarkActionFollow,
+		catalogm.ShowStatusApproved, now, limit).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get popular artists: %w", err)
 	}
@@ -249,8 +250,8 @@ func (s *ChartsService) GetActiveVenues(limit int) ([]contracts.ActiveVenue, err
 		WHERE (COALESCE(show_counts.cnt, 0) > 0 OR COALESCE(follow_counts.cnt, 0) > 0)
 		ORDER BY score DESC, v.name ASC
 		LIMIT ?
-	`, models.ShowStatusApproved, now,
-		models.BookmarkEntityVenue, models.BookmarkActionFollow, limit).Scan(&rows).Error
+	`, catalogm.ShowStatusApproved, now,
+		engagementm.BookmarkEntityVenue, engagementm.BookmarkActionFollow, limit).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get active venues: %w", err)
 	}
@@ -305,7 +306,7 @@ func (s *ChartsService) GetHotReleases(limit int) ([]contracts.HotRelease, error
 		GROUP BY r.id, r.title, r.slug, r.release_date
 		ORDER BY bookmark_count DESC, r.created_at DESC
 		LIMIT ?
-	`, models.BookmarkEntityRelease, models.BookmarkActionBookmark, thirtyDaysAgo, limit).Scan(&rows).Error
+	`, engagementm.BookmarkEntityRelease, engagementm.BookmarkActionBookmark, thirtyDaysAgo, limit).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get hot releases: %w", err)
 	}

@@ -7,7 +7,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -63,8 +63,8 @@ func (s *RadioAffinitySyncSuite) TearDownTest() {
 }
 
 // createArtist creates an artist for testing.
-func (s *RadioAffinitySyncSuite) createArtist(name, slug string) *models.Artist {
-	artist := &models.Artist{
+func (s *RadioAffinitySyncSuite) createArtist(name, slug string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -74,7 +74,7 @@ func (s *RadioAffinitySyncSuite) createArtist(name, slug string) *models.Artist 
 
 // insertAffinity directly inserts a radio_artist_affinity row.
 func (s *RadioAffinitySyncSuite) insertAffinity(artistAID, artistBID uint, coOccurrenceCount, showCount, stationCount int) {
-	aff := &models.RadioArtistAffinity{
+	aff := &catalogm.RadioArtistAffinity{
 		ArtistAID:         artistAID,
 		ArtistBID:         artistBID,
 		CoOccurrenceCount: coOccurrenceCount,
@@ -104,12 +104,12 @@ func (s *RadioAffinitySyncSuite) TestSync_CreatesNewRelationships() {
 	s.Equal(0, result.Deleted)
 
 	// Verify the relationship was created
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err = s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-		lowID, highID, models.RelationshipTypeRadioCooccurrence).First(&rel).Error
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error
 	s.Require().NoError(err)
 	s.True(rel.AutoDerived)
-	s.Equal(models.RelationshipTypeRadioCooccurrence, rel.RelationshipType)
+	s.Equal(catalogm.RelationshipTypeRadioCooccurrence, rel.RelationshipType)
 }
 
 func (s *RadioAffinitySyncSuite) TestSync_UpdatesExistingRelationships() {
@@ -122,10 +122,10 @@ func (s *RadioAffinitySyncSuite) TestSync_UpdatesExistingRelationships() {
 	}
 
 	// Insert an existing radio_cooccurrence relationship
-	existingRel := &models.ArtistRelationship{
+	existingRel := &catalogm.ArtistRelationship{
 		SourceArtistID:   lowID,
 		TargetArtistID:   highID,
-		RelationshipType: models.RelationshipTypeRadioCooccurrence,
+		RelationshipType: catalogm.RelationshipTypeRadioCooccurrence,
 		Score:            0.1,
 		AutoDerived:      true,
 	}
@@ -141,9 +141,9 @@ func (s *RadioAffinitySyncSuite) TestSync_UpdatesExistingRelationships() {
 	s.Equal(0, result.Deleted)
 
 	// Verify the score was updated
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err = s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-		lowID, highID, models.RelationshipTypeRadioCooccurrence).First(&rel).Error
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error
 	s.Require().NoError(err)
 	// 25/50 = 0.5 * 1.5 (cross-station) = 0.75
 	s.InDelta(0.75, float64(rel.Score), 0.01)
@@ -159,10 +159,10 @@ func (s *RadioAffinitySyncSuite) TestSync_DeletesStaleRelationships() {
 	}
 
 	// Insert an existing radio_cooccurrence relationship but NO affinity data
-	staleRel := &models.ArtistRelationship{
+	staleRel := &catalogm.ArtistRelationship{
 		SourceArtistID:   lowID,
 		TargetArtistID:   highID,
-		RelationshipType: models.RelationshipTypeRadioCooccurrence,
+		RelationshipType: catalogm.RelationshipTypeRadioCooccurrence,
 		Score:            0.5,
 		AutoDerived:      true,
 	}
@@ -176,9 +176,9 @@ func (s *RadioAffinitySyncSuite) TestSync_DeletesStaleRelationships() {
 
 	// Verify the relationship was deleted
 	var count int64
-	s.db.Model(&models.ArtistRelationship{}).
+	s.db.Model(&catalogm.ArtistRelationship{}).
 		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			lowID, highID, models.RelationshipTypeRadioCooccurrence).
+			lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).
 		Count(&count)
 	s.Equal(int64(0), count)
 }
@@ -199,9 +199,9 @@ func (s *RadioAffinitySyncSuite) TestSync_ScoreNormalization_CappedAt1() {
 	s.Require().NoError(err)
 	s.Equal(1, result.Created)
 
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err = s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-		lowID, highID, models.RelationshipTypeRadioCooccurrence).First(&rel).Error
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error
 	s.Require().NoError(err)
 	s.InDelta(1.0, float64(rel.Score), 0.01)
 }
@@ -222,9 +222,9 @@ func (s *RadioAffinitySyncSuite) TestSync_CrossStationMultiplier() {
 	s.Require().NoError(err)
 	s.Equal(1, result.Created)
 
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err = s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-		lowID, highID, models.RelationshipTypeRadioCooccurrence).First(&rel).Error
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error
 	s.Require().NoError(err)
 	s.InDelta(0.2, float64(rel.Score), 0.01)
 }
@@ -245,9 +245,9 @@ func (s *RadioAffinitySyncSuite) TestSync_CrossStationMultiplier_Applied() {
 	s.Require().NoError(err)
 	s.Equal(1, result.Created)
 
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err = s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-		lowID, highID, models.RelationshipTypeRadioCooccurrence).First(&rel).Error
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error
 	s.Require().NoError(err)
 	s.InDelta(0.3, float64(rel.Score), 0.01)
 }
@@ -268,9 +268,9 @@ func (s *RadioAffinitySyncSuite) TestSync_CrossStationMultiplier_CappedAt1() {
 	s.Require().NoError(err)
 	s.Equal(1, result.Created)
 
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err = s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-		lowID, highID, models.RelationshipTypeRadioCooccurrence).First(&rel).Error
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error
 	s.Require().NoError(err)
 	s.InDelta(1.0, float64(rel.Score), 0.01)
 }
@@ -286,7 +286,7 @@ func (s *RadioAffinitySyncSuite) TestSync_SkipsBelowMinimumThreshold() {
 
 	// 1 co-occurrence (below threshold of 2, but inserted directly — ComputeAffinity
 	// already filters >= 2. SyncAffinityToRelationships also checks >= 2.)
-	aff := &models.RadioArtistAffinity{
+	aff := &catalogm.RadioArtistAffinity{
 		ArtistAID:         lowID,
 		ArtistBID:         highID,
 		CoOccurrenceCount: 1,
@@ -301,8 +301,8 @@ func (s *RadioAffinitySyncSuite) TestSync_SkipsBelowMinimumThreshold() {
 
 	// No relationship should exist
 	var count int64
-	s.db.Model(&models.ArtistRelationship{}).
-		Where("relationship_type = ?", models.RelationshipTypeRadioCooccurrence).
+	s.db.Model(&catalogm.ArtistRelationship{}).
+		Where("relationship_type = ?", catalogm.RelationshipTypeRadioCooccurrence).
 		Count(&count)
 	s.Equal(int64(0), count)
 }
@@ -324,9 +324,9 @@ func (s *RadioAffinitySyncSuite) TestSync_CanonicalOrderPreserved() {
 	s.Equal(1, result.Created)
 
 	// Verify the relationship preserves canonical ordering
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err = s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-		lowID, highID, models.RelationshipTypeRadioCooccurrence).First(&rel).Error
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error
 	s.Require().NoError(err)
 	s.Equal(lowID, rel.SourceArtistID)
 	s.Equal(highID, rel.TargetArtistID)
@@ -347,9 +347,9 @@ func (s *RadioAffinitySyncSuite) TestSync_JSONBDetailContent() {
 	s.Require().NoError(err)
 	s.Equal(1, result.Created)
 
-	var rel models.ArtistRelationship
+	var rel catalogm.ArtistRelationship
 	err = s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-		lowID, highID, models.RelationshipTypeRadioCooccurrence).First(&rel).Error
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error
 	s.Require().NoError(err)
 	s.Require().NotNil(rel.Detail)
 
@@ -392,8 +392,8 @@ func (s *RadioAffinitySyncSuite) TestSync_MultiplePairs() {
 
 	// Verify all 3 relationships exist
 	var count int64
-	s.db.Model(&models.ArtistRelationship{}).
-		Where("relationship_type = ?", models.RelationshipTypeRadioCooccurrence).
+	s.db.Model(&catalogm.ArtistRelationship{}).
+		Where("relationship_type = ?", catalogm.RelationshipTypeRadioCooccurrence).
 		Count(&count)
 	s.Equal(int64(3), count)
 }
@@ -408,10 +408,10 @@ func (s *RadioAffinitySyncSuite) TestSync_DoesNotDeleteOtherRelationshipTypes() 
 	}
 
 	// Create a shared_bills relationship (should NOT be deleted)
-	sharedBillsRel := &models.ArtistRelationship{
+	sharedBillsRel := &catalogm.ArtistRelationship{
 		SourceArtistID:   lowID,
 		TargetArtistID:   highID,
-		RelationshipType: models.RelationshipTypeSharedBills,
+		RelationshipType: catalogm.RelationshipTypeSharedBills,
 		Score:            0.5,
 		AutoDerived:      true,
 	}
@@ -426,9 +426,9 @@ func (s *RadioAffinitySyncSuite) TestSync_DoesNotDeleteOtherRelationshipTypes() 
 
 	// Verify shared_bills relationship still exists
 	var count int64
-	s.db.Model(&models.ArtistRelationship{}).
+	s.db.Model(&catalogm.ArtistRelationship{}).
 		Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
-			lowID, highID, models.RelationshipTypeSharedBills).
+			lowID, highID, catalogm.RelationshipTypeSharedBills).
 		Count(&count)
 	s.Equal(int64(1), count)
 }

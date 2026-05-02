@@ -10,7 +10,10 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
+	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -24,13 +27,18 @@ type CollectionServiceIntegrationTestSuite struct {
 	testDB            *testutil.TestDatabase
 	db                *gorm.DB
 	collectionService *CollectionService
+	// tagService is wired into collectionService so the PSY-354 test paths
+	// (tag rendering on detail/list, AddTagToCollection, RemoveTagFromCollection)
+	// exercise the same code production uses.
+	tagService *catalog.TagService
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
 
-	suite.collectionService = &CollectionService{db: suite.testDB.DB}
+	suite.tagService = catalog.NewTagService(suite.testDB.DB)
+	suite.collectionService = &CollectionService{db: suite.testDB.DB, tagService: suite.tagService}
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TearDownSuite() {
@@ -41,6 +49,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
+	// PSY-354: clear polymorphic tag links + votes before users (added_by FKs
+	// are NOT ON DELETE CASCADE, so leaked rows would block user deletion).
+	_, _ = sqlDB.Exec("DELETE FROM tag_votes")
+	_, _ = sqlDB.Exec("DELETE FROM entity_tags")
 	_, _ = sqlDB.Exec("DELETE FROM collection_likes")
 	_, _ = sqlDB.Exec("DELETE FROM collection_subscribers")
 	_, _ = sqlDB.Exec("DELETE FROM collection_items")
@@ -58,6 +70,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM festival_artists")
 	_, _ = sqlDB.Exec("DELETE FROM festival_venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	// Tag corpus last — LOWER(name) unique would collide between tests.
+	_, _ = sqlDB.Exec("DELETE FROM tag_aliases")
+	_, _ = sqlDB.Exec("DELETE FROM tags")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -69,8 +84,8 @@ func TestCollectionServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *CollectionServiceIntegrationTestSuite) createTestUser(name string) *models.User {
-	user := &models.User{
+func (suite *CollectionServiceIntegrationTestSuite) createTestUser(name string) *authm.User {
+	user := &authm.User{
 		Email:         strPtrCollection(fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())),
 		FirstName:     strPtrCollection(name),
 		LastName:      strPtrCollection("User"),
@@ -82,8 +97,8 @@ func (suite *CollectionServiceIntegrationTestSuite) createTestUser(name string) 
 	return user
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) createTestUserWithUsername(name, username string) *models.User {
-	user := &models.User{
+func (suite *CollectionServiceIntegrationTestSuite) createTestUserWithUsername(name, username string) *authm.User {
+	user := &authm.User{
 		Email:         strPtrCollection(fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())),
 		Username:      strPtrCollection(username),
 		FirstName:     strPtrCollection(name),
@@ -96,15 +111,15 @@ func (suite *CollectionServiceIntegrationTestSuite) createTestUserWithUsername(n
 	return user
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) createTestArtist(name string) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (suite *CollectionServiceIntegrationTestSuite) createTestArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) createTestVenueForCollection(name string) *models.Venue {
-	venue := &models.Venue{Name: name, City: "Phoenix", State: "AZ", Verified: true}
+func (suite *CollectionServiceIntegrationTestSuite) createTestVenueForCollection(name string) *catalogm.Venue {
+	venue := &catalogm.Venue{Name: name, City: "Phoenix", State: "AZ", Verified: true}
 	err := suite.db.Create(venue).Error
 	suite.Require().NoError(err)
 	return venue
@@ -116,7 +131,7 @@ func (suite *CollectionServiceIntegrationTestSuite) createTestVenueForCollection
 // alone for tests that don't care about visibility. Tests that need a
 // public, gate-passing collection should call createPublicCollection
 // instead.
-func (suite *CollectionServiceIntegrationTestSuite) createBasicCollection(user *models.User, title string) *contracts.CollectionDetailResponse {
+func (suite *CollectionServiceIntegrationTestSuite) createBasicCollection(user *authm.User, title string) *contracts.CollectionDetailResponse {
 	resp, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
 		Title:    title,
 		IsPublic: false,
@@ -129,13 +144,13 @@ func (suite *CollectionServiceIntegrationTestSuite) createBasicCollection(user *
 // publish gate (>= 3 items, >= 50-char description) and flips it public.
 // Use this when a test depends on the collection being publicly visible
 // (anonymous viewer access, browse listing, etc.).
-func (suite *CollectionServiceIntegrationTestSuite) createPublicCollection(user *models.User, title string) *contracts.CollectionDetailResponse {
+func (suite *CollectionServiceIntegrationTestSuite) createPublicCollection(user *authm.User, title string) *contracts.CollectionDetailResponse {
 	priv := suite.createBasicCollection(user, title)
 
 	for i := 0; i < MinPublicCollectionItems; i++ {
 		artist := suite.createTestArtist(fmt.Sprintf("%s seed %d-%d", title, i, time.Now().UnixNano()))
 		_, err := suite.collectionService.AddItem(priv.Slug, user.ID, &contracts.AddCollectionItemRequest{
-			EntityType: models.CollectionEntityArtist,
+			EntityType: communitym.CollectionEntityArtist,
 			EntityID:   artist.ID,
 		})
 		suite.Require().NoError(err)
@@ -153,7 +168,7 @@ func (suite *CollectionServiceIntegrationTestSuite) createPublicCollection(user 
 
 // createBareCollection is an alias for createBasicCollection kept for
 // PSY-356 tests that read more clearly with the explicit "bare" name.
-func (suite *CollectionServiceIntegrationTestSuite) createBareCollection(user *models.User, title string) *contracts.CollectionDetailResponse {
+func (suite *CollectionServiceIntegrationTestSuite) createBareCollection(user *authm.User, title string) *contracts.CollectionDetailResponse {
 	return suite.createBasicCollection(user, title)
 }
 
@@ -279,12 +294,12 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_CreatorU
 func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_DefaultDisplayModeUnranked() {
 	user := suite.createTestUser("DefaultModeCreator")
 	resp := suite.createBasicCollection(user, "Default Mode")
-	suite.Equal(models.CollectionDisplayModeUnranked, resp.DisplayMode)
+	suite.Equal(communitym.CollectionDisplayModeUnranked, resp.DisplayMode)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_OptInRankedMode() {
 	user := suite.createTestUser("RankedCreator")
-	mode := models.CollectionDisplayModeRanked
+	mode := communitym.CollectionDisplayModeRanked
 	req := &contracts.CreateCollectionRequest{
 		Title:       "Top Albums of 2026",
 		IsPublic:    false, // PSY-356: must be created private.
@@ -294,7 +309,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_OptInRa
 	resp, err := suite.collectionService.CreateCollection(user.ID, req)
 
 	suite.Require().NoError(err)
-	suite.Equal(models.CollectionDisplayModeRanked, resp.DisplayMode)
+	suite.Equal(communitym.CollectionDisplayModeRanked, resp.DisplayMode)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_InvalidDisplayMode() {
@@ -433,6 +448,290 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	suite.Equal(int64(1), total)
 	suite.Len(resp, 1)
 	suite.Equal("Phoenix Punk Bands", resp[0].Title)
+}
+
+// =============================================================================
+// PSY-355: expanded search across description, item notes, and tag names
+// =============================================================================
+
+// updateCollectionDescription patches a collection's description without
+// flipping visibility. Used by search tests that need to seed a description
+// containing the search term while keeping the collection private (so the
+// PSY-356 publish gate doesn't get in the way).
+func (suite *CollectionServiceIntegrationTestSuite) updateCollectionDescription(slug string, userID uint, description string) {
+	desc := description
+	_, err := suite.collectionService.UpdateCollection(slug, userID, false,
+		&contracts.UpdateCollectionRequest{Description: &desc})
+	suite.Require().NoError(err)
+}
+
+// addItemWithNotes seeds a collection_item with the given notes so search
+// tests can exercise the notes-tier match. Uses a fresh artist per call so
+// the duplicate-item guard in AddItem doesn't reject repeated calls.
+func (suite *CollectionServiceIntegrationTestSuite) addItemWithNotes(slug string, userID uint, notes string) {
+	artist := suite.createTestArtist(fmt.Sprintf("notes-seed-%d", time.Now().UnixNano()))
+	notesPtr := notes
+	_, err := suite.collectionService.AddItem(slug, userID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+		Notes:      &notesPtr,
+	})
+	suite.Require().NoError(err)
+}
+
+// TestListCollections_FilterBySearch_DescriptionMatch covers the
+// description-tier branch of the OR-clause: a collection whose title doesn't
+// match but whose description does should appear in the result set.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_DescriptionMatch() {
+	user := suite.createTestUser("DescriptionSearcher")
+	target := suite.createBasicCollection(user, "Generic Title One")
+	suite.createBasicCollection(user, "Generic Title Two")
+
+	suite.updateCollectionDescription(target.Slug, user.ID,
+		"a curated dive into shoegaze classics from the 90s")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "shoegaze"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_NotesMatch covers the notes-tier branch:
+// match when only an item's notes contain the term.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_NotesMatch() {
+	user := suite.createTestUser("NotesSearcher")
+	target := suite.createBasicCollection(user, "Boring Title")
+	suite.createBasicCollection(user, "Other Boring Title")
+
+	suite.addItemWithNotes(target.Slug, user.ID,
+		"saw them open for slowdive at the warehouse — wall of sound")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "slowdive"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_TagNameMatch covers the tag-name branch
+// of the OR-clause and confirms the polymorphic entity_tags subquery
+// resolves correctly for entity_type='collection'.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_TagNameMatch() {
+	user := suite.createTestUser("TagSearcher")
+	suite.promoteContributor(user)
+
+	target := suite.createBasicCollection(user, "Untitled Mix")
+	suite.createBasicCollection(user, "Other Untitled")
+
+	_, err := suite.collectionService.AddTagToCollection(target.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "post-punk"})
+	suite.Require().NoError(err)
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "post-punk"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_TagAliasMatch verifies that the
+// LEFT JOIN tag_aliases branch resolves alias matches. Seed a tag with an
+// alias row, then query by the alias text — the collection tagged with the
+// canonical name should surface.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_TagAliasMatch() {
+	user := suite.createTestUser("AliasSearcher")
+	suite.promoteContributor(user)
+
+	target := suite.createBasicCollection(user, "Alias Target")
+	suite.createBasicCollection(user, "Alias Distractor")
+
+	tag, err := suite.tagService.CreateTag("psychedelic-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID)
+	suite.Require().NoError(err)
+
+	// Seed an alias row directly — the tag service's public surface for
+	// alias creation isn't exercised here; we just need the row.
+	suite.Require().NoError(suite.db.Create(&catalogm.TagAlias{
+		TagID: tag.ID,
+		Alias: "psych-rock",
+	}).Error)
+
+	_, err = suite.collectionService.AddTagToCollection(target.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagID: tag.ID})
+	suite.Require().NoError(err)
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "psych-rock"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_DistinctMultiFieldMatch verifies that a
+// collection matching the term in multiple fields (title + description, in
+// this case) appears exactly once. The OR-clause on its own would not
+// duplicate rows, but the tag/notes EXISTS subqueries can return multiple
+// rows for collections with multiple items / tags — confirm we don't
+// accidentally regress to a JOIN-style fan-out.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_DistinctMultiFieldMatch() {
+	user := suite.createTestUser("DistinctSearcher")
+	suite.promoteContributor(user)
+
+	target := suite.createBasicCollection(user, "Krautrock Essentials")
+	suite.updateCollectionDescription(target.Slug, user.ID,
+		"a tour through krautrock for the curious listener")
+	// Add a tag and a noted item that also reference the same term to make
+	// sure the multi-tier match still de-duplicates to a single row.
+	_, err := suite.collectionService.AddTagToCollection(target.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "krautrock"})
+	suite.Require().NoError(err)
+	suite.addItemWithNotes(target.Slug, user.ID, "krautrock cornerstone")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "krautrock"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterBySearch_RelevanceTierOrder seeds four
+// collections each matched in a different tier (title / description / notes
+// / tag) and verifies the result order: title > description > notes > tag.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_RelevanceTierOrder() {
+	user := suite.createTestUser("RelevanceSearcher")
+	suite.promoteContributor(user)
+
+	// Tier 4 — only tag matches.
+	tagOnly := suite.createBasicCollection(user, "Tag Only Collection")
+	_, err := suite.collectionService.AddTagToCollection(tagOnly.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "rocketship"})
+	suite.Require().NoError(err)
+
+	// Tier 3 — only item notes match.
+	notesOnly := suite.createBasicCollection(user, "Notes Only Collection")
+	suite.addItemWithNotes(notesOnly.Slug, user.ID, "rocketship-only-note-here")
+
+	// Tier 2 — only description matches.
+	descOnly := suite.createBasicCollection(user, "Description Only Collection")
+	suite.updateCollectionDescription(descOnly.Slug, user.ID, "a deep dive into rocketship sounds")
+
+	// Tier 1 — title matches.
+	titleOnly := suite.createBasicCollection(user, "Rocketship Best Of")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "rocketship"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(4), total)
+	suite.Require().Len(resp, 4)
+	suite.Equal(titleOnly.ID, resp[0].ID, "tier 1: title match leads")
+	suite.Equal(descOnly.ID, resp[1].ID, "tier 2: description match second")
+	suite.Equal(notesOnly.ID, resp[2].ID, "tier 3: notes match third")
+	suite.Equal(tagOnly.ID, resp[3].ID, "tier 4: tag match last")
+}
+
+// TestListCollections_FilterBySearch_EmptyShortCircuits confirms an empty
+// string disables the search predicate. (The handler also short-circuits
+// before reaching the service; this guards the service-direct path used by
+// internal callers and tests.)
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_EmptyShortCircuits() {
+	user := suite.createTestUser("EmptySearch")
+	suite.createBasicCollection(user, "Alpha")
+	suite.createBasicCollection(user, "Beta")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: ""}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Len(resp, 2)
+}
+
+// TestListCollections_FilterBySearch_WhitespaceShortCircuits is the same as
+// the empty case but with a whitespace-only query — the service trims it
+// and skips the predicate. Mirrors PSY-520's whitespace guard.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_WhitespaceShortCircuits() {
+	user := suite.createTestUser("WhitespaceSearch")
+	suite.createBasicCollection(user, "Alpha")
+	suite.createBasicCollection(user, "Beta")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "   \t  "}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Len(resp, 2)
+}
+
+// TestListCollections_FilterBySearch_PopularSortOverridesRelevance verifies
+// that an explicit ?sort=popular wins over relevance ranking when both
+// search and sort are set. The user's deliberate sort choice always wins.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_PopularSortOverridesRelevance() {
+	user := suite.createTestUser("SortOverride")
+
+	// All three collections match the search term but in different tiers.
+	// With relevance ordering: title > description > notes. With popular
+	// sort: order is by likes (none here) then updated_at DESC.
+	titleMatch := suite.createBasicCollection(user, "Indie Anthems")
+	descMatch := suite.createBasicCollection(user, "Eclectic Mix")
+	suite.updateCollectionDescription(descMatch.Slug, user.ID, "indie playlist seed for the year")
+
+	// Verify the explicit Sort knob is respected — we don't assert the
+	// exact ordering popular produces (that's covered elsewhere) but we
+	// confirm the call succeeds and surfaces both rows. The relevance
+	// tier-order test above proves the default-sort path.
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{
+			Search: "indie",
+			Sort:   contracts.CollectionSortPopular,
+		}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(resp, 2)
+	// Both rows present — order is popular-driven, not relevance-driven.
+	ids := []uint{resp[0].ID, resp[1].ID}
+	suite.Contains(ids, titleMatch.ID)
+	suite.Contains(ids, descMatch.ID)
+}
+
+// TestListCollections_FilterBySearch_CaseInsensitive confirms ILIKE behavior:
+// searching for "PUNK" (uppercase) matches a collection titled "Phoenix punk
+// bands" (lowercase). Existing case test for the title only; this widens the
+// guarantee.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_CaseInsensitive() {
+	user := suite.createTestUser("CaseSearcher")
+	target := suite.createBasicCollection(user, "Generic Title")
+	suite.updateCollectionDescription(target.Slug, user.ID,
+		"a deep look at GLITCH electronics from Berlin")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "glitch"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterByFeatured() {
@@ -679,26 +978,26 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_Display
 	// Add an item so we can verify positions survive the mode flip.
 	artist := suite.createTestArtist("Toggle Artist")
 	_, err := suite.collectionService.AddItem(created.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 	suite.Require().NoError(err)
 
 	// Default → ranked
-	mode := models.CollectionDisplayModeRanked
+	mode := communitym.CollectionDisplayModeRanked
 	resp, err := suite.collectionService.UpdateCollection(created.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		DisplayMode: &mode,
 	})
 	suite.Require().NoError(err)
-	suite.Equal(models.CollectionDisplayModeRanked, resp.DisplayMode)
+	suite.Equal(communitym.CollectionDisplayModeRanked, resp.DisplayMode)
 	suite.Equal(1, resp.ItemCount, "items should survive mode toggle")
 
 	// Ranked → unranked (data preserved)
-	mode = models.CollectionDisplayModeUnranked
+	mode = communitym.CollectionDisplayModeUnranked
 	resp, err = suite.collectionService.UpdateCollection(resp.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		DisplayMode: &mode,
 	})
 	suite.Require().NoError(err)
-	suite.Equal(models.CollectionDisplayModeUnranked, resp.DisplayMode)
+	suite.Equal(communitym.CollectionDisplayModeUnranked, resp.DisplayMode)
 	suite.Equal(1, resp.ItemCount, "items should survive mode toggle")
 }
 
@@ -771,7 +1070,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestDeleteCollection_Cascade
 
 	artist := suite.createTestArtist("Cascade Artist")
 	suite.collectionService.AddItem(created.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist,
+		EntityType: communitym.CollectionEntityArtist,
 		EntityID:   artist.ID,
 	})
 
@@ -780,11 +1079,11 @@ func (suite *CollectionServiceIntegrationTestSuite) TestDeleteCollection_Cascade
 
 	// Verify items and subscribers are cleaned up
 	var itemCount int64
-	suite.db.Model(&models.CollectionItem{}).Where("collection_id = ?", created.ID).Count(&itemCount)
+	suite.db.Model(&communitym.CollectionItem{}).Where("collection_id = ?", created.ID).Count(&itemCount)
 	suite.Equal(int64(0), itemCount)
 
 	var subCount int64
-	suite.db.Model(&models.CollectionSubscriber{}).Where("collection_id = ?", created.ID).Count(&subCount)
+	suite.db.Model(&communitym.CollectionSubscriber{}).Where("collection_id = ?", created.ID).Count(&subCount)
 	suite.Equal(int64(0), subCount)
 }
 
@@ -798,14 +1097,14 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_Artist() {
 	artist := suite.createTestArtist("Test Artist")
 
 	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist,
+		EntityType: communitym.CollectionEntityArtist,
 		EntityID:   artist.ID,
 	})
 
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
 	suite.NotZero(resp.ID)
-	suite.Equal(models.CollectionEntityArtist, resp.EntityType)
+	suite.Equal(communitym.CollectionEntityArtist, resp.EntityType)
 	suite.Equal(artist.ID, resp.EntityID)
 	suite.Equal("Test Artist", resp.EntityName)
 	suite.Equal(0, resp.Position)
@@ -818,7 +1117,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_Venue() {
 	venue := suite.createTestVenueForCollection("The Rebel Lounge")
 
 	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityVenue,
+		EntityType: communitym.CollectionEntityVenue,
 		EntityID:   venue.ID,
 	})
 
@@ -835,13 +1134,13 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_AutoIncrementPos
 	a3 := suite.createTestArtist("Third")
 
 	resp1, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a1.ID,
 	})
 	resp2, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a2.ID,
 	})
 	resp3, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a3.ID,
 	})
 
 	suite.Equal(0, resp1.Position)
@@ -856,7 +1155,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_WithNotes() {
 
 	notes := "Saw them live, amazing set"
 	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist,
+		EntityType: communitym.CollectionEntityArtist,
 		EntityID:   artist.ID,
 		Notes:      &notes,
 	})
@@ -877,7 +1176,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_RendersMarkdownN
 
 	notes := "**must-see** band — see [their site](https://example.com)"
 	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist,
+		EntityType: communitym.CollectionEntityArtist,
 		EntityID:   artist.ID,
 		Notes:      &notes,
 	})
@@ -894,7 +1193,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NotesXSSStripped
 
 	notes := "<script>alert('hax')</script>nice band"
 	resp, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist,
+		EntityType: communitym.CollectionEntityArtist,
 		EntityID:   artist.ID,
 		Notes:      &notes,
 	})
@@ -911,7 +1210,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NotesTooLong() {
 
 	long := strings.Repeat("a", contracts.MaxCollectionItemNotesLength+1)
 	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist,
+		EntityType: communitym.CollectionEntityArtist,
 		EntityID:   artist.ID,
 		Notes:      &long,
 	})
@@ -926,7 +1225,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateItem_RendersMarkdo
 	artist := suite.createTestArtist("Update Notes Artist")
 
 	added, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist,
+		EntityType: communitym.CollectionEntityArtist,
 		EntityID:   artist.ID,
 	})
 	suite.Require().NoError(err)
@@ -953,12 +1252,12 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_Duplicate() {
 	artist := suite.createTestArtist("Unique Artist")
 
 	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 	suite.Require().NoError(err)
 
 	_, err = suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 	suite.Require().Error(err)
 	var collErr *apperrors.CollectionError
@@ -976,7 +1275,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_CollaborativeByO
 
 	artist := suite.createTestArtist("Collab Artist")
 	resp, err := suite.collectionService.AddItem(coll.Slug, collaborator.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
 	suite.Require().NoError(err)
@@ -993,7 +1292,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NonCollaborative
 
 	artist := suite.createTestArtist("Blocked Artist")
 	resp, err := suite.collectionService.AddItem(coll.Slug, other.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
 	suite.Require().Error(err)
@@ -1005,7 +1304,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_NonCollaborative
 
 func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_CollectionNotFound() {
 	resp, err := suite.collectionService.AddItem("nonexistent-slug", 1, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: 1,
+		EntityType: communitym.CollectionEntityArtist, EntityID: 1,
 	})
 
 	suite.Require().Error(err)
@@ -1022,7 +1321,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_ByCreator() {
 	artist := suite.createTestArtist("Removable Artist")
 
 	item, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
 	err := suite.collectionService.RemoveItem(coll.Slug, item.ID, user.ID, false)
@@ -1043,7 +1342,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_ByItemAdder()
 
 	artist := suite.createTestArtist("Adder Artist")
 	item, _ := suite.collectionService.AddItem(coll.Slug, adder.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
 	// The adder should be able to remove their own item
@@ -1061,7 +1360,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_Forbidden() {
 
 	artist := suite.createTestArtist("Forbidden Remove Artist")
 	item, _ := suite.collectionService.AddItem(coll.Slug, adder.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
 	// User who is neither creator nor adder should be forbidden
@@ -1079,7 +1378,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestRemoveItem_AdminCanRemov
 	coll := suite.createBasicCollection(creator, "Admin Remove")
 	artist := suite.createTestArtist("Admin Removable")
 	item, _ := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 
 	err := suite.collectionService.RemoveItem(coll.Slug, item.ID, admin.ID, true)
@@ -1110,13 +1409,13 @@ func (suite *CollectionServiceIntegrationTestSuite) TestReorderItems_Success() {
 	a3 := suite.createTestArtist("Reorder Third")
 
 	item1, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a1.ID,
 	})
 	item2, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a2.ID,
 	})
 	item3, _ := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a3.ID,
 	})
 
 	// Reverse the order
@@ -1256,7 +1555,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestMarkVisited_Success() {
 	suite.Require().NoError(err)
 
 	// Verify timestamp was updated
-	var subscriber models.CollectionSubscriber
+	var subscriber communitym.CollectionSubscriber
 	err = suite.db.Where("collection_id = ? AND user_id = ?", coll.ID, user.ID).First(&subscriber).Error
 	suite.Require().NoError(err)
 	suite.Require().NotNil(subscriber.LastVisitedAt)
@@ -1280,13 +1579,13 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetStats_Success() {
 	v1 := suite.createTestVenueForCollection("Stats Venue")
 
 	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a1.ID,
 	})
 	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a2.ID,
 	})
 	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityVenue, EntityID: v1.ID,
+		EntityType: communitym.CollectionEntityVenue, EntityID: v1.ID,
 	})
 
 	stats, err := suite.collectionService.GetStats(coll.Slug)
@@ -1295,8 +1594,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetStats_Success() {
 	suite.Equal(3, stats.ItemCount)
 	suite.Equal(1, stats.SubscriberCount) // Creator
 	suite.Equal(1, stats.ContributorCount)
-	suite.Equal(2, stats.EntityTypeCounts[models.CollectionEntityArtist])
-	suite.Equal(1, stats.EntityTypeCounts[models.CollectionEntityVenue])
+	suite.Equal(2, stats.EntityTypeCounts[communitym.CollectionEntityArtist])
+	suite.Equal(1, stats.EntityTypeCounts[communitym.CollectionEntityVenue])
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetStats_EmptyCollection() {
@@ -1412,10 +1711,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ItemEntityName
 	venue := suite.createTestVenueForCollection("Resolved Venue")
 
 	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: artist.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: artist.ID,
 	})
 	suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityVenue, EntityID: venue.ID,
+		EntityType: communitym.CollectionEntityVenue, EntityID: venue.ID,
 	})
 
 	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
@@ -1440,13 +1739,13 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ContributorCou
 	a3 := suite.createTestArtist("Contrib Artist 3")
 
 	suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a1.ID,
 	})
 	suite.collectionService.AddItem(coll.Slug, collab1.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a2.ID,
 	})
 	suite.collectionService.AddItem(coll.Slug, collab2.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a3.ID,
 	})
 
 	detail, err := suite.collectionService.GetBySlug(coll.Slug, creator.ID)
@@ -1468,7 +1767,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_AuthenticatedS
 	// Reset last_visited_at to a known stale value.
 	stale := time.Now().Add(-24 * time.Hour)
 	suite.Require().NoError(
-		suite.db.Model(&models.CollectionSubscriber{}).
+		suite.db.Model(&communitym.CollectionSubscriber{}).
 			Where("collection_id = ? AND user_id = ?", coll.ID, creator.ID).
 			Update("last_visited_at", stale).Error,
 	)
@@ -1477,7 +1776,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_AuthenticatedS
 	suite.Require().NoError(err)
 
 	// Poll for up to ~250ms — the goroutine should have run by then.
-	var subscriber models.CollectionSubscriber
+	var subscriber communitym.CollectionSubscriber
 	deadline := time.Now().Add(250 * time.Millisecond)
 	for time.Now().Before(deadline) {
 		err = suite.db.Where("collection_id = ? AND user_id = ?", coll.ID, creator.ID).First(&subscriber).Error
@@ -1503,7 +1802,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_NonSubscriber_
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.CollectionSubscriber{}).
+	suite.db.Model(&communitym.CollectionSubscriber{}).
 		Where("collection_id = ? AND user_id = ?", coll.ID, viewer.ID).
 		Count(&count)
 	suite.Equal(int64(0), count, "viewing without subscribing must not create a subscription row")
@@ -1530,7 +1829,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 
 	// Subscribe the second user with a fixed last_visited_at.
 	visitedAt := time.Now().Add(-1 * time.Hour)
-	sub := &models.CollectionSubscriber{
+	sub := &communitym.CollectionSubscriber{
 		CollectionID:  coll.ID,
 		UserID:        subscriber.ID,
 		LastVisitedAt: &visitedAt,
@@ -1543,29 +1842,29 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 
 	// Item 1 added BEFORE visit — should not count.
 	item1, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a1.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a1.ID,
 	})
 	suite.Require().NoError(err)
-	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+	suite.Require().NoError(suite.db.Model(&communitym.CollectionItem{}).
 		Where("id = ?", item1.ID).
 		Update("created_at", visitedAt.Add(-30*time.Minute)).Error)
 
 	// Item 2 added AFTER visit by creator — should count.
 	item2, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a2.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a2.ID,
 	})
 	suite.Require().NoError(err)
-	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+	suite.Require().NoError(suite.db.Model(&communitym.CollectionItem{}).
 		Where("id = ?", item2.ID).
 		Update("created_at", visitedAt.Add(15*time.Minute)).Error)
 
 	// Item 3 added AFTER visit by subscriber themselves — should NOT count
 	// (we exclude the viewer's own additions to keep the badge meaningful).
 	item3, err := suite.collectionService.AddItem(coll.Slug, subscriber.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a3.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a3.ID,
 	})
 	suite.Require().NoError(err)
-	suite.Require().NoError(suite.db.Model(&models.CollectionItem{}).
+	suite.Require().NoError(suite.db.Model(&communitym.CollectionItem{}).
 		Where("id = ?", item3.ID).
 		Update("created_at", visitedAt.Add(45*time.Minute)).Error)
 
@@ -1585,7 +1884,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 	coll := suite.createBasicCollection(creator, "Coll")
 
 	// Subscribe the second user with NULL last_visited_at.
-	sub := &models.CollectionSubscriber{
+	sub := &communitym.CollectionSubscriber{
 		CollectionID:  coll.ID,
 		UserID:        subscriber.ID,
 		LastVisitedAt: nil,
@@ -1595,7 +1894,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 	// Add one item after subscribing — should count.
 	a := suite.createTestArtist("A")
 	_, err := suite.collectionService.AddItem(coll.Slug, creator.ID, &contracts.AddCollectionItemRequest{
-		EntityType: models.CollectionEntityArtist, EntityID: a.ID,
+		EntityType: communitym.CollectionEntityArtist, EntityID: a.ID,
 	})
 	suite.Require().NoError(err)
 
@@ -1746,7 +2045,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_PopularS
 	old := suite.createPublicCollection(creator, "Old Hits")
 	thirtyDaysAgo := time.Now().Add(-30 * 24 * time.Hour)
 	suite.Require().NoError(
-		suite.db.Model(&models.Collection{}).Where("id = ?", old.ID).
+		suite.db.Model(&communitym.Collection{}).Where("id = ?", old.ID).
 			Update("created_at", thirtyDaysAgo).Error,
 	)
 	for i := 0; i < 5; i++ {
@@ -1852,7 +2151,7 @@ func (suite *CollectionServiceIntegrationTestSuite) gateSeedItems(slug string, u
 	for i := 0; i < count; i++ {
 		artist := suite.createTestArtist(fmt.Sprintf("seed-%s-%d-%d", slug, i, time.Now().UnixNano()))
 		_, err := suite.collectionService.AddItem(slug, userID, &contracts.AddCollectionItemRequest{
-			EntityType: models.CollectionEntityArtist,
+			EntityType: communitym.CollectionEntityArtist,
 			EntityID:   artist.ID,
 		})
 		suite.Require().NoError(err)
@@ -1867,7 +2166,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestPublicOnly_ExcludesBelow
 
 	// Force is_public=true behind the back of the service to simulate a
 	// grandfathered (pre-PSY-356) row that the gate must drop from browse.
-	suite.Require().NoError(suite.db.Model(&models.Collection{}).
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
 		Where("id = ?", priv.ID).
 		Updates(map[string]interface{}{
 			"is_public":   true,
@@ -1886,7 +2185,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestPublicOnly_ExcludesBelow
 	suite.gateSeedItems(priv.Slug, user.ID, MinPublicCollectionItems)
 
 	// Grandfather + zero-length description.
-	suite.Require().NoError(suite.db.Model(&models.Collection{}).
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
 		Where("id = ?", priv.ID).
 		Updates(map[string]interface{}{
 			"is_public":   true,
@@ -2001,7 +2300,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PublicT
 	user := suite.createTestUser("UnpublishOwner")
 	// Grandfather a public-but-below-gate row directly.
 	priv := suite.createBareCollection(user, "Grandfathered")
-	suite.Require().NoError(suite.db.Model(&models.Collection{}).
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
 		Where("id = ?", priv.ID).
 		Update("is_public", true).Error)
 
@@ -2019,7 +2318,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PublicT
 func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_GrandfatheredEditableWithoutGate() {
 	user := suite.createTestUser("GrandfatheredEditor")
 	priv := suite.createBareCollection(user, "Edit Me")
-	suite.Require().NoError(suite.db.Model(&models.Collection{}).
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
 		Where("id = ?", priv.ID).
 		Update("is_public", true).Error)
 
@@ -2050,4 +2349,565 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_AutoPass
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total, "source + clone both pass the gate")
 	suite.Len(resp, 2)
+}
+
+// =============================================================================
+// PSY-354: Collection tags
+// =============================================================================
+//
+// Tags reuse the polymorphic entity_tags table. Coverage:
+//   - Add by free-form name creates the tag inline + applies it.
+//   - Add reuses an existing tag when one is found by name.
+//   - Add enforces MaxCollectionTags (rejects 11th).
+//   - Permission rule: creator OR collaborative-and-authenticated; otherwise 403.
+//   - Remove unapplies the tag and decrements usage_count.
+//   - Detail / list responses surface tags.
+//   - ListCollections accepts ?tag=<slug> and filters correctly.
+
+// promoteContributor flips a test user's tier to "contributor" so the tag
+// service's createTagInline gate (new_user → 403) doesn't reject the test
+// path. createTestUser doesn't set UserTier, so the DB default ("new_user")
+// applies — identical to the dogfooded gate, which we want to side-step
+// for the bulk of these tests since the trust-tier gate is covered in
+// catalog/tag_service_test.go.
+func (suite *CollectionServiceIntegrationTestSuite) promoteContributor(user *authm.User) {
+	suite.Require().NoError(suite.db.Model(&authm.User{}).
+		Where("id = ?", user.ID).
+		Update("user_tier", "contributor").Error)
+}
+
+// TestAddTagToCollection_ByName_HappyPath creates the tag inline and surfaces
+// it on the post-mutation response.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_ByName_HappyPath() {
+	creator := suite.createTestUser("TagCreator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Tagged Collection")
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "best-of-2026"})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Tags, 1)
+	suite.Equal("best-of-2026", resp.Tags[0].Name)
+	suite.Equal("other", resp.Tags[0].Category, "default category for new collection tags is 'other'")
+}
+
+// TestAddTagToCollection_ByID applies an existing tag without creating a new one.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_ByID() {
+	creator := suite.createTestUser("TagCreator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "By ID Collection")
+
+	// Pre-create a tag.
+	tag, err := suite.tagService.CreateTag("phoenix", nil, nil, catalogm.TagCategoryLocale, false, &creator.ID)
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagID: tag.ID})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Tags, 1)
+	suite.Equal(tag.ID, resp.Tags[0].TagID)
+	suite.Equal("phoenix", resp.Tags[0].Name)
+	suite.Equal("locale", resp.Tags[0].Category, "category preserved when applying an existing tag")
+}
+
+// TestAddTagToCollection_DefaultCategory_OtherForFreeForm verifies that a
+// free-form tag name without a category gets "other" rather than picking
+// up "genre" by default — the rest of the tag system defaults to genre,
+// but collection meta-tags rarely fit that taxonomy.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_DefaultCategory_OtherForFreeForm() {
+	creator := suite.createTestUser("TagCreator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Default Category Test")
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "post-show-essentials"})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Tags, 1)
+	suite.Equal("other", resp.Tags[0].Category)
+}
+
+// TestAddTagToCollection_MaxLimit_Rejects11th hits the cap and verifies the
+// 400 carries the cap + current count.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_MaxLimit_Rejects11th() {
+	creator := suite.createTestUser("CapCreator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Capped Collection")
+
+	for i := 0; i < contracts.MaxCollectionTags; i++ {
+		_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+			&contracts.AddCollectionTagRequest{TagName: fmt.Sprintf("cap-tag-%d", i)})
+		suite.Require().NoError(err, "failed adding tag %d", i)
+	}
+
+	_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "one-too-many"})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionTagLimitExceeded, collErr.Code)
+	suite.Contains(collErr.Message, "10 tags")
+}
+
+// TestAddTagToCollection_NonOwner_NonCollaborative_Rejected covers the
+// permission gate: a non-creator on a non-collaborative collection cannot
+// add tags. PSY-354. createBasicCollection's GORM-bool dance lands the
+// collection as Collaborative=false by default, which is the state we want.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_NonOwner_NonCollaborative_Rejected() {
+	creator := suite.createTestUser("Owner")
+	stranger := suite.createTestUser("Stranger")
+	suite.promoteContributor(stranger)
+
+	coll := suite.createBasicCollection(creator, "Solo Curator")
+	suite.Require().False(coll.Collaborative, "expected default Collaborative=false from createBasicCollection")
+
+	_, err := suite.collectionService.AddTagToCollection(coll.Slug, stranger.ID,
+		&contracts.AddCollectionTagRequest{TagName: "intruder-tag"})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+}
+
+// TestAddTagToCollection_Collaborator_Allowed verifies the open path: any
+// authenticated user can tag a collaborative collection. createBasicCollection
+// defaults to Collaborative=false (per CreateCollection's GORM-bool dance);
+// flip it explicitly with UpdateCollection so the test exercises the
+// collaborative branch of canEditCollectionTags.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_Collaborator_Allowed() {
+	creator := suite.createTestUser("Owner")
+	collaborator := suite.createTestUser("Helper")
+	suite.promoteContributor(collaborator)
+
+	coll := suite.createBasicCollection(creator, "Collab Curator")
+	collab := true
+	_, err := suite.collectionService.UpdateCollection(coll.Slug, creator.ID, false,
+		&contracts.UpdateCollectionRequest{Collaborative: &collab})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, collaborator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "community-pick"})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Tags, 1)
+	suite.Equal("community-pick", resp.Tags[0].Name)
+}
+
+// TestAddTagToCollection_NotFound returns 404-shaped error.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_NotFound() {
+	user := suite.createTestUser("AnyUser")
+	suite.promoteContributor(user)
+	_, err := suite.collectionService.AddTagToCollection("does-not-exist-slug", user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "tag"})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionNotFound, collErr.Code)
+}
+
+// TestAddTagToCollection_MissingArgs rejects bodies without tag_id or tag_name.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddTagToCollection_MissingArgs() {
+	creator := suite.createTestUser("Owner")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Missing Args")
+
+	_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionInvalidRequest, collErr.Code)
+}
+
+// TestRemoveTagFromCollection_Success removes the application and the tag
+// disappears from the detail response.
+func (suite *CollectionServiceIntegrationTestSuite) TestRemoveTagFromCollection_Success() {
+	creator := suite.createTestUser("Owner")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Remove Tag Test")
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "to-be-removed"})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Tags, 1)
+	tagID := resp.Tags[0].TagID
+
+	suite.Require().NoError(suite.collectionService.RemoveTagFromCollection(coll.Slug, tagID, creator.ID))
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, creator.ID)
+	suite.Require().NoError(err)
+	suite.Empty(detail.Tags, "removed tag must drop from the detail response")
+}
+
+// TestRemoveTagFromCollection_NonOwner_Rejected mirrors the add gate.
+func (suite *CollectionServiceIntegrationTestSuite) TestRemoveTagFromCollection_NonOwner_Rejected() {
+	creator := suite.createTestUser("Owner")
+	stranger := suite.createTestUser("Stranger")
+	suite.promoteContributor(creator)
+
+	coll := suite.createBasicCollection(creator, "Solo Curator Removal")
+	suite.Require().False(coll.Collaborative, "expected default Collaborative=false")
+
+	resp, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "owner-only"})
+	suite.Require().NoError(err)
+	tagID := resp.Tags[0].TagID
+
+	err = suite.collectionService.RemoveTagFromCollection(coll.Slug, tagID, stranger.ID)
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionForbidden, collErr.Code)
+}
+
+// TestGetBySlug_PopulatesTags verifies tags surface on the detail response.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_PopulatesTags() {
+	creator := suite.createTestUser("Curator")
+	suite.promoteContributor(creator)
+	coll := suite.createBasicCollection(creator, "Detail With Tags")
+
+	for _, name := range []string{"genre-foo", "vibe-bar"} {
+		_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+			&contracts.AddCollectionTagRequest{TagName: name})
+		suite.Require().NoError(err)
+	}
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, creator.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Tags, 2)
+
+	names := []string{detail.Tags[0].Name, detail.Tags[1].Name}
+	suite.Contains(names, "genre-foo")
+	suite.Contains(names, "vibe-bar")
+}
+
+// TestListCollections_PopulatesTagSummaries verifies tag chips appear on
+// list cards.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_PopulatesTagSummaries() {
+	creator := suite.createTestUser("Curator")
+	suite.promoteContributor(creator)
+	coll := suite.createPublicCollection(creator, "List With Tags")
+
+	_, err := suite.collectionService.AddTagToCollection(coll.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "card-tag"})
+	suite.Require().NoError(err)
+
+	resp, _, err := suite.collectionService.ListCollections(contracts.CollectionFilters{PublicOnly: true}, 20, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1)
+	suite.Require().Len(resp[0].Tags, 1)
+	suite.Equal("card-tag", resp[0].Tags[0].Name)
+}
+
+// TestListCollections_FilterByTag returns only collections matching the
+// given tag slug.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterByTag() {
+	creator := suite.createTestUser("Curator")
+	suite.promoteContributor(creator)
+
+	tagged := suite.createPublicCollection(creator, "Tagged List")
+	suite.createPublicCollection(creator, "Untagged List")
+
+	addResp, err := suite.collectionService.AddTagToCollection(tagged.Slug, creator.ID,
+		&contracts.AddCollectionTagRequest{TagName: "indie-2026"})
+	suite.Require().NoError(err)
+	suite.Require().Len(addResp.Tags, 1)
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{PublicOnly: true, Tag: "indie-2026"}, 20, 0,
+	)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(tagged.ID, resp[0].ID)
+}
+
+// TestListCollections_FilterByTag_Unknown returns empty when no collection
+// has the requested tag.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterByTag_Unknown() {
+	creator := suite.createTestUser("Curator")
+	suite.createPublicCollection(creator, "Some Collection")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{PublicOnly: true, Tag: "no-such-tag-slug-xyz"}, 20, 0,
+	)
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total)
+	suite.Empty(resp)
+}
+
+// =============================================================================
+// PSY-360: ImageURL surfacing on collection items
+// =============================================================================
+
+// TestGetBySlug_ImageURL_PopulatedForReleaseAndFestival verifies that the
+// CollectionItemResponse.ImageURL field is wired up for release/festival
+// (the original PSY-360 entity types) and that artist/venue/show/label
+// (which post-PSY-521 also have an image_url column) surface as nil when
+// the curator has not yet added a URL.
+//
+// This is the contract the frontend grid (PSY-360) depends on: image when
+// available, nil so the frontend renders a typed Lucide icon fallback.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_PopulatedForReleaseAndFestival() {
+	user := suite.createTestUser("ImageURLOwner")
+	coll := suite.createBasicCollection(user, "Visual Grid Test")
+
+	// Release with cover art → image_url should surface.
+	releaseSlug := fmt.Sprintf("test-release-%d", time.Now().UnixNano())
+	coverURL := "https://example.com/cover.jpg"
+	release := &catalogm.Release{
+		Title:       "Test Release",
+		Slug:        &releaseSlug,
+		ReleaseType: catalogm.ReleaseTypeLP,
+		CoverArtURL: &coverURL,
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+
+	// Festival with flyer → image_url should surface.
+	flyerURL := "https://example.com/flyer.jpg"
+	festival := &catalogm.Festival{
+		Name:        "Test Festival",
+		Slug:        fmt.Sprintf("test-festival-%d", time.Now().UnixNano()),
+		SeriesSlug:  "test-festival",
+		EditionYear: 2026,
+		StartDate:   "2026-06-01",
+		EndDate:     "2026-06-03",
+		FlyerURL:    &flyerURL,
+	}
+	suite.Require().NoError(suite.db.Create(festival).Error)
+
+	// Artist (image_url column exists post-PSY-521 but unset here) → nil.
+	artist := suite.createTestArtist("Test Artist For Image")
+	// Venue (image_url column exists post-PSY-521 but unset here) → nil.
+	venue := suite.createTestVenueForCollection("Test Venue For Image")
+	// Label (image_url column exists post-PSY-521 but unset here) → nil.
+	labelSlug := fmt.Sprintf("test-label-%d", time.Now().UnixNano())
+	label := &catalogm.Label{
+		Name: "Test Label For Image",
+		Slug: &labelSlug,
+	}
+	suite.Require().NoError(suite.db.Create(label).Error)
+	// Show (image_url column exists post-PSY-521 but unset here) → nil.
+	showSlug := fmt.Sprintf("test-show-%d", time.Now().UnixNano())
+	show := &catalogm.Show{
+		Title:     "Test Show For Image",
+		Slug:      &showSlug,
+		EventDate: time.Now().Add(7 * 24 * time.Hour),
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	// Add all six entity types in a stable order so we can assert by index.
+	for _, item := range []struct {
+		entityType string
+		entityID   uint
+	}{
+		{communitym.CollectionEntityRelease, release.ID},
+		{communitym.CollectionEntityFestival, festival.ID},
+		{communitym.CollectionEntityArtist, artist.ID},
+		{communitym.CollectionEntityVenue, venue.ID},
+		{communitym.CollectionEntityLabel, label.ID},
+		{communitym.CollectionEntityShow, show.ID},
+	} {
+		_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+			EntityType: item.entityType,
+			EntityID:   item.entityID,
+		})
+		suite.Require().NoError(err)
+	}
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Items, 6)
+
+	// Index by entity_type for clarity — order is by position but we want
+	// the assertions readable regardless.
+	byType := make(map[string]contracts.CollectionItemResponse)
+	for _, it := range detail.Items {
+		byType[it.EntityType] = it
+	}
+
+	// Release: image_url populated.
+	suite.Require().NotNil(byType[communitym.CollectionEntityRelease].ImageURL,
+		"release with cover_art_url should surface image_url")
+	suite.Equal(coverURL, *byType[communitym.CollectionEntityRelease].ImageURL)
+
+	// Festival: image_url populated.
+	suite.Require().NotNil(byType[communitym.CollectionEntityFestival].ImageURL,
+		"festival with flyer_url should surface image_url")
+	suite.Equal(flyerURL, *byType[communitym.CollectionEntityFestival].ImageURL)
+
+	// Artist/venue/label/show: image_url column exists (PSY-521) but
+	// curator has not added a URL on these fixtures → image_url is nil.
+	suite.Nil(byType[communitym.CollectionEntityArtist].ImageURL,
+		"artist with no image_url should surface nil")
+	suite.Nil(byType[communitym.CollectionEntityVenue].ImageURL,
+		"venue with no image_url should surface nil")
+	suite.Nil(byType[communitym.CollectionEntityLabel].ImageURL,
+		"label with no image_url should surface nil")
+	suite.Nil(byType[communitym.CollectionEntityShow].ImageURL,
+		"show with no image_url should surface nil")
+}
+
+// TestGetBySlug_ImageURL_PopulatedForArtistVenueShowLabel verifies that the
+// PSY-521 image_url column on artist/venue/show/label is wired through the
+// batch resolver and surfaces on CollectionItemResponse.ImageURL exactly the
+// way release.cover_art_url and festival.flyer_url do.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_PopulatedForArtistVenueShowLabel() {
+	user := suite.createTestUser("PSY521ImageOwner")
+	coll := suite.createBasicCollection(user, "PSY-521 Imagery Test")
+
+	artistImg := "https://example.com/artist-promo.jpg"
+	artist := suite.createTestArtist("PSY521 Artist")
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Artist{}).Where("id = ?", artist.ID).
+			Update("image_url", artistImg).Error,
+	)
+
+	venueImg := "https://example.com/venue-exterior.jpg"
+	venue := suite.createTestVenueForCollection("PSY521 Venue")
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Venue{}).Where("id = ?", venue.ID).
+			Update("image_url", venueImg).Error,
+	)
+
+	labelImg := "https://example.com/label-logo.png"
+	labelSlug := fmt.Sprintf("psy521-label-%d", time.Now().UnixNano())
+	label := &catalogm.Label{
+		Name:     "PSY521 Label",
+		Slug:     &labelSlug,
+		ImageURL: &labelImg,
+	}
+	suite.Require().NoError(suite.db.Create(label).Error)
+
+	showImg := "https://example.com/show-flyer.jpg"
+	showSlug := fmt.Sprintf("psy521-show-%d", time.Now().UnixNano())
+	show := &catalogm.Show{
+		Title:     "PSY521 Show",
+		Slug:      &showSlug,
+		EventDate: time.Now().Add(14 * 24 * time.Hour),
+		ImageURL:  &showImg,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	for _, item := range []struct {
+		entityType string
+		entityID   uint
+	}{
+		{communitym.CollectionEntityArtist, artist.ID},
+		{communitym.CollectionEntityVenue, venue.ID},
+		{communitym.CollectionEntityLabel, label.ID},
+		{communitym.CollectionEntityShow, show.ID},
+	} {
+		_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+			EntityType: item.entityType,
+			EntityID:   item.entityID,
+		})
+		suite.Require().NoError(err)
+	}
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Items, 4)
+
+	byType := make(map[string]contracts.CollectionItemResponse)
+	for _, it := range detail.Items {
+		byType[it.EntityType] = it
+	}
+
+	suite.Require().NotNil(byType[communitym.CollectionEntityArtist].ImageURL)
+	suite.Equal(artistImg, *byType[communitym.CollectionEntityArtist].ImageURL)
+
+	suite.Require().NotNil(byType[communitym.CollectionEntityVenue].ImageURL)
+	suite.Equal(venueImg, *byType[communitym.CollectionEntityVenue].ImageURL)
+
+	suite.Require().NotNil(byType[communitym.CollectionEntityLabel].ImageURL)
+	suite.Equal(labelImg, *byType[communitym.CollectionEntityLabel].ImageURL)
+
+	suite.Require().NotNil(byType[communitym.CollectionEntityShow].ImageURL)
+	suite.Equal(showImg, *byType[communitym.CollectionEntityShow].ImageURL)
+}
+
+// TestGetBySlug_ImageURL_NilWhenSourceColumnIsNull verifies that releases
+// and festivals without an image column value yield image_url = nil (not
+// pointer-to-empty-string). Catches the foot-gun of accidentally surfacing
+// `""` to the frontend, which would render as `<img src="">` and trip a
+// broken-image icon.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_NilWhenSourceColumnIsNull() {
+	user := suite.createTestUser("NullImageOwner")
+	coll := suite.createBasicCollection(user, "Null Image Test")
+
+	// Release without cover_art_url.
+	releaseSlug := fmt.Sprintf("nullimg-release-%d", time.Now().UnixNano())
+	release := &catalogm.Release{
+		Title:       "No Cover",
+		Slug:        &releaseSlug,
+		ReleaseType: catalogm.ReleaseTypeLP,
+		// CoverArtURL intentionally nil.
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+
+	// Festival without flyer_url.
+	festival := &catalogm.Festival{
+		Name:        "No Flyer",
+		Slug:        fmt.Sprintf("nullimg-festival-%d", time.Now().UnixNano()),
+		SeriesSlug:  "nullimg-festival",
+		EditionYear: 2026,
+		StartDate:   "2026-07-01",
+		EndDate:     "2026-07-03",
+		// FlyerURL intentionally nil.
+	}
+	suite.Require().NoError(suite.db.Create(festival).Error)
+
+	for _, it := range []struct {
+		entityType string
+		entityID   uint
+	}{
+		{communitym.CollectionEntityRelease, release.ID},
+		{communitym.CollectionEntityFestival, festival.ID},
+	} {
+		_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+			EntityType: it.entityType,
+			EntityID:   it.entityID,
+		})
+		suite.Require().NoError(err)
+	}
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Items, 2)
+
+	for _, it := range detail.Items {
+		suite.Nil(it.ImageURL,
+			"image_url must be nil (not pointer-to-empty) when source column is null; entity_type=%s", it.EntityType)
+	}
+}
+
+// TestGetBySlug_ImageURL_NilWhenSourceColumnIsWhitespace verifies that a
+// release with a stored image URL of "   " (whitespace-only) surfaces nil,
+// not a useless string. Defense in depth against bad seed data.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_NilWhenSourceColumnIsWhitespace() {
+	user := suite.createTestUser("WhitespaceImageOwner")
+	coll := suite.createBasicCollection(user, "Whitespace Image Test")
+
+	releaseSlug := fmt.Sprintf("ws-release-%d", time.Now().UnixNano())
+	whitespace := "   "
+	release := &catalogm.Release{
+		Title:       "Whitespace Cover",
+		Slug:        &releaseSlug,
+		ReleaseType: catalogm.ReleaseTypeLP,
+		CoverArtURL: &whitespace,
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+
+	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityRelease,
+		EntityID:   release.ID,
+	})
+	suite.Require().NoError(err)
+
+	detail, err := suite.collectionService.GetBySlug(coll.Slug, user.ID)
+	suite.Require().NoError(err)
+	suite.Require().Len(detail.Items, 1)
+
+	suite.Nil(detail.Items[0].ImageURL,
+		"whitespace-only image URLs should normalize to nil so the frontend renders the typed-icon fallback")
 }

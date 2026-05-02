@@ -4,7 +4,8 @@ import (
 	"encoding/json"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -30,12 +31,12 @@ import (
 // seedArtistRelationship creates a row in artist_relationships. The CHECK
 // constraint enforces source_artist_id < target_artist_id; the helper
 // canonicalizes the pair so callers don't have to.
-func (suite *CollectionServiceIntegrationTestSuite) seedArtistRelationship(a, b *models.Artist, relType string, score float32) {
+func (suite *CollectionServiceIntegrationTestSuite) seedArtistRelationship(a, b *catalogm.Artist, relType string, score float32) {
 	src, tgt := a.ID, b.ID
 	if src > tgt {
 		src, tgt = tgt, src
 	}
-	rel := &models.ArtistRelationship{
+	rel := &catalogm.ArtistRelationship{
 		SourceArtistID:   src,
 		TargetArtistID:   tgt,
 		RelationshipType: relType,
@@ -50,9 +51,9 @@ func (suite *CollectionServiceIntegrationTestSuite) seedArtistRelationship(a, b 
 // false→true transition, so this is safe for graph tests that need a public
 // collection with N artist items without satisfying the publish-gate.
 func (suite *CollectionServiceIntegrationTestSuite) addArtistItemToCollection(collectionID, artistID, addedByUserID uint) {
-	item := &models.CollectionItem{
+	item := &communitym.CollectionItem{
 		CollectionID:  collectionID,
-		EntityType:    models.CollectionEntityArtist,
+		EntityType:    communitym.CollectionEntityArtist,
 		EntityID:      artistID,
 		AddedByUserID: addedByUserID,
 	}
@@ -62,7 +63,7 @@ func (suite *CollectionServiceIntegrationTestSuite) addArtistItemToCollection(co
 // addNonArtistItemToCollection seeds a non-artist item (release/venue/etc.)
 // to verify the graph filters correctly.
 func (suite *CollectionServiceIntegrationTestSuite) addNonArtistItemToCollection(collectionID, entityID, addedByUserID uint, entityType string) {
-	item := &models.CollectionItem{
+	item := &communitym.CollectionItem{
 		CollectionID:  collectionID,
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -80,7 +81,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Publi
 	suite.addArtistItemToCollection(coll.ID, a1.ID, user.ID)
 	suite.addArtistItemToCollection(coll.ID, a2.ID, user.ID)
 	suite.addArtistItemToCollection(coll.ID, a3.ID, user.ID)
-	suite.seedArtistRelationship(a1, a2, models.RelationshipTypeSharedBills, 5.0)
+	suite.seedArtistRelationship(a1, a2, catalogm.RelationshipTypeSharedBills, 5.0)
 
 	graph, err := suite.collectionService.GetCollectionGraph(coll.Slug, 0, nil)
 	suite.Require().NoError(err)
@@ -128,14 +129,14 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Priva
 	a2 := suite.createTestArtist("PrivateB")
 	suite.addArtistItemToCollection(priv.ID, a1.ID, creator.ID)
 	suite.addArtistItemToCollection(priv.ID, a2.ID, creator.ID)
-	suite.seedArtistRelationship(a1, a2, models.RelationshipTypeSimilar, 3.0)
+	suite.seedArtistRelationship(a1, a2, catalogm.RelationshipTypeSimilar, 3.0)
 
 	graph, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, nil)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(graph)
 	suite.Len(graph.Nodes, 2)
 	suite.Len(graph.Links, 1)
-	suite.Equal(models.RelationshipTypeSimilar, graph.Links[0].Type)
+	suite.Equal(catalogm.RelationshipTypeSimilar, graph.Links[0].Type)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_NotFound() {
@@ -157,7 +158,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Mixed
 	suite.addArtistItemToCollection(priv.ID, a1.ID, creator.ID)
 	suite.addArtistItemToCollection(priv.ID, a2.ID, creator.ID)
 	// Add a venue item — should NOT appear in graph.
-	suite.addNonArtistItemToCollection(priv.ID, venue.ID, creator.ID, models.CollectionEntityVenue)
+	suite.addNonArtistItemToCollection(priv.ID, venue.ID, creator.ID, communitym.CollectionEntityVenue)
 
 	graph, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, nil)
 	suite.Require().NoError(err)
@@ -170,7 +171,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Empty
 	priv := suite.createBasicCollection(creator, "No Artists")
 	venue := suite.createTestVenueForCollection("Lonely Venue")
 	// Only a venue item — no artist items at all.
-	suite.addNonArtistItemToCollection(priv.ID, venue.ID, creator.ID, models.CollectionEntityVenue)
+	suite.addNonArtistItemToCollection(priv.ID, venue.ID, creator.ID, communitym.CollectionEntityVenue)
 
 	graph, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, nil)
 	suite.Require().NoError(err)
@@ -189,8 +190,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_TypeF
 	suite.addArtistItemToCollection(priv.ID, a1.ID, creator.ID)
 	suite.addArtistItemToCollection(priv.ID, a2.ID, creator.ID)
 	// Two edges between the same pair, different types.
-	suite.seedArtistRelationship(a1, a2, models.RelationshipTypeSharedBills, 4.0)
-	suite.seedArtistRelationship(a1, a2, models.RelationshipTypeSharedLabel, 2.0)
+	suite.seedArtistRelationship(a1, a2, catalogm.RelationshipTypeSharedBills, 4.0)
+	suite.seedArtistRelationship(a1, a2, catalogm.RelationshipTypeSharedLabel, 2.0)
 
 	// Empty types → both edges
 	graphAll, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, nil)
@@ -198,10 +199,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_TypeF
 	suite.Len(graphAll.Links, 2)
 
 	// Filter to shared_bills → only one edge
-	graphFiltered, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, []string{models.RelationshipTypeSharedBills})
+	graphFiltered, err := suite.collectionService.GetCollectionGraph(priv.Slug, creator.ID, []string{catalogm.RelationshipTypeSharedBills})
 	suite.Require().NoError(err)
 	suite.Len(graphFiltered.Links, 1)
-	suite.Equal(models.RelationshipTypeSharedBills, graphFiltered.Links[0].Type)
+	suite.Equal(catalogm.RelationshipTypeSharedBills, graphFiltered.Links[0].Type)
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_AllUnknownTypesReturnsZeroEdges() {
@@ -211,7 +212,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_AllUn
 	a2 := suite.createTestArtist("UnknownB")
 	suite.addArtistItemToCollection(priv.ID, a1.ID, creator.ID)
 	suite.addArtistItemToCollection(priv.ID, a2.ID, creator.ID)
-	suite.seedArtistRelationship(a1, a2, models.RelationshipTypeSharedBills, 4.0)
+	suite.seedArtistRelationship(a1, a2, catalogm.RelationshipTypeSharedBills, 4.0)
 
 	// Caller asked for a type the allowlist rejects → must return zero edges
 	// (must NOT silently fall back to "all allowed types").
@@ -235,10 +236,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Relat
 		src, tgt = tgt, src
 	}
 	detail := json.RawMessage(`{"shared_show_count": 7, "venue": "Trunk Space"}`)
-	rel := &models.ArtistRelationship{
+	rel := &catalogm.ArtistRelationship{
 		SourceArtistID:   src,
 		TargetArtistID:   tgt,
-		RelationshipType: models.RelationshipTypeSharedBills,
+		RelationshipType: catalogm.RelationshipTypeSharedBills,
 		Score:            7.0,
 		AutoDerived:      true,
 		Detail:           &detail,

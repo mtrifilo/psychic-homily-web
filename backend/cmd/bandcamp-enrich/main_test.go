@@ -1,9 +1,8 @@
 package main
 
 import (
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"testing"
-
-	"psychic-homily-backend/internal/models"
 )
 
 func TestNormalizeTitle(t *testing.T) {
@@ -137,11 +136,11 @@ func TestExtractReleaseURLs(t *testing.T) {
 
 func TestExtractJSONLD(t *testing.T) {
 	tests := []struct {
-		name       string
-		html       string
-		wantType   string
-		wantTitle  string
-		wantErr    bool
+		name      string
+		html      string
+		wantType  string
+		wantTitle string
+		wantErr   bool
 	}{
 		{
 			name: "MusicAlbum JSON-LD",
@@ -175,8 +174,8 @@ func TestExtractJSONLD(t *testing.T) {
 			wantErr:   false,
 		},
 		{
-			name: "no JSON-LD",
-			html: `<html><head><title>No JSON-LD</title></head></html>`,
+			name:    "no JSON-LD",
+			html:    `<html><head><title>No JSON-LD</title></head></html>`,
 			wantErr: true,
 		},
 		{
@@ -239,15 +238,15 @@ func TestExtractJSONLD(t *testing.T) {
 
 func TestJsonLDToRelease(t *testing.T) {
 	tests := []struct {
-		name         string
-		jsonLD       BandcampJSONLD
-		url          string
-		artist       string
-		wantTitle    string
-		wantType     models.ReleaseType
-		wantYear     *int
-		wantLabel    *string
-		wantNil      bool
+		name      string
+		jsonLD    BandcampJSONLD
+		url       string
+		artist    string
+		wantTitle string
+		wantType  catalogm.ReleaseType
+		wantYear  *int
+		wantLabel *string
+		wantNil   bool
 	}{
 		{
 			name: "full album",
@@ -260,7 +259,7 @@ func TestJsonLDToRelease(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/full-album",
 			artist:    "The Artist",
 			wantTitle: "Full Album",
-			wantType:  models.ReleaseTypeLP,
+			wantType:  catalogm.ReleaseTypeLP,
 			wantYear:  intPtr(2024),
 		},
 		{
@@ -274,7 +273,7 @@ func TestJsonLDToRelease(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/short-ep",
 			artist:    "The Artist",
 			wantTitle: "Short EP",
-			wantType:  models.ReleaseTypeEP,
+			wantType:  catalogm.ReleaseTypeEP,
 			wantYear:  intPtr(2023),
 		},
 		{
@@ -288,7 +287,7 @@ func TestJsonLDToRelease(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/just-one-song",
 			artist:    "The Artist",
 			wantTitle: "Just One Song",
-			wantType:  models.ReleaseTypeSingle,
+			wantType:  catalogm.ReleaseTypeSingle,
 			wantYear:  intPtr(2024),
 		},
 		{
@@ -301,7 +300,7 @@ func TestJsonLDToRelease(t *testing.T) {
 			url:       "https://artist.bandcamp.com/track/single-track",
 			artist:    "The Artist",
 			wantTitle: "Single Track",
-			wantType:  models.ReleaseTypeSingle,
+			wantType:  catalogm.ReleaseTypeSingle,
 			wantYear:  intPtr(2024),
 		},
 		{
@@ -316,7 +315,7 @@ func TestJsonLDToRelease(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/label-album",
 			artist:    "The Artist",
 			wantTitle: "Label Album",
-			wantType:  models.ReleaseTypeLP,
+			wantType:  catalogm.ReleaseTypeLP,
 			wantYear:  intPtr(2023),
 			wantLabel: strPtr("Indie Records"),
 		},
@@ -341,7 +340,7 @@ func TestJsonLDToRelease(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/track-items",
 			artist:    "The Artist",
 			wantTitle: "Track Items Album",
-			wantType:  models.ReleaseTypeEP,
+			wantType:  catalogm.ReleaseTypeEP,
 			wantYear:  intPtr(2024),
 		},
 		{
@@ -356,7 +355,7 @@ func TestJsonLDToRelease(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/artist-album",
 			artist:    "Fallback Artist",
 			wantTitle: "Artist Album",
-			wantType:  models.ReleaseTypeLP,
+			wantType:  catalogm.ReleaseTypeLP,
 			wantYear:  intPtr(2024),
 		},
 		{
@@ -371,7 +370,7 @@ func TestJsonLDToRelease(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/image-album",
 			artist:    "The Artist",
 			wantTitle: "Image Album",
-			wantType:  models.ReleaseTypeLP,
+			wantType:  catalogm.ReleaseTypeLP,
 			wantYear:  intPtr(2024),
 		},
 	}
@@ -415,13 +414,13 @@ func TestJsonLDToRelease(t *testing.T) {
 func TestGetBandcampURL(t *testing.T) {
 	tests := []struct {
 		name     string
-		artist   models.Artist
+		artist   catalogm.Artist
 		expected string
 	}{
 		{
 			name: "social bandcamp URL with https",
-			artist: models.Artist{
-				Social: models.Social{
+			artist: catalogm.Artist{
+				Social: catalogm.Social{
 					Bandcamp: strPtr("https://theband.bandcamp.com"),
 				},
 			},
@@ -429,8 +428,8 @@ func TestGetBandcampURL(t *testing.T) {
 		},
 		{
 			name: "social bandcamp URL without protocol",
-			artist: models.Artist{
-				Social: models.Social{
+			artist: catalogm.Artist{
+				Social: catalogm.Social{
 					Bandcamp: strPtr("theband.bandcamp.com"),
 				},
 			},
@@ -438,8 +437,8 @@ func TestGetBandcampURL(t *testing.T) {
 		},
 		{
 			name: "social bandcamp URL with trailing slash",
-			artist: models.Artist{
-				Social: models.Social{
+			artist: catalogm.Artist{
+				Social: catalogm.Social{
 					Bandcamp: strPtr("https://theband.bandcamp.com/"),
 				},
 			},
@@ -447,20 +446,20 @@ func TestGetBandcampURL(t *testing.T) {
 		},
 		{
 			name: "embed URL with artist subdomain",
-			artist: models.Artist{
+			artist: catalogm.Artist{
 				BandcampEmbedURL: strPtr("https://theband.bandcamp.com/album/my-album"),
 			},
 			expected: "https://theband.bandcamp.com",
 		},
 		{
 			name:     "no bandcamp URL",
-			artist:   models.Artist{},
+			artist:   catalogm.Artist{},
 			expected: "",
 		},
 		{
 			name: "empty bandcamp social",
-			artist: models.Artist{
-				Social: models.Social{
+			artist: catalogm.Artist{
+				Social: catalogm.Social{
 					Bandcamp: strPtr(""),
 				},
 			},
@@ -485,7 +484,7 @@ func TestExtractReleaseFromHTML(t *testing.T) {
 		url       string
 		artist    string
 		wantTitle string
-		wantType  models.ReleaseType
+		wantType  catalogm.ReleaseType
 		wantNil   bool
 	}{
 		{
@@ -497,7 +496,7 @@ func TestExtractReleaseFromHTML(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/great-album",
 			artist:    "The Artist",
 			wantTitle: "Great Album",
-			wantType:  models.ReleaseTypeLP,
+			wantType:  catalogm.ReleaseTypeLP,
 		},
 		{
 			name: "with title tag and pipe",
@@ -507,7 +506,7 @@ func TestExtractReleaseFromHTML(t *testing.T) {
 			url:       "https://artist.bandcamp.com/album/great-album",
 			artist:    "The Artist",
 			wantTitle: "Great Album",
-			wantType:  models.ReleaseTypeLP,
+			wantType:  catalogm.ReleaseTypeLP,
 		},
 		{
 			name: "track URL becomes single",
@@ -517,7 +516,7 @@ func TestExtractReleaseFromHTML(t *testing.T) {
 			url:       "https://artist.bandcamp.com/track/single-song",
 			artist:    "The Artist",
 			wantTitle: "Single Song",
-			wantType:  models.ReleaseTypeSingle,
+			wantType:  catalogm.ReleaseTypeSingle,
 		},
 		{
 			name:    "no title found",

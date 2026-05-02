@@ -10,7 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -66,7 +66,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 		GROUP BY v.city, v.state
 		HAVING COUNT(DISTINCT v.id) >= ?
 		   AND COUNT(DISTINCT s.id) >= ?
-	`, models.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&cities).Error
+	`, catalogm.ShowStatusApproved, sceneMinVenues, sceneMinShows).Scan(&cities).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to list scenes: %w", err)
 	}
@@ -84,7 +84,7 @@ func (s *SceneService) ListScenes() ([]*contracts.SceneListResponse, error) {
 			WHERE v.city = ? AND v.state = ?
 			  AND s.status = ?
 			  AND s.event_date >= ?
-		`, c.City, c.State, models.ShowStatusApproved, now).Scan(&upcomingCount).Error
+		`, c.City, c.State, catalogm.ShowStatusApproved, now).Scan(&upcomingCount).Error
 		if err != nil {
 			return nil, fmt.Errorf("failed to count shows for %s, %s: %w", c.City, c.State, err)
 		}
@@ -126,7 +126,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 
 	// Venue count (verified only)
 	var venueCount int64
-	if err := s.db.Model(&models.Venue{}).
+	if err := s.db.Model(&catalogm.Venue{}).
 		Where("city = ? AND state = ? AND verified = true", city, state).
 		Count(&venueCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count venues: %w", err)
@@ -145,7 +145,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		WHERE v.city = ? AND v.state = ?
 		  AND s.status = ?
 		  AND s.event_date >= ?
-	`, city, state, models.ShowStatusApproved, now).Scan(&upcomingShowCount).Error; err != nil {
+	`, city, state, catalogm.ShowStatusApproved, now).Scan(&upcomingShowCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
@@ -159,13 +159,13 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		JOIN venues v ON v.id = sv.venue_id
 		WHERE v.city = ? AND v.state = ?
 		  AND s.status = ?
-	`, city, state, models.ShowStatusApproved).Scan(&artistCount).Error; err != nil {
+	`, city, state, catalogm.ShowStatusApproved).Scan(&artistCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count artists: %w", err)
 	}
 
 	// Festival count: festivals with matching city
 	var festivalCount int64
-	if err := s.db.Model(&models.Festival{}).
+	if err := s.db.Model(&catalogm.Festival{}).
 		Where("city = ? AND state = ?", city, state).
 		Count(&festivalCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count festivals: %w", err)
@@ -188,7 +188,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		WHERE v.city = ? AND v.state = ?
 		  AND s.status = ?
 		  AND s.event_date >= ? AND s.event_date < ?
-	`, city, state, models.ShowStatusApproved, thisMonthStart, nextMonthStart).Scan(&showsThisMonth)
+	`, city, state, catalogm.ShowStatusApproved, thisMonthStart, nextMonthStart).Scan(&showsThisMonth)
 
 	// Shows previous month
 	var showsPrevMonth int64
@@ -200,7 +200,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		WHERE v.city = ? AND v.state = ?
 		  AND s.status = ?
 		  AND s.event_date >= ? AND s.event_date < ?
-	`, city, state, models.ShowStatusApproved, prevMonthStart, thisMonthStart).Scan(&showsPrevMonth)
+	`, city, state, catalogm.ShowStatusApproved, prevMonthStart, thisMonthStart).Scan(&showsPrevMonth)
 
 	// Trend string
 	diff := int(showsThisMonth) - int(showsPrevMonth)
@@ -227,7 +227,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 			GROUP BY sa.artist_id
 			HAVING MIN(s.event_date) >= ?
 		) AS new_artists
-	`, city, state, models.ShowStatusApproved, thirtyDaysAgo).Scan(&newArtists30d)
+	`, city, state, catalogm.ShowStatusApproved, thirtyDaysAgo).Scan(&newArtists30d)
 
 	// Active venues this month: venues with at least 1 approved show this month
 	var activeVenuesThisMonth int64
@@ -239,7 +239,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		WHERE v.city = ? AND v.state = ?
 		  AND s.status = ?
 		  AND s.event_date >= ? AND s.event_date < ?
-	`, city, state, models.ShowStatusApproved, thisMonthStart, nextMonthStart).Scan(&activeVenuesThisMonth)
+	`, city, state, catalogm.ShowStatusApproved, thisMonthStart, nextMonthStart).Scan(&activeVenuesThisMonth)
 
 	// Shows by month: last 6 months (from 5 months ago through current month)
 	showsByMonth := make([]int, 6)
@@ -255,7 +255,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 			WHERE v.city = ? AND v.state = ?
 			  AND s.status = ?
 			  AND s.event_date >= ? AND s.event_date < ?
-		`, city, state, models.ShowStatusApproved, monthStart, monthEnd).Scan(&count)
+		`, city, state, catalogm.ShowStatusApproved, monthStart, monthEnd).Scan(&count)
 		showsByMonth[5-i] = int(count)
 	}
 
@@ -289,7 +289,7 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 
 	// Verify city qualifies as scene
 	var venueCount int64
-	if err := s.db.Model(&models.Venue{}).
+	if err := s.db.Model(&catalogm.Venue{}).
 		Where("city = ? AND state = ? AND verified = true", city, state).
 		Count(&venueCount).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
@@ -311,7 +311,7 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 		WHERE v.city = ? AND v.state = ?
 		  AND s.status = ?
 		  AND s.event_date >= ?
-	`, city, state, models.ShowStatusApproved, cutoff).Scan(&total).Error; err != nil {
+	`, city, state, catalogm.ShowStatusApproved, cutoff).Scan(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count active artists: %w", err)
 	}
 
@@ -338,7 +338,7 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 		GROUP BY a.id
 		ORDER BY show_count DESC, a.name ASC
 		LIMIT ? OFFSET ?
-	`, city, state, models.ShowStatusApproved, cutoff, limit, offset).Scan(&rows).Error; err != nil {
+	`, city, state, catalogm.ShowStatusApproved, cutoff, limit, offset).Scan(&rows).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get active artists: %w", err)
 	}
 
@@ -402,7 +402,7 @@ func buildSceneSlug(city, state string) string {
 
 // Thresholds for genre intelligence.
 const (
-	sceneGenreMinTaggedArtists    = 30
+	sceneGenreMinTaggedArtists     = 30
 	sceneDiversityMinTaggedArtists = 50
 	sceneDiversityMinGenres        = 5
 	venueGenreMinShows             = 10
@@ -436,7 +436,7 @@ func (s *SceneService) GetSceneGenreDistribution(city, state string) ([]contract
 		  AND s.status = ?
 		GROUP BY t.id, t.name, t.slug
 		ORDER BY count DESC
-	`, city, state, models.ShowStatusApproved).Scan(&rows).Error
+	`, city, state, catalogm.ShowStatusApproved).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get scene genre distribution: %w", err)
 	}
@@ -489,7 +489,7 @@ func (s *SceneService) GetGenreDiversityIndex(city, state string) (float64, erro
 		  AND s.status = ?
 		GROUP BY t.id
 		ORDER BY count DESC
-	`, city, state, models.ShowStatusApproved).Scan(&rows).Error
+	`, city, state, catalogm.ShowStatusApproved).Scan(&rows).Error
 	if err != nil {
 		return 0, fmt.Errorf("failed to get genre diversity index: %w", err)
 	}
@@ -613,7 +613,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 
 	// Validate scene exists (mirrors GetActiveArtists / GetSceneDetail).
 	var venueCount int64
-	if err := s.db.Model(&models.Venue{}).
+	if err := s.db.Model(&catalogm.Venue{}).
 		Where("city = ? AND state = ? AND verified = true", city, state).
 		Count(&venueCount).Error; err != nil {
 		return nil, fmt.Errorf("failed to count venues: %w", err)
@@ -826,8 +826,8 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(city, state string) ([]
 	`
 	var rows []sceneArtistRow
 	if err := s.db.Raw(q,
-		city, state, models.ShowStatusApproved,
-		city, state, models.ShowStatusApproved,
+		city, state, catalogm.ShowStatusApproved,
+		city, state, catalogm.ShowStatusApproved,
 	).Scan(&rows).Error; err != nil {
 		return nil, err
 	}
@@ -873,7 +873,7 @@ func (s *SceneService) batchUpcomingShowCount(artistIDs []uint) map[uint]int {
 		Select("show_artists.artist_id, COUNT(DISTINCT shows.id) AS show_count").
 		Joins("JOIN shows ON shows.id = show_artists.show_id").
 		Where("show_artists.artist_id IN ? AND shows.status = ? AND shows.event_date > NOW()",
-			artistIDs, models.ShowStatusApproved).
+			artistIDs, catalogm.ShowStatusApproved).
 		Group("show_artists.artist_id").
 		Scan(&rows)
 	for _, r := range rows {

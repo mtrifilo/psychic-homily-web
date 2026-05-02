@@ -9,7 +9,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
 	usersvc "psychic-homily-backend/internal/services/user"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -62,9 +62,9 @@ func (s *JWTIntegrationSuite) TearDownSuite() {
 
 // --- Helpers ---
 
-func (s *JWTIntegrationSuite) createActiveUser(email string) *models.User {
+func (s *JWTIntegrationSuite) createActiveUser(email string) *authm.User {
 	s.T().Helper()
-	user := &models.User{
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -73,7 +73,7 @@ func (s *JWTIntegrationSuite) createActiveUser(email string) *models.User {
 	return user
 }
 
-func (s *JWTIntegrationSuite) createInactiveUser(email string) *models.User {
+func (s *JWTIntegrationSuite) createInactiveUser(email string) *authm.User {
 	s.T().Helper()
 	// Create as active first, then update to inactive (GORM bool zero-value gotcha)
 	user := s.createActiveUser(email)
@@ -82,7 +82,7 @@ func (s *JWTIntegrationSuite) createInactiveUser(email string) *models.User {
 	return user
 }
 
-func (s *JWTIntegrationSuite) createAdminUser(email string) *models.User {
+func (s *JWTIntegrationSuite) createAdminUser(email string) *authm.User {
 	s.T().Helper()
 	user := s.createActiveUser(email)
 	s.Require().NoError(s.db.Model(user).Update("is_admin", true).Error)
@@ -276,7 +276,7 @@ func (s *JWTIntegrationSuite) TestValidateToken_WrongSigningKey() {
 
 func (s *JWTIntegrationSuite) TestValidateToken_NonExistentUserID() {
 	// Craft a token referencing a user ID that doesn't exist in the DB
-	fakeUser := &models.User{
+	fakeUser := &authm.User{
 		ID:    999999,
 		Email: stringPtr("ghost@example.com"),
 	}

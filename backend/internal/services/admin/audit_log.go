@@ -9,7 +9,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/logger"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -36,7 +36,7 @@ func (s *AuditLogService) LogAction(actorID uint, action string, entityType stri
 		return
 	}
 
-	log := models.AuditLog{
+	log := adminm.AuditLog{
 		ActorID:    &actorID,
 		Action:     action,
 		EntityType: entityType,
@@ -76,7 +76,7 @@ func (s *AuditLogService) GetAuditLogs(limit, offset int, filters contracts.Audi
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
 
-	query := s.db.Model(&models.AuditLog{})
+	query := s.db.Model(&adminm.AuditLog{})
 
 	if filters.EntityType != "" {
 		query = query.Where("entity_type = ?", filters.EntityType)
@@ -95,7 +95,7 @@ func (s *AuditLogService) GetAuditLogs(limit, offset int, filters contracts.Audi
 	}
 
 	// Get logs with actor preloaded
-	var logs []models.AuditLog
+	var logs []adminm.AuditLog
 	err := query.Preload("Actor").
 		Order("created_at DESC").
 		Limit(limit).
@@ -114,7 +114,7 @@ func (s *AuditLogService) GetAuditLogs(limit, offset int, filters contracts.Audi
 	return responses, total, nil
 }
 
-func (s *AuditLogService) buildResponse(log *models.AuditLog) *contracts.AuditLogResponse {
+func (s *AuditLogService) buildResponse(log *adminm.AuditLog) *contracts.AuditLogResponse {
 	resp := &contracts.AuditLogResponse{
 		ID:         log.ID,
 		ActorID:    log.ActorID,

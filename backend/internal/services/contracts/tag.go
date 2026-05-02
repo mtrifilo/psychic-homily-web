@@ -1,9 +1,8 @@
 package contracts
 
 import (
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"time"
-
-	"psychic-homily-backend/internal/models"
 )
 
 // ──────────────────────────────────────────────
@@ -99,7 +98,7 @@ type TagListItem struct {
 // directly, or when both the name and an alias matched (name match takes
 // precedence so the canonical form is surfaced without extra noise).
 type TagSearchResult struct {
-	Tag          models.Tag
+	Tag          catalogm.Tag
 	MatchedAlias string
 }
 
@@ -182,14 +181,14 @@ type TagAliasResponse struct {
 // TagAliasListing represents a global alias listing row, pairing an alias
 // with its canonical tag for the admin-wide alias management UI.
 type TagAliasListing struct {
-	ID             uint      `json:"id"`
-	Alias          string    `json:"alias"`
-	TagID          uint      `json:"tag_id"`
-	TagName        string    `json:"tag_name"`
-	TagSlug        string    `json:"tag_slug"`
-	TagCategory    string    `json:"tag_category"`
-	TagIsOfficial  bool      `json:"tag_is_official"`
-	CreatedAt      time.Time `json:"created_at"`
+	ID            uint      `json:"id"`
+	Alias         string    `json:"alias"`
+	TagID         uint      `json:"tag_id"`
+	TagName       string    `json:"tag_name"`
+	TagSlug       string    `json:"tag_slug"`
+	TagCategory   string    `json:"tag_category"`
+	TagIsOfficial bool      `json:"tag_is_official"`
+	CreatedAt     time.Time `json:"created_at"`
 }
 
 // BulkAliasImportItem is one row of a bulk alias import request.
@@ -252,9 +251,9 @@ type MergeTagsResult struct {
 // inclusion ("orphaned", "aging_unused", "downvoted", "short_name", "long_name").
 type LowQualityTagQueueItem struct {
 	TagListItem
-	Upvotes    int64    `json:"upvotes"`
-	Downvotes  int64    `json:"downvotes"`
-	Reasons    []string `json:"reasons"`
+	Upvotes   int64    `json:"upvotes"`
+	Downvotes int64    `json:"downvotes"`
+	Reasons   []string `json:"reasons"`
 }
 
 // LowQualityTagQueueResponse is the paginated response for the admin queue.
@@ -278,19 +277,19 @@ type BulkLowQualityTagActionResult struct {
 // TagServiceInterface defines the contract for tag operations.
 type TagServiceInterface interface {
 	// CRUD
-	CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*models.Tag, error)
-	GetTag(tagID uint) (*models.Tag, error)
-	GetTagBySlug(slug string) (*models.Tag, error)
+	CreateTag(name string, description *string, parentID *uint, category string, isOfficial bool, userID *uint) (*catalogm.Tag, error)
+	GetTag(tagID uint) (*catalogm.Tag, error)
+	GetTagBySlug(slug string) (*catalogm.Tag, error)
 	// ListTags returns tags with optional filters/sort. When entityType is
 	// non-empty, each returned tag's UsageCount is overridden with the count
 	// of entity_tags rows for that specific entity type (PSY-484). The
 	// persisted tags.usage_count is never mutated.
-	ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string) ([]models.Tag, int64, error)
-	UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*models.Tag, error)
+	ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string) ([]catalogm.Tag, int64, error)
+	UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*catalogm.Tag, error)
 	DeleteTag(tagID uint) error
 
 	// Entity tagging
-	AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*models.EntityTag, error)
+	AddTagToEntity(tagID uint, tagName string, entityType string, entityID uint, userID uint, category string) (*catalogm.EntityTag, error)
 	RemoveTagFromEntity(tagID uint, entityType string, entityID uint) error
 	ListEntityTags(entityType string, entityID uint, userID uint) ([]EntityTagResponse, error)
 
@@ -299,10 +298,10 @@ type TagServiceInterface interface {
 	RemoveTagVote(tagID uint, entityType string, entityID uint, userID uint) error
 
 	// Aliases
-	CreateAlias(tagID uint, alias string) (*models.TagAlias, error)
+	CreateAlias(tagID uint, alias string) (*catalogm.TagAlias, error)
 	DeleteAlias(aliasID uint) error
-	ListAliases(tagID uint) ([]models.TagAlias, error)
-	ResolveAlias(alias string) (*models.Tag, error)
+	ListAliases(tagID uint) ([]catalogm.TagAlias, error)
+	ResolveAlias(alias string) (*catalogm.Tag, error)
 	ListAllAliases(search string, limit, offset int) ([]TagAliasListing, int64, error)
 	BulkImportAliases(items []BulkAliasImportItem) (*BulkAliasImportResult, error)
 
@@ -311,9 +310,9 @@ type TagServiceInterface interface {
 	PreviewMergeTags(sourceID, targetID uint) (*MergeTagsPreview, error)
 
 	// Hierarchy (genre-only)
-	GetTagAncestors(tagID uint) ([]*models.Tag, error)
-	GetTagChildren(tagID uint) ([]*models.Tag, error)
-	GetGenreHierarchy() ([]*models.Tag, error)
+	GetTagAncestors(tagID uint) ([]*catalogm.Tag, error)
+	GetTagChildren(tagID uint) ([]*catalogm.Tag, error)
+	GetGenreHierarchy() ([]*catalogm.Tag, error)
 	SetTagParent(tagID uint, parentID *uint, actorUserID uint) error
 
 	// Tag entities
@@ -332,6 +331,6 @@ type TagServiceInterface interface {
 
 	// Utility
 	SearchTags(query string, limit int, category string) ([]TagSearchResult, error)
-	GetTrendingTags(limit int, category string) ([]models.Tag, error)
+	GetTrendingTags(limit int, category string) ([]catalogm.Tag, error)
 	PruneDownvotedTags() (int64, error)
 }

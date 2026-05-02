@@ -9,7 +9,9 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -58,8 +60,8 @@ func TestAdminStatsServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *AdminStatsServiceIntegrationTestSuite) createUser(email string) *models.User {
-	user := &models.User{
+func (suite *AdminStatsServiceIntegrationTestSuite) createUser(email string) *authm.User {
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -69,8 +71,8 @@ func (suite *AdminStatsServiceIntegrationTestSuite) createUser(email string) *mo
 	return user
 }
 
-func (suite *AdminStatsServiceIntegrationTestSuite) createVenue(name, city, state string, verified bool) *models.Venue {
-	venue := &models.Venue{
+func (suite *AdminStatsServiceIntegrationTestSuite) createVenue(name, city, state string, verified bool) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -81,31 +83,31 @@ func (suite *AdminStatsServiceIntegrationTestSuite) createVenue(name, city, stat
 	return venue
 }
 
-func (suite *AdminStatsServiceIntegrationTestSuite) createArtist(name string) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (suite *AdminStatsServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
 }
 
-func (suite *AdminStatsServiceIntegrationTestSuite) createShow(title string, status models.ShowStatus) *models.Show {
-	show := &models.Show{
+func (suite *AdminStatsServiceIntegrationTestSuite) createShow(title string, status catalogm.ShowStatus) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:     title,
 		EventDate: time.Now().Add(24 * time.Hour),
 		Status:    status,
-		Source:    models.ShowSourceUser,
+		Source:    catalogm.ShowSourceUser,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 	return show
 }
 
-func (suite *AdminStatsServiceIntegrationTestSuite) createShowWithTime(title string, status models.ShowStatus, createdAt time.Time) *models.Show {
-	show := &models.Show{
+func (suite *AdminStatsServiceIntegrationTestSuite) createShowWithTime(title string, status catalogm.ShowStatus, createdAt time.Time) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:     title,
 		EventDate: time.Now().Add(24 * time.Hour),
 		Status:    status,
-		Source:    models.ShowSourceUser,
+		Source:    catalogm.ShowSourceUser,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
@@ -114,8 +116,8 @@ func (suite *AdminStatsServiceIntegrationTestSuite) createShowWithTime(title str
 	return show
 }
 
-func (suite *AdminStatsServiceIntegrationTestSuite) createUserWithTime(email string, createdAt time.Time) *models.User {
-	user := &models.User{
+func (suite *AdminStatsServiceIntegrationTestSuite) createUserWithTime(email string, createdAt time.Time) *authm.User {
+	user := &authm.User{
 		Email:         &email,
 		IsActive:      true,
 		EmailVerified: true,
@@ -126,8 +128,8 @@ func (suite *AdminStatsServiceIntegrationTestSuite) createUserWithTime(email str
 	return user
 }
 
-func (suite *AdminStatsServiceIntegrationTestSuite) createVenueWithTime(name, city, state string, verified bool, createdAt time.Time) *models.Venue {
-	venue := &models.Venue{
+func (suite *AdminStatsServiceIntegrationTestSuite) createVenueWithTime(name, city, state string, verified bool, createdAt time.Time) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -139,8 +141,8 @@ func (suite *AdminStatsServiceIntegrationTestSuite) createVenueWithTime(name, ci
 	return venue
 }
 
-func (suite *AdminStatsServiceIntegrationTestSuite) createArtistWithTime(name string, createdAt time.Time) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (suite *AdminStatsServiceIntegrationTestSuite) createArtistWithTime(name string, createdAt time.Time) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	suite.db.Exec("UPDATE artists SET created_at = ? WHERE id = ?", createdAt, artist.ID)
@@ -167,9 +169,9 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_Empty(
 }
 
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_PendingShows() {
-	suite.createShow("Pending Show 1", models.ShowStatusPending)
-	suite.createShow("Pending Show 2", models.ShowStatusPending)
-	suite.createShow("Approved Show", models.ShowStatusApproved)
+	suite.createShow("Pending Show 1", catalogm.ShowStatusPending)
+	suite.createShow("Pending Show 2", catalogm.ShowStatusPending)
+	suite.createShow("Approved Show", catalogm.ShowStatusApproved)
 
 	stats, err := suite.service.GetDashboardStats()
 	suite.Require().NoError(err)
@@ -181,13 +183,13 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_Pendin
 	venue := suite.createVenue("Test Venue", "NYC", "NY", true)
 
 	changesJSON := json.RawMessage(`[{"field":"name","old_value":"Test Venue","new_value":"New Venue"}]`)
-	edit := &models.PendingEntityEdit{
-		EntityType:   models.PendingEditEntityVenue,
+	edit := &adminm.PendingEntityEdit{
+		EntityType:   adminm.PendingEditEntityVenue,
 		EntityID:     venue.ID,
 		SubmittedBy:  user.ID,
 		FieldChanges: &changesJSON,
 		Summary:      "test",
-		Status:       models.PendingEditStatusPending,
+		Status:       adminm.PendingEditStatusPending,
 	}
 	err := suite.db.Create(edit).Error
 	suite.Require().NoError(err)
@@ -199,7 +201,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_Pendin
 
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_PendingReports() {
 	user := suite.createUser("user@test.com")
-	show := suite.createShow("Show", models.ShowStatusApproved)
+	show := suite.createShow("Show", catalogm.ShowStatusApproved)
 
 	// Create 2 pending reports
 	for i := 0; i < 2; i++ {
@@ -235,10 +237,10 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_Unveri
 }
 
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_TotalCounts() {
-	suite.createShow("Approved 1", models.ShowStatusApproved)
-	suite.createShow("Approved 2", models.ShowStatusApproved)
-	suite.createShow("Approved 3", models.ShowStatusApproved)
-	suite.createShow("Pending", models.ShowStatusPending) // Should NOT count as TotalShows
+	suite.createShow("Approved 1", catalogm.ShowStatusApproved)
+	suite.createShow("Approved 2", catalogm.ShowStatusApproved)
+	suite.createShow("Approved 3", catalogm.ShowStatusApproved)
+	suite.createShow("Pending", catalogm.ShowStatusPending) // Should NOT count as TotalShows
 
 	suite.createVenue("Verified 1", "NYC", "NY", true)
 	suite.createVenue("Verified 2", "LA", "CA", true)
@@ -268,9 +270,9 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_TotalU
 
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_RecentActivity() {
 	// Recent shows (within 7 days)
-	suite.createShow("Recent Show", models.ShowStatusPending)
+	suite.createShow("Recent Show", catalogm.ShowStatusPending)
 	// Old show (10 days ago)
-	suite.createShowWithTime("Old Show", models.ShowStatusPending, time.Now().AddDate(0, 0, -10))
+	suite.createShowWithTime("Old Show", catalogm.ShowStatusPending, time.Now().AddDate(0, 0, -10))
 
 	// Recent users
 	suite.createUser("recent1@test.com")
@@ -314,7 +316,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_BasicE
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_WithSlugResolution() {
 	user := suite.createUser("admin@test.com")
 	slug := "test-slug"
-	artist := &models.Artist{Name: "Test Artist", Slug: &slug}
+	artist := &catalogm.Artist{Name: "Test Artist", Slug: &slug}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 
@@ -365,7 +367,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorN
 	firstName := "Jane"
 	lastName := "Doe"
 	email := "jane@test.com"
-	user := &models.User{
+	user := &authm.User{
 		Email:     &email,
 		FirstName: &firstName,
 		LastName:  &lastName,
@@ -385,7 +387,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorN
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorNameFallbackToUsername() {
 	email := "user@test.com"
 	username := "cooluser"
-	user := &models.User{
+	user := &authm.User{
 		Email:    &email,
 		Username: &username,
 		IsActive: true,
@@ -419,7 +421,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_Unknow
 // =============================================================================
 
 func (suite *AdminStatsServiceIntegrationTestSuite) createAuditLog(actorID uint, action, entityType string, entityID uint) {
-	log := &models.AuditLog{
+	log := &adminm.AuditLog{
 		ActorID:    &actorID,
 		Action:     action,
 		EntityType: entityType,
@@ -430,7 +432,7 @@ func (suite *AdminStatsServiceIntegrationTestSuite) createAuditLog(actorID uint,
 }
 
 func (suite *AdminStatsServiceIntegrationTestSuite) createAuditLogWithTime(actorID uint, action, entityType string, entityID uint, createdAt time.Time) {
-	log := &models.AuditLog{
+	log := &adminm.AuditLog{
 		ActorID:    &actorID,
 		Action:     action,
 		EntityType: entityType,
@@ -456,19 +458,19 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_FullSc
 	suite.createArtist("Band B")
 
 	// Shows
-	show := suite.createShow("Approved Show", models.ShowStatusApproved)
-	suite.createShow("Pending Show", models.ShowStatusPending)
-	suite.createShowWithTime("Old Show", models.ShowStatusApproved, time.Now().AddDate(0, 0, -10))
+	show := suite.createShow("Approved Show", catalogm.ShowStatusApproved)
+	suite.createShow("Pending Show", catalogm.ShowStatusPending)
+	suite.createShowWithTime("Old Show", catalogm.ShowStatusApproved, time.Now().AddDate(0, 0, -10))
 
 	// Pending venue edit (via unified pending_entity_edits)
 	changesJSON := json.RawMessage(`[{"field":"name","old_value":"","new_value":"X"}]`)
-	edit := &models.PendingEntityEdit{
-		EntityType:   models.PendingEditEntityVenue,
+	edit := &adminm.PendingEntityEdit{
+		EntityType:   adminm.PendingEditEntityVenue,
 		EntityID:     venue.ID,
 		SubmittedBy:  user.ID,
 		FieldChanges: &changesJSON,
 		Summary:      "test",
-		Status:       models.PendingEditStatusPending,
+		Status:       adminm.PendingEditStatusPending,
 	}
 	suite.db.Create(edit)
 
@@ -501,12 +503,12 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_Trends
 	twentyDaysAgo := now.AddDate(0, 0, -20) // older than 14 days (should not count)
 
 	// Shows: 2 approved in current week, 1 approved in previous week => trend = +1
-	suite.createShowWithTime("Current Show 1", models.ShowStatusApproved, threeDaysAgo)
-	suite.createShowWithTime("Current Show 2", models.ShowStatusApproved, now)
-	suite.createShowWithTime("Previous Show", models.ShowStatusApproved, tenDaysAgo)
-	suite.createShowWithTime("Old Show", models.ShowStatusApproved, twentyDaysAgo)
+	suite.createShowWithTime("Current Show 1", catalogm.ShowStatusApproved, threeDaysAgo)
+	suite.createShowWithTime("Current Show 2", catalogm.ShowStatusApproved, now)
+	suite.createShowWithTime("Previous Show", catalogm.ShowStatusApproved, tenDaysAgo)
+	suite.createShowWithTime("Old Show", catalogm.ShowStatusApproved, twentyDaysAgo)
 	// Pending shows should not count for trend
-	suite.createShowWithTime("Pending Current", models.ShowStatusPending, threeDaysAgo)
+	suite.createShowWithTime("Pending Current", catalogm.ShowStatusPending, threeDaysAgo)
 
 	// Venues: 1 verified in current week, 2 verified in previous week => trend = -1
 	suite.createVenueWithTime("Current Venue", "NYC", "NY", true, threeDaysAgo)

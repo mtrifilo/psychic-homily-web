@@ -7,9 +7,12 @@ import (
 )
 
 // RenderRadioSeedSQL writes idempotent SQL INSERT statements for the
-// RadioStations and RadioShows seed data to w. Output is safe to pipe
-// through psql: every statement uses ON CONFLICT (slug) DO NOTHING, so
-// re-running against a populated database is a no-op.
+// RadioNetworks, RadioStations, and RadioShows seed data to w. Output is
+// safe to pipe through psql: every statement uses ON CONFLICT (slug)
+// DO NOTHING, so re-running against a populated database is a no-op.
+//
+// Networks are emitted first so the radio_stations.network_id subquery
+// (resolved by network slug) can find them.
 //
 // Consumers:
 //   - cmd/gen-e2e-seed -> frontend/e2e/setup-db.sh
@@ -19,8 +22,23 @@ import (
 func RenderRadioSeedSQL(w io.Writer) error {
 	var b strings.Builder
 
+	b.WriteString("-- Radio networks (generated from backend/internal/seeddata/radio.go)\n")
+	b.WriteString("INSERT INTO radio_networks (slug, name, created_at, updated_at) VALUES\n")
+	for i, n := range RadioNetworks {
+		b.WriteString("  (")
+		b.WriteString(sqlString(n.Slug))
+		b.WriteString(", ")
+		b.WriteString(sqlString(n.Name))
+		b.WriteString(", NOW(), NOW())")
+		if i < len(RadioNetworks)-1 {
+			b.WriteString(",")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("ON CONFLICT (slug) DO NOTHING;\n\n")
+
 	b.WriteString("-- Radio stations (generated from backend/internal/seeddata/radio.go)\n")
-	b.WriteString("INSERT INTO radio_stations (name, slug, description, city, state, country, timezone, stream_url, website, donation_url, broadcast_type, frequency_mhz, playlist_source, is_active, created_at, updated_at) VALUES\n")
+	b.WriteString("INSERT INTO radio_stations (name, slug, description, city, state, country, timezone, stream_url, website, donation_url, broadcast_type, frequency_mhz, playlist_source, network_id, is_active, created_at, updated_at) VALUES\n")
 	for i, s := range RadioStations {
 		b.WriteString("  (")
 		b.WriteString(sqlString(s.Name))
@@ -48,6 +66,8 @@ func RenderRadioSeedSQL(w io.Writer) error {
 		b.WriteString(sqlFloatOrNull(s.FrequencyMHz))
 		b.WriteString(", ")
 		b.WriteString(sqlString(s.PlaylistSource))
+		b.WriteString(", ")
+		b.WriteString(sqlNetworkIDFromSlug(s.NetworkSlug))
 		b.WriteString(", true, NOW(), NOW())")
 		if i < len(RadioStations)-1 {
 			b.WriteString(",")
@@ -88,7 +108,7 @@ func RenderRadioSeedSQL(w io.Writer) error {
 }
 
 // sqlString quotes a value as an SQL string literal, escaping any embedded
-// single-quote characters via the Postgres-standard doubling (`'` -> `''`).
+// single-quote characters via the Postgres-standard doubling (`'` -> `”`).
 func sqlString(v string) string {
 	return "'" + strings.ReplaceAll(v, "'", "''") + "'"
 }
@@ -109,4 +129,14 @@ func sqlFloatOrNull(v float64) string {
 		return "NULL"
 	}
 	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// sqlNetworkIDFromSlug returns NULL for stations not assigned to a network,
+// else a subquery that resolves the network slug to radio_networks.id at
+// insert time. Avoids hardcoding numeric IDs in seed SQL.
+func sqlNetworkIDFromSlug(slug string) string {
+	if slug == "" {
+		return "NULL"
+	}
+	return "(SELECT id FROM radio_networks WHERE slug = " + sqlString(slug) + ")"
 }

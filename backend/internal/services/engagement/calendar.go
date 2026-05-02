@@ -12,7 +12,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -72,11 +73,11 @@ func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*contract
 	// Delete existing + insert new in a transaction
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		// Delete any existing token for this user
-		if err := tx.Where("user_id = ?", userID).Delete(&models.CalendarToken{}).Error; err != nil {
+		if err := tx.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{}).Error; err != nil {
 			return fmt.Errorf("failed to delete existing token: %w", err)
 		}
 
-		token := &models.CalendarToken{
+		token := &engagementm.CalendarToken{
 			UserID:    userID,
 			TokenHash: tokenHash,
 		}
@@ -91,7 +92,7 @@ func (s *CalendarService) CreateToken(userID uint, apiBaseURL string) (*contract
 	}
 
 	// Fetch the created token to get the server-set created_at
-	var created models.CalendarToken
+	var created engagementm.CalendarToken
 	if err := s.db.Where("user_id = ?", userID).First(&created).Error; err != nil {
 		return nil, fmt.Errorf("failed to fetch created token: %w", err)
 	}
@@ -111,7 +112,7 @@ func (s *CalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTokenS
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var token models.CalendarToken
+	var token engagementm.CalendarToken
 	err := s.db.Where("user_id = ?", userID).First(&token).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -132,7 +133,7 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Where("user_id = ?", userID).Delete(&models.CalendarToken{})
+	result := s.db.Where("user_id = ?", userID).Delete(&engagementm.CalendarToken{})
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete token: %w", result.Error)
 	}
@@ -143,14 +144,14 @@ func (s *CalendarService) DeleteToken(userID uint) error {
 }
 
 // ValidateCalendarToken validates a plaintext calendar token and returns the associated user
-func (s *CalendarService) ValidateCalendarToken(plainToken string) (*models.User, error) {
+func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	tokenHash := hashCalendarToken(plainToken)
 
-	var token models.CalendarToken
+	var token engagementm.CalendarToken
 	err := s.db.Preload("User").Where("token_hash = ?", tokenHash).First(&token).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {

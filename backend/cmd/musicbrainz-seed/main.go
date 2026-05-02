@@ -18,7 +18,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -40,16 +40,16 @@ type MBArtistSearchResponse struct {
 
 // MBArtist represents an artist from MusicBrainz
 type MBArtist struct {
-	ID               string  `json:"id"`
-	Name             string  `json:"name"`
-	SortName         string  `json:"sort-name"`
-	Score            int     `json:"score"`
-	Disambiguation   string  `json:"disambiguation"`
-	Type             string  `json:"type"`
-	Country          string  `json:"country"`
-	Area             *MBArea `json:"area"`
-	BeginArea        *MBArea `json:"begin-area"`
-	LifeSpan         *MBLifeSpan `json:"life-span"`
+	ID             string      `json:"id"`
+	Name           string      `json:"name"`
+	SortName       string      `json:"sort-name"`
+	Score          int         `json:"score"`
+	Disambiguation string      `json:"disambiguation"`
+	Type           string      `json:"type"`
+	Country        string      `json:"country"`
+	Area           *MBArea     `json:"area"`
+	BeginArea      *MBArea     `json:"begin-area"`
+	LifeSpan       *MBLifeSpan `json:"life-span"`
 }
 
 // MBArea represents a geographic area from MusicBrainz
@@ -75,21 +75,21 @@ type MBReleaseSearchResponse struct {
 
 // MBRelease represents a release from MusicBrainz
 type MBRelease struct {
-	ID               string             `json:"id"`
-	Title            string             `json:"title"`
-	Date             string             `json:"date"`
-	Country          string             `json:"country"`
-	Status           string             `json:"status"`
-	ReleaseGroup     *MBReleaseGroup    `json:"release-group"`
-	LabelInfo        []MBLabelInfo      `json:"label-info"`
-	ArtistCredit     []MBArtistCredit   `json:"artist-credit"`
+	ID           string           `json:"id"`
+	Title        string           `json:"title"`
+	Date         string           `json:"date"`
+	Country      string           `json:"country"`
+	Status       string           `json:"status"`
+	ReleaseGroup *MBReleaseGroup  `json:"release-group"`
+	LabelInfo    []MBLabelInfo    `json:"label-info"`
+	ArtistCredit []MBArtistCredit `json:"artist-credit"`
 }
 
 // MBReleaseGroup represents a release group from MusicBrainz
 type MBReleaseGroup struct {
-	ID          string `json:"id"`
-	Title       string `json:"title"`
-	PrimaryType string `json:"primary-type"`
+	ID             string   `json:"id"`
+	Title          string   `json:"title"`
+	PrimaryType    string   `json:"primary-type"`
 	SecondaryTypes []string `json:"secondary-types"`
 }
 
@@ -107,8 +107,8 @@ type MBLabel struct {
 
 // MBArtistCredit represents an artist credit on a release
 type MBArtistCredit struct {
-	Artist   MBArtist `json:"artist"`
-	JoinPhrase string `json:"joinphrase"`
+	Artist     MBArtist `json:"artist"`
+	JoinPhrase string   `json:"joinphrase"`
 }
 
 // MBArtistRelResponse is the response for artist label relations
@@ -377,10 +377,10 @@ func connectToDatabase() *gorm.DB {
 	return db.GetDB()
 }
 
-func getArtistsToProcess(database *gorm.DB) []models.Artist {
-	var artists []models.Artist
+func getArtistsToProcess(database *gorm.DB) []catalogm.Artist {
+	var artists []catalogm.Artist
 
-	query := database.Model(&models.Artist{}).Order("name ASC")
+	query := database.Model(&catalogm.Artist{}).Order("name ASC")
 
 	if artist != "" {
 		// Process a single artist by name (case-insensitive)
@@ -415,14 +415,14 @@ func createRelease(database *gorm.DB, artistID uint, mbRelease MBRelease) error 
 	baseSlug := utils.GenerateArtistSlug(mbRelease.Title)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		database.Model(&models.Release{}).Where("slug = ?", candidate).Count(&count)
+		database.Model(&catalogm.Release{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	release := &models.Release{
+	release := &catalogm.Release{
 		Title:       mbRelease.Title,
 		Slug:        &slug,
-		ReleaseType: models.ReleaseType(releaseType),
+		ReleaseType: catalogm.ReleaseType(releaseType),
 	}
 	if year > 0 {
 		release.ReleaseYear = &year
@@ -437,10 +437,10 @@ func createRelease(database *gorm.DB, artistID uint, mbRelease MBRelease) error 
 		}
 
 		// Create artist-release link
-		ar := &models.ArtistRelease{
+		ar := &catalogm.ArtistRelease{
 			ArtistID:  artistID,
 			ReleaseID: release.ID,
-			Role:      models.ArtistReleaseRoleMain,
+			Role:      catalogm.ArtistReleaseRoleMain,
 			Position:  0,
 		}
 		if err := tx.Create(ar).Error; err != nil {
@@ -472,14 +472,14 @@ func createRelease(database *gorm.DB, artistID uint, mbRelease MBRelease) error 
 			if li.CatalogNumber != "" {
 				catNum = &li.CatalogNumber
 			}
-			rl := &models.ReleaseLabel{
+			rl := &catalogm.ReleaseLabel{
 				ReleaseID:     release.ID,
 				LabelID:       labelID,
 				CatalogNumber: catNum,
 			}
 			// Check if it exists first
 			var rlCount int64
-			tx.Model(&models.ReleaseLabel{}).
+			tx.Model(&catalogm.ReleaseLabel{}).
 				Where("release_id = ? AND label_id = ?", release.ID, labelID).
 				Count(&rlCount)
 			if rlCount == 0 {
@@ -493,8 +493,8 @@ func createRelease(database *gorm.DB, artistID uint, mbRelease MBRelease) error 
 	})
 }
 
-func findLabelByName(database *gorm.DB, name string) *models.Label {
-	var label models.Label
+func findLabelByName(database *gorm.DB, name string) *catalogm.Label {
+	var label catalogm.Label
 	err := database.Where("LOWER(name) = LOWER(?)", name).First(&label).Error
 	if err != nil {
 		return nil
@@ -504,7 +504,7 @@ func findLabelByName(database *gorm.DB, name string) *models.Label {
 
 func artistLabelExists(database *gorm.DB, artistID, labelID uint) bool {
 	var count int64
-	database.Model(&models.ArtistLabel{}).
+	database.Model(&catalogm.ArtistLabel{}).
 		Where("artist_id = ? AND label_id = ?", artistID, labelID).
 		Count(&count)
 	return count > 0
@@ -518,14 +518,14 @@ func createLabelTx(tx *gorm.DB, name string) (uint, error) {
 	baseSlug := utils.GenerateArtistSlug(name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		tx.Model(&models.Label{}).Where("slug = ?", candidate).Count(&count)
+		tx.Model(&catalogm.Label{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	label := &models.Label{
+	label := &catalogm.Label{
 		Name:   name,
 		Slug:   &slug,
-		Status: models.LabelStatusActive,
+		Status: catalogm.LabelStatusActive,
 	}
 
 	if err := tx.Create(label).Error; err != nil {
@@ -536,7 +536,7 @@ func createLabelTx(tx *gorm.DB, name string) (uint, error) {
 }
 
 func createArtistLabelLink(database *gorm.DB, artistID, labelID uint) error {
-	al := &models.ArtistLabel{
+	al := &catalogm.ArtistLabel{
 		ArtistID: artistID,
 		LabelID:  labelID,
 	}
@@ -725,7 +725,7 @@ func deduplicateReleases(releases []MBRelease) []MBRelease {
 
 func mapMBReleaseType(rel MBRelease) string {
 	if rel.ReleaseGroup == nil {
-		return string(models.ReleaseTypeLP)
+		return string(catalogm.ReleaseTypeLP)
 	}
 
 	primaryType := strings.ToLower(rel.ReleaseGroup.PrimaryType)
@@ -734,25 +734,25 @@ func mapMBReleaseType(rel MBRelease) string {
 	for _, secondary := range rel.ReleaseGroup.SecondaryTypes {
 		switch strings.ToLower(secondary) {
 		case "compilation":
-			return string(models.ReleaseTypeCompilation)
+			return string(catalogm.ReleaseTypeCompilation)
 		case "live":
-			return string(models.ReleaseTypeLive)
+			return string(catalogm.ReleaseTypeLive)
 		case "remix":
-			return string(models.ReleaseTypeRemix)
+			return string(catalogm.ReleaseTypeRemix)
 		case "demo":
-			return string(models.ReleaseTypeDemo)
+			return string(catalogm.ReleaseTypeDemo)
 		}
 	}
 
 	switch primaryType {
 	case "album":
-		return string(models.ReleaseTypeLP)
+		return string(catalogm.ReleaseTypeLP)
 	case "single":
-		return string(models.ReleaseTypeSingle)
+		return string(catalogm.ReleaseTypeSingle)
 	case "ep":
-		return string(models.ReleaseTypeEP)
+		return string(catalogm.ReleaseTypeEP)
 	default:
-		return string(models.ReleaseTypeLP)
+		return string(catalogm.ReleaseTypeLP)
 	}
 }
 

@@ -1,21 +1,20 @@
 package contracts
 
 import (
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"time"
-
-	"psychic-homily-backend/internal/models"
 )
 
 // MaxCollectionDescriptionLength is the maximum length, in bytes, accepted for
-// a collection's `description` field. Aliases models.MaxCommentBodyLength
+// a collection's `description` field. Aliases engagementm.MaxCommentBodyLength
 // (10,000) so the markdown editor experience and limits are consistent across
 // comments, field notes, and collections (PSY-349) — there is no parallel
 // limit to keep in sync.
-const MaxCollectionDescriptionLength = models.MaxCommentBodyLength
+const MaxCollectionDescriptionLength = engagementm.MaxCommentBodyLength
 
 // MaxCollectionItemNotesLength is the maximum length, in bytes, accepted for
-// per-item `notes` on a collection item. Aliases models.MaxCommentBodyLength.
-const MaxCollectionItemNotesLength = models.MaxCommentBodyLength
+// per-item `notes` on a collection item. Aliases engagementm.MaxCommentBodyLength.
+const MaxCollectionItemNotesLength = engagementm.MaxCommentBodyLength
 
 // ──────────────────────────────────────────────
 // Collection types
@@ -64,6 +63,11 @@ type CollectionFilters struct {
 	CreatorID  uint
 	EntityType string
 	Featured   bool
+	// Search is a case-insensitive ILIKE-substring query matched against
+	// the collection title, description, any item's notes, and any applied
+	// tag's name (or alias). Empty string disables search. When the default
+	// sort is in effect, results are tier-ranked title > description >
+	// notes > tag, then by updated_at DESC. PSY-355.
 	Search     string
 	PublicOnly bool
 	// Sort selects the ordering for list results. Recognized values:
@@ -76,6 +80,10 @@ type CollectionFilters struct {
 	// Carried on the filter struct so we can populate UserLikesThis on each
 	// list row without changing the function signature. PSY-352.
 	ViewerID uint
+	// Tag is the slug of a single tag to filter the listing by (PSY-354).
+	// Empty string means no tag filter. Multi-tag filtering is intentionally
+	// out of scope for the MVP — the URL surface stays `?tag=<slug>`.
+	Tag string
 }
 
 // CollectionSortPopular is the recognized sort value for the HN-gravity
@@ -88,26 +96,26 @@ const CollectionSortPopular = "popular"
 // matching the comment-system policy. Description (raw) is preserved so editors
 // can re-populate the textarea without re-parsing HTML back to markdown.
 type CollectionDetailResponse struct {
-	ID               uint                     `json:"id"`
-	Title            string                   `json:"title"`
-	Slug             string                   `json:"slug"`
-	Description      string                   `json:"description"`
-	DescriptionHTML  string                   `json:"description_html,omitempty"`
-	CreatorID        uint                     `json:"creator_id"`
-	CreatorName      string                   `json:"creator_name"`
+	ID              uint   `json:"id"`
+	Title           string `json:"title"`
+	Slug            string `json:"slug"`
+	Description     string `json:"description"`
+	DescriptionHTML string `json:"description_html,omitempty"`
+	CreatorID       uint   `json:"creator_id"`
+	CreatorName     string `json:"creator_name"`
 	// CreatorUsername is the creator's username when set, used by the
 	// frontend to link the attribution to /users/:username. Pointer so the
 	// JSON encodes null (not "") for accounts that never set a username —
 	// the frontend renders the name as plain text in that case (PSY-353).
-	CreatorUsername  *string                  `json:"creator_username"`
-	Collaborative    bool                     `json:"collaborative"`
-	CoverImageURL    *string                  `json:"cover_image_url"`
-	IsPublic         bool                     `json:"is_public"`
-	IsFeatured       bool                     `json:"is_featured"`
-	DisplayMode      string                   `json:"display_mode"`
-	ItemCount        int                      `json:"item_count"`
-	SubscriberCount  int                      `json:"subscriber_count"`
-	ContributorCount int                      `json:"contributor_count"`
+	CreatorUsername  *string `json:"creator_username"`
+	Collaborative    bool    `json:"collaborative"`
+	CoverImageURL    *string `json:"cover_image_url"`
+	IsPublic         bool    `json:"is_public"`
+	IsFeatured       bool    `json:"is_featured"`
+	DisplayMode      string  `json:"display_mode"`
+	ItemCount        int     `json:"item_count"`
+	SubscriberCount  int     `json:"subscriber_count"`
+	ContributorCount int     `json:"contributor_count"`
 	// ForksCount is a public social signal — number of collections that
 	// declared this one as their `forked_from_collection_id`. Computed live
 	// on read (see CollectionService.batchCountForks). PSY-351.
@@ -125,9 +133,14 @@ type CollectionDetailResponse struct {
 	LikeCount int `json:"like_count"`
 	// UserLikesThis is true when the authenticated viewer has liked this
 	// collection. Always false for anonymous viewers. PSY-352.
-	UserLikesThis bool      `json:"user_likes_this"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	UserLikesThis bool `json:"user_likes_this"`
+	// Tags applied to this collection (PSY-354). Always non-nil — empty
+	// array when the collection has no tags. Reuses the polymorphic
+	// EntityTagResponse so the same chip component renders here as on
+	// artist/release/etc detail pages.
+	Tags      []EntityTagResponse `json:"tags"`
+	CreatedAt time.Time           `json:"created_at"`
+	UpdatedAt time.Time           `json:"updated_at"`
 }
 
 // ForkedFromInfo carries the minimum data needed to render the
@@ -146,23 +159,23 @@ type ForkedFromInfo struct {
 // DescriptionHTML mirrors the detail response — sanitized markdown render of
 // Description, computed on read. See CollectionDetailResponse for rationale.
 type CollectionListResponse struct {
-	ID               uint           `json:"id"`
-	Title            string         `json:"title"`
-	Slug             string         `json:"slug"`
-	Description      string         `json:"description"`
-	DescriptionHTML  string         `json:"description_html,omitempty"`
-	CreatorID        uint           `json:"creator_id"`
-	CreatorName      string         `json:"creator_name"`
+	ID              uint   `json:"id"`
+	Title           string `json:"title"`
+	Slug            string `json:"slug"`
+	Description     string `json:"description"`
+	DescriptionHTML string `json:"description_html,omitempty"`
+	CreatorID       uint   `json:"creator_id"`
+	CreatorName     string `json:"creator_name"`
 	// CreatorUsername mirrors CollectionDetailResponse — see PSY-353.
-	CreatorUsername  *string        `json:"creator_username"`
-	Collaborative    bool           `json:"collaborative"`
-	CoverImageURL    *string        `json:"cover_image_url"`
-	IsPublic         bool           `json:"is_public"`
-	IsFeatured       bool           `json:"is_featured"`
-	DisplayMode      string         `json:"display_mode"`
-	ItemCount        int            `json:"item_count"`
-	SubscriberCount  int            `json:"subscriber_count"`
-	ContributorCount int            `json:"contributor_count"`
+	CreatorUsername  *string `json:"creator_username"`
+	Collaborative    bool    `json:"collaborative"`
+	CoverImageURL    *string `json:"cover_image_url"`
+	IsPublic         bool    `json:"is_public"`
+	IsFeatured       bool    `json:"is_featured"`
+	DisplayMode      string  `json:"display_mode"`
+	ItemCount        int     `json:"item_count"`
+	SubscriberCount  int     `json:"subscriber_count"`
+	ContributorCount int     `json:"contributor_count"`
 	// ForksCount is a public social signal exposed on list cards too,
 	// so original collections can advertise how often they've been forked.
 	// PSY-351.
@@ -178,21 +191,36 @@ type CollectionListResponse struct {
 	LikeCount int `json:"like_count"`
 	// UserLikesThis is true when the authenticated viewer has liked this
 	// collection. Always false for anonymous viewers. PSY-352.
-	UserLikesThis bool      `json:"user_likes_this"`
-	CreatedAt     time.Time `json:"created_at"`
-	UpdatedAt     time.Time `json:"updated_at"`
+	UserLikesThis bool `json:"user_likes_this"`
+	// Tags applied to this collection (PSY-354). Reuses TagSummary so list
+	// rows stay lightweight (no vote counts on cards). Always non-nil; empty
+	// array when the collection has no tags.
+	Tags      []TagSummary `json:"tags"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
 }
 
 // CollectionItemResponse represents an item in a collection.
 // Notes is the raw markdown; NotesHTML is sanitized rendered HTML, computed on
 // read. Existing plain-text notes still render correctly because plain text is
 // valid markdown, and the sanitizer guarantees safe output for any stored row.
+//
+// ImageURL is the entity's representative image (PSY-360, "visual grid"
+// rendering on the collection-detail page). Surfaced for all six entity
+// types; column name varies by domain:
+//   - release  → cover_art_url
+//   - festival → flyer_url
+//   - artist / venue / show / label → image_url (PSY-521)
+//
+// Rows where the curator has not added a URL surface as nil and the frontend
+// renders a typed Lucide icon as a fallback.
 type CollectionItemResponse struct {
 	ID            uint      `json:"id"`
 	EntityType    string    `json:"entity_type"`
 	EntityID      uint      `json:"entity_id"`
 	EntityName    string    `json:"entity_name"`
 	EntitySlug    string    `json:"entity_slug"`
+	ImageURL      *string   `json:"image_url"`
 	Position      int       `json:"position"`
 	AddedByUserID uint      `json:"added_by_user_id"`
 	AddedByName   string    `json:"added_by_name"`
@@ -220,6 +248,28 @@ type UpdateCollectionItemRequest struct {
 type CollectionLikeResponse struct {
 	LikeCount     int  `json:"like_count"`
 	UserLikesThis bool `json:"user_likes_this"`
+}
+
+// MaxCollectionTags is the cap on tag applications per collection (PSY-354).
+// Mirrors the modest tag bar the rest of the project applies to entity
+// tagging — collections aren't the canonical taxonomy, and a 10-tag ceiling
+// keeps cards readable while still allowing meaningful classification.
+const MaxCollectionTags = 10
+
+// AddCollectionTagRequest is the body for POST /collections/{slug}/tags
+// (PSY-354). Mirrors the Add-Tag-To-Entity endpoint: callers either pass a
+// known tag_id or a free-form tag_name (with alias resolution + inline
+// creation gated by trust tier in the tag service).
+type AddCollectionTagRequest struct {
+	TagID    uint   `json:"tag_id"`
+	TagName  string `json:"tag_name"`
+	Category string `json:"category"`
+}
+
+// AddCollectionTagResponse returns the post-mutation tag list so the
+// frontend can refresh chips without a follow-up GET.
+type AddCollectionTagResponse struct {
+	Tags []EntityTagResponse `json:"tags"`
 }
 
 // ──────────────────────────────────────────────
@@ -301,6 +351,14 @@ type CollectionServiceInterface interface {
 	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*CollectionListResponse, int64, error)
 	SetFeatured(slug string, featured bool) error
+	// AddTagToCollection applies a tag to a collection (PSY-354). Caller must
+	// have edit access (creator OR collaborative-and-authenticated, mirroring
+	// AddItem). Enforces MaxCollectionTags. Returns the post-mutation tag
+	// list.
+	AddTagToCollection(slug string, userID uint, req *AddCollectionTagRequest) (*AddCollectionTagResponse, error)
+	// RemoveTagFromCollection removes a tag from a collection (PSY-354).
+	// Same edit-access rule as AddTagToCollection.
+	RemoveTagFromCollection(slug string, tagID uint, userID uint) error
 	// GetCollectionGraph returns the artist-relationship subgraph for the
 	// collection's artist items. Visibility gate mirrors GetBySlug
 	// (private → ErrCollectionForbidden unless viewer is creator). PSY-366.

@@ -9,7 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -67,8 +67,8 @@ func TestDataQualityServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *DataQualityServiceIntegrationTestSuite) createArtist(name string, social *models.Social) *models.Artist {
-	artist := &models.Artist{Name: name}
+func (suite *DataQualityServiceIntegrationTestSuite) createArtist(name string, social *catalogm.Social) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name}
 	if social != nil {
 		artist.Social = *social
 	}
@@ -77,8 +77,8 @@ func (suite *DataQualityServiceIntegrationTestSuite) createArtist(name string, s
 	return artist
 }
 
-func (suite *DataQualityServiceIntegrationTestSuite) createArtistWithLocation(name string, city, state *string) *models.Artist {
-	artist := &models.Artist{
+func (suite *DataQualityServiceIntegrationTestSuite) createArtistWithLocation(name string, city, state *string) *catalogm.Artist {
+	artist := &catalogm.Artist{
 		Name:  name,
 		City:  city,
 		State: state,
@@ -88,8 +88,8 @@ func (suite *DataQualityServiceIntegrationTestSuite) createArtistWithLocation(na
 	return artist
 }
 
-func (suite *DataQualityServiceIntegrationTestSuite) createVenue(name, city, state string, verified bool, social *models.Social) *models.Venue {
-	venue := &models.Venue{
+func (suite *DataQualityServiceIntegrationTestSuite) createVenue(name, city, state string, verified bool, social *catalogm.Social) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -107,12 +107,12 @@ func (suite *DataQualityServiceIntegrationTestSuite) createVenue(name, city, sta
 	return venue
 }
 
-func (suite *DataQualityServiceIntegrationTestSuite) createShow(title string, status models.ShowStatus, price *float64) *models.Show {
-	show := &models.Show{
+func (suite *DataQualityServiceIntegrationTestSuite) createShow(title string, status catalogm.ShowStatus, price *float64) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:     title,
 		EventDate: time.Now().Add(7 * 24 * time.Hour), // future
 		Status:    status,
-		Source:    models.ShowSourceUser,
+		Source:    catalogm.ShowSourceUser,
 		Price:     price,
 	}
 	err := suite.db.Create(show).Error
@@ -120,12 +120,12 @@ func (suite *DataQualityServiceIntegrationTestSuite) createShow(title string, st
 	return show
 }
 
-func (suite *DataQualityServiceIntegrationTestSuite) createShowWithDate(title string, status models.ShowStatus, eventDate time.Time) *models.Show {
-	show := &models.Show{
+func (suite *DataQualityServiceIntegrationTestSuite) createShowWithDate(title string, status catalogm.ShowStatus, eventDate time.Time) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:     title,
 		EventDate: eventDate,
 		Status:    status,
-		Source:    models.ShowSourceUser,
+		Source:    catalogm.ShowSourceUser,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
@@ -133,7 +133,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) createShowWithDate(title st
 }
 
 func (suite *DataQualityServiceIntegrationTestSuite) linkShowArtist(showID, artistID uint, position int) {
-	sa := &models.ShowArtist{
+	sa := &catalogm.ShowArtist{
 		ShowID:   showID,
 		ArtistID: artistID,
 		Position: position,
@@ -143,7 +143,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) linkShowArtist(showID, arti
 }
 
 func (suite *DataQualityServiceIntegrationTestSuite) linkShowVenue(showID, venueID uint) {
-	sv := &models.ShowVenue{
+	sv := &catalogm.ShowVenue{
 		ShowID:  showID,
 		VenueID: venueID,
 	}
@@ -152,7 +152,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) linkShowVenue(showID, venue
 }
 
 func (suite *DataQualityServiceIntegrationTestSuite) createAlias(artistID uint, alias string) {
-	a := &models.ArtistAlias{
+	a := &catalogm.ArtistAlias{
 		ArtistID: artistID,
 		Alias:    alias,
 	}
@@ -182,7 +182,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestGetSummary_WithData() {
 
 	// Artist with links (should NOT appear)
 	ig := "insta"
-	suite.createArtist("Has Links Band", &models.Social{Instagram: &ig})
+	suite.createArtist("Has Links Band", &catalogm.Social{Instagram: &ig})
 
 	// Artist with no location
 	suite.createArtistWithLocation("No Location Band", nil, nil)
@@ -211,15 +211,15 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestArtistsMissingLinks() {
 	a2 := suite.createArtist("Unknown Band", nil)
 
 	// Give Popular Band more shows
-	show1 := suite.createShow("Show 1", models.ShowStatusApproved, nil)
-	show2 := suite.createShow("Show 2", models.ShowStatusApproved, nil)
+	show1 := suite.createShow("Show 1", catalogm.ShowStatusApproved, nil)
+	show2 := suite.createShow("Show 2", catalogm.ShowStatusApproved, nil)
 	suite.linkShowArtist(show1.ID, a1.ID, 0)
 	suite.linkShowArtist(show2.ID, a1.ID, 0)
 	suite.linkShowArtist(show1.ID, a2.ID, 1)
 
 	// Artist with links (should NOT appear)
 	ig := "insta"
-	suite.createArtist("Has Links", &models.Social{Instagram: &ig})
+	suite.createArtist("Has Links", &catalogm.Social{Instagram: &ig})
 
 	items, total, err := suite.service.GetCategoryItems("artists_missing_links", 50, 0)
 	suite.Require().NoError(err)
@@ -261,21 +261,21 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestArtistsNoAliases() {
 	// Artist with 5+ shows but no aliases
 	a1 := suite.createArtist("Prolific Band", nil)
 	for i := 0; i < 5; i++ {
-		show := suite.createShow(fmt.Sprintf("Show %d", i), models.ShowStatusApproved, nil)
+		show := suite.createShow(fmt.Sprintf("Show %d", i), catalogm.ShowStatusApproved, nil)
 		suite.linkShowArtist(show.ID, a1.ID, 0)
 	}
 
 	// Artist with 5+ shows AND aliases (should NOT appear)
 	a2 := suite.createArtist("Aliased Band", nil)
 	for i := 0; i < 5; i++ {
-		show := suite.createShow(fmt.Sprintf("Aliased Show %d", i), models.ShowStatusApproved, nil)
+		show := suite.createShow(fmt.Sprintf("Aliased Show %d", i), catalogm.ShowStatusApproved, nil)
 		suite.linkShowArtist(show.ID, a2.ID, 0)
 	}
 	suite.createAlias(a2.ID, "Alt Name")
 
 	// Artist with <5 shows (should NOT appear)
 	a3 := suite.createArtist("New Band", nil)
-	show := suite.createShow("Single Show", models.ShowStatusApproved, nil)
+	show := suite.createShow("Single Show", catalogm.ShowStatusApproved, nil)
 	suite.linkShowArtist(show.ID, a3.ID, 0)
 
 	items, total, err := suite.service.GetCategoryItems("artists_no_aliases", 50, 0)
@@ -296,7 +296,7 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestVenuesMissingSocial() {
 
 	// Venue with social links (should NOT appear)
 	ig := "insta"
-	suite.createVenue("Social Venue", "Phoenix", "AZ", true, &models.Social{Instagram: &ig})
+	suite.createVenue("Social Venue", "Phoenix", "AZ", true, &catalogm.Social{Instagram: &ig})
 
 	items, total, err := suite.service.GetCategoryItems("venues_missing_social", 50, 0)
 	suite.Require().NoError(err)
@@ -313,21 +313,21 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestVenuesUnverifiedWithSho
 	// Unverified venue with 3 approved shows
 	v1 := suite.createVenue("Busy Unverified", "Phoenix", "AZ", false, nil)
 	for i := 0; i < 3; i++ {
-		show := suite.createShow(fmt.Sprintf("Busy Show %d", i), models.ShowStatusApproved, nil)
+		show := suite.createShow(fmt.Sprintf("Busy Show %d", i), catalogm.ShowStatusApproved, nil)
 		suite.linkShowVenue(show.ID, v1.ID)
 	}
 
 	// Unverified venue with only 2 shows (should NOT appear)
 	v2 := suite.createVenue("Quiet Unverified", "Phoenix", "AZ", false, nil)
 	for i := 0; i < 2; i++ {
-		show := suite.createShow(fmt.Sprintf("Quiet Show %d", i), models.ShowStatusApproved, nil)
+		show := suite.createShow(fmt.Sprintf("Quiet Show %d", i), catalogm.ShowStatusApproved, nil)
 		suite.linkShowVenue(show.ID, v2.ID)
 	}
 
 	// Verified venue with many shows (should NOT appear)
 	v3 := suite.createVenue("Verified Venue", "Phoenix", "AZ", true, nil)
 	for i := 0; i < 5; i++ {
-		show := suite.createShow(fmt.Sprintf("Verified Show %d", i), models.ShowStatusApproved, nil)
+		show := suite.createShow(fmt.Sprintf("Verified Show %d", i), catalogm.ShowStatusApproved, nil)
 		suite.linkShowVenue(show.ID, v3.ID)
 	}
 
@@ -349,21 +349,21 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestShowsNoBillingOrder() {
 	a3 := suite.createArtist("Band C", nil)
 
 	// Future show with 2+ artists, all at position 0
-	show1 := suite.createShow("No Billing Show", models.ShowStatusApproved, nil)
+	show1 := suite.createShow("No Billing Show", catalogm.ShowStatusApproved, nil)
 	suite.linkShowArtist(show1.ID, a1.ID, 0)
 	suite.linkShowArtist(show1.ID, a2.ID, 0)
 
 	// Future show with proper billing (should NOT appear)
-	show2 := suite.createShow("Proper Billing Show", models.ShowStatusApproved, nil)
+	show2 := suite.createShow("Proper Billing Show", catalogm.ShowStatusApproved, nil)
 	suite.linkShowArtist(show2.ID, a1.ID, 0)
 	suite.linkShowArtist(show2.ID, a3.ID, 1)
 
 	// Future show with only 1 artist (should NOT appear)
-	show3 := suite.createShow("Solo Show", models.ShowStatusApproved, nil)
+	show3 := suite.createShow("Solo Show", catalogm.ShowStatusApproved, nil)
 	suite.linkShowArtist(show3.ID, a1.ID, 0)
 
 	// Past show with no billing (should NOT appear)
-	pastShow := suite.createShowWithDate("Past No Billing", models.ShowStatusApproved, time.Now().Add(-48*time.Hour))
+	pastShow := suite.createShowWithDate("Past No Billing", catalogm.ShowStatusApproved, time.Now().Add(-48*time.Hour))
 	suite.linkShowArtist(pastShow.ID, a1.ID, 0)
 	suite.linkShowArtist(pastShow.ID, a2.ID, 0)
 
@@ -382,16 +382,16 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestShowsMissingPrice() {
 	price := 15.0
 
 	// Future approved show with no price
-	suite.createShow("No Price Show", models.ShowStatusApproved, nil)
+	suite.createShow("No Price Show", catalogm.ShowStatusApproved, nil)
 
 	// Future approved show with price (should NOT appear)
-	suite.createShow("Priced Show", models.ShowStatusApproved, &price)
+	suite.createShow("Priced Show", catalogm.ShowStatusApproved, &price)
 
 	// Future pending show with no price (should NOT appear)
-	suite.createShow("Pending No Price", models.ShowStatusPending, nil)
+	suite.createShow("Pending No Price", catalogm.ShowStatusPending, nil)
 
 	// Past show with no price (should NOT appear)
-	suite.createShowWithDate("Past No Price", models.ShowStatusApproved, time.Now().Add(-48*time.Hour))
+	suite.createShowWithDate("Past No Price", catalogm.ShowStatusApproved, time.Now().Add(-48*time.Hour))
 
 	items, total, err := suite.service.GetCategoryItems("shows_missing_price", 50, 0)
 	suite.Require().NoError(err)
@@ -406,22 +406,22 @@ func (suite *DataQualityServiceIntegrationTestSuite) TestShowsMissingPrice() {
 
 func (suite *DataQualityServiceIntegrationTestSuite) TestReleasesMissingYear() {
 	// Release with no year
-	noYear := &models.Release{Title: "Unknown Year Album", ReleaseType: models.ReleaseTypeLP}
+	noYear := &catalogm.Release{Title: "Unknown Year Album", ReleaseType: catalogm.ReleaseTypeLP}
 	suite.Require().NoError(suite.db.Create(noYear).Error)
 
 	// Release with a year (should NOT appear)
 	year := 2020
-	withYear := &models.Release{Title: "Dated Album", ReleaseType: models.ReleaseTypeLP, ReleaseYear: &year}
+	withYear := &catalogm.Release{Title: "Dated Album", ReleaseType: catalogm.ReleaseTypeLP, ReleaseYear: &year}
 	suite.Require().NoError(suite.db.Create(withYear).Error)
 
 	// Release with no year but linked to an artist (test artist name in reason)
-	noYearLinked := &models.Release{Title: "Mystery EP", ReleaseType: models.ReleaseTypeEP}
+	noYearLinked := &catalogm.Release{Title: "Mystery EP", ReleaseType: catalogm.ReleaseTypeEP}
 	suite.Require().NoError(suite.db.Create(noYearLinked).Error)
 	artist := suite.createArtist("Cool Band", nil)
-	suite.Require().NoError(suite.db.Create(&models.ArtistRelease{
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelease{
 		ArtistID:  artist.ID,
 		ReleaseID: noYearLinked.ID,
-		Role:      models.ArtistReleaseRoleMain,
+		Role:      catalogm.ArtistReleaseRoleMain,
 		Position:  0,
 	}).Error)
 

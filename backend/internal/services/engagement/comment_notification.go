@@ -16,7 +16,8 @@ import (
 	"github.com/getsentry/sentry-go"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -173,8 +174,8 @@ func buildExcerpt(body string) string {
 
 // buildEntityURL returns the frontend URL for the parent entity, or a
 // best-effort fallback if the entity's slug cannot be resolved.
-func (s *CommentNotificationService) buildEntityURL(entityType models.CommentEntityType, entityID uint) string {
-	tableName, ok := models.ValidCommentEntityTypes[entityType]
+func (s *CommentNotificationService) buildEntityURL(entityType engagementm.CommentEntityType, entityID uint) string {
+	tableName, ok := engagementm.ValidCommentEntityTypes[entityType]
 	if !ok {
 		return s.frontendURL
 	}
@@ -183,19 +184,19 @@ func (s *CommentNotificationService) buildEntityURL(entityType models.CommentEnt
 	_ = s.db.Table(tableName).Where("id = ?", entityID).Pluck("slug", &slug).Error
 	var pathSegment string
 	switch entityType {
-	case models.CommentEntityArtist:
+	case engagementm.CommentEntityArtist:
 		pathSegment = "artists"
-	case models.CommentEntityVenue:
+	case engagementm.CommentEntityVenue:
 		pathSegment = "venues"
-	case models.CommentEntityShow:
+	case engagementm.CommentEntityShow:
 		pathSegment = "shows"
-	case models.CommentEntityRelease:
+	case engagementm.CommentEntityRelease:
 		pathSegment = "releases"
-	case models.CommentEntityLabel:
+	case engagementm.CommentEntityLabel:
 		pathSegment = "labels"
-	case models.CommentEntityFestival:
+	case engagementm.CommentEntityFestival:
 		pathSegment = "festivals"
-	case models.CommentEntityCollection:
+	case engagementm.CommentEntityCollection:
 		pathSegment = "collections"
 	default:
 		pathSegment = tableName
@@ -208,14 +209,14 @@ func (s *CommentNotificationService) buildEntityURL(entityType models.CommentEnt
 
 // buildEntityName returns a display name for the entity (name/title) for use
 // in email subjects/bodies. Falls back to "<entity_type> #<id>".
-func (s *CommentNotificationService) buildEntityName(entityType models.CommentEntityType, entityID uint) string {
-	tableName, ok := models.ValidCommentEntityTypes[entityType]
+func (s *CommentNotificationService) buildEntityName(entityType engagementm.CommentEntityType, entityID uint) string {
+	tableName, ok := engagementm.ValidCommentEntityTypes[entityType]
 	if !ok {
 		return fmt.Sprintf("%s #%d", entityType, entityID)
 	}
 	// Most entities have a `name` column; shows have `title` instead.
 	column := "name"
-	if entityType == models.CommentEntityShow {
+	if entityType == engagementm.CommentEntityShow {
 		column = "title"
 	}
 	var name string
@@ -227,13 +228,13 @@ func (s *CommentNotificationService) buildEntityName(entityType models.CommentEn
 
 // buildCommentURL returns the URL to the specific comment on its entity page.
 // We anchor via `#comment-<id>` — the frontend handles scrolling.
-func (s *CommentNotificationService) buildCommentURL(entityType models.CommentEntityType, entityID, commentID uint) string {
+func (s *CommentNotificationService) buildCommentURL(entityType engagementm.CommentEntityType, entityID, commentID uint) string {
 	return fmt.Sprintf("%s#comment-%d", s.buildEntityURL(entityType, entityID), commentID)
 }
 
 // displayName returns a friendly name for a user: username first, else
 // first name, else "A contributor".
-func displayName(u *models.User) string {
+func displayName(u *authm.User) string {
 	if u == nil {
 		return "A contributor"
 	}
@@ -262,7 +263,7 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 	}
 
 	// 1. Load the comment + author.
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.Preload("User").First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("comment not found")
@@ -352,7 +353,7 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 
 		// Bump last_notified_at even if email is not configured — the row
 		// still reflects that we "attempted to notify" for this cycle.
-		if upErr := s.db.Model(&models.CommentSubscription{}).
+		if upErr := s.db.Model(&engagementm.CommentSubscription{}).
 			Where("user_id = ? AND entity_type = ? AND entity_id = ?",
 				r.UserID, entityType, comment.EntityID).
 			Update("last_notified_at", now).Error; upErr != nil {
@@ -377,7 +378,7 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 		return errors.New("database not initialized")
 	}
 
-	var comment models.Comment
+	var comment engagementm.Comment
 	if err := s.db.Preload("User").First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return errors.New("comment not found")

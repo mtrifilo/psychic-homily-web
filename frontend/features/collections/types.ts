@@ -1,5 +1,7 @@
 // Collection types — aligned with backend contracts/collection.go response types.
 
+import type { EntityTag, TagSummary } from '@/features/tags/types'
+
 /**
  * Maximum length, in characters, for collection description and per-item notes.
  * Mirrors backend `contracts.MaxCollectionDescriptionLength` /
@@ -7,6 +9,14 @@
  * Update both sides together if the comment limit ever changes (PSY-349).
  */
 export const MAX_COLLECTION_MARKDOWN_LENGTH = 10000
+
+/**
+ * PSY-354: hard cap on tags per collection. Mirrors backend
+ * `contracts.MaxCollectionTags`. Used by the picker to disable the
+ * autocomplete + show a "limit reached" message rather than letting the
+ * user submit and get a 400.
+ */
+export const MAX_COLLECTION_TAGS = 10
 
 /**
  * PSY-356: minimum thresholds for a public collection to appear in the
@@ -154,12 +164,20 @@ export interface Collection {
    * the public browse list and the detail endpoint.
    */
   user_likes_this?: boolean
+  /**
+   * PSY-354: tag chips shown on cards. Lightweight TagSummary (no vote
+   * counts, no user_vote) — the detail response carries the richer
+   * EntityTag for the inline picker. Optional in the type so existing
+   * test fixtures don't have to declare it; the server response always
+   * includes the field (empty array when no tags).
+   */
+  tags?: TagSummary[]
   created_at: string
   updated_at: string
 }
 
 /** Full collection detail (returned by GET /collections/{slug}) */
-export interface CollectionDetail extends Collection {
+export interface CollectionDetail extends Omit<Collection, 'tags'> {
   items: CollectionItem[]
   is_subscribed: boolean
   /**
@@ -167,6 +185,23 @@ export interface CollectionDetail extends Collection {
    * collection wasn't forked OR when the source was deleted. PSY-351.
    */
   forked_from?: ForkedFromInfo | null
+  /**
+   * PSY-354: full EntityTag list with vote counts + user_vote so the
+   * detail page can wire the same EntityTagList component the rest of
+   * the entity detail pages use. Optional like Collection.tags so test
+   * fixtures don't need to declare it. Differs from Collection.tags
+   * (TagSummary) — detail uses EntityTag for the inline picker.
+   */
+  tags?: EntityTag[]
+}
+
+/**
+ * PSY-354: response shape for POST /collections/{slug}/tags. Returns the
+ * post-mutation tag list so the chip row can update without a follow-up
+ * GET.
+ */
+export interface AddCollectionTagResponse {
+  tags: EntityTag[]
 }
 
 /**
@@ -182,6 +217,14 @@ export interface CollectionItem {
   entity_id: number
   entity_name: string
   entity_slug: string
+  /**
+   * PSY-360: representative image for the entity. Today only release
+   * (cover_art_url) and festival (flyer_url) populate this field; the four
+   * other types currently surface as nil and the UI renders a typed Lucide
+   * icon as a fallback. May be `null` (DB column null), `undefined`
+   * (older response shape) or a non-empty string.
+   */
+  image_url?: string | null
   position: number
   added_by_user_id: number
   added_by_name: string

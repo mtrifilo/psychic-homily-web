@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -50,8 +51,8 @@ func TestCommentSubscriptionServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -63,15 +64,15 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestUser() *m
 	return user
 }
 
-func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestComment(userID uint, entityType string, entityID uint) *models.Comment {
-	comment := &models.Comment{
-		Kind:       models.CommentKindComment,
-		EntityType: models.CommentEntityType(entityType),
+func (suite *CommentSubscriptionServiceIntegrationTestSuite) createTestComment(userID uint, entityType string, entityID uint) *engagementm.Comment {
+	comment := &engagementm.Comment{
+		Kind:       engagementm.CommentKindComment,
+		EntityType: engagementm.CommentEntityType(entityType),
 		EntityID:   entityID,
 		UserID:     userID,
 		Body:       "Test comment",
 		BodyHTML:   "<p>Test comment</p>",
-		Visibility: models.CommentVisibilityVisible,
+		Visibility: engagementm.CommentVisibilityVisible,
 	}
 	err := suite.db.Create(comment).Error
 	suite.Require().NoError(err)
@@ -266,14 +267,14 @@ func (suite *CommentSubscriptionServiceIntegrationTestSuite) TestGetUnreadCountE
 	suite.createTestComment(user.ID, "show", 1) // visible
 
 	// Create a hidden comment
-	hidden := &models.Comment{
-		Kind:       models.CommentKindComment,
+	hidden := &engagementm.Comment{
+		Kind:       engagementm.CommentKindComment,
 		EntityType: "show",
 		EntityID:   1,
 		UserID:     user.ID,
 		Body:       "Hidden comment",
 		BodyHTML:   "<p>Hidden comment</p>",
-		Visibility: models.CommentVisibilityHiddenByMod,
+		Visibility: engagementm.CommentVisibilityHiddenByMod,
 	}
 	suite.Require().NoError(suite.db.Create(hidden).Error)
 

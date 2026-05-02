@@ -10,7 +10,11 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
@@ -147,8 +151,8 @@ func TestContributorProfileServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *ContributorProfileServiceIntegrationTestSuite) createTestUser(username string) *models.User {
-	user := &models.User{
+func (suite *ContributorProfileServiceIntegrationTestSuite) createTestUser(username string) *authm.User {
+	user := &authm.User{
 		Email:             stringPtr(fmt.Sprintf("%s-%d@test.com", username, time.Now().UnixNano())),
 		Username:          stringPtr(username),
 		FirstName:         stringPtr("Test"),
@@ -163,7 +167,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) createTestUser(usern
 	return user
 }
 
-func (suite *ContributorProfileServiceIntegrationTestSuite) createPrivateUser(username string) *models.User {
+func (suite *ContributorProfileServiceIntegrationTestSuite) createPrivateUser(username string) *authm.User {
 	user := suite.createTestUser(username)
 	err := suite.db.Model(user).Update("profile_visibility", "private").Error
 	suite.Require().NoError(err)
@@ -171,8 +175,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) createPrivateUser(us
 	return user
 }
 
-func (suite *ContributorProfileServiceIntegrationTestSuite) createShow(submittedBy uint, title string) *models.Show {
-	show := &models.Show{
+func (suite *ContributorProfileServiceIntegrationTestSuite) createShow(submittedBy uint, title string) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		SubmittedBy: &submittedBy,
 		Status:      "approved",
@@ -183,8 +187,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) createShow(submitted
 	return show
 }
 
-func (suite *ContributorProfileServiceIntegrationTestSuite) createVenue(submittedBy uint, name string) *models.Venue {
-	venue := &models.Venue{
+func (suite *ContributorProfileServiceIntegrationTestSuite) createVenue(submittedBy uint, name string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:        name,
 		City:        "Phoenix",
 		State:       "AZ",
@@ -199,7 +203,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) setPrivacySettings(u
 	raw, err := json.Marshal(ps)
 	suite.Require().NoError(err)
 	rawMsg := json.RawMessage(raw)
-	err = suite.db.Model(&models.User{}).Where("id = ?", userID).Update("privacy_settings", &rawMsg).Error
+	err = suite.db.Model(&authm.User{}).Where("id = ?", userID).Update("privacy_settings", &rawMsg).Error
 	suite.Require().NoError(err)
 }
 
@@ -413,15 +417,15 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	user := suite.createTestUser("tagvoter")
 
 	// Create a tag
-	tag := &models.Tag{Name: "punk", Slug: "punk", Category: "genre"}
+	tag := &catalogm.Tag{Name: "punk", Slug: "punk", Category: "genre"}
 	suite.Require().NoError(suite.db.Create(tag).Error)
 
 	// Create an artist to tag-vote on
-	artist := &models.Artist{Name: "Bad Brains"}
+	artist := &catalogm.Artist{Name: "Bad Brains"}
 	suite.Require().NoError(suite.db.Create(artist).Error)
 
 	// Cast tag votes
-	suite.Require().NoError(suite.db.Create(&models.TagVote{
+	suite.Require().NoError(suite.db.Create(&catalogm.TagVote{
 		TagID: tag.ID, EntityType: "artist", EntityID: artist.ID, UserID: user.ID, Vote: 1,
 	}).Error)
 
@@ -434,24 +438,24 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	user := suite.createTestUser("relvoter")
 
 	// Create two artists for relationship
-	artist1 := &models.Artist{Name: "Artist A"}
-	artist2 := &models.Artist{Name: "Artist B"}
+	artist1 := &catalogm.Artist{Name: "Artist A"}
+	artist2 := &catalogm.Artist{Name: "Artist B"}
 	suite.Require().NoError(suite.db.Create(artist1).Error)
 	suite.Require().NoError(suite.db.Create(artist2).Error)
 
-	source, target := models.CanonicalOrder(artist1.ID, artist2.ID)
+	source, target := catalogm.CanonicalOrder(artist1.ID, artist2.ID)
 
 	// Create relationship
-	suite.Require().NoError(suite.db.Create(&models.ArtistRelationship{
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelationship{
 		SourceArtistID: source, TargetArtistID: target,
-		RelationshipType: models.RelationshipTypeSimilar,
+		RelationshipType: catalogm.RelationshipTypeSimilar,
 	}).Error)
 
 	// Cast vote
-	suite.Require().NoError(suite.db.Create(&models.ArtistRelationshipVote{
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelationshipVote{
 		SourceArtistID: source, TargetArtistID: target,
-		RelationshipType: models.RelationshipTypeSimilar,
-		UserID: user.ID, Direction: 1,
+		RelationshipType: catalogm.RelationshipTypeSimilar,
+		UserID:           user.ID, Direction: 1,
 	}).Error)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID)
@@ -464,14 +468,14 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	requester := suite.createTestUser("requester")
 
 	// Create a request
-	request := &models.Request{
+	request := &communitym.Request{
 		Title: "Add new band", EntityType: "artist",
-		RequesterID: requester.ID, Status: models.RequestStatusPending,
+		RequesterID: requester.ID, Status: communitym.RequestStatusPending,
 	}
 	suite.Require().NoError(suite.db.Create(request).Error)
 
 	// Cast votes
-	suite.Require().NoError(suite.db.Create(&models.RequestVote{
+	suite.Require().NoError(suite.db.Create(&communitym.RequestVote{
 		RequestID: request.ID, UserID: user.ID, Vote: 1,
 	}).Error)
 
@@ -484,18 +488,18 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	user := suite.createTestUser("collector")
 
 	// Create a collection
-	collection := &models.Collection{
+	collection := &communitym.Collection{
 		Title: "My Favorites", Slug: fmt.Sprintf("my-favorites-%d", time.Now().UnixNano()),
 		CreatorID: user.ID,
 	}
 	suite.Require().NoError(suite.db.Create(collection).Error)
 
 	// Add items
-	suite.Require().NoError(suite.db.Create(&models.CollectionItem{
+	suite.Require().NoError(suite.db.Create(&communitym.CollectionItem{
 		CollectionID: collection.ID, EntityType: "artist", EntityID: 1,
 		AddedByUserID: user.ID,
 	}).Error)
-	suite.Require().NoError(suite.db.Create(&models.CollectionItem{
+	suite.Require().NoError(suite.db.Create(&communitym.CollectionItem{
 		CollectionID: collection.ID, EntityType: "release", EntityID: 2,
 		AddedByUserID: user.ID,
 	}).Error)
@@ -510,11 +514,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	creator := suite.createTestUser("creator")
 
 	// Create collections
-	col1 := &models.Collection{
+	col1 := &communitym.Collection{
 		Title: "Coll 1", Slug: fmt.Sprintf("coll-1-%d", time.Now().UnixNano()),
 		CreatorID: creator.ID,
 	}
-	col2 := &models.Collection{
+	col2 := &communitym.Collection{
 		Title: "Coll 2", Slug: fmt.Sprintf("coll-2-%d", time.Now().UnixNano()),
 		CreatorID: creator.ID,
 	}
@@ -522,10 +526,10 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	suite.Require().NoError(suite.db.Create(col2).Error)
 
 	// Subscribe
-	suite.Require().NoError(suite.db.Create(&models.CollectionSubscriber{
+	suite.Require().NoError(suite.db.Create(&communitym.CollectionSubscriber{
 		CollectionID: col1.ID, UserID: user.ID,
 	}).Error)
-	suite.Require().NoError(suite.db.Create(&models.CollectionSubscriber{
+	suite.Require().NoError(suite.db.Create(&communitym.CollectionSubscriber{
 		CollectionID: col2.ID, UserID: user.ID,
 	}).Error)
 
@@ -538,18 +542,18 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	user := suite.createTestUser("attendee")
 
 	// Mark shows as "going" via bookmarks
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
-		UserID: user.ID, EntityType: models.BookmarkEntityShow,
-		EntityID: 1, Action: models.BookmarkActionGoing,
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
+		EntityID: 1, Action: engagementm.BookmarkActionGoing,
 	}).Error)
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
-		UserID: user.ID, EntityType: models.BookmarkEntityShow,
-		EntityID: 2, Action: models.BookmarkActionGoing,
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
+		EntityID: 2, Action: engagementm.BookmarkActionGoing,
 	}).Error)
 	// "interested" should not count as attended
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
-		UserID: user.ID, EntityType: models.BookmarkEntityShow,
-		EntityID: 3, Action: models.BookmarkActionInterested,
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
+		EntityID: 3, Action: engagementm.BookmarkActionInterested,
 	}).Error)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID)
@@ -561,11 +565,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	user := suite.createTestUser("reviser")
 
 	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
-	suite.Require().NoError(suite.db.Create(&models.Revision{
+	suite.Require().NoError(suite.db.Create(&adminm.Revision{
 		EntityType: "artist", EntityID: 1, UserID: user.ID,
 		FieldChanges: &fieldChanges,
 	}).Error)
-	suite.Require().NoError(suite.db.Create(&models.Revision{
+	suite.Require().NoError(suite.db.Create(&adminm.Revision{
 		EntityType: "venue", EntityID: 2, UserID: user.ID,
 		FieldChanges: &fieldChanges,
 	}).Error)
@@ -579,10 +583,10 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	user := suite.createTestUser("pendinguser")
 
 	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
-	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+	suite.Require().NoError(suite.db.Create(&adminm.PendingEntityEdit{
 		EntityType: "artist", EntityID: 1, SubmittedBy: user.ID,
 		FieldChanges: &fieldChanges, Summary: "Fix name",
-		Status: models.PendingEditStatusPending,
+		Status: adminm.PendingEditStatusPending,
 	}).Error)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID)
@@ -596,22 +600,22 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
 	// 3 approved, 1 rejected = 75% approval rate
 	for i := 0; i < 3; i++ {
-		suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+		suite.Require().NoError(suite.db.Create(&adminm.PendingEntityEdit{
 			EntityType: "artist", EntityID: uint(i + 1), SubmittedBy: user.ID,
 			FieldChanges: &fieldChanges, Summary: "Edit",
-			Status: models.PendingEditStatusApproved,
+			Status: adminm.PendingEditStatusApproved,
 		}).Error)
 	}
-	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+	suite.Require().NoError(suite.db.Create(&adminm.PendingEntityEdit{
 		EntityType: "venue", EntityID: 1, SubmittedBy: user.ID,
 		FieldChanges: &fieldChanges, Summary: "Edit",
-		Status: models.PendingEditStatusRejected,
+		Status: adminm.PendingEditStatusRejected,
 	}).Error)
 	// Pending edits should not affect rate
-	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+	suite.Require().NoError(suite.db.Create(&adminm.PendingEntityEdit{
 		EntityType: "venue", EntityID: 2, SubmittedBy: user.ID,
 		FieldChanges: &fieldChanges, Summary: "Edit",
-		Status: models.PendingEditStatusPending,
+		Status: adminm.PendingEditStatusPending,
 	}).Error)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID)
@@ -633,16 +637,16 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	user := suite.createTestUser("reporter")
 
 	// Entity report
-	suite.Require().NoError(suite.db.Create(&models.EntityReport{
+	suite.Require().NoError(suite.db.Create(&communitym.EntityReport{
 		EntityType: "artist", EntityID: 1, ReportedBy: user.ID,
-		ReportType: "inaccurate", Status: models.EntityReportStatusPending,
+		ReportType: "inaccurate", Status: communitym.EntityReportStatusPending,
 	}).Error)
 
 	// Show report
 	show := suite.createShow(user.ID, "Test Show")
-	suite.Require().NoError(suite.db.Create(&models.ShowReport{
+	suite.Require().NoError(suite.db.Create(&communitym.ShowReport{
 		ShowID: show.ID, ReportedBy: user.ID,
-		ReportType: models.ShowReportTypeCancelled, Status: models.ShowReportStatusPending,
+		ReportType: communitym.ShowReportTypeCancelled, Status: communitym.ShowReportStatusPending,
 	}).Error)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID)
@@ -656,17 +660,17 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 
 	// Resolved entity report
 	now := time.Now()
-	suite.Require().NoError(suite.db.Create(&models.EntityReport{
+	suite.Require().NoError(suite.db.Create(&communitym.EntityReport{
 		EntityType: "venue", EntityID: 1, ReportedBy: reporter.ID,
-		ReportType: "inaccurate", Status: models.EntityReportStatusResolved,
+		ReportType: "inaccurate", Status: communitym.EntityReportStatusResolved,
 		ReviewedBy: &user.ID, ReviewedAt: &now,
 	}).Error)
 
 	// Dismissed show report
 	show := suite.createShow(reporter.ID, "Reported Show")
-	suite.Require().NoError(suite.db.Create(&models.ShowReport{
+	suite.Require().NoError(suite.db.Create(&communitym.ShowReport{
 		ShowID: show.ID, ReportedBy: reporter.ID,
-		ReportType: models.ShowReportTypeInaccurate, Status: models.ShowReportStatusDismissed,
+		ReportType: communitym.ShowReportTypeInaccurate, Status: communitym.ShowReportStatusDismissed,
 		ReviewedBy: &user.ID, ReviewedAt: &now,
 	}).Error)
 
@@ -679,18 +683,18 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 	user := suite.createTestUser("follower")
 
 	// Follow some entities
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
-		UserID: user.ID, EntityType: models.BookmarkEntityArtist,
-		EntityID: 1, Action: models.BookmarkActionFollow,
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityArtist,
+		EntityID: 1, Action: engagementm.BookmarkActionFollow,
 	}).Error)
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
-		UserID: user.ID, EntityType: models.BookmarkEntityVenue,
-		EntityID: 1, Action: models.BookmarkActionFollow,
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityVenue,
+		EntityID: 1, Action: engagementm.BookmarkActionFollow,
 	}).Error)
 	// "save" action should not count
-	suite.Require().NoError(suite.db.Create(&models.UserBookmark{
-		UserID: user.ID, EntityType: models.BookmarkEntityShow,
-		EntityID: 1, Action: models.BookmarkActionSave,
+	suite.Require().NoError(suite.db.Create(&engagementm.UserBookmark{
+		UserID: user.ID, EntityType: engagementm.BookmarkEntityShow,
+		EntityID: 1, Action: engagementm.BookmarkActionSave,
 	}).Error)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID)
@@ -706,24 +710,24 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 
 	// Create a revision (1 contribution)
 	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
-	suite.Require().NoError(suite.db.Create(&models.Revision{
+	suite.Require().NoError(suite.db.Create(&adminm.Revision{
 		EntityType: "artist", EntityID: 1, UserID: user.ID,
 		FieldChanges: &fieldChanges,
 	}).Error)
 
 	// Create a tag vote (1 contribution)
-	tag := &models.Tag{Name: "rock", Slug: fmt.Sprintf("rock-%d", time.Now().UnixNano()), Category: "genre"}
+	tag := &catalogm.Tag{Name: "rock", Slug: fmt.Sprintf("rock-%d", time.Now().UnixNano()), Category: "genre"}
 	suite.Require().NoError(suite.db.Create(tag).Error)
-	artist := &models.Artist{Name: "Test Artist"}
+	artist := &catalogm.Artist{Name: "Test Artist"}
 	suite.Require().NoError(suite.db.Create(artist).Error)
-	suite.Require().NoError(suite.db.Create(&models.TagVote{
+	suite.Require().NoError(suite.db.Create(&catalogm.TagVote{
 		TagID: tag.ID, EntityType: "artist", EntityID: artist.ID, UserID: user.ID, Vote: 1,
 	}).Error)
 
 	// Create a report (1 contribution)
-	suite.Require().NoError(suite.db.Create(&models.EntityReport{
+	suite.Require().NoError(suite.db.Create(&communitym.EntityReport{
 		EntityType: "artist", EntityID: 1, ReportedBy: user.ID,
-		ReportType: "inaccurate", Status: models.EntityReportStatusPending,
+		ReportType: "inaccurate", Status: communitym.EntityReportStatusPending,
 	}).Error)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID)
@@ -1379,7 +1383,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_Revisions() {
 	user := suite.createTestUser("heatmap_revisions")
 	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
-	suite.Require().NoError(suite.db.Create(&models.Revision{
+	suite.Require().NoError(suite.db.Create(&adminm.Revision{
 		EntityType: "artist", EntityID: 1, UserID: user.ID,
 		FieldChanges: &fieldChanges,
 	}).Error)
@@ -1395,11 +1399,11 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatmap_PendingEdits() {
 	user := suite.createTestUser("heatmap_edits")
 	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
-	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+	suite.Require().NoError(suite.db.Create(&adminm.PendingEntityEdit{
 		EntityType:   "venue",
 		EntityID:     1,
 		SubmittedBy:  user.ID,
-		Status:       models.PendingEditStatusPending,
+		Status:       adminm.PendingEditStatusPending,
 		FieldChanges: &fieldChanges,
 	}).Error)
 
@@ -1420,15 +1424,15 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 	helper := &testAuditLogHelper{db: suite.db}
 	helper.LogAction(user.ID, "edit_artist", "artist", 1, nil)
 	fieldChanges := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
-	suite.Require().NoError(suite.db.Create(&models.Revision{
+	suite.Require().NoError(suite.db.Create(&adminm.Revision{
 		EntityType: "artist", EntityID: 1, UserID: user.ID,
 		FieldChanges: &fieldChanges,
 	}).Error)
-	suite.Require().NoError(suite.db.Create(&models.PendingEntityEdit{
+	suite.Require().NoError(suite.db.Create(&adminm.PendingEntityEdit{
 		EntityType:   "venue",
 		EntityID:     1,
 		SubmittedBy:  user.ID,
-		Status:       models.PendingEditStatusPending,
+		Status:       adminm.PendingEditStatusPending,
 		FieldChanges: &fieldChanges,
 	}).Error)
 
@@ -1497,8 +1501,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetActivityHeatm
 // =============================================================================
 
 // createManyUsers creates n users with sequential usernames.
-func (suite *ContributorProfileServiceIntegrationTestSuite) createManyUsers(prefix string, n int) []*models.User {
-	users := make([]*models.User, n)
+func (suite *ContributorProfileServiceIntegrationTestSuite) createManyUsers(prefix string, n int) []*authm.User {
+	users := make([]*authm.User, n)
 	for i := 0; i < n; i++ {
 		users[i] = suite.createTestUser(fmt.Sprintf("%s%d", prefix, i))
 	}
@@ -1642,20 +1646,20 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankin
 	users := suite.createManyUsers("tagperc", 10)
 
 	// Create a tag
-	tag := &models.Tag{
+	tag := &catalogm.Tag{
 		Name:     "indie-rock",
 		Slug:     "indie-rock",
-		Category: models.TagCategoryGenre,
+		Category: catalogm.TagCategoryGenre,
 	}
 	suite.Require().NoError(suite.db.Create(tag).Error)
 
 	// Create an artist to tag
-	artist := &models.Artist{Name: "Test Band"}
+	artist := &catalogm.Artist{Name: "Test Band"}
 	suite.Require().NoError(suite.db.Create(artist).Error)
 
 	// Apply tags by user 0
 	for i := 0; i < 3; i++ {
-		et := &models.EntityTag{
+		et := &catalogm.EntityTag{
 			TagID:         tag.ID,
 			EntityType:    "artist",
 			EntityID:      artist.ID + uint(i), // different entity IDs to avoid unique constraint
@@ -1683,7 +1687,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankin
 	users := suite.createManyUsers("editperc", 10)
 
 	// Create a revision for user 0
-	rev := &models.Revision{
+	rev := &adminm.Revision{
 		EntityType:   "artist",
 		EntityID:     1,
 		UserID:       users[0].ID,
@@ -1696,13 +1700,13 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankin
 
 	// Create an approved pending edit for user 0
 	changes := json.RawMessage(`[{"field":"name","old_value":"Old","new_value":"New"}]`)
-	pe := &models.PendingEntityEdit{
+	pe := &adminm.PendingEntityEdit{
 		EntityType:   "artist",
 		EntityID:     1,
 		SubmittedBy:  users[0].ID,
 		FieldChanges: &changes,
 		Summary:      "Test edit",
-		Status:       models.PendingEditStatusApproved,
+		Status:       adminm.PendingEditStatusApproved,
 	}
 	suite.Require().NoError(suite.db.Create(pe).Error)
 
@@ -1725,12 +1729,12 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestPercentileRankin
 	users := suite.createManyUsers("reqperc", 10)
 
 	// Create a fulfilled request by user 0
-	req := &models.Request{
+	req := &communitym.Request{
 		Title:       "Find artist info",
 		EntityType:  "artist",
 		RequesterID: users[1].ID,
 		FulfillerID: &users[0].ID,
-		Status:      models.RequestStatusFulfilled,
+		Status:      communitym.RequestStatusFulfilled,
 	}
 	suite.Require().NoError(suite.db.Create(req).Error)
 

@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 	"psychic-homily-backend/internal/utils"
@@ -100,7 +100,18 @@ func (suite *RadioServiceIntegrationTestSuite) TearDownSuite() {
 	suite.testDB.Cleanup()
 }
 
+// SetupTest wipes data so every test starts from a known empty state.
+// Migrations seed WFMU network + 4 stations on the test container; without
+// SetupTest, the first test would inherit those rows.
+func (suite *RadioServiceIntegrationTestSuite) SetupTest() {
+	suite.cleanupRadioTables()
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TearDownTest() {
+	suite.cleanupRadioTables()
+}
+
+func (suite *RadioServiceIntegrationTestSuite) cleanupRadioTables() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
@@ -108,7 +119,10 @@ func (suite *RadioServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM radio_plays")
 	_, _ = sqlDB.Exec("DELETE FROM radio_episodes")
 	_, _ = sqlDB.Exec("DELETE FROM radio_shows")
+	// stations FK -> networks is ON DELETE SET NULL, so order is flexible,
+	// but we delete stations before networks for clarity.
 	_, _ = sqlDB.Exec("DELETE FROM radio_stations")
+	_, _ = sqlDB.Exec("DELETE FROM radio_networks")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM labels")
@@ -125,7 +139,7 @@ func TestRadioServiceIntegrationTestSuite(t *testing.T) {
 func (suite *RadioServiceIntegrationTestSuite) createStation(name string) *contracts.RadioStationDetailResponse {
 	resp, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
 		Name:          name,
-		BroadcastType: models.BroadcastTypeBoth,
+		BroadcastType: catalogm.BroadcastTypeBoth,
 	})
 	suite.Require().NoError(err)
 	return resp
@@ -139,8 +153,8 @@ func (suite *RadioServiceIntegrationTestSuite) createShow(stationID uint, name s
 	return resp
 }
 
-func (suite *RadioServiceIntegrationTestSuite) createEpisode(showID uint, airDate string) *models.RadioEpisode {
-	ep := &models.RadioEpisode{
+func (suite *RadioServiceIntegrationTestSuite) createEpisode(showID uint, airDate string) *catalogm.RadioEpisode {
+	ep := &catalogm.RadioEpisode{
 		ShowID:  showID,
 		AirDate: airDate,
 	}
@@ -149,8 +163,8 @@ func (suite *RadioServiceIntegrationTestSuite) createEpisode(showID uint, airDat
 	return ep
 }
 
-func (suite *RadioServiceIntegrationTestSuite) createPlay(episodeID uint, position int, artistName string) *models.RadioPlay {
-	play := &models.RadioPlay{
+func (suite *RadioServiceIntegrationTestSuite) createPlay(episodeID uint, position int, artistName string) *catalogm.RadioPlay {
+	play := &catalogm.RadioPlay{
 		EpisodeID:  episodeID,
 		Position:   position,
 		ArtistName: artistName,
@@ -160,23 +174,23 @@ func (suite *RadioServiceIntegrationTestSuite) createPlay(episodeID uint, positi
 	return play
 }
 
-func (suite *RadioServiceIntegrationTestSuite) createArtist(name string) *models.Artist {
+func (suite *RadioServiceIntegrationTestSuite) createArtist(name string) *catalogm.Artist {
 	slug := utils.GenerateArtistSlug(name)
-	artist := &models.Artist{Name: name, Slug: &slug}
+	artist := &catalogm.Artist{Name: name, Slug: &slug}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 	return artist
 }
 
-func (suite *RadioServiceIntegrationTestSuite) createRelease(title string) *models.Release {
-	release := &models.Release{Title: title}
+func (suite *RadioServiceIntegrationTestSuite) createRelease(title string) *catalogm.Release {
+	release := &catalogm.Release{Title: title}
 	err := suite.db.Create(release).Error
 	suite.Require().NoError(err)
 	return release
 }
 
-func (suite *RadioServiceIntegrationTestSuite) createLabel(name string) *models.Label {
-	label := &models.Label{Name: name, Status: models.LabelStatusActive}
+func (suite *RadioServiceIntegrationTestSuite) createLabel(name string) *catalogm.Label {
+	label := &catalogm.Label{Name: name, Status: catalogm.LabelStatusActive}
 	err := suite.db.Create(label).Error
 	suite.Require().NoError(err)
 	return label
@@ -192,7 +206,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_Success() {
 	freq := 90.3
 	resp, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
 		Name:          "KEXP",
-		BroadcastType: models.BroadcastTypeBoth,
+		BroadcastType: catalogm.BroadcastTypeBoth,
 		City:          &city,
 		State:         &state,
 		FrequencyMHz:  &freq,
@@ -214,7 +228,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_CustomSlug() {
 	resp, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
 		Name:          "KEXP",
 		Slug:          "kexp-seattle",
-		BroadcastType: models.BroadcastTypeInternet,
+		BroadcastType: catalogm.BroadcastTypeInternet,
 	})
 
 	suite.Require().NoError(err)
@@ -236,7 +250,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_UniqueSlugColli
 
 	resp, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
 		Name:          "KEXP",
-		BroadcastType: models.BroadcastTypeInternet,
+		BroadcastType: catalogm.BroadcastTypeInternet,
 	})
 
 	suite.Require().NoError(err)
@@ -538,7 +552,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodeDetail_WithPlays() 
 	artist := suite.createArtist("Radiohead")
 	suite.createPlay(ep.ID, 0, "Radiohead")
 	// Play linked to our artist
-	linkedPlay := &models.RadioPlay{
+	linkedPlay := &catalogm.RadioPlay{
 		EpisodeID:  ep.ID,
 		Position:   1,
 		ArtistName: "Radiohead",
@@ -622,8 +636,8 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetTopLabelsForShow_Success()
 	ep := suite.createEpisode(show.ID, "2026-01-01")
 
 	labelName := "Sub Pop"
-	play1 := &models.RadioPlay{EpisodeID: ep.ID, Position: 0, ArtistName: "A", LabelName: &labelName}
-	play2 := &models.RadioPlay{EpisodeID: ep.ID, Position: 1, ArtistName: "B", LabelName: &labelName}
+	play1 := &catalogm.RadioPlay{EpisodeID: ep.ID, Position: 0, ArtistName: "A", LabelName: &labelName}
+	play2 := &catalogm.RadioPlay{EpisodeID: ep.ID, Position: 1, ArtistName: "B", LabelName: &labelName}
 	suite.Require().NoError(suite.db.Create(play1).Error)
 	suite.Require().NoError(suite.db.Create(play2).Error)
 
@@ -645,7 +659,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetAsHeardOnForArtist_Success
 	ep := suite.createEpisode(show.ID, "2026-01-01")
 
 	artist := suite.createArtist("Radiohead")
-	play := &models.RadioPlay{
+	play := &catalogm.RadioPlay{
 		EpisodeID:  ep.ID,
 		Position:   0,
 		ArtistName: "Radiohead",
@@ -677,7 +691,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetAsHeardOnForRelease_Succes
 	ep := suite.createEpisode(show.ID, "2026-01-01")
 
 	release := suite.createRelease("OK Computer")
-	play := &models.RadioPlay{
+	play := &catalogm.RadioPlay{
 		EpisodeID:  ep.ID,
 		Position:   0,
 		ArtistName: "Radiohead",
@@ -702,7 +716,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetNewReleaseRadar_SingleStat
 	ep := suite.createEpisode(show.ID, "2026-01-01")
 
 	album := "Moon Shaped Pool"
-	play := &models.RadioPlay{
+	play := &catalogm.RadioPlay{
 		EpisodeID:  ep.ID,
 		Position:   0,
 		ArtistName: "Radiohead",
@@ -726,7 +740,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetNewReleaseRadar_CrossStati
 	ep1 := suite.createEpisode(show1.ID, "2026-01-01")
 
 	album := "Moon Shaped Pool"
-	play1 := &models.RadioPlay{EpisodeID: ep1.ID, Position: 0, ArtistName: "Radiohead", AlbumTitle: &album, IsNew: true}
+	play1 := &catalogm.RadioPlay{EpisodeID: ep1.ID, Position: 0, ArtistName: "Radiohead", AlbumTitle: &album, IsNew: true}
 	suite.Require().NoError(suite.db.Create(play1).Error)
 
 	// Only one station, cross-station query should return nothing
@@ -738,7 +752,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetNewReleaseRadar_CrossStati
 	station2 := suite.createStation("WFMU")
 	show2 := suite.createShow(station2.ID, "WFMU Show")
 	ep2 := suite.createEpisode(show2.ID, "2026-01-02")
-	play2 := &models.RadioPlay{EpisodeID: ep2.ID, Position: 0, ArtistName: "Radiohead", AlbumTitle: &album, IsNew: true}
+	play2 := &catalogm.RadioPlay{EpisodeID: ep2.ID, Position: 0, ArtistName: "Radiohead", AlbumTitle: &album, IsNew: true}
 	suite.Require().NoError(suite.db.Create(play2).Error)
 
 	resp, err = suite.radioService.GetNewReleaseRadar(0, 10)
@@ -767,8 +781,8 @@ func (suite *RadioServiceIntegrationTestSuite) TestGetRadioStats_WithData() {
 	ep := suite.createEpisode(show.ID, "2026-01-01")
 
 	artist := suite.createArtist("Radiohead")
-	linked := &models.RadioPlay{EpisodeID: ep.ID, Position: 0, ArtistName: "Radiohead", ArtistID: &artist.ID}
-	unlinked := &models.RadioPlay{EpisodeID: ep.ID, Position: 1, ArtistName: "Unknown"}
+	linked := &catalogm.RadioPlay{EpisodeID: ep.ID, Position: 0, ArtistName: "Radiohead", ArtistID: &artist.ID}
+	unlinked := &catalogm.RadioPlay{EpisodeID: ep.ID, Position: 1, ArtistName: "Unknown"}
 	suite.Require().NoError(suite.db.Create(linked).Error)
 	suite.Require().NoError(suite.db.Create(unlinked).Error)
 
@@ -798,14 +812,143 @@ func (suite *RadioServiceIntegrationTestSuite) TestDeleteStation_CascadesShows()
 
 	// Verify cascade — shows, episodes, and plays should all be gone
 	var showCount int64
-	suite.db.Model(&models.RadioShow{}).Where("station_id = ?", station.ID).Count(&showCount)
+	suite.db.Model(&catalogm.RadioShow{}).Where("station_id = ?", station.ID).Count(&showCount)
 	suite.Equal(int64(0), showCount)
 
 	var epCount int64
-	suite.db.Model(&models.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&epCount)
+	suite.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", show.ID).Count(&epCount)
 	suite.Equal(int64(0), epCount)
 
 	var playCount int64
-	suite.db.Model(&models.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&playCount)
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&playCount)
 	suite.Equal(int64(0), playCount)
+}
+
+// =============================================================================
+// PSY-508: RADIO_NETWORKS RELATIONSHIP TESTS
+// =============================================================================
+
+// TestRadioNetwork_WFMUSeed_FourStationsUnderNetwork verifies the migration
+// shipped with PSY-508 wires up the WFMU network and its 4 sibling stations
+// (the 91.1 broadcast plus three stream-only sub-channels).
+//
+// This is a guard against migration regressions: if someone breaks the
+// network seed or the network_id backfill, this test fails fast.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_WFMUSeed_FourStationsUnderNetwork() {
+	// The migration ships the network row + 4 stations. Re-apply it
+	// inside the test scope (TearDownTest wipes everything between
+	// tests in this suite, so we re-seed for this test).
+	suite.Require().NoError(suite.db.Exec(`
+		INSERT INTO radio_networks (slug, name) VALUES ('wfmu', 'WFMU')
+	`).Error)
+	suite.Require().NoError(suite.db.Exec(`
+		INSERT INTO radio_stations (name, slug, broadcast_type, playlist_source, network_id, is_active)
+		VALUES
+		    ('WFMU', 'wfmu', 'both', 'wfmu_scrape', (SELECT id FROM radio_networks WHERE slug = 'wfmu'), TRUE),
+		    ('Give the Drummer Radio', 'wfmu-drummer', 'internet', 'wfmu_scrape', (SELECT id FROM radio_networks WHERE slug = 'wfmu'), TRUE),
+		    ('Rock''n''Soul Radio', 'wfmu-rocknsoulradio', 'internet', 'wfmu_scrape', (SELECT id FROM radio_networks WHERE slug = 'wfmu'), TRUE),
+		    ('Sheena''s Jungle Room', 'wfmu-sheena', 'internet', 'wfmu_scrape', (SELECT id FROM radio_networks WHERE slug = 'wfmu'), TRUE)
+	`).Error)
+
+	// Network row exists with the expected slug + name.
+	var network catalogm.RadioNetwork
+	err := suite.db.Where("slug = ?", "wfmu").First(&network).Error
+	suite.Require().NoError(err)
+	suite.Equal("wfmu", network.Slug)
+	suite.Equal("WFMU", network.Name)
+
+	// Exactly 4 stations point at the WFMU network.
+	var stations []catalogm.RadioStation
+	err = suite.db.Where("network_id = ?", network.ID).Order("slug ASC").Find(&stations).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(stations, 4)
+
+	// Slugs match the locked design (alphabetical order from query above).
+	suite.Equal("wfmu", stations[0].Slug)
+	suite.Equal("wfmu-drummer", stations[1].Slug)
+	suite.Equal("wfmu-rocknsoulradio", stations[2].Slug)
+	suite.Equal("wfmu-sheena", stations[3].Slug)
+
+	// All four share the same network_id (sibling, not nested).
+	for _, st := range stations {
+		suite.Require().NotNil(st.NetworkID)
+		suite.Equal(network.ID, *st.NetworkID)
+	}
+}
+
+// TestRadioNetwork_StationDelete_PreservesNetwork verifies that deleting a
+// station does not delete the network. ON DELETE SET NULL on the FK only
+// applies when the *network* is deleted, not when a station is deleted.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_StationDelete_PreservesNetwork() {
+	// Seed: 1 network, 1 station pointing at it.
+	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('test-net', 'Test Net')`).Error)
+	var network catalogm.RadioNetwork
+	suite.Require().NoError(suite.db.Where("slug = ?", "test-net").First(&network).Error)
+
+	station := &catalogm.RadioStation{
+		Name:          "Test Station",
+		Slug:          "test-station",
+		BroadcastType: "internet",
+		NetworkID:     &network.ID,
+	}
+	suite.Require().NoError(suite.db.Create(station).Error)
+
+	// Delete the station.
+	suite.Require().NoError(suite.radioService.DeleteStation(station.ID))
+
+	// Network should still exist.
+	var count int64
+	suite.db.Model(&catalogm.RadioNetwork{}).Where("slug = ?", "test-net").Count(&count)
+	suite.Equal(int64(1), count)
+}
+
+// TestRadioNetwork_NetworkDelete_StationsKeptWithNullNetworkID verifies that
+// deleting a network sets affiliated stations' network_id to NULL (rather
+// than cascading the delete). The schema FK is ON DELETE SET NULL.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_NetworkDelete_StationsKeptWithNullNetworkID() {
+	// Seed: 1 network, 1 station pointing at it.
+	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('cleanup-net', 'Cleanup Net')`).Error)
+	var network catalogm.RadioNetwork
+	suite.Require().NoError(suite.db.Where("slug = ?", "cleanup-net").First(&network).Error)
+
+	station := &catalogm.RadioStation{
+		Name:          "Affiliated",
+		Slug:          "affiliated-cleanup",
+		BroadcastType: "internet",
+		NetworkID:     &network.ID,
+	}
+	suite.Require().NoError(suite.db.Create(station).Error)
+
+	// Delete the network.
+	suite.Require().NoError(suite.db.Delete(&network).Error)
+
+	// Station should still exist with network_id = NULL.
+	var refreshed catalogm.RadioStation
+	suite.Require().NoError(suite.db.First(&refreshed, station.ID).Error)
+	suite.Nil(refreshed.NetworkID)
+}
+
+// TestRadioNetwork_GetStationBySlug_PreloadsNetworkSlug verifies that the
+// public station detail response includes the network_slug (via Network
+// preload) so clients can identify a station's network without a second
+// round-trip.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStationBySlug_PreloadsNetworkSlug() {
+	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('wfmu', 'WFMU')`).Error)
+	var network catalogm.RadioNetwork
+	suite.Require().NoError(suite.db.Where("slug = ?", "wfmu").First(&network).Error)
+
+	station := &catalogm.RadioStation{
+		Name:          "Give the Drummer Radio",
+		Slug:          "wfmu-drummer",
+		BroadcastType: "internet",
+		NetworkID:     &network.ID,
+	}
+	suite.Require().NoError(suite.db.Create(station).Error)
+
+	resp, err := suite.radioService.GetStationBySlug("wfmu-drummer")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.NetworkID)
+	suite.Equal(network.ID, *resp.NetworkID)
+	suite.Require().NotNil(resp.NetworkSlug)
+	suite.Equal("wfmu", *resp.NetworkSlug)
 }

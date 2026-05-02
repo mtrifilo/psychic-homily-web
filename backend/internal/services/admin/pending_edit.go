@@ -9,7 +9,8 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -40,7 +41,7 @@ func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditR
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	if !models.IsValidPendingEditEntityType(req.EntityType) {
+	if !adminm.IsValidPendingEditEntityType(req.EntityType) {
 		return nil, fmt.Errorf("invalid entity type: %s", req.EntityType)
 	}
 	if len(req.Changes) == 0 {
@@ -66,13 +67,13 @@ func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditR
 	}
 	raw := json.RawMessage(changesJSON)
 
-	edit := &models.PendingEntityEdit{
+	edit := &adminm.PendingEntityEdit{
 		EntityType:   req.EntityType,
 		EntityID:     req.EntityID,
 		SubmittedBy:  req.UserID,
 		FieldChanges: &raw,
 		Summary:      req.Summary,
-		Status:       models.PendingEditStatusPending,
+		Status:       adminm.PendingEditStatusPending,
 	}
 
 	if err := s.db.Create(edit).Error; err != nil {
@@ -89,7 +90,7 @@ func (s *PendingEditService) GetPendingEdit(editID uint) (*contracts.PendingEdit
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var edit models.PendingEntityEdit
+	var edit adminm.PendingEntityEdit
 	err := s.db.Preload("Submitter").Preload("Reviewer").First(&edit, editID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -107,8 +108,8 @@ func (s *PendingEditService) GetPendingEditsForEntity(entityType string, entityI
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var edits []models.PendingEntityEdit
-	err := s.db.Where("entity_type = ? AND entity_id = ? AND status = ?", entityType, entityID, models.PendingEditStatusPending).
+	var edits []adminm.PendingEntityEdit
+	err := s.db.Where("entity_type = ? AND entity_id = ? AND status = ?", entityType, entityID, adminm.PendingEditStatusPending).
 		Preload("Submitter").
 		Order("created_at ASC").
 		Find(&edits).Error
@@ -133,9 +134,9 @@ func (s *PendingEditService) GetUserPendingEdits(userID uint, limit, offset int)
 	}
 
 	var total int64
-	s.db.Model(&models.PendingEntityEdit{}).Where("submitted_by = ?", userID).Count(&total)
+	s.db.Model(&adminm.PendingEntityEdit{}).Where("submitted_by = ?", userID).Count(&total)
 
-	var edits []models.PendingEntityEdit
+	var edits []adminm.PendingEntityEdit
 	err := s.db.Where("submitted_by = ?", userID).
 		Preload("Submitter").
 		Preload("Reviewer").
@@ -167,7 +168,7 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 		}
 	}
 
-	query := s.db.Model(&models.PendingEntityEdit{})
+	query := s.db.Model(&adminm.PendingEntityEdit{})
 
 	if filters != nil {
 		if filters.Status != "" {
@@ -181,7 +182,7 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 	var total int64
 	query.Count(&total)
 
-	var edits []models.PendingEntityEdit
+	var edits []adminm.PendingEntityEdit
 	err := query.
 		Preload("Submitter").
 		Preload("Reviewer").
@@ -203,7 +204,7 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var edit models.PendingEntityEdit
+	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("pending edit not found")
@@ -211,12 +212,12 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		return nil, fmt.Errorf("failed to get pending edit: %w", err)
 	}
 
-	if edit.Status != models.PendingEditStatusPending {
+	if edit.Status != adminm.PendingEditStatusPending {
 		return nil, fmt.Errorf("edit is not pending (status: %s)", edit.Status)
 	}
 
 	// Parse field changes
-	var changes []models.FieldChange
+	var changes []adminm.FieldChange
 	if err := json.Unmarshal(*edit.FieldChanges, &changes); err != nil {
 		return nil, fmt.Errorf("failed to parse field changes: %w", err)
 	}
@@ -242,7 +243,7 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		// Mark edit as approved
 		now := time.Now()
 		if err := tx.Model(&edit).Updates(map[string]interface{}{
-			"status":      models.PendingEditStatusApproved,
+			"status":      adminm.PendingEditStatusApproved,
 			"reviewed_by": reviewerID,
 			"reviewed_at": now,
 			"updated_at":  now,
@@ -277,7 +278,7 @@ func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, rea
 		return nil, fmt.Errorf("rejection reason is required")
 	}
 
-	var edit models.PendingEntityEdit
+	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("pending edit not found")
@@ -285,13 +286,13 @@ func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, rea
 		return nil, fmt.Errorf("failed to get pending edit: %w", err)
 	}
 
-	if edit.Status != models.PendingEditStatusPending {
+	if edit.Status != adminm.PendingEditStatusPending {
 		return nil, fmt.Errorf("edit is not pending (status: %s)", edit.Status)
 	}
 
 	now := time.Now()
 	if err := s.db.Model(&edit).Updates(map[string]interface{}{
-		"status":           models.PendingEditStatusRejected,
+		"status":           adminm.PendingEditStatusRejected,
 		"reviewed_by":      reviewerID,
 		"reviewed_at":      now,
 		"rejection_reason": reason,
@@ -312,7 +313,7 @@ func (s *PendingEditService) CancelPendingEdit(editID uint, userID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	var edit models.PendingEntityEdit
+	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return fmt.Errorf("pending edit not found")
@@ -324,7 +325,7 @@ func (s *PendingEditService) CancelPendingEdit(editID uint, userID uint) error {
 		return fmt.Errorf("only the submitter can cancel their own edit")
 	}
 
-	if edit.Status != models.PendingEditStatusPending {
+	if edit.Status != adminm.PendingEditStatusPending {
 		return fmt.Errorf("edit is not pending (status: %s)", edit.Status)
 	}
 
@@ -332,7 +333,7 @@ func (s *PendingEditService) CancelPendingEdit(editID uint, userID uint) error {
 }
 
 // toResponse converts a PendingEntityEdit model to a response DTO.
-func (s *PendingEditService) toResponse(edit *models.PendingEntityEdit) *contracts.PendingEditResponse {
+func (s *PendingEditService) toResponse(edit *adminm.PendingEntityEdit) *contracts.PendingEditResponse {
 	resp := &contracts.PendingEditResponse{
 		ID:              edit.ID,
 		EntityType:      edit.EntityType,
@@ -350,7 +351,7 @@ func (s *PendingEditService) toResponse(edit *models.PendingEntityEdit) *contrac
 
 	// Parse field changes
 	if edit.FieldChanges != nil {
-		var changes []models.FieldChange
+		var changes []adminm.FieldChange
 		if err := json.Unmarshal(*edit.FieldChanges, &changes); err == nil {
 			resp.FieldChanges = changes
 		}
@@ -370,7 +371,7 @@ func (s *PendingEditService) toResponse(edit *models.PendingEntityEdit) *contrac
 }
 
 // toResponses converts a slice of models to response DTOs.
-func (s *PendingEditService) toResponses(edits []models.PendingEntityEdit) []contracts.PendingEditResponse {
+func (s *PendingEditService) toResponses(edits []adminm.PendingEntityEdit) []contracts.PendingEditResponse {
 	responses := make([]contracts.PendingEditResponse, len(edits))
 	for i := range edits {
 		responses[i] = *s.toResponse(&edits[i])
@@ -379,7 +380,7 @@ func (s *PendingEditService) toResponses(edits []models.PendingEntityEdit) []con
 }
 
 // displayName returns a display name from a user, preferring username > first+last > email.
-func displayName(u *models.User) string {
+func displayName(u *authm.User) string {
 	if u.Username != nil && *u.Username != "" {
 		return *u.Username
 	}
@@ -398,13 +399,13 @@ func displayName(u *models.User) string {
 
 // sendApprovalEmail looks up the submitter and entity, then sends an approval notification.
 // Fire-and-forget: errors are logged but never fail the parent operation.
-func (s *PendingEditService) sendApprovalEmail(edit *models.PendingEntityEdit) {
+func (s *PendingEditService) sendApprovalEmail(edit *adminm.PendingEntityEdit) {
 	if s.emailService == nil || !s.emailService.IsConfigured() {
 		return
 	}
 
 	// Look up submitter
-	var user models.User
+	var user authm.User
 	if err := s.db.First(&user, edit.SubmittedBy).Error; err != nil {
 		log.Printf("sendApprovalEmail: failed to look up submitter %d: %v", edit.SubmittedBy, err)
 		return
@@ -423,13 +424,13 @@ func (s *PendingEditService) sendApprovalEmail(edit *models.PendingEntityEdit) {
 
 // sendRejectionEmail looks up the submitter and entity, then sends a rejection notification.
 // Fire-and-forget: errors are logged but never fail the parent operation.
-func (s *PendingEditService) sendRejectionEmail(edit *models.PendingEntityEdit, reason string) {
+func (s *PendingEditService) sendRejectionEmail(edit *adminm.PendingEntityEdit, reason string) {
 	if s.emailService == nil || !s.emailService.IsConfigured() {
 		return
 	}
 
 	// Look up submitter
-	var user models.User
+	var user authm.User
 	if err := s.db.First(&user, edit.SubmittedBy).Error; err != nil {
 		log.Printf("sendRejectionEmail: failed to look up submitter %d: %v", edit.SubmittedBy, err)
 		return

@@ -9,7 +9,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -29,7 +29,6 @@ func NewArtistService(database *gorm.DB) *ArtistService {
 	}
 }
 
-
 // CreateArtist creates a new artist
 func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
@@ -37,7 +36,7 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 	}
 
 	// Check if artist already exists
-	var existingArtist models.Artist
+	var existingArtist catalogm.Artist
 	err := s.db.Where("LOWER(name) = LOWER(?)", req.Name).First(&existingArtist).Error
 	if err == nil {
 		return nil, fmt.Errorf("artist with name '%s' already exists", req.Name)
@@ -49,18 +48,18 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 	baseSlug := utils.GenerateArtistSlug(req.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
 	// Create the artist
-	artist := &models.Artist{
+	artist := &catalogm.Artist{
 		Name:        req.Name,
 		Slug:        &slug,
 		State:       req.State,
 		City:        req.City,
 		Description: req.Description,
-		Social: models.Social{
+		Social: catalogm.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
 			Twitter:    req.Twitter,
@@ -85,7 +84,7 @@ func (s *ArtistService) GetArtist(artistID uint) (*contracts.ArtistDetailRespons
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var artist models.Artist
+	var artist catalogm.Artist
 	err := s.db.First(&artist, artistID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -103,7 +102,7 @@ func (s *ArtistService) GetArtistByName(name string) (*contracts.ArtistDetailRes
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var artist models.Artist
+	var artist catalogm.Artist
 	err := s.db.Where("LOWER(name) = LOWER(?)", name).First(&artist).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -121,7 +120,7 @@ func (s *ArtistService) GetArtistBySlug(slug string) (*contracts.ArtistDetailRes
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	var artist models.Artist
+	var artist catalogm.Artist
 	err := s.db.Where("slug = ?", slug).First(&artist).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -167,13 +166,13 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*contracts
 		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%")
 	}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		query = ApplyTagFilter(query, s.db, models.TagEntityArtist, "artists.id", tf)
+		query = ApplyTagFilter(query, s.db, catalogm.TagEntityArtist, "artists.id", tf)
 	}
 
 	// Default ordering by name
 	query = query.Order("name ASC")
 
-	var artists []models.Artist
+	var artists []catalogm.Artist
 	err := query.Find(&artists).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get artists: %w", err)
@@ -196,7 +195,7 @@ func (s *ArtistService) UpdateArtist(artistID uint, updates map[string]interface
 
 	// Check if name is being updated and if it conflicts with existing artist
 	if name, ok := updates["name"].(string); ok {
-		var existingArtist models.Artist
+		var existingArtist catalogm.Artist
 		err := s.db.Where("LOWER(name) = LOWER(?) AND id != ?", name, artistID).First(&existingArtist).Error
 		if err == nil {
 			return nil, fmt.Errorf("artist with name '%s' already exists", name)
@@ -208,13 +207,13 @@ func (s *ArtistService) UpdateArtist(artistID uint, updates map[string]interface
 		baseSlug := utils.GenerateArtistSlug(name)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.Artist{}).Where("slug = ? AND id != ?", candidate, artistID).Count(&count)
+			s.db.Model(&catalogm.Artist{}).Where("slug = ? AND id != ?", candidate, artistID).Count(&count)
 			return count > 0
 		})
 		updates["slug"] = slug
 	}
 
-	err := s.db.Model(&models.Artist{}).Where("id = ?", artistID).Updates(updates).Error
+	err := s.db.Model(&catalogm.Artist{}).Where("id = ?", artistID).Updates(updates).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to update artist: %w", err)
 	}
@@ -229,7 +228,7 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 	}
 
 	// Check if artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	err := s.db.First(&artist, artistID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
@@ -240,7 +239,7 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 
 	// Check if artist is associated with any shows
 	var count int64
-	err = s.db.Model(&models.ShowArtist{}).Where("artist_id = ?", artistID).Count(&count).Error
+	err = s.db.Model(&catalogm.ShowArtist{}).Where("artist_id = ?", artistID).Count(&count).Error
 	if err != nil {
 		return fmt.Errorf("failed to check artist associations: %w", err)
 	}
@@ -273,7 +272,7 @@ func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailRe
 		return []*contracts.ArtistDetailResponse{}, nil
 	}
 
-	var artists []models.Artist
+	var artists []catalogm.Artist
 	var err error
 
 	// Strategy depends on query length for optimal performance
@@ -323,7 +322,7 @@ func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailRe
 
 // ArtistWithCount is used internally for querying artists with their show counts
 type ArtistWithCount struct {
-	models.Artist
+	catalogm.Artist
 	UpcomingShowCount int64      `gorm:"column:upcoming_show_count"`
 	LastShowDate      *time.Time `gorm:"column:last_show_date"`
 }
@@ -356,7 +355,7 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 	upcomingSubquery := s.db.Table("show_artists").
 		Select("show_artists.artist_id, COUNT(*) as show_count").
 		Joins("JOIN shows ON show_artists.show_id = shows.id").
-		Where("shows.event_date >= ? AND shows.status = ?", now, models.ShowStatusApproved).
+		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
 		Group("show_artists.artist_id")
 
 	var query *gorm.DB
@@ -367,7 +366,7 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 		pastSubquery := s.db.Table("show_artists").
 			Select("show_artists.artist_id, MAX(shows.event_date) as last_show_date").
 			Joins("JOIN shows ON show_artists.show_id = shows.id").
-			Where("shows.event_date < ? AND shows.status = ?", now, models.ShowStatusApproved).
+			Where("shows.event_date < ? AND shows.status = ?", now, catalogm.ShowStatusApproved).
 			Group("show_artists.artist_id")
 
 		query = s.db.Table("artists").
@@ -405,7 +404,7 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 		}
 	}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
-		query = ApplyTagFilter(query, s.db, models.TagEntityArtist, "artists.id", tf)
+		query = ApplyTagFilter(query, s.db, catalogm.TagEntityArtist, "artists.id", tf)
 	}
 
 	var artistsWithCount []ArtistWithCount
@@ -430,7 +429,6 @@ func (s *ArtistService) GetArtistsWithShowCounts(filters map[string]interface{})
 	return responses, nil
 }
 
-
 // GetArtistCities returns distinct cities for artists that have upcoming approved shows.
 // Only artists with both city and state set are included.
 // Results are sorted by artist count (descending) to show most active cities first.
@@ -451,7 +449,7 @@ func (s *ArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, erro
 	artistsWithShows := s.db.Table("show_artists").
 		Select("DISTINCT show_artists.artist_id").
 		Joins("JOIN shows ON show_artists.show_id = shows.id").
-		Where("shows.event_date >= ? AND shows.status = ?", now, models.ShowStatusApproved)
+		Where("shows.event_date >= ? AND shows.status = ?", now, catalogm.ShowStatusApproved)
 
 	var results []CityResult
 	err := s.db.Table("artists").
@@ -478,7 +476,7 @@ func (s *ArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, erro
 }
 
 // buildArtistResponse converts an Artist model to contracts.ArtistDetailResponse
-func (s *ArtistService) buildArtistResponse(artist *models.Artist) *contracts.ArtistDetailResponse {
+func (s *ArtistService) buildArtistResponse(artist *catalogm.Artist) *contracts.ArtistDetailResponse {
 	slug := ""
 	if artist.Slug != nil {
 		slug = *artist.Slug
@@ -491,6 +489,7 @@ func (s *ArtistService) buildArtistResponse(artist *models.Artist) *contracts.Ar
 		City:             artist.City,
 		BandcampEmbedURL: artist.BandcampEmbedURL,
 		Description:      artist.Description,
+		ImageURL:         artist.ImageURL,
 		Social: contracts.SocialResponse{
 			Instagram:  artist.Social.Instagram,
 			Facebook:   artist.Social.Facebook,
@@ -515,7 +514,7 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrArtistNotFound(artistID)
@@ -524,7 +523,7 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 	}
 
 	// Get label IDs from junction table
-	var artistLabels []models.ArtistLabel
+	var artistLabels []catalogm.ArtistLabel
 	s.db.Where("artist_id = ?", artistID).Find(&artistLabels)
 
 	if len(artistLabels) == 0 {
@@ -536,7 +535,7 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 		labelIDs[i] = al.LabelID
 	}
 
-	var labels []models.Label
+	var labels []catalogm.Label
 	s.db.Where("id IN ?", labelIDs).Order("name ASC").Find(&labels)
 
 	responses := make([]*contracts.ArtistLabelResponse, len(labels))
@@ -557,7 +556,6 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 	return responses, nil
 }
 
-
 // GetShowsForArtist retrieves shows for a specific artist with time filtering.
 // timeFilter can be: "upcoming" (event_date >= today), "past" (event_date < today), or "all"
 // Only returns approved shows.
@@ -567,7 +565,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, 0, apperrors.ErrArtistNotFound(artistID)
@@ -589,7 +587,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	// Build base query
 	baseQuery := s.db.Table("show_artists").
 		Joins("JOIN shows ON show_artists.show_id = shows.id").
-		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, models.ShowStatusApproved)
+		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, catalogm.ShowStatusApproved)
 
 	// Apply time filter and determine ordering
 	var dateCondition string
@@ -612,7 +610,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	var total int64
 	countQuery := s.db.Table("show_artists").
 		Joins("JOIN shows ON show_artists.show_id = shows.id").
-		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, models.ShowStatusApproved)
+		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, catalogm.ShowStatusApproved)
 	if dateCondition != "" {
 		countQuery = countQuery.Where(dateCondition, startOfTodayUTC)
 	}
@@ -625,7 +623,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	showQuery := s.db.Table("show_artists").
 		Select("show_artists.show_id").
 		Joins("JOIN shows ON show_artists.show_id = shows.id").
-		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, models.ShowStatusApproved)
+		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, catalogm.ShowStatusApproved)
 	if dateCondition != "" {
 		showQuery = showQuery.Where(dateCondition, startOfTodayUTC)
 	}
@@ -634,7 +632,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	}
 
 	// Fetch full show data with artists
-	var shows []models.Show
+	var shows []catalogm.Show
 	if len(showIDs) > 0 {
 		if err := s.db.Preload("Artists").Where("id IN ?", showIDs).Order(orderDirection).Find(&shows).Error; err != nil {
 			return nil, 0, fmt.Errorf("failed to get shows: %w", err)
@@ -647,7 +645,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		showIDsList[i] = show.ID
 	}
 
-	var allShowVenues []models.ShowVenue
+	var allShowVenues []catalogm.ShowVenue
 	s.db.Where("show_id IN ?", showIDsList).Find(&allShowVenues)
 
 	// Batch-fetch all venue models
@@ -657,9 +655,9 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 		showVenueMap[sv.ShowID] = sv.VenueID
 		venueIDs = append(venueIDs, sv.VenueID)
 	}
-	venueMap := make(map[uint]*models.Venue)
+	venueMap := make(map[uint]*catalogm.Venue)
 	if len(venueIDs) > 0 {
-		var venues []models.Venue
+		var venues []catalogm.Venue
 		s.db.Where("id IN ?", venueIDs).Find(&venues)
 		for i := range venues {
 			venueMap[venues[i].ID] = &venues[i]
@@ -667,17 +665,17 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	}
 
 	// Batch-load all ShowArtist records
-	var allShowArtists []models.ShowArtist
+	var allShowArtists []catalogm.ShowArtist
 	s.db.Where("show_id IN ?", showIDsList).Order("position ASC").Find(&allShowArtists)
-	showArtistsMap := make(map[uint][]models.ShowArtist)
+	showArtistsMap := make(map[uint][]catalogm.ShowArtist)
 	var allArtistIDs []uint
 	for _, sa := range allShowArtists {
 		showArtistsMap[sa.ShowID] = append(showArtistsMap[sa.ShowID], sa)
 		allArtistIDs = append(allArtistIDs, sa.ArtistID)
 	}
-	artistMap := make(map[uint]*models.Artist)
+	artistMap := make(map[uint]*catalogm.Artist)
 	if len(allArtistIDs) > 0 {
-		var artists []models.Artist
+		var artists []catalogm.Artist
 		s.db.Where("id IN ?", allArtistIDs).Find(&artists)
 		for i := range artists {
 			artistMap[artists[i].ID] = &artists[i]
@@ -752,7 +750,7 @@ func (s *ArtistService) AddArtistAlias(artistID uint, alias string) (*contracts.
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrArtistNotFound(artistID)
@@ -761,18 +759,18 @@ func (s *ArtistService) AddArtistAlias(artistID uint, alias string) (*contracts.
 	}
 
 	// Check for duplicate alias (case-insensitive)
-	var existing models.ArtistAlias
+	var existing catalogm.ArtistAlias
 	if err := s.db.Where("LOWER(alias) = LOWER(?)", alias).First(&existing).Error; err == nil {
 		return nil, fmt.Errorf("alias '%s' already exists", alias)
 	}
 
 	// Check if alias matches an existing artist name
-	var existingArtist models.Artist
+	var existingArtist catalogm.Artist
 	if err := s.db.Where("LOWER(name) = LOWER(?)", alias).First(&existingArtist).Error; err == nil {
 		return nil, fmt.Errorf("alias '%s' conflicts with existing artist name", alias)
 	}
 
-	artistAlias := &models.ArtistAlias{
+	artistAlias := &catalogm.ArtistAlias{
 		ArtistID: artistID,
 		Alias:    alias,
 	}
@@ -795,7 +793,7 @@ func (s *ArtistService) RemoveArtistAlias(aliasID uint) error {
 		return fmt.Errorf("database not initialized")
 	}
 
-	result := s.db.Delete(&models.ArtistAlias{}, aliasID)
+	result := s.db.Delete(&catalogm.ArtistAlias{}, aliasID)
 	if result.Error != nil {
 		return fmt.Errorf("failed to delete alias: %w", result.Error)
 	}
@@ -813,7 +811,7 @@ func (s *ArtistService) GetArtistAliases(artistID uint) ([]*contracts.ArtistAlia
 	}
 
 	// Verify artist exists
-	var artist models.Artist
+	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrArtistNotFound(artistID)
@@ -821,7 +819,7 @@ func (s *ArtistService) GetArtistAliases(artistID uint) ([]*contracts.ArtistAlia
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	var aliases []models.ArtistAlias
+	var aliases []catalogm.ArtistAlias
 	if err := s.db.Where("artist_id = ?", artistID).Order("alias ASC").Find(&aliases).Error; err != nil {
 		return nil, fmt.Errorf("failed to list aliases: %w", err)
 	}
@@ -857,7 +855,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 	}
 
 	// Verify both artists exist
-	var canonical models.Artist
+	var canonical catalogm.Artist
 	if err := s.db.First(&canonical, canonicalID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrArtistNotFound(canonicalID)
@@ -865,7 +863,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		return nil, fmt.Errorf("failed to get canonical artist: %w", err)
 	}
 
-	var mergeFrom models.Artist
+	var mergeFrom catalogm.Artist
 	if err := s.db.First(&mergeFrom, mergeFromID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrArtistNotFound(mergeFromID)
@@ -883,8 +881,8 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 		// 1. show_artists: delete conflicts, then update remaining
 		tx.Where("artist_id = ? AND show_id IN (?)", mergeFromID,
 			tx.Table("show_artists").Select("show_id").Where("artist_id = ?", canonicalID),
-		).Delete(&models.ShowArtist{})
-		r := tx.Model(&models.ShowArtist{}).Where("artist_id = ?", mergeFromID).Update("artist_id", canonicalID)
+		).Delete(&catalogm.ShowArtist{})
+		r := tx.Model(&catalogm.ShowArtist{}).Where("artist_id = ?", mergeFromID).Update("artist_id", canonicalID)
 		result.ShowsMoved = r.RowsAffected
 
 		// 2. artist_releases: delete conflicts, then update remaining
@@ -966,11 +964,11 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 
 		// 16. Create alias from merged artist's name (if not conflicting)
 		var aliasCount int64
-		tx.Model(&models.ArtistAlias{}).Where("LOWER(alias) = LOWER(?)", mergeFrom.Name).Count(&aliasCount)
+		tx.Model(&catalogm.ArtistAlias{}).Where("LOWER(alias) = LOWER(?)", mergeFrom.Name).Count(&aliasCount)
 		var nameCount int64
-		tx.Model(&models.Artist{}).Where("LOWER(name) = LOWER(?)", mergeFrom.Name).Where("id != ?", mergeFromID).Count(&nameCount)
+		tx.Model(&catalogm.Artist{}).Where("LOWER(name) = LOWER(?)", mergeFrom.Name).Where("id != ?", mergeFromID).Count(&nameCount)
 		if aliasCount == 0 && nameCount == 0 {
-			newAlias := models.ArtistAlias{
+			newAlias := catalogm.ArtistAlias{
 				ArtistID: canonicalID,
 				Alias:    mergeFrom.Name,
 			}

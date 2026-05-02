@@ -11,7 +11,8 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -59,8 +60,8 @@ func TestShowServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *ShowServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *ShowServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -72,8 +73,8 @@ func (suite *ShowServiceIntegrationTestSuite) createTestUser() *models.User {
 	return user
 }
 
-func (suite *ShowServiceIntegrationTestSuite) createTestVenue(name, city, state string, verified bool) *models.Venue {
-	venue := &models.Venue{
+func (suite *ShowServiceIntegrationTestSuite) createTestVenue(name, city, state string, verified bool) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:     name,
 		City:     city,
 		State:    state,
@@ -205,7 +206,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingVenue() {
 
 	// Verify no duplicate venue was created
 	var venueCount int64
-	suite.db.Model(&models.Venue{}).Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", "Existing Hall", "Phoenix").Count(&venueCount)
+	suite.db.Model(&catalogm.Venue{}).Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", "Existing Hall", "Phoenix").Count(&venueCount)
 	suite.Equal(int64(1), venueCount)
 }
 
@@ -235,11 +236,11 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistAndVenue()
 	suite.True(*resp.Artists[0].IsNewArtist)
 
 	// Verify records exist in DB
-	var artist models.Artist
+	var artist catalogm.Artist
 	suite.NoError(suite.db.Where("name = ?", "Brand New Band").First(&artist).Error)
 	suite.NotNil(artist.Slug)
 
-	var venue models.Venue
+	var venue catalogm.Venue
 	suite.NoError(suite.db.Where("name = ?", "New Place").First(&venue).Error)
 }
 
@@ -268,7 +269,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithInstag
 	suite.Len(resp.Artists, 1)
 
 	// Verify DB artist has instagram set
-	var artist models.Artist
+	var artist catalogm.Artist
 	suite.NoError(suite.db.Where("name = ?", "IG Artist").First(&artist).Error)
 	suite.Require().NotNil(artist.Social.Instagram)
 	suite.Equal("@ig_artist", *artist.Social.Instagram)
@@ -301,14 +302,14 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistWithoutIns
 	suite.Require().NotNil(resp)
 
 	// Verify DB artist has no instagram
-	var artist models.Artist
+	var artist catalogm.Artist
 	suite.NoError(suite.db.Where("name = ?", "No IG Artist").First(&artist).Error)
 	suite.Nil(artist.Social.Instagram)
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingArtistIgnoresInstagram() {
 	// Pre-create artist with no Instagram
-	preExisting := models.Artist{Name: "Pre-existing Artist"}
+	preExisting := catalogm.Artist{Name: "Pre-existing Artist"}
 	suite.Require().NoError(suite.db.Create(&preExisting).Error)
 
 	user := suite.createTestUser()
@@ -337,7 +338,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_ExistingArtistIgnor
 	suite.Equal(preExisting.ID, resp.Artists[0].ID)
 
 	// Verify DB artist still has no instagram (existing artist socials unchanged)
-	var artist models.Artist
+	var artist catalogm.Artist
 	suite.NoError(suite.db.First(&artist, preExisting.ID).Error)
 	suite.Nil(artist.Social.Instagram, "Existing artist's Instagram should not be modified")
 }
@@ -366,7 +367,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NewArtistEmptyInsta
 	suite.Require().NotNil(resp)
 
 	// Verify DB artist has no instagram (empty string should be treated as nil)
-	var artist models.Artist
+	var artist catalogm.Artist
 	suite.NoError(suite.db.Where("name = ?", "Empty IG Artist").First(&artist).Error)
 	suite.Nil(artist.Social.Instagram, "Empty instagram handle should not be stored")
 }
@@ -437,11 +438,11 @@ func (suite *ShowServiceIntegrationTestSuite) TestDeleteShow_AssociationsCleaned
 
 	// Verify junction table rows are gone
 	var svCount int64
-	suite.db.Model(&models.ShowVenue{}).Where("show_id = ?", showID).Count(&svCount)
+	suite.db.Model(&catalogm.ShowVenue{}).Where("show_id = ?", showID).Count(&svCount)
 	suite.Zero(svCount)
 
 	var saCount int64
-	suite.db.Model(&models.ShowArtist{}).Where("show_id = ?", showID).Count(&saCount)
+	suite.db.Model(&catalogm.ShowArtist{}).Where("show_id = ?", showID).Count(&saCount)
 	suite.Zero(saCount)
 }
 
@@ -584,7 +585,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShowWithRelations_NoOrph
 func (suite *ShowServiceIntegrationTestSuite) TestApproveShow_FromPending() {
 	// Create a pending show by setting status to pending directly
 	created := suite.createTestShow()
-	suite.db.Model(&models.Show{}).Where("id = ?", created.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", created.ID).Update("status", catalogm.ShowStatusPending)
 
 	resp, err := suite.showService.ApproveShow(created.ID, false)
 
@@ -594,8 +595,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestApproveShow_FromPending() {
 
 func (suite *ShowServiceIntegrationTestSuite) TestApproveShow_FromRejected() {
 	created := suite.createTestShow()
-	suite.db.Model(&models.Show{}).Where("id = ?", created.ID).Updates(map[string]interface{}{
-		"status":           models.ShowStatusRejected,
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", created.ID).Updates(map[string]interface{}{
+		"status":           catalogm.ShowStatusRejected,
 		"rejection_reason": "Bad info",
 	})
 
@@ -628,7 +629,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestApproveShow_WithVenueVerificat
 	suite.Require().NoError(err)
 
 	// Set show to pending so we can approve it
-	suite.db.Model(&models.Show{}).Where("id = ?", created.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", created.ID).Update("status", catalogm.ShowStatusPending)
 
 	resp, err := suite.showService.ApproveShow(created.ID, true)
 
@@ -636,7 +637,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestApproveShow_WithVenueVerificat
 	suite.Equal("approved", resp.Status)
 
 	// Venue should now be verified
-	var venue models.Venue
+	var venue catalogm.Venue
 	suite.db.First(&venue, resp.Venues[0].ID)
 	suite.True(venue.Verified)
 }
@@ -652,7 +653,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestApproveShow_AlreadyApproved_Fa
 
 func (suite *ShowServiceIntegrationTestSuite) TestRejectShow_Success() {
 	created := suite.createTestShow()
-	suite.db.Model(&models.Show{}).Where("id = ?", created.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", created.ID).Update("status", catalogm.ShowStatusPending)
 
 	resp, err := suite.showService.RejectShow(created.ID, "Duplicate listing")
 
@@ -716,10 +717,10 @@ func (suite *ShowServiceIntegrationTestSuite) TestUnpublishShow_Unauthorized() {
 
 func (suite *ShowServiceIntegrationTestSuite) TestMakePrivateShow_Success() {
 	created := suite.createTestShow()
-	suite.db.Model(&models.Show{}).Where("id = ?", created.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", created.ID).Update("status", catalogm.ShowStatusPending)
 
 	// Get the submitter ID
-	var show models.Show
+	var show catalogm.Show
 	suite.db.First(&show, created.ID)
 
 	resp, err := suite.showService.MakePrivateShow(created.ID, *show.SubmittedBy, false)
@@ -730,7 +731,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestMakePrivateShow_Success() {
 
 func (suite *ShowServiceIntegrationTestSuite) TestMakePrivateShow_NotPending_Fails() {
 	created := suite.createTestShow() // approved
-	var show models.Show
+	var show catalogm.Show
 	suite.db.First(&show, created.ID)
 
 	_, err := suite.showService.MakePrivateShow(created.ID, *show.SubmittedBy, false)
@@ -1135,7 +1136,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_Success() {
 	}
 	show1, err := suite.showService.CreateShow(req1)
 	suite.Require().NoError(err)
-	suite.db.Model(&models.Show{}).Where("id = ?", show1.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", show1.ID).Update("status", catalogm.ShowStatusPending)
 
 	req2 := &contracts.CreateShowRequest{
 		Title:             "Approved Show",
@@ -1173,8 +1174,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_Success() {
 	}
 	show, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
-	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Updates(map[string]interface{}{
-		"status":           models.ShowStatusRejected,
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).Updates(map[string]interface{}{
+		"status":           catalogm.ShowStatusRejected,
 		"rejection_reason": "Spam",
 	})
 
@@ -1203,8 +1204,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_WithSearch() 
 		}
 		show, err := suite.showService.CreateShow(req)
 		suite.Require().NoError(err)
-		suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Updates(map[string]interface{}{
-			"status":           models.ShowStatusRejected,
+		suite.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).Updates(map[string]interface{}{
+			"status":           catalogm.ShowStatusRejected,
 			"rejection_reason": reason,
 		})
 	}
@@ -1684,7 +1685,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetAdminShows_StatusFilter() {
 	}
 	pendingShow, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
-	suite.db.Model(&models.Show{}).Where("id = ?", pendingShow.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", pendingShow.ID).Update("status", catalogm.ShowStatusPending)
 
 	// Filter by pending
 	shows, total, err := suite.showService.GetAdminShows(10, 0, contracts.AdminShowFilters{Status: "pending"})
@@ -1783,7 +1784,7 @@ func (suite *ShowServiceIntegrationTestSuite) createPendingShow(title string, da
 	resp, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
 	// Force status to pending so BatchApprove/Reject can operate on it
-	suite.db.Model(&models.Show{}).Where("id = ?", resp.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", resp.ID).Update("status", catalogm.ShowStatusPending)
 	return resp.ID
 }
 
@@ -1802,9 +1803,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestBatchApproveShows_Success() {
 
 	// Verify all shows are now approved in the DB
 	for _, id := range []uint{id1, id2, id3} {
-		var show models.Show
+		var show catalogm.Show
 		suite.Require().NoError(suite.db.First(&show, id).Error)
-		suite.Equal(models.ShowStatusApproved, show.Status, "show %d should be approved", id)
+		suite.Equal(catalogm.ShowStatusApproved, show.Status, "show %d should be approved", id)
 	}
 }
 
@@ -1877,9 +1878,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestBatchRejectShows_Success() {
 
 	// Verify statuses and rejection reasons in DB
 	for _, id := range []uint{id1, id2} {
-		var show models.Show
+		var show catalogm.Show
 		suite.Require().NoError(suite.db.First(&show, id).Error)
-		suite.Equal(models.ShowStatusRejected, show.Status, "show %d should be rejected", id)
+		suite.Equal(catalogm.ShowStatusRejected, show.Status, "show %d should be rejected", id)
 		suite.Require().NotNil(show.RejectionReason)
 		suite.Equal("Duplicate listing", *show.RejectionReason)
 		suite.Require().NotNil(show.RejectionCategory)
@@ -1898,9 +1899,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestBatchRejectShows_WithReason_No
 	suite.Empty(result.Errors)
 
 	// Verify status and reason in DB, but category should be nil/empty
-	var show models.Show
+	var show catalogm.Show
 	suite.Require().NoError(suite.db.First(&show, id).Error)
-	suite.Equal(models.ShowStatusRejected, show.Status)
+	suite.Equal(catalogm.ShowStatusRejected, show.Status)
 	suite.Require().NotNil(show.RejectionReason)
 	suite.Equal("Some reason", *show.RejectionReason)
 }
@@ -2007,7 +2008,7 @@ Preview test description.
 func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_ExistingEntities() {
 	// Pre-create a venue and artist
 	venue := suite.createTestVenue("Existing Preview Venue", "Phoenix", "AZ", true)
-	artist := &models.Artist{Name: "Existing Preview Artist"}
+	artist := &catalogm.Artist{Name: "Existing Preview Artist"}
 	suite.Require().NoError(suite.db.Create(artist).Error)
 
 	content := []byte(`---
@@ -2049,7 +2050,7 @@ artists:
 
 func (suite *ShowServiceIntegrationTestSuite) TestPreviewShowImport_MixedNewAndExisting() {
 	// Pre-create one artist but not the other
-	existingArtist := &models.Artist{Name: "Known Artist"}
+	existingArtist := &catalogm.Artist{Name: "Known Artist"}
 	suite.Require().NoError(suite.db.Create(existingArtist).Error)
 
 	content := []byte(`---
@@ -2255,7 +2256,7 @@ An imported show description.
 	suite.False(*resp.Artists[1].IsHeadliner)
 
 	// Verify the show exists in the database
-	var show models.Show
+	var show catalogm.Show
 	suite.Require().NoError(suite.db.First(&show, resp.ID).Error)
 	suite.Equal("Import Admin Show", show.Title)
 }
@@ -2320,13 +2321,13 @@ artists:
 
 	// Verify no duplicate venue was created
 	var venueCount int64
-	suite.db.Model(&models.Venue{}).Where("LOWER(name) = ? AND LOWER(city) = ?", "pre-existing import venue", "phoenix").Count(&venueCount)
+	suite.db.Model(&catalogm.Venue{}).Where("LOWER(name) = ? AND LOWER(city) = ?", "pre-existing import venue", "phoenix").Count(&venueCount)
 	suite.Equal(int64(1), venueCount)
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TestConfirmShowImport_LinksExistingArtist() {
 	// Pre-create an artist
-	existingArtist := &models.Artist{Name: "Pre-existing Import Artist"}
+	existingArtist := &catalogm.Artist{Name: "Pre-existing Import Artist"}
 	suite.Require().NoError(suite.db.Create(existingArtist).Error)
 
 	content := []byte(`---
@@ -2408,7 +2409,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_ZeroLimitZeroO
 	}
 	show, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
-	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).Update("status", catalogm.ShowStatusPending)
 
 	shows, total, err := suite.showService.GetPendingShows(0, 0, nil)
 	suite.Require().NoError(err)
@@ -2430,7 +2431,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_LargeLimit() {
 	}
 	show, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
-	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).Update("status", catalogm.ShowStatusPending)
 
 	shows, total, err := suite.showService.GetPendingShows(1000, 0, nil)
 	suite.Require().NoError(err)
@@ -2452,7 +2453,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_OffsetBeyondRe
 	}
 	show, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
-	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).Update("status", catalogm.ShowStatusPending)
 
 	shows, total, err := suite.showService.GetPendingShows(10, 100, nil)
 	suite.Require().NoError(err)
@@ -2482,7 +2483,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetPendingShows_LimitOne() {
 		}
 		show, err := suite.showService.CreateShow(req)
 		suite.Require().NoError(err)
-		suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+		suite.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).Update("status", catalogm.ShowStatusPending)
 	}
 
 	shows, total, err := suite.showService.GetPendingShows(1, 0, nil)
@@ -2712,7 +2713,7 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetRejectedShows_ZeroLimit() {
 	}
 	show, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
-	suite.db.Model(&models.Show{}).Where("id = ?", show.ID).Update("status", models.ShowStatusPending)
+	suite.db.Model(&catalogm.Show{}).Where("id = ?", show.ID).Update("status", catalogm.ShowStatusPending)
 	_, err = suite.showService.RejectShow(show.ID, "test reason")
 	suite.Require().NoError(err)
 
@@ -2808,16 +2809,16 @@ A show with all new entities.
 	suite.Equal("approved", resp.Status)
 
 	// Verify venue was created in DB
-	var venue models.Venue
+	var venue catalogm.Venue
 	suite.Require().NoError(suite.db.Where("name = ?", "Freshly Created Venue").First(&venue).Error)
 	suite.Equal("Tempe", venue.City)
 
 	// Verify artists were created in DB
-	var headliner models.Artist
+	var headliner catalogm.Artist
 	suite.Require().NoError(suite.db.Where("name = ?", "Freshly Created Headliner").First(&headliner).Error)
 	suite.NotZero(headliner.ID)
 
-	var opener models.Artist
+	var opener catalogm.Artist
 	suite.Require().NoError(suite.db.Where("name = ?", "Freshly Created Opener").First(&opener).Error)
 	suite.NotZero(opener.ID)
 }

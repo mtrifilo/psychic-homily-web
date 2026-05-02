@@ -21,7 +21,9 @@ export type TagView = 'grid' | 'cloud'
 export const DEFAULT_TAG_VIEW: TagView = 'grid'
 
 export const TAG_ENTITY_TYPES = [
-  'artist', 'release', 'label', 'show', 'venue', 'festival'
+  // PSY-354: collection joined the polymorphic tag corpus. Order matches
+  // backend `models.TagEntityTypes`.
+  'artist', 'release', 'label', 'show', 'venue', 'festival', 'collection',
 ] as const
 export type TagEntityType = typeof TAG_ENTITY_TYPES[number]
 

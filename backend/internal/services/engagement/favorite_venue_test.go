@@ -9,7 +9,9 @@ import (
 	"gorm.io/gorm"
 
 	apperrors "psychic-homily-backend/internal/errors"
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -55,8 +57,8 @@ func TestFavoriteVenueServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *FavoriteVenueServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *FavoriteVenueServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("user-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Test"),
 		LastName:      stringPtr("User"),
@@ -68,8 +70,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) createTestUser() *models.
 	return user
 }
 
-func (suite *FavoriteVenueServiceIntegrationTestSuite) createTestVenue(name, city, state string) *models.Venue {
-	venue := &models.Venue{
+func (suite *FavoriteVenueServiceIntegrationTestSuite) createTestVenue(name, city, state string) *catalogm.Venue {
+	venue := &catalogm.Venue{
 		Name:  name,
 		City:  city,
 		State: state,
@@ -79,30 +81,30 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) createTestVenue(name, cit
 	return venue
 }
 
-func (suite *FavoriteVenueServiceIntegrationTestSuite) createApprovedShowAtVenue(title string, venueID, userID uint, eventDate time.Time) *models.Show {
-	show := &models.Show{
+func (suite *FavoriteVenueServiceIntegrationTestSuite) createApprovedShowAtVenue(title string, venueID, userID uint, eventDate time.Time) *catalogm.Show {
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   eventDate,
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &userID,
 	}
 	err := suite.db.Create(show).Error
 	suite.Require().NoError(err)
 
-	err = suite.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
+	err = suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venueID}).Error
 	suite.Require().NoError(err)
 
 	return show
 }
 
-func (suite *FavoriteVenueServiceIntegrationTestSuite) createShowWithArtistAtVenue(title string, venueID, userID uint, eventDate time.Time, artistName string) (*models.Show, *models.Artist) {
+func (suite *FavoriteVenueServiceIntegrationTestSuite) createShowWithArtistAtVenue(title string, venueID, userID uint, eventDate time.Time, artistName string) (*catalogm.Show, *catalogm.Artist) {
 	show := suite.createApprovedShowAtVenue(title, venueID, userID, eventDate)
 
-	artist := &models.Artist{Name: artistName}
+	artist := &catalogm.Artist{Name: artistName}
 	suite.db.Create(artist)
-	suite.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0})
+	suite.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: artist.ID, Position: 0})
 
 	return show, artist
 }
@@ -120,8 +122,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestFavoriteVenue_Success
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
-		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityVenue, venue.ID, models.BookmarkActionFollow).
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, engagementm.BookmarkEntityVenue, venue.ID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -149,8 +151,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestFavoriteVenue_Idempot
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
-		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityVenue, venue.ID, models.BookmarkActionFollow).
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, engagementm.BookmarkEntityVenue, venue.ID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
 }
@@ -170,8 +172,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestUnfavoriteVenue_Succe
 	suite.Require().NoError(err)
 
 	var count int64
-	suite.db.Model(&models.UserBookmark{}).
-		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, models.BookmarkEntityVenue, venue.ID, models.BookmarkActionFollow).
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?", user.ID, engagementm.BookmarkEntityVenue, venue.ID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(0), count)
 }
@@ -376,16 +378,16 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUpcomingShowsFromF
 	suite.createApprovedShowAtVenue("Approved Show", venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 
 	// Create pending show at same venue
-	pendingShow := &models.Show{
+	pendingShow := &catalogm.Show{
 		Title:       "Pending Show",
 		EventDate:   time.Now().UTC().AddDate(0, 0, 14),
 		City:        stringPtr("Phoenix"),
 		State:       stringPtr("AZ"),
-		Status:      models.ShowStatusPending,
+		Status:      catalogm.ShowStatusPending,
 		SubmittedBy: &user.ID,
 	}
 	suite.db.Create(pendingShow)
-	suite.db.Create(&models.ShowVenue{ShowID: pendingShow.ID, VenueID: venue.ID})
+	suite.db.Create(&catalogm.ShowVenue{ShowID: pendingShow.ID, VenueID: venue.ID})
 
 	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
 

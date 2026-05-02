@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -28,9 +29,9 @@ type TagFilterIntegrationTestSuite struct {
 	festivalService *FestivalService
 	tagService      *TagService
 
-	user *models.User
+	user *authm.User
 	// Pre-seeded tags keyed by slug.
-	tags map[string]*models.Tag
+	tags map[string]*catalogm.Tag
 }
 
 func (s *TagFilterIntegrationTestSuite) SetupSuite() {
@@ -79,11 +80,11 @@ func (s *TagFilterIntegrationTestSuite) SetupTest() {
 
 	email := fmt.Sprintf("tf-user-%d@test.com", time.Now().UnixNano())
 	name := "TagFilter"
-	u := &models.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
+	u := &authm.User{Email: &email, FirstName: &name, IsActive: true, EmailVerified: true}
 	s.Require().NoError(s.db.Create(u).Error)
 	s.user = u
 
-	s.tags = map[string]*models.Tag{}
+	s.tags = map[string]*catalogm.Tag{}
 	for _, name := range []string{"post-punk", "shoegaze", "phoenix", "electronic"} {
 		cat := "genre"
 		if name == "phoenix" {
@@ -105,7 +106,7 @@ func TestTagFilterIntegrationSuite(t *testing.T) {
 func (s *TagFilterIntegrationTestSuite) tag(entityType string, entityID uint, slug string) {
 	tag, ok := s.tags[slug]
 	s.Require().Truef(ok, "unseeded tag %q", slug)
-	s.Require().NoError(s.db.Create(&models.EntityTag{
+	s.Require().NoError(s.db.Create(&catalogm.EntityTag{
 		TagID:         tag.ID,
 		EntityType:    entityType,
 		EntityID:      entityID,
@@ -119,21 +120,21 @@ func (s *TagFilterIntegrationTestSuite) tag(entityType string, entityID uint, sl
 
 func (s *TagFilterIntegrationTestSuite) seedArtistWithUpcoming(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	a := &models.Artist{Name: name, Slug: &slug}
+	a := &catalogm.Artist{Name: name, Slug: &slug}
 	s.Require().NoError(s.db.Create(a).Error)
 
-	v := &models.Venue{Name: fmt.Sprintf("V-%s", slug), City: "Phoenix", State: "AZ"}
+	v := &catalogm.Venue{Name: fmt.Sprintf("V-%s", slug), City: "Phoenix", State: "AZ"}
 	s.Require().NoError(s.db.Create(v).Error)
 
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       fmt.Sprintf("Show-%s", slug),
 		EventDate:   time.Now().Add(7 * 24 * time.Hour).UTC(),
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &s.user.ID,
 	}
 	s.Require().NoError(s.db.Create(show).Error)
-	s.Require().NoError(s.db.Create(&models.ShowArtist{ShowID: show.ID, ArtistID: a.ID, Position: 0}).Error)
-	s.Require().NoError(s.db.Create(&models.ShowVenue{ShowID: show.ID, VenueID: v.ID}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.ShowArtist{ShowID: show.ID, ArtistID: a.ID, Position: 0}).Error)
+	s.Require().NoError(s.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: v.ID}).Error)
 	return a.ID
 }
 
@@ -230,10 +231,10 @@ func (s *TagFilterIntegrationTestSuite) TestArtists_UnknownTagReturnsEmpty() {
 // ──────────────────────────────────────────────
 
 func (s *TagFilterIntegrationTestSuite) seedShow(title string, eventDate time.Time) uint {
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:       title,
 		EventDate:   eventDate,
-		Status:      models.ShowStatusApproved,
+		Status:      catalogm.ShowStatusApproved,
 		SubmittedBy: &s.user.ID,
 	}
 	s.Require().NoError(s.db.Create(show).Error)
@@ -244,7 +245,7 @@ func (s *TagFilterIntegrationTestSuite) seedShow(title string, eventDate time.Ti
 // lineup whose tags drive the transitive filter.
 func (s *TagFilterIntegrationTestSuite) seedArtist(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	a := &models.Artist{Name: name, Slug: &slug}
+	a := &catalogm.Artist{Name: name, Slug: &slug}
 	s.Require().NoError(s.db.Create(a).Error)
 	return a.ID
 }
@@ -252,7 +253,7 @@ func (s *TagFilterIntegrationTestSuite) seedArtist(name string) uint {
 // addArtistToShow attaches an artist to a show's lineup with the given bill
 // position (0 = headliner).
 func (s *TagFilterIntegrationTestSuite) addArtistToShow(showID, artistID uint, position int) {
-	s.Require().NoError(s.db.Create(&models.ShowArtist{
+	s.Require().NoError(s.db.Create(&catalogm.ShowArtist{
 		ShowID: showID, ArtistID: artistID, Position: position,
 	}).Error)
 }
@@ -407,7 +408,7 @@ func (s *TagFilterIntegrationTestSuite) TestShows_DistinctShowIDs() {
 // ──────────────────────────────────────────────
 
 func (s *TagFilterIntegrationTestSuite) seedVerifiedVenue(name string) uint {
-	v := &models.Venue{Name: name, City: "Phoenix", State: "AZ", Verified: true}
+	v := &catalogm.Venue{Name: name, City: "Phoenix", State: "AZ", Verified: true}
 	s.Require().NoError(s.db.Create(v).Error)
 	return v.ID
 }
@@ -451,7 +452,7 @@ func (s *TagFilterIntegrationTestSuite) TestVenues_OR() {
 
 func (s *TagFilterIntegrationTestSuite) seedRelease(title string) uint {
 	slug := fmt.Sprintf("%s-%d", title, time.Now().UnixNano())
-	r := &models.Release{Title: title, Slug: &slug}
+	r := &catalogm.Release{Title: title, Slug: &slug}
 	s.Require().NoError(s.db.Create(r).Error)
 	return r.ID
 }
@@ -495,7 +496,7 @@ func (s *TagFilterIntegrationTestSuite) TestReleases_OR() {
 
 func (s *TagFilterIntegrationTestSuite) seedLabel(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	l := &models.Label{Name: name, Slug: &slug, Status: models.LabelStatusActive}
+	l := &catalogm.Label{Name: name, Slug: &slug, Status: catalogm.LabelStatusActive}
 	s.Require().NoError(s.db.Create(l).Error)
 	return l.ID
 }
@@ -536,14 +537,14 @@ func (s *TagFilterIntegrationTestSuite) TestLabels_OR() {
 
 func (s *TagFilterIntegrationTestSuite) seedFestival(name string) uint {
 	slug := fmt.Sprintf("%s-%d", name, time.Now().UnixNano())
-	f := &models.Festival{
+	f := &catalogm.Festival{
 		Name:        name,
 		Slug:        slug,
 		SeriesSlug:  slug + "-series",
 		EditionYear: 2026,
 		StartDate:   "2026-06-01",
 		EndDate:     "2026-06-03",
-		Status:      models.FestivalStatusConfirmed,
+		Status:      catalogm.FestivalStatusConfirmed,
 	}
 	s.Require().NoError(s.db.Create(f).Error)
 	return f.ID
@@ -551,7 +552,7 @@ func (s *TagFilterIntegrationTestSuite) seedFestival(name string) uint {
 
 // addArtistToFestival attaches an artist to a festival's lineup.
 func (s *TagFilterIntegrationTestSuite) addArtistToFestival(festivalID, artistID uint) {
-	s.Require().NoError(s.db.Create(&models.FestivalArtist{
+	s.Require().NoError(s.db.Create(&catalogm.FestivalArtist{
 		FestivalID: festivalID, ArtistID: artistID,
 	}).Error)
 }
@@ -651,7 +652,7 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_Transitive()
 	// Direct show-level tag: legacy/possible admin action. Must be ignored.
 	s.tag("show", sD, "shoegaze")
 
-	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, models.TagEntityShow)
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow)
 	s.Require().NoError(err)
 	counts := map[string]int{}
 	for _, t := range tags {
@@ -678,7 +679,7 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_MultipleArti
 	s.tag("artist", a2, "shoegaze")
 	s.tag("artist", a3, "shoegaze")
 
-	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, models.TagEntityShow)
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow)
 	s.Require().NoError(err)
 	var shoegazeCount int
 	for _, t := range tags {
@@ -707,7 +708,7 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_FestivalEntityType_Transiti
 	// Direct festival tag, should NOT count.
 	s.tag("festival", f3, "electronic")
 
-	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, models.TagEntityFestival)
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityFestival)
 	s.Require().NoError(err)
 	counts := map[string]int{}
 	for _, t := range tags {
@@ -726,7 +727,7 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_ArtistEntityType_DirectCoun
 	s.tag("artist", a1, "post-punk")
 	s.tag("artist", a2, "post-punk")
 
-	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, models.TagEntityArtist)
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityArtist)
 	s.Require().NoError(err)
 	var ppCount int
 	for _, t := range tags {

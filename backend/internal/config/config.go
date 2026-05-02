@@ -64,8 +64,8 @@ const (
 	EnvDiscordEnabled    = "DISCORD_NOTIFICATIONS_ENABLED"
 
 	// Music Discovery
-	EnvInternalAPISecret        = "INTERNAL_API_SECRET"
-	EnvMusicDiscoveryEnabled    = "MUSIC_DISCOVERY_ENABLED"
+	EnvInternalAPISecret     = "INTERNAL_API_SECRET"
+	EnvMusicDiscoveryEnabled = "MUSIC_DISCOVERY_ENABLED"
 
 	// WebAuthn / Passkeys
 	EnvWebAuthnRPID          = "WEBAUTHN_RP_ID"

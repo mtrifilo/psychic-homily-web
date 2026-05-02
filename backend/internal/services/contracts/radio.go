@@ -76,6 +76,8 @@ type RadioStationDetailResponse struct {
 	PlaylistConfig      *json.RawMessage `json:"playlist_config"`
 	LastPlaylistFetchAt *time.Time       `json:"last_playlist_fetch_at"`
 	IsActive            bool             `json:"is_active"`
+	NetworkID           *uint            `json:"network_id"`
+	NetworkSlug         *string          `json:"network_slug"`
 	ShowCount           int              `json:"show_count"`
 	CreatedAt           time.Time        `json:"created_at"`
 	UpdatedAt           time.Time        `json:"updated_at"`
@@ -93,6 +95,8 @@ type RadioStationListResponse struct {
 	FrequencyMHz  *float64 `json:"frequency_mhz"`
 	LogoURL       *string  `json:"logo_url"`
 	IsActive      bool     `json:"is_active"`
+	NetworkID     *uint    `json:"network_id"`
+	NetworkSlug   *string  `json:"network_slug"`
 	ShowCount     int      `json:"show_count"`
 }
 
@@ -150,16 +154,16 @@ type RadioShowDetailResponse struct {
 
 // RadioShowListResponse represents a radio show in list views
 type RadioShowListResponse struct {
-	ID              uint             `json:"id"`
-	StationID       uint             `json:"station_id"`
-	StationName     string           `json:"station_name"`
-	Name            string           `json:"name"`
-	Slug            string           `json:"slug"`
-	HostName        *string          `json:"host_name"`
-	GenreTags       *json.RawMessage `json:"genre_tags"`
-	ImageURL        *string          `json:"image_url"`
-	IsActive        bool             `json:"is_active"`
-	EpisodeCount    int64            `json:"episode_count"`
+	ID           uint             `json:"id"`
+	StationID    uint             `json:"station_id"`
+	StationName  string           `json:"station_name"`
+	Name         string           `json:"name"`
+	Slug         string           `json:"slug"`
+	HostName     *string          `json:"host_name"`
+	GenreTags    *json.RawMessage `json:"genre_tags"`
+	ImageURL     *string          `json:"image_url"`
+	IsActive     bool             `json:"is_active"`
+	EpisodeCount int64            `json:"episode_count"`
 }
 
 // ──────────────────────────────────────────────
@@ -181,24 +185,24 @@ type RadioEpisodeResponse struct {
 
 // RadioEpisodeDetailResponse represents the full radio episode data
 type RadioEpisodeDetailResponse struct {
-	ID              uint             `json:"id"`
-	ShowID          uint             `json:"show_id"`
-	ShowName        string           `json:"show_name"`
-	ShowSlug        string           `json:"show_slug"`
-	StationName     string           `json:"station_name"`
-	StationSlug     string           `json:"station_slug"`
-	Title           *string          `json:"title"`
-	AirDate         string           `json:"air_date"`
-	AirTime         *string          `json:"air_time"`
-	DurationMinutes *int             `json:"duration_minutes"`
-	Description     *string          `json:"description"`
-	ArchiveURL      *string          `json:"archive_url"`
-	MixcloudURL     *string          `json:"mixcloud_url"`
-	GenreTags       *json.RawMessage `json:"genre_tags"`
-	MoodTags        *json.RawMessage `json:"mood_tags"`
-	PlayCount       int              `json:"play_count"`
+	ID              uint                `json:"id"`
+	ShowID          uint                `json:"show_id"`
+	ShowName        string              `json:"show_name"`
+	ShowSlug        string              `json:"show_slug"`
+	StationName     string              `json:"station_name"`
+	StationSlug     string              `json:"station_slug"`
+	Title           *string             `json:"title"`
+	AirDate         string              `json:"air_date"`
+	AirTime         *string             `json:"air_time"`
+	DurationMinutes *int                `json:"duration_minutes"`
+	Description     *string             `json:"description"`
+	ArchiveURL      *string             `json:"archive_url"`
+	MixcloudURL     *string             `json:"mixcloud_url"`
+	GenreTags       *json.RawMessage    `json:"genre_tags"`
+	MoodTags        *json.RawMessage    `json:"mood_tags"`
+	PlayCount       int                 `json:"play_count"`
 	Plays           []RadioPlayResponse `json:"plays"`
-	CreatedAt       time.Time        `json:"created_at"`
+	CreatedAt       time.Time           `json:"created_at"`
 }
 
 // ──────────────────────────────────────────────
@@ -267,17 +271,17 @@ type RadioAsHeardOnResponse struct {
 
 // RadioNewReleaseRadarEntry represents a new release discovered across radio stations
 type RadioNewReleaseRadarEntry struct {
-	ArtistName  string  `json:"artist_name"`
-	ArtistID    *uint   `json:"artist_id"`
-	ArtistSlug  *string `json:"artist_slug"`
-	AlbumTitle  *string `json:"album_title"`
-	LabelName   *string `json:"label_name"`
-	ReleaseID   *uint   `json:"release_id"`
-	ReleaseSlug *string `json:"release_slug"`
-	LabelID     *uint   `json:"label_id"`
-	LabelSlug   *string `json:"label_slug"`
-	PlayCount   int     `json:"play_count"`
-	StationCount int    `json:"station_count"`
+	ArtistName   string  `json:"artist_name"`
+	ArtistID     *uint   `json:"artist_id"`
+	ArtistSlug   *string `json:"artist_slug"`
+	AlbumTitle   *string `json:"album_title"`
+	LabelName    *string `json:"label_name"`
+	ReleaseID    *uint   `json:"release_id"`
+	ReleaseSlug  *string `json:"release_slug"`
+	LabelID      *uint   `json:"label_id"`
+	LabelSlug    *string `json:"label_slug"`
+	PlayCount    int     `json:"play_count"`
+	StationCount int     `json:"station_count"`
 }
 
 // RadioStatsResponse represents overall radio stats
@@ -329,10 +333,10 @@ type MatchResult struct {
 
 // UnmatchedPlayGroup represents a group of unmatched plays by artist name.
 type UnmatchedPlayGroup struct {
-	ArtistName       string            `json:"artist_name"`
-	PlayCount        int               `json:"play_count"`
-	StationNames     []string          `json:"station_names"`
-	SuggestedMatches []SuggestedMatch  `json:"suggested_matches"`
+	ArtistName       string           `json:"artist_name"`
+	PlayCount        int              `json:"play_count"`
+	StationNames     []string         `json:"station_names"`
+	SuggestedMatches []SuggestedMatch `json:"suggested_matches"`
 }
 
 // SuggestedMatch represents a suggested artist match for unmatched plays.

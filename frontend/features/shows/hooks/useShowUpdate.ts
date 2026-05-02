@@ -47,6 +47,7 @@ export interface ShowUpdate {
   price?: number
   age_requirement?: string
   description?: string
+  image_url?: string
   venues?: ShowUpdateVenue[]
   artists?: ShowUpdateArtist[]
 }

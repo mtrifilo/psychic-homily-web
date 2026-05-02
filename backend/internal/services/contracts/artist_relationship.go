@@ -1,6 +1,8 @@
 package contracts
 
-import "psychic-homily-backend/internal/models"
+import (
+	catalogm "psychic-homily-backend/internal/models/catalog"
+)
 
 // ──────────────────────────────────────────────
 // Artist Relationship types
@@ -56,10 +58,10 @@ type ArtistGraphLink struct {
 type ArtistBillComposition struct {
 	Artist           ArtistGraphNode `json:"artist"` // center
 	Stats            BillStats       `json:"stats"`
-	OpensWith        []BillCoArtist  `json:"opens_with"`        // artists who open for this one (top 10)
-	ClosesWith       []BillCoArtist  `json:"closes_with"`       // artists who headline above this one (top 10)
-	Graph            ArtistGraph     `json:"graph"`             // mini-graph: scoped to shared_bills edges
-	BelowThreshold   bool            `json:"below_threshold"`   // true if Stats.TotalShows < 3
+	OpensWith        []BillCoArtist  `json:"opens_with"`         // artists who open for this one (top 10)
+	ClosesWith       []BillCoArtist  `json:"closes_with"`        // artists who headline above this one (top 10)
+	Graph            ArtistGraph     `json:"graph"`              // mini-graph: scoped to shared_bills edges
+	BelowThreshold   bool            `json:"below_threshold"`    // true if Stats.TotalShows < 3
 	TimeFilterMonths int             `json:"time_filter_months"` // 0 = all-time
 }
 
@@ -80,8 +82,8 @@ type BillCoArtist struct {
 // ArtistRelationshipServiceInterface defines the contract for artist relationship operations.
 type ArtistRelationshipServiceInterface interface {
 	// CRUD
-	CreateRelationship(sourceID, targetID uint, relType string, autoDerived bool) (*models.ArtistRelationship, error)
-	GetRelationship(artistA, artistB uint, relType string) (*models.ArtistRelationship, error)
+	CreateRelationship(sourceID, targetID uint, relType string, autoDerived bool) (*catalogm.ArtistRelationship, error)
+	GetRelationship(artistA, artistB uint, relType string) (*catalogm.ArtistRelationship, error)
 	GetRelatedArtists(artistID uint, relType string, limit int) ([]RelatedArtistResponse, error)
 	DeleteRelationship(artistA, artistB uint, relType string) error
 
@@ -92,7 +94,7 @@ type ArtistRelationshipServiceInterface interface {
 	// Voting (only for non-auto-derived, typically "similar")
 	Vote(artistA, artistB uint, relType string, userID uint, isUpvote bool) error
 	RemoveVote(artistA, artistB uint, relType string, userID uint) error
-	GetUserVote(artistA, artistB uint, relType string, userID uint) (*models.ArtistRelationshipVote, error)
+	GetUserVote(artistA, artistB uint, relType string, userID uint) (*catalogm.ArtistRelationshipVote, error)
 
 	// Auto-derivation
 	DeriveSharedBills(minShows int) (int64, error)

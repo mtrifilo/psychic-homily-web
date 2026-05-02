@@ -54,6 +54,8 @@ export interface LabelDetail {
   founded_year: number | null
   status: string
   description: string | null
+  /** Optional label logo URL (PSY-521). */
+  image_url?: string | null
   social: LabelSocial
   artist_count: number
   release_count: number

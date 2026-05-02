@@ -160,19 +160,19 @@ const (
 
 // PipelineResult contains the outcome of a single venue extraction run.
 type PipelineResult struct {
-	VenueID              uint     `json:"venue_id"`
-	VenueName            string   `json:"venue_name"`
-	RenderMethod         string   `json:"render_method"`
-	EventsExtracted      int      `json:"events_extracted"`
-	EventsImported       int      `json:"events_imported"`
-	EventsSkippedNonMusic int     `json:"events_skipped_non_music"`
-	DurationMs           int64    `json:"duration_ms"`
-	Skipped              bool     `json:"skipped"`
-	SkipReason           string   `json:"skip_reason,omitempty"`
-	Error                string   `json:"error,omitempty"`
-	Warnings             []string `json:"warnings,omitempty"`
-	DryRun               bool     `json:"dry_run"`
-	InitialStatus        string   `json:"initial_status"`
+	VenueID               uint     `json:"venue_id"`
+	VenueName             string   `json:"venue_name"`
+	RenderMethod          string   `json:"render_method"`
+	EventsExtracted       int      `json:"events_extracted"`
+	EventsImported        int      `json:"events_imported"`
+	EventsSkippedNonMusic int      `json:"events_skipped_non_music"`
+	DurationMs            int64    `json:"duration_ms"`
+	Skipped               bool     `json:"skipped"`
+	SkipReason            string   `json:"skip_reason,omitempty"`
+	Error                 string   `json:"error,omitempty"`
+	Warnings              []string `json:"warnings,omitempty"`
+	DryRun                bool     `json:"dry_run"`
+	InitialStatus         string   `json:"initial_status"`
 }
 
 // VenueRejectionStats contains rejection breakdown and approval rate for a venue's pipeline shows.
@@ -268,22 +268,22 @@ type DiscoveredArtist struct {
 
 // DiscoveredEvent represents an event from the Node.js discovery app JSON output
 type DiscoveredEvent struct {
-	ID         string   `json:"id"`         // External event ID (from the venue's system)
-	Title      string   `json:"title"`      // Event title (typically artist names)
-	Date       string   `json:"date"`       // Event date in ISO format (e.g., "2026-01-25")
-	Venue      string   `json:"venue"`      // Venue name
-	VenueSlug  string   `json:"venueSlug"`  // Venue identifier (e.g., "valley-bar")
-	ImageURL   *string  `json:"imageUrl"`   // Event image URL (optional)
-	DoorsTime  *string  `json:"doorsTime"`  // Doors time (e.g., "6:30 pm")
-	ShowTime   *string  `json:"showTime"`   // Show time (e.g., "7:00 pm")
-	TicketURL  *string  `json:"ticketUrl"`  // Ticket purchase URL (optional)
-	Artists        []string           `json:"artists"`        // List of artists (from event detail page)
+	ID             string             `json:"id"`                        // External event ID (from the venue's system)
+	Title          string             `json:"title"`                     // Event title (typically artist names)
+	Date           string             `json:"date"`                      // Event date in ISO format (e.g., "2026-01-25")
+	Venue          string             `json:"venue"`                     // Venue name
+	VenueSlug      string             `json:"venueSlug"`                 // Venue identifier (e.g., "valley-bar")
+	ImageURL       *string            `json:"imageUrl"`                  // Event image URL (optional)
+	DoorsTime      *string            `json:"doorsTime"`                 // Doors time (e.g., "6:30 pm")
+	ShowTime       *string            `json:"showTime"`                  // Show time (e.g., "7:00 pm")
+	TicketURL      *string            `json:"ticketUrl"`                 // Ticket purchase URL (optional)
+	Artists        []string           `json:"artists"`                   // List of artists (from event detail page)
 	BillingArtists []DiscoveredArtist `json:"billing_artists,omitempty"` // Artists with billing info (from AI extraction)
-	ScrapedAt      string   `json:"scrapedAt"`      // When the event was scraped (ISO timestamp)
-	Price          *string  `json:"price"`          // Price string (e.g., "$18", "Free")
-	AgeRestriction *string  `json:"ageRestriction"` // Age restriction (e.g., "16+", "All Ages")
-	IsSoldOut      *bool    `json:"isSoldOut"`      // Whether the event is sold out
-	IsCancelled    *bool    `json:"isCancelled"`    // Whether the event is cancelled
+	ScrapedAt      string             `json:"scrapedAt"`                 // When the event was scraped (ISO timestamp)
+	Price          *string            `json:"price"`                     // Price string (e.g., "$18", "Free")
+	AgeRestriction *string            `json:"ageRestriction"`            // Age restriction (e.g., "16+", "All Ages")
+	IsSoldOut      *bool              `json:"isSoldOut"`                 // Whether the event is sold out
+	IsCancelled    *bool              `json:"isCancelled"`               // Whether the event is cancelled
 }
 
 // ImportResult contains statistics about the import operation

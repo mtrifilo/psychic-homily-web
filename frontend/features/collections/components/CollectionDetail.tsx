@@ -29,6 +29,7 @@ import {
   Heart,
   ListOrdered,
   LayoutGrid,
+  List,
   Network,
 } from 'lucide-react'
 import {
@@ -46,6 +47,7 @@ import {
   sortableKeyboardCoordinates,
   useSortable,
   verticalListSortingStrategy,
+  rectSortingStrategy,
   arrayMove,
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
@@ -84,6 +86,9 @@ import {
 import type { CollectionDisplayMode, CollectionItem, CollectionDetail as CollectionDetailType } from '../types'
 import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { CollectionGraph } from './CollectionGraph'
+import { CollectionItemCard } from './CollectionItemCard'
+import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
+import { DensityToggle } from '@/components/shared'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -96,6 +101,7 @@ import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { CommentThread } from '@/features/comments'
+import { EntityTagList } from '@/features/tags'
 
 interface CollectionDetailProps {
   slug: string
@@ -611,6 +617,22 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         )}
       </header>
 
+      {/* PSY-354: tag chips + picker. Reuses the same EntityTagList that
+          renders on artist/release/etc detail pages — chips link to
+          /tags/{slug} for the deep-dive (the collection-card override
+          links to /collections?tag=<slug> instead because cards prefer
+          the lateral "show me other collections like this" path). The
+          per-collection 10-tag cap is enforced server-side in
+          catalog.TagService.AddTagToEntity, so this picker honors the
+          limit regardless of the picker's UI cap awareness. */}
+      <div className="mb-4">
+        <EntityTagList
+          entityType="collection"
+          entityId={collection.id}
+          isAuthenticated={isAuthenticated}
+        />
+      </div>
+
       {/* PSY-356: publish-gate banner (creator-only) */}
       {isCreator && <PublishGateBanner collection={collection} />}
 
@@ -690,8 +712,48 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 }
 
 // ──────────────────────────────────────────────
-// Items List (with reorder support)
+// Items List (with reorder support + grid/list view toggle, PSY-360)
 // ──────────────────────────────────────────────
+
+/**
+ * View-mode for the items list (PSY-360).
+ *
+ * `grid` — visual entity-imagery cards (CollectionItemCard) in a
+ * density-aware responsive grid. Default for new visitors.
+ *
+ * `list` — the original CollectionItemRow layout: a horizontal row per
+ * item with text-first metadata, drag handles for ranked mode, and
+ * inline notes editor. Preserved as the alternate so curators who
+ * prefer dense scan-and-edit can keep their existing UX.
+ */
+type CollectionItemsViewMode = 'grid' | 'list'
+
+const VIEW_MODE_STORAGE_KEY = 'ph-collection-items-view-mode'
+
+/**
+ * Density-driven column counts for the grid view (PSY-360). Mirrors the
+ * compact/comfortable/expanded scale used by other browse pages
+ * (ArtistList, ShowList, ReleaseList) but tightened up: collection items
+ * are smaller than full browse cards because the user is in
+ * collection-context (already drilled in) and wants to see more at a
+ * glance.
+ */
+const GRID_COLUMN_CLASSES: Record<Density, string> = {
+  compact: 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3',
+  comfortable: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4',
+  expanded: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5',
+}
+
+function readStoredViewMode(): CollectionItemsViewMode {
+  if (typeof window === 'undefined') return 'grid'
+  try {
+    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)
+    if (stored === 'grid' || stored === 'list') return stored
+  } catch {
+    // localStorage unavailable (private mode, etc.) — fall through.
+  }
+  return 'grid'
+}
 
 function CollectionItemsList({
   items,
@@ -708,6 +770,30 @@ function CollectionItemsList({
   const isRanked = displayMode === 'ranked'
   // Reordering only makes sense in ranked mode and only for creators.
   const canReorder = isCreator && isRanked
+
+  // PSY-360: density preference for the grid view. List view ignores
+  // density (its layout is intentionally fixed). Storage key matches the
+  // hook's prefix convention (ph-density-collections).
+  const { density, setDensity } = useDensity('collections')
+
+  // PSY-360: view-mode preference (grid vs list). Default `grid` so
+  // first-time viewers see the visual layout. Persists per-browser.
+  // Read once on mount via lazy initializer; `useEffect` could fight
+  // with SSR hydration so we delay the read by mirroring the
+  // FavoriteVenuesTab pattern that already ships.
+  const [viewMode, setViewModeState] = useState<CollectionItemsViewMode>(() =>
+    readStoredViewMode()
+  )
+
+  const setViewMode = useCallback((mode: CollectionItemsViewMode) => {
+    setViewModeState(mode)
+    try {
+      window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
+    } catch {
+      // localStorage unavailable — preference falls back to default
+      // next mount. Acceptable.
+    }
+  }, [])
 
   const persistOrder = useCallback(
     (orderedItems: CollectionItem[]) => {
@@ -788,14 +874,25 @@ function CollectionItemsList({
     )
   }
 
-  // Container layout differs between modes:
-  // - ranked   → vertical stack (numbering reads top-to-bottom)
-  // - unranked → responsive grid (visual parity with browse pages)
-  const containerClasses = isRanked
-    ? 'space-y-2'
-    : 'grid grid-cols-1 sm:grid-cols-2 gap-2'
+  // Container layout depends on view + display mode:
+  // - grid view  → density-driven responsive grid of CollectionItemCard
+  // - list view + ranked → vertical stack (numbering reads top-to-bottom)
+  // - list view + unranked → 2-up text-row grid (legacy compact layout)
+  const isGridView = viewMode === 'grid'
+  const containerClasses = isGridView
+    ? GRID_COLUMN_CLASSES[density]
+    : isRanked
+      ? 'space-y-2'
+      : 'grid grid-cols-1 sm:grid-cols-2 gap-2'
 
-  const renderRows = () =>
+  // Drag-drop strategy: rect for grid (2-D adjacency), vertical for list.
+  // Ranked + grid is uncommon but legal; this avoids the foot-gun of using
+  // the vertical strategy in a 2-D layout (drop hit-testing breaks down).
+  const sortStrategy = isGridView
+    ? rectSortingStrategy
+    : verticalListSortingStrategy
+
+  const renderListRows = () =>
     items.map((item, index) => (
       <CollectionItemRow
         key={item.id}
@@ -813,24 +910,101 @@ function CollectionItemsList({
       />
     ))
 
+  const renderGridCards = () =>
+    items.map((item, index) => (
+      <CollectionItemCard
+        key={item.id}
+        item={item}
+        // Position badge only meaningful for ranked collections.
+        position={isRanked ? index + 1 : undefined}
+        density={density}
+      />
+    ))
+
+  const renderItems = isGridView ? renderGridCards : renderListRows
+
+  // Header row: section title on the left, view + density toggles on the
+  // right. Density toggle only appears in grid view (it has no effect on
+  // the list layout).
+  const header = (
+    <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
+      <h2 className="text-lg font-semibold">Items</h2>
+      <div className="flex items-center gap-2">
+        {isGridView && (
+          <DensityToggle
+            density={density}
+            onDensityChange={setDensity}
+          />
+        )}
+        <div
+          className="inline-flex items-center rounded-lg border border-border/50 bg-muted/30 p-0.5"
+          role="radiogroup"
+          aria-label="Items view"
+          data-testid="collection-items-view-toggle"
+        >
+          <button
+            type="button"
+            role="radio"
+            aria-checked={viewMode === 'grid'}
+            aria-label="Grid view"
+            onClick={() => setViewMode('grid')}
+            className={cn(
+              'flex items-center justify-center h-7 w-7 rounded-md transition-colors',
+              viewMode === 'grid'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+            data-testid="view-mode-grid"
+          >
+            <LayoutGrid className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={viewMode === 'list'}
+            aria-label="List view"
+            onClick={() => setViewMode('list')}
+            className={cn(
+              'flex items-center justify-center h-7 w-7 rounded-md transition-colors',
+              viewMode === 'list'
+                ? 'bg-background text-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground'
+            )}
+            data-testid="view-mode-list"
+          >
+            <List className="h-4 w-4" />
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+
   return (
     <div>
-      <h2 className="text-lg font-semibold mb-4">Items</h2>
+      {header}
       {canReorder ? (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
           onDragEnd={handleDragEnd}
         >
-          <SortableContext items={itemIds} strategy={verticalListSortingStrategy}>
-            <div className={containerClasses} data-testid="collection-items">
-              {renderRows()}
+          <SortableContext items={itemIds} strategy={sortStrategy}>
+            <div
+              className={containerClasses}
+              data-testid="collection-items"
+              data-view-mode={viewMode}
+            >
+              {renderItems()}
             </div>
           </SortableContext>
         </DndContext>
       ) : (
-        <div className={containerClasses} data-testid="collection-items">
-          {renderRows()}
+        <div
+          className={containerClasses}
+          data-testid="collection-items"
+          data-view-mode={viewMode}
+        >
+          {renderItems()}
         </div>
       )}
     </div>

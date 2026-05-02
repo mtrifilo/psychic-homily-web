@@ -6,7 +6,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -115,7 +115,7 @@ func (suite *RadioImportJobIntegrationTestSuite) TestCreateImportJob_Success() {
 	suite.Equal(station.ID, job.StationID)
 	suite.Equal("2025-01-01", job.Since)
 	suite.Equal("2025-06-30", job.Until)
-	suite.Equal(models.RadioImportJobStatusPending, job.Status)
+	suite.Equal(catalogm.RadioImportJobStatusPending, job.Status)
 	suite.Equal(0, job.EpisodesFound)
 	suite.Equal(0, job.EpisodesImported)
 	suite.Equal(0, job.PlaysImported)
@@ -177,7 +177,7 @@ func (suite *RadioImportJobIntegrationTestSuite) TestCancelImportJob_Success() {
 	// Verify status changed
 	updated, err := suite.radioService.GetImportJob(job.ID)
 	suite.Require().NoError(err)
-	suite.Equal(models.RadioImportJobStatusCancelled, updated.Status)
+	suite.Equal(catalogm.RadioImportJobStatusCancelled, updated.Status)
 	suite.NotNil(updated.CompletedAt)
 }
 
@@ -195,8 +195,8 @@ func (suite *RadioImportJobIntegrationTestSuite) TestCancelImportJob_AlreadyComp
 	suite.Require().NoError(err)
 
 	// Manually set to completed
-	suite.db.Model(&models.RadioImportJob{}).Where("id = ?", job.ID).
-		Update("status", models.RadioImportJobStatusCompleted)
+	suite.db.Model(&catalogm.RadioImportJob{}).Where("id = ?", job.ID).
+		Update("status", catalogm.RadioImportJobStatusCompleted)
 
 	err = suite.radioService.CancelImportJob(job.ID)
 	suite.Require().Error(err)

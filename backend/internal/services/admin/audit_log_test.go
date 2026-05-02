@@ -8,7 +8,8 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
-	"psychic-homily-backend/internal/models"
+	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -50,8 +51,8 @@ func TestAuditLogServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
-func (suite *AuditLogServiceIntegrationTestSuite) createTestUser() *models.User {
-	user := &models.User{
+func (suite *AuditLogServiceIntegrationTestSuite) createTestUser() *authm.User {
+	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("admin-%d@test.com", time.Now().UnixNano())),
 		FirstName:     stringPtr("Admin"),
 		LastName:      stringPtr("User"),
@@ -73,7 +74,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestLogAction_Success() {
 	suite.auditLogService.LogAction(user.ID, "approve_show", "show", 42, nil)
 
 	// Verify the log was created
-	var log models.AuditLog
+	var log adminm.AuditLog
 	err := suite.db.First(&log).Error
 	suite.Require().NoError(err)
 	suite.Equal(user.ID, *log.ActorID)
@@ -94,7 +95,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestLogAction_WithMetadata() {
 
 	suite.auditLogService.LogAction(user.ID, "approve_show", "show", 42, metadata)
 
-	var log models.AuditLog
+	var log adminm.AuditLog
 	err := suite.db.First(&log).Error
 	suite.Require().NoError(err)
 	suite.Require().NotNil(log.Metadata)
@@ -107,7 +108,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestLogAction_NilMetadata() {
 
 	suite.auditLogService.LogAction(user.ID, "reject_show", "show", 10, nil)
 
-	var log models.AuditLog
+	var log adminm.AuditLog
 	err := suite.db.First(&log).Error
 	suite.Require().NoError(err)
 	suite.Nil(log.Metadata)
@@ -136,7 +137,7 @@ func (suite *AuditLogServiceIntegrationTestSuite) TestLogAction_AllInstrumentedA
 
 	// Verify all 8 were logged
 	var count int64
-	suite.db.Model(&models.AuditLog{}).Count(&count)
+	suite.db.Model(&adminm.AuditLog{}).Count(&count)
 	suite.Equal(int64(8), count)
 }
 

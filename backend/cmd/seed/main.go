@@ -11,7 +11,6 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
-	"psychic-homily-backend/internal/models"
 	"psychic-homily-backend/internal/seeddata"
 	"psychic-homily-backend/internal/utils"
 
@@ -22,6 +21,9 @@ import (
 	"golang.org/x/text/language"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 )
 
 type VenueData struct {
@@ -66,18 +68,18 @@ func main() {
 	// Seed venues
 	fmt.Println("Seeding venues...")
 	venues := getVenueData()
-	venueModels := make([]*models.Venue, 0, len(venues))
+	venueModels := make([]*catalogm.Venue, 0, len(venues))
 
 	for _, venue := range venues {
 		slug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
-		venueModel := &models.Venue{
+		venueModel := &catalogm.Venue{
 			Name:    venue.Name,
 			Slug:    &slug,
 			Address: &venue.Address,
 			City:    venue.City,
 			State:   venue.State,
 			Zipcode: &venue.Zip,
-			Social: models.Social{
+			Social: catalogm.Social{
 				Instagram: &venue.Social.Instagram,
 				Website:   &venue.Social.Website,
 			},
@@ -90,7 +92,7 @@ func main() {
 	var venuesCreated int64
 	for _, venueModel := range venueModels {
 		// Check if venue already exists (case-insensitive)
-		var existing models.Venue
+		var existing catalogm.Venue
 		result := db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", venueModel.Name, venueModel.City).First(&existing)
 		if result.Error == nil {
 			// Venue exists, skip
@@ -109,7 +111,7 @@ func main() {
 	// Seed artists
 	fmt.Println("Seeding artists...")
 	artists := getArtistData()
-	artistModels := make([]*models.Artist, 0, len(artists))
+	artistModels := make([]*catalogm.Artist, 0, len(artists))
 
 	for _, artist := range artists {
 		// Set state to "AZ" only if it's an Arizona band
@@ -120,11 +122,11 @@ func main() {
 		}
 
 		slug := utils.GenerateArtistSlug(artist.Name)
-		artistModel := &models.Artist{
-			Name: artist.Name,
-			Slug: &slug,
+		artistModel := &catalogm.Artist{
+			Name:  artist.Name,
+			Slug:  &slug,
 			State: state,
-			Social: models.Social{
+			Social: catalogm.Social{
 				Instagram: &artist.Social.Instagram,
 				Website:   &artist.Social.Website,
 			},
@@ -293,7 +295,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 	showSlug := utils.GenerateShowSlug(eventDateUTC, headlinerName, venueName, showData.State)
 
 	// Create the show
-	show := &models.Show{
+	show := &catalogm.Show{
 		Title:          normalizedTitle,
 		Slug:           &showSlug,
 		EventDate:      eventDateUTC,
@@ -312,7 +314,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 
 		// Associate venues
 		for _, venueSlug := range showData.Venues {
-			var venue models.Venue
+			var venue catalogm.Venue
 			// Try to find venue by name (normalized)
 			venueName := normalizeVenueName(venueSlug)
 
@@ -328,7 +330,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 			}
 
 			// Create show-venue association
-			showVenue := models.ShowVenue{
+			showVenue := catalogm.ShowVenue{
 				ShowID:  show.ID,
 				VenueID: venue.ID,
 			}
@@ -339,7 +341,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 
 		// Associate artists in order
 		for position, artistSlug := range showData.Bands {
-			var artist models.Artist
+			var artist catalogm.Artist
 			// Try to find artist by name (normalized)
 			artistName := normalizeArtistName(artistSlug)
 
@@ -361,7 +363,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 			}
 
 			// Create show-artist association with position
-			showArtist := models.ShowArtist{
+			showArtist := catalogm.ShowArtist{
 				ShowID:   show.ID,
 				ArtistID: artist.ID,
 				Position: position,
@@ -464,7 +466,7 @@ func seedTestUsers(db *gorm.DB) int {
 	created := 0
 	for _, u := range users {
 		// Check if user already exists
-		var existing models.User
+		var existing authm.User
 		if err := db.Where("email = ?", u.Email).First(&existing).Error; err == nil {
 			fmt.Printf("  User %s already exists, skipping\n", u.Email)
 			continue
@@ -478,7 +480,7 @@ func seedTestUsers(db *gorm.DB) int {
 		}
 		hashedPassword := string(hashedBytes)
 
-		user := &models.User{
+		user := &authm.User{
 			Email:         &u.Email,
 			Username:      &u.Username,
 			PasswordHash:  &hashedPassword,
@@ -496,7 +498,7 @@ func seedTestUsers(db *gorm.DB) int {
 		}
 
 		// Create user preferences
-		prefs := &models.UserPreferences{
+		prefs := &authm.UserPreferences{
 			UserID:            user.ID,
 			NotificationEmail: true,
 			Theme:             "system",
@@ -519,29 +521,29 @@ func seedTestUsers(db *gorm.DB) int {
 
 func seedTestUserEngagement(db *gorm.DB) {
 	// Find the test user
-	var testUser models.User
+	var testUser authm.User
 	if err := db.Where("email = ?", "testuser@test.local").First(&testUser).Error; err != nil {
 		log.Printf("Warning: Could not find testuser for engagement seeding: %v", err)
 		return
 	}
 
 	// Follow a couple of artists (via user_bookmarks with entity_type=artist, action=follow)
-	var artists []models.Artist
+	var artists []catalogm.Artist
 	if err := db.Limit(2).Find(&artists).Error; err != nil || len(artists) == 0 {
 		log.Printf("Warning: No artists found for engagement seeding")
 		return
 	}
 
 	for _, artist := range artists {
-		bookmark := models.UserBookmark{
+		bookmark := engagementm.UserBookmark{
 			UserID:     testUser.ID,
-			EntityType: models.BookmarkEntityArtist,
+			EntityType: engagementm.BookmarkEntityArtist,
 			EntityID:   artist.ID,
-			Action:     models.BookmarkActionFollow,
+			Action:     engagementm.BookmarkActionFollow,
 		}
 		result := db.Where(
 			"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			testUser.ID, models.BookmarkEntityArtist, artist.ID, models.BookmarkActionFollow,
+			testUser.ID, engagementm.BookmarkEntityArtist, artist.ID, engagementm.BookmarkActionFollow,
 		).FirstOrCreate(&bookmark)
 		if result.Error != nil {
 			log.Printf("Warning: Failed to create artist follow for %s: %v", artist.Name, result.Error)
@@ -549,22 +551,22 @@ func seedTestUserEngagement(db *gorm.DB) {
 	}
 
 	// Save a couple of shows (via user_bookmarks with entity_type=show, action=save)
-	var shows []models.Show
+	var shows []catalogm.Show
 	if err := db.Where("status = ?", "approved").Limit(2).Find(&shows).Error; err != nil || len(shows) == 0 {
 		log.Printf("Warning: No approved shows found for engagement seeding")
 		return
 	}
 
 	for _, show := range shows {
-		bookmark := models.UserBookmark{
+		bookmark := engagementm.UserBookmark{
 			UserID:     testUser.ID,
-			EntityType: models.BookmarkEntityShow,
+			EntityType: engagementm.BookmarkEntityShow,
 			EntityID:   show.ID,
-			Action:     models.BookmarkActionSave,
+			Action:     engagementm.BookmarkActionSave,
 		}
 		result := db.Where(
 			"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-			testUser.ID, models.BookmarkEntityShow, show.ID, models.BookmarkActionSave,
+			testUser.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionSave,
 		).FirstOrCreate(&bookmark)
 		if result.Error != nil {
 			log.Printf("Warning: Failed to create show save for %s: %v", show.Title, result.Error)
@@ -577,7 +579,7 @@ func seedTestUserEngagement(db *gorm.DB) {
 // seedReleaseData describes a release to seed
 type seedReleaseData struct {
 	Title       string
-	ReleaseType models.ReleaseType
+	ReleaseType catalogm.ReleaseType
 	ReleaseYear int
 	ArtistName  string // matched by LOWER(name)
 	LabelName   string // matched by LOWER(name); must be seeded first
@@ -585,8 +587,8 @@ type seedReleaseData struct {
 
 // findOrCreateArtist looks up an artist by name (case-insensitive). If not found,
 // it creates a minimal artist record so the seed is self-contained.
-func findOrCreateArtist(database *gorm.DB, name string) (*models.Artist, error) {
-	var artist models.Artist
+func findOrCreateArtist(database *gorm.DB, name string) (*catalogm.Artist, error) {
+	var artist catalogm.Artist
 	if err := database.Where("LOWER(name) = LOWER(?)", name).First(&artist).Error; err == nil {
 		return &artist, nil
 	}
@@ -595,10 +597,10 @@ func findOrCreateArtist(database *gorm.DB, name string) (*models.Artist, error) 
 	slug := utils.GenerateArtistSlug(name)
 	slug = utils.GenerateUniqueSlug(slug, func(candidate string) bool {
 		var count int64
-		database.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+		database.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
-	artist = models.Artist{
+	artist = catalogm.Artist{
 		Name: name,
 		Slug: &slug,
 	}
@@ -634,7 +636,7 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 	var labelsCreated int
 	for _, l := range labelNames {
 		// Check if label already exists
-		var existing models.Label
+		var existing catalogm.Label
 		if database.Where("LOWER(name) = LOWER(?)", l.Name).First(&existing).Error == nil {
 			continue
 		}
@@ -643,14 +645,14 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 		city := l.City
 		state := l.State
 		country := l.Country
-		label := &models.Label{
+		label := &catalogm.Label{
 			Name:        l.Name,
 			Slug:        &slug,
 			City:        &city,
 			State:       &state,
 			Country:     &country,
 			FoundedYear: &l.FoundedYear,
-			Status:      models.LabelStatusActive,
+			Status:      catalogm.LabelStatusActive,
 		}
 		if err := database.Create(label).Error; err != nil {
 			log.Printf("Warning: Failed to create label %s: %v", l.Name, err)
@@ -666,41 +668,41 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 	// Each label has at least 2 releases so the Catalog tab has content.
 	releases := []seedReleaseData{
 		// Loma Vista Recordings — HEALTH, Carpenter Brut
-		{"DEATH MAGIC", models.ReleaseTypeLP, 2015, "HEALTH", "Loma Vista Recordings"},
-		{"VOL. 4 :: SLAVES OF FEAR", models.ReleaseTypeLP, 2019, "HEALTH", "Loma Vista Recordings"},
-		{"Leather Teeth", models.ReleaseTypeLP, 2018, "Carpenter Brut", "Loma Vista Recordings"},
+		{"DEATH MAGIC", catalogm.ReleaseTypeLP, 2015, "HEALTH", "Loma Vista Recordings"},
+		{"VOL. 4 :: SLAVES OF FEAR", catalogm.ReleaseTypeLP, 2019, "HEALTH", "Loma Vista Recordings"},
+		{"Leather Teeth", catalogm.ReleaseTypeLP, 2018, "Carpenter Brut", "Loma Vista Recordings"},
 
 		// 4AD — Pixies, Alvvays
-		{"Doolittle", models.ReleaseTypeLP, 1989, "Pixies", "4AD"},
-		{"Surfer Rosa", models.ReleaseTypeLP, 1988, "Pixies", "4AD"},
-		{"Blue Rev", models.ReleaseTypeLP, 2022, "Alvvays", "4AD"},
-		{"Antisocialites", models.ReleaseTypeLP, 2017, "Alvvays", "4AD"},
+		{"Doolittle", catalogm.ReleaseTypeLP, 1989, "Pixies", "4AD"},
+		{"Surfer Rosa", catalogm.ReleaseTypeLP, 1988, "Pixies", "4AD"},
+		{"Blue Rev", catalogm.ReleaseTypeLP, 2022, "Alvvays", "4AD"},
+		{"Antisocialites", catalogm.ReleaseTypeLP, 2017, "Alvvays", "4AD"},
 
 		// Sub Pop Records — Cat Power, Soccer Mommy
-		{"Covers", models.ReleaseTypeLP, 2022, "Cat Power", "Sub Pop Records"},
-		{"color theory", models.ReleaseTypeLP, 2020, "Soccer Mommy", "Sub Pop Records"},
+		{"Covers", catalogm.ReleaseTypeLP, 2022, "Cat Power", "Sub Pop Records"},
+		{"color theory", catalogm.ReleaseTypeLP, 2020, "Soccer Mommy", "Sub Pop Records"},
 
 		// Drag City — Jeff Tweedy, Bill Orcutt
-		{"Warm", models.ReleaseTypeLP, 2018, "Jeff Tweedy", "Drag City"},
-		{"Music for Four Guitars", models.ReleaseTypeLP, 2022, "Bill Orcutt", "Drag City"},
+		{"Warm", catalogm.ReleaseTypeLP, 2018, "Jeff Tweedy", "Drag City"},
+		{"Music for Four Guitars", catalogm.ReleaseTypeLP, 2022, "Bill Orcutt", "Drag City"},
 
 		// Rock Action Records — Mogwai
-		{"As the Love Continues", models.ReleaseTypeLP, 2021, "Mogwai", "Rock Action Records"},
-		{"Every Country's Sun", models.ReleaseTypeLP, 2017, "Mogwai", "Rock Action Records"},
+		{"As the Love Continues", catalogm.ReleaseTypeLP, 2021, "Mogwai", "Rock Action Records"},
+		{"Every Country's Sun", catalogm.ReleaseTypeLP, 2017, "Mogwai", "Rock Action Records"},
 
 		// Sacred Bones Records — Marissa Nadler, Chat Pile
-		{"The Path of the Clouds", models.ReleaseTypeLP, 2021, "Marissa Nadler", "Sacred Bones Records"},
-		{"God's Country", models.ReleaseTypeLP, 2022, "Chat Pile", "Sacred Bones Records"},
+		{"The Path of the Clouds", catalogm.ReleaseTypeLP, 2021, "Marissa Nadler", "Sacred Bones Records"},
+		{"God's Country", catalogm.ReleaseTypeLP, 2022, "Chat Pile", "Sacred Bones Records"},
 
 		// DFA Records — LCD Soundsystem
-		{"Sound of Silver", models.ReleaseTypeLP, 2007, "LCD Soundsystem", "DFA Records"},
-		{"American Dream", models.ReleaseTypeLP, 2017, "LCD Soundsystem", "DFA Records"},
+		{"Sound of Silver", catalogm.ReleaseTypeLP, 2007, "LCD Soundsystem", "DFA Records"},
+		{"American Dream", catalogm.ReleaseTypeLP, 2017, "LCD Soundsystem", "DFA Records"},
 	}
 
 	var releasesCreated int
 	for _, r := range releases {
 		// Check if release already exists
-		var existing models.Release
+		var existing catalogm.Release
 		if database.Where("LOWER(title) = LOWER(?)", r.Title).First(&existing).Error == nil {
 			continue
 		}
@@ -713,7 +715,7 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 		}
 
 		// Find the label
-		var label models.Label
+		var label catalogm.Label
 		if database.Where("LOWER(name) = LOWER(?)", r.LabelName).First(&label).Error != nil {
 			log.Printf("Warning: Label not found for release %s: %s", r.Title, r.LabelName)
 			continue
@@ -723,12 +725,12 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 		// Ensure unique slug
 		slug = utils.GenerateUniqueSlug(slug, func(candidate string) bool {
 			var count int64
-			database.Model(&models.Release{}).Where("slug = ?", candidate).Count(&count)
+			database.Model(&catalogm.Release{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
 		year := r.ReleaseYear
 
-		release := &models.Release{
+		release := &catalogm.Release{
 			Title:       r.Title,
 			Slug:        &slug,
 			ReleaseType: r.ReleaseType,
@@ -741,10 +743,10 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 			}
 
 			// Artist-release link
-			ar := models.ArtistRelease{
+			ar := catalogm.ArtistRelease{
 				ArtistID:  artist.ID,
 				ReleaseID: release.ID,
-				Role:      models.ArtistReleaseRoleMain,
+				Role:      catalogm.ArtistReleaseRoleMain,
 				Position:  0,
 			}
 			if err := tx.Create(&ar).Error; err != nil {
@@ -752,7 +754,7 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 			}
 
 			// Release-label link (the key discovery loop connection)
-			rl := models.ReleaseLabel{
+			rl := catalogm.ReleaseLabel{
 				ReleaseID: release.ID,
 				LabelID:   label.ID,
 			}
@@ -761,7 +763,7 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 			}
 
 			// Artist-label link (so the label page shows this artist)
-			al := models.ArtistLabel{
+			al := catalogm.ArtistLabel{
 				ArtistID: artist.ID,
 				LabelID:  label.ID,
 			}
@@ -784,20 +786,42 @@ func seedLabelsAndReleases(database *gorm.DB) (int, int) {
 	return labelsCreated, releasesCreated
 }
 
-// seedRadioStationsAndShows creates radio stations and shows with archive URLs.
+// seedRadioStationsAndShows creates radio networks, stations, and shows.
 // The data source is backend/internal/seeddata/radio.go — the same package
 // that backs cmd/gen-e2e-seed, so prod/stage/dev/E2E cannot drift.
+//
+// Networks are seeded first so stations can resolve NetworkSlug to a
+// radio_networks.id before insert.
 func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
+	fmt.Println("Seeding radio networks...")
+
+	// networkIDsBySlug lets us assign network_id by slug without a
+	// per-station subquery — looked up once after networks are created.
+	networkIDsBySlug := make(map[string]uint, len(seeddata.RadioNetworks))
+	for _, n := range seeddata.RadioNetworks {
+		var existing catalogm.RadioNetwork
+		if err := database.Where("slug = ?", n.Slug).First(&existing).Error; err == nil {
+			networkIDsBySlug[n.Slug] = existing.ID
+			continue
+		}
+		network := &catalogm.RadioNetwork{Slug: n.Slug, Name: n.Name}
+		if err := database.Create(network).Error; err != nil {
+			log.Printf("Warning: Failed to create radio network %s: %v", n.Slug, err)
+			continue
+		}
+		networkIDsBySlug[n.Slug] = network.ID
+	}
+
 	fmt.Println("Seeding radio stations...")
 
 	var stationsCreated int
 	for _, s := range seeddata.RadioStations {
-		var existing models.RadioStation
+		var existing catalogm.RadioStation
 		if database.Where("slug = ?", s.Slug).First(&existing).Error == nil {
 			continue
 		}
 
-		station := &models.RadioStation{
+		station := &catalogm.RadioStation{
 			Name:           s.Name,
 			Slug:           s.Slug,
 			Description:    &s.Description,
@@ -817,6 +841,13 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 		if s.FrequencyMHz > 0 {
 			station.FrequencyMHz = &s.FrequencyMHz
 		}
+		if s.NetworkSlug != "" {
+			if id, ok := networkIDsBySlug[s.NetworkSlug]; ok {
+				station.NetworkID = &id
+			} else {
+				log.Printf("Warning: Station %s references unknown network slug %q (skipping NetworkID)", s.Slug, s.NetworkSlug)
+			}
+		}
 
 		if err := database.Create(station).Error; err != nil {
 			log.Printf("Warning: Failed to create radio station %s: %v", s.Name, err)
@@ -831,19 +862,19 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 	var radioShowsCreated int
 	for _, s := range seeddata.RadioShows {
 		// Find the parent station
-		var station models.RadioStation
+		var station catalogm.RadioStation
 		if err := database.Where("slug = ?", s.StationSlug).First(&station).Error; err != nil {
 			log.Printf("Warning: Station %s not found for show %s: %v", s.StationSlug, s.Name, err)
 			continue
 		}
 
 		// Check if show already exists
-		var existing models.RadioShow
+		var existing catalogm.RadioShow
 		if database.Where("slug = ?", s.Slug).First(&existing).Error == nil {
 			continue
 		}
 
-		show := &models.RadioShow{
+		show := &catalogm.RadioShow{
 			StationID:       station.ID,
 			Name:            s.Name,
 			Slug:            s.Slug,

@@ -6,8 +6,8 @@ import (
 
 // Request error codes
 const (
-	CodeRequestNotFound       = "REQUEST_NOT_FOUND"
-	CodeRequestForbidden      = "REQUEST_FORBIDDEN"
+	CodeRequestNotFound         = "REQUEST_NOT_FOUND"
+	CodeRequestForbidden        = "REQUEST_FORBIDDEN"
 	CodeRequestAlreadyFulfilled = "REQUEST_ALREADY_FULFILLED"
 )
 

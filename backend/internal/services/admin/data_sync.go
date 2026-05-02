@@ -8,7 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -43,18 +43,18 @@ func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*cont
 	}
 
 	// Build query
-	query := s.db.Model(&models.Show{}).
+	query := s.db.Model(&catalogm.Show{}).
 		Preload("Venues").
 		Preload("Artists")
 
 	// Apply status filter
 	switch params.Status {
 	case "approved":
-		query = query.Where("status = ?", models.ShowStatusApproved)
+		query = query.Where("status = ?", catalogm.ShowStatusApproved)
 	case "pending":
-		query = query.Where("status = ?", models.ShowStatusPending)
+		query = query.Where("status = ?", catalogm.ShowStatusPending)
 	case "rejected":
-		query = query.Where("status = ?", models.ShowStatusRejected)
+		query = query.Where("status = ?", catalogm.ShowStatusRejected)
 	case "all", "":
 		// No filter - include all
 	default:
@@ -81,7 +81,7 @@ func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*cont
 	}
 
 	// Get shows with pagination
-	var shows []models.Show
+	var shows []catalogm.Show
 	if err := query.Order("event_date DESC").
 		Limit(params.Limit).
 		Offset(params.Offset).
@@ -95,7 +95,7 @@ func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*cont
 		showIDs[i] = show.ID
 	}
 
-	var showArtists []models.ShowArtist
+	var showArtists []catalogm.ShowArtist
 	if len(showIDs) > 0 {
 		if err := s.db.Where("show_id IN ?", showIDs).Find(&showArtists).Error; err != nil {
 			return nil, fmt.Errorf("failed to fetch show artists: %w", err)
@@ -103,7 +103,7 @@ func (s *DataSyncService) ExportShows(params contracts.ExportShowsParams) (*cont
 	}
 
 	// Build show artist map
-	showArtistMap := make(map[uint][]models.ShowArtist)
+	showArtistMap := make(map[uint][]catalogm.ShowArtist)
 	for _, sa := range showArtists {
 		showArtistMap[sa.ShowID] = append(showArtistMap[sa.ShowID], sa)
 	}
@@ -188,7 +188,7 @@ func (s *DataSyncService) ExportArtists(params contracts.ExportArtistsParams) (*
 		params.Limit = 200
 	}
 
-	query := s.db.Model(&models.Artist{})
+	query := s.db.Model(&catalogm.Artist{})
 
 	if params.Search != "" {
 		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+params.Search+"%")
@@ -199,7 +199,7 @@ func (s *DataSyncService) ExportArtists(params contracts.ExportArtistsParams) (*
 		return nil, fmt.Errorf("failed to count artists: %w", err)
 	}
 
-	var artists []models.Artist
+	var artists []catalogm.Artist
 	if err := query.Order("name ASC").
 		Limit(params.Limit).
 		Offset(params.Offset).
@@ -246,7 +246,7 @@ func (s *DataSyncService) ExportVenues(params contracts.ExportVenuesParams) (*co
 		params.Limit = 200
 	}
 
-	query := s.db.Model(&models.Venue{})
+	query := s.db.Model(&catalogm.Venue{})
 
 	if params.Search != "" {
 		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+params.Search+"%")
@@ -266,7 +266,7 @@ func (s *DataSyncService) ExportVenues(params contracts.ExportVenuesParams) (*co
 		return nil, fmt.Errorf("failed to count venues: %w", err)
 	}
 
-	var venues []models.Venue
+	var venues []catalogm.Venue
 	if err := query.Order("name ASC").
 		Limit(params.Limit).
 		Offset(params.Offset).
@@ -371,7 +371,7 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 	}
 
 	// Check for existing artist by name (case insensitive)
-	var existing models.Artist
+	var existing catalogm.Artist
 	err := s.db.Where("LOWER(name) = LOWER(?)", artist.Name).First(&existing).Error
 	if err == nil {
 		// Artist exists — backfill slug if missing
@@ -379,7 +379,7 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 			baseSlug := utils.GenerateArtistSlug(existing.Name)
 			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 				var count int64
-				s.db.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+				s.db.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 				return count > 0
 			})
 			s.db.Model(&existing).Update("slug", slug)
@@ -397,17 +397,17 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 	baseSlug := utils.GenerateArtistSlug(artist.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	newArtist := models.Artist{
+	newArtist := catalogm.Artist{
 		Name:             artist.Name,
 		Slug:             &slug,
 		City:             artist.City,
 		State:            artist.State,
 		BandcampEmbedURL: artist.BandcampEmbedURL,
-		Social: models.Social{
+		Social: catalogm.Social{
 			Instagram:  artist.Instagram,
 			Facebook:   artist.Facebook,
 			Twitter:    artist.Twitter,
@@ -433,7 +433,7 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 	}
 
 	// Check for existing venue by name + city (case insensitive)
-	var existing models.Venue
+	var existing catalogm.Venue
 	err := s.db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", venue.Name, venue.City).First(&existing).Error
 	if err == nil {
 		// Venue exists — backfill slug if missing
@@ -441,7 +441,7 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 			baseSlug := utils.GenerateVenueSlug(existing.Name, existing.City, existing.State)
 			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 				var count int64
-				s.db.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+				s.db.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 				return count > 0
 			})
 			s.db.Model(&existing).Update("slug", slug)
@@ -459,11 +459,11 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 	baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
-		s.db.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+		s.db.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
 
-	newVenue := models.Venue{
+	newVenue := catalogm.Venue{
 		Name:     venue.Name,
 		Slug:     &slug,
 		Address:  venue.Address,
@@ -471,7 +471,7 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 		State:    venue.State,
 		Zipcode:  venue.Zipcode,
 		Verified: venue.Verified,
-		Social: models.Social{
+		Social: catalogm.Social{
 			Instagram:  venue.Instagram,
 			Facebook:   venue.Facebook,
 			Twitter:    venue.Twitter,
@@ -513,7 +513,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
 		endOfDay := startOfDay.Add(24 * time.Hour)
 
-		var existingShow models.Show
+		var existingShow catalogm.Show
 		err := s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
 			Where("LOWER(shows.title) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
@@ -538,14 +538,14 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 	// Create show in a transaction
 	err = s.db.Transaction(func(tx *gorm.DB) error {
 		// Parse status
-		status := models.ShowStatusApproved
+		status := catalogm.ShowStatusApproved
 		switch strings.ToLower(show.Status) {
 		case "pending":
-			status = models.ShowStatusPending
+			status = catalogm.ShowStatusPending
 		case "rejected":
-			status = models.ShowStatusRejected
+			status = catalogm.ShowStatusRejected
 		case "private":
-			status = models.ShowStatusPrivate
+			status = catalogm.ShowStatusPrivate
 		}
 
 		// Determine headliner name for show slug
@@ -568,12 +568,12 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		baseShowSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName, showState)
 		showSlug := utils.GenerateUniqueSlug(baseShowSlug, func(candidate string) bool {
 			var count int64
-			tx.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)
+			tx.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
 
 		// Create show
-		newShow := models.Show{
+		newShow := catalogm.Show{
 			Title:          show.Title,
 			Slug:           &showSlug,
 			EventDate:      eventDate.UTC(),
@@ -583,7 +583,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			AgeRequirement: show.AgeRequirement,
 			Description:    show.Description,
 			Status:         status,
-			Source:         models.ShowSourceUser,
+			Source:         catalogm.ShowSourceUser,
 			IsSoldOut:      show.IsSoldOut,
 			IsCancelled:    show.IsCancelled,
 		}
@@ -594,7 +594,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 
 		// Link venues
 		for _, exportedVenue := range show.Venues {
-			var venue models.Venue
+			var venue catalogm.Venue
 			err := tx.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)",
 				exportedVenue.Name, exportedVenue.City).First(&venue).Error
 			if err == gorm.ErrRecordNotFound {
@@ -602,10 +602,10 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 				venueBaseSlug := utils.GenerateVenueSlug(exportedVenue.Name, exportedVenue.City, exportedVenue.State)
 				venueSlug := utils.GenerateUniqueSlug(venueBaseSlug, func(candidate string) bool {
 					var count int64
-					tx.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+					tx.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 					return count > 0
 				})
-				venue = models.Venue{
+				venue = catalogm.Venue{
 					Name:     exportedVenue.Name,
 					Slug:     &venueSlug,
 					Address:  exportedVenue.Address,
@@ -624,14 +624,14 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 				venueBaseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
 				venueSlug := utils.GenerateUniqueSlug(venueBaseSlug, func(candidate string) bool {
 					var count int64
-					tx.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+					tx.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 					return count > 0
 				})
 				tx.Model(&venue).Update("slug", venueSlug)
 			}
 
 			// Create show-venue association
-			showVenue := models.ShowVenue{
+			showVenue := catalogm.ShowVenue{
 				ShowID:  newShow.ID,
 				VenueID: venue.ID,
 			}
@@ -642,17 +642,17 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 
 		// Link artists
 		for _, exportedArtist := range show.Artists {
-			var artist models.Artist
+			var artist catalogm.Artist
 			err := tx.Where("LOWER(name) = LOWER(?)", exportedArtist.Name).First(&artist).Error
 			if err == gorm.ErrRecordNotFound {
 				// Create artist with slug
 				artistBaseSlug := utils.GenerateArtistSlug(exportedArtist.Name)
 				artistSlug := utils.GenerateUniqueSlug(artistBaseSlug, func(candidate string) bool {
 					var count int64
-					tx.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 					return count > 0
 				})
-				artist = models.Artist{
+				artist = catalogm.Artist{
 					Name: exportedArtist.Name,
 					Slug: &artistSlug,
 				}
@@ -666,14 +666,14 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 				artistBaseSlug := utils.GenerateArtistSlug(artist.Name)
 				artistSlug := utils.GenerateUniqueSlug(artistBaseSlug, func(candidate string) bool {
 					var count int64
-					tx.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+					tx.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 					return count > 0
 				})
 				tx.Model(&artist).Update("slug", artistSlug)
 			}
 
 			// Create show-artist association
-			showArtist := models.ShowArtist{
+			showArtist := catalogm.ShowArtist{
 				ShowID:   newShow.ID,
 				ArtistID: artist.ID,
 				Position: exportedArtist.Position,
@@ -695,7 +695,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 }
 
 // backfillShowSlugs generates slugs for an existing show and its associated artists/venues if missing.
-func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *contracts.ExportedShow, eventDate time.Time, venueName string) {
+func (s *DataSyncService) backfillShowSlugs(existingShow *catalogm.Show, show *contracts.ExportedShow, eventDate time.Time, venueName string) {
 	// Backfill show slug
 	if existingShow.Slug == nil {
 		headlinerName := ""
@@ -713,7 +713,7 @@ func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *con
 		baseSlug := utils.GenerateShowSlug(eventDate.UTC(), headlinerName, venueName, showState)
 		slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 			var count int64
-			s.db.Model(&models.Show{}).Where("slug = ?", candidate).Count(&count)
+			s.db.Model(&catalogm.Show{}).Where("slug = ?", candidate).Count(&count)
 			return count > 0
 		})
 		s.db.Model(existingShow).Update("slug", slug)
@@ -721,7 +721,7 @@ func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *con
 
 	// Backfill artist slugs
 	for _, exportedArtist := range show.Artists {
-		var artist models.Artist
+		var artist catalogm.Artist
 		if err := s.db.Where("LOWER(name) = LOWER(?)", exportedArtist.Name).First(&artist).Error; err != nil {
 			continue
 		}
@@ -729,7 +729,7 @@ func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *con
 			baseSlug := utils.GenerateArtistSlug(artist.Name)
 			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 				var count int64
-				s.db.Model(&models.Artist{}).Where("slug = ?", candidate).Count(&count)
+				s.db.Model(&catalogm.Artist{}).Where("slug = ?", candidate).Count(&count)
 				return count > 0
 			})
 			s.db.Model(&artist).Update("slug", slug)
@@ -738,7 +738,7 @@ func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *con
 
 	// Backfill venue slugs
 	for _, exportedVenue := range show.Venues {
-		var venue models.Venue
+		var venue catalogm.Venue
 		if err := s.db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", exportedVenue.Name, exportedVenue.City).First(&venue).Error; err != nil {
 			continue
 		}
@@ -746,7 +746,7 @@ func (s *DataSyncService) backfillShowSlugs(existingShow *models.Show, show *con
 			baseSlug := utils.GenerateVenueSlug(venue.Name, venue.City, venue.State)
 			slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 				var count int64
-				s.db.Model(&models.Venue{}).Where("slug = ?", candidate).Count(&count)
+				s.db.Model(&catalogm.Venue{}).Where("slug = ?", candidate).Count(&count)
 				return count > 0
 			})
 			s.db.Model(&venue).Update("slug", slug)

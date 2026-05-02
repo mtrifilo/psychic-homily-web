@@ -18,11 +18,14 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 	sql := sb.String()
 
 	mustContain := []string{
+		"INSERT INTO radio_networks",
 		"INSERT INTO radio_stations",
 		"INSERT INTO radio_shows",
 		"ON CONFLICT (slug) DO NOTHING",
 		// station_id FK resolved by slug subquery
 		"(SELECT id FROM radio_stations WHERE slug = ",
+		// network_id FK resolved by network slug subquery (PSY-508)
+		"(SELECT id FROM radio_networks WHERE slug = 'wfmu')",
 		// escape: KEXP's -> KEXP''s (apostrophe doubling)
 		"KEXP''s flagship morning program",
 		// NULL for empty-string state on NTS (UK, no state)
@@ -31,6 +34,10 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 		"'internet', NULL, 'nts_api'",
 		// NULL for empty HostName on "The NTS Breakfast Show" (rotating hosts)
 		"'The NTS Breakfast Show', 'breakfast-show-nts', NULL,",
+		// PSY-508: WFMU sub-stream slugs and apostrophe escapes
+		"'wfmu-drummer'",
+		"'Rock''n''Soul Radio'",
+		"'Sheena''s Jungle Room'",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(sql, want) {
@@ -38,19 +45,19 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 		}
 	}
 
-	// Exactly two ON CONFLICT clauses (one per table).
-	if got := strings.Count(sql, "ON CONFLICT"); got != 2 {
-		t.Errorf("want 2 ON CONFLICT clauses (stations + shows), got %d", got)
+	// Three ON CONFLICT clauses: networks + stations + shows.
+	if got := strings.Count(sql, "ON CONFLICT"); got != 3 {
+		t.Errorf("want 3 ON CONFLICT clauses (networks + stations + shows), got %d", got)
 	}
 }
 
 func TestSqlString_EscapesApostrophes(t *testing.T) {
 	cases := map[string]string{
-		"hello":          "'hello'",
+		"hello":           "'hello'",
 		"KEXP's flagship": "'KEXP''s flagship'",
-		"don't":          "'don''t'",
-		"o'b'r'ien":      "'o''b''r''ien'",
-		"":               "''",
+		"don't":           "'don''t'",
+		"o'b'r'ien":       "'o''b''r''ien'",
+		"":                "''",
 	}
 	for in, want := range cases {
 		if got := sqlString(in); got != want {
@@ -92,12 +99,12 @@ func TestRenderRadioSeedSQL_RowCounts(t *testing.T) {
 
 	// Each row ends with "NOW(), NOW()),". The final row of each table
 	// ends with "NOW(), NOW())" (no comma) followed by ON CONFLICT.
-	// Cheap count: commas after the NOW(), NOW()) pattern + 2 non-comma
-	// terminals (one per table).
-	rows := strings.Count(sql, "NOW(), NOW()),") + 2
-	want := len(RadioStations) + len(RadioShows)
+	// Cheap count: commas after the NOW(), NOW()) pattern + 3 non-comma
+	// terminals (one per table: networks + stations + shows).
+	rows := strings.Count(sql, "NOW(), NOW()),") + 3
+	want := len(RadioNetworks) + len(RadioStations) + len(RadioShows)
 	if rows != want {
-		t.Errorf("row count mismatch: got %d, want %d (stations=%d + shows=%d)",
-			rows, want, len(RadioStations), len(RadioShows))
+		t.Errorf("row count mismatch: got %d, want %d (networks=%d + stations=%d + shows=%d)",
+			rows, want, len(RadioNetworks), len(RadioStations), len(RadioShows))
 	}
 }

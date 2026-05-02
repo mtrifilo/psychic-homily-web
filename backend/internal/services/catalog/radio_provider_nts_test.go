@@ -10,8 +10,7 @@ import (
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-
-	"psychic-homily-backend/internal/models"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // =============================================================================
@@ -674,7 +673,7 @@ func TestNTS_ProviderRegistration(t *testing.T) {
 	service := &RadioService{}
 
 	// NTS should be registered
-	provider, err := service.getProvider(models.PlaylistSourceNTS)
+	provider, err := service.getProvider(catalogm.PlaylistSourceNTS)
 	require.NoError(t, err)
 	assert.NotNil(t, provider)
 
