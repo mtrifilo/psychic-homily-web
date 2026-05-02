@@ -930,6 +930,12 @@ function CollectionItemsList({
         // Position badge only meaningful for ranked collections.
         position={isRanked ? index + 1 : undefined}
         density={density}
+        // PSY-526: gate the per-card Remove control on the same
+        // `isCreator` value the list-view row uses. Pass `slug` so the
+        // card can drive `useRemoveCollectionItem` directly without
+        // re-deriving it from the URL.
+        isCreator={isCreator}
+        slug={slug}
       />
     ))
 
