@@ -1105,10 +1105,13 @@ function AddItemsSection({
     enabled: isOpen,
   })
 
-  // Flatten results into a single list for display
+  // Flatten results into a single list for display.
+  // PSY-372: shows surface alongside the other entity types now that the
+  // /shows/search endpoint exists (PSY-520).
   const allResults: EntitySearchResult[] = searchResults
     ? [
         ...searchResults.artists,
+        ...searchResults.shows,
         ...searchResults.venues,
         ...searchResults.releases,
         ...searchResults.labels,
@@ -1172,7 +1175,7 @@ function AddItemsSection({
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
             <Input
-              placeholder="Search artists, venues, releases, labels, festivals..."
+              placeholder="Search artists, shows, venues, releases, labels, festivals..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="pl-9"

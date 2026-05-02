@@ -295,6 +295,12 @@ const allRoutes = [...routes, ...adminRoutes]
 const entityTypeIcons: Record<EntitySearchResult['entityType'], LucideIcon> = {
   artist: Mic2,
   venue: MapPin,
+  // PSY-372: shows are surfaced in the entity search hook for the collection
+  // Add Items panel, but the Cmd+K palette intentionally keeps its existing
+  // behavior of not surfacing shows beyond the static `/shows` route entry.
+  // The icon/label entries exist solely to satisfy the exhaustive `Record`
+  // type — `show` is excluded from the visible-types iteration below.
+  show: Calendar,
   release: Disc3,
   label: Tag,
   festival: Tent,
@@ -305,6 +311,7 @@ const entityTypeIcons: Record<EntitySearchResult['entityType'], LucideIcon> = {
 const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
   artist: 'Artists',
   venue: 'Venues',
+  show: 'Shows',
   release: 'Releases',
   label: 'Labels',
   festival: 'Festivals',
@@ -325,8 +332,12 @@ export function CommandPalette() {
   const [recentSearches, setRecentSearches] = useState<string[]>([])
   const [search, setSearch] = useState('')
 
-  // Entity search — only active when palette is open and query is 2+ chars
-  const { data: entityResults, isSearching, totalResults } = useEntitySearch({
+  // Entity search — only active when palette is open and query is 2+ chars.
+  // PSY-372: `totalResults` from the hook now includes shows (which the
+  // collection Add Items panel surfaces). The palette intentionally does not
+  // render shows, so we derive a palette-local `hasEntityResults` from the
+  // visible groups below instead of using the hook's total directly.
+  const { data: entityResults, isSearching } = useEntitySearch({
     query: search,
     enabled: open,
   })
@@ -386,10 +397,12 @@ export function CommandPalette() {
   }, [clearRecentSearches])
 
   const showRecent = !search && recentSearches.length > 0
-  const hasEntityResults = totalResults > 0
   const showEntityResults = search.trim().length >= 2
 
-  // Collect entity result groups that have results, in display order
+  // Collect entity result groups that have results, in display order.
+  // PSY-372: `show` is intentionally excluded — the palette does not surface
+  // shows beyond the static `/shows` route entry. Show results from the
+  // shared hook are simply ignored here.
   const entityGroups = useMemo(() => {
     if (!entityResults) return []
     const types = ['artist', 'venue', 'release', 'label', 'festival', 'tag'] as const
@@ -403,6 +416,10 @@ export function CommandPalette() {
     }
     return groups
   }, [entityResults])
+
+  // Derived from the visible groups so excluded entity types (shows) don't
+  // flip the empty-state copy when they're the only thing that matched.
+  const hasEntityResults = entityGroups.length > 0
 
   return (
     <CommandDialog open={open} onOpenChange={setOpen}>
