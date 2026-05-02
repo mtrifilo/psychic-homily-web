@@ -64,6 +64,9 @@ const mockDeleteMutation = vi.fn(() => ({
 }))
 const mockReorderMutate = vi.fn()
 const mockUpdateMutate = vi.fn()
+// PSY-372: spy for "Add" clicks in the Add Items panel so tests can assert
+// the right entityType/entityId is sent when adding a show.
+const mockAddItemMutate = vi.fn()
 // PSY-351: clone mutation mock — `mutate` invokes the success callback
 // directly so we can assert the post-clone navigation deterministically
 // without spinning up a real React Query client.
@@ -86,7 +89,7 @@ vi.mock('../hooks', () => ({
     error: null,
   }),
   useAddCollectionItem: () => ({
-    mutate: vi.fn(),
+    mutate: mockAddItemMutate,
     isPending: false,
     isError: false,
     error: null,
@@ -151,12 +154,36 @@ vi.mock('@/features/tags', () => ({
 }))
 
 // Mock useEntitySearch
+// Default mock — empty results across all entity types. Individual tests
+// override `mockUseEntitySearchResult` below to seed shows/artists/etc.
+type MockedEntitySearchResult = {
+  data: {
+    artists: unknown[]
+    venues: unknown[]
+    shows: unknown[]
+    releases: unknown[]
+    labels: unknown[]
+    festivals: unknown[]
+    tags: unknown[]
+  }
+  isSearching: boolean
+  totalResults: number
+}
+let mockUseEntitySearchResult: MockedEntitySearchResult = {
+  data: {
+    artists: [],
+    venues: [],
+    shows: [],
+    releases: [],
+    labels: [],
+    festivals: [],
+    tags: [],
+  },
+  isSearching: false,
+  totalResults: 0,
+}
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
-  useEntitySearch: () => ({
-    data: { artists: [], venues: [], releases: [], labels: [], festivals: [] },
-    isSearching: false,
-    totalResults: 0,
-  }),
+  useEntitySearch: () => mockUseEntitySearchResult,
 }))
 
 function makeCollection(
@@ -221,6 +248,21 @@ describe('CollectionDetail', () => {
       isLoading: false,
       error: null,
     })
+    // Reset entity search to "no results" between tests so cases that don't
+    // rely on Add Items aren't accidentally polluted by an earlier override.
+    mockUseEntitySearchResult = {
+      data: {
+        artists: [],
+        venues: [],
+        shows: [],
+        releases: [],
+        labels: [],
+        festivals: [],
+        tags: [],
+      },
+      isSearching: false,
+      totalResults: 0,
+    }
   })
 
   it('renders collection title in heading', () => {
@@ -1349,6 +1391,150 @@ describe('CollectionDetail', () => {
       render(<CollectionDetail slug="test-collection" />)
 
       expect(screen.queryByTestId('contributor-badge')).not.toBeInTheDocument()
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-372: shows in the Add Items search
+  // ──────────────────────────────────────────────
+
+  describe('PSY-372 shows in Add Items search', () => {
+    /**
+     * Helper: open the Add Items panel and seed the entity-search mock with
+     * results in the requested entity type so the dropdown renders rows the
+     * user can interact with. Calls userEvent.click on "Add Items" but does
+     * not type into the search box — typing is unnecessary because the hook
+     * is mocked and returns the seeded data regardless.
+     */
+    async function openAddItemsWith({
+      shows = [],
+      artists = [],
+    }: {
+      shows?: Array<{
+        id: number
+        slug: string
+        name: string
+        subtitle: string | null
+        entityType: 'show'
+        href: string
+      }>
+      artists?: Array<{
+        id: number
+        slug: string
+        name: string
+        subtitle: string | null
+        entityType: 'artist'
+        href: string
+      }>
+    }) {
+      mockUseEntitySearchResult = {
+        data: {
+          artists,
+          venues: [],
+          shows,
+          releases: [],
+          labels: [],
+          festivals: [],
+          tags: [],
+        },
+        isSearching: false,
+        totalResults: shows.length + artists.length,
+      }
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+      await user.click(screen.getByRole('button', { name: /Add Items/i }))
+      // The Add Items panel only renders the dropdown when the query field
+      // has 2+ chars. Type something to satisfy the gate; the hook is mocked
+      // so the typed value is irrelevant.
+      const input = screen.getByPlaceholderText(/Search artists, shows/)
+      await user.type(input, 'tt')
+      return user
+    }
+
+    it('placeholder copy includes "shows"', async () => {
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+      await user.click(screen.getByRole('button', { name: /Add Items/i }))
+
+      const input = screen.getByPlaceholderText(
+        'Search artists, shows, venues, releases, labels, festivals...'
+      )
+      expect(input).toBeInTheDocument()
+    })
+
+    it('renders show results in the dropdown with the configured label and a "Show" badge', async () => {
+      // Synthesize a show entry mirroring how `useEntitySearch` would emit
+      // it — name pre-formatted as "{Headliner} @ {Venue} · {Date}".
+      const formattedLabel = 'Faetooth @ Valley Bar · Apr 15, 2026'
+      await openAddItemsWith({
+        shows: [
+          {
+            id: 99,
+            slug: 'faetooth-valley-bar-2026-04-15',
+            name: formattedLabel,
+            subtitle: null,
+            entityType: 'show',
+            href: '/shows/faetooth-valley-bar-2026-04-15',
+          },
+        ],
+      })
+
+      // Label rendered verbatim in the dropdown row.
+      expect(screen.getByText(formattedLabel)).toBeInTheDocument()
+      // "Show" badge appears next to the label.
+      expect(screen.getByText('Show')).toBeInTheDocument()
+    })
+
+    it('clicking Add on a show calls the add mutation with entityType "show"', async () => {
+      const user = await openAddItemsWith({
+        shows: [
+          {
+            id: 99,
+            slug: 'faetooth-valley-bar-2026-04-15',
+            name: 'Faetooth @ Valley Bar · Apr 15, 2026',
+            subtitle: null,
+            entityType: 'show',
+            href: '/shows/faetooth-valley-bar-2026-04-15',
+          },
+        ],
+      })
+
+      // The Add Items panel triggers a button labeled "Add Items" (which
+      // opened the dropdown), and each result row also has an "Add" button.
+      // We want the row's button — filter to ones whose accessible name is
+      // exactly "Add" (the row button has just "Add", not "Add Items").
+      const buttons = screen.getAllByRole('button', { name: 'Add' })
+      // There should be exactly one "Add" button (the show row).
+      expect(buttons).toHaveLength(1)
+      await user.click(buttons[0])
+
+      expect(mockAddItemMutate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          slug: 'test-collection',
+          entityType: 'show',
+          entityId: 99,
+        }),
+        expect.any(Object)
+      )
+    })
+
+    it('does not regress: artist results still render with their existing label and badge', async () => {
+      await openAddItemsWith({
+        artists: [
+          {
+            id: 1,
+            slug: 'the-growlers',
+            name: 'The Growlers',
+            subtitle: 'Dana Point, CA',
+            entityType: 'artist',
+            href: '/artists/the-growlers',
+          },
+        ],
+      })
+
+      expect(screen.getByText('The Growlers')).toBeInTheDocument()
+      expect(screen.getByText('Dana Point, CA')).toBeInTheDocument()
+      expect(screen.getByText('Artist')).toBeInTheDocument()
     })
   })
 })

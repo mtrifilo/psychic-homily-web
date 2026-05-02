@@ -38,6 +38,11 @@ export interface Comment {
   reply_permission: string
   edit_count: number
   is_edited: boolean
+  // PSY-514: count of direct visible replies. Populated by the list endpoint
+  // for top-level comments so we can suppress the "Show replies" affordance
+  // on zero-reply threads. Other endpoints leave this at 0; treat it as a
+  // hint, not an authoritative source for nested rendering.
+  reply_count?: number
   created_at: string
   updated_at: string
   user_vote?: number | null

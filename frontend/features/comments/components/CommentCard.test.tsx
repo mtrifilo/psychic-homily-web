@@ -129,3 +129,165 @@ describe('CommentCard — admin edit history trigger (PSY-297)', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+// PSY-513: pending-review badge — author-only visibility.
+describe('CommentCard — pending review badge (PSY-513)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+  })
+
+  const defaultProps = {
+    entityType: 'artist',
+    entityId: 10,
+  }
+
+  it('renders the pending-review badge for the comment author', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '99', email: 'me@me.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ visibility: 'pending_review', user_id: 99 })}
+      />
+    )
+
+    expect(screen.getByTestId('pending-review-badge')).toBeInTheDocument()
+    expect(screen.getByText('Pending review')).toBeInTheDocument()
+  })
+
+  it('does NOT render the pending-review badge for non-authors', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '7', email: 'other@user.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ visibility: 'pending_review', user_id: 99 })}
+      />
+    )
+
+    expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the pending-review badge for anonymous viewers', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: false,
+      user: null,
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ visibility: 'pending_review', user_id: 99 })}
+      />
+    )
+
+    expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+  })
+
+  it('does NOT render the pending-review badge on a normal visible comment', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '99', email: 'me@me.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ visibility: 'visible', user_id: 99 })}
+      />
+    )
+
+    expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+  })
+})
+
+// PSY-514: top-level comments with zero replies must NOT render a "Show
+// replies" affordance. Previously the button rendered unconditionally on
+// every top-level comment; clicking it removed the button without showing
+// anything else (no replies to load) — read as a no-op, and was actively
+// misleading on `author_only` comments where replies are impossible.
+describe('CommentCard — Show replies button gating (PSY-514)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: false,
+      user: null,
+    })
+  })
+
+  const defaultProps = {
+    entityType: 'artist',
+    entityId: 10,
+  }
+
+  it('does NOT render "Show replies" when reply_count is 0', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ reply_count: 0 })}
+      />
+    )
+
+    expect(
+      screen.queryByTestId('show-replies-button')
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT render "Show replies" when reply_count is missing (undefined)', () => {
+    // Older comment payloads (or paths that don't populate reply_count) are
+    // treated as zero-reply for rendering purposes.
+    render(<CommentCard {...defaultProps} comment={makeComment()} />)
+
+    expect(
+      screen.queryByTestId('show-replies-button')
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT render "Show replies" on author_only comments with zero replies', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({
+          reply_permission: 'author_only',
+          reply_count: 0,
+        })}
+      />
+    )
+
+    expect(
+      screen.queryByTestId('show-replies-button')
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders "Show replies" when reply_count > 0', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ reply_count: 3 })}
+      />
+    )
+
+    expect(screen.getByTestId('show-replies-button')).toBeInTheDocument()
+  })
+
+  it('does NOT render "Show replies" on a reply (depth > 0) even with reply_count > 0', () => {
+    // Defense in depth: the button is only the expand-replies affordance
+    // on top-level comments. Nested replies use the inline rendering path.
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ depth: 1, reply_count: 5 })}
+      />
+    )
+
+    expect(
+      screen.queryByTestId('show-replies-button')
+    ).not.toBeInTheDocument()
+  })
+})

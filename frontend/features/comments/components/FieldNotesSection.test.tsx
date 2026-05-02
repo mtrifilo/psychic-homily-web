@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { FieldNotesSection } from './FieldNotesSection'
+import type { Comment } from '../types'
 
 // --- Mocks ---
 
@@ -272,6 +273,110 @@ describe('FieldNotesSection', () => {
       )
 
       expect(screen.queryByTestId('field-note-auth-gate')).not.toBeInTheDocument()
+    })
+  })
+
+  // PSY-513: pending-review feedback for field notes (mirrors CommentThread).
+  describe('pending-review feedback (PSY-513)', () => {
+    function makePendingNote(overrides: Partial<Comment> = {}): Comment {
+      return {
+        id: 7777,
+        entity_type: 'show',
+        entity_id: 1,
+        user_id: 8,
+        author_name: 'Newcomer',
+        body: 'My take on the show',
+        body_html: '<p>My take on the show</p>',
+        parent_id: null,
+        root_id: null,
+        depth: 0,
+        ups: 0,
+        downs: 0,
+        score: 0,
+        visibility: 'pending_review',
+        reply_permission: 'anyone',
+        edit_count: 0,
+        is_edited: false,
+        created_at: '2026-04-29T18:00:00Z',
+        updated_at: '2026-04-29T18:00:00Z',
+        structured_data: {
+          setlist_spoiler: false,
+          is_verified_attendee: false,
+        },
+        ...overrides,
+      }
+    }
+
+    it('renders banner + optimistic note when POST returns pending_review', () => {
+      const pending = makePendingNote()
+      const mutateImpl = vi.fn(
+        (_args: unknown, opts?: { onSuccess?: (data: Comment) => void }) => {
+          opts?.onSuccess?.(pending)
+        }
+      )
+      mockUseCreateFieldNote.mockReturnValue({
+        mutate: mutateImpl,
+        isPending: false,
+      })
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '8', email: 'newcomer@example.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+      )
+
+      // Empty state visible before submit.
+      expect(screen.getByTestId('field-notes-empty')).toBeInTheDocument()
+
+      // Submit the form.
+      fireEvent.change(screen.getByTestId('field-note-textarea'), {
+        target: { value: 'My take on the show' },
+      })
+      fireEvent.click(screen.getByTestId('field-note-submit'))
+
+      // Banner appears, empty-state suppressed, badge rendered.
+      expect(screen.getByTestId('pending-review-banner')).toBeInTheDocument()
+      expect(screen.queryByTestId('field-notes-empty')).not.toBeInTheDocument()
+      expect(screen.getByTestId('pending-review-badge')).toBeInTheDocument()
+    })
+
+    it('does NOT render banner when POST returns visible (trusted-tier auto-publish)', () => {
+      const visible = makePendingNote({ visibility: 'visible' })
+      const mutateImpl = vi.fn(
+        (_args: unknown, opts?: { onSuccess?: (data: Comment) => void }) => {
+          opts?.onSuccess?.(visible)
+        }
+      )
+      mockUseCreateFieldNote.mockReturnValue({
+        mutate: mutateImpl,
+        isPending: false,
+      })
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '8', email: 'trusted@example.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+      )
+
+      fireEvent.change(screen.getByTestId('field-note-textarea'), {
+        target: { value: 'Auto-published note' },
+      })
+      fireEvent.click(screen.getByTestId('field-note-submit'))
+
+      expect(screen.queryByTestId('pending-review-banner')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
     })
   })
 })

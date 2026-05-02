@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag } from 'lucide-react'
+import { ChevronUp, ChevronDown, MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -125,6 +125,18 @@ export function FieldNoteCard({
         {comment.is_edited && (
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
             Edited
+          </Badge>
+        )}
+        {/* PSY-513: pending-review badge for the author of a queued field
+            note. Mirrors the CommentCard pattern. */}
+        {comment.visibility === 'pending_review' && isOwner && (
+          <Badge
+            variant="outline"
+            className="text-[10px] px-1.5 py-0 gap-1 border-amber-700/50 text-amber-500"
+            data-testid="pending-review-badge"
+          >
+            <Clock className="h-2.5 w-2.5" />
+            Pending review
           </Badge>
         )}
       </div>
@@ -304,18 +316,24 @@ export function FieldNoteCard({
         </div>
       )}
 
-      {/* Load replies button */}
-      {!hasInlineReplies && !loadedThread && comment.depth === 0 && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-1 text-xs text-muted-foreground mt-1"
-          onClick={() => setLoadedThread(true)}
-        >
-          <MessageSquare className="h-3.5 w-3.5 mr-1" />
-          Show replies
-        </Button>
-      )}
+      {/* Load replies button. PSY-514: same gating as CommentCard — suppress
+          when reply_count is 0 (or missing), otherwise the click reads as a
+          no-op since there are no replies to fetch. */}
+      {!hasInlineReplies &&
+        !loadedThread &&
+        comment.depth === 0 &&
+        (comment.reply_count ?? 0) > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1 text-xs text-muted-foreground mt-1"
+            onClick={() => setLoadedThread(true)}
+            data-testid="show-replies-button"
+          >
+            <MessageSquare className="h-3.5 w-3.5 mr-1" />
+            Show replies
+          </Button>
+        )}
 
       {/* Report dialog */}
       {isAuthenticated && !isOwner && (

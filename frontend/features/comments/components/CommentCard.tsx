@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock } from 'lucide-react'
+import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -138,6 +138,20 @@ export function CommentCard({
         {comment.is_edited && (
           <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
             Edited
+          </Badge>
+        )}
+        {/* PSY-513: pending-review badge for the author of a queued comment.
+            Gated on isOwner so other viewers don't see queued comments even if
+            one slips into the cache. The badge mirrors the existing reply-
+            permission badge pattern (outline + small icon). */}
+        {comment.visibility === 'pending_review' && isOwner && (
+          <Badge
+            variant="outline"
+            className="text-[10px] px-1.5 py-0 gap-1 border-amber-700/50 text-amber-500"
+            data-testid="pending-review-badge"
+          >
+            <Clock className="h-2.5 w-2.5" />
+            Pending review
           </Badge>
         )}
         {/* PSY-296 start: reply-permission badge (only for non-default values). */}
@@ -364,18 +378,28 @@ export function CommentCard({
         </div>
       )}
 
-      {/* Load replies button for top-level comments with no inline replies */}
-      {!hasInlineReplies && !loadedThread && comment.depth === 0 && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-1 text-xs text-muted-foreground mt-1"
-          onClick={() => setLoadedThread(true)}
-        >
-          <MessageSquare className="h-3.5 w-3.5 mr-1" />
-          Show replies
-        </Button>
-      )}
+      {/* Load replies button for top-level comments with no inline replies.
+          PSY-514: also gate on reply_count > 0 so we don't render a "Show
+          replies" affordance on threads that have none — clicking did
+          nothing, and on `author_only` comments it was actively misleading.
+          Comments fetched by routes that don't populate reply_count (e.g.
+          single-comment endpoints) leave the field undefined; treat the
+          missing-field case the same as 0 since there's no signal to act on. */}
+      {!hasInlineReplies &&
+        !loadedThread &&
+        comment.depth === 0 &&
+        (comment.reply_count ?? 0) > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1 text-xs text-muted-foreground mt-1"
+            onClick={() => setLoadedThread(true)}
+            data-testid="show-replies-button"
+          >
+            <MessageSquare className="h-3.5 w-3.5 mr-1" />
+            Show replies
+          </Button>
+        )}
 
       {/* Report dialog */}
       {isAuthenticated && !isOwner && (

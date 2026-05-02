@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MessageSquare } from 'lucide-react'
+import { MessageSquare, Clock } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { useComments, useCreateComment } from '../hooks'
@@ -25,12 +25,23 @@ const sortLabels: Record<SortOption, string> = {
 export function CommentThread({ entityType, entityId }: CommentThreadProps) {
   const { isAuthenticated } = useAuthContext()
   const [sort, setSort] = useState<SortOption>('best')
+  // PSY-513: track the author's just-submitted pending-review comment so we
+  // can render it optimistically. The public comments list will not include
+  // pending_review rows (server-side filter), so this local state is the
+  // source of truth until a moderator approves it (after which a refetch
+  // surfaces the canonical row and the optimistic entry is de-duped by id).
+  const [pendingComment, setPendingComment] = useState<Comment | null>(null)
 
   const { data, isLoading } = useComments(entityType, entityId, sort)
   const createMutation = useCreateComment()
 
   const comments = data?.comments ?? []
   const total = data?.total ?? 0
+
+  // Drop the optimistic entry once the canonical row appears in the list.
+  const hasCanonicalPending =
+    pendingComment !== null && comments.some((c) => c.id === pendingComment.id)
+  const effectivePending = hasCanonicalPending ? null : pendingComment
 
   // Separate top-level comments and replies
   const topLevel = comments.filter((c) => c.depth === 0)
@@ -43,7 +54,18 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
   }, {})
 
   const handleCreate = (body: string, replyPermission?: ReplyPermission) => {
-    createMutation.mutate({ entityType, entityId, body, replyPermission })
+    createMutation.mutate(
+      { entityType, entityId, body, replyPermission },
+      {
+        onSuccess: (created) => {
+          // Only top-level (parent_id == null) submissions land here; replies
+          // go through useReplyToComment in CommentCard.
+          if (created.visibility === 'pending_review') {
+            setPendingComment(created)
+          }
+        },
+      }
+    )
   }
 
   return (
@@ -97,6 +119,22 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
         </p>
       )}
 
+      {/* PSY-513: pending-review confirmation banner. Inline banner pattern
+          mirrors EntityEditDrawer's "Edit submitted for review" success state
+          since the codebase has no toast primitive. Only the author sees this. */}
+      {effectivePending && (
+        <div
+          className="mb-4 rounded-md border border-amber-700/50 bg-amber-950/40 p-3 flex items-start gap-2"
+          role="status"
+          data-testid="pending-review-banner"
+        >
+          <Clock className="h-4 w-4 mt-0.5 text-amber-500 shrink-0" />
+          <p className="text-sm text-amber-200">
+            Comment submitted — awaiting moderation. You&apos;ll see it here once an admin approves it.
+          </p>
+        </div>
+      )}
+
       {/* Comments list */}
       {isLoading ? (
         <div className="space-y-4">
@@ -108,12 +146,24 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
             </div>
           ))}
         </div>
-      ) : topLevel.length === 0 ? (
+      ) : topLevel.length === 0 && !effectivePending ? (
         <p className="text-sm text-muted-foreground py-8 text-center" data-testid="empty-state">
           No comments yet. Be the first to share your thoughts.
         </p>
       ) : (
         <div className="space-y-4 divide-y divide-border/50">
+          {/* Optimistic pending comment, rendered first so the author can see
+              what they posted. Visible only to the author (gated above by
+              setPendingComment, which only fires for the submitter). */}
+          {effectivePending && (
+            <div className="pt-4 first:pt-0">
+              <CommentCard
+                comment={effectivePending}
+                entityType={entityType}
+                entityId={entityId}
+              />
+            </div>
+          )}
           {topLevel.map((comment) => (
             <div key={comment.id} className="pt-4 first:pt-0">
               <CommentCard

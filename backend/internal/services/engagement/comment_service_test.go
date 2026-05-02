@@ -873,6 +873,45 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_InvalidEntityT
 	suite.Contains(err.Error(), "unsupported entity type")
 }
 
+// PSY-514: top-level comments must carry an accurate count of their visible
+// direct replies so the frontend can suppress the "Show replies" button on
+// zero-reply threads. We count visible replies only — hidden/removed replies
+// don't render anything expandable, so they shouldn't bump the count.
+func (suite *CommentServiceIntegrationTestSuite) TestListComments_ReplyCount() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Reply Count Artist")
+
+	// Three top-level comments: one with two replies, one with a hidden
+	// reply (should count as zero), one with no replies at all.
+	rootWithReplies := suite.insertComment(user.ID, "artist", artistID, "Has replies", nil, nil, 0)
+	suite.insertComment(user.ID, "artist", artistID, "Reply A", &rootWithReplies.ID, &rootWithReplies.ID, 1)
+	suite.insertComment(user.ID, "artist", artistID, "Reply B", &rootWithReplies.ID, &rootWithReplies.ID, 1)
+
+	rootHiddenReply := suite.insertComment(user.ID, "artist", artistID, "Hidden reply only", nil, nil, 0)
+	hiddenReply := suite.insertComment(user.ID, "artist", artistID, "Soft-deleted reply", &rootHiddenReply.ID, &rootHiddenReply.ID, 1)
+	suite.Require().NoError(
+		suite.db.Model(&models.Comment{}).
+			Where("id = ?", hiddenReply.ID).
+			Update("visibility", models.CommentVisibilityHiddenByUser).Error,
+	)
+
+	rootNoReplies := suite.insertComment(user.ID, "artist", artistID, "No replies", nil, nil, 0)
+
+	result, err := suite.commentService.ListCommentsForEntity("artist", artistID, contracts.CommentListFilters{
+		Sort: "new",
+	})
+	suite.Require().NoError(err)
+	suite.Require().Len(result.Comments, 3)
+
+	byID := make(map[uint]*contracts.CommentResponse, len(result.Comments))
+	for _, c := range result.Comments {
+		byID[c.ID] = c
+	}
+	suite.Equal(2, byID[rootWithReplies.ID].ReplyCount, "should count both visible replies")
+	suite.Equal(0, byID[rootHiddenReply.ID].ReplyCount, "hidden replies should not count")
+	suite.Equal(0, byID[rootNoReplies.ID].ReplyCount, "no replies means zero count")
+}
+
 // =============================================================================
 // Group 5: GetThread
 // =============================================================================
