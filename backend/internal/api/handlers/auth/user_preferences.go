@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -314,16 +315,8 @@ func (h *UserPreferencesHandler) SetCommentNotificationsHandler(ctx context.Cont
 		resp.Body.NotifyOnMention = refreshed.Preferences.NotifyOnMention
 	} else {
 		// No prefs row — return the defaults we requested.
-		if req.Body.NotifyOnCommentSubscription != nil {
-			resp.Body.NotifyOnCommentSubscription = *req.Body.NotifyOnCommentSubscription
-		} else {
-			resp.Body.NotifyOnCommentSubscription = true
-		}
-		if req.Body.NotifyOnMention != nil {
-			resp.Body.NotifyOnMention = *req.Body.NotifyOnMention
-		} else {
-			resp.Body.NotifyOnMention = true
-		}
+		resp.Body.NotifyOnCommentSubscription = shared.DerefOr(req.Body.NotifyOnCommentSubscription, true)
+		resp.Body.NotifyOnMention = shared.DerefOr(req.Body.NotifyOnMention, true)
 	}
 	return resp, nil
 }
