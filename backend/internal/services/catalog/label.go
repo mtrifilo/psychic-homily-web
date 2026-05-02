@@ -344,6 +344,9 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 	if req.Description != nil {
 		updates["description"] = *req.Description
 	}
+	if req.ImageURL != nil {
+		updates["image_url"] = *req.ImageURL
+	}
 	if req.Instagram != nil {
 		updates["instagram"] = *req.Instagram
 	}
@@ -602,6 +605,7 @@ func (s *LabelService) buildDetailResponse(label *catalogm.Label) (*contracts.La
 		FoundedYear: label.FoundedYear,
 		Status:      string(label.Status),
 		Description: label.Description,
+		ImageURL:    label.ImageURL,
 		Social: contracts.SocialResponse{
 			Instagram:  label.Social.Instagram,
 			Facebook:   label.Social.Facebook,

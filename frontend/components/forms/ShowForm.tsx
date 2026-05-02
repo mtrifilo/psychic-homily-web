@@ -80,6 +80,9 @@ const showFormSchema = z.object({
   cost: z.string(),
   ages: z.string(),
   description: z.string(),
+  image_url: z
+    .string()
+    .max(2048, 'Image URL must be 2048 characters or fewer'),
 })
 
 /** Pre-filled venue data for locking venue selection */
@@ -193,6 +196,7 @@ export function ShowForm({
           price,
           age_requirement: value.ages || undefined,
           description: value.description || undefined,
+          image_url: value.image_url || undefined,
           venues: [
             {
               id: value.venue.id,
@@ -699,6 +703,22 @@ export function ShowForm({
             />
           )}
         </form.Field>
+
+        {/* PSY-521: image URL is editable on existing shows. New submissions
+            don't expose it — most shows arrive without imagery and curators
+            add a flyer URL after the fact. */}
+        {isEditMode && (
+          <form.Field name="image_url">
+            {field => (
+              <FormField
+                field={field}
+                label="Image URL (Optional)"
+                type="url"
+                placeholder="https://..."
+              />
+            )}
+          </form.Field>
+        )}
       </div>
 
       {mutation.error && (

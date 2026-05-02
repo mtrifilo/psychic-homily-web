@@ -16,6 +16,7 @@ type Venue struct {
 	Country     *string `gorm:"column:country;size:100"`
 	Zipcode     *string
 	Description *string `json:"description,omitempty" gorm:"column:description;type:text"`
+	ImageURL    *string `json:"image_url,omitempty" gorm:"column:image_url"`
 	Social      Social  `gorm:"embedded"`
 	Verified    bool
 	SubmittedBy *uint `gorm:"column:submitted_by"` // User ID of the person who originally submitted this venue

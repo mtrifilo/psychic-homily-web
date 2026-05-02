@@ -1855,11 +1855,10 @@ func (s *CollectionService) buildItemResponses(items []communitym.CollectionItem
 }
 
 // batchResolveEntityNames resolves names, slugs, and image URLs for groups of
-// entities by type. Image URLs are pulled for the two entity tables that
-// already store a canonical image (release.cover_art_url, festival.flyer_url);
-// the other types (artist/venue/show/label) have no image column yet, so the
-// returned image map has no key for those rows and the caller surfaces nil
-// (PSY-360).
+// entities by type. Each entity table stores its image in a column whose name
+// matches the entity's domain language: release.cover_art_url, festival.flyer_url,
+// and artist/venue/show/label.image_url (PSY-521). The batch resolver
+// normalizes them all into the same `images` map for the collection grid.
 func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][]uint) (map[string]string, map[string]string, map[string]*string) {
 	names := make(map[string]string)
 	slugs := make(map[string]string)
@@ -1873,29 +1872,31 @@ func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][
 		switch entityType {
 		case communitym.CollectionEntityArtist:
 			var artists []catalogm.Artist
-			s.db.Select("id, name, slug").Where("id IN ?", ids).Find(&artists)
+			s.db.Select("id, name, slug, image_url").Where("id IN ?", ids).Find(&artists)
 			for _, a := range artists {
 				key := fmt.Sprintf("%s:%d", entityType, a.ID)
 				names[key] = a.Name
 				if a.Slug != nil {
 					slugs[key] = *a.Slug
 				}
+				images[key] = nonEmptyImageURL(a.ImageURL)
 			}
 
 		case communitym.CollectionEntityVenue:
 			var venues []catalogm.Venue
-			s.db.Select("id, name, slug").Where("id IN ?", ids).Find(&venues)
+			s.db.Select("id, name, slug, image_url").Where("id IN ?", ids).Find(&venues)
 			for _, v := range venues {
 				key := fmt.Sprintf("%s:%d", entityType, v.ID)
 				names[key] = v.Name
 				if v.Slug != nil {
 					slugs[key] = *v.Slug
 				}
+				images[key] = nonEmptyImageURL(v.ImageURL)
 			}
 
 		case communitym.CollectionEntityShow:
 			var shows []catalogm.Show
-			s.db.Select("id, title, slug").Where("id IN ?", ids).Find(&shows)
+			s.db.Select("id, title, slug, image_url").Where("id IN ?", ids).Find(&shows)
 			for _, sh := range shows {
 				key := fmt.Sprintf("%s:%d", entityType, sh.ID)
 				names[key] = sh.Title
@@ -1904,6 +1905,7 @@ func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][
 				} else {
 					slugs[key] = strconv.FormatUint(uint64(sh.ID), 10)
 				}
+				images[key] = nonEmptyImageURL(sh.ImageURL)
 			}
 
 		case communitym.CollectionEntityRelease:
@@ -1920,13 +1922,14 @@ func (s *CollectionService) batchResolveEntityNames(entityIDsByType map[string][
 
 		case communitym.CollectionEntityLabel:
 			var labels []catalogm.Label
-			s.db.Select("id, name, slug").Where("id IN ?", ids).Find(&labels)
+			s.db.Select("id, name, slug, image_url").Where("id IN ?", ids).Find(&labels)
 			for _, l := range labels {
 				key := fmt.Sprintf("%s:%d", entityType, l.ID)
 				names[key] = l.Name
 				if l.Slug != nil {
 					slugs[key] = *l.Slug
 				}
+				images[key] = nonEmptyImageURL(l.ImageURL)
 			}
 
 		case communitym.CollectionEntityFestival:
