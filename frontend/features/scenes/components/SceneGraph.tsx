@@ -245,7 +245,11 @@ export function SceneGraph({ slug, city, state }: SceneGraphProps) {
     <>
       <div
         ref={containerRefCallback}
-        className="mt-2"
+        // PSY-366: `id="graph"` enables Cmd+K deep-links from the command
+        // palette (`/scenes/{slug}#graph`). `scroll-mt-20` accounts for the
+        // sticky header on the entity layout.
+        id="graph"
+        className="mt-2 scroll-mt-20"
         // While the overlay is open, hide the inline copy from assistive tech
         // and inert it for keyboard focus — the overlay's own header is the
         // single source of truth for scene-graph navigation in that mode.

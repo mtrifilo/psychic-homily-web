@@ -165,17 +165,20 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
       return bScore - aScore
     })
 
-  const hasEnoughForGraph = originalGraph.nodes.length >= 3
-  // Mobile gating: below the Tailwind `sm` breakpoint (640px) the graph
-  // is unusable on a phone, so we hide the View Map button entirely and
-  // let the list view be the only surface — no "best viewed on desktop"
-  // nag. `containerWidth === null` (pre-measurement) also gates off so
-  // we never flash the button before we know the viewport width.
-  const graphAvailable =
-    hasEnoughForGraph && containerWidth !== null && containerWidth >= 640
+  // PSY-366: dropped the `nodes.length >= 3` gate to fix entry-point
+  // invisibility per `docs/research/knowledge-graph-viz-prior-art.md` §5.4
+  // — the button is the affordance, and a sparse graph (1–2 related artists)
+  // is still informative. The `!hasRelationships` early return above handles
+  // the truly-zero case.
+  //
+  // Mobile gating retained: below the Tailwind `sm` breakpoint (640px) the
+  // graph is unusable on a phone (PSY-369), so the button is hidden and the
+  // list view is the only surface. `containerWidth === null` (pre-measurement)
+  // also gates off so we never flash the button before measuring the viewport.
+  const graphAvailable = containerWidth !== null && containerWidth >= 640
 
   return (
-    <div ref={containerRefCallback} className="mt-8 px-4 md:px-0">
+    <div ref={containerRefCallback} id="graph" className="mt-8 px-4 md:px-0 scroll-mt-20">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-lg font-semibold">Related Artists</h2>
         <div className="flex items-center gap-2">
@@ -186,7 +189,7 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
               onClick={() => setShowGraph(!showGraph)}
             >
               <Network className="h-4 w-4 mr-1.5" />
-              {showGraph ? 'Hide Map' : 'View Map'}
+              {showGraph ? 'Hide graph' : 'Explore graph'}
             </Button>
           )}
         </div>

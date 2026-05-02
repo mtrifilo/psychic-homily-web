@@ -12,12 +12,15 @@ beforeAll(() => {
 
 // Mock next/navigation
 const mockPush = vi.fn()
+let mockPathname = '/'
 vi.mock('next/navigation', () => ({
   useRouter: () => ({
     push: mockPush,
     replace: vi.fn(),
     prefetch: vi.fn(),
   }),
+  // PSY-366: usePathname drives the contextual "Explore graph" entries.
+  usePathname: () => mockPathname,
 }))
 
 // Mock AuthContext

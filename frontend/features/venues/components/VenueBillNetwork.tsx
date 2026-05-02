@@ -240,7 +240,11 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
     <>
       <div
         ref={containerRefCallback}
-        className="mt-8 px-4 md:px-0"
+        // PSY-366: `id="graph"` enables Cmd+K deep-links from the command
+        // palette (`/venues/{slug}#graph`). `scroll-mt-20` accounts for the
+        // sticky header on the entity layout.
+        id="graph"
+        className="mt-8 px-4 md:px-0 scroll-mt-20"
         // Hide inline copy from assistive tech while the overlay is open —
         // the overlay's own header is the single source of truth in that mode.
         aria-hidden={isFullscreen || undefined}

@@ -280,3 +280,39 @@ export function getEntityTypeLabel(entityType: string): string {
       return entityType
   }
 }
+
+// =============================================================================
+// PSY-366: Collection graph types — mirror the backend contracts exactly.
+// =============================================================================
+
+export interface CollectionGraphInfo {
+  slug: string
+  name: string
+  artist_count: number
+  edge_count: number
+}
+
+export interface CollectionGraphNode {
+  id: number
+  name: string
+  slug: string
+  city?: string
+  state?: string
+  upcoming_show_count: number
+  /** True when the artist has zero in-set edges (post type-filter). */
+  is_isolate: boolean
+}
+
+export interface CollectionGraphLink {
+  source_id: number
+  target_id: number
+  type: string
+  score: number
+  detail?: Record<string, unknown>
+}
+
+export interface CollectionGraphResponse {
+  collection: CollectionGraphInfo
+  nodes: CollectionGraphNode[]
+  links: CollectionGraphLink[]
+}

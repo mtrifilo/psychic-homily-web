@@ -60,6 +60,10 @@ func (suite *CollectionServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM show_artists")
 	_, _ = sqlDB.Exec("DELETE FROM show_venues")
 	_, _ = sqlDB.Exec("DELETE FROM shows")
+	// PSY-366: artist_relationships before artists — FK has no ON DELETE
+	// CASCADE (migration 000052), so artists can't be deleted while
+	// relationship rows reference them.
+	_, _ = sqlDB.Exec("DELETE FROM artist_relationships")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM release_labels")
