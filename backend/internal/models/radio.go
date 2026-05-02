@@ -69,16 +69,38 @@ type RadioStation struct {
 	PlaylistConfig      *json.RawMessage `gorm:"column:playlist_config;type:jsonb"`
 	LastPlaylistFetchAt *time.Time       `gorm:"column:last_playlist_fetch_at"`
 	IsActive            bool             `gorm:"column:is_active;not null;default:true"`
+	NetworkID           *uint            `gorm:"column:network_id"`
 	CreatedAt           time.Time        `gorm:"not null"`
 	UpdatedAt           time.Time        `gorm:"not null"`
 
 	// Relationships
-	Shows []RadioShow `gorm:"foreignKey:StationID"`
+	Shows   []RadioShow   `gorm:"foreignKey:StationID"`
+	Network *RadioNetwork `gorm:"foreignKey:NetworkID"`
 }
 
 // TableName specifies the table name for RadioStation
 func (RadioStation) TableName() string {
 	return "radio_stations"
+}
+
+// RadioNetwork represents a parent brand grouping sibling radio_stations.
+// Example: WFMU's 91.1 broadcast plus three stream-only sub-channels are
+// all siblings under the WFMU network. Networks are flat (no hierarchy);
+// stations link to networks via radio_stations.network_id.
+type RadioNetwork struct {
+	ID        uint      `gorm:"primaryKey"`
+	Slug      string    `gorm:"not null;uniqueIndex"`
+	Name      string    `gorm:"not null"`
+	CreatedAt time.Time `gorm:"not null"`
+	UpdatedAt time.Time `gorm:"not null"`
+
+	// Relationships
+	Stations []RadioStation `gorm:"foreignKey:NetworkID"`
+}
+
+// TableName specifies the table name for RadioNetwork
+func (RadioNetwork) TableName() string {
+	return "radio_networks"
 }
 
 // RadioShow represents a recurring radio program on a station

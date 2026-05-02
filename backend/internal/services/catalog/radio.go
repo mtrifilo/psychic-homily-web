@@ -85,7 +85,7 @@ func (s *RadioService) GetStation(stationID uint) (*contracts.RadioStationDetail
 	}
 
 	var station models.RadioStation
-	err := s.db.First(&station, stationID).Error
+	err := s.db.Preload("Network").First(&station, stationID).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
@@ -103,7 +103,7 @@ func (s *RadioService) GetStationBySlug(slug string) (*contracts.RadioStationDet
 	}
 
 	var station models.RadioStation
-	err := s.db.Where("slug = ?", slug).First(&station).Error
+	err := s.db.Preload("Network").Where("slug = ?", slug).First(&station).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
 			return nil, apperrors.ErrRadioStationNotFound(0)
@@ -132,7 +132,7 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 	query = query.Order("name ASC")
 
 	var stations []models.RadioStation
-	if err := query.Find(&stations).Error; err != nil {
+	if err := query.Preload("Network").Find(&stations).Error; err != nil {
 		return nil, fmt.Errorf("failed to list radio stations: %w", err)
 	}
 
@@ -162,6 +162,11 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 
 	responses := make([]*contracts.RadioStationListResponse, len(stations))
 	for i, st := range stations {
+		var networkSlug *string
+		if st.Network != nil {
+			slug := st.Network.Slug
+			networkSlug = &slug
+		}
 		responses[i] = &contracts.RadioStationListResponse{
 			ID:            st.ID,
 			Name:          st.Name,
@@ -173,6 +178,8 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 			FrequencyMHz:  st.FrequencyMHz,
 			LogoURL:       st.LogoURL,
 			IsActive:      st.IsActive,
+			NetworkID:     st.NetworkID,
+			NetworkSlug:   networkSlug,
 			ShowCount:     showCounts[st.ID],
 		}
 	}
@@ -914,6 +921,14 @@ func (s *RadioService) buildStationDetailResponse(station *models.RadioStation) 
 	var showCount int64
 	s.db.Model(&models.RadioShow{}).Where("station_id = ?", station.ID).Count(&showCount)
 
+	// network_slug is convenience for clients that already know how to
+	// resolve a slug; full network objects are not embedded here.
+	var networkSlug *string
+	if station.Network != nil {
+		slug := station.Network.Slug
+		networkSlug = &slug
+	}
+
 	return &contracts.RadioStationDetailResponse{
 		ID:                  station.ID,
 		Name:                station.Name,
@@ -936,6 +951,8 @@ func (s *RadioService) buildStationDetailResponse(station *models.RadioStation) 
 		PlaylistConfig:      station.PlaylistConfig,
 		LastPlaylistFetchAt: station.LastPlaylistFetchAt,
 		IsActive:            station.IsActive,
+		NetworkID:           station.NetworkID,
+		NetworkSlug:         networkSlug,
 		ShowCount:           int(showCount),
 		CreatedAt:           station.CreatedAt,
 		UpdatedAt:           station.UpdatedAt,

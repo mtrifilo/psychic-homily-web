@@ -100,7 +100,18 @@ func (suite *RadioServiceIntegrationTestSuite) TearDownSuite() {
 	suite.testDB.Cleanup()
 }
 
+// SetupTest wipes data so every test starts from a known empty state.
+// Migrations seed WFMU network + 4 stations on the test container; without
+// SetupTest, the first test would inherit those rows.
+func (suite *RadioServiceIntegrationTestSuite) SetupTest() {
+	suite.cleanupRadioTables()
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TearDownTest() {
+	suite.cleanupRadioTables()
+}
+
+func (suite *RadioServiceIntegrationTestSuite) cleanupRadioTables() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
 	// Delete in FK-safe order
@@ -108,7 +119,10 @@ func (suite *RadioServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM radio_plays")
 	_, _ = sqlDB.Exec("DELETE FROM radio_episodes")
 	_, _ = sqlDB.Exec("DELETE FROM radio_shows")
+	// stations FK -> networks is ON DELETE SET NULL, so order is flexible,
+	// but we delete stations before networks for clarity.
 	_, _ = sqlDB.Exec("DELETE FROM radio_stations")
+	_, _ = sqlDB.Exec("DELETE FROM radio_networks")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM labels")
@@ -808,4 +822,133 @@ func (suite *RadioServiceIntegrationTestSuite) TestDeleteStation_CascadesShows()
 	var playCount int64
 	suite.db.Model(&models.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&playCount)
 	suite.Equal(int64(0), playCount)
+}
+
+// =============================================================================
+// PSY-508: RADIO_NETWORKS RELATIONSHIP TESTS
+// =============================================================================
+
+// TestRadioNetwork_WFMUSeed_FourStationsUnderNetwork verifies the migration
+// shipped with PSY-508 wires up the WFMU network and its 4 sibling stations
+// (the 91.1 broadcast plus three stream-only sub-channels).
+//
+// This is a guard against migration regressions: if someone breaks the
+// network seed or the network_id backfill, this test fails fast.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_WFMUSeed_FourStationsUnderNetwork() {
+	// The migration ships the network row + 4 stations. Re-apply it
+	// inside the test scope (TearDownTest wipes everything between
+	// tests in this suite, so we re-seed for this test).
+	suite.Require().NoError(suite.db.Exec(`
+		INSERT INTO radio_networks (slug, name) VALUES ('wfmu', 'WFMU')
+	`).Error)
+	suite.Require().NoError(suite.db.Exec(`
+		INSERT INTO radio_stations (name, slug, broadcast_type, playlist_source, network_id, is_active)
+		VALUES
+		    ('WFMU', 'wfmu', 'both', 'wfmu_scrape', (SELECT id FROM radio_networks WHERE slug = 'wfmu'), TRUE),
+		    ('Give the Drummer Radio', 'wfmu-drummer', 'internet', 'wfmu_scrape', (SELECT id FROM radio_networks WHERE slug = 'wfmu'), TRUE),
+		    ('Rock''n''Soul Radio', 'wfmu-rocknsoulradio', 'internet', 'wfmu_scrape', (SELECT id FROM radio_networks WHERE slug = 'wfmu'), TRUE),
+		    ('Sheena''s Jungle Room', 'wfmu-sheena', 'internet', 'wfmu_scrape', (SELECT id FROM radio_networks WHERE slug = 'wfmu'), TRUE)
+	`).Error)
+
+	// Network row exists with the expected slug + name.
+	var network models.RadioNetwork
+	err := suite.db.Where("slug = ?", "wfmu").First(&network).Error
+	suite.Require().NoError(err)
+	suite.Equal("wfmu", network.Slug)
+	suite.Equal("WFMU", network.Name)
+
+	// Exactly 4 stations point at the WFMU network.
+	var stations []models.RadioStation
+	err = suite.db.Where("network_id = ?", network.ID).Order("slug ASC").Find(&stations).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(stations, 4)
+
+	// Slugs match the locked design (alphabetical order from query above).
+	suite.Equal("wfmu", stations[0].Slug)
+	suite.Equal("wfmu-drummer", stations[1].Slug)
+	suite.Equal("wfmu-rocknsoulradio", stations[2].Slug)
+	suite.Equal("wfmu-sheena", stations[3].Slug)
+
+	// All four share the same network_id (sibling, not nested).
+	for _, st := range stations {
+		suite.Require().NotNil(st.NetworkID)
+		suite.Equal(network.ID, *st.NetworkID)
+	}
+}
+
+// TestRadioNetwork_StationDelete_PreservesNetwork verifies that deleting a
+// station does not delete the network. ON DELETE SET NULL on the FK only
+// applies when the *network* is deleted, not when a station is deleted.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_StationDelete_PreservesNetwork() {
+	// Seed: 1 network, 1 station pointing at it.
+	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('test-net', 'Test Net')`).Error)
+	var network models.RadioNetwork
+	suite.Require().NoError(suite.db.Where("slug = ?", "test-net").First(&network).Error)
+
+	station := &models.RadioStation{
+		Name:          "Test Station",
+		Slug:          "test-station",
+		BroadcastType: "internet",
+		NetworkID:     &network.ID,
+	}
+	suite.Require().NoError(suite.db.Create(station).Error)
+
+	// Delete the station.
+	suite.Require().NoError(suite.radioService.DeleteStation(station.ID))
+
+	// Network should still exist.
+	var count int64
+	suite.db.Model(&models.RadioNetwork{}).Where("slug = ?", "test-net").Count(&count)
+	suite.Equal(int64(1), count)
+}
+
+// TestRadioNetwork_NetworkDelete_StationsKeptWithNullNetworkID verifies that
+// deleting a network sets affiliated stations' network_id to NULL (rather
+// than cascading the delete). The schema FK is ON DELETE SET NULL.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_NetworkDelete_StationsKeptWithNullNetworkID() {
+	// Seed: 1 network, 1 station pointing at it.
+	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('cleanup-net', 'Cleanup Net')`).Error)
+	var network models.RadioNetwork
+	suite.Require().NoError(suite.db.Where("slug = ?", "cleanup-net").First(&network).Error)
+
+	station := &models.RadioStation{
+		Name:          "Affiliated",
+		Slug:          "affiliated-cleanup",
+		BroadcastType: "internet",
+		NetworkID:     &network.ID,
+	}
+	suite.Require().NoError(suite.db.Create(station).Error)
+
+	// Delete the network.
+	suite.Require().NoError(suite.db.Delete(&network).Error)
+
+	// Station should still exist with network_id = NULL.
+	var refreshed models.RadioStation
+	suite.Require().NoError(suite.db.First(&refreshed, station.ID).Error)
+	suite.Nil(refreshed.NetworkID)
+}
+
+// TestRadioNetwork_GetStationBySlug_PreloadsNetworkSlug verifies that the
+// public station detail response includes the network_slug (via Network
+// preload) so clients can identify a station's network without a second
+// round-trip.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStationBySlug_PreloadsNetworkSlug() {
+	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('wfmu', 'WFMU')`).Error)
+	var network models.RadioNetwork
+	suite.Require().NoError(suite.db.Where("slug = ?", "wfmu").First(&network).Error)
+
+	station := &models.RadioStation{
+		Name:          "Give the Drummer Radio",
+		Slug:          "wfmu-drummer",
+		BroadcastType: "internet",
+		NetworkID:     &network.ID,
+	}
+	suite.Require().NoError(suite.db.Create(station).Error)
+
+	resp, err := suite.radioService.GetStationBySlug("wfmu-drummer")
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.NetworkID)
+	suite.Equal(network.ID, *resp.NetworkID)
+	suite.Require().NotNil(resp.NetworkSlug)
+	suite.Equal("wfmu", *resp.NetworkSlug)
 }

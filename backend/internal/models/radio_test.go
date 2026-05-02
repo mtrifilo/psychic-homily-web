@@ -30,6 +30,10 @@ func TestRadioArtistAffinityTableName(t *testing.T) {
 	assert.Equal(t, "radio_artist_affinity", RadioArtistAffinity{}.TableName())
 }
 
+func TestRadioNetworkTableName(t *testing.T) {
+	assert.Equal(t, "radio_networks", RadioNetwork{}.TableName())
+}
+
 // =============================================================================
 // Broadcast Type Validation Tests
 // =============================================================================
