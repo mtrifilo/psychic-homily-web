@@ -830,6 +830,10 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
 		return nil, huma.Error400BadRequest("Image URL must be 2048 characters or fewer")
 	}
+	// PSY-525: URL scheme validation (http/https only) for image_url.
+	if err := validateImageURL(req.Body.ImageURL); err != nil {
+		return nil, err
+	}
 
 	// Build updates map for basic show fields
 	updates := make(map[string]interface{})

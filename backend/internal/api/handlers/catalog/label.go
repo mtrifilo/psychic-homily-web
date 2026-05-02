@@ -188,6 +188,12 @@ func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelR
 		return nil, huma.Error400BadRequest("Name is required")
 	}
 
+	// PSY-525: URL scheme validation (http/https only) for social URL fields.
+	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
+	}
+
 	serviceReq := &contracts.CreateLabelRequest{
 		Name:        req.Body.Name,
 		City:        req.Body.City,
@@ -286,6 +292,14 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
 		return nil, huma.Error400BadRequest("Image URL must be 2048 characters or fewer")
+	}
+	// PSY-525: URL scheme validation (http/https only) for image_url + social URL fields.
+	if err := validateImageURL(req.Body.ImageURL); err != nil {
+		return nil, err
+	}
+	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
 	}
 
 	serviceReq := &contracts.UpdateLabelRequest{

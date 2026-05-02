@@ -63,6 +63,33 @@ func TestAdminUpdateArtist_NoFields(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
+// PSY-525: URL scheme validation rejects non-http(s) schemes on social URL
+// fields. The underlying `utils.ValidateHTTPURL` is exercised exhaustively in
+// `internal/utils/url_test.go`; this test asserts the handler integrates the
+// validator and returns 422 (not 400) for semantic rejection.
+func TestAdminUpdateArtist_RejectsJavaScriptScheme(t *testing.T) {
+	h := testArtistHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	req := &AdminUpdateArtistRequest{ArtistID: "1"}
+	bad := "javascript:alert(1)"
+	req.Body.Instagram = &bad
+
+	_, err := h.AdminUpdateArtistHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestAdminCreateArtist_RejectsJavaScriptScheme(t *testing.T) {
+	h := testArtistHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	req := &AdminCreateArtistRequest{}
+	req.Body.Name = "Test"
+	bad := "javascript:alert(1)"
+	req.Body.Website = &bad
+
+	_, err := h.AdminCreateArtistHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 // --- UpdateArtistBandcampHandler ---
 
 func TestUpdateBandcamp_NoUser(t *testing.T) {
@@ -1069,8 +1096,9 @@ func TestAdminCreateArtist_WithSocials(t *testing.T) {
 			if req.State == nil || *req.State != "AZ" {
 				t.Errorf("expected state='AZ', got %v", req.State)
 			}
-			if req.Instagram == nil || *req.Instagram != "@artist" {
-				t.Errorf("expected instagram='@artist', got %v", req.Instagram)
+			// PSY-525: social URL fields must be valid http/https URLs (not handles).
+			if req.Instagram == nil || *req.Instagram != "https://instagram.com/artist" {
+				t.Errorf("expected instagram='https://instagram.com/artist', got %v", req.Instagram)
 			}
 			if req.Website == nil || *req.Website != "https://example.com" {
 				t.Errorf("expected website='https://example.com', got %v", req.Website)
@@ -1084,7 +1112,7 @@ func TestAdminCreateArtist_WithSocials(t *testing.T) {
 	req.Body.Name = "Social Artist"
 	city := "Phoenix"
 	state := "AZ"
-	instagram := "@artist"
+	instagram := "https://instagram.com/artist"
 	website := "https://example.com"
 	req.Body.City = &city
 	req.Body.State = &state

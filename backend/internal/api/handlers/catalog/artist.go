@@ -363,6 +363,12 @@ func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *Admin
 		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
 	}
 
+	// PSY-525: URL scheme validation (http/https only) for social URL fields.
+	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
+	}
+
 	// Build the create request
 	createReq := &contracts.CreateArtistRequest{
 		Name:        name,
@@ -780,6 +786,13 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 		return nil, huma.Error400BadRequest("Description must be 5000 characters or fewer")
 	}
 
+	// PSY-525: URL scheme validation (http/https only) for social URL fields.
+	// (artist.go AdminUpdate uses lowercase Youtube/Soundcloud field names.)
+	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+		req.Body.Youtube, req.Body.Spotify, req.Body.Soundcloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
+	}
+
 	// Capture old values for revision diff (fire-and-forget safe)
 	var oldArtist *contracts.ArtistDetailResponse
 	if h.revisionService != nil {
@@ -934,6 +947,51 @@ func ptrToStr(s *string) string {
 	return *s
 }
 
+// validateImageURL applies the http/https scheme check to an optional image URL
+// (PSY-525). Empty strings pass through (the validator skips them), so callers
+// that allow "clear via empty string" semantics keep working.
+func validateImageURL(imageURL *string) error {
+	if imageURL == nil {
+		return nil
+	}
+	if err := utils.ValidateHTTPURL(*imageURL, "Image URL"); err != nil {
+		return huma.Error422UnprocessableEntity(err.Error())
+	}
+	return nil
+}
+
+// validateSocialURLs applies the http/https scheme check to the standard set
+// of social URL fields shared by artist, venue, label, and festival request
+// bodies (PSY-525). Pass nil for fields the surface doesn't accept (e.g.
+// festival only takes Website, so the other 7 args are nil).
+//
+// All eight fields share the same validation policy: must be empty, or a
+// parseable URL with an http or https scheme. Validate-on-write only —
+// existing rows that may contain non-conforming values stay readable.
+func validateSocialURLs(instagram, facebook, twitter, youtube, spotify, soundcloud, bandcamp, website *string) error {
+	checks := []struct {
+		value     *string
+		fieldName string
+	}{
+		{instagram, "Instagram URL"},
+		{facebook, "Facebook URL"},
+		{twitter, "Twitter URL"},
+		{youtube, "YouTube URL"},
+		{spotify, "Spotify URL"},
+		{soundcloud, "SoundCloud URL"},
+		{bandcamp, "Bandcamp URL"},
+		{website, "Website URL"},
+	}
+	for _, c := range checks {
+		if c.value == nil {
+			continue
+		}
+		if err := utils.ValidateHTTPURL(*c.value, c.fieldName); err != nil {
+			return huma.Error422UnprocessableEntity(err.Error())
+		}
+	}
+	return nil
+}
 // ============================================================================
 // Artist Aliases
 // ============================================================================

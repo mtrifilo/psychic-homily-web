@@ -209,6 +209,14 @@ func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *Create
 		return nil, huma.Error400BadRequest("End date is required")
 	}
 
+	// PSY-525: URL scheme validation (http/https only) for the festival's
+	// website. Festivals only have one social URL field; flyer_url and
+	// ticket_url are intentionally out of scope per PSY-525 and remain
+	// validated only for length elsewhere.
+	if err := validateSocialURLs(nil, nil, nil, nil, nil, nil, nil, req.Body.Website); err != nil {
+		return nil, err
+	}
+
 	serviceReq := &contracts.CreateFestivalRequest{
 		Name:         req.Body.Name,
 		SeriesSlug:   req.Body.SeriesSlug,
@@ -292,6 +300,12 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 
 	festivalID, err := h.resolveFestivalID(req.FestivalID)
 	if err != nil {
+		return nil, err
+	}
+
+	// PSY-525: URL scheme validation (http/https only) for the festival's
+	// website. flyer_url and ticket_url remain length-only per PSY-525 scope.
+	if err := validateSocialURLs(nil, nil, nil, nil, nil, nil, nil, req.Body.Website); err != nil {
 		return nil, err
 	}
 

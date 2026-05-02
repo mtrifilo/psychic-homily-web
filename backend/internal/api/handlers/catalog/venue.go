@@ -289,6 +289,12 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 
 	user := middleware.GetUserFromContext(ctx)
 
+	// PSY-525: URL scheme validation (http/https only) for social URL fields.
+	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
+	}
+
 	// Build service request
 	serviceReq := &contracts.CreateVenueRequest{
 		Name:        req.Body.Name,
@@ -401,6 +407,19 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	}
 	if req.Body.Description != nil && len(*req.Body.Description) > 5000 {
 		return nil, huma.Error422UnprocessableEntity("Description must be 5000 characters or fewer")
+	}
+
+	// PSY-525: URL scheme validation (http/https only) for image_url and social URL fields.
+	// Length check first (cheaper, reports bytes); URL scheme check second.
+	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
+		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
+	}
+	if err := validateImageURL(req.Body.ImageURL); err != nil {
+		return nil, err
+	}
+	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
+		return nil, err
 	}
 
 	logger.FromContext(ctx).Info("admin_venue_update",
