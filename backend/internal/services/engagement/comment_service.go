@@ -523,10 +523,38 @@ func (s *CommentService) ListCommentsForEntity(entityType string, entityID uint,
 		return nil, fmt.Errorf("failed to fetch comments: %w", err)
 	}
 
+	// PSY-514: count visible replies per top-level comment so the frontend can
+	// suppress the "Show replies" button on zero-reply comments. We only count
+	// visible direct children — hidden/removed replies don't render anything
+	// expandable. One round-trip via GROUP BY keeps this off the per-row N+1.
+	replyCounts := make(map[uint]int, len(comments))
+	if len(comments) > 0 {
+		parentIDs := make([]uint, 0, len(comments))
+		for i := range comments {
+			parentIDs = append(parentIDs, comments[i].ID)
+		}
+		type replyCountRow struct {
+			ParentID uint
+			Count    int
+		}
+		var rows []replyCountRow
+		if err := s.db.Model(&models.Comment{}).
+			Select("parent_id, COUNT(*) AS count").
+			Where("parent_id IN ? AND visibility = ?", parentIDs, models.CommentVisibilityVisible).
+			Group("parent_id").
+			Scan(&rows).Error; err != nil {
+			return nil, fmt.Errorf("failed to count replies: %w", err)
+		}
+		for _, r := range rows {
+			replyCounts[r.ParentID] = r.Count
+		}
+	}
+
 	// Map to response
 	responses := make([]*contracts.CommentResponse, len(comments))
 	for i := range comments {
 		responses[i] = commentToResponse(&comments[i])
+		responses[i].ReplyCount = replyCounts[comments[i].ID]
 	}
 
 	return &contracts.CommentListResponse{

@@ -82,6 +82,11 @@ type CommentResponse struct {
 	Score           float64          `json:"score"`
 	IsEdited        bool             `json:"is_edited"`
 	EditCount       int              `json:"edit_count"`
+	// ReplyCount is the number of direct replies (depth = depth+1, parent_id = this).
+	// Currently populated only by ListCommentsForEntity for top-level comments so
+	// the UI can suppress an "expand replies" affordance on zero-reply threads
+	// (PSY-514). Other paths leave this at the zero value.
+	ReplyCount      int              `json:"reply_count"`
 	UserVote        *int             `json:"user_vote,omitempty"` // 1, -1, or nil if no vote
 	CreatedAt       time.Time        `json:"created_at"`
 	UpdatedAt       time.Time        `json:"updated_at"`

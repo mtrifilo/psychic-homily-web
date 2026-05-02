@@ -364,18 +364,28 @@ export function CommentCard({
         </div>
       )}
 
-      {/* Load replies button for top-level comments with no inline replies */}
-      {!hasInlineReplies && !loadedThread && comment.depth === 0 && (
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-6 px-1 text-xs text-muted-foreground mt-1"
-          onClick={() => setLoadedThread(true)}
-        >
-          <MessageSquare className="h-3.5 w-3.5 mr-1" />
-          Show replies
-        </Button>
-      )}
+      {/* Load replies button for top-level comments with no inline replies.
+          PSY-514: also gate on reply_count > 0 so we don't render a "Show
+          replies" affordance on threads that have none — clicking did
+          nothing, and on `author_only` comments it was actively misleading.
+          Comments fetched by routes that don't populate reply_count (e.g.
+          single-comment endpoints) leave the field undefined; treat the
+          missing-field case the same as 0 since there's no signal to act on. */}
+      {!hasInlineReplies &&
+        !loadedThread &&
+        comment.depth === 0 &&
+        (comment.reply_count ?? 0) > 0 && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-1 text-xs text-muted-foreground mt-1"
+            onClick={() => setLoadedThread(true)}
+            data-testid="show-replies-button"
+          >
+            <MessageSquare className="h-3.5 w-3.5 mr-1" />
+            Show replies
+          </Button>
+        )}
 
       {/* Report dialog */}
       {isAuthenticated && !isOwner && (

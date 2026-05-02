@@ -129,3 +129,88 @@ describe('CommentCard — admin edit history trigger (PSY-297)', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+// PSY-514: top-level comments with zero replies must NOT render a "Show
+// replies" affordance. Previously the button rendered unconditionally on
+// every top-level comment; clicking it removed the button without showing
+// anything else (no replies to load) — read as a no-op, and was actively
+// misleading on `author_only` comments where replies are impossible.
+describe('CommentCard — Show replies button gating (PSY-514)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: false,
+      user: null,
+    })
+  })
+
+  const defaultProps = {
+    entityType: 'artist',
+    entityId: 10,
+  }
+
+  it('does NOT render "Show replies" when reply_count is 0', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ reply_count: 0 })}
+      />
+    )
+
+    expect(
+      screen.queryByTestId('show-replies-button')
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT render "Show replies" when reply_count is missing (undefined)', () => {
+    // Older comment payloads (or paths that don't populate reply_count) are
+    // treated as zero-reply for rendering purposes.
+    render(<CommentCard {...defaultProps} comment={makeComment()} />)
+
+    expect(
+      screen.queryByTestId('show-replies-button')
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT render "Show replies" on author_only comments with zero replies', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({
+          reply_permission: 'author_only',
+          reply_count: 0,
+        })}
+      />
+    )
+
+    expect(
+      screen.queryByTestId('show-replies-button')
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders "Show replies" when reply_count > 0', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ reply_count: 3 })}
+      />
+    )
+
+    expect(screen.getByTestId('show-replies-button')).toBeInTheDocument()
+  })
+
+  it('does NOT render "Show replies" on a reply (depth > 0) even with reply_count > 0', () => {
+    // Defense in depth: the button is only the expand-replies affordance
+    // on top-level comments. Nested replies use the inline rendering path.
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ depth: 1, reply_count: 5 })}
+      />
+    )
+
+    expect(
+      screen.queryByTestId('show-replies-button')
+    ).not.toBeInTheDocument()
+  })
+})
