@@ -11,9 +11,9 @@ import (
 	"psychic-homily-backend/internal/config"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	"psychic-homily-backend/internal/services"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
@@ -45,8 +45,8 @@ type IntegrationDeps struct {
 	FestivalService           *catalog.FestivalService
 	LabelService              *catalog.LabelService
 	ReleaseService            *catalog.ReleaseService
-	CollectionService         *services.CollectionService
-	RequestService            *services.RequestService
+	CollectionService         *community.CollectionService
+	RequestService            *community.RequestService
 	TagService                *catalog.TagService
 	ArtistRelationshipService *catalog.ArtistRelationshipService
 	SceneService              *catalog.SceneService
@@ -85,8 +85,8 @@ func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 		FestivalService:           catalog.NewFestivalService(db),
 		LabelService:              catalog.NewLabelService(db),
 		ReleaseService:            catalog.NewReleaseService(db),
-		CollectionService:         services.NewCollectionService(db),
-		RequestService:            services.NewRequestService(db),
+		CollectionService:         community.NewCollectionService(db),
+		RequestService:            community.NewRequestService(db),
 		TagService:                catalog.NewTagService(db),
 		ArtistRelationshipService: catalog.NewArtistRelationshipService(db),
 		SceneService:              catalog.NewSceneService(db),

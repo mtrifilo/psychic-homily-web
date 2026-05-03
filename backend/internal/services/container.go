@@ -10,6 +10,7 @@ import (
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
 	"psychic-homily-backend/internal/services/catalog"
+	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
@@ -33,8 +34,8 @@ type ServiceContainer struct {
 	AuditLog               *adminsvc.AuditLogService
 	Bookmark               *engagement.BookmarkService
 	Calendar               *engagement.CalendarService
-	Collection             *CollectionService
-	Request                *RequestService
+	Collection             *community.CollectionService
+	Request                *community.RequestService
 	Tag                    *catalog.TagService
 	ArtistRelationship     *catalog.ArtistRelationshipService
 	Scene                  *catalog.SceneService
@@ -146,7 +147,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// PSY-354: collections get tag support via the polymorphic entity_tags
 	// system. Wire the tag service into the collection service so curators
 	// can apply/remove tags + the get/list responses can surface chips.
-	collectionSvc := NewCollectionService(database)
+	collectionSvc := community.NewCollectionService(database)
 	tagSvc := catalog.NewTagService(database)
 	collectionSvc.SetTagService(tagSvc)
 
@@ -166,7 +167,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Bookmark:               engagement.NewBookmarkService(database),
 		Calendar:               engagement.NewCalendarService(database, savedShow),
 		Collection:             collectionSvc,
-		Request:                NewRequestService(database),
+		Request:                community.NewRequestService(database),
 		Tag:                    tagSvc,
 		ArtistRelationship:     artistRelSvc,
 		Scene:                  catalog.NewSceneService(database),
