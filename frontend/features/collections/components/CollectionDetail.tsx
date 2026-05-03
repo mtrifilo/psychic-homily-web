@@ -196,12 +196,15 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   }, [])
 
   const items = collection?.items ?? []
-  // PSY-366: only surface the graph toggle when the collection has at least
-  // one artist item — non-artist-only collections have nothing to graph.
-  const artistItemCount = items.filter(it => it.entity_type === 'artist').length
+  // PSY-555 (was PSY-366): surface the graph toggle whenever the collection
+  // has any items. Pre-PSY-555 the toggle was gated on artist items only
+  // because non-artist items couldn't be rendered; with the multi-type
+  // graph every entity type becomes a node, so the gate moves to "is the
+  // collection non-empty".
+  const hasItems = items.length > 0
 
-  // Gate auto-open on artist items so `#graph` on a non-artist collection no-ops.
-  const autoOpenFromHash = hash === GRAPH_HASH && artistItemCount > 0
+  // Gate auto-open so `#graph` on an empty collection no-ops; multi-type graph (PSY-555) can render any item.
+  const autoOpenFromHash = hash === GRAPH_HASH && hasItems
   const showGraph = showGraphOverride ?? autoOpenFromHash
 
   if (isLoading) {
@@ -540,10 +543,10 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   {showCopied ? 'Copied!' : 'Share'}
                 </Button>
 
-                {/* PSY-366: Explore graph toggle. Visible only when the
-                    collection has artist items — non-artist-only collections
-                    have nothing to graph. */}
-                {artistItemCount > 0 && (
+                {/* PSY-555 (was PSY-366): Explore graph toggle. Visible
+                    whenever the collection has at least one item — every
+                    entity type renders as a node in the multi-type graph. */}
+                {hasItems && (
                   <Button
                     variant={showGraph ? 'default' : 'outline'}
                     size="sm"
@@ -647,10 +650,10 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
       {/* PSY-356: publish-gate banner (creator-only) */}
       {isCreator && <PublishGateBanner collection={collection} />}
 
-      {/* PSY-366: collection graph (toggleable). Renders only when the
-          user clicks "Explore graph" in the actions row. The wrapper has
-          `id="graph"` so Cmd+K deep-links resolve. */}
-      {showGraph && artistItemCount > 0 && (
+      {/* PSY-555 (was PSY-366): collection graph (toggleable). Renders
+          only when the user clicks "Explore graph" in the actions row.
+          The wrapper has `id="graph"` so Cmd+K deep-links resolve. */}
+      {showGraph && hasItems && (
         <CollectionGraph slug={slug} collectionTitle={collection.title} />
       )}
 
