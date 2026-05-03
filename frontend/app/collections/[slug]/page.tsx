@@ -1,5 +1,6 @@
 import { Suspense } from 'react'
 import { Metadata } from 'next'
+import { cookies } from 'next/headers'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
@@ -22,11 +23,28 @@ interface CollectionData {
   creator_name?: string
 }
 
+// PSY-551: forward the viewer's auth cookie so SSR sees the same view as the
+// browser. Private collections 404 to anonymous viewers (correct), but the
+// page route runs server-side and previously bypassed the /api proxy that
+// normally attaches the cookie — so private-but-owned collections rendered
+// 404 for their own creator. Mirrors the cookie-forward pattern in
+// app/api/[...path]/route.ts.
 async function getCollection(slug: string): Promise<CollectionData | null> {
+  const cookieStore = await cookies()
+  const authToken = cookieStore.get('auth_token')
+
+  // When auth is present the backend response is viewer-specific (private
+  // collections gate on creator_id), so we must NOT cache it across users.
+  // Anonymous requests stay on ISR for public-collection performance.
+  const fetchInit: RequestInit & { next?: { revalidate: number } } = authToken
+    ? {
+        headers: { Cookie: `auth_token=${authToken.value}` },
+        cache: 'no-store',
+      }
+    : { next: { revalidate: 3600 } }
+
   try {
-    const res = await fetch(`${API_BASE_URL}/collections/${slug}`, {
-      next: { revalidate: 3600 },
-    })
+    const res = await fetch(`${API_BASE_URL}/collections/${slug}`, fetchInit)
     if (res.ok) {
       return res.json()
     }
