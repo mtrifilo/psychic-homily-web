@@ -2483,13 +2483,39 @@ func (s *CollectionService) batchUpcomingShowCountForArtists(artistIDs []uint) m
 	return out
 }
 
-// GetCollectionGraph returns the artist-relationship subgraph for the
-// collection's artist items. PSY-366.
+// Derived edge types for the multi-type collection graph (PSY-555).
+// These are NOT stored in artist_relationships — they're derived at query
+// time from existing junction tables (show_artists, artist_releases, etc.).
+const (
+	CollectionEdgePlayedAt    = "played_at"   // artist ↔ venue (via shows the artist played at the venue)
+	CollectionEdgeDiscography = "discography" // artist ↔ release (artist made the release)
+	CollectionEdgeSignedTo    = "signed_to"   // artist ↔ label (artist signed to the label)
+	CollectionEdgeLineup      = "lineup"      // artist ↔ festival (artist played the festival)
+	CollectionEdgeShowLineup  = "show_lineup" // show ↔ artist (the show's billed acts)
+	CollectionEdgeShowVenue   = "show_venue"  // show ↔ venue (the show's location)
+)
+
+// GetCollectionGraph returns the multi-type knowledge subgraph for the
+// collection's items. PSY-366 (artist-only origin), PSY-555 (Option B —
+// every collection item becomes a node).
 //
 // Visibility gate mirrors GetBySlug: private collections return
 // ErrCollectionForbidden unless viewer is the creator. Collections that exist
-// but contain no artist items return a 200 response with empty nodes/links —
-// the collection is valid, just non-graph-able.
+// but contain no items return a 200 response with empty nodes/links — the
+// collection is valid, just non-graph-able.
+//
+// Edge derivation rules:
+//   - artist ↔ artist  : stored artist_relationships rows (subject to type
+//     filter via the original PSY-366 allowlist)
+//   - artist ↔ venue   : artist played the venue (via show_artists ⋈ show_venues)
+//   - artist ↔ release : artist made the release (via artist_releases)
+//   - artist ↔ label   : artist signed to the label (via artist_labels)
+//   - artist ↔ festival: artist played the festival (via festival_artists)
+//   - show   ↔ artist  : show's lineup (via show_artists)
+//   - show   ↔ venue   : show's location (via show_venues)
+//
+// Both endpoints must be in the collection — we never invent phantom nodes.
+// Edges between non-artist nodes (venue↔festival etc.) are out of scope.
 func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types []string) (*contracts.CollectionGraphResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -2508,101 +2534,587 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 	}
 
 	resolvedTypes := resolveCollectionEdgeTypes(types)
-	noEdgesByFilter := len(types) > 0 && len(resolvedTypes) == 0
+	// Type filter only applies to the stored artist_relationships allowlist.
+	// noStoredEdges short-circuits artist↔artist edges when the caller passed
+	// an explicit but all-rejected filter (mirrors PSY-366 behaviour).
+	// Derived edge types (played_at etc.) are not part of the user-facing
+	// type filter today — they're an "always-on" side of the graph.
+	noStoredEdges := len(types) > 0 && len(resolvedTypes) == 0
 
 	resp := &contracts.CollectionGraphResponse{
 		Collection: contracts.CollectionGraphInfo{
-			Slug: collection.Slug,
-			Name: collection.Title,
+			Slug:         collection.Slug,
+			Name:         collection.Title,
+			EntityCounts: map[string]int{},
 		},
 		Nodes: []contracts.CollectionGraphNode{},
 		Links: []contracts.CollectionGraphLink{},
 	}
 
+	// Load all collection items, regardless of entity type.
 	var items []communitym.CollectionItem
 	if err := s.db.
-		Where("collection_id = ? AND entity_type = ?", collection.ID, communitym.CollectionEntityArtist).
+		Where("collection_id = ?", collection.ID).
 		Order("position ASC, created_at ASC").
 		Find(&items).Error; err != nil {
-		return nil, fmt.Errorf("failed to load artist items: %w", err)
+		return nil, fmt.Errorf("failed to load collection items: %w", err)
 	}
 	if len(items) == 0 {
 		return resp, nil
 	}
 
-	artistIDs := make([]uint, 0, len(items))
-	for _, it := range items {
-		artistIDs = append(artistIDs, it.EntityID)
-	}
+	// Bucket entity IDs by type so each detail-load query stays narrow.
+	idsByType := bucketCollectionItemIDs(items)
 
-	type artistRow struct {
-		ID    uint
-		Name  string
-		Slug  string
-		City  *string
-		State *string
+	// Build nodes for each entity type. Returned in the order: artist,
+	// venue, show, release, label, festival — stable per type, sorted by
+	// name within type.
+	nodes, nodeIDByEntity, err := s.buildCollectionGraphNodes(items, idsByType)
+	if err != nil {
+		return nil, err
 	}
-	var artistRows []artistRow
-	if err := s.db.Table("artists").
-		Select("id, name, slug, city, state").
-		Where("id IN ?", artistIDs).
-		Order("name ASC").
-		Scan(&artistRows).Error; err != nil {
-		return nil, fmt.Errorf("failed to load artist details: %w", err)
-	}
-	if len(artistRows) == 0 {
+	if len(nodes) == 0 {
+		// Items existed but every detail row was missing (deleted entity).
 		return resp, nil
 	}
 
-	upcomingByArtist := s.batchUpcomingShowCountForArtists(artistIDs)
+	// Build edges. nodeIDByEntity maps (entityType, entityID) → node ID
+	// (currently the collection_item row id) so links can reference nodes
+	// uniquely even when entity DB IDs collide across types.
+	links, err := s.buildCollectionGraphLinks(idsByType, nodeIDByEntity, resolvedTypes, noStoredEdges)
+	if err != nil {
+		return nil, err
+	}
 
-	var rels []collectionRelationshipRow
-	if !noEdgesByFilter {
-		fetched, err := s.queryCollectionRelationships(artistIDs, resolvedTypes)
+	// Mark isolates (no in-set edges, post type-filter).
+	connected := make(map[uint]bool, len(nodes))
+	for _, l := range links {
+		connected[l.SourceID] = true
+		connected[l.TargetID] = true
+	}
+	for i := range nodes {
+		nodes[i].IsIsolate = !connected[nodes[i].ID]
+		resp.Collection.EntityCounts[nodes[i].EntityType]++
+	}
+
+	resp.Nodes = nodes
+	resp.Links = links
+	resp.Collection.ArtistCount = resp.Collection.EntityCounts[communitym.CollectionEntityArtist]
+	resp.Collection.EdgeCount = len(resp.Links)
+	return resp, nil
+}
+
+// bucketCollectionItemIDs groups item entity IDs by type. Returns a map
+// keyed by communitym.CollectionEntity* constants. Empty buckets are
+// omitted (callers should range over the map directly).
+func bucketCollectionItemIDs(items []communitym.CollectionItem) map[string][]uint {
+	out := make(map[string][]uint, 6)
+	for _, it := range items {
+		out[it.EntityType] = append(out[it.EntityType], it.EntityID)
+	}
+	return out
+}
+
+// entityNodeKey is the lookup key for nodeIDByEntity. Two different entity
+// types can share a numeric DB ID; the type qualifier disambiguates.
+type entityNodeKey struct {
+	EntityType string
+	EntityID   uint
+}
+
+// buildCollectionGraphNodes loads detail rows for every entity type in the
+// collection and emits one node per item. Returns nodes ordered by type
+// (artist, venue, show, release, label, festival) then by name within
+// type, plus a (entity_type, entity_id) → node ID map used for edge
+// construction.
+//
+// Node ID == collection_item.id. This is naturally unique within the
+// response (composite primary key (collection_id, entity_type, entity_id)
+// ensures one item row per (entity_type, entity_id) in a collection) and
+// avoids the cross-type DB-ID collision the artist-only design didn't have
+// to worry about.
+func (s *CollectionService) buildCollectionGraphNodes(
+	items []communitym.CollectionItem,
+	idsByType map[string][]uint,
+) ([]contracts.CollectionGraphNode, map[entityNodeKey]uint, error) {
+	// Index items by (entity_type, entity_id) so we can recover the
+	// collection_item.id in node-emission order.
+	itemByKey := make(map[entityNodeKey]communitym.CollectionItem, len(items))
+	for _, it := range items {
+		itemByKey[entityNodeKey{EntityType: it.EntityType, EntityID: it.EntityID}] = it
+	}
+
+	nodes := make([]contracts.CollectionGraphNode, 0, len(items))
+	nodeIDByEntity := make(map[entityNodeKey]uint, len(items))
+
+	// Iterate in a stable type order so the response ordering is deterministic.
+	typeOrder := []string{
+		communitym.CollectionEntityArtist,
+		communitym.CollectionEntityVenue,
+		communitym.CollectionEntityShow,
+		communitym.CollectionEntityRelease,
+		communitym.CollectionEntityLabel,
+		communitym.CollectionEntityFestival,
+	}
+
+	upcomingByArtist := s.batchUpcomingShowCountForArtists(idsByType[communitym.CollectionEntityArtist])
+
+	for _, et := range typeOrder {
+		ids := idsByType[et]
+		if len(ids) == 0 {
+			continue
+		}
+		details, err := s.loadEntityDetailsForGraph(et, ids)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, d := range details {
+			key := entityNodeKey{EntityType: et, EntityID: d.ID}
+			item, ok := itemByKey[key]
+			if !ok {
+				// Detail row exists but the collection_item it came from
+				// was deleted between queries. Skip.
+				continue
+			}
+			node := contracts.CollectionGraphNode{
+				ID:         item.ID,
+				EntityType: et,
+				Name:       d.Name,
+				Slug:       d.Slug,
+				City:       d.City,
+				State:      d.State,
+			}
+			if et == communitym.CollectionEntityArtist {
+				node.UpcomingShowCount = upcomingByArtist[d.ID]
+			}
+			nodes = append(nodes, node)
+			nodeIDByEntity[key] = item.ID
+		}
+	}
+
+	return nodes, nodeIDByEntity, nil
+}
+
+// graphEntityDetail is the per-type detail-row DTO used by node building.
+// City/State are blank for entity types that don't have them (releases,
+// labels can have city/state but we don't surface them on the node tooltip;
+// shows store city/state directly on the row).
+type graphEntityDetail struct {
+	ID    uint
+	Name  string
+	Slug  string
+	City  string
+	State string
+}
+
+// loadEntityDetailsForGraph fetches the rows needed to render nodes for one
+// entity type. Each branch below is a tight 5-column SELECT on the entity
+// table — no joins. Slug is COALESCE'd to "" on the SQL side because most
+// entity tables have nullable slug.
+func (s *CollectionService) loadEntityDetailsForGraph(entityType string, ids []uint) ([]graphEntityDetail, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+
+	type row struct {
+		ID    uint
+		Name  string
+		Slug  *string
+		City  *string
+		State *string
+	}
+	var raws []row
+
+	switch entityType {
+	case communitym.CollectionEntityArtist:
+		if err := s.db.Table("artists").
+			Select("id, name, slug, city, state").
+			Where("id IN ?", ids).
+			Order("name ASC").Scan(&raws).Error; err != nil {
+			return nil, fmt.Errorf("failed to load artist details: %w", err)
+		}
+	case communitym.CollectionEntityVenue:
+		if err := s.db.Table("venues").
+			Select("id, name, slug, city, state").
+			Where("id IN ?", ids).
+			Order("name ASC").Scan(&raws).Error; err != nil {
+			return nil, fmt.Errorf("failed to load venue details: %w", err)
+		}
+	case communitym.CollectionEntityShow:
+		if err := s.db.Table("shows").
+			Select("id, title AS name, slug, city, state").
+			Where("id IN ?", ids).
+			Order("title ASC").Scan(&raws).Error; err != nil {
+			return nil, fmt.Errorf("failed to load show details: %w", err)
+		}
+	case communitym.CollectionEntityRelease:
+		// Releases don't have city/state — `Select` gives the row blank
+		// values so the shape stays uniform.
+		if err := s.db.Table("releases").
+			Select("id, title AS name, slug, NULL AS city, NULL AS state").
+			Where("id IN ?", ids).
+			Order("title ASC").Scan(&raws).Error; err != nil {
+			return nil, fmt.Errorf("failed to load release details: %w", err)
+		}
+	case communitym.CollectionEntityLabel:
+		if err := s.db.Table("labels").
+			Select("id, name, slug, city, state").
+			Where("id IN ?", ids).
+			Order("name ASC").Scan(&raws).Error; err != nil {
+			return nil, fmt.Errorf("failed to load label details: %w", err)
+		}
+	case communitym.CollectionEntityFestival:
+		if err := s.db.Table("festivals").
+			Select("id, name, slug, city, state").
+			Where("id IN ?", ids).
+			Order("name ASC").Scan(&raws).Error; err != nil {
+			return nil, fmt.Errorf("failed to load festival details: %w", err)
+		}
+	default:
+		// Unknown entity type — silently skip. No new types should appear
+		// without updating CollectionEntity* and this switch.
+		return nil, nil
+	}
+
+	out := make([]graphEntityDetail, 0, len(raws))
+	for _, r := range raws {
+		d := graphEntityDetail{ID: r.ID, Name: r.Name}
+		if r.Slug != nil {
+			d.Slug = *r.Slug
+		}
+		if r.City != nil {
+			d.City = *r.City
+		}
+		if r.State != nil {
+			d.State = *r.State
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+// buildCollectionGraphLinks emits all in-set edges. Returns links with
+// source_id/target_id pointing at NODE IDs (collection_item.id), not
+// underlying entity IDs.
+func (s *CollectionService) buildCollectionGraphLinks(
+	idsByType map[string][]uint,
+	nodeIDByEntity map[entityNodeKey]uint,
+	resolvedArtistTypes []string,
+	noStoredEdges bool,
+) ([]contracts.CollectionGraphLink, error) {
+	links := make([]contracts.CollectionGraphLink, 0)
+
+	// 1. Stored artist↔artist edges (PSY-366 origin path).
+	artistIDs := idsByType[communitym.CollectionEntityArtist]
+	if !noStoredEdges && len(artistIDs) >= 2 {
+		rels, err := s.queryCollectionRelationships(artistIDs, resolvedArtistTypes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query collection relationships: %w", err)
 		}
-		rels = fetched
+		for _, r := range rels {
+			srcKey := entityNodeKey{EntityType: communitym.CollectionEntityArtist, EntityID: r.SourceArtistID}
+			tgtKey := entityNodeKey{EntityType: communitym.CollectionEntityArtist, EntityID: r.TargetArtistID}
+			srcNodeID, srcOK := nodeIDByEntity[srcKey]
+			tgtNodeID, tgtOK := nodeIDByEntity[tgtKey]
+			if !srcOK || !tgtOK {
+				continue
+			}
+			var detail any
+			if len(r.Detail) > 0 {
+				_ = json.Unmarshal(r.Detail, &detail)
+			}
+			links = append(links, contracts.CollectionGraphLink{
+				SourceID: srcNodeID,
+				TargetID: tgtNodeID,
+				Type:     r.RelationshipType,
+				Score:    float64(r.Score),
+				Detail:   detail,
+			})
+		}
 	}
 
-	connected := make(map[uint]bool, len(artistRows))
-	for _, l := range rels {
-		var detail any
-		if len(l.Detail) > 0 {
-			_ = json.Unmarshal(l.Detail, &detail)
+	// 2. Derived multi-type edges.
+	derivedAppenders := []func() error{
+		// artist ↔ venue (via shows the artist played at the venue)
+		func() error {
+			venueIDs := idsByType[communitym.CollectionEntityVenue]
+			if len(artistIDs) == 0 || len(venueIDs) == 0 {
+				return nil
+			}
+			pairs, err := s.queryArtistVenuePairs(artistIDs, venueIDs)
+			if err != nil {
+				return err
+			}
+			for _, p := range pairs {
+				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
+					communitym.CollectionEntityArtist, p.ArtistID,
+					communitym.CollectionEntityVenue, p.VenueID)
+				if !ok {
+					continue
+				}
+				links = append(links, contracts.CollectionGraphLink{
+					SourceID: srcID,
+					TargetID: tgtID,
+					Type:     CollectionEdgePlayedAt,
+				})
+			}
+			return nil
+		},
+		// artist ↔ release (artist made the release)
+		func() error {
+			releaseIDs := idsByType[communitym.CollectionEntityRelease]
+			if len(artistIDs) == 0 || len(releaseIDs) == 0 {
+				return nil
+			}
+			pairs, err := s.queryArtistReleasePairs(artistIDs, releaseIDs)
+			if err != nil {
+				return err
+			}
+			for _, p := range pairs {
+				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
+					communitym.CollectionEntityArtist, p.ArtistID,
+					communitym.CollectionEntityRelease, p.ReleaseID)
+				if !ok {
+					continue
+				}
+				links = append(links, contracts.CollectionGraphLink{
+					SourceID: srcID,
+					TargetID: tgtID,
+					Type:     CollectionEdgeDiscography,
+				})
+			}
+			return nil
+		},
+		// artist ↔ label (signing — direct artist_labels join)
+		func() error {
+			labelIDs := idsByType[communitym.CollectionEntityLabel]
+			if len(artistIDs) == 0 || len(labelIDs) == 0 {
+				return nil
+			}
+			pairs, err := s.queryArtistLabelPairs(artistIDs, labelIDs)
+			if err != nil {
+				return err
+			}
+			for _, p := range pairs {
+				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
+					communitym.CollectionEntityArtist, p.ArtistID,
+					communitym.CollectionEntityLabel, p.LabelID)
+				if !ok {
+					continue
+				}
+				links = append(links, contracts.CollectionGraphLink{
+					SourceID: srcID,
+					TargetID: tgtID,
+					Type:     CollectionEdgeSignedTo,
+				})
+			}
+			return nil
+		},
+		// artist ↔ festival (lineup)
+		func() error {
+			festivalIDs := idsByType[communitym.CollectionEntityFestival]
+			if len(artistIDs) == 0 || len(festivalIDs) == 0 {
+				return nil
+			}
+			pairs, err := s.queryArtistFestivalPairs(artistIDs, festivalIDs)
+			if err != nil {
+				return err
+			}
+			for _, p := range pairs {
+				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
+					communitym.CollectionEntityArtist, p.ArtistID,
+					communitym.CollectionEntityFestival, p.FestivalID)
+				if !ok {
+					continue
+				}
+				links = append(links, contracts.CollectionGraphLink{
+					SourceID: srcID,
+					TargetID: tgtID,
+					Type:     CollectionEdgeLineup,
+				})
+			}
+			return nil
+		},
+		// show ↔ artist (the show's lineup)
+		func() error {
+			showIDs := idsByType[communitym.CollectionEntityShow]
+			if len(showIDs) == 0 || len(artistIDs) == 0 {
+				return nil
+			}
+			pairs, err := s.queryShowArtistPairs(showIDs, artistIDs)
+			if err != nil {
+				return err
+			}
+			for _, p := range pairs {
+				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
+					communitym.CollectionEntityShow, p.ShowID,
+					communitym.CollectionEntityArtist, p.ArtistID)
+				if !ok {
+					continue
+				}
+				links = append(links, contracts.CollectionGraphLink{
+					SourceID: srcID,
+					TargetID: tgtID,
+					Type:     CollectionEdgeShowLineup,
+				})
+			}
+			return nil
+		},
+		// show ↔ venue (the show's location)
+		func() error {
+			showIDs := idsByType[communitym.CollectionEntityShow]
+			venueIDs := idsByType[communitym.CollectionEntityVenue]
+			if len(showIDs) == 0 || len(venueIDs) == 0 {
+				return nil
+			}
+			pairs, err := s.queryShowVenuePairs(showIDs, venueIDs)
+			if err != nil {
+				return err
+			}
+			for _, p := range pairs {
+				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
+					communitym.CollectionEntityShow, p.ShowID,
+					communitym.CollectionEntityVenue, p.VenueID)
+				if !ok {
+					continue
+				}
+				links = append(links, contracts.CollectionGraphLink{
+					SourceID: srcID,
+					TargetID: tgtID,
+					Type:     CollectionEdgeShowVenue,
+				})
+			}
+			return nil
+		},
+	}
+	for _, fn := range derivedAppenders {
+		if err := fn(); err != nil {
+			return nil, err
 		}
-		resp.Links = append(resp.Links, contracts.CollectionGraphLink{
-			SourceID: l.SourceArtistID,
-			TargetID: l.TargetArtistID,
-			Type:     l.RelationshipType,
-			Score:    float64(l.Score),
-			Detail:   detail,
-		})
-		connected[l.SourceArtistID] = true
-		connected[l.TargetArtistID] = true
 	}
 
-	for _, r := range artistRows {
-		city := ""
-		if r.City != nil {
-			city = *r.City
-		}
-		state := ""
-		if r.State != nil {
-			state = *r.State
-		}
-		resp.Nodes = append(resp.Nodes, contracts.CollectionGraphNode{
-			ID:                r.ID,
-			Name:              r.Name,
-			Slug:              r.Slug,
-			City:              city,
-			State:             state,
-			UpcomingShowCount: upcomingByArtist[r.ID],
-			IsIsolate:         !connected[r.ID],
-		})
-	}
+	return links, nil
+}
 
-	resp.Collection.ArtistCount = len(resp.Nodes)
-	resp.Collection.EdgeCount = len(resp.Links)
-	return resp, nil
+// lookupNodeIDs is a tiny helper that resolves a (type, id) pair to its
+// node IDs in one call. Returns ok=false when either side is missing —
+// only happens when a row was deleted between queries.
+func lookupNodeIDs(
+	nodeIDByEntity map[entityNodeKey]uint,
+	srcType string, srcID uint,
+	tgtType string, tgtID uint,
+) (uint, uint, bool) {
+	srcNodeID, srcOK := nodeIDByEntity[entityNodeKey{EntityType: srcType, EntityID: srcID}]
+	tgtNodeID, tgtOK := nodeIDByEntity[entityNodeKey{EntityType: tgtType, EntityID: tgtID}]
+	if !srcOK || !tgtOK {
+		return 0, 0, false
+	}
+	return srcNodeID, tgtNodeID, true
+}
+
+// ──────────────────────────────────────────────
+// Multi-type relationship lookups (PSY-555)
+// ──────────────────────────────────────────────
+//
+// Each query selects the canonical pair table joined as needed and returns
+// distinct (artist, X) rows. Existing services like CollectionService
+// don't have a uniform "get pairs in set" API, so we keep these private
+// to graph construction — the queries are narrow and the surface area is
+// small.
+
+type artistVenuePair struct {
+	ArtistID uint
+	VenueID  uint
+}
+
+func (s *CollectionService) queryArtistVenuePairs(artistIDs, venueIDs []uint) ([]artistVenuePair, error) {
+	var rows []artistVenuePair
+	if err := s.db.Table("show_artists").
+		Select("DISTINCT show_artists.artist_id, show_venues.venue_id").
+		Joins("JOIN show_venues ON show_venues.show_id = show_artists.show_id").
+		Where("show_artists.artist_id IN ? AND show_venues.venue_id IN ?", artistIDs, venueIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query artist-venue pairs: %w", err)
+	}
+	return rows, nil
+}
+
+type artistReleasePair struct {
+	ArtistID  uint
+	ReleaseID uint
+}
+
+func (s *CollectionService) queryArtistReleasePairs(artistIDs, releaseIDs []uint) ([]artistReleasePair, error) {
+	var rows []artistReleasePair
+	if err := s.db.Table("artist_releases").
+		Select("DISTINCT artist_id, release_id").
+		Where("artist_id IN ? AND release_id IN ?", artistIDs, releaseIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query artist-release pairs: %w", err)
+	}
+	return rows, nil
+}
+
+type artistLabelPair struct {
+	ArtistID uint
+	LabelID  uint
+}
+
+func (s *CollectionService) queryArtistLabelPairs(artistIDs, labelIDs []uint) ([]artistLabelPair, error) {
+	var rows []artistLabelPair
+	if err := s.db.Table("artist_labels").
+		Select("DISTINCT artist_id, label_id").
+		Where("artist_id IN ? AND label_id IN ?", artistIDs, labelIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query artist-label pairs: %w", err)
+	}
+	return rows, nil
+}
+
+type artistFestivalPair struct {
+	ArtistID   uint
+	FestivalID uint
+}
+
+func (s *CollectionService) queryArtistFestivalPairs(artistIDs, festivalIDs []uint) ([]artistFestivalPair, error) {
+	var rows []artistFestivalPair
+	if err := s.db.Table("festival_artists").
+		Select("DISTINCT artist_id, festival_id").
+		Where("artist_id IN ? AND festival_id IN ?", artistIDs, festivalIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query artist-festival pairs: %w", err)
+	}
+	return rows, nil
+}
+
+type showArtistPair struct {
+	ShowID   uint
+	ArtistID uint
+}
+
+func (s *CollectionService) queryShowArtistPairs(showIDs, artistIDs []uint) ([]showArtistPair, error) {
+	var rows []showArtistPair
+	if err := s.db.Table("show_artists").
+		Select("DISTINCT show_id, artist_id").
+		Where("show_id IN ? AND artist_id IN ?", showIDs, artistIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query show-artist pairs: %w", err)
+	}
+	return rows, nil
+}
+
+type showVenuePair struct {
+	ShowID  uint
+	VenueID uint
+}
+
+func (s *CollectionService) queryShowVenuePairs(showIDs, venueIDs []uint) ([]showVenuePair, error) {
+	var rows []showVenuePair
+	if err := s.db.Table("show_venues").
+		Select("DISTINCT show_id, venue_id").
+		Where("show_id IN ? AND venue_id IN ?", showIDs, venueIDs).
+		Scan(&rows).Error; err != nil {
+		return nil, fmt.Errorf("failed to query show-venue pairs: %w", err)
+	}
+	return rows, nil
 }
