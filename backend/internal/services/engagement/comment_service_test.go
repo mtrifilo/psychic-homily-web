@@ -295,6 +295,109 @@ func TestUserTierHourlyLimit(t *testing.T) {
 	assert.Equal(t, 5, userTierHourlyLimit("unknown_tier"))
 }
 
+// PSY-552: AuthorName resolver chain — username → first/last → email-prefix
+// → "Anonymous". Mirrors the PSY-353 collection contributor pattern. These
+// are pure-function tests (no DB) so the chain is locked down even when the
+// integration suite can't run.
+func TestResolveCommentAuthorName(t *testing.T) {
+	t.Run("NilUser_Anonymous", func(t *testing.T) {
+		assert.Equal(t, "Anonymous", resolveCommentAuthorName(nil))
+	})
+
+	t.Run("ZeroIDUser_Anonymous", func(t *testing.T) {
+		assert.Equal(t, "Anonymous", resolveCommentAuthorName(&authm.User{}))
+	})
+
+	t.Run("UsernameWins", func(t *testing.T) {
+		username := "ph_user"
+		first := "Ignored"
+		email := "ignored@example.com"
+		u := &authm.User{Username: &username, FirstName: &first, Email: &email}
+		u.ID = 7
+		assert.Equal(t, "ph_user", resolveCommentAuthorName(u))
+	})
+
+	t.Run("FirstAndLast_NoUsername", func(t *testing.T) {
+		first := "Jane"
+		last := "Doe"
+		u := &authm.User{FirstName: &first, LastName: &last}
+		u.ID = 8
+		assert.Equal(t, "Jane Doe", resolveCommentAuthorName(u))
+	})
+
+	t.Run("FirstOnly_NoUsername", func(t *testing.T) {
+		first := "Jane"
+		u := &authm.User{FirstName: &first}
+		u.ID = 9
+		assert.Equal(t, "Jane", resolveCommentAuthorName(u))
+	})
+
+	t.Run("EmailPrefixFallback", func(t *testing.T) {
+		email := "dogfood@psychichomily.com"
+		u := &authm.User{Email: &email}
+		u.ID = 10
+		assert.Equal(t, "dogfood", resolveCommentAuthorName(u))
+	})
+
+	t.Run("EmailWithNoAtSign_Anonymous", func(t *testing.T) {
+		// Should never happen in practice (email column has @ on insert),
+		// but the helper falls through to "Anonymous" rather than echo a
+		// malformed string.
+		email := "noatsign"
+		u := &authm.User{Email: &email}
+		u.ID = 11
+		assert.Equal(t, "Anonymous", resolveCommentAuthorName(u))
+	})
+
+	t.Run("EmptyUsernamePointer_FallsThrough", func(t *testing.T) {
+		// PSY-552 regression check: a non-nil Username pointer pointing at
+		// an empty string must NOT short-circuit the chain (the original bug
+		// was treating *Username==""\ as a valid display name).
+		empty := ""
+		first := "Backup"
+		u := &authm.User{Username: &empty, FirstName: &first}
+		u.ID = 12
+		assert.Equal(t, "Backup", resolveCommentAuthorName(u))
+	})
+}
+
+// PSY-552: AuthorUsername must be non-nil only when the user has a real
+// username. Mirrors PSY-353's resolveUserUsername: nil signals to the
+// frontend "render byline as plain text — no /users/:slug link".
+func TestResolveCommentAuthorUsername(t *testing.T) {
+	t.Run("NilUser_Nil", func(t *testing.T) {
+		assert.Nil(t, resolveCommentAuthorUsername(nil))
+	})
+
+	t.Run("ZeroIDUser_Nil", func(t *testing.T) {
+		assert.Nil(t, resolveCommentAuthorUsername(&authm.User{}))
+	})
+
+	t.Run("NoUsername_Nil", func(t *testing.T) {
+		first := "Jane"
+		u := &authm.User{FirstName: &first}
+		u.ID = 1
+		assert.Nil(t, resolveCommentAuthorUsername(u))
+	})
+
+	t.Run("EmptyUsername_Nil", func(t *testing.T) {
+		empty := ""
+		u := &authm.User{Username: &empty}
+		u.ID = 2
+		assert.Nil(t, resolveCommentAuthorUsername(u))
+	})
+
+	t.Run("UsernameSet_Pointer", func(t *testing.T) {
+		username := "ph_user"
+		u := &authm.User{Username: &username}
+		u.ID = 3
+		got := resolveCommentAuthorUsername(u)
+		if assert.NotNil(t, got) {
+			assert.Equal(t, "ph_user", *got)
+		}
+	})
+}
+
 func TestWilsonScore(t *testing.T) {
 	t.Run("NoVotes", func(t *testing.T) {
 		score := wilsonScore(0, 0)
@@ -510,7 +613,13 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_TopLevel_Arti
 	suite.Equal(0, comment.Ups)
 	suite.Equal(0, comment.Downs)
 	suite.False(comment.IsEdited)
-	suite.Equal("Test", comment.AuthorName)
+	// PSY-552: AuthorName uses the shared resolveUserName chain — username
+	// wins over first/last when set. createTestUser sets both, so the
+	// username is what surfaces here.
+	suite.Require().NotNil(user.Username)
+	suite.Equal(*user.Username, comment.AuthorName)
+	suite.Require().NotNil(comment.AuthorUsername)
+	suite.Equal(*user.Username, *comment.AuthorUsername)
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_TopLevel_Venue() {
@@ -539,6 +648,67 @@ func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_TopLevel_Show
 	suite.Require().NoError(err)
 	suite.Equal("show", comment.EntityType)
 	suite.Equal(showID, comment.EntityID)
+}
+
+// PSY-552: AuthorName must never be empty. Users without username/first/last
+// name should fall back to the local-part of their email (matching the
+// PSY-353 resolveUserName chain used everywhere else). AuthorUsername must
+// be nil-pointer for those users so the frontend renders the byline as
+// plain text rather than a broken /users/ link.
+func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_AuthorName_EmailPrefixFallback() {
+	// User has only an email — no username, no first/last.
+	email := fmt.Sprintf("dogfood+%d@psychichomily.com", time.Now().UnixNano())
+	user := &authm.User{
+		Email:         &email,
+		IsActive:      true,
+		EmailVerified: true,
+		UserTier:      "contributor",
+	}
+	suite.Require().NoError(suite.db.Create(user).Error)
+
+	artistID := suite.createTestArtist("Email Prefix Artist")
+	comment, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "Hello",
+	})
+	suite.Require().NoError(err)
+
+	// Local-part of the email (everything before '@') is the fallback.
+	prefix := email[:strings.Index(email, "@")]
+	suite.Equal(prefix, comment.AuthorName, "author_name must fall back to email prefix")
+	suite.NotEmpty(comment.AuthorName, "author_name must never be empty")
+	suite.Nil(comment.AuthorUsername, "author_username must be nil for users without a username")
+}
+
+// PSY-552: When the user has a username, AuthorName surfaces the username
+// AND AuthorUsername is populated so the frontend can link the byline to
+// /users/:username. Both kinds (comment and field_note) share the same
+// commentToResponse path, so this test exercises a field note for coverage
+// across the two code paths.
+func (suite *CommentServiceIntegrationTestSuite) TestCreateFieldNote_AuthorNameAndUsernamePopulated() {
+	user := suite.createTestUser() // sets username + first/last
+	suite.Require().NotNil(user.Username)
+
+	// Field notes require a past show.
+	slug := fmt.Sprintf("past-show-%d", time.Now().UnixNano())
+	show := &catalogm.Show{
+		Title:     "Past Show",
+		Slug:      &slug,
+		EventDate: time.Now().Add(-24 * time.Hour),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	suite.Require().NoError(suite.db.Create(show).Error)
+
+	note, err := suite.commentService.CreateFieldNote(user.ID, &contracts.CreateFieldNoteRequest{
+		ShowID: show.ID,
+		Body:   "Excellent set",
+	})
+	suite.Require().NoError(err)
+	suite.Equal("field_note", note.Kind)
+	suite.Equal(*user.Username, note.AuthorName)
+	suite.Require().NotNil(note.AuthorUsername)
+	suite.Equal(*user.Username, *note.AuthorUsername)
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TestCreateComment_EntityNotFound() {
