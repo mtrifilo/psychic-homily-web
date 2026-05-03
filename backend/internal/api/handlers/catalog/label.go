@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -189,7 +190,7 @@ func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelR
 	}
 
 	// PSY-525: URL scheme validation (http/https only) for social URL fields.
-	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+	if err := shared.ValidateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
 		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
 		return nil, err
 	}
@@ -294,10 +295,10 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 	}
 	// PSY-525: URL scheme validation (http/https only) for image_url + social URL fields.
-	if err := validateImageURL(req.Body.ImageURL); err != nil {
+	if err := shared.ValidateImageURL(req.Body.ImageURL); err != nil {
 		return nil, err
 	}
-	if err := validateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
+	if err := shared.ValidateSocialURLs(req.Body.Instagram, req.Body.Facebook, req.Body.Twitter,
 		req.Body.YouTube, req.Body.Spotify, req.Body.SoundCloud, req.Body.Bandcamp, req.Body.Website); err != nil {
 		return nil, err
 	}

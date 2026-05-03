@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -129,9 +130,26 @@ export function CommentCard({
 
   return (
     <div className={depthMargin} data-testid="comment-card">
-      {/* Header: author + timestamp */}
+      {/* Header: author + timestamp. PSY-552: link byline to the author's
+          profile when author_username is set; otherwise plain text (matches
+          PSY-353 collection attribution). */}
       <div className="flex items-center gap-2 text-sm">
-        <span className="font-medium text-foreground">{comment.author_name}</span>
+        {comment.author_username ? (
+          <Link
+            href={`/users/${comment.author_username}`}
+            className="font-medium text-foreground hover:underline"
+            data-testid="comment-author-link"
+          >
+            {comment.author_name}
+          </Link>
+        ) : (
+          <span
+            className="font-medium text-foreground"
+            data-testid="comment-author-name"
+          >
+            {comment.author_name}
+          </span>
+        )}
         <span className="text-muted-foreground">
           {formatRelativeTime(comment.created_at)}
         </span>

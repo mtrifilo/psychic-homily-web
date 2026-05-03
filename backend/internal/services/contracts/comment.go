@@ -62,13 +62,21 @@ type CommentListFilters struct {
 
 // CommentResponse represents a comment with author info for API responses.
 type CommentResponse struct {
-	ID              uint             `json:"id"`
-	EntityType      string           `json:"entity_type"`
-	EntityID        uint             `json:"entity_id"`
-	Kind            string           `json:"kind"`
-	UserID          uint             `json:"user_id"`
-	AuthorName      string           `json:"author_name"`
-	AuthorUsername  string           `json:"author_username,omitempty"`
+	ID         uint   `json:"id"`
+	EntityType string `json:"entity_type"`
+	EntityID   uint   `json:"entity_id"`
+	Kind       string `json:"kind"`
+	UserID     uint   `json:"user_id"`
+	// AuthorName is the resolved display name for the comment's author —
+	// never empty. Resolution chain mirrors PSY-353: username → first/last
+	// → email-prefix → "Anonymous".
+	AuthorName string `json:"author_name"`
+	// AuthorUsername is the author's username when set — used by the
+	// frontend to link the byline to /users/:username. Pointer so the JSON
+	// encodes null (not "") for accounts that never set a username, the
+	// same shape PSY-353 standardized for collection contributor
+	// attribution. PSY-552.
+	AuthorUsername  *string          `json:"author_username"`
 	ParentID        *uint            `json:"parent_id,omitempty"`
 	RootID          *uint            `json:"root_id,omitempty"`
 	Depth           int              `json:"depth"`
