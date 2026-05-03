@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -730,4 +731,181 @@ func TestAllowedEditFields(t *testing.T) {
 			t.Errorf("expected %s to be allowed for label", f)
 		}
 	}
+}
+
+// ============================================================================
+// Tests: SuggestEdit — URL field value validation (PSY-549)
+// ============================================================================
+//
+// These cover the gate added in PSY-549: contributors (and trusted users on
+// the auto-apply path) cannot land non-http/https URLs or oversize strings
+// in the pending queue. Without this gate, a bare-handle / javascript: /
+// data: URL would sit in pending_entity_edits and be applied verbatim by
+// ApprovePendingEdit (which doesn't re-validate).
+//
+// Tests that exercise the rejection path use testPendingEditHandler() —
+// nil services — so a successful service call would nil-panic, proving
+// validation rejected the request before any service work happened.
+
+func TestSuggestEdit_RejectsJavaScriptImageURL(t *testing.T) {
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "image_url", OldValue: nil, NewValue: "javascript:alert(1)"},
+	}
+	req.Body.Summary = "phishy"
+	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestSuggestEdit_RejectsDataImageURL(t *testing.T) {
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "image_url", OldValue: nil, NewValue: "data:image/png;base64,AAAA"},
+	}
+	req.Body.Summary = "data url"
+	_, err := h.SuggestVenueEditHandler(pendingEditNewUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestSuggestEdit_RejectsBareHandleSocial(t *testing.T) {
+	// Contributor types "@someone" instead of a full URL.
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "instagram", OldValue: nil, NewValue: "@someone"},
+	}
+	req.Body.Summary = "fix instagram"
+	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestSuggestEdit_RejectsFTPSocial(t *testing.T) {
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "website", OldValue: nil, NewValue: "ftp://example.com"},
+	}
+	req.Body.Summary = "ftp link"
+	_, err := h.SuggestLabelEditHandler(pendingEditNewUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestSuggestEdit_RejectsLengthExceeded(t *testing.T) {
+	// instagram cap is 255.
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "instagram", OldValue: nil, NewValue: "https://instagram.com/" + strings.Repeat("a", 300)},
+	}
+	req.Body.Summary = "long"
+	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestSuggestEdit_RejectsNonStringURLValue(t *testing.T) {
+	// Numeric / boolean values for URL fields are rejected with 422.
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "website", OldValue: nil, NewValue: 42},
+	}
+	req.Body.Summary = "weird value"
+	_, err := h.SuggestVenueEditHandler(pendingEditNewUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestSuggestEdit_AcceptsValidHTTPSImageURL(t *testing.T) {
+	expected := makePendingEditResponse(99)
+	h := NewPendingEditHandler(
+		&testhelpers.MockPendingEditService{
+			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
+				return expected, nil
+			},
+		},
+		nil,
+	)
+
+	req := &SuggestEntityEditRequest{EntityID: "10"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "image_url", OldValue: nil, NewValue: "https://example.com/cover.jpg"},
+	}
+	req.Body.Summary = "add image"
+
+	if _, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req); err != nil {
+		t.Fatalf("valid https URL should be accepted: %v", err)
+	}
+}
+
+func TestSuggestEdit_AcceptsEmptyURL(t *testing.T) {
+	// Empty string means "clear the field" — should pass through.
+	expected := makePendingEditResponse(100)
+	h := NewPendingEditHandler(
+		&testhelpers.MockPendingEditService{
+			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
+				return expected, nil
+			},
+		},
+		nil,
+	)
+
+	req := &SuggestEntityEditRequest{EntityID: "10"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "instagram", OldValue: "https://instagram.com/old", NewValue: ""},
+	}
+	req.Body.Summary = "remove socials"
+
+	if _, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req); err != nil {
+		t.Fatalf("empty value should clear the field: %v", err)
+	}
+}
+
+func TestSuggestEdit_NonURLFieldUnaffected(t *testing.T) {
+	// Name change with arbitrary text — URL validation must NOT fire.
+	expected := makePendingEditResponse(101)
+	h := NewPendingEditHandler(
+		&testhelpers.MockPendingEditService{
+			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
+				return expected, nil
+			},
+		},
+		nil,
+	)
+
+	req := &SuggestEntityEditRequest{EntityID: "10"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "name", OldValue: "Old", NewValue: "New Name (any text is fine here)"},
+	}
+	req.Body.Summary = "rename"
+
+	if _, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req); err != nil {
+		t.Fatalf("non-URL field change should pass: %v", err)
+	}
+}
+
+func TestSuggestEdit_TrustedContributor_RejectsJavaScriptURL(t *testing.T) {
+	// Trusted users auto-apply at suggest time. Validation MUST run before
+	// the service call, otherwise a trusted user could land javascript: URLs
+	// directly into entity rows.
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "image_url", OldValue: nil, NewValue: "javascript:alert(1)"},
+	}
+	req.Body.Summary = "trusted user attempts xss"
+	_, err := h.SuggestArtistEditHandler(pendingEditTrustedCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestSuggestEdit_Admin_RejectsJavaScriptURL(t *testing.T) {
+	// Admins also flow through validation — defense in depth.
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	req.Body.Changes = []adminm.FieldChange{
+		{Field: "website", OldValue: nil, NewValue: "javascript:alert(1)"},
+	}
+	req.Body.Summary = "admin attempts xss"
+	_, err := h.SuggestArtistEditHandler(pendingEditAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
 }

@@ -831,7 +831,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
 	}
 	// PSY-525: URL scheme validation (http/https only) for image_url.
-	if err := validateImageURL(req.Body.ImageURL); err != nil {
+	if err := shared.ValidateImageURL(req.Body.ImageURL); err != nil {
 		return nil, err
 	}
 
