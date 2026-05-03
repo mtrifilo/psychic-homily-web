@@ -34,8 +34,13 @@ import {
   X,
   MoreVertical,
   Loader2,
+  GripVertical,
+  ChevronUp,
+  ChevronDown,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { useSortable } from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/utils'
 import { getEntityUrl, getEntityTypeLabel, type CollectionItem } from '../types'
 import { MarkdownContent } from './MarkdownEditor'
@@ -61,23 +66,25 @@ export type CollectionItemCardDensity = 'compact' | 'comfortable' | 'expanded'
 
 interface CollectionItemCardProps {
   item: CollectionItem
-  /**
-   * Display position number (1-indexed). Only rendered when set; this is
-   * how the parent decides whether to show the ranked position badge.
-   */
+  /** 1-indexed display position. Renders the ranked position badge when set. */
   position?: number
   density: CollectionItemCardDensity
-  /**
-   * PSY-526: when true, render a Remove control overlaid on the image
-   * area. Mirrors the gating CollectionItemRow uses; the parent
-   * (CollectionDetail) computes `isCreator` once and threads it down.
-   */
   isCreator?: boolean
-  /**
-   * Required when `isCreator` is true — the parent collection's slug, used
-   * by the remove mutation. Optional otherwise.
-   */
+  /** Required when isCreator — used by the Remove mutation. */
   slug?: string
+  /**
+   * Drag + keyboard reorder wiring. When set, the card registers with the
+   * parent SortableContext and renders the reorder cluster. When omitted,
+   * useSortable still runs (in disabled mode) to keep React hook order
+   * stable across reorder-eligibility transitions.
+   */
+  reorder?: {
+    index: number
+    totalItems: number
+    onMoveUp: (index: number) => void
+    onMoveDown: (index: number) => void
+    isPending?: boolean
+  }
 }
 
 /**
@@ -104,14 +111,35 @@ export function CollectionItemCard({
   density,
   isCreator = false,
   slug,
+  reorder,
 }: CollectionItemCardProps) {
   const Icon = ENTITY_ICONS[item.entity_type] ?? Library
   const entityUrl = getEntityUrl(item.entity_type, item.entity_slug)
   const typeLabel = getEntityTypeLabel(item.entity_type)
   const hasImage = Boolean(item.image_url)
+  const canReorder = Boolean(reorder)
+
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: item.id, disabled: !canReorder })
+
+  const sortableStyle: React.CSSProperties = canReorder
+    ? {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : undefined,
+      }
+    : {}
 
   return (
     <article
+      ref={canReorder ? setNodeRef : undefined}
+      style={sortableStyle}
       className="relative flex flex-col gap-2"
       data-testid="collection-item-card"
       data-entity-type={item.entity_type}
@@ -219,6 +247,50 @@ export function CollectionItemCard({
           itemId={item.id}
           entityName={item.entity_name}
         />
+      )}
+
+      {/* Sibling of <Link> (PSY-526 pattern) to avoid <button> in <a>. In
+          flow rather than overlaid because the image-area bottom can't be
+          reached from outside the Link without JS measurement. */}
+      {reorder && (
+        <div
+          className="self-start flex items-center gap-0.5 rounded-md border border-border/50 bg-background/80 p-0.5"
+          data-testid="collection-item-card-reorder"
+        >
+          <button
+            type="button"
+            {...attributes}
+            {...listeners}
+            className="touch-none cursor-grab active:cursor-grabbing h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`Drag to reorder ${item.entity_name}. Use space to lift, arrow keys to move.`}
+            title="Drag to reorder"
+            data-testid="collection-item-card-drag-handle"
+          >
+            <GripVertical className="h-3.5 w-3.5" />
+          </button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+            onClick={() => reorder.onMoveUp(reorder.index)}
+            disabled={reorder.index === 0 || reorder.isPending}
+            title="Move up"
+            aria-label="Move up"
+          >
+            <ChevronUp className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
+            onClick={() => reorder.onMoveDown(reorder.index)}
+            disabled={reorder.index === reorder.totalItems - 1 || reorder.isPending}
+            title="Move down"
+            aria-label="Move down"
+          >
+            <ChevronDown className="h-3.5 w-3.5" />
+          </Button>
+        </div>
       )}
 
       {/* Caption — server-rendered markdown notes. Always visible (never

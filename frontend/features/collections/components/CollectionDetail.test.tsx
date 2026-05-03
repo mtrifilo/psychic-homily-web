@@ -1782,4 +1782,195 @@ describe('CollectionDetail', () => {
       expect(expandedContainer.className).toContain('sm:grid-cols-2')
     })
   })
+
+  // PSY-348 drag tests force list mode via beforeEach; these exercise
+  // the grid-mode path that was non-functional pre-PSY-527.
+  describe('PSY-527: grid + ranked reorder', () => {
+    const sampleItems = [
+      {
+        id: 31,
+        entity_type: 'release',
+        entity_id: 301,
+        entity_name: 'First Release',
+        entity_slug: 'first-release',
+        image_url: null,
+        position: 0,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 32,
+        entity_type: 'release',
+        entity_id: 302,
+        entity_name: 'Second Release',
+        entity_slug: 'second-release',
+        image_url: null,
+        position: 1,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 33,
+        entity_type: 'release',
+        entity_id: 303,
+        entity_name: 'Third Release',
+        entity_slug: 'third-release',
+        image_url: null,
+        position: 2,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+    ]
+
+    beforeEach(() => {
+      window.localStorage.removeItem('ph-collection-items-view-mode')
+    })
+
+    it('renders one drag handle per grid card in ranked + creator mode', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(screen.getByTestId('collection-items')).toHaveAttribute(
+        'data-view-mode',
+        'grid'
+      )
+      // Regression guard: fails if useSortable is removed from CollectionItemCard.
+      expect(
+        screen.getAllByTestId('collection-item-card-reorder')
+      ).toHaveLength(3)
+      expect(
+        screen.getAllByRole('button', { name: /^Drag to reorder/ })
+      ).toHaveLength(3)
+    })
+
+    it('does NOT render the reorder cluster in grid + unranked mode', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'unranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(screen.getByTestId('collection-items')).toHaveAttribute(
+        'data-view-mode',
+        'grid'
+      )
+      expect(
+        screen.queryAllByTestId('collection-item-card-reorder')
+      ).toHaveLength(0)
+    })
+
+    it('does NOT render drag handles in grid + ranked for non-creator', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '999' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          display_mode: 'ranked',
+          items: sampleItems,
+          creator_id: 1,
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Position badges still visible (everyone sees the ranking).
+      expect(
+        screen.getAllByTestId('collection-item-card-position')
+      ).toHaveLength(3)
+      expect(
+        screen.queryAllByTestId('collection-item-card-reorder')
+      ).toHaveLength(0)
+      expect(
+        screen.queryAllByRole('button', { name: /^Drag to reorder/ })
+      ).toHaveLength(0)
+    })
+
+    it('keyboard fallback: Move down on first grid card sends correct reorder payload', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      const moveDownButtons = screen.getAllByRole('button', {
+        name: 'Move down',
+      })
+      expect(moveDownButtons).toHaveLength(3)
+      await user.click(moveDownButtons[0])
+
+      expect(mockReorderMutate).toHaveBeenCalledWith({
+        slug: 'test-collection',
+        items: [
+          { item_id: 32, position: 0 },
+          { item_id: 31, position: 1 },
+          { item_id: 33, position: 2 },
+        ],
+      })
+    })
+
+    it('keyboard fallback: Move up on last grid card sends correct reorder payload', async () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+
+      const moveUpButtons = screen.getAllByRole('button', { name: 'Move up' })
+      await user.click(moveUpButtons[moveUpButtons.length - 1])
+
+      expect(mockReorderMutate).toHaveBeenCalledWith({
+        slug: 'test-collection',
+        items: [
+          { item_id: 31, position: 0 },
+          { item_id: 33, position: 1 },
+          { item_id: 32, position: 2 },
+        ],
+      })
+    })
+
+    it('keyboard fallback: Move up disabled on first grid card', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      const moveUpButtons = screen.getAllByRole('button', { name: 'Move up' })
+      expect(moveUpButtons[0]).toBeDisabled()
+    })
+
+    it('keyboard fallback: Move down disabled on last grid card', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ display_mode: 'ranked', items: sampleItems }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      const moveDownButtons = screen.getAllByRole('button', {
+        name: 'Move down',
+      })
+      expect(moveDownButtons[moveDownButtons.length - 1]).toBeDisabled()
+    })
+  })
 })
