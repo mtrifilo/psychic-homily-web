@@ -87,6 +87,7 @@ import type { CollectionDisplayMode, CollectionItem, CollectionDetail as Collect
 import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { CollectionGraph } from './CollectionGraph'
 import { CollectionItemCard } from './CollectionItemCard'
+import { CollectionCoverImage } from './CollectionCoverImage'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { DensityToggle } from '@/components/shared'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
@@ -331,15 +332,20 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
           <div>
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-4 min-w-0">
-                {collection.cover_image_url && (
-                  <div className="h-24 w-24 shrink-0 rounded-lg overflow-hidden border border-border/50 bg-muted/50">
-                    <img
-                      src={collection.cover_image_url}
-                      alt={`${collection.title} cover`}
-                      className="h-full w-full object-cover"
+                {/* PSY-554: cover always renders (typed Library icon when
+                    URL is null/empty or `<img>` 404s). Same h-24 footprint
+                    in either state so the header layout doesn't shift. */}
+                <CollectionCoverImage
+                  url={collection.cover_image_url}
+                  alt={`${collection.title} cover`}
+                  className="h-24 w-24 shrink-0 rounded-lg border border-border/50 bg-muted/50"
+                  fallback={
+                    <Library
+                      className="h-10 w-10 text-muted-foreground/50"
+                      aria-hidden="true"
                     />
-                  </div>
-                )}
+                  }
+                />
                 <div className="min-w-0">
                 <div className="flex items-center gap-3 mb-1 flex-wrap">
                   <h1 className="text-3xl font-bold tracking-tight">
