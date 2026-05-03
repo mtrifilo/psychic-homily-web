@@ -88,6 +88,7 @@ import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { CollectionGraph } from './CollectionGraph'
 import { CollectionItemCard } from './CollectionItemCard'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
+import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { DensityToggle } from '@/components/shared'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
@@ -182,12 +183,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
-  // PSY-366: collection graph toggle. Default-off; the items list is the
-  // primary surface, the graph is an alternative lens. A `#graph` URL opens
-  // it on first render; we don't subscribe to later hash-only changes.
-  const [showGraph, setShowGraph] = useState(
-    () => typeof window !== 'undefined' && window.location.hash === '#graph'
-  )
+  // null = not interacted; URL hash drives the default. User toggle sticks once set.
+  const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
+  const hash = useUrlHash()
 
   const handleShare = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -200,6 +198,10 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // PSY-366: only surface the graph toggle when the collection has at least
   // one artist item — non-artist-only collections have nothing to graph.
   const artistItemCount = items.filter(it => it.entity_type === 'artist').length
+
+  // Gate auto-open on artist items so `#graph` on a non-artist collection no-ops.
+  const autoOpenFromHash = hash === GRAPH_HASH && artistItemCount > 0
+  const showGraph = showGraphOverride ?? autoOpenFromHash
 
   if (isLoading) {
     return (
@@ -539,7 +541,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   <Button
                     variant={showGraph ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setShowGraph(!showGraph)}
+                    onClick={() => setShowGraphOverride(!showGraph)}
                     aria-pressed={showGraph}
                     aria-label={showGraph ? 'Hide collection graph' : 'Explore collection graph'}
                   >
@@ -918,15 +920,21 @@ function CollectionItemsList({
       <CollectionItemCard
         key={item.id}
         item={item}
-        // Position badge only meaningful for ranked collections.
         position={isRanked ? index + 1 : undefined}
         density={density}
-        // PSY-526: gate the per-card Remove control on the same
-        // `isCreator` value the list-view row uses. Pass `slug` so the
-        // card can drive `useRemoveCollectionItem` directly without
-        // re-deriving it from the URL.
         isCreator={isCreator}
         slug={slug}
+        reorder={
+          canReorder
+            ? {
+                index,
+                totalItems: items.length,
+                onMoveUp: handleMoveUp,
+                onMoveDown: handleMoveDown,
+                isPending: reorderMutation.isPending,
+              }
+            : undefined
+        }
       />
     ))
 
