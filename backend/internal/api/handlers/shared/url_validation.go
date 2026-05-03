@@ -30,20 +30,20 @@ type urlFieldSpec struct {
 // suggest-edit path doesn't enforce stricter rules than the catalog handler
 // would.
 var urlFieldSpecs = map[string]urlFieldSpec{
-	"image_url":  {"Image URL", 2048},
-	"instagram":  {"Instagram URL", 255},
-	"facebook":   {"Facebook URL", 500},
-	"twitter":    {"Twitter URL", 255},
-	"youtube":    {"YouTube URL", 500},
-	"spotify":    {"Spotify URL", 500},
-	"soundcloud": {"SoundCloud URL", 500},
-	"bandcamp":   {"Bandcamp URL", 500},
-	"website":    {"Website URL", 500},
+	"image_url":  {displayName: "Image URL", maxLength: 2048},
+	"instagram":  {displayName: "Instagram URL", maxLength: 255},
+	"facebook":   {displayName: "Facebook URL", maxLength: 500},
+	"twitter":    {displayName: "Twitter URL", maxLength: 255},
+	"youtube":    {displayName: "YouTube URL", maxLength: 500},
+	"spotify":    {displayName: "Spotify URL", maxLength: 500},
+	"soundcloud": {displayName: "SoundCloud URL", maxLength: 500},
+	"bandcamp":   {displayName: "Bandcamp URL", maxLength: 500},
+	"website":    {displayName: "Website URL", maxLength: 500},
 }
 
 // ValidateImageURL applies the http/https scheme check to an optional image
-// URL (PSY-525). Empty strings pass through (the validator skips them) so
-// callers that allow "clear via empty string" semantics keep working.
+// URL. Empty strings pass through so callers that allow "clear via empty
+// string" semantics keep working.
 //
 // Length is enforced separately by the request struct's maxLength tag at
 // JSON decode time; this helper only checks the scheme rule.
@@ -56,8 +56,8 @@ func ValidateImageURL(imageURL *string) error {
 
 // ValidateSocialURLs applies the http/https scheme check to the standard set
 // of social URL fields shared by artist, venue, label, and festival request
-// bodies (PSY-525). Pass nil for fields the surface doesn't accept (e.g.
-// festival only takes Website, so the other 7 args are nil).
+// bodies. Pass nil for fields the surface doesn't accept (e.g. festival
+// only takes Website, so the other 7 args are nil).
 //
 // Length is enforced separately by the request struct's maxLength tag at
 // JSON decode time; this helper only checks the scheme rule.
@@ -87,10 +87,10 @@ func ValidateSocialURLs(instagram, facebook, twitter, youtube, spotify, soundclo
 }
 
 // ValidateFieldChangeValue applies URL validation to a single FieldChange
-// proposed via the pending-edit suggest path (PSY-549). For known URL
-// fields it enforces both the http/https scheme rule and the per-field
-// length cap; other field names pass through (the caller retains authority
-// over fields this helper doesn't recognize).
+// proposed via the pending-edit suggest path. For known URL fields it
+// enforces both the http/https scheme rule and the per-field length cap;
+// other field names pass through (the caller retains authority over fields
+// this helper doesn't recognize).
 //
 // The value is `any` because admin.FieldChange stores OldValue/NewValue as
 // interface{} (the underlying row is JSON in pending_entity_edits.field_changes).
@@ -101,9 +101,8 @@ func ValidateSocialURLs(instagram, facebook, twitter, youtube, spotify, soundclo
 // because pending_edits has no Huma struct-tag length enforcement: the
 // FieldChange shape carries arbitrary values from the contributor.
 //
-// Returns a huma.Error422UnprocessableEntity per PSY-524's strict-RFC
-// convention. Empty strings and nil pass through (caller decides whether
-// empty means "clear the field").
+// Returns a huma.Error422UnprocessableEntity. Empty strings and nil pass
+// through (caller decides whether empty means "clear the field").
 func ValidateFieldChangeValue(fieldName string, value any) error {
 	spec, ok := urlFieldSpecs[fieldName]
 	if !ok {
@@ -129,9 +128,8 @@ func ValidateFieldChangeValue(fieldName string, value any) error {
 	return validateScheme(s, spec.displayName)
 }
 
-// validateScheme is the inner helper that calls utils.ValidateHTTPURL and
-// translates failures into huma 422 errors per PSY-524's strict-RFC
-// convention.
+// validateScheme calls utils.ValidateHTTPURL and translates failures into
+// huma 422 errors.
 func validateScheme(value, displayName string) error {
 	if err := utils.ValidateHTTPURL(value, displayName); err != nil {
 		return huma.Error422UnprocessableEntity(err.Error())

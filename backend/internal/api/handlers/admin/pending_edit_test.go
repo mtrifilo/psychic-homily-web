@@ -747,73 +747,43 @@ func TestAllowedEditFields(t *testing.T) {
 // nil services — so a successful service call would nil-panic, proving
 // validation rejected the request before any service work happened.
 
-func TestSuggestEdit_RejectsJavaScriptImageURL(t *testing.T) {
+func TestSuggestEdit_RejectsInvalidURLValues(t *testing.T) {
 	h := testPendingEditHandler()
-	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []adminm.FieldChange{
-		{Field: "image_url", OldValue: nil, NewValue: "javascript:alert(1)"},
+	cases := []struct {
+		name    string
+		entity  string
+		field   string
+		value   any
+		summary string
+	}{
+		{"javascript scheme on image_url", "artist", "image_url", "javascript:alert(1)", "phishy"},
+		{"data scheme on image_url", "venue", "image_url", "data:image/png;base64,AAAA", "data url"},
+		{"bare handle on instagram", "artist", "instagram", "@someone", "fix instagram"},
+		{"ftp scheme on website", "label", "website", "ftp://example.com", "ftp link"},
+		{"oversize instagram", "artist", "instagram", "https://instagram.com/" + strings.Repeat("a", 300), "long"},
+		{"non-string website", "venue", "website", 42, "weird value"},
 	}
-	req.Body.Summary = "phishy"
-	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
-}
-
-func TestSuggestEdit_RejectsDataImageURL(t *testing.T) {
-	h := testPendingEditHandler()
-	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []adminm.FieldChange{
-		{Field: "image_url", OldValue: nil, NewValue: "data:image/png;base64,AAAA"},
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := &SuggestEntityEditRequest{EntityID: "1"}
+			req.Body.Changes = []adminm.FieldChange{
+				{Field: c.field, OldValue: nil, NewValue: c.value},
+			}
+			req.Body.Summary = c.summary
+			var err error
+			switch c.entity {
+			case "artist":
+				_, err = h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
+			case "venue":
+				_, err = h.SuggestVenueEditHandler(pendingEditNewUserCtx(), req)
+			case "label":
+				_, err = h.SuggestLabelEditHandler(pendingEditNewUserCtx(), req)
+			default:
+				t.Fatalf("unknown entity %q in test case", c.entity)
+			}
+			testhelpers.AssertHumaError(t, err, 422)
+		})
 	}
-	req.Body.Summary = "data url"
-	_, err := h.SuggestVenueEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
-}
-
-func TestSuggestEdit_RejectsBareHandleSocial(t *testing.T) {
-	// Contributor types "@someone" instead of a full URL.
-	h := testPendingEditHandler()
-	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []adminm.FieldChange{
-		{Field: "instagram", OldValue: nil, NewValue: "@someone"},
-	}
-	req.Body.Summary = "fix instagram"
-	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
-}
-
-func TestSuggestEdit_RejectsFTPSocial(t *testing.T) {
-	h := testPendingEditHandler()
-	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []adminm.FieldChange{
-		{Field: "website", OldValue: nil, NewValue: "ftp://example.com"},
-	}
-	req.Body.Summary = "ftp link"
-	_, err := h.SuggestLabelEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
-}
-
-func TestSuggestEdit_RejectsLengthExceeded(t *testing.T) {
-	// instagram cap is 255.
-	h := testPendingEditHandler()
-	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []adminm.FieldChange{
-		{Field: "instagram", OldValue: nil, NewValue: "https://instagram.com/" + strings.Repeat("a", 300)},
-	}
-	req.Body.Summary = "long"
-	_, err := h.SuggestArtistEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
-}
-
-func TestSuggestEdit_RejectsNonStringURLValue(t *testing.T) {
-	// Numeric / boolean values for URL fields are rejected with 422.
-	h := testPendingEditHandler()
-	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []adminm.FieldChange{
-		{Field: "website", OldValue: nil, NewValue: 42},
-	}
-	req.Body.Summary = "weird value"
-	_, err := h.SuggestVenueEditHandler(pendingEditNewUserCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestSuggestEdit_AcceptsValidHTTPSImageURL(t *testing.T) {
@@ -884,28 +854,27 @@ func TestSuggestEdit_NonURLFieldUnaffected(t *testing.T) {
 	}
 }
 
-func TestSuggestEdit_TrustedContributor_RejectsJavaScriptURL(t *testing.T) {
-	// Trusted users auto-apply at suggest time. Validation MUST run before
-	// the service call, otherwise a trusted user could land javascript: URLs
-	// directly into entity rows.
+func TestSuggestEdit_AutoApplyPathStillGates(t *testing.T) {
+	// Both trusted_contributor and admin auto-apply at suggest time.
+	// Validation MUST run before the service call, otherwise these users
+	// could land javascript: URLs directly into entity rows.
 	h := testPendingEditHandler()
-	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []adminm.FieldChange{
-		{Field: "image_url", OldValue: nil, NewValue: "javascript:alert(1)"},
+	cases := []struct {
+		name string
+		ctx  context.Context
+	}{
+		{"trusted_contributor", pendingEditTrustedCtx()},
+		{"admin", pendingEditAdminCtx()},
 	}
-	req.Body.Summary = "trusted user attempts xss"
-	_, err := h.SuggestArtistEditHandler(pendingEditTrustedCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
-}
-
-func TestSuggestEdit_Admin_RejectsJavaScriptURL(t *testing.T) {
-	// Admins also flow through validation — defense in depth.
-	h := testPendingEditHandler()
-	req := &SuggestEntityEditRequest{EntityID: "1"}
-	req.Body.Changes = []adminm.FieldChange{
-		{Field: "website", OldValue: nil, NewValue: "javascript:alert(1)"},
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			req := &SuggestEntityEditRequest{EntityID: "1"}
+			req.Body.Changes = []adminm.FieldChange{
+				{Field: "image_url", OldValue: nil, NewValue: "javascript:alert(1)"},
+			}
+			req.Body.Summary = "xss attempt"
+			_, err := h.SuggestArtistEditHandler(c.ctx, req)
+			testhelpers.AssertHumaError(t, err, 422)
+		})
 	}
-	req.Body.Summary = "admin attempts xss"
-	_, err := h.SuggestArtistEditHandler(pendingEditAdminCtx(), req)
-	testhelpers.AssertHumaError(t, err, 422)
 }

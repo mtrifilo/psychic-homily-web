@@ -6,26 +6,9 @@ import (
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
+
+	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 )
-
-// assertHumaStatus asserts that err is a *huma.ErrorModel with the expected
-// HTTP status. Inline so this test file doesn't depend on the testhelpers
-// sub-package (keeps shared's tests self-contained).
-func assertHumaStatus(t *testing.T, err error, want int) {
-	t.Helper()
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	var he *huma.ErrorModel
-	if !errors.As(err, &he) {
-		t.Fatalf("expected *huma.ErrorModel, got %T: %v", err, err)
-	}
-	if he.Status != want {
-		t.Errorf("expected status %d, got %d (detail: %s)", want, he.Status, he.Detail)
-	}
-}
-
-func ptr(s string) *string { return &s }
 
 // ============================================================================
 // ValidateImageURL
@@ -38,25 +21,25 @@ func TestValidateImageURL_NilPasses(t *testing.T) {
 }
 
 func TestValidateImageURL_EmptyPasses(t *testing.T) {
-	if err := ValidateImageURL(ptr("")); err != nil {
+	if err := ValidateImageURL(PtrString("")); err != nil {
 		t.Errorf("empty string should pass, got: %v", err)
 	}
 }
 
 func TestValidateImageURL_ValidHTTPS(t *testing.T) {
-	if err := ValidateImageURL(ptr("https://example.com/img.jpg")); err != nil {
+	if err := ValidateImageURL(PtrString("https://example.com/img.jpg")); err != nil {
 		t.Errorf("https URL should pass, got: %v", err)
 	}
 }
 
 func TestValidateImageURL_RejectsJavaScriptScheme(t *testing.T) {
-	err := ValidateImageURL(ptr("javascript:alert(1)"))
-	assertHumaStatus(t, err, 422)
+	err := ValidateImageURL(PtrString("javascript:alert(1)"))
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 func TestValidateImageURL_RejectsDataScheme(t *testing.T) {
-	err := ValidateImageURL(ptr("data:image/png;base64,AAAA"))
-	assertHumaStatus(t, err, 422)
+	err := ValidateImageURL(PtrString("data:image/png;base64,AAAA"))
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -71,14 +54,14 @@ func TestValidateSocialURLs_AllNilPasses(t *testing.T) {
 
 func TestValidateSocialURLs_AllValidHTTPSPasses(t *testing.T) {
 	err := ValidateSocialURLs(
-		ptr("https://instagram.com/x"),
-		ptr("https://facebook.com/x"),
-		ptr("https://twitter.com/x"),
-		ptr("https://youtube.com/x"),
-		ptr("https://spotify.com/x"),
-		ptr("https://soundcloud.com/x"),
-		ptr("https://x.bandcamp.com"),
-		ptr("https://example.com"),
+		PtrString("https://instagram.com/x"),
+		PtrString("https://facebook.com/x"),
+		PtrString("https://twitter.com/x"),
+		PtrString("https://youtube.com/x"),
+		PtrString("https://spotify.com/x"),
+		PtrString("https://soundcloud.com/x"),
+		PtrString("https://x.bandcamp.com"),
+		PtrString("https://example.com"),
 	)
 	if err != nil {
 		t.Errorf("all valid should pass, got: %v", err)
@@ -89,11 +72,11 @@ func TestValidateSocialURLs_FirstFailureWins(t *testing.T) {
 	// Two bad fields — the first one in the iteration order (instagram)
 	// determines the error.
 	err := ValidateSocialURLs(
-		ptr("javascript:bad"),
+		PtrString("javascript:bad"),
 		nil, nil, nil, nil, nil, nil,
-		ptr("ftp://also-bad"),
+		PtrString("ftp://also-bad"),
 	)
-	assertHumaStatus(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 	var he *huma.ErrorModel
 	errors.As(err, &he)
 	if !strings.Contains(he.Detail, "Instagram") {
@@ -103,7 +86,7 @@ func TestValidateSocialURLs_FirstFailureWins(t *testing.T) {
 
 func TestValidateSocialURLs_PartialNilSkipsThoseFields(t *testing.T) {
 	// Only Website is provided, others nil → only Website is validated.
-	err := ValidateSocialURLs(nil, nil, nil, nil, nil, nil, nil, ptr("https://example.com"))
+	err := ValidateSocialURLs(nil, nil, nil, nil, nil, nil, nil, PtrString("https://example.com"))
 	if err != nil {
 		t.Errorf("partial nil with valid website should pass, got: %v", err)
 	}
@@ -111,8 +94,8 @@ func TestValidateSocialURLs_PartialNilSkipsThoseFields(t *testing.T) {
 
 func TestValidateSocialURLs_RejectsBareHandle(t *testing.T) {
 	// "@matt" is not a valid URL (no scheme, parses as a relative ref).
-	err := ValidateSocialURLs(ptr("@matt"), nil, nil, nil, nil, nil, nil, nil)
-	assertHumaStatus(t, err, 422)
+	err := ValidateSocialURLs(PtrString("@matt"), nil, nil, nil, nil, nil, nil, nil)
+	testhelpers.AssertHumaError(t, err, 422)
 }
 
 // ============================================================================
@@ -177,7 +160,7 @@ func TestValidateFieldChangeValue_NonStringValueRejected(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			err := ValidateFieldChangeValue("image_url", c.value)
-			assertHumaStatus(t, err, 422)
+			testhelpers.AssertHumaError(t, err, 422)
 		})
 	}
 }
@@ -198,7 +181,7 @@ func TestValidateFieldChangeValue_RejectsNonHTTPSchemes(t *testing.T) {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			err := ValidateFieldChangeValue("image_url", c.value)
-			assertHumaStatus(t, err, 422)
+			testhelpers.AssertHumaError(t, err, 422)
 		})
 	}
 }
@@ -228,7 +211,7 @@ func TestValidateFieldChangeValue_RejectsLengthExceeded(t *testing.T) {
 	base := "https://instagram.com/"
 	long := base + strings.Repeat("a", 256-len(base)+1)
 	err := ValidateFieldChangeValue("instagram", long)
-	assertHumaStatus(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 	var he *huma.ErrorModel
 	errors.As(err, &he)
 	if !strings.Contains(he.Detail, "255") {
@@ -257,5 +240,5 @@ func TestValidateFieldChangeValue_ImageURLLargerCap(t *testing.T) {
 	}
 	too2049 := base + strings.Repeat("a", 2049-len(base))
 	err := ValidateFieldChangeValue("image_url", too2049)
-	assertHumaStatus(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 422)
 }
