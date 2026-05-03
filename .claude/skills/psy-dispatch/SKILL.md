@@ -136,7 +136,7 @@ Fix PSY-{N}: {ticket title}.
 {2–6 bullets on where to look — prior-art files, related shipped tickets, framework primitives. Helps the agent skip the discovery phase. If you don't know the file paths, say so and let the agent grep.}
 
 # Work plan
-1. **Verify isolation FIRST.** Run `pwd` and `git rev-parse --show-toplevel`. Both must point at your isolated worktree path (under `.claude/worktrees/agent-...`), not the main repo root. Confirm `git branch --show-current` is your auto-generated worktree branch, not `main`.
+1. **Verify isolation FIRST.** Run `git rev-parse --show-toplevel`. It must resolve under `.claude/worktrees/`, not the main repo root.
 2. Explore: {what to read first}
 3. Implement the fix.
 4. Run typecheck / relevant tests.
@@ -163,39 +163,22 @@ Fix PSY-{N}: {ticket title}.
 
 # Reporting back
 Short report (under 250 words):
-- Branch name + worktree path
-- PR URL
+- Branch + worktree path; PR URL
 - Files changed (count + brief category breakdown)
 - Behaviour change (one or two sentences)
-- What `/simplify` changed (or "no changes")
-- Whether the isolation check tripped — if leakage was detected and you ran the recovery procedure, say so explicitly so the orchestrator can verify
-- **Scope-adjacent observations** — patterns noticed during the work that are out of scope (duplication you spotted, refactors that would help, related-but-untouched warnings, follow-up tickets worth filing). List them; do NOT expand the PR's scope to address them.
-- Any blockers / open questions
+- `/simplify` diff (or "no changes")
+- Isolation check: clean, or tripped + recovered
+- Scope-adjacent observations: out-of-scope patterns / refactors / warnings noticed. Do NOT expand PR scope to address them.
+- Blockers / open questions
 
-Do NOT include the full diff. Do NOT mark the ticket Done in Linear (that happens on merge). Do NOT push to main; only push the feature branch. If during exploration you discover a design ambiguity that wasn't surfaced in this prompt, STOP and report back instead of guessing.
+No full diff. Don't mark Done in Linear (happens on merge). Don't push to main. If you discover an unsurfaced design ambiguity during exploration, STOP and report back instead of guessing.
 ```
 
-## Project conventions reference
+## Anti-patterns
 
-Pulled from `CLAUDE.md` and the existing PR history. The per-agent prompt template above already includes these; this section is for the orchestrator to double-check.
+These supplement the ironclad rules with tactical guidance from observed batch failures. Rule restatements have been omitted — see "The ironclad rules" above.
 
-- Branch: `PSY-{N}/<kebab-description>`
-- Commit subject: `PSY-{N}: <imperative summary>`
-- Commit body: HEREDOC, ends with `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`
-- PR title: `PSY-{N}: <summary>` (under 70 chars)
-- PR body: Summary section + Test plan checklist + `Closes PSY-{N}` trailer
-- Linear labels (relevant for triage filtering, not enforced at dispatch): `Bug`, `frontend`, `backend`, `dogfooded`, `Improvement`, `Feature`, `migration`, `discovery`, `data-seeding`
-
-## Anti-patterns (caught in past batches)
-
-- **Dispatching with unresolved design forks.** The agent picks an option, you find out only at PR review, half the work is wrong. Surface forks via `AskUserQuestion` BEFORE dispatch.
-- **Forgetting the In-Progress transition.** Other humans/agents see the ticket as Backlog and may pick it up themselves. Transition before dispatch.
-- **Bundling simplify into the implementation commit.** Hides what the review pass changed. Always a separate commit.
 - **Skipping `/simplify` for "small" tickets.** The discipline is the point. Most small tickets produce no simplify diff anyway; running it costs nothing.
-- **Polling agents.** Kills the parallel-execution benefit and burns the prompt cache. Trust the completion notification.
-- **Using a single shared worktree.** Different agents stomp on each other's branches. Always `isolation: "worktree"`.
-- **Letting agents merge.** Merging is a human call. Agent's last step is `gh pr create`.
-- **Letting agents mark Done in Linear.** Done == merged. Until then the ticket stays In Progress.
 - **Trusting `isolation: "worktree"` blindly.** In the May 2026 dogfood batch (PSY-551 through PSY-556), 2 of 6 agents had Edit/Write tool calls land in the main worktree's CWD despite the isolation flag. The agents that detected and recovered (copy-edits-to-worktree → `git restore` leaked paths in main → resume) shipped clean PRs; without the recovery they would have committed the wrong files to the wrong branch. Always verify isolation up front and pre-commit, and run the orchestrator-level diff check at step 6.
 - **Using `git checkout .` or `git clean -fd` to "reset" main during recovery.** Both can wipe unrelated untracked files in the main worktree (e.g. another in-flight WIP, or session-scope draft files like a new skill). Use `git restore <specific paths>` only — target the leaked paths explicitly.
 
