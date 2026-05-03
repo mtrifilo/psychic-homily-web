@@ -94,11 +94,14 @@ vi.mock('@/features/auth', () => ({
   })),
 }))
 
-// Mock next/navigation
+// `RecenteringGraph` (rendered when showGraph=true) calls usePathname +
+// useSearchParams; vitest throws "No <hook> export is defined" without them.
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => ({
     push: vi.fn(),
   })),
+  usePathname: vi.fn(() => '/artists/gatecreeper'),
+  useSearchParams: vi.fn(() => new URLSearchParams()),
 }))
 
 // Mock the ArtistGraph visualization (canvas-based, can't render in jsdom)
@@ -199,11 +202,9 @@ describe('RelatedArtists', () => {
     expect(screen.getByText('Explore graph')).toBeInTheDocument()
   })
 
-  // PSY-366: dropped the previous `nodes.length >= 3` gate. The button is the
-  // affordance — sparse graphs (1-2 related artists) still benefit from it
-  // per `docs/research/knowledge-graph-viz-prior-art.md` §5.4. The mobile
-  // gate stays.
-  it('shows the Explore graph button with only 1 related artist (PSY-366)', async () => {
+  // Sparse graphs (1-2 related artists) still surface the button — entry-point
+  // affordance over gating; cf. docs/research/knowledge-graph-viz-prior-art.md §5.4.
+  it('shows the Explore graph button with only 1 related artist', async () => {
     const hooks = await import('../hooks/useArtistGraph')
     vi.mocked(hooks.useArtistGraph).mockReturnValue({
       data: {
@@ -324,5 +325,73 @@ describe('RelatedArtists', () => {
       <RelatedArtists artistId={1} artistSlug="gatecreeper" />
     )
     expect(screen.getByText('Explore graph')).toBeInTheDocument()
+  })
+
+  describe('#graph deep-link auto-open', () => {
+    afterEach(() => {
+      window.location.hash = ''
+    })
+
+    it('auto-opens the graph when window.location.hash is #graph', () => {
+      window.location.hash = '#graph'
+      renderWithProviders(
+        <RelatedArtists artistId={1} artistSlug="gatecreeper" />
+      )
+      // Derived state — synchronous, no findBy/await needed.
+      expect(screen.getByText('Hide graph')).toBeInTheDocument()
+    })
+
+    it('does not auto-open the graph when no #graph hash is set', () => {
+      window.location.hash = ''
+      renderWithProviders(
+        <RelatedArtists artistId={1} artistSlug="gatecreeper" />
+      )
+      expect(screen.getByText('Explore graph')).toBeInTheDocument()
+      expect(screen.queryByText('Hide graph')).not.toBeInTheDocument()
+    })
+
+    it('does not auto-open the graph when there are no relationships', async () => {
+      window.location.hash = '#graph'
+      const hooks = await import('../hooks/useArtistGraph')
+      vi.mocked(hooks.useArtistGraph).mockReturnValue({
+        data: {
+          center: { id: 1, name: 'Lonely', slug: 'lonely', upcoming_show_count: 0 },
+          nodes: [],
+          links: [],
+        },
+        isLoading: false,
+        error: null,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      renderWithProviders(
+        <RelatedArtists artistId={1} artistSlug="lonely" />
+      )
+      // Empty state — neither button label is present.
+      expect(screen.queryByText('Hide graph')).not.toBeInTheDocument()
+      expect(screen.getByText('No similar artists yet. Be the first to suggest one!')).toBeInTheDocument()
+
+      // Restore default for subsequent tests in this suite.
+      vi.mocked(hooks.useArtistGraph).mockReturnValue({
+        data: mockGraphData,
+        isLoading: false,
+        error: null,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    })
+
+    it('user toggle takes precedence over hash auto-open', async () => {
+      window.location.hash = '#graph'
+      const user = (await import('@testing-library/user-event')).default.setup()
+      renderWithProviders(
+        <RelatedArtists artistId={1} artistSlug="gatecreeper" />
+      )
+      // Auto-opened via hash.
+      expect(screen.getByText('Hide graph')).toBeInTheDocument()
+
+      // Click "Hide graph" — user override flips it closed even though the
+      // hash still says #graph.
+      await user.click(screen.getByText('Hide graph'))
+      expect(screen.getByText('Explore graph')).toBeInTheDocument()
+      expect(screen.queryByText('Hide graph')).not.toBeInTheDocument()
+    })
   })
 })
