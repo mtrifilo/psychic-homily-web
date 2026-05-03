@@ -49,7 +49,7 @@ export function DensityToggle({
   density,
   onDensityChange,
   className,
-  disabled = false,
+  disabled,
   disabledTooltip,
 }: DensityToggleProps) {
   const group = (
@@ -73,11 +73,10 @@ export function DensityToggle({
           onClick={() => onDensityChange(option.value)}
           data-testid={`density-${option.value}`}
           className={cn(
-            'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100',
+            'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100 disabled:cursor-not-allowed disabled:hover:text-current',
             density === option.value
               ? 'bg-background text-foreground shadow-sm'
-              : 'text-muted-foreground hover:text-foreground',
-            disabled && 'cursor-not-allowed hover:text-muted-foreground'
+              : 'text-muted-foreground hover:text-foreground'
           )}
         >
           {option.label}
@@ -86,9 +85,8 @@ export function DensityToggle({
     </div>
   )
 
-  // When disabled with a tooltip, wrap the group in a span trigger so
-  // hover/focus still register (Radix Tooltip won't fire pointer events
-  // on disabled buttons themselves).
+  // Wrap in a span trigger when disabled — Radix Tooltip won't fire
+  // pointer events on disabled buttons themselves.
   if (disabled && disabledTooltip) {
     return (
       <TooltipProvider delayDuration={300}>
