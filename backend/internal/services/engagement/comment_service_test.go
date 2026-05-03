@@ -351,8 +351,9 @@ func TestResolveCommentAuthorName(t *testing.T) {
 
 	t.Run("EmptyUsernamePointer_FallsThrough", func(t *testing.T) {
 		// PSY-552 regression check: a non-nil Username pointer pointing at
-		// an empty string must NOT short-circuit the chain (the original bug
-		// was treating *Username==""\ as a valid display name).
+		// an empty string must NOT short-circuit the chain (the original
+		// bug surfaced because *Username == "" was treated as a valid
+		// display name, leaking an empty author_name on the wire).
 		empty := ""
 		first := "Backup"
 		u := &authm.User{Username: &empty, FirstName: &first}
