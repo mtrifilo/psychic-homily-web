@@ -93,6 +93,19 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
   const [slugToIdCache, setSlugToIdCache] = useState<Record<string, number>>({})
   const [announcement, setAnnouncement] = useState('')
 
+  // PSY-548: when arriving via a `#graph` deep-link (e.g. from the Cmd+K
+  // palette), auto-open the graph view so the anchor resolves to the open
+  // graph rather than the section header. Mirrors the same pattern PSY-366
+  // landed on `CollectionDetail`. Depends on `originalGraph` so the flip
+  // happens after data loads (not on the initial null-data render where the
+  // wrapper-with-`id="graph"` doesn't exist yet).
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    if (window.location.hash !== '#graph') return
+    if (!originalGraph || originalGraph.nodes.length === 0) return
+    setShowGraph(true)
+  }, [originalGraph])
+
   if (isLoading) return null
 
   const hasRelationships = originalGraph && (originalGraph.nodes.length > 0 || originalGraph.links.length > 0)

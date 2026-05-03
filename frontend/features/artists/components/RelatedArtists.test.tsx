@@ -94,11 +94,16 @@ vi.mock('@/features/auth', () => ({
   })),
 }))
 
-// Mock next/navigation
+// Mock next/navigation. PSY-548: tests that flip `showGraph=true` (e.g. the
+// `#graph` deep-link auto-open) render the `RecenteringGraph` subcomponent,
+// which calls `usePathname()` + `useSearchParams()`. Both must be present in
+// the mock or vitest throws "No <hook> export is defined" during render.
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => ({
     push: vi.fn(),
   })),
+  usePathname: vi.fn(() => '/artists/gatecreeper'),
+  useSearchParams: vi.fn(() => new URLSearchParams()),
 }))
 
 // Mock the ArtistGraph visualization (canvas-based, can't render in jsdom)
@@ -324,5 +329,62 @@ describe('RelatedArtists', () => {
       <RelatedArtists artistId={1} artistSlug="gatecreeper" />
     )
     expect(screen.getByText('Explore graph')).toBeInTheDocument()
+  })
+
+  // PSY-548: when arriving via `#graph` (e.g. from a Cmd+K deep-link), the
+  // graph auto-opens after data loads so the anchor lands on the rendered
+  // graph rather than the section header.
+  describe('PSY-548: #graph deep-link auto-open', () => {
+    const originalHash = ''
+
+    afterEach(() => {
+      window.location.hash = originalHash
+    })
+
+    it('auto-opens the graph when window.location.hash is #graph', async () => {
+      window.location.hash = '#graph'
+      renderWithProviders(
+        <RelatedArtists artistId={1} artistSlug="gatecreeper" />
+      )
+      // Toggle button label flips to "Hide graph" once showGraph is true.
+      expect(await screen.findByText('Hide graph')).toBeInTheDocument()
+    })
+
+    it('does not auto-open the graph when no #graph hash is set', () => {
+      window.location.hash = ''
+      renderWithProviders(
+        <RelatedArtists artistId={1} artistSlug="gatecreeper" />
+      )
+      expect(screen.getByText('Explore graph')).toBeInTheDocument()
+      expect(screen.queryByText('Hide graph')).not.toBeInTheDocument()
+    })
+
+    it('does not auto-open the graph when there are no relationships', async () => {
+      window.location.hash = '#graph'
+      const hooks = await import('../hooks/useArtistGraph')
+      vi.mocked(hooks.useArtistGraph).mockReturnValue({
+        data: {
+          center: { id: 1, name: 'Lonely', slug: 'lonely', upcoming_show_count: 0 },
+          nodes: [],
+          links: [],
+        },
+        isLoading: false,
+        error: null,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+
+      renderWithProviders(
+        <RelatedArtists artistId={1} artistSlug="lonely" />
+      )
+      // Empty state — neither button label is present.
+      expect(screen.queryByText('Hide graph')).not.toBeInTheDocument()
+      expect(screen.getByText('No similar artists yet. Be the first to suggest one!')).toBeInTheDocument()
+
+      // Restore default for subsequent tests in this suite.
+      vi.mocked(hooks.useArtistGraph).mockReturnValue({
+        data: mockGraphData,
+        isLoading: false,
+        error: null,
+      } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    })
   })
 })
