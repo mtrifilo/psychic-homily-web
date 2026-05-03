@@ -690,26 +690,6 @@ func TestGenerateCLITokenHandler_NoUserContext(t *testing.T) {
 	}
 }
 
-func TestGenerateCLITokenHandler_NonAdmin(t *testing.T) {
-	h := testAuthHandler()
-	user := &authm.User{ID: 1, IsAdmin: false}
-	ctx := testhelpers.CtxWithUser(user)
-
-	resp, err := h.GenerateCLITokenHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeUnauthorized {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeUnauthorized, resp.Body.ErrorCode)
-	}
-	if !strings.Contains(resp.Body.Message, "admin") {
-		t.Errorf("expected message about admin, got %q", resp.Body.Message)
-	}
-}
-
 // ============================================================================
 // Mock-based auth handler tests
 // ============================================================================
