@@ -22,14 +22,15 @@ test.describe('Private collection detail (owner access)', () => {
         .first()
         .click()
 
-      // 2. Fill the title and uncheck Public to make it private.
+      // 2. Fill the title and uncheck Public to make it private. The Create
+      // form defaults Public=on, so we assert that pre-condition before the
+      // toggle to fail loudly if the form ever flips its default.
       await authenticatedPage
         .getByLabel('Title', { exact: true })
         .fill(PRIVATE_TITLE)
       const publicCheckbox = authenticatedPage.getByRole('checkbox', {
         name: 'Public',
       })
-      // The form defaults Public=on (CollectionList.tsx line 432). Toggle off.
       await expect(publicCheckbox).toBeChecked()
       await publicCheckbox.uncheck()
 

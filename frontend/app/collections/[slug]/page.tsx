@@ -36,7 +36,7 @@ async function getCollection(slug: string): Promise<CollectionData | null> {
   // When auth is present the backend response is viewer-specific (private
   // collections gate on creator_id), so we must NOT cache it across users.
   // Anonymous requests stay on ISR for public-collection performance.
-  const fetchInit: RequestInit & { next?: { revalidate: number } } = authToken
+  const fetchInit: RequestInit = authToken
     ? {
         headers: { Cookie: `auth_token=${authToken.value}` },
         cache: 'no-store',
