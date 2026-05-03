@@ -282,30 +282,65 @@ export function getEntityTypeLabel(entityType: string): string {
 }
 
 // =============================================================================
-// PSY-366: Collection graph types — mirror the backend contracts exactly.
+// Collection graph types — mirror the backend contracts exactly.
+//
+// PSY-366: artist-only graph (origin).
+// PSY-555: extended to multi-type — every collection item becomes a node.
 // =============================================================================
 
 export interface CollectionGraphInfo {
   slug: string
   name: string
+  /**
+   * Distinct artist nodes in the response. PSY-366 backwards-compat field;
+   * equivalent to `entity_counts.artist`. The frontend prefers
+   * `entity_counts` for the multi-type subtitle.
+   */
   artist_count: number
   edge_count: number
+  /**
+   * PSY-555: per-type breakdown of nodes ("artist", "venue", "show",
+   * "release", "label", "festival" → count). Always non-nil from the
+   * server; the type allows undefined for older fixtures.
+   */
+  entity_counts?: Record<string, number>
 }
 
 export interface CollectionGraphNode {
+  /**
+   * Stable node ID, unique within the response. PSY-555: this is the
+   * underlying `collection_item.id` rather than the entity's own DB ID,
+   * so artist 5 and venue 5 in the same collection don't collide.
+   * Treat as opaque on the frontend — link source/target reference it,
+   * but routing uses `entity_type` + `slug`.
+   */
   id: number
+  /**
+   * PSY-555: one of "artist", "venue", "show", "release", "label",
+   * "festival". Frontend uses this to pick the node icon/color and the
+   * route prefix on click. Optional in the type so older fixtures still
+   * compile; the server response always populates it.
+   */
+  entity_type?: string
   name: string
   slug: string
   city?: string
   state?: string
+  /** Meaningful only for artist nodes; 0 for non-artist nodes. */
   upcoming_show_count: number
-  /** True when the artist has zero in-set edges (post type-filter). */
+  /** True when the node has zero in-set edges (post type-filter). */
   is_isolate: boolean
 }
 
 export interface CollectionGraphLink {
   source_id: number
   target_id: number
+  /**
+   * Edge type. Stored artist-relationship grammar plus PSY-555 derived
+   * types: "played_at" (artist↔venue), "discography" (artist↔release),
+   * "signed_to" (artist↔label), "lineup" (artist↔festival),
+   * "show_lineup" (show↔artist), "show_venue" (show↔venue).
+   */
   type: string
   score: number
   detail?: Record<string, unknown>

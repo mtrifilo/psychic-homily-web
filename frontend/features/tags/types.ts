@@ -376,6 +376,10 @@ export function getEntityUrl(entityType: string, entitySlug: string): string {
       return `/labels/${entitySlug}`
     case 'festival':
       return `/festivals/${entitySlug}`
+    case 'collection':
+      // PSY-553: tagged collections (PSY-354) link to the same detail page
+      // entity-card chips link to from the collection browse list.
+      return `/collections/${entitySlug}`
     default:
       return '#'
   }
@@ -396,6 +400,9 @@ export function getEntityTypePluralLabel(entityType: string): string {
       return 'Labels'
     case 'festival':
       return 'Festivals'
+    case 'collection':
+      // PSY-553: powering the "Collections N" tab on the tag detail page.
+      return 'Collections'
     default:
       return entityType
   }

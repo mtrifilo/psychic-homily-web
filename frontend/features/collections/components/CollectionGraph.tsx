@@ -1,28 +1,26 @@
 'use client'
 
 /**
- * CollectionGraph (PSY-366)
+ * CollectionGraph (PSY-366, PSY-555)
  *
- * Section wrapper for the collection-scoped artist-relationship graph: header,
- * canvas, fullscreen overlay. Mirrors the SceneGraph (PSY-367, PSY-516,
- * PSY-517) layout pattern — same callback-ref width measurement, same
- * mobile gate, same body-scroll-lock + Esc-close fullscreen overlay.
+ * Section wrapper for the collection's knowledge subgraph: header, canvas,
+ * fullscreen overlay. PSY-555 broadened the graph from artist-only to a
+ * full multi-type graph (Option B) — every collection item is now a node.
+ *
+ * Mirrors the SceneGraph (PSY-367, PSY-516, PSY-517) layout pattern — same
+ * callback-ref width measurement, same mobile gate, same body-scroll-lock +
+ * Esc-close fullscreen overlay.
  *
  * Differs from SceneGraph in three ways:
- *   1. No clusters — collections have no natural cluster signal (curator-
- *      chosen items don't share a venue or scene). `clusters={[]}` is
- *      passed to ForceGraphView; nodes default to the "other" bucket.
+ *   1. Clusters are entity TYPES (artist / venue / show / release / label /
+ *      festival), not scene buckets — entity type is the most useful
+ *      grouping signal for a curator-chosen mixed-type set.
  *   2. No `MIN_GRAPH_NODES=3` empty-state gate — the parent
- *      (CollectionDetail) only renders this when artistItemCount > 0, so
- *      the user has explicit intent. A single artist shows as one dot;
- *      that's honest, not a crash.
- *   3. Toggle-driven, not default-visible — collections may have many
- *      non-artist items, and an always-on graph would compete with the
- *      items list for attention. The parent owns the toggle state.
+ *      (CollectionDetail) only renders this when the collection has items.
+ *   3. Toggle-driven, not default-visible. The parent owns the toggle.
  *
  * Mobile gating retained: below 640px the canvas is unusable (PSY-369),
- * so the graph slot collapses to a teaser message + "Open on a larger
- * screen" affordance.
+ * so the graph slot collapses to a teaser message.
  */
 
 import { useState, useCallback, useEffect, useMemo } from 'react'
@@ -30,10 +28,35 @@ import { useRouter } from 'next/navigation'
 import { Maximize2, X } from 'lucide-react'
 import { useCollectionGraph } from '../hooks'
 import { ForceGraphView } from '@/components/graph/ForceGraphView'
-import type { GraphNode } from '@/components/graph/ForceGraphView'
+import type { GraphCluster, GraphNode } from '@/components/graph/ForceGraphView'
+import {
+  COLLECTION_ENTITY_TYPES,
+  getEntityTypeLabel,
+  getEntityUrl,
+} from '../types'
 
 const GRAPH_BREAKPOINT_PX = 640
 const OVERLAY_VERTICAL_RESERVE_PX = 140
+
+/**
+ * PSY-555: stable color-index per entity type, indexing into the
+ * Okabe-Ito 8-color palette already used by ForceGraphView. The same
+ * type → index mapping is used everywhere in the component so the color
+ * the user sees on the canvas matches the legend hint and the icon row.
+ *
+ * The order is the same as COLLECTION_ENTITY_TYPES so the node-builder
+ * iteration and the cluster-legend ordering stay aligned.
+ *
+ * Indexes 0–5 (skipping 6/yellow which has poor contrast on dark mode).
+ */
+const ENTITY_COLOR_INDEX: Record<string, number> = {
+  artist: 0,
+  venue: 1,
+  show: 2,
+  release: 3,
+  label: 4,
+  festival: 5,
+}
 
 interface CollectionGraphProps {
   slug: string
@@ -95,9 +118,49 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     return data.nodes.reduce((n, node) => (node.is_isolate ? n + 1 : n), 0)
   }, [data])
 
-  const handleNodeClick = useCallback(
+  // PSY-555: enrich nodes with cluster_id (the entity type), and produce
+  // matching cluster definitions so ForceGraphView paints each type in
+  // its own color. We only declare clusters that actually appear in the
+  // payload, so single-type collections still look clean.
+  const { renderNodes, clusters } = useMemo(() => {
+    if (!data) {
+      return { renderNodes: [] as GraphNode[], clusters: [] as GraphCluster[] }
+    }
+    const counts: Record<string, number> = {}
+    const enriched: GraphNode[] = data.nodes.map(n => {
+      const entityType = n.entity_type ?? 'artist'
+      counts[entityType] = (counts[entityType] ?? 0) + 1
+      return {
+        id: n.id,
+        name: n.name,
+        slug: n.slug,
+        city: n.city,
+        state: n.state,
+        upcoming_show_count: n.upcoming_show_count,
+        is_isolate: n.is_isolate,
+        cluster_id: entityType,
+      }
+    })
+    const clusterDefs: GraphCluster[] = COLLECTION_ENTITY_TYPES
+      .filter(t => (counts[t] ?? 0) > 0)
+      .map(t => ({
+        id: t,
+        label: getEntityTypeLabel(t),
+        size: counts[t],
+        color_index: ENTITY_COLOR_INDEX[t] ?? -1,
+      }))
+    return { renderNodes: enriched, clusters: clusterDefs }
+  }, [data])
+
+  // PSY-555: route to the right entity detail page based on the node's
+  // entity_type. The render-node's `cluster_id` carries the entity type
+  // (set above when enriching). Falls back to /artists/ for legacy nodes
+  // that don't carry it — shouldn't happen in production, matches the
+  // PSY-366 baseline.
+  const navigateToNode = useCallback(
     (node: GraphNode) => {
-      router.push(`/artists/${node.slug}`)
+      const entityType = node.cluster_id ?? 'artist'
+      router.push(getEntityUrl(entityType, node.slug))
     },
     [router],
   )
@@ -105,10 +168,30 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
   const handleNodeClickOverlay = useCallback(
     (node: GraphNode) => {
       setIsFullscreen(false)
-      router.push(`/artists/${node.slug}`)
+      navigateToNode(node)
     },
-    [router],
+    [navigateToNode],
   )
+
+  // PSY-555: subtitle reflects the multi-type breakdown. Uses
+  // entity_counts when present, falling back to artist_count for
+  // PSY-366-era response shapes.
+  const subtitleParts = useMemo(() => {
+    if (!data) return [] as string[]
+    const counts =
+      data.collection.entity_counts ??
+      // legacy fallback — old responses only carry artist_count
+      ({ artist: data.collection.artist_count } as Record<string, number>)
+    return COLLECTION_ENTITY_TYPES.flatMap(t => {
+      const count = counts[t] ?? 0
+      if (count <= 0) return []
+      // singular vs. plural copy — `getEntityTypeLabel` is "Artist"
+      // (singular); for the count display we lowercase + pluralize.
+      const labelLower = getEntityTypeLabel(t).toLowerCase()
+      const pluralized = count === 1 ? labelLower : `${labelLower}s`
+      return [`${count} ${pluralized}`]
+    })
+  }, [data])
 
   // Always render the wrapper so the callback ref fires even before data
   // arrives — otherwise we'd never measure the container.
@@ -121,7 +204,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     <div>
       <h2 className="text-lg font-semibold">Collection graph</h2>
       <p className="text-sm text-muted-foreground">
-        {nodeCount} {nodeCount === 1 ? 'artist' : 'artists'}
+        {subtitleParts.length > 0 ? subtitleParts.join(' · ') : 'No items'}
         {edgeCount > 0 && (
           <>
             {' · '}
@@ -150,7 +233,7 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
     </button>
   )
 
-  const ariaLabel = `Relationship graph for collection ${collectionTitle}: ${nodeCount} artists, ${edgeCount} connections.`
+  const ariaLabel = `Knowledge graph for collection ${collectionTitle}: ${nodeCount} items, ${edgeCount} connections.`
 
   return (
     <>
@@ -173,7 +256,8 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
 
         {!isLoading && data && nodeCount === 0 && (
           <p className="text-sm text-muted-foreground">
-            No artist items yet — add an artist to this collection to see its graph.
+            No items yet — add an artist, venue, release, label, festival, or
+            show to this collection to see its graph.
           </p>
         )}
 
@@ -186,17 +270,18 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
         {!isLoading && data && nodeCount > 0 && graphAvailable && !isFullscreen && (
           <div className="space-y-3">
             <ForceGraphView
-              nodes={data.nodes}
+              nodes={renderNodes}
               links={data.links}
-              clusters={[]}
+              clusters={clusters}
               containerWidth={containerWidth!}
               ariaLabel={ariaLabel}
-              onNodeClick={handleNodeClick}
+              onNodeClick={navigateToNode}
             />
             <p className="text-xs text-muted-foreground">
-              Showing artists in this collection and their stored relationships
-              (shared bills, shared label, member of, side project, similar, radio
-              co-occurrence). Click any artist to open their page.
+              Showing every item in this collection and the relationships
+              between them — artists, venues they’ve played, releases
+              they’ve made, labels they’re on, festivals they’ve
+              played, and shows. Click any node to open its page.
             </p>
           </div>
         )}
@@ -228,9 +313,9 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
           <div className="flex-1 min-h-0 px-4 py-2">
             {overlayHeight !== null && overlayWidth !== null && (
               <ForceGraphView
-                nodes={data.nodes}
+                nodes={renderNodes}
                 links={data.links}
-                clusters={[]}
+                clusters={clusters}
                 containerWidth={overlayWidth}
                 height={overlayHeight}
                 ariaLabel={ariaLabel}

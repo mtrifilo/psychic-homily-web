@@ -273,19 +273,35 @@ type AddCollectionTagResponse struct {
 }
 
 // ──────────────────────────────────────────────
-// Collection graph (PSY-366) — derived per-collection artist relationship graph
+// Collection graph (PSY-366, PSY-555) — multi-type per-collection knowledge graph
 // ──────────────────────────────────────────────
 //
-// The collection analog of the scene graph (PSY-367). Edges are stored
-// `artist_relationships` rows where both endpoints are in the collection's
-// artist items. Mirrors the {Info, Nodes, Links} shape so a shared frontend
-// ForceGraphView can render the payload — no clusters in v1 (collections
-// have no natural cluster signal). See docs/research/knowledge-graph-viz-prior-art.md
-// §5.4 for the entry-point-invisibility motivation.
+// PSY-555 broadened the graph from artist-only to a full multi-type graph
+// (Option B in the ticket): every collection item — artist, venue, show,
+// release, label, festival — becomes a node. Edges are derived from the
+// existing relational model so no new storage is needed:
+//
+//   - artist ↔ artist  : stored `artist_relationships` rows (PSY-366 origin)
+//   - artist ↔ venue   : artist played the venue, via show_artists ⋈ show_venues
+//   - artist ↔ release : artist made the release, via artist_releases
+//   - artist ↔ label   : artist signed to the label, via artist_labels
+//   - artist ↔ festival: artist played the festival, via festival_artists
+//   - show   ↔ artist  : show's lineup, via show_artists
+//   - show   ↔ venue   : show's location, via show_venues
+//
+// Edges are emitted ONLY when both endpoints are present in the collection.
+// We never invent phantom nodes for relationships that pull in entities the
+// curator did not choose — that would explode the graph. Edges between
+// non-artist nodes (venue↔festival etc.) are intentionally out of scope.
+//
+// Mirrors the {Info, Nodes, Links} shape so a shared frontend ForceGraphView
+// can render the payload — no clusters in v1 (collections have no natural
+// cluster signal). See docs/research/knowledge-graph-viz-prior-art.md §5.4
+// for the entry-point-invisibility motivation.
 
 // CollectionGraphResponse is the payload for GET /collections/{slug}/graph.
-// Returned for any collection with at least one artist item; collections
-// containing only non-artist entity types return empty nodes/links (200, not 404).
+// Returned for any collection; collections with no items return empty
+// nodes/links (200, not 404).
 type CollectionGraphResponse struct {
 	Collection CollectionGraphInfo   `json:"collection"`
 	Nodes      []CollectionGraphNode `json:"nodes"`
@@ -293,28 +309,64 @@ type CollectionGraphResponse struct {
 }
 
 // CollectionGraphInfo holds collection metadata for the graph response.
+//
+// EntityCounts is the per-type breakdown of nodes returned in the response
+// (artist / venue / show / release / label / festival). The frontend uses
+// this to render the subtitle copy ("1 artist · 1 venue · 1 release"). Always
+// non-nil; empty map when the collection has no items.
+//
+// ArtistCount is preserved for backward compatibility with PSY-366-era
+// callers and equals EntityCounts["artist"].
 type CollectionGraphInfo struct {
-	Slug        string `json:"slug"`
-	Name        string `json:"name"`
-	ArtistCount int    `json:"artist_count"` // distinct artists in the collection (includes isolates)
-	EdgeCount   int    `json:"edge_count"`   // total edges in the response (post type-filter)
+	Slug         string         `json:"slug"`
+	Name         string         `json:"name"`
+	ArtistCount  int            `json:"artist_count"` // distinct artists in the collection (includes isolates)
+	EdgeCount    int            `json:"edge_count"`   // total edges in the response (post type-filter)
+	EntityCounts map[string]int `json:"entity_counts"`
 }
 
-// CollectionGraphNode represents an artist item in the collection graph.
-// Mirrors SceneGraphNode minus ClusterID (no clustering in v1).
+// CollectionGraphNode represents a single collection item in the graph.
+//
+// EntityType is one of the six community.CollectionEntity* constants:
+// "artist", "venue", "show", "release", "label", "festival". Frontend uses
+// it to pick the node icon and color.
+//
+// City and State are populated when the underlying record has them (artist,
+// venue) and empty otherwise (releases / labels / shows / festivals don't
+// always have a stable place — keep the field in the union shape and let
+// the renderer omit it).
+//
+// UpcomingShowCount is meaningful only for artists; non-artist nodes return
+// 0. Kept on the shared shape so the frontend ForceGraphView (PSY-365)
+// renders the same node type regardless of entity.
 type CollectionGraphNode struct {
 	ID                uint   `json:"id"`
+	EntityType        string `json:"entity_type"`
 	Name              string `json:"name"`
 	Slug              string `json:"slug"`
 	City              string `json:"city,omitempty"`
 	State             string `json:"state,omitempty"`
 	UpcomingShowCount int    `json:"upcoming_show_count"`
-	IsIsolate         bool   `json:"is_isolate"` // true when artist has no in-set edges (post type-filter)
+	IsIsolate         bool   `json:"is_isolate"` // true when node has no in-set edges (post type-filter)
 }
 
-// CollectionGraphLink represents a stored relationship between two artist
-// items. Mirrors SceneGraphLink minus IsCrossCluster (no clustering in v1).
-// Voting and user-vote data are intentionally omitted — collection graph is
+// CollectionGraphLink represents an edge in the collection graph.
+//
+// Type uses the existing artist-relationship grammar where it applies
+// (shared_bills, shared_label, member_of, side_project, similar,
+// radio_cooccurrence) and adds derived types for the multi-type cases:
+//   - "played_at"     : artist played the venue (artist ↔ venue)
+//   - "discography"   : artist made the release (artist ↔ release)
+//   - "signed_to"     : artist signed to the label (artist ↔ label)
+//   - "lineup"        : artist played the festival (artist ↔ festival)
+//   - "show_lineup"   : show ↔ artist (the show's billed acts)
+//   - "show_venue"    : show ↔ venue (the show's location)
+//
+// SourceID/TargetID are NODE IDs unique within the response — for two
+// different entity types with the same DB ID (e.g. artist 5 and venue 5),
+// the IDs are namespaced by buildNodeID below to keep them distinct.
+//
+// Voting/user-vote data are intentionally omitted — collection graph is
 // read-only, like scene graph.
 type CollectionGraphLink struct {
 	SourceID uint    `json:"source_id"`
