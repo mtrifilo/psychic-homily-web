@@ -75,4 +75,62 @@ describe('DensityToggle', () => {
       expect(radio).toHaveAttribute('type', 'button')
     }
   })
+
+  // PSY-556: when the surrounding view doesn't apply density (e.g. a list
+  // layout), the toggle stays mounted but disabled so the toolbar doesn't
+  // shift between modes. Persisted selection is preserved by the parent.
+  describe('when disabled', () => {
+    it('keeps all radios in the DOM (no conditional unmount)', () => {
+      render(
+        <DensityToggle
+          density="comfortable"
+          onDensityChange={mockOnDensityChange}
+          disabled
+          disabledTooltip="Density only applies to grid view"
+        />
+      )
+      expect(screen.getAllByRole('radio')).toHaveLength(3)
+    })
+
+    it('marks the radiogroup aria-disabled and disables each button', () => {
+      render(
+        <DensityToggle
+          density="comfortable"
+          onDensityChange={mockOnDensityChange}
+          disabled
+        />
+      )
+      expect(screen.getByRole('radiogroup')).toHaveAttribute('aria-disabled', 'true')
+      for (const radio of screen.getAllByRole('radio')) {
+        expect(radio).toBeDisabled()
+      }
+    })
+
+    it('does not call onDensityChange when a disabled radio is clicked', async () => {
+      const user = userEvent.setup()
+      render(
+        <DensityToggle
+          density="comfortable"
+          onDensityChange={mockOnDensityChange}
+          disabled
+        />
+      )
+      await user.click(screen.getByRole('radio', { name: 'Compact' }))
+      expect(mockOnDensityChange).not.toHaveBeenCalled()
+    })
+
+    it('preserves the current selection (aria-checked still reflects density)', () => {
+      render(
+        <DensityToggle
+          density="expanded"
+          onDensityChange={mockOnDensityChange}
+          disabled
+        />
+      )
+      expect(screen.getByRole('radio', { name: 'Expanded' })).toHaveAttribute(
+        'aria-checked',
+        'true'
+      )
+    })
+  })
 })
