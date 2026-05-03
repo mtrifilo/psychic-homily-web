@@ -15,7 +15,7 @@
  */
 
 import Link from 'next/link'
-import { BadgeCheck, Calendar, MapPin, Music, Disc3, Tag } from 'lucide-react'
+import { BadgeCheck, Calendar, Library, MapPin, Music, Disc3, Tag } from 'lucide-react'
 import { ArtistCard } from '@/features/artists'
 import { FestivalCard } from '@/features/festivals'
 import { LabelCard } from '@/features/labels'
@@ -224,6 +224,36 @@ function TaggedShowRow({ item }: { item: TaggedEntityItem }) {
   )
 }
 
+/**
+ * PSY-553: tagged collection row. The backend (`enrichCollections`) only
+ * populates name + slug for collections (no city/state/counts), and the
+ * full CollectionCard requires a heavyweight shape with item counts,
+ * contributor counts, like state, etc. that the tag-entities endpoint
+ * doesn't return. Following the TaggedShowRow / TaggedVenueRow precedent,
+ * we render a minimal inline row that links to /collections/{slug}.
+ */
+function TaggedCollectionRow({ item }: { item: TaggedEntityItem }) {
+  return (
+    <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
+      <div className="flex items-start gap-3">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted/50">
+          <Library className="h-5 w-5 text-muted-foreground/70" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <Link
+            href={getEntityUrl('collection', item.slug)}
+            className="block group"
+          >
+            <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors truncate">
+              {item.name}
+            </h3>
+          </Link>
+        </div>
+      </div>
+    </article>
+  )
+}
+
 // ──────────────────────────────────────────────
 // Public renderer
 // ──────────────────────────────────────────────
@@ -251,6 +281,8 @@ export function TaggedEntityCard({ item }: TaggedEntityCardProps) {
       return <TaggedReleaseCard item={item} />
     case 'show':
       return <TaggedShowRow item={item} />
+    case 'collection':
+      return <TaggedCollectionRow item={item} />
     default:
       return (
         <article className="rounded-lg border border-border/50 bg-card p-4">
@@ -277,5 +309,6 @@ export const ENTITY_TYPE_TAB_ICON: Record<
   label: Tag,
   release: Disc3,
   show: Calendar,
+  collection: Library,
 }
 

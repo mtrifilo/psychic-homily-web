@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Hash, Loader2, Music, MapPin, Calendar, Disc3, Tag, Tent, Clock } from 'lucide-react'
+import { ArrowLeft, Hash, Loader2, Library, Music, MapPin, Calendar, Disc3, Tag, Tent, Clock } from 'lucide-react'
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -19,8 +19,23 @@ interface TagDetailProps {
   slug: string
 }
 
-/** Entity type display order — genre tags use parent/children nav; others are flat. */
-const ENTITY_TYPE_ORDER = ['artist', 'venue', 'show', 'release', 'label', 'festival'] as const
+/**
+ * Entity type display order — genre tags use parent/children nav; others are flat.
+ *
+ * PSY-553: collections (PSY-354) appear after the existing entity-type tabs
+ * because they're a meta-type — a collection-of-entities, not a primary
+ * entity. Tabs whose count is zero are filtered out below, so the Collections
+ * tab is hidden until at least one tagged collection is public.
+ */
+const ENTITY_TYPE_ORDER = [
+  'artist',
+  'venue',
+  'show',
+  'release',
+  'label',
+  'festival',
+  'collection',
+] as const
 
 const ENTITY_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
   artist: Music,
@@ -29,6 +44,7 @@ const ENTITY_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string
   release: Disc3,
   label: Tag,
   festival: Tent,
+  collection: Library,
 }
 
 /** Singular display label for entity types used in the breakdown row. */
@@ -46,6 +62,8 @@ function getEntityTypeSingularLabel(entityType: string): string {
       return 'label'
     case 'festival':
       return 'festival'
+    case 'collection':
+      return 'collection'
     default:
       return entityType
   }

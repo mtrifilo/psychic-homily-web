@@ -1180,6 +1180,8 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 			enrichedByType[eType] = s.enrichReleases(ids)
 		case "show":
 			enrichedByType[eType] = s.enrichShows(ids)
+		case "collection":
+			enrichedByType[eType] = s.enrichCollections(ids)
 		default:
 			enrichedByType[eType] = s.enrichBare(eType, ids)
 		}
@@ -1199,6 +1201,11 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 				enriched.EntityType = et.EntityType
 				enriched.EntityID = et.EntityID
 				item = enriched
+			} else if et.EntityType == "collection" {
+				// PSY-553: enrichCollections drops private + deleted
+				// collections so the public tag detail page can't leak
+				// them; skip rather than emit an empty-name placeholder.
+				continue
 			}
 		}
 		items = append(items, item)
@@ -1545,6 +1552,43 @@ func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem
 			VenueSlug:     r.VenueSlug,
 			HeadlinerName: r.HeadlinerName,
 			HeadlinerSlug: r.HeadlinerSlug,
+		}
+	}
+	return out
+}
+
+// enrichCollections resolves tagged collections to (title → name, slug).
+//
+// PSY-553: tag detail is public, so private collections must NOT leak
+// through this surface even when tagged — the `is_public = true` filter is
+// load-bearing. Excluded collections (private OR deleted) are dropped from
+// the response in the build loop above via the matching collection-type
+// continue branch. On query error we return an empty map (drop all) rather
+// than fall back to `enrichBare` because `entityTableMap` has no collection
+// entry and a fallthrough would surface every tagged collection's id with
+// an empty name.
+func (s *TagService) enrichCollections(ids []uint) map[uint]contracts.TaggedEntityItem {
+	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
+	type row struct {
+		ID    uint
+		Title string
+		Slug  string
+	}
+	var rows []row
+	if err := s.db.Raw(`
+		SELECT id,
+		       title,
+		       COALESCE(slug, '') AS slug
+		FROM collections
+		WHERE id IN ?
+		  AND is_public = true
+	`, ids).Scan(&rows).Error; err != nil {
+		return out
+	}
+	for _, r := range rows {
+		out[r.ID] = contracts.TaggedEntityItem{
+			Name: r.Title,
+			Slug: r.Slug,
 		}
 	}
 	return out

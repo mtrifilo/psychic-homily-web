@@ -12,6 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
@@ -84,6 +85,10 @@ func (suite *TagServiceIntegrationTestSuite) SetupTest() {
 	_, _ = sqlDB.Exec("DELETE FROM shows")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	// PSY-553: collections need cleanup so the GetTagEntities collection
+	// branch test (which exercises the is_public visibility filter) starts
+	// from a known empty state. Cascading FKs handle child tables.
+	_, _ = sqlDB.Exec("DELETE FROM collections")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -1153,6 +1158,76 @@ func (suite *TagServiceIntegrationTestSuite) createVenue(name string) uint {
 	err := suite.db.Create(venue).Error
 	suite.Require().NoError(err)
 	return venue.ID
+}
+
+// createCollection creates a minimal collection for tag-collection tests.
+// `isPublic` controls the visibility flag the GetTagEntities collection
+// branch checks (PSY-553).
+//
+// GORM zero-value gotcha: `IsPublic: false` on Create is the bool zero value
+// and GORM skips the column, so the DB default (`true`) would win. We always
+// Create with `IsPublic: true` and Update to false when the caller asked for
+// private — same pattern as the IsActive fix called out in MEMORY.md.
+func (suite *TagServiceIntegrationTestSuite) createCollection(creatorID uint, title string, isPublic bool) *communitym.Collection {
+	slug := fmt.Sprintf("%s-%d", title, time.Now().UnixNano())
+	c := &communitym.Collection{
+		Title:     title,
+		Slug:      slug,
+		CreatorID: creatorID,
+		IsPublic:  true,
+	}
+	err := suite.db.Create(c).Error
+	suite.Require().NoError(err)
+	if !isPublic {
+		err = suite.db.Model(c).Update("is_public", false).Error
+		suite.Require().NoError(err)
+		c.IsPublic = false
+	}
+	return c
+}
+
+// PSY-553: tagged collections must surface with non-empty name/slug on the
+// public tag-detail endpoint, and private collections must NOT leak through
+// it even when tagged. Both clauses live in the same test so a regression to
+// either side fails together.
+func (suite *TagServiceIntegrationTestSuite) TestGetTagEntities_Collections_PublicAndPrivate() {
+	user := suite.createTestUserWithTier("tagger", "contributor")
+	tag := suite.createTag("psychedelic", "genre")
+
+	publicColl := suite.createCollection(user.ID, "Public Picks", true)
+	privateColl := suite.createCollection(user.ID, "Private Picks", false)
+
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, publicColl.ID, user.ID, "")
+	suite.Require().NoError(err)
+	_, err = suite.tagService.AddTagToEntity(tag.ID, "", catalogm.TagEntityCollection, privateColl.ID, user.ID, "")
+	suite.Require().NoError(err)
+
+	items, _, err := suite.tagService.GetTagEntities(tag.ID, "", 50, 0)
+	suite.Require().NoError(err)
+
+	// Filter to just the collection rows so this test stays focused on the
+	// collection branch — co-existing tagged entity types in this suite would
+	// otherwise need their own asserts.
+	var collItems []contracts.TaggedEntityItem
+	for _, it := range items {
+		if it.EntityType == catalogm.TagEntityCollection {
+			collItems = append(collItems, it)
+		}
+	}
+
+	suite.Require().Len(collItems, 1, "private collection must be excluded from the public tag-entities response")
+	suite.Assert().Equal(publicColl.ID, collItems[0].EntityID)
+	suite.Assert().Equal("Public Picks", collItems[0].Name, "title should map to the response `name` field")
+	suite.Assert().NotEmpty(collItems[0].Slug, "slug must be populated so the frontend can build /collections/{slug}")
+	suite.Assert().Equal(publicColl.Slug, collItems[0].Slug)
+
+	// Same assertion via the entity_type filter — exercises the
+	// `entity_type=collection` query-param path the frontend uses.
+	filtered, _, err := suite.tagService.GetTagEntities(tag.ID, catalogm.TagEntityCollection, 50, 0)
+	suite.Require().NoError(err)
+	suite.Require().Len(filtered, 1)
+	suite.Assert().Equal(publicColl.ID, filtered[0].EntityID)
+	suite.Assert().Equal("Public Picks", filtered[0].Name)
 }
 
 func (suite *TagServiceIntegrationTestSuite) TestGetTagDetail_NotFound() {
