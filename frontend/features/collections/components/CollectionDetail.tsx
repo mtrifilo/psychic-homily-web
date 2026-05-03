@@ -941,18 +941,20 @@ function CollectionItemsList({
   const renderItems = isGridView ? renderGridCards : renderListRows
 
   // Header row: section title on the left, view + density toggles on the
-  // right. Density toggle only appears in grid view (it has no effect on
-  // the list layout).
+  // right. Density toggle stays mounted in list view so the toolbar
+  // doesn't shift between modes (PSY-556); it's disabled there with a
+  // tooltip explaining the constraint. The persisted selection is
+  // preserved so toggling back to grid restores the user's choice.
   const header = (
     <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
       <h2 className="text-lg font-semibold">Items</h2>
       <div className="flex items-center gap-2">
-        {isGridView && (
-          <DensityToggle
-            density={density}
-            onDensityChange={setDensity}
-          />
-        )}
+        <DensityToggle
+          density={density}
+          onDensityChange={setDensity}
+          disabled={!isGridView}
+          disabledTooltip="Density only applies to grid view"
+        />
         <div
           className="inline-flex items-center rounded-lg border border-border/50 bg-muted/30 p-0.5"
           role="radiogroup"

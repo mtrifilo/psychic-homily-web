@@ -54,14 +54,21 @@ vi.mock('@/components/shared', () => ({
   // PSY-360: stub the density toggle so the items-list view-mode toggle
   // can render without pulling in the real (no behavior we exercise from
   // here — density coverage lives in the DensityToggle's own test file).
+  // PSY-556: surface the `disabled` prop on the stub so the parent test
+  // can assert that list view disables the toggle (visible but inert).
   DensityToggle: ({
     density,
     onDensityChange,
+    disabled,
   }: {
     density: 'compact' | 'comfortable' | 'expanded'
     onDensityChange: (value: 'compact' | 'comfortable' | 'expanded') => void
+    disabled?: boolean
   }) => (
-    <div data-testid="density-toggle-stub">
+    <div
+      data-testid="density-toggle-stub"
+      data-disabled={disabled ? 'true' : 'false'}
+    >
       <button onClick={() => onDensityChange('compact')}>compact</button>
       <button onClick={() => onDensityChange('comfortable')}>comfortable</button>
       <button onClick={() => onDensityChange('expanded')}>expanded</button>
@@ -1686,7 +1693,7 @@ describe('CollectionDetail', () => {
       expect(screen.queryAllByTestId('collection-item-card')).toHaveLength(0)
     })
 
-    it('density toggle is visible only in grid view', async () => {
+    it('density toggle stays mounted in list view but is disabled (PSY-556)', async () => {
       mockCollection.mockReturnValue({
         data: makeCollection({ items: sampleItems }),
         isLoading: false,
@@ -1695,14 +1702,24 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       render(<CollectionDetail slug="test-collection" />)
 
-      // Visible in grid.
-      expect(screen.getByTestId('density-toggle-stub')).toBeInTheDocument()
+      // Visible AND enabled in grid view.
+      const toggle = screen.getByTestId('density-toggle-stub')
+      expect(toggle).toBeInTheDocument()
+      expect(toggle).toHaveAttribute('data-disabled', 'false')
 
-      // Switch to list — density toggle disappears (no effect on list).
+      // Switch to list — toggle stays mounted (no layout shift) but is
+      // disabled. Persisted selection is preserved by useDensity.
       await user.click(screen.getByTestId('view-mode-list'))
-      expect(
-        screen.queryByTestId('density-toggle-stub')
-      ).not.toBeInTheDocument()
+      const toggleAfter = screen.getByTestId('density-toggle-stub')
+      expect(toggleAfter).toBeInTheDocument()
+      expect(toggleAfter).toHaveAttribute('data-disabled', 'true')
+
+      // Switch back to grid — re-enabled.
+      await user.click(screen.getByTestId('view-mode-grid'))
+      expect(screen.getByTestId('density-toggle-stub')).toHaveAttribute(
+        'data-disabled',
+        'false'
+      )
     })
 
     it('grid view in ranked mode shows position badges on each card', () => {
