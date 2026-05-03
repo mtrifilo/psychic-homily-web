@@ -52,20 +52,15 @@ export function CollectionCoverImage({
 }: CollectionCoverImageProps) {
   const trimmed = url?.trim() ?? ''
 
-  // Track the URL alongside the error flag so the error state resets
-  // automatically when the URL changes (e.g. after an edit). Storing
-  // both in one piece of state — rather than syncing via useEffect —
-  // follows the React-recommended "reset state on prop change" pattern
-  // (https://react.dev/learn/you-might-not-need-an-effect#resetting-all-state-when-a-prop-changes).
+  // Pin the errored flag to the URL it was recorded for so a later URL
+  // change (e.g. after an edit) auto-resets without a useEffect. See
+  // https://react.dev/learn/you-might-not-need-an-effect#resetting-all-state-when-a-prop-changes.
   const [errorState, setErrorState] = useState<{
     url: string
     errored: boolean
   }>({ url: trimmed, errored: false })
 
-  // If the URL changed since we last recorded an error, reset during
-  // render — avoids a "load fallback briefly then flicker to image"
-  // round-trip from a useEffect-based reset.
-  const errored = errorState.url === trimmed && errorState.errored
+  const errored = errorState.errored && errorState.url === trimmed
   const showImage = trimmed.length > 0 && !errored
 
   return (

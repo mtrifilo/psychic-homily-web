@@ -3,10 +3,8 @@ import { describe, it, expect } from 'vitest'
 import { render, screen, fireEvent } from '@testing-library/react'
 import { CollectionCoverImage } from './CollectionCoverImage'
 
-const FALLBACK_TEXT = 'fallback content'
-
 function Fallback() {
-  return <span data-testid="fallback">{FALLBACK_TEXT}</span>
+  return <span data-testid="fallback">fallback content</span>
 }
 
 describe('CollectionCoverImage', () => {
