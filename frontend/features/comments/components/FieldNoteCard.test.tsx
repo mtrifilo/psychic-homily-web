@@ -265,6 +265,47 @@ describe('FieldNoteCard', () => {
     expect(screen.getByText('Edited')).toBeInTheDocument()
   })
 
+  // PSY-552: linkable author byline — same shape as CommentCard.
+  describe('author byline linkability (PSY-552)', () => {
+    it('links the byline to /users/:username when author_username is set', () => {
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({
+            author_name: 'Jane Doe',
+            author_username: 'janedoe',
+          })}
+          showId={10}
+        />
+      )
+
+      const link = screen.getByTestId('field-note-author-link')
+      expect(link).toHaveAttribute('href', '/users/janedoe')
+      expect(link).toHaveTextContent('Jane Doe')
+      expect(
+        screen.queryByTestId('field-note-author-name')
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders plain text byline when author_username is null', () => {
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({
+            author_name: 'jane',
+            author_username: null,
+          })}
+          showId={10}
+        />
+      )
+
+      expect(screen.getByTestId('field-note-author-name')).toHaveTextContent(
+        'jane'
+      )
+      expect(
+        screen.queryByTestId('field-note-author-link')
+      ).not.toBeInTheDocument()
+    })
+  })
+
   // PSY-514: same zero-reply gating that applies to CommentCard.
   describe('Show replies button gating (PSY-514)', () => {
     it('does NOT render "Show replies" when reply_count is 0', () => {

@@ -200,6 +200,29 @@ describe('CollectionCard', () => {
     expect(img).toHaveAttribute('src', 'https://example.com/cover.jpg')
   })
 
+  // PSY-554: when the cover URL 404s, the tile must not stay blank — the
+  // existing entity-type mosaic / Library fallback used for null URLs
+  // should also render after onError fires.
+  it('falls back to the entity-type mosaic when the cover image fails to load', () => {
+    const collection = {
+      ...baseCollection,
+      cover_image_url: 'https://example.com/missing.jpg',
+      entity_type_counts: { artist: 3, release: 1 },
+    }
+    render(<CollectionCard collection={collection} />)
+
+    const img = screen.getByRole('img', { name: 'Arizona Indie Essentials cover' })
+    fireEvent.error(img)
+    expect(
+      screen.queryByRole('img', { name: 'Arizona Indie Essentials cover' })
+    ).not.toBeInTheDocument()
+    // Mosaic icons replace the broken image; we don't assert on the
+    // specific Lucide markup since that's an implementation detail of
+    // CollectionCoverImage's fallback prop. Sanity-check is that the
+    // image is gone but the surrounding card is still intact.
+    expect(screen.getByText('Arizona Indie Essentials')).toBeInTheDocument()
+  })
+
   // PSY-350: "N new since last visit" badge
   it('renders the N-new badge when new_since_last_visit > 0', () => {
     const collection = { ...baseCollection, new_since_last_visit: 3 }

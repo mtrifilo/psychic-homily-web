@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import Link from 'next/link'
 import { ChevronUp, ChevronDown, MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -106,9 +107,26 @@ export function FieldNoteCard({
 
   return (
     <div data-testid="field-note-card" className="rounded-lg border border-border/50 bg-card p-4">
-      {/* Header: author + verified badge + timestamp */}
+      {/* Header: author + verified badge + timestamp. PSY-552: link byline
+          to the author's profile when author_username is set; otherwise
+          plain text. */}
       <div className="flex items-center gap-2 text-sm">
-        <span className="font-medium text-foreground">{comment.author_name}</span>
+        {comment.author_username ? (
+          <Link
+            href={`/users/${comment.author_username}`}
+            className="font-medium text-foreground hover:underline"
+            data-testid="field-note-author-link"
+          >
+            {comment.author_name}
+          </Link>
+        ) : (
+          <span
+            className="font-medium text-foreground"
+            data-testid="field-note-author-name"
+          >
+            {comment.author_name}
+          </span>
+        )}
         {isVerified && (
           <Badge
             variant="secondary"

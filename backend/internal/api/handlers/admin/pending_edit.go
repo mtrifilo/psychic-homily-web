@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
@@ -146,11 +147,18 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 		return nil, huma.Error422UnprocessableEntity("Summary is required — explain why you are making this change")
 	}
 
-	// Validate fields against allowed list
+	// Validate fields against allowed list, then validate URL field values
+	// (PSY-549) so contributors can't land non-http/https URLs or oversize
+	// strings in the pending queue. Without this gate, the field-name
+	// allowlist controls *which* fields can be edited but not *what values*
+	// they take — and ApprovePendingEdit applies values blindly.
 	allowed := allowedEditFields[entityType]
 	for _, change := range req.Body.Changes {
 		if !allowed[change.Field] {
 			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Field '%s' is not editable on %s entities", change.Field, entityType))
+		}
+		if err := shared.ValidateFieldChangeValue(change.Field, change.NewValue); err != nil {
+			return nil, err
 		}
 	}
 

@@ -87,7 +87,9 @@ import type { CollectionDisplayMode, CollectionItem, CollectionDetail as Collect
 import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { CollectionGraph } from './CollectionGraph'
 import { CollectionItemCard } from './CollectionItemCard'
+import { CollectionCoverImage } from './CollectionCoverImage'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
+import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { DensityToggle } from '@/components/shared'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
@@ -182,12 +184,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
-  // PSY-366: collection graph toggle. Default-off; the items list is the
-  // primary surface, the graph is an alternative lens. A `#graph` URL opens
-  // it on first render; we don't subscribe to later hash-only changes.
-  const [showGraph, setShowGraph] = useState(
-    () => typeof window !== 'undefined' && window.location.hash === '#graph'
-  )
+  // null = not interacted; URL hash drives the default. User toggle sticks once set.
+  const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
+  const hash = useUrlHash()
 
   const handleShare = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -203,6 +202,10 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // graph every entity type becomes a node, so the gate moves to "is the
   // collection non-empty".
   const hasItems = items.length > 0
+
+  // Gate auto-open on artist items so `#graph` on a non-artist collection no-ops.
+  const autoOpenFromHash = hash === GRAPH_HASH && artistItemCount > 0
+  const showGraph = showGraphOverride ?? autoOpenFromHash
 
   if (isLoading) {
     return (
@@ -334,15 +337,20 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
           <div>
             <div className="flex items-start justify-between gap-4">
               <div className="flex items-start gap-4 min-w-0">
-                {collection.cover_image_url && (
-                  <div className="h-24 w-24 shrink-0 rounded-lg overflow-hidden border border-border/50 bg-muted/50">
-                    <img
-                      src={collection.cover_image_url}
-                      alt={`${collection.title} cover`}
-                      className="h-full w-full object-cover"
+                {/* PSY-554: cover always renders (typed Library icon when
+                    URL is null/empty or `<img>` 404s). Same h-24 footprint
+                    in either state so the header layout doesn't shift. */}
+                <CollectionCoverImage
+                  url={collection.cover_image_url}
+                  alt={`${collection.title} cover`}
+                  className="h-24 w-24 shrink-0 rounded-lg border border-border/50 bg-muted/50"
+                  fallback={
+                    <Library
+                      className="h-10 w-10 text-muted-foreground/50"
+                      aria-hidden="true"
                     />
-                  </div>
-                )}
+                  }
+                />
                 <div className="min-w-0">
                 <div className="flex items-center gap-3 mb-1 flex-wrap">
                   <h1 className="text-3xl font-bold tracking-tight">
@@ -542,7 +550,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   <Button
                     variant={showGraph ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setShowGraph(!showGraph)}
+                    onClick={() => setShowGraphOverride(!showGraph)}
                     aria-pressed={showGraph}
                     aria-label={showGraph ? 'Hide collection graph' : 'Explore collection graph'}
                   >
@@ -921,33 +929,41 @@ function CollectionItemsList({
       <CollectionItemCard
         key={item.id}
         item={item}
-        // Position badge only meaningful for ranked collections.
         position={isRanked ? index + 1 : undefined}
         density={density}
-        // PSY-526: gate the per-card Remove control on the same
-        // `isCreator` value the list-view row uses. Pass `slug` so the
-        // card can drive `useRemoveCollectionItem` directly without
-        // re-deriving it from the URL.
         isCreator={isCreator}
         slug={slug}
+        reorder={
+          canReorder
+            ? {
+                index,
+                totalItems: items.length,
+                onMoveUp: handleMoveUp,
+                onMoveDown: handleMoveDown,
+                isPending: reorderMutation.isPending,
+              }
+            : undefined
+        }
       />
     ))
 
   const renderItems = isGridView ? renderGridCards : renderListRows
 
   // Header row: section title on the left, view + density toggles on the
-  // right. Density toggle only appears in grid view (it has no effect on
-  // the list layout).
+  // right. Density toggle stays mounted in list view so the toolbar
+  // doesn't shift between modes (PSY-556); it's disabled there with a
+  // tooltip explaining the constraint. The persisted selection is
+  // preserved so toggling back to grid restores the user's choice.
   const header = (
     <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
       <h2 className="text-lg font-semibold">Items</h2>
       <div className="flex items-center gap-2">
-        {isGridView && (
-          <DensityToggle
-            density={density}
-            onDensityChange={setDensity}
-          />
-        )}
+        <DensityToggle
+          density={density}
+          onDensityChange={setDensity}
+          disabled={!isGridView}
+          disabledTooltip="Density only applies to grid view"
+        />
         <div
           className="inline-flex items-center rounded-lg border border-border/50 bg-muted/30 p-0.5"
           role="radiogroup"

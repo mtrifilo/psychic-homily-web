@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -213,7 +214,7 @@ func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *Create
 	// website. Festivals only have one social URL field; flyer_url and
 	// ticket_url are intentionally out of scope per PSY-525 and remain
 	// validated only for length elsewhere.
-	if err := validateSocialURLs(nil, nil, nil, nil, nil, nil, nil, req.Body.Website); err != nil {
+	if err := shared.ValidateSocialURLs(nil, nil, nil, nil, nil, nil, nil, req.Body.Website); err != nil {
 		return nil, err
 	}
 
@@ -305,7 +306,7 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 
 	// PSY-525: URL scheme validation (http/https only) for the festival's
 	// website. flyer_url and ticket_url remain length-only per PSY-525 scope.
-	if err := validateSocialURLs(nil, nil, nil, nil, nil, nil, nil, req.Body.Website); err != nil {
+	if err := shared.ValidateSocialURLs(nil, nil, nil, nil, nil, nil, nil, req.Body.Website); err != nil {
 		return nil, err
 	}
 

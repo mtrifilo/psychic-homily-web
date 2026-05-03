@@ -291,3 +291,61 @@ describe('CommentCard — Show replies button gating (PSY-514)', () => {
     ).not.toBeInTheDocument()
   })
 })
+
+// PSY-552: linkable author byline. When author_username is set the byline
+// renders as a Link to /users/:username; otherwise it falls back to plain
+// text (matches the PSY-353 collection contributor pattern).
+describe('CommentCard — author byline linkability (PSY-552)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: false,
+      user: null,
+    })
+  })
+
+  const defaultProps = {
+    entityType: 'artist',
+    entityId: 10,
+  }
+
+  it('links the byline to /users/:username when author_username is set', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({
+          author_name: 'Jane Doe',
+          author_username: 'janedoe',
+        })}
+      />
+    )
+
+    const link = screen.getByTestId('comment-author-link')
+    expect(link).toHaveAttribute('href', '/users/janedoe')
+    expect(link).toHaveTextContent('Jane Doe')
+    expect(screen.queryByTestId('comment-author-name')).not.toBeInTheDocument()
+  })
+
+  it('renders the byline as plain text when author_username is null', () => {
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({
+          author_name: 'jane',
+          author_username: null,
+        })}
+      />
+    )
+
+    expect(screen.getByTestId('comment-author-name')).toHaveTextContent('jane')
+    expect(screen.queryByTestId('comment-author-link')).not.toBeInTheDocument()
+  })
+
+  it('renders the byline as plain text when author_username is missing', () => {
+    // Older payloads or paths that haven't propagated the field yet.
+    render(<CommentCard {...defaultProps} comment={makeComment()} />)
+
+    expect(screen.getByTestId('comment-author-name')).toBeInTheDocument()
+    expect(screen.queryByTestId('comment-author-link')).not.toBeInTheDocument()
+  })
+})
