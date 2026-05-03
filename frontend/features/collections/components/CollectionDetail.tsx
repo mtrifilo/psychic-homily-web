@@ -88,6 +88,7 @@ import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { CollectionGraph } from './CollectionGraph'
 import { CollectionItemCard } from './CollectionItemCard'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
+import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { DensityToggle } from '@/components/shared'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
@@ -182,12 +183,12 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
-  // PSY-366: collection graph toggle. Default-off; the items list is the
-  // primary surface, the graph is an alternative lens. A `#graph` URL opens
-  // it on first render; we don't subscribe to later hash-only changes.
-  const [showGraph, setShowGraph] = useState(
-    () => typeof window !== 'undefined' && window.location.hash === '#graph'
-  )
+  // PSY-366 / PSY-548: collection graph toggle. The URL hash drives the
+  // auto-open default; once the user clicks the toggle, their preference
+  // overrides the hash. `useUrlHash` (built on useSyncExternalStore) reads
+  // the hash without hydration mismatch and re-renders on `hashchange`.
+  const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
+  const hash = useUrlHash()
 
   const handleShare = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -200,6 +201,13 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // PSY-366: only surface the graph toggle when the collection has at least
   // one artist item — non-artist-only collections have nothing to graph.
   const artistItemCount = items.filter(it => it.entity_type === 'artist').length
+
+  // PSY-548: derived `showGraph`. URL hash + at least one artist item is the
+  // auto-open condition; user toggle wins once they click. Gated on
+  // artistItemCount so a `#graph` deep-link to a non-artist collection
+  // doesn't spuriously flip the state.
+  const autoOpenFromHash = hash === '#graph' && artistItemCount > 0
+  const showGraph = showGraphOverride ?? autoOpenFromHash
 
   if (isLoading) {
     return (
@@ -539,7 +547,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   <Button
                     variant={showGraph ? 'default' : 'outline'}
                     size="sm"
-                    onClick={() => setShowGraph(!showGraph)}
+                    onClick={() => setShowGraphOverride(!showGraph)}
                     aria-pressed={showGraph}
                     aria-label={showGraph ? 'Hide collection graph' : 'Explore collection graph'}
                   >

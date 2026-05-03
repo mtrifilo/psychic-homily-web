@@ -332,22 +332,21 @@ describe('RelatedArtists', () => {
   })
 
   // PSY-548: when arriving via `#graph` (e.g. from a Cmd+K deep-link), the
-  // graph auto-opens after data loads so the anchor lands on the rendered
-  // graph rather than the section header.
+  // graph auto-opens on the first paint via derived state — `useUrlHash`
+  // (built on useSyncExternalStore) makes the read SSR-safe without the
+  // useEffect-driven flash. User toggle takes precedence once they click.
   describe('PSY-548: #graph deep-link auto-open', () => {
-    const originalHash = ''
-
     afterEach(() => {
-      window.location.hash = originalHash
+      window.location.hash = ''
     })
 
-    it('auto-opens the graph when window.location.hash is #graph', async () => {
+    it('auto-opens the graph when window.location.hash is #graph', () => {
       window.location.hash = '#graph'
       renderWithProviders(
         <RelatedArtists artistId={1} artistSlug="gatecreeper" />
       )
-      // Toggle button label flips to "Hide graph" once showGraph is true.
-      expect(await screen.findByText('Hide graph')).toBeInTheDocument()
+      // Derived state — synchronous, no findBy/await needed.
+      expect(screen.getByText('Hide graph')).toBeInTheDocument()
     })
 
     it('does not auto-open the graph when no #graph hash is set', () => {
@@ -385,6 +384,22 @@ describe('RelatedArtists', () => {
         isLoading: false,
         error: null,
       } as any) // eslint-disable-line @typescript-eslint/no-explicit-any
+    })
+
+    it('user toggle takes precedence over hash auto-open', async () => {
+      window.location.hash = '#graph'
+      const user = (await import('@testing-library/user-event')).default.setup()
+      renderWithProviders(
+        <RelatedArtists artistId={1} artistSlug="gatecreeper" />
+      )
+      // Auto-opened via hash.
+      expect(screen.getByText('Hide graph')).toBeInTheDocument()
+
+      // Click "Hide graph" — user override flips it closed even though the
+      // hash still says #graph.
+      await user.click(screen.getByText('Hide graph'))
+      expect(screen.getByText('Explore graph')).toBeInTheDocument()
+      expect(screen.queryByText('Hide graph')).not.toBeInTheDocument()
     })
   })
 })
