@@ -16,7 +16,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useIsAuthenticated } from '@/features/auth'
-import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { useArtistGraph, useArtistRelationshipVote, useCreateArtistRelationship } from '../hooks/useArtistGraph'
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
@@ -57,10 +57,7 @@ interface RelatedArtistsProps {
 export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
   const { data: originalGraph, isLoading } = useArtistGraph({ artistId, enabled: artistId > 0 })
   const { isAuthenticated } = useIsAuthenticated()
-  // PSY-548: showGraph is derived from (a) the URL hash on first paint and
-  // (b) any subsequent user toggle. `showGraphOverride` is null until the
-  // user clicks the button; once they do, their will sticks regardless of
-  // hash. See useUrlHash for why useSyncExternalStore beats useEffect here.
+  // null = not interacted; URL hash drives the default. User toggle sticks once set.
   const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
   const hash = useUrlHash()
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(ALL_TYPES))
@@ -103,11 +100,7 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
 
   const hasRelationships = originalGraph && (originalGraph.nodes.length > 0 || originalGraph.links.length > 0)
 
-  // PSY-548: derived `showGraph` — URL hash is the auto-open default, user
-  // toggle wins once they interact. Reading the hash via useUrlHash (built
-  // on useSyncExternalStore) means the value is correct on the very first
-  // render after hydration (no useEffect-driven flash) and SSR-safe.
-  const autoOpenFromHash = hash === '#graph' && Boolean(hasRelationships)
+  const autoOpenFromHash = hash === GRAPH_HASH && Boolean(hasRelationships)
   const showGraph = showGraphOverride ?? autoOpenFromHash
 
   // Empty state: show header + message + suggest button for authenticated users

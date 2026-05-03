@@ -94,10 +94,8 @@ vi.mock('@/features/auth', () => ({
   })),
 }))
 
-// Mock next/navigation. PSY-548: tests that flip `showGraph=true` (e.g. the
-// `#graph` deep-link auto-open) render the `RecenteringGraph` subcomponent,
-// which calls `usePathname()` + `useSearchParams()`. Both must be present in
-// the mock or vitest throws "No <hook> export is defined" during render.
+// `RecenteringGraph` (rendered when showGraph=true) calls usePathname +
+// useSearchParams; vitest throws "No <hook> export is defined" without them.
 vi.mock('next/navigation', () => ({
   useRouter: vi.fn(() => ({
     push: vi.fn(),
@@ -204,11 +202,9 @@ describe('RelatedArtists', () => {
     expect(screen.getByText('Explore graph')).toBeInTheDocument()
   })
 
-  // PSY-366: dropped the previous `nodes.length >= 3` gate. The button is the
-  // affordance — sparse graphs (1-2 related artists) still benefit from it
-  // per `docs/research/knowledge-graph-viz-prior-art.md` §5.4. The mobile
-  // gate stays.
-  it('shows the Explore graph button with only 1 related artist (PSY-366)', async () => {
+  // Sparse graphs (1-2 related artists) still surface the button — entry-point
+  // affordance over gating; cf. docs/research/knowledge-graph-viz-prior-art.md §5.4.
+  it('shows the Explore graph button with only 1 related artist', async () => {
     const hooks = await import('../hooks/useArtistGraph')
     vi.mocked(hooks.useArtistGraph).mockReturnValue({
       data: {
@@ -331,11 +327,7 @@ describe('RelatedArtists', () => {
     expect(screen.getByText('Explore graph')).toBeInTheDocument()
   })
 
-  // PSY-548: when arriving via `#graph` (e.g. from a Cmd+K deep-link), the
-  // graph auto-opens on the first paint via derived state — `useUrlHash`
-  // (built on useSyncExternalStore) makes the read SSR-safe without the
-  // useEffect-driven flash. User toggle takes precedence once they click.
-  describe('PSY-548: #graph deep-link auto-open', () => {
+  describe('#graph deep-link auto-open', () => {
     afterEach(() => {
       window.location.hash = ''
     })

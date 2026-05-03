@@ -88,7 +88,7 @@ import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { CollectionGraph } from './CollectionGraph'
 import { CollectionItemCard } from './CollectionItemCard'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
-import { useUrlHash } from '@/lib/hooks/common/useUrlHash'
+import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { DensityToggle } from '@/components/shared'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
@@ -183,10 +183,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
-  // PSY-366 / PSY-548: collection graph toggle. The URL hash drives the
-  // auto-open default; once the user clicks the toggle, their preference
-  // overrides the hash. `useUrlHash` (built on useSyncExternalStore) reads
-  // the hash without hydration mismatch and re-renders on `hashchange`.
+  // null = not interacted; URL hash drives the default. User toggle sticks once set.
   const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
   const hash = useUrlHash()
 
@@ -202,11 +199,8 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // one artist item — non-artist-only collections have nothing to graph.
   const artistItemCount = items.filter(it => it.entity_type === 'artist').length
 
-  // PSY-548: derived `showGraph`. URL hash + at least one artist item is the
-  // auto-open condition; user toggle wins once they click. Gated on
-  // artistItemCount so a `#graph` deep-link to a non-artist collection
-  // doesn't spuriously flip the state.
-  const autoOpenFromHash = hash === '#graph' && artistItemCount > 0
+  // Gate auto-open on artist items so `#graph` on a non-artist collection no-ops.
+  const autoOpenFromHash = hash === GRAPH_HASH && artistItemCount > 0
   const showGraph = showGraphOverride ?? autoOpenFromHash
 
   if (isLoading) {
