@@ -20,6 +20,7 @@ import { Badge } from '@/components/ui/badge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { getEntityTypeLabel, type Collection } from '../types'
 import { MarkdownContent } from './MarkdownEditor'
+import { CollectionCoverImage } from './CollectionCoverImage'
 import { useLikeCollection, useUnlikeCollection } from '../hooks'
 import { useAuthContext } from '@/lib/context/AuthContext'
 
@@ -68,44 +69,45 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   return (
     <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
       <div className="flex gap-3">
-        {/* Icon / cover image / entity-type mosaic */}
-        <div className="h-16 w-16 shrink-0 rounded-md bg-muted/50 flex items-center justify-center overflow-hidden">
-          {collection.cover_image_url ? (
-            <img
-              src={collection.cover_image_url}
-              alt={`${collection.title} cover`}
-              className="h-full w-full object-cover"
-            />
-          ) : mosaicTypes.length > 0 ? (
-            <div
-              className={cn(
-                'grid gap-0.5 p-1.5',
-                mosaicTypes.length === 1
-                  ? 'grid-cols-1'
-                  : 'grid-cols-2'
-              )}
-            >
-              {mosaicTypes.map((type) => {
-                const Icon = ENTITY_ICONS[type] ?? Library
-                return (
-                  <div
-                    key={type}
-                    className="flex items-center justify-center"
-                  >
-                    <Icon
-                      className={cn(
-                        'text-muted-foreground/50',
-                        mosaicTypes.length === 1 ? 'h-7 w-7' : 'h-5 w-5'
-                      )}
-                    />
-                  </div>
-                )
-              })}
-            </div>
-          ) : (
-            <Library className="h-8 w-8 text-muted-foreground/40" />
-          )}
-        </div>
+        {/* Cover image with onError-driven fallback to entity-type mosaic
+            (or a single Library icon when no entity types are present).
+            PSY-554: a 404 on cover_image_url no longer leaves the tile
+            blank — it falls through to the same mosaic the null-URL case
+            already used. */}
+        <CollectionCoverImage
+          url={collection.cover_image_url}
+          alt={`${collection.title} cover`}
+          className="h-16 w-16 shrink-0 rounded-md bg-muted/50"
+          fallback={
+            mosaicTypes.length > 0 ? (
+              <div
+                className={cn(
+                  'grid gap-0.5 p-1.5',
+                  mosaicTypes.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+                )}
+              >
+                {mosaicTypes.map((type) => {
+                  const Icon = ENTITY_ICONS[type] ?? Library
+                  return (
+                    <div
+                      key={type}
+                      className="flex items-center justify-center"
+                    >
+                      <Icon
+                        className={cn(
+                          'text-muted-foreground/50',
+                          mosaicTypes.length === 1 ? 'h-7 w-7' : 'h-5 w-5'
+                        )}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            ) : (
+              <Library className="h-8 w-8 text-muted-foreground/40" />
+            )
+          }
+        />
 
         {/* Text content */}
         <div className="flex-1 min-w-0">
