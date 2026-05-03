@@ -203,8 +203,8 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // collection non-empty".
   const hasItems = items.length > 0
 
-  // Gate auto-open on artist items so `#graph` on a non-artist collection no-ops.
-  const autoOpenFromHash = hash === GRAPH_HASH && artistItemCount > 0
+  // Gate auto-open so `#graph` on an empty collection no-ops; multi-type graph (PSY-555) can render any item.
+  const autoOpenFromHash = hash === GRAPH_HASH && hasItems
   const showGraph = showGraphOverride ?? autoOpenFromHash
 
   if (isLoading) {
