@@ -507,4 +507,20 @@ describe('CollectionItemCard', () => {
       ).toBeDisabled()
     })
   })
+
+  // Regression guard: the canReorder=true path requires a SortableContext
+  // and is covered by integration tests in CollectionDetail.test.tsx.
+  describe('PSY-527: reorder cluster gating', () => {
+    it('does not render the reorder cluster when reorder prop is omitted', () => {
+      render(
+        <CollectionItemCard item={makeItem()} density="comfortable" />
+      )
+      expect(
+        screen.queryByTestId('collection-item-card-reorder')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByTestId('collection-item-card-drag-handle')
+      ).not.toBeInTheDocument()
+    })
+  })
 })
