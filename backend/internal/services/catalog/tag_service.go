@@ -1181,11 +1181,6 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 		case "show":
 			enrichedByType[eType] = s.enrichShows(ids)
 		case "collection":
-			// PSY-553: collections (PSY-354) need their own enrichment branch.
-			// `enrichBare` would fail anyway because collections aren't in
-			// `entityTableMap`, but more importantly: tag detail is a public
-			// page and tagged-but-private collections must not leak via this
-			// endpoint, so this branch applies an `is_public = true` filter.
 			enrichedByType[eType] = s.enrichCollections(ids)
 		default:
 			enrichedByType[eType] = s.enrichBare(eType, ids)
@@ -1207,10 +1202,9 @@ func (s *TagService) GetTagEntities(tagID uint, entityType string, limit, offset
 				enriched.EntityID = et.EntityID
 				item = enriched
 			} else if et.EntityType == "collection" {
-				// PSY-553: enrichCollections deliberately drops private (and
-				// deleted) collections so the public tag detail page can't
-				// leak them. A missed lookup here means "intentionally
-				// hidden" — skip rather than emitting a bare empty-name row.
+				// PSY-553: enrichCollections drops private + deleted
+				// collections so the public tag detail page can't leak
+				// them; skip rather than emit an empty-name placeholder.
 				continue
 			}
 		}
@@ -1565,20 +1559,14 @@ func (s *TagService) enrichShows(ids []uint) map[uint]contracts.TaggedEntityItem
 
 // enrichCollections resolves tagged collections to (title → name, slug).
 //
-// PSY-553: tag detail is a public, unauthenticated endpoint, so private
-// collections must NOT leak through this surface even when tagged. The
-// `is_public = true` filter is applied directly in the SQL; collections
-// excluded here are dropped from the response in the build loop above
-// (by the matching `if et.EntityType == "collection" { continue }`
-// branch on a missed lookup). Public collections that have since been
-// deleted are also naturally excluded.
-//
-// Unlike artist/venue/etc., we do not fall back to `enrichBare` on query
-// error: `entityTableMap` does not contain "collection", and a fallthrough
-// would expose an empty-name placeholder for every tagged collection. On
-// query error we return an empty map, which means "drop everything" — the
-// log will show the underlying issue while the user sees a missing tab
-// rather than a leak of every tagged collection's id.
+// PSY-553: tag detail is public, so private collections must NOT leak
+// through this surface even when tagged — the `is_public = true` filter is
+// load-bearing. Excluded collections (private OR deleted) are dropped from
+// the response in the build loop above via the matching collection-type
+// continue branch. On query error we return an empty map (drop all) rather
+// than fall back to `enrichBare` because `entityTableMap` has no collection
+// entry and a fallthrough would surface every tagged collection's id with
+// an empty name.
 func (s *TagService) enrichCollections(ids []uint) map[uint]contracts.TaggedEntityItem {
 	out := make(map[uint]contracts.TaggedEntityItem, len(ids))
 	type row struct {
