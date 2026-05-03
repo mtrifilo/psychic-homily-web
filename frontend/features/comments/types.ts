@@ -26,6 +26,12 @@ export interface Comment {
   entity_id: number
   user_id: number
   author_name: string
+  /**
+   * Author's username when set, used to link the byline to /users/:username.
+   * Null when the user has not set a username — render the name as plain
+   * text in that case (PSY-552, mirrors PSY-353 collection attribution).
+   */
+  author_username?: string | null
   body: string
   body_html: string
   parent_id: number | null
