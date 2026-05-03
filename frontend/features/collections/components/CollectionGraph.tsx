@@ -33,7 +33,6 @@ import {
   COLLECTION_ENTITY_TYPES,
   getEntityTypeLabel,
   getEntityUrl,
-  type CollectionGraphNode,
 } from '../types'
 
 const GRAPH_BREAKPOINT_PX = 640
@@ -154,18 +153,16 @@ export function CollectionGraph({ slug, collectionTitle }: CollectionGraphProps)
   }, [data])
 
   // PSY-555: route to the right entity detail page based on the node's
-  // entity_type. Falls back to /artists/ for legacy nodes that don't
-  // carry the field (shouldn't happen in production, but the fallback
-  // matches the PSY-366 baseline behaviour).
+  // entity_type. The render-node's `cluster_id` carries the entity type
+  // (set above when enriching). Falls back to /artists/ for legacy nodes
+  // that don't carry it — shouldn't happen in production, matches the
+  // PSY-366 baseline.
   const navigateToNode = useCallback(
     (node: GraphNode) => {
-      const original = data?.nodes.find(
-        (n: CollectionGraphNode) => n.id === node.id,
-      )
-      const entityType = original?.entity_type ?? 'artist'
+      const entityType = node.cluster_id ?? 'artist'
       router.push(getEntityUrl(entityType, node.slug))
     },
-    [data, router],
+    [router],
   )
 
   const handleNodeClickOverlay = useCallback(

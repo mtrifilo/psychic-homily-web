@@ -2709,8 +2709,9 @@ type graphEntityDetail struct {
 
 // loadEntityDetailsForGraph fetches the rows needed to render nodes for one
 // entity type. Each branch below is a tight 5-column SELECT on the entity
-// table — no joins. Slug is COALESCE'd to "" on the SQL side because most
-// entity tables have nullable slug.
+// table — no joins. The intermediate `row` shape uses *string for slug,
+// city, state because most entity tables have nullable columns; the loop
+// at the bottom collapses nil → "".
 func (s *CollectionService) loadEntityDetailsForGraph(entityType string, ids []uint) ([]graphEntityDetail, error) {
 	if len(ids) == 0 {
 		return nil, nil
@@ -2812,11 +2813,10 @@ func (s *CollectionService) buildCollectionGraphLinks(
 			return nil, fmt.Errorf("failed to query collection relationships: %w", err)
 		}
 		for _, r := range rels {
-			srcKey := entityNodeKey{EntityType: communitym.CollectionEntityArtist, EntityID: r.SourceArtistID}
-			tgtKey := entityNodeKey{EntityType: communitym.CollectionEntityArtist, EntityID: r.TargetArtistID}
-			srcNodeID, srcOK := nodeIDByEntity[srcKey]
-			tgtNodeID, tgtOK := nodeIDByEntity[tgtKey]
-			if !srcOK || !tgtOK {
+			srcNodeID, tgtNodeID, ok := lookupNodeIDs(nodeIDByEntity,
+				communitym.CollectionEntityArtist, r.SourceArtistID,
+				communitym.CollectionEntityArtist, r.TargetArtistID)
+			if !ok {
 				continue
 			}
 			var detail any
@@ -2833,167 +2833,90 @@ func (s *CollectionService) buildCollectionGraphLinks(
 		}
 	}
 
-	// 2. Derived multi-type edges.
-	derivedAppenders := []func() error{
-		// artist ↔ venue (via shows the artist played at the venue)
-		func() error {
-			venueIDs := idsByType[communitym.CollectionEntityVenue]
-			if len(artistIDs) == 0 || len(venueIDs) == 0 {
-				return nil
-			}
-			pairs, err := s.queryArtistVenuePairs(artistIDs, venueIDs)
-			if err != nil {
-				return err
-			}
-			for _, p := range pairs {
-				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
-					communitym.CollectionEntityArtist, p.ArtistID,
-					communitym.CollectionEntityVenue, p.VenueID)
-				if !ok {
-					continue
-				}
-				links = append(links, contracts.CollectionGraphLink{
-					SourceID: srcID,
-					TargetID: tgtID,
-					Type:     CollectionEdgePlayedAt,
-				})
-			}
-			return nil
+	// 2. Derived multi-type edges. Each spec declares the source/target
+	// entity types it joins, the edge type emitted, and the pair-query
+	// func. The unified loop below skips empty sides, runs the query, and
+	// appends one link per resolved pair.
+	derivedSpecs := []derivedEdgeSpec{
+		{
+			srcType: communitym.CollectionEntityArtist,
+			tgtType: communitym.CollectionEntityVenue,
+			edge:    CollectionEdgePlayedAt,
+			query:   s.queryArtistVenuePairs,
 		},
-		// artist ↔ release (artist made the release)
-		func() error {
-			releaseIDs := idsByType[communitym.CollectionEntityRelease]
-			if len(artistIDs) == 0 || len(releaseIDs) == 0 {
-				return nil
-			}
-			pairs, err := s.queryArtistReleasePairs(artistIDs, releaseIDs)
-			if err != nil {
-				return err
-			}
-			for _, p := range pairs {
-				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
-					communitym.CollectionEntityArtist, p.ArtistID,
-					communitym.CollectionEntityRelease, p.ReleaseID)
-				if !ok {
-					continue
-				}
-				links = append(links, contracts.CollectionGraphLink{
-					SourceID: srcID,
-					TargetID: tgtID,
-					Type:     CollectionEdgeDiscography,
-				})
-			}
-			return nil
+		{
+			srcType: communitym.CollectionEntityArtist,
+			tgtType: communitym.CollectionEntityRelease,
+			edge:    CollectionEdgeDiscography,
+			query:   s.queryArtistReleasePairs,
 		},
-		// artist ↔ label (signing — direct artist_labels join)
-		func() error {
-			labelIDs := idsByType[communitym.CollectionEntityLabel]
-			if len(artistIDs) == 0 || len(labelIDs) == 0 {
-				return nil
-			}
-			pairs, err := s.queryArtistLabelPairs(artistIDs, labelIDs)
-			if err != nil {
-				return err
-			}
-			for _, p := range pairs {
-				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
-					communitym.CollectionEntityArtist, p.ArtistID,
-					communitym.CollectionEntityLabel, p.LabelID)
-				if !ok {
-					continue
-				}
-				links = append(links, contracts.CollectionGraphLink{
-					SourceID: srcID,
-					TargetID: tgtID,
-					Type:     CollectionEdgeSignedTo,
-				})
-			}
-			return nil
+		{
+			srcType: communitym.CollectionEntityArtist,
+			tgtType: communitym.CollectionEntityLabel,
+			edge:    CollectionEdgeSignedTo,
+			query:   s.queryArtistLabelPairs,
 		},
-		// artist ↔ festival (lineup)
-		func() error {
-			festivalIDs := idsByType[communitym.CollectionEntityFestival]
-			if len(artistIDs) == 0 || len(festivalIDs) == 0 {
-				return nil
-			}
-			pairs, err := s.queryArtistFestivalPairs(artistIDs, festivalIDs)
-			if err != nil {
-				return err
-			}
-			for _, p := range pairs {
-				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
-					communitym.CollectionEntityArtist, p.ArtistID,
-					communitym.CollectionEntityFestival, p.FestivalID)
-				if !ok {
-					continue
-				}
-				links = append(links, contracts.CollectionGraphLink{
-					SourceID: srcID,
-					TargetID: tgtID,
-					Type:     CollectionEdgeLineup,
-				})
-			}
-			return nil
+		{
+			srcType: communitym.CollectionEntityArtist,
+			tgtType: communitym.CollectionEntityFestival,
+			edge:    CollectionEdgeLineup,
+			query:   s.queryArtistFestivalPairs,
 		},
-		// show ↔ artist (the show's lineup)
-		func() error {
-			showIDs := idsByType[communitym.CollectionEntityShow]
-			if len(showIDs) == 0 || len(artistIDs) == 0 {
-				return nil
-			}
-			pairs, err := s.queryShowArtistPairs(showIDs, artistIDs)
-			if err != nil {
-				return err
-			}
-			for _, p := range pairs {
-				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
-					communitym.CollectionEntityShow, p.ShowID,
-					communitym.CollectionEntityArtist, p.ArtistID)
-				if !ok {
-					continue
-				}
-				links = append(links, contracts.CollectionGraphLink{
-					SourceID: srcID,
-					TargetID: tgtID,
-					Type:     CollectionEdgeShowLineup,
-				})
-			}
-			return nil
+		{
+			srcType: communitym.CollectionEntityShow,
+			tgtType: communitym.CollectionEntityArtist,
+			edge:    CollectionEdgeShowLineup,
+			query:   s.queryShowArtistPairs,
 		},
-		// show ↔ venue (the show's location)
-		func() error {
-			showIDs := idsByType[communitym.CollectionEntityShow]
-			venueIDs := idsByType[communitym.CollectionEntityVenue]
-			if len(showIDs) == 0 || len(venueIDs) == 0 {
-				return nil
-			}
-			pairs, err := s.queryShowVenuePairs(showIDs, venueIDs)
-			if err != nil {
-				return err
-			}
-			for _, p := range pairs {
-				srcID, tgtID, ok := lookupNodeIDs(nodeIDByEntity,
-					communitym.CollectionEntityShow, p.ShowID,
-					communitym.CollectionEntityVenue, p.VenueID)
-				if !ok {
-					continue
-				}
-				links = append(links, contracts.CollectionGraphLink{
-					SourceID: srcID,
-					TargetID: tgtID,
-					Type:     CollectionEdgeShowVenue,
-				})
-			}
-			return nil
+		{
+			srcType: communitym.CollectionEntityShow,
+			tgtType: communitym.CollectionEntityVenue,
+			edge:    CollectionEdgeShowVenue,
+			query:   s.queryShowVenuePairs,
 		},
 	}
-	for _, fn := range derivedAppenders {
-		if err := fn(); err != nil {
+	for _, spec := range derivedSpecs {
+		srcIDs := idsByType[spec.srcType]
+		tgtIDs := idsByType[spec.tgtType]
+		if len(srcIDs) == 0 || len(tgtIDs) == 0 {
+			continue
+		}
+		pairs, err := spec.query(srcIDs, tgtIDs)
+		if err != nil {
 			return nil, err
+		}
+		for _, p := range pairs {
+			srcNodeID, tgtNodeID, ok := lookupNodeIDs(nodeIDByEntity,
+				spec.srcType, p.SrcID, spec.tgtType, p.TgtID)
+			if !ok {
+				continue
+			}
+			links = append(links, contracts.CollectionGraphLink{
+				SourceID: srcNodeID,
+				TargetID: tgtNodeID,
+				Type:     spec.edge,
+			})
 		}
 	}
 
 	return links, nil
+}
+
+// derivedEdgePair is the uniform return shape for every multi-type pair
+// query. SrcID and TgtID align with derivedEdgeSpec.srcType / tgtType.
+type derivedEdgePair struct {
+	SrcID uint
+	TgtID uint
+}
+
+// derivedEdgeSpec is one row in the derived-edge dispatch table. The
+// query func returns pairs already filtered to (srcIDs ∩ tgtIDs); the
+// loop appends one edge per pair after resolving node IDs.
+type derivedEdgeSpec struct {
+	srcType string
+	tgtType string
+	edge    string
+	query   func(srcIDs, tgtIDs []uint) ([]derivedEdgePair, error)
 }
 
 // lookupNodeIDs is a tiny helper that resolves a (type, id) pair to its
@@ -3016,21 +2939,19 @@ func lookupNodeIDs(
 // Multi-type relationship lookups (PSY-555)
 // ──────────────────────────────────────────────
 //
-// Each query selects the canonical pair table joined as needed and returns
-// distinct (artist, X) rows. Existing services like CollectionService
-// don't have a uniform "get pairs in set" API, so we keep these private
-// to graph construction — the queries are narrow and the surface area is
-// small.
+// Each query returns distinct (src, tgt) ID pairs that exist in the
+// underlying junction table AND have both sides in the caller-supplied
+// ID set. Returned shape is uniform (derivedEdgePair) so the dispatch
+// table in buildCollectionGraphLinks can iterate generically.
+//
+// Most queries hit a single junction table directly; queryArtistVenuePairs
+// is the only one that needs a join (artists are linked to venues via the
+// shows they played).
 
-type artistVenuePair struct {
-	ArtistID uint
-	VenueID  uint
-}
-
-func (s *CollectionService) queryArtistVenuePairs(artistIDs, venueIDs []uint) ([]artistVenuePair, error) {
-	var rows []artistVenuePair
+func (s *CollectionService) queryArtistVenuePairs(artistIDs, venueIDs []uint) ([]derivedEdgePair, error) {
+	var rows []derivedEdgePair
 	if err := s.db.Table("show_artists").
-		Select("DISTINCT show_artists.artist_id, show_venues.venue_id").
+		Select("DISTINCT show_artists.artist_id AS src_id, show_venues.venue_id AS tgt_id").
 		Joins("JOIN show_venues ON show_venues.show_id = show_artists.show_id").
 		Where("show_artists.artist_id IN ? AND show_venues.venue_id IN ?", artistIDs, venueIDs).
 		Scan(&rows).Error; err != nil {
@@ -3039,82 +2960,43 @@ func (s *CollectionService) queryArtistVenuePairs(artistIDs, venueIDs []uint) ([
 	return rows, nil
 }
 
-type artistReleasePair struct {
-	ArtistID  uint
-	ReleaseID uint
+func (s *CollectionService) queryArtistReleasePairs(artistIDs, releaseIDs []uint) ([]derivedEdgePair, error) {
+	return s.queryEdgePairs("artist_releases", "artist_id", "release_id",
+		artistIDs, releaseIDs, "artist-release")
 }
 
-func (s *CollectionService) queryArtistReleasePairs(artistIDs, releaseIDs []uint) ([]artistReleasePair, error) {
-	var rows []artistReleasePair
-	if err := s.db.Table("artist_releases").
-		Select("DISTINCT artist_id, release_id").
-		Where("artist_id IN ? AND release_id IN ?", artistIDs, releaseIDs).
+func (s *CollectionService) queryArtistLabelPairs(artistIDs, labelIDs []uint) ([]derivedEdgePair, error) {
+	return s.queryEdgePairs("artist_labels", "artist_id", "label_id",
+		artistIDs, labelIDs, "artist-label")
+}
+
+func (s *CollectionService) queryArtistFestivalPairs(artistIDs, festivalIDs []uint) ([]derivedEdgePair, error) {
+	return s.queryEdgePairs("festival_artists", "artist_id", "festival_id",
+		artistIDs, festivalIDs, "artist-festival")
+}
+
+func (s *CollectionService) queryShowArtistPairs(showIDs, artistIDs []uint) ([]derivedEdgePair, error) {
+	return s.queryEdgePairs("show_artists", "show_id", "artist_id",
+		showIDs, artistIDs, "show-artist")
+}
+
+func (s *CollectionService) queryShowVenuePairs(showIDs, venueIDs []uint) ([]derivedEdgePair, error) {
+	return s.queryEdgePairs("show_venues", "show_id", "venue_id",
+		showIDs, venueIDs, "show-venue")
+}
+
+// queryEdgePairs is the single-junction-table variant: SELECT DISTINCT
+// (srcCol, tgtCol) FROM table WHERE srcCol IN srcIDs AND tgtCol IN tgtIDs.
+// label is used to namespace error messages.
+func (s *CollectionService) queryEdgePairs(table, srcCol, tgtCol string, srcIDs, tgtIDs []uint, label string) ([]derivedEdgePair, error) {
+	var rows []derivedEdgePair
+	selectExpr := fmt.Sprintf("DISTINCT %s AS src_id, %s AS tgt_id", srcCol, tgtCol)
+	whereExpr := fmt.Sprintf("%s IN ? AND %s IN ?", srcCol, tgtCol)
+	if err := s.db.Table(table).
+		Select(selectExpr).
+		Where(whereExpr, srcIDs, tgtIDs).
 		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to query artist-release pairs: %w", err)
-	}
-	return rows, nil
-}
-
-type artistLabelPair struct {
-	ArtistID uint
-	LabelID  uint
-}
-
-func (s *CollectionService) queryArtistLabelPairs(artistIDs, labelIDs []uint) ([]artistLabelPair, error) {
-	var rows []artistLabelPair
-	if err := s.db.Table("artist_labels").
-		Select("DISTINCT artist_id, label_id").
-		Where("artist_id IN ? AND label_id IN ?", artistIDs, labelIDs).
-		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to query artist-label pairs: %w", err)
-	}
-	return rows, nil
-}
-
-type artistFestivalPair struct {
-	ArtistID   uint
-	FestivalID uint
-}
-
-func (s *CollectionService) queryArtistFestivalPairs(artistIDs, festivalIDs []uint) ([]artistFestivalPair, error) {
-	var rows []artistFestivalPair
-	if err := s.db.Table("festival_artists").
-		Select("DISTINCT artist_id, festival_id").
-		Where("artist_id IN ? AND festival_id IN ?", artistIDs, festivalIDs).
-		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to query artist-festival pairs: %w", err)
-	}
-	return rows, nil
-}
-
-type showArtistPair struct {
-	ShowID   uint
-	ArtistID uint
-}
-
-func (s *CollectionService) queryShowArtistPairs(showIDs, artistIDs []uint) ([]showArtistPair, error) {
-	var rows []showArtistPair
-	if err := s.db.Table("show_artists").
-		Select("DISTINCT show_id, artist_id").
-		Where("show_id IN ? AND artist_id IN ?", showIDs, artistIDs).
-		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to query show-artist pairs: %w", err)
-	}
-	return rows, nil
-}
-
-type showVenuePair struct {
-	ShowID  uint
-	VenueID uint
-}
-
-func (s *CollectionService) queryShowVenuePairs(showIDs, venueIDs []uint) ([]showVenuePair, error) {
-	var rows []showVenuePair
-	if err := s.db.Table("show_venues").
-		Select("DISTINCT show_id, venue_id").
-		Where("show_id IN ? AND venue_id IN ?", showIDs, venueIDs).
-		Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to query show-venue pairs: %w", err)
+		return nil, fmt.Errorf("failed to query %s pairs: %w", label, err)
 	}
 	return rows, nil
 }
