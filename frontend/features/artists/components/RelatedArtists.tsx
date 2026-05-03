@@ -16,6 +16,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { useIsAuthenticated } from '@/features/auth'
+import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { useArtistGraph, useArtistRelationshipVote, useCreateArtistRelationship } from '../hooks/useArtistGraph'
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
@@ -56,7 +57,9 @@ interface RelatedArtistsProps {
 export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
   const { data: originalGraph, isLoading } = useArtistGraph({ artistId, enabled: artistId > 0 })
   const { isAuthenticated } = useIsAuthenticated()
-  const [showGraph, setShowGraph] = useState(false)
+  // null = not interacted; URL hash drives the default. User toggle sticks once set.
+  const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
+  const hash = useUrlHash()
   const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(ALL_TYPES))
   const [showSuggest, setShowSuggest] = useState(false)
   // Defer the graph render until ResizeObserver reports a real width.
@@ -96,6 +99,9 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
   if (isLoading) return null
 
   const hasRelationships = originalGraph && (originalGraph.nodes.length > 0 || originalGraph.links.length > 0)
+
+  const autoOpenFromHash = hash === GRAPH_HASH && Boolean(hasRelationships)
+  const showGraph = showGraphOverride ?? autoOpenFromHash
 
   // Empty state: show header + message + suggest button for authenticated users
   if (!hasRelationships) {
@@ -186,7 +192,7 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
             <Button
               variant={showGraph ? 'default' : 'outline'}
               size="sm"
-              onClick={() => setShowGraph(!showGraph)}
+              onClick={() => setShowGraphOverride(!showGraph)}
             >
               <Network className="h-4 w-4 mr-1.5" />
               {showGraph ? 'Hide graph' : 'Explore graph'}

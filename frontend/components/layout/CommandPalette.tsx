@@ -23,6 +23,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
+import { GRAPH_HASH } from '@/lib/hooks/common/useUrlHash'
 import { TagOfficialIndicator } from '@/features/tags'
 
 interface RouteItem {
@@ -94,7 +95,7 @@ const routes: RouteItem[] = [
     // dense-enough data for the graph viz today (memory: ≤11 artists in every
     // other scene). Re-evaluate when a second city hits scene-scale density.
     label: 'Phoenix scene graph',
-    href: '/scenes/phoenix-az#graph',
+    href: `/scenes/phoenix-az${GRAPH_HASH}`,
     icon: Network,
     keywords: ['graph', 'explore', 'network', 'visualize', 'phoenix', 'scene', 'arizona', 'az'],
   },
@@ -378,7 +379,7 @@ export function CommandPalette() {
     if (artistMatch && artistMatch[1] !== '') {
       items.push({
         label: 'Explore graph for this artist',
-        href: `/artists/${artistMatch[1]}#graph`,
+        href: `/artists/${artistMatch[1]}${GRAPH_HASH}`,
         icon: Network,
         keywords: ['graph', 'explore', 'network', 'visualize', 'related', 'similar'],
       })
@@ -387,7 +388,7 @@ export function CommandPalette() {
     if (collectionMatch && collectionMatch[1] !== '') {
       items.push({
         label: 'Explore graph for this collection',
-        href: `/collections/${collectionMatch[1]}#graph`,
+        href: `/collections/${collectionMatch[1]}${GRAPH_HASH}`,
         icon: Network,
         keywords: ['graph', 'explore', 'network', 'visualize'],
       })
@@ -396,7 +397,7 @@ export function CommandPalette() {
     if (sceneMatch && sceneMatch[1] !== '') {
       items.push({
         label: 'Explore graph for this scene',
-        href: `/scenes/${sceneMatch[1]}#graph`,
+        href: `/scenes/${sceneMatch[1]}${GRAPH_HASH}`,
         icon: Network,
         keywords: ['graph', 'explore', 'network', 'visualize'],
       })
@@ -405,7 +406,7 @@ export function CommandPalette() {
     if (venueMatch && venueMatch[1] !== '') {
       items.push({
         label: 'Explore graph for this venue',
-        href: `/venues/${venueMatch[1]}#graph`,
+        href: `/venues/${venueMatch[1]}${GRAPH_HASH}`,
         icon: Network,
         keywords: ['graph', 'explore', 'network', 'visualize', 'co-bill'],
       })
