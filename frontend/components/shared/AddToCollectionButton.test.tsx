@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { AddToCollectionButton } from './AddToCollectionButton'
 
@@ -22,21 +22,27 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 // Mock collection hooks
-const mockAddMutate = vi.fn()
+const mockMutateAsync = vi.fn()
 const mockMyCollections = vi.fn(() => ({
   data: {
     collections: [
       { id: 1, slug: 'my-favorites', title: 'My Favorites' },
       { id: 2, slug: 'best-of-2026', title: 'Best of 2026' },
+      { id: 3, slug: 'arizona-shows', title: 'Arizona Shows' },
     ],
   },
+  isLoading: false,
+}))
+const mockContainingIds = vi.fn(() => ({
+  data: new Set<number>(),
   isLoading: false,
 }))
 
 vi.mock('@/features/collections/hooks', () => ({
   useMyCollections: () => mockMyCollections(),
+  useUserCollectionsContaining: () => mockContainingIds(),
   useAddCollectionItem: () => ({
-    mutate: mockAddMutate,
+    mutateAsync: mockMutateAsync,
     isPending: false,
     isError: false,
     error: null,
@@ -69,6 +75,21 @@ describe('AddToCollectionButton', () => {
       isLoading: false,
       logout: vi.fn(),
     })
+    mockMyCollections.mockReturnValue({
+      data: {
+        collections: [
+          { id: 1, slug: 'my-favorites', title: 'My Favorites' },
+          { id: 2, slug: 'best-of-2026', title: 'Best of 2026' },
+          { id: 3, slug: 'arizona-shows', title: 'Arizona Shows' },
+        ],
+      },
+      isLoading: false,
+    })
+    mockContainingIds.mockReturnValue({
+      data: new Set<number>(),
+      isLoading: false,
+    })
+    mockMutateAsync.mockResolvedValue(undefined)
   })
 
   it('renders nothing when not authenticated', () => {
@@ -92,7 +113,7 @@ describe('AddToCollectionButton', () => {
     expect(screen.getByText('Collect')).toBeInTheDocument()
   })
 
-  it('opens popover with collections list when clicked', async () => {
+  it('opens popover with collection checkboxes when clicked', async () => {
     const user = userEvent.setup()
     render(
       <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
@@ -100,9 +121,36 @@ describe('AddToCollectionButton', () => {
 
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
 
-    expect(screen.getByText('Add to Collection')).toBeInTheDocument()
+    expect(await screen.findByText('Add to Collection')).toBeInTheDocument()
     expect(screen.getByText('My Favorites')).toBeInTheDocument()
     expect(screen.getByText('Best of 2026')).toBeInTheDocument()
+    // Each row exposes a checkbox role.
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes).toHaveLength(3)
+    for (const cb of checkboxes) {
+      expect(cb).toHaveAttribute('aria-checked', 'false')
+    }
+  })
+
+  it('pre-checks collections that already contain the entity', async () => {
+    mockContainingIds.mockReturnValue({
+      data: new Set<number>([2]),
+      isLoading: false,
+    })
+
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+    )
+
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+
+    const favoritesCheckbox = await screen.findByRole('checkbox', {
+      name: /my favorites/i,
+    })
+    const bestOfCheckbox = screen.getByRole('checkbox', { name: /best of 2026/i })
+    expect(favoritesCheckbox).toHaveAttribute('aria-checked', 'false')
+    expect(bestOfCheckbox).toHaveAttribute('aria-checked', 'true')
   })
 
   it('shows entity name in popover header', async () => {
@@ -113,22 +161,83 @@ describe('AddToCollectionButton', () => {
 
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
 
-    expect(screen.getByText('The Rebel Lounge')).toBeInTheDocument()
+    expect(await screen.findByText('The Rebel Lounge')).toBeInTheDocument()
   })
 
-  it('calls addMutation when collection is clicked', async () => {
+  it('disables Submit until at least one new row is checked', async () => {
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+    )
+
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+
+    const submitBefore = await screen.findByRole('button', { name: /^add$/i })
+    expect(submitBefore).toBeDisabled()
+
+    await user.click(screen.getByRole('checkbox', { name: /my favorites/i }))
+
+    const submitAfter = screen.getByRole('button', { name: /add to 1 collection/i })
+    expect(submitAfter).toBeEnabled()
+  })
+
+  it('fans out parallel AddItem requests for each newly-checked collection', async () => {
     const user = userEvent.setup()
     render(
       <AddToCollectionButton entityType="artist" entityId={42} entityName="Test Artist" />
     )
 
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
-    await user.click(screen.getByText('My Favorites'))
-
-    expect(mockAddMutate).toHaveBeenCalledWith(
-      { slug: 'my-favorites', entityType: 'artist', entityId: 42 },
-      expect.any(Object)
+    await user.click(
+      await screen.findByRole('checkbox', { name: /my favorites/i })
     )
+    await user.click(screen.getByRole('checkbox', { name: /arizona shows/i }))
+    await user.click(
+      screen.getByRole('button', { name: /add to 2 collections/i })
+    )
+
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledTimes(2)
+    })
+    expect(mockMutateAsync).toHaveBeenCalledWith({
+      slug: 'my-favorites',
+      entityType: 'artist',
+      entityId: 42,
+    })
+    expect(mockMutateAsync).toHaveBeenCalledWith({
+      slug: 'arizona-shows',
+      entityType: 'artist',
+      entityId: 42,
+    })
+  })
+
+  it('surfaces per-collection errors without blocking successes', async () => {
+    // Resolve "my-favorites", reject "arizona-shows" with a server-shaped error.
+    mockMutateAsync.mockImplementation(
+      ({ slug }: { slug: string }) =>
+        slug === 'arizona-shows'
+          ? Promise.reject(new Error('Already in collection'))
+          : Promise.resolve(undefined)
+    )
+
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={42} entityName="Test Artist" />
+    )
+
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+    await user.click(
+      await screen.findByRole('checkbox', { name: /my favorites/i })
+    )
+    await user.click(screen.getByRole('checkbox', { name: /arizona shows/i }))
+    await user.click(
+      screen.getByRole('button', { name: /add to 2 collections/i })
+    )
+
+    // Failure surfaces inline.
+    expect(await screen.findByText('Already in collection')).toBeInTheDocument()
+    // Success row had its add fulfilled — both calls happened.
+    expect(mockMutateAsync).toHaveBeenCalledTimes(2)
   })
 
   it('shows "Create new collection" link', async () => {
@@ -139,7 +248,7 @@ describe('AddToCollectionButton', () => {
 
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
 
-    const link = screen.getByText('Create new collection')
+    const link = await screen.findByText('Create new collection')
     expect(link).toBeInTheDocument()
     expect(link.closest('a')).toHaveAttribute('href', '/collections')
   })
@@ -157,7 +266,24 @@ describe('AddToCollectionButton', () => {
 
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
 
-    expect(screen.getByText('No collections yet')).toBeInTheDocument()
+    expect(await screen.findByText('No collections yet')).toBeInTheDocument()
+  })
+
+  it('toggling a checkbox via the keyboard (Space) flips its state', async () => {
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+    )
+
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+
+    const checkbox = await screen.findByRole('checkbox', { name: /my favorites/i })
+    checkbox.focus()
+    expect(checkbox).toHaveFocus()
+    expect(checkbox).toHaveAttribute('aria-checked', 'false')
+
+    await user.keyboard(' ')
+    expect(checkbox).toHaveAttribute('aria-checked', 'true')
   })
 
   // ── Regression: unauthenticated → authenticated transition (PSY-466) ──

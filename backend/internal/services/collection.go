@@ -1430,6 +1430,47 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	return responses, total, nil
 }
 
+// GetUserCollectionsContainingEntity returns the IDs of the user's editable
+// collections (creator OR collaborative-and-subscribed) that already contain
+// the supplied entity. PSY-359 — backs the multi-select Add-to-Collection
+// popover so it can pre-check rows the user has already added the entity to.
+//
+// Single round-trip; one indexed lookup. Caller scopes the result to the
+// candidate collections shown in the popover by intersecting with the user's
+// own collection list (already cached). Returns an empty slice for an
+// unauthenticated caller (userID == 0) — not an error.
+func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]uint, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if userID == 0 {
+		return []uint{}, nil
+	}
+
+	// Mirror GetUserCollections's scope: collections the user CREATED or
+	// is SUBSCRIBED to. The popover only adds to creator-owned collections
+	// today, but collaborative collections shown in the user's library
+	// should also pre-check correctly.
+	subQuery := s.db.Model(&communitym.CollectionSubscriber{}).
+		Select("collection_id").
+		Where("user_id = ?", userID)
+
+	var ids []uint
+	err := s.db.Model(&communitym.CollectionItem{}).
+		Distinct("collection_items.collection_id").
+		Joins("JOIN collections ON collections.id = collection_items.collection_id").
+		Where("collection_items.entity_type = ? AND collection_items.entity_id = ?", entityType, entityID).
+		Where("collections.creator_id = ? OR collections.id IN (?)", userID, subQuery).
+		Pluck("collection_items.collection_id", &ids).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to look up containing collections: %w", err)
+	}
+	if ids == nil {
+		ids = []uint{}
+	}
+	return ids, nil
+}
+
 // GetEntityCollections returns public collections that contain the given entity
 func (s *CollectionService) GetEntityCollections(entityType string, entityID uint, limit int) ([]*contracts.CollectionListResponse, error) {
 	if s.db == nil {
