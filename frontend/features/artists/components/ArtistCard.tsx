@@ -67,7 +67,10 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
     return (
       <article className="rounded-lg border border-border/50 bg-card p-6 hover:shadow-md transition-shadow">
         <Link href={`/artists/${artist.slug}`} className="block group">
-          <h3 className="font-bold text-xl text-foreground group-hover:text-primary transition-colors">
+          <h3
+            className="font-bold text-xl text-foreground group-hover:text-primary transition-colors line-clamp-2"
+            title={artist.name}
+          >
             {artist.name}
           </h3>
         </Link>
@@ -91,7 +94,10 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
   return (
     <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
       <Link href={`/artists/${artist.slug}`} className="block group">
-        <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors truncate">
+        <h3
+          className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
+          title={artist.name}
+        >
           {artist.name}
         </h3>
       </Link>

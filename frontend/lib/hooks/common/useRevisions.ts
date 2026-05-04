@@ -15,7 +15,10 @@ export interface RevisionItem {
   entity_type: string
   entity_id: number
   user_id: number
+  /** Resolved display name; never empty (backend resolveUserName chain). */
   user_name?: string
+  /** URL-safe username slug; null when the user has no username set. */
+  user_username?: string | null
   changes: FieldChange[]
   summary?: string
   created_at: string
