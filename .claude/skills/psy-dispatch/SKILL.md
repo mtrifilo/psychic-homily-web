@@ -45,8 +45,22 @@ These are the non-negotiables. They are encoded in the per-agent prompt template
 6. **Agents never merge their own PRs.** PR creation is the agent's last step; merging is the user's.
 7. **Use `isolation: "worktree"` and `run_in_background: true`** on every dispatched Agent call. Running in the main worktree blocks other agents and defeats the purpose of the batch.
 8. **Verify worktree isolation.** `isolation: "worktree"` is necessary but not sufficient — in the May 2026 dogfood batch, 2 of 6 agents had Edit/Write tool calls land in the main worktree's CWD instead of their isolated worktree. Each agent must verify CWD via `pwd` and `git rev-parse --show-toplevel` before editing, and must run a recovery procedure if leakage is detected (see per-agent template). The orchestrator must verify each PR's diff matches the ticket's stated scope before declaring the batch done.
+9. **Verify base currency before AND after dispatch.** Worktrees branch off local main; a stale base produces stale-fallout CI failures from unrelated work that landed during dispatch. Pre-flight (before step 1): sync local main with origin/main. After step 6: re-fetch and rebase if origin/main moved during dispatch. See the stale-base anti-pattern below for the canonical May 2026 dogfix-sweep example.
 
 ## Workflow
+
+### Pre-flight: sync local main
+
+Before reading tickets, ensure local main matches origin/main. Worktrees branch off local main; if local main is stale, every dispatched PR inherits a stale base and CI will fail with stale-fallout from work that merged in the meantime.
+
+```bash
+git -C <main-repo> fetch origin main
+git -C <main-repo> log --oneline main..origin/main   # commits ahead of local?
+# If main is behind:
+git -C <main-repo> pull --ff-only origin main
+```
+
+If `--ff-only` rejects (local main has commits not in origin/main, e.g. a stash-WIP commit), pause and ask the user before resolving — do not blindly merge or reset. Capture the pre-flight `origin/main` SHA so step 7 can detect movement during dispatch.
 
 ### 1. Read every ticket in parallel
 
@@ -113,6 +127,29 @@ When all agents have returned (or as each returns):
 - Do NOT include diffs in the summary. PRs carry the diff.
 - **Verify isolation post-hoc.** Run `git status` from the main repo and `gh pr view <PR> --json files` for each PR. Each PR's file list should match the ticket's stated scope; the main repo should have no uncommitted changes from any agent (only the pre-existing untracked files from session start). If you find leakage, the agent's recovery procedure should have handled it — but verify rather than trust.
 
+### 7. Stale-base recovery + apply orchestrator-pending memory entries
+
+After step 6, re-fetch origin/main. If it moved during dispatch, the PR bases are now stale and CI may fail with stale-fallout from work that merged mid-dispatch.
+
+```bash
+git -C <main-repo> fetch origin main
+git -C <main-repo> log --oneline <pre-flight-origin-main-SHA>..origin/main   # moved?
+gh pr checks <PR>   # if origin/main moved, check CI on each PR
+```
+
+**Symptom of stale-base:** identical CI failure shape across multiple PRs that touch different files (e.g. the same Backend test name failing on every PR in the batch, while each PR's frontend unit tests pass). The diffs themselves are clean. If the failing tests reference work that merged into origin/main during dispatch (look at the test file's git blame), it is almost certainly stale-base, not the diff.
+
+**Recovery** — rebase each affected worktree onto origin/main and force-push. Parallelisable across worktrees (each operates on its own branch):
+
+```bash
+git -C <worktree> rebase origin/main && \
+git -C <worktree> push --force-with-lease origin <branch>
+```
+
+Always `--force-with-lease`, never `--force` — bails out if the remote moved (someone pushed during the rebase) instead of overwriting their work. If a rebase produces conflicts, stop and surface the conflict to the user; don't auto-resolve.
+
+**Apply orchestrator-pending memory entries.** If any agent returned a *Proposed memory entries* block in its report (because no in-repo `CLAUDE.md` existed), apply those entries to user-level `MEMORY.md` here — after PRs are pushed and CI is clean. The orchestrator owns the user-level memory file; agents do not edit it from inside their worktrees.
+
 ## Per-agent prompt template
 
 Each agent's prompt must be SELF-CONTAINED (the agent has none of this conversation's context). Fill in the placeholders for each ticket. Keep the conventions block identical across agents.
@@ -128,6 +165,7 @@ Fix PSY-{N}: {ticket title}.
 - Branch from `main`. Branch name: `PSY-{N}/{kebab-short-description}`.
 - Commit format: imperative, subject `PSY-{N}: <summary>`, HEREDOC body, `Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>`.
 - PR title: `PSY-{N}: <summary>` (under 70 chars). PR body must include `Closes PSY-{N}`.
+- **Memory edits**: if acceptance criteria call for a "CLAUDE.md note" or "project memory update", target the in-repo `CLAUDE.md` (so the edit lands in the PR alongside the code change). DO NOT edit the user-level `MEMORY.md` at `~/.claude/projects/.../memory/MEMORY.md` from inside your worktree — that file is outside the repo and outside the PR; edits to it bypass review. If no in-repo `CLAUDE.md` exists, skip the file edit and return the proposed entry verbatim in your report under "Proposed memory entries"; the orchestrator applies it post-batch with full visibility.
 
 # Problem
 {paste from ticket description}
@@ -171,6 +209,7 @@ Short report (under 250 words):
 - Behaviour change (one or two sentences)
 - `/simplify` diff (or "no changes")
 - Isolation check: clean, or tripped + recovered
+- **Proposed memory entries** (only if relevant): if your acceptance criteria called for a memory/CLAUDE.md note and no in-repo `CLAUDE.md` exists to land it in-PR, paste the proposed entry verbatim and identify the target section header in user-level `MEMORY.md` (e.g. "Key Non-Obvious Patterns"). Orchestrator applies post-batch.
 - Scope-adjacent observations: out-of-scope patterns / refactors / warnings noticed. Do NOT expand PR scope to address them.
 - Blockers / open questions
 
@@ -185,6 +224,8 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - **Trusting `isolation: "worktree"` blindly.** In the May 2026 dogfood batch (PSY-551 through PSY-556), 2 of 6 agents had Edit/Write tool calls land in the main worktree's CWD despite the isolation flag. The agents that detected and recovered (copy-edits-to-worktree → `git restore` leaked paths in main → resume) shipped clean PRs; without the recovery they would have committed the wrong files to the wrong branch. Always verify isolation up front and pre-commit, and run the orchestrator-level diff check at step 6.
 - **Using `git checkout .` or `git clean -fd` to "reset" main during recovery.** Both can wipe unrelated untracked files in the main worktree (e.g. another in-flight WIP, or session-scope draft files like a new skill). Use `git restore <specific paths>` only — target the leaked paths explicitly.
 - **Dispatching a ticket whose targets are all gitignored.** A worktree creates an isolated branch, but edits to gitignored paths live only in the worktree's filesystem — they don't commit, don't push, don't reach a PR, and disappear when the worktree is cleaned up. **PSY-427 (May 2026)** hit this: the target was `docs/runbooks/agent-workflow.md` + `docs/INDEX.md`, and `docs/` is in `.gitignore`. Pre-flight check before step 4: run `git check-ignore -v` against each target file the ticket calls out (or run it against the entire `docs/` tree if the ticket is a docs-only update). If everything is ignored, abort the dispatch and do the work inline on main — the user reviews the diff in-conversation, accepts, and the ticket transitions Done directly. There is no merge event to gate on.
+- **Dispatching from a stale local main (whole-batch CI failure).** Worktrees branch off local main; if it's behind origin/main at dispatch time, every PR inherits the same stale base. **The May 2026 dogfix sweep (PSY-558/559/560/561/562)** hit this: local main was 8 commits behind origin/main; two of those commits (PSY-357 + PSY-359) added test files exercising new collection paths; ALL 5 PRs failed the same Backend + E2E suites despite each PR's diff being clean and unrelated to collections. Frontend unit tests passed on every PR — the only suite actually exercising the diff. The signature is **identical CI failure shape across PRs that touch different files**. Pre-flight (sync local main before step 1) catches the stale-at-dispatch case; step 7 catches the moved-during-dispatch case. Recovery is a parallel `git rebase origin/main && git push --force-with-lease origin <branch>` per worktree (per step 7).
+- **Agents writing project-pattern docs to user-level MEMORY.md from inside their worktree.** When the per-agent prompt says "add a CLAUDE.md note" but no project-level `CLAUDE.md` exists in the repo, agents fall through to the user-level memory file at `~/.claude/projects/<project>/memory/MEMORY.md` — which sits OUTSIDE the worktree, OUTSIDE the repo, and OUTSIDE the PR. Same shape as the gitignored-target anti-pattern: edits that don't reach review. **PSY-558 + PSY-559 (May 2026)** both did this; content was correct and ended up in the right file, but it bypassed PR review and bypassed orchestrator visibility. Fix: the per-agent template's *Repo context* + *Reporting back* sections instruct agents to edit in-repo `CLAUDE.md` if present (lands in the PR), otherwise return the proposed entry in their report under *Proposed memory entries* — the orchestrator applies user-level `MEMORY.md` updates in step 7 with full visibility.
 
 ## Related skills and memories
 
