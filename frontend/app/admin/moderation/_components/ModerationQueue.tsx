@@ -26,6 +26,7 @@ import {
   useAdminEntityReports,
   useResolveEntityReport,
   useDismissEntityReport,
+  useAdminHideCollection,
 } from '@/lib/hooks/admin/useAdminEntityReports'
 import {
   useAdminPendingComments,
@@ -40,7 +41,7 @@ import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getEntityUrl(entityType: string, entityId: number): string {
+function getEntityUrl(entityType: string, entityId: number, entitySlug?: string): string {
   switch (entityType) {
     case 'artist':
       return `/artists/${entityId}`
@@ -52,6 +53,10 @@ function getEntityUrl(entityType: string, entityId: number): string {
       return `/shows/${entityId}`
     case 'comment':
       return '#'
+    // PSY-357: collections are addressed by slug, not numeric ID. Fall back
+    // to '#' if the slug couldn't be resolved (deleted collection, etc.).
+    case 'collection':
+      return entitySlug ? `/collections/${entitySlug}` : '#'
     default:
       return '#'
   }
@@ -92,7 +97,7 @@ function renderValue(value: unknown): string {
 // ─── Filter Types ────────────────────────────────────────────────────────────
 
 type ItemTypeFilter = 'all' | 'edits' | 'reports' | 'comments'
-type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show'
+type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show' | 'collection'
 
 // ─── Unified Item Type ───────────────────────────────────────────────────────
 
@@ -311,7 +316,7 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
               {entityTypeLabel(report.entity_type)}
             </Badge>
             <a
-              href={getEntityUrl(report.entity_type, report.entity_id)}
+              href={getEntityUrl(report.entity_type, report.entity_id, report.entity_slug)}
               className="text-sm font-medium text-foreground hover:underline truncate"
               target="_blank"
               rel="noopener noreferrer"
@@ -738,6 +743,201 @@ function CommentReportCard({ report }: { report: EntityReportResponse }) {
   )
 }
 
+// ─── Collection Report Card ────────────────────────────────────────────────
+
+/**
+ * PSY-357: admin moderation card for collection reports. Mirrors
+ * `CommentReportCard` — a single click both hides the collection from
+ * public browse (PUT /collections/{slug} with is_public=false) AND marks
+ * the report resolved. The "Dismiss" path leaves the collection alone and
+ * just clears the report.
+ *
+ * Hide is unavailable when the slug couldn't be resolved (i.e. the
+ * collection was deleted between report submission and review). In that
+ * case the only useful action is Dismiss.
+ */
+function CollectionReportCard({ report }: { report: EntityReportResponse }) {
+  const [showNotes, setShowNotes] = useState(false)
+  const [notes, setNotes] = useState('')
+  const [action, setAction] = useState<'hide' | 'dismiss' | null>(null)
+
+  const hideMutation = useAdminHideCollection()
+  const resolveMutation = useResolveEntityReport()
+  const dismissMutation = useDismissEntityReport()
+
+  const isActioning =
+    hideMutation.isPending || resolveMutation.isPending || dismissMutation.isPending
+
+  const handleAction = useCallback(() => {
+    if (action === 'hide') {
+      if (!report.entity_slug) return
+      // Hide first, then resolve the report so the moderation queue
+      // reflects the action taken (rather than two separate concerns).
+      hideMutation.mutate(
+        { slug: report.entity_slug },
+        {
+          onSuccess: () => {
+            resolveMutation.mutate(
+              { reportId: report.id, notes: notes.trim() || undefined },
+              {
+                onSuccess: () => {
+                  setShowNotes(false)
+                  setNotes('')
+                  setAction(null)
+                },
+              }
+            )
+          },
+        }
+      )
+    } else if (action === 'dismiss') {
+      dismissMutation.mutate(
+        { reportId: report.id, notes: notes.trim() || undefined },
+        {
+          onSuccess: () => {
+            setShowNotes(false)
+            setNotes('')
+            setAction(null)
+          },
+        }
+      )
+    }
+  }, [action, hideMutation, resolveMutation, dismissMutation, report.id, report.entity_slug, notes])
+
+  const startAction = useCallback((type: 'hide' | 'dismiss') => {
+    setAction(type)
+    setShowNotes(true)
+  }, [])
+
+  const entityUrl = getEntityUrl(report.entity_type, report.entity_id, report.entity_slug)
+  const hasSlug = Boolean(report.entity_slug)
+
+  return (
+    <Card className="overflow-hidden" data-testid="collection-report-card">
+      <CardContent className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <Badge variant="secondary" className="shrink-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
+              <Flag className="h-3 w-3 mr-1" />
+              Report
+            </Badge>
+            <Badge variant="outline" className="shrink-0">
+              Collection
+            </Badge>
+            {hasSlug ? (
+              <a
+                href={entityUrl}
+                className="text-sm font-medium text-foreground hover:underline truncate"
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                {report.entity_name || `Collection #${report.entity_id}`}
+                <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
+              </a>
+            ) : (
+              <span className="text-sm font-medium text-muted-foreground truncate">
+                {report.entity_name || `Collection #${report.entity_id}`} (deleted)
+              </span>
+            )}
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">
+            {timeAgo(report.created_at)}
+          </span>
+        </div>
+
+        <div className="mt-2 space-y-1">
+          <div className="flex items-center gap-2 text-sm">
+            <Badge variant="outline" className="text-xs">
+              {reportTypeLabel(report.report_type)}
+            </Badge>
+            <span className="text-muted-foreground">
+              by {report.reporter_name || `User #${report.reported_by}`}
+            </span>
+          </div>
+          {report.details && (
+            <p className="text-sm text-muted-foreground italic">
+              &ldquo;{report.details}&rdquo;
+            </p>
+          )}
+        </div>
+
+        {showNotes && (
+          <div className="mt-3 space-y-2">
+            <textarea
+              value={notes}
+              onChange={e => setNotes(e.target.value)}
+              placeholder={
+                action === 'hide'
+                  ? 'Reason for hiding from public browse (optional)'
+                  : 'Notes for dismissal (optional)'
+              }
+              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
+              rows={2}
+              autoFocus
+            />
+            <div className="flex items-center gap-2">
+              <Button
+                size="sm"
+                variant={action === 'hide' ? 'destructive' : 'outline'}
+                onClick={handleAction}
+                disabled={isActioning}
+              >
+                {isActioning ? (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                ) : action === 'hide' ? (
+                  <X className="h-3 w-3 mr-1" />
+                ) : (
+                  <Check className="h-3 w-3 mr-1" />
+                )}
+                {action === 'hide' ? 'Confirm Hide' : 'Confirm Dismiss'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => { setShowNotes(false); setNotes(''); setAction(null) }}
+                disabled={isActioning}
+              >
+                Cancel
+              </Button>
+            </div>
+          </div>
+        )}
+
+        {!showNotes && (
+          <div className="mt-3 flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="destructive"
+              onClick={() => startAction('hide')}
+              disabled={isActioning || !hasSlug}
+              title={hasSlug ? undefined : 'Cannot hide — collection was deleted'}
+            >
+              <X className="h-3 w-3 mr-1" />
+              Hide from Public Browse
+            </Button>
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => startAction('dismiss')}
+              disabled={isActioning}
+            >
+              <Check className="h-3 w-3 mr-1" />
+              Dismiss Report
+            </Button>
+          </div>
+        )}
+
+        {(hideMutation.isError || resolveMutation.isError || dismissMutation.isError) && (
+          <p className="mt-2 text-xs text-destructive">
+            {(hideMutation.error || resolveMutation.error || dismissMutation.error)?.message ||
+              'Action failed'}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
 // ─── Main Component ──────────────────────────────────────────────────────────
 
 export function ModerationQueue() {
@@ -878,6 +1078,7 @@ export function ModerationQueue() {
           <option value="venue">Venues</option>
           <option value="festival">Festivals</option>
           <option value="show">Shows</option>
+          <option value="collection">Collections</option>
         </select>
 
         {/* Summary count */}
@@ -915,10 +1116,15 @@ export function ModerationQueue() {
             if (item.type === 'comment') {
               return <PendingCommentCard key={`comment-${item.data.id}`} comment={item.data as PendingComment} />
             }
-            // Reports — use CommentReportCard for comment reports, EntityReportCard for others
+            // Reports — type-specific cards for kinds that need bespoke
+            // moderation actions (hide-comment, hide-collection); generic
+            // EntityReportCard for the other entity types.
             const report = item.data as EntityReportResponse
             if (report.entity_type === 'comment') {
               return <CommentReportCard key={`comment-report-${report.id}`} report={report} />
+            }
+            if (report.entity_type === 'collection') {
+              return <CollectionReportCard key={`collection-report-${report.id}`} report={report} />
             }
             return <EntityReportCard key={`report-${report.id}`} report={report} />
           })}

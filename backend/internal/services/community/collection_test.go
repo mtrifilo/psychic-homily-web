@@ -1,4 +1,4 @@
-package services
+package community
 
 import (
 	"fmt"

@@ -102,8 +102,9 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// Data export endpoint (GDPR Right to Portability)
 	huma.Get(rc.Protected, "/auth/account/export", authHandler.ExportDataHandler)
 
-	// CLI token generation endpoint (admin only)
-	huma.Post(rc.Protected, "/auth/cli-token", authHandler.GenerateCLITokenHandler)
+	// CLI token generation endpoint (admin only — gated by HumaAdminMiddleware
+	// on the rc.Admin group; PSY-550 follow-up to PSY-423).
+	huma.Post(rc.Admin, "/auth/cli-token", authHandler.GenerateCLITokenHandler)
 
 	// OAuth account management endpoints
 	oauthAccountHandler := authh.NewOAuthAccountHandler(rc.SC.User)

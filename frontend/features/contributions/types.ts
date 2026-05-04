@@ -75,7 +75,7 @@ export interface EditableField {
   group?: 'info' | 'social' | 'details'
 }
 
-export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment'
+export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment' | 'collection'
 
 export interface ReportTypeOption {
   value: string
@@ -117,6 +117,15 @@ export const REPORT_TYPES: Record<ReportableEntityType, ReportTypeOption[]> = {
     { value: 'harassment', label: 'Harassment', description: 'This comment is abusive or harassing' },
     { value: 'off_topic', label: 'Off Topic', description: 'This comment is irrelevant to the discussion' },
     { value: 'inaccurate', label: 'Inaccurate', description: 'This comment contains incorrect information' },
+    { value: 'other', label: 'Other', description: 'Another issue not listed above' },
+  ],
+  // PSY-357: collection reuses the comment vocabulary verbatim — both are
+  // user-generated content surfaces with the same abuse vectors.
+  collection: [
+    { value: 'spam', label: 'Spam', description: 'This collection is spam or advertising' },
+    { value: 'harassment', label: 'Harassment', description: 'This collection is abusive or harassing' },
+    { value: 'off_topic', label: 'Off Topic', description: 'This collection is irrelevant or misplaced' },
+    { value: 'inaccurate', label: 'Inaccurate', description: 'This collection contains incorrect information' },
     { value: 'other', label: 'Other', description: 'Another issue not listed above' },
   ],
 }

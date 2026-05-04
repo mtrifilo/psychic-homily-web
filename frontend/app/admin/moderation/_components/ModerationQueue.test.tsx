@@ -61,6 +61,23 @@ const mockCommentReport = {
   created_at: '2026-04-04T00:00:00Z',
 }
 
+// PSY-357: collection-typed report payload. Includes entity_slug because
+// the moderation card uses it to deep-link to the public collection page
+// and to call the admin hide endpoint.
+const mockCollectionReport = {
+  id: 5,
+  entity_type: 'collection',
+  entity_id: 60,
+  entity_name: 'Test Collection',
+  entity_slug: 'test-collection',
+  reported_by: 6,
+  reporter_name: 'reporter3',
+  report_type: 'spam',
+  details: 'This collection is spam',
+  status: 'pending',
+  created_at: '2026-04-05T00:00:00Z',
+}
+
 // --- Mocks ---
 
 const mockUseAdminPendingEdits = vi.fn()
@@ -69,6 +86,7 @@ const mockUseRejectPendingEdit = vi.fn()
 const mockUseAdminEntityReports = vi.fn()
 const mockUseResolveEntityReport = vi.fn()
 const mockUseDismissEntityReport = vi.fn()
+const mockUseAdminHideCollection = vi.fn()
 const mockUseAdminPendingComments = vi.fn()
 const mockUseAdminApproveComment = vi.fn()
 const mockUseAdminRejectComment = vi.fn()
@@ -86,6 +104,8 @@ vi.mock('@/lib/hooks/admin/useAdminEntityReports', () => ({
   useAdminEntityReports: (...args: unknown[]) => mockUseAdminEntityReports(...args),
   useResolveEntityReport: () => mockUseResolveEntityReport(),
   useDismissEntityReport: () => mockUseDismissEntityReport(),
+  // PSY-357: hide-collection mutation, only invoked from CollectionReportCard.
+  useAdminHideCollection: () => mockUseAdminHideCollection(),
 }))
 
 vi.mock('@/lib/hooks/admin/useAdminComments', () => ({
@@ -113,6 +133,7 @@ describe('ModerationQueue', () => {
     mockUseAdminApproveComment.mockReturnValue(defaultMutationReturn)
     mockUseAdminRejectComment.mockReturnValue(defaultMutationReturn)
     mockUseAdminHideComment.mockReturnValue(defaultMutationReturn)
+    mockUseAdminHideCollection.mockReturnValue(defaultMutationReturn)
   })
 
   function setDefaultMocks(overrides?: {
@@ -185,6 +206,34 @@ describe('ModerationQueue', () => {
     expect(screen.getByText('Spam')).toBeInTheDocument()
     expect(screen.getByText('Hide Comment')).toBeInTheDocument()
     expect(screen.getByText('Dismiss Report')).toBeInTheDocument()
+  })
+
+  // PSY-357: collection reports get a dedicated card with a "Hide from
+  // Public Browse" action that flips is_public=false. The slug is required
+  // to render the link and to enable the Hide button.
+  it('renders collection report card for collection-type reports', () => {
+    setDefaultMocks({ reports: [mockCollectionReport] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByTestId('collection-report-card')).toBeInTheDocument()
+    expect(screen.getByText('Test Collection')).toBeInTheDocument()
+    expect(screen.getByText('Hide from Public Browse')).toBeInTheDocument()
+    expect(screen.getByText('Dismiss Report')).toBeInTheDocument()
+  })
+
+  it('disables Hide on collection report when slug is missing (deleted)', () => {
+    setDefaultMocks({
+      reports: [{ ...mockCollectionReport, entity_slug: undefined }],
+    })
+
+    render(<ModerationQueue />)
+
+    const hideButton = screen.getByText('Hide from Public Browse').closest('button')
+    expect(hideButton).toBeDisabled()
+    // Dismiss is still available so admins can clear stale reports.
+    const dismissButton = screen.getByText('Dismiss Report').closest('button')
+    expect(dismissButton).not.toBeDisabled()
   })
 
   it('shows correct counts in filter buttons', () => {

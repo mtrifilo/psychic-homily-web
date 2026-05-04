@@ -17,6 +17,12 @@ export interface EntityReportResponse {
   entity_type: string
   entity_id: number
   entity_name?: string
+  /**
+   * PSY-357: populated only for entity types addressed by slug in the public
+   * app (currently `collection`). Other entity types use ID-based URLs and
+   * leave this undefined.
+   */
+  entity_slug?: string
   reported_by: number
   reporter_name?: string
   report_type: string
@@ -95,6 +101,37 @@ export function useResolveEntityReport() {
     },
     onSuccess: () => {
       invalidateQueries.adminEntityReports()
+    },
+  })
+}
+
+/**
+ * PSY-357: hide a collection from public browse by flipping `is_public` to
+ * false via the existing admin-permitted PUT /collections/{slug} endpoint.
+ *
+ * The backend's UpdateCollection accepts an `is_admin` path so admins can
+ * edit any collection, and PSY-356's publish-gate is forward-only — going
+ * from public to private is unconditional. No new endpoint is required.
+ *
+ * Coupled with `useResolveEntityReport` at the call site so a single click
+ * in the moderation queue both hides the collection AND clears the report
+ * (the same shape `useAdminHideComment` provides for comment reports).
+ */
+export function useAdminHideCollection() {
+  const queryClient = useQueryClient()
+  const invalidateQueries = createInvalidateQueries(queryClient)
+
+  return useMutation({
+    mutationFn: async ({ slug }: { slug: string }): Promise<void> => {
+      return apiRequest<void>(API_ENDPOINTS.COLLECTIONS.DETAIL(slug), {
+        method: 'PUT',
+        body: JSON.stringify({ is_public: false }),
+      })
+    },
+    onSuccess: () => {
+      invalidateQueries.adminEntityReports()
+      // Detail + list pages may surface the now-private collection's flag.
+      queryClient.invalidateQueries({ queryKey: ['collections'] })
     },
   })
 }
