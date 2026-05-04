@@ -33,7 +33,10 @@ export function RadioShowCard({ show, stationSlug }: RadioShowCardProps) {
         {/* Content */}
         <div className="flex-1 min-w-0">
           <Link href={showUrl} className="block group">
-            <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors truncate">
+            <h3
+              className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
+              title={show.name}
+            >
               {show.name}
             </h3>
           </Link>

@@ -137,6 +137,34 @@ export function useMyCollections() {
   })
 }
 
+/**
+ * PSY-359: list of the authenticated user's own collection IDs that already
+ * contain the given entity. Backs the pre-check state on the multi-select
+ * Add-to-Collection popover so it can render the right boxes ticked in a
+ * single round-trip (no N+1 contains-check fan-out across cards).
+ *
+ * Returns a `Set<number>` (constructed once per response) so callers can
+ * check membership in O(1) without re-allocating per render. `enabled`
+ * defaults to `true`; pass `false` to defer the request until the popover
+ * opens — saves a fetch on every entity page render.
+ */
+export function useUserCollectionsContaining(
+  entityType: string,
+  entityId: number,
+  options?: { enabled?: boolean }
+) {
+  return useQuery({
+    queryKey: queryKeys.collections.containing(entityType, entityId),
+    queryFn: async () => {
+      const url = `${API_ENDPOINTS.COLLECTIONS.CONTAINS}?entity_type=${encodeURIComponent(entityType)}&entity_id=${entityId}`
+      const data = await apiRequest<{ collection_ids: number[] }>(url)
+      return new Set<number>(data.collection_ids ?? [])
+    },
+    enabled: (options?.enabled ?? true) && entityId > 0,
+    staleTime: 5 * 60 * 1000,
+  })
+}
+
 // ──────────────────────────────────────────────
 // Mutations
 // ──────────────────────────────────────────────
@@ -286,6 +314,22 @@ export function useAddCollectionItem() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.collections.detail(variables.slug),
+      })
+      // PSY-359: pre-check answer for this entity is now stale — the popover
+      // should show the new collection as already-containing on next open.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.containing(
+          variables.entityType,
+          variables.entityId
+        ),
+      })
+      // Public "appears in" backlinks on the entity page also need to refresh
+      // (if the collection is public).
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.entity(
+          variables.entityType,
+          variables.entityId
+        ),
       })
     },
   })

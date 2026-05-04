@@ -26,6 +26,8 @@ func TestEntityReportModel_Validation(t *testing.T) {
 	assert.True(t, communitym.IsValidEntityReportEntityType("venue"))
 	assert.True(t, communitym.IsValidEntityReportEntityType("festival"))
 	assert.True(t, communitym.IsValidEntityReportEntityType("show"))
+	assert.True(t, communitym.IsValidEntityReportEntityType("comment"))
+	assert.True(t, communitym.IsValidEntityReportEntityType("collection"))
 	assert.False(t, communitym.IsValidEntityReportEntityType(""))
 	assert.False(t, communitym.IsValidEntityReportEntityType("release"))
 	assert.False(t, communitym.IsValidEntityReportEntityType("label"))
@@ -53,6 +55,15 @@ func TestEntityReportModel_Validation(t *testing.T) {
 	assert.True(t, communitym.IsValidReportType("show", "wrong_date"))
 	assert.False(t, communitym.IsValidReportType("show", "removal_request"))
 
+	// PSY-357: collection reuses the comment vocabulary verbatim.
+	assert.True(t, communitym.IsValidReportType("collection", "spam"))
+	assert.True(t, communitym.IsValidReportType("collection", "harassment"))
+	assert.True(t, communitym.IsValidReportType("collection", "off_topic"))
+	assert.True(t, communitym.IsValidReportType("collection", "inaccurate"))
+	assert.True(t, communitym.IsValidReportType("collection", "other"))
+	assert.False(t, communitym.IsValidReportType("collection", "cancelled"))
+	assert.False(t, communitym.IsValidReportType("collection", "wrong_image"))
+
 	// Invalid entity type
 	assert.False(t, communitym.IsValidReportType("release", "inaccurate"))
 }
@@ -70,18 +81,22 @@ func TestValidReportTypesForEntity(t *testing.T) {
 	showTypes := communitym.ValidReportTypesForEntity("show")
 	assert.Len(t, showTypes, 5)
 
+	collectionTypes := communitym.ValidReportTypesForEntity("collection")
+	assert.Len(t, collectionTypes, 5)
+
 	unknownTypes := communitym.ValidReportTypesForEntity("release")
 	assert.Nil(t, unknownTypes)
 }
 
 func TestValidEntityReportEntityTypes(t *testing.T) {
 	types := communitym.ValidEntityReportEntityTypes()
-	assert.Len(t, types, 5)
+	assert.Len(t, types, 6)
 	assert.Contains(t, types, "artist")
 	assert.Contains(t, types, "venue")
 	assert.Contains(t, types, "festival")
 	assert.Contains(t, types, "show")
 	assert.Contains(t, types, "comment")
+	assert.Contains(t, types, "collection")
 }
 
 // =============================================================================

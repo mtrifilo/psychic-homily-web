@@ -58,6 +58,7 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 		Slug:        &slug,
 		State:       req.State,
 		City:        req.City,
+		Country:     req.Country,
 		Description: req.Description,
 		Social: catalogm.Social{
 			Instagram:  req.Instagram,
@@ -487,6 +488,7 @@ func (s *ArtistService) buildArtistResponse(artist *catalogm.Artist) *contracts.
 		Name:             artist.Name,
 		State:            artist.State,
 		City:             artist.City,
+		Country:          artist.Country,
 		BandcampEmbedURL: artist.BandcampEmbedURL,
 		Description:      artist.Description,
 		ImageURL:         artist.ImageURL,

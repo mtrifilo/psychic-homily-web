@@ -73,6 +73,13 @@ func (h *EntityReportHandler) ReportCommentHandler(ctx context.Context, req *Rep
 	return h.reportEntity(ctx, "comment", req)
 }
 
+// ReportCollectionHandler handles POST /collections/{entity_id}/report.
+// PSY-357. EntityID is the collection's numeric ID (not slug) so the same
+// generic reporter pipeline used for the other entity types stays uniform.
+func (h *EntityReportHandler) ReportCollectionHandler(ctx context.Context, req *ReportEntityRequest) (*ReportEntityResponse, error) {
+	return h.reportEntity(ctx, "collection", req)
+}
+
 // reportEntity is the shared implementation for all report endpoints.
 func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType string, req *ReportEntityRequest) (*ReportEntityResponse, error) {
 	user := middleware.GetUserFromContext(ctx)

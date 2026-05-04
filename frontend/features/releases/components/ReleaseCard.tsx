@@ -115,7 +115,10 @@ export function ReleaseCard({
           {/* Text Content */}
           <div className="flex-1 min-w-0">
             <Link href={releaseUrl} className="block group">
-              <h3 className="font-bold text-xl text-foreground group-hover:text-primary transition-colors truncate">
+              <h3
+                className="font-bold text-xl text-foreground group-hover:text-primary transition-colors line-clamp-2"
+                title={release.title}
+              >
                 {release.title}
               </h3>
             </Link>
@@ -177,7 +180,10 @@ export function ReleaseCard({
         {/* Text Content */}
         <div className="flex-1 min-w-0">
           <Link href={releaseUrl} className="block group">
-            <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors truncate">
+            <h3
+              className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
+              title={release.title}
+            >
               {release.title}
             </h3>
           </Link>

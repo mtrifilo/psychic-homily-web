@@ -52,6 +52,12 @@ func MapTagError(err error) error {
 // (invalid request, tag-limit exceeded) map to 422 — request parsed fine;
 // value rejected by domain rules. Not-found / forbidden / conflict codes
 // are unchanged.
+//
+// PSY-358: CodeCollectionLimitExceeded maps to 403 (the request is well-
+// formed, but the caller's authorization/tier does not permit it). The
+// structured tier / used / limit / soft_cap_kind fields are surfaced in
+// the Huma `errors[]` slot via collectionLimitDetail so the frontend can
+// format messages without parsing the human string.
 func MapCollectionError(err error) error {
 	var collectionErr *apperrors.CollectionError
 	if errors.As(err, &collectionErr) {
@@ -68,7 +74,30 @@ func MapCollectionError(err error) error {
 			return huma.Error422UnprocessableEntity(collectionErr.Message)
 		case apperrors.CodeCollectionTagLimitExceeded:
 			return huma.Error422UnprocessableEntity(collectionErr.Message)
+		case apperrors.CodeCollectionLimitExceeded:
+			return huma.Error403Forbidden(
+				collectionErr.Message,
+				collectionLimitDetail(collectionErr),
+			)
 		}
 	}
 	return nil
+}
+
+// collectionLimitDetail builds an *huma.ErrorDetail that carries the
+// structured limit fields (tier / used / limit / soft_cap_kind) under
+// `errors[].value` so the frontend has direct programmatic access without
+// re-parsing the human message. PSY-358.
+func collectionLimitDetail(e *apperrors.CollectionError) *huma.ErrorDetail {
+	return &huma.ErrorDetail{
+		Message:  e.Message,
+		Location: "body",
+		Value: map[string]any{
+			"code":          e.Code,
+			"tier":          e.Tier,
+			"used":          e.Used,
+			"limit":         e.Limit,
+			"soft_cap_kind": e.SoftCapKind,
+		},
+	}
 }

@@ -33,6 +33,7 @@ describe('AttributionLine', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
         userName: 'alice',
+        userUsername: 'alice',
         createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
       },
     })
@@ -45,6 +46,7 @@ describe('AttributionLine', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
         userName: 'alice',
+        userUsername: 'alice',
         createdAt: new Date().toISOString(),
       },
     })
@@ -53,10 +55,44 @@ describe('AttributionLine', () => {
     expect(link).toHaveAttribute('href', '/users/alice')
   })
 
+  // PSY-560: when the editor has no username slug, the byline must render
+  // the resolved display name (first/last, email-prefix, "Anonymous") as
+  // plain text — never as a link, since /users/:username would 404. Mirrors
+  // CommentCard byline behavior (PSY-552).
+  it('renders display name as plain text when userUsername is null', () => {
+    mockUseEntityAttribution.mockReturnValue({
+      data: {
+        userName: 'asdf',
+        userUsername: null,
+        createdAt: new Date().toISOString(),
+      },
+    })
+    render(<AttributionLine entityType="artist" entityId={42} />)
+    expect(screen.getByText('asdf')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'asdf' })).not.toBeInTheDocument()
+  })
+
+  // Display name and slug can differ — e.g. a user with username "jdoe"
+  // and first name "Jane Doe" would surface "Jane Doe" as the visible
+  // text but link to /users/jdoe. PSY-560.
+  it('uses userUsername for the link href but userName for visible text', () => {
+    mockUseEntityAttribution.mockReturnValue({
+      data: {
+        userName: 'Jane Doe',
+        userUsername: 'jdoe',
+        createdAt: new Date().toISOString(),
+      },
+    })
+    render(<AttributionLine entityType="artist" entityId={42} />)
+    const link = screen.getByText('Jane Doe').closest('a')
+    expect(link).toHaveAttribute('href', '/users/jdoe')
+  })
+
   it('shows relative time for recent edits', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
         userName: 'bob',
+        userUsername: 'bob',
         createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
       },
     })
@@ -68,6 +104,7 @@ describe('AttributionLine', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
         userName: 'carol',
+        userUsername: 'carol',
         createdAt: new Date(Date.now() - 10 * 1000).toISOString(),
       },
     })
@@ -79,6 +116,7 @@ describe('AttributionLine', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
         userName: 'dave',
+        userUsername: 'dave',
         createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       },
     })
@@ -90,6 +128,7 @@ describe('AttributionLine', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
         userName: 'eve',
+        userUsername: 'eve',
         createdAt: '2025-01-15T12:00:00Z',
       },
     })
@@ -108,6 +147,7 @@ describe('AttributionLine', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
         userName: 'testuser',
+        userUsername: 'testuser',
         createdAt: new Date().toISOString(),
       },
     })

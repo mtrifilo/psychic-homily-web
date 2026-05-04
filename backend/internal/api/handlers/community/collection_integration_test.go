@@ -221,7 +221,9 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_NotFound() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_Success() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
+	// Admin user so PSY-358's per-tier owned-collection cap (new_user → 2)
+	// doesn't reject the third create — this test isn't about the cap.
+	user := testhelpers.CreateAdminUser(s.deps.DB)
 	s.createCollectionViaService(user, "List A", true)
 	s.createCollectionViaService(user, "List B", true)
 	s.createCollectionViaService(user, "List C", true)
@@ -254,7 +256,8 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_DefaultLimit() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_WithLimit() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
+	// Admin so PSY-358 cap doesn't gate the third create.
+	user := testhelpers.CreateAdminUser(s.deps.DB)
 	s.createCollectionViaService(user, "Limited A", true)
 	s.createCollectionViaService(user, "Limited B", true)
 	s.createCollectionViaService(user, "Limited C", true)
@@ -1131,7 +1134,8 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_DoesNotInclud
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_WithLimit() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
+	// Admin so PSY-358 cap doesn't gate the third create.
+	user := testhelpers.CreateAdminUser(s.deps.DB)
 	s.createCollectionViaService(user, "Limit A", true)
 	s.createCollectionViaService(user, "Limit B", true)
 	s.createCollectionViaService(user, "Limit C", true)
@@ -1143,6 +1147,130 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_WithLimit() {
 	s.NotNil(resp)
 	s.LessOrEqual(len(resp.Body.Collections), 2)
 	s.Equal(int64(3), resp.Body.Total)
+}
+
+// ============================================================================
+// GetUserCollectionsContainingHandler (PSY-359)
+// ============================================================================
+
+// TestGetUserCollectionsContaining_OnlyMatchingCollections seeds two of the
+// user's collections containing artist X and one that doesn't, then asserts
+// only the two matching IDs come back.
+func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_OnlyMatchingCollections() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	collA := s.createCollectionViaService(user, "Has Artist A", false)
+	collB := s.createCollectionViaService(user, "Has Artist B", false)
+	collC := s.createCollectionViaService(user, "No Artist", false)
+
+	target := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("contains-target-%d", time.Now().UnixNano()))
+	_, err := s.deps.CollectionService.AddItem(collA.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist",
+		EntityID:   target.ID,
+	})
+	s.Require().NoError(err)
+	_, err = s.deps.CollectionService.AddItem(collB.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist",
+		EntityID:   target.ID,
+	})
+	s.Require().NoError(err)
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &GetUserCollectionsContainingHandlerRequest{
+		EntityType: "artist",
+		EntityID:   target.ID,
+	}
+	resp, err := s.handler.GetUserCollectionsContainingHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+
+	got := make(map[uint]bool, len(resp.Body.CollectionIDs))
+	for _, id := range resp.Body.CollectionIDs {
+		got[id] = true
+	}
+	s.True(got[collA.ID], "collA should be in containing set")
+	s.True(got[collB.ID], "collB should be in containing set")
+	s.False(got[collC.ID], "collC has no item — must not be returned")
+}
+
+// TestGetUserCollectionsContaining_DoesNotIncludeOtherUsers prevents leaking
+// other users' collection IDs. user2 has the same artist in a collection;
+// user1's response must not include user2's collection ID.
+func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_DoesNotIncludeOtherUsers() {
+	user1 := testhelpers.CreateTestUser(s.deps.DB)
+	user2 := testhelpers.CreateTestUser(s.deps.DB)
+	user1Coll := s.createCollectionViaService(user1, "User1 Coll", false)
+	user2Coll := s.createCollectionViaService(user2, "User2 Coll", false)
+
+	target := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("crossuser-%d", time.Now().UnixNano()))
+	_, err := s.deps.CollectionService.AddItem(user1Coll.Slug, user1.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist", EntityID: target.ID,
+	})
+	s.Require().NoError(err)
+	_, err = s.deps.CollectionService.AddItem(user2Coll.Slug, user2.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "artist", EntityID: target.ID,
+	})
+	s.Require().NoError(err)
+
+	ctx := testhelpers.CtxWithUser(user1)
+	req := &GetUserCollectionsContainingHandlerRequest{
+		EntityType: "artist",
+		EntityID:   target.ID,
+	}
+	resp, err := s.handler.GetUserCollectionsContainingHandler(ctx, req)
+	s.NoError(err)
+	s.Len(resp.Body.CollectionIDs, 1)
+	s.Equal(user1Coll.ID, resp.Body.CollectionIDs[0])
+}
+
+// TestGetUserCollectionsContaining_NoMatches returns an empty (non-nil)
+// slice. Frontend decodes the JSON into a Set and the empty case must not
+// crash on a missing `collection_ids` key.
+func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_NoMatches() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	s.createCollectionViaService(user, "No Match", false)
+
+	target := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("nomatch-%d", time.Now().UnixNano()))
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &GetUserCollectionsContainingHandlerRequest{
+		EntityType: "artist",
+		EntityID:   target.ID,
+	}
+	resp, err := s.handler.GetUserCollectionsContainingHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp.Body.CollectionIDs, "must be a non-nil slice for stable JSON shape")
+	s.Empty(resp.Body.CollectionIDs)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_NoAuth() {
+	req := &GetUserCollectionsContainingHandlerRequest{
+		EntityType: "artist",
+		EntityID:   1,
+	}
+	_, err := s.handler.GetUserCollectionsContainingHandler(context.Background(), req)
+	testhelpers.AssertHumaError(s.T(), err, 401)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_InvalidEntityType() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
+	req := &GetUserCollectionsContainingHandlerRequest{
+		EntityType: "wat",
+		EntityID:   1,
+	}
+	_, err := s.handler.GetUserCollectionsContainingHandler(ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 422)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_ZeroEntityID() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	ctx := testhelpers.CtxWithUser(user)
+	req := &GetUserCollectionsContainingHandlerRequest{
+		EntityType: "artist",
+		EntityID:   0,
+	}
+	_, err := s.handler.GetUserCollectionsContainingHandler(ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 400)
 }
 
 // ============================================================================

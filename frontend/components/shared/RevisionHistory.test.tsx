@@ -13,6 +13,7 @@ const mockRevisions: RevisionItem[] = [
     entity_id: 42,
     user_id: 10,
     user_name: 'alice',
+    user_username: 'alice',
     changes: [
       { field: 'name', old_value: 'Old Name', new_value: 'New Name' },
       { field: 'city', old_value: null, new_value: 'Phoenix' },
@@ -20,12 +21,15 @@ const mockRevisions: RevisionItem[] = [
     summary: 'Updated artist info',
     created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(), // 5 mins ago
   },
+  // Editor with no username slug — backend resolved their display name
+  // through the email-prefix branch, but the row is not linkable. PSY-560.
   {
     id: 2,
     entity_type: 'artist',
     entity_id: 42,
     user_id: 20,
-    user_name: undefined,
+    user_name: 'asdf',
+    user_username: null,
     changes: [
       { field: 'state', old_value: 'CA', new_value: 'AZ' },
     ],
@@ -170,7 +174,11 @@ describe('RevisionHistory', () => {
     expect(link).toHaveAttribute('href', '/users/alice')
   })
 
-  it('shows fallback "User #ID" when user_name is not set', async () => {
+  // PSY-560: when user_username is null the byline must be plain text (no
+  // /users/:username link, since it would 404). The display name itself is
+  // resolved server-side through the resolveUserName chain — first/last,
+  // email-prefix, "Anonymous" — so we no longer fall back to "User #N".
+  it('renders display name as plain text when user_username is null', async () => {
     const user = userEvent.setup()
     mockUseEntityRevisions.mockReturnValue({
       data: { revisions: mockRevisions, total: 2 },
@@ -180,7 +188,38 @@ describe('RevisionHistory', () => {
     render(<RevisionHistory entityType="artist" entityId={42} />)
 
     await user.click(screen.getByText('History'))
-    expect(screen.getByText('User #20')).toBeInTheDocument()
+    expect(screen.getByText('asdf')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'asdf' })).not.toBeInTheDocument()
+    expect(screen.queryByText(/User #/)).not.toBeInTheDocument()
+  })
+
+  // Fallback for a defensive payload — if the backend ever omits user_name
+  // entirely, we render "Anonymous" rather than the bare "User #N" debug
+  // string. PSY-560.
+  it('renders "Anonymous" when user_name is missing entirely', async () => {
+    const user = userEvent.setup()
+    mockUseEntityRevisions.mockReturnValue({
+      data: {
+        revisions: [
+          {
+            id: 99,
+            entity_type: 'artist',
+            entity_id: 42,
+            user_id: 99,
+            // user_name and user_username intentionally omitted
+            changes: [{ field: 'x', old_value: 'a', new_value: 'b' }],
+            created_at: new Date().toISOString(),
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      error: null,
+    })
+    render(<RevisionHistory entityType="artist" entityId={42} />)
+
+    await user.click(screen.getByText('History'))
+    expect(screen.getByText('Anonymous')).toBeInTheDocument()
   })
 
   it('shows relative time for recent revisions', async () => {

@@ -436,4 +436,115 @@ func TestMapRevisionToResponse_FallbackToFirstName(t *testing.T) {
 	if item.UserName != "John" {
 		t.Errorf("expected user_name=John, got %s", item.UserName)
 	}
+	if item.UserUsername != nil {
+		t.Errorf("expected user_username=nil when username unset, got %v", *item.UserUsername)
+	}
+}
+
+// PSY-560: full resolveUserName chain (username → first/last → email-prefix
+// → "Anonymous") + linkable user_username for /users/:username profile
+// links. Mirrors PSY-552's resolveCommentAuthorName.
+
+func TestMapRevisionToResponse_PrefersUsername(t *testing.T) {
+	username := "asdf"
+	firstName := "John"
+	r := adminm.Revision{
+		ID:        1,
+		UserID:    5,
+		CreatedAt: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+		User: authm.User{
+			ID:        5,
+			Username:  &username,
+			FirstName: &firstName,
+		},
+	}
+
+	item := mapRevisionToResponse(r)
+	if item.UserName != "asdf" {
+		t.Errorf("expected user_name=asdf (username wins), got %s", item.UserName)
+	}
+	if item.UserUsername == nil || *item.UserUsername != "asdf" {
+		t.Errorf("expected user_username=&\"asdf\", got %v", item.UserUsername)
+	}
+}
+
+func TestMapRevisionToResponse_FallbackToFirstAndLastName(t *testing.T) {
+	first := "Jane"
+	last := "Doe"
+	r := adminm.Revision{
+		ID:        1,
+		UserID:    5,
+		CreatedAt: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+		User: authm.User{
+			ID:        5,
+			FirstName: &first,
+			LastName:  &last,
+		},
+	}
+
+	item := mapRevisionToResponse(r)
+	if item.UserName != "Jane Doe" {
+		t.Errorf("expected user_name=\"Jane Doe\", got %s", item.UserName)
+	}
+}
+
+func TestMapRevisionToResponse_FallbackToEmailPrefix(t *testing.T) {
+	email := "asdf@admin.com"
+	r := adminm.Revision{
+		ID:        1,
+		UserID:    5,
+		CreatedAt: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+		User: authm.User{
+			ID:    5,
+			Email: &email,
+		},
+	}
+
+	item := mapRevisionToResponse(r)
+	if item.UserName != "asdf" {
+		t.Errorf("expected user_name=asdf (email local-part), got %s", item.UserName)
+	}
+	if item.UserUsername != nil {
+		t.Errorf("expected user_username=nil (no username set), got %v", *item.UserUsername)
+	}
+}
+
+func TestMapRevisionToResponse_FallbackToAnonymous(t *testing.T) {
+	r := adminm.Revision{
+		ID:        1,
+		UserID:    5,
+		CreatedAt: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+		User:      authm.User{ID: 5},
+	}
+
+	item := mapRevisionToResponse(r)
+	if item.UserName != "Anonymous" {
+		t.Errorf("expected user_name=Anonymous when no identity fields set, got %s", item.UserName)
+	}
+}
+
+// Empty-string username should not be linkable — the User would have ""
+// stored, which is a valid GORM zero-value but a bad URL slug. PSY-560
+// guards against this explicitly to mirror resolveCommentAuthorUsername.
+func TestMapRevisionToResponse_EmptyUsernameTreatedAsUnset(t *testing.T) {
+	emptyUsername := ""
+	firstName := "Jane"
+	r := adminm.Revision{
+		ID:        1,
+		UserID:    5,
+		CreatedAt: time.Date(2026, 3, 10, 12, 0, 0, 0, time.UTC),
+		User: authm.User{
+			ID:        5,
+			Username:  &emptyUsername,
+			FirstName: &firstName,
+		},
+	}
+
+	item := mapRevisionToResponse(r)
+	if item.UserName != "Jane" {
+		t.Errorf("expected display name to fall through past empty username, got %s", item.UserName)
+	}
+	if item.UserUsername != nil {
+		t.Errorf("expected user_username=nil when username is empty string, got %v", *item.UserUsername)
+	}
 }

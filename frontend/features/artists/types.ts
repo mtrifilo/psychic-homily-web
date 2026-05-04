@@ -22,6 +22,11 @@ export interface Artist {
   name: string
   state: string | null
   city: string | null
+  /**
+   * Optional country (PSY-558). Surfaced in the location pill conditionally —
+   * see `getArtistLocation` for the display rule (US + state set hides "USA").
+   */
+  country?: string | null
   bandcamp_embed_url: string | null
   description?: string | null
   /** Optional artist photo URL (PSY-521). */
@@ -83,10 +88,30 @@ export interface ArtistSearchResponse {
 }
 
 /**
- * Get a formatted location string for an artist
+ * Get a formatted location string for an artist (PSY-558 display rule).
+ *
+ * Country is included unless state is set AND country is "USA"/"US" — local
+ * audiences read "Phoenix, AZ" as US-implicit, so adding "USA" is noise.
+ * International artists ("Melbourne, Australia", "London, England, UK",
+ * "Tokyo, Japan") always render the country since the state cue alone is
+ * not enough to locate them.
+ *
+ * Comparison is case-insensitive and trimmed; either spelling ("USA"/"US")
+ * triggers the suppression. Parameter is structurally typed (city/state/country
+ * only) so callers with a narrower row shape — e.g. the ArtistSidebar prop —
+ * can pass directly without a cast.
  */
-export const getArtistLocation = (artist: Artist): string => {
-  const parts = [artist.city, artist.state].filter(Boolean)
+export const getArtistLocation = (
+  artist: { city?: string | null; state?: string | null; country?: string | null },
+): string => {
+  const parts = [artist.city, artist.state].filter(Boolean) as string[]
+  const country = artist.country?.trim() ?? ''
+  const stateSet = !!artist.state
+  const countryIsUS =
+    country.toUpperCase() === 'USA' || country.toUpperCase() === 'US'
+  if (country && !(stateSet && countryIsUS)) {
+    parts.push(country)
+  }
   return parts.length > 0 ? parts.join(', ') : 'Location Unknown'
 }
 

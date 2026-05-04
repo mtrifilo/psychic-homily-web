@@ -93,3 +93,26 @@ export function getNextTierInfo(tier: UserTier): TierInfo | undefined {
 }
 
 export const TIERS_HELP_PATH = '/help/tiers'
+
+// PSY-358: rank-gated collection creation limits.
+//
+// Mirrors backend/internal/services/collection.go (collectionTierLimits +
+// CollectionForkSoftCap). The create-collection form reads these to
+// render "X of Y collections" inline; the backend remains the source of
+// truth for enforcement. Update both files together when limits change.
+export const COLLECTION_UNLIMITED = -1
+export const COLLECTION_FORK_SOFT_CAP = 20
+export const COLLECTION_TIER_LIMITS: Record<UserTier, number> = {
+  new_user: 2,
+  contributor: 5,
+  trusted_contributor: 10,
+  local_ambassador: COLLECTION_UNLIMITED,
+}
+
+// getCollectionLimitForTier returns the per-tier owned-collection cap.
+// Falls back to the strictest cap (new_user) for unknown tiers so the UI
+// never silently widens the gate.
+export function getCollectionLimitForTier(tier: UserTier | undefined): number {
+  if (!tier) return COLLECTION_TIER_LIMITS.new_user
+  return COLLECTION_TIER_LIMITS[tier] ?? COLLECTION_TIER_LIMITS.new_user
+}

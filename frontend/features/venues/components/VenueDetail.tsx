@@ -19,7 +19,7 @@ import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueBillNetwork } from './VenueBillNetwork'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
-import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
@@ -83,6 +83,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
   const queryClient = useQueryClient()
   const router = useRouter()
   const venueUpdate = useVenueUpdate()
+  const saveBanner = useEntitySaveSuccessBanner()
 
   const { data: venue, isLoading, error } = useVenue({ venueId })
 
@@ -96,11 +97,12 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
     (venue?.submitted_by != null && venue.submitted_by === Number(user?.id))
   )
 
-  const handleVenueUpdated = () => {
+  const handleVenueUpdated = (result: EntityEditSuccess) => {
     // Invalidate venue detail query
     queryClient.invalidateQueries({
       queryKey: queryKeys.venues.detail(String(venueId)),
     })
+    saveBanner.handleSaveSuccess(result)
   }
 
   const handleShowAdded = () => {
@@ -249,6 +251,8 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             <div className="mt-1">
               <AttributionLine entityType="venue" entityId={venue.id} />
             </div>
+
+            <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
 
             {/* Social Links */}
             {venue.social && (

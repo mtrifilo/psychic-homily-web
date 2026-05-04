@@ -22,6 +22,7 @@ vi.mock('@/lib/api', () => ({
       TAGS: (slug: string) => `/collections/${slug}/tags`,
       TAG: (slug: string, tagId: number) => `/collections/${slug}/tags/${tagId}`,
       MY: '/auth/collections',
+      CONTAINS: '/auth/collections/contains',
     },
   },
   API_BASE_URL: 'http://localhost:8080',
@@ -35,6 +36,12 @@ vi.mock('@/lib/queryClient', () => ({
       detail: (slug: string) => ['collections', 'detail', slug],
       stats: (slug: string) => ['collections', 'stats', slug],
       my: ['collections', 'my'],
+      // PSY-359: pre-check answer for "does the user already have this entity
+      // in any of their collections" — drives the multi-select popover.
+      containing: (entityType: string, entityId: number) =>
+        ['collections', 'containing', entityType, entityId],
+      entity: (entityType: string, entityId: number) =>
+        ['collections', 'entity', entityType, entityId],
     },
   },
   createInvalidateQueries: () => ({
@@ -47,6 +54,7 @@ import {
   useCollection,
   useCollectionStats,
   useMyCollections,
+  useUserCollectionsContaining,
   useSetFeatured,
   useCreateCollection,
   useUpdateCollection,
@@ -167,6 +175,56 @@ describe('Collection query hooks', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(mockApiRequest).toHaveBeenCalledWith('/auth/collections')
+    })
+  })
+
+  describe('useUserCollectionsContaining', () => {
+    it('returns the response IDs as a Set for O(1) membership checks', async () => {
+      mockApiRequest.mockResolvedValueOnce({ collection_ids: [3, 7, 9] })
+
+      const { result } = renderHook(
+        () => useUserCollectionsContaining('artist', 42),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      // Built as a Set so the popover's `selected.has(id)` check is O(1)
+      // rather than O(N) on every render.
+      expect(result.current.data).toBeInstanceOf(Set)
+      expect(result.current.data?.has(3)).toBe(true)
+      expect(result.current.data?.has(7)).toBe(true)
+      expect(result.current.data?.has(9)).toBe(true)
+      expect(result.current.data?.has(99)).toBe(false)
+
+      // URL is encoded — entity_type goes through encodeURIComponent so a
+      // future addition of a non-ascii type wouldn't blow up the request.
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/auth/collections/contains?entity_type=artist&entity_id=42'
+      )
+    })
+
+    it('skips the request when disabled', async () => {
+      const { result } = renderHook(
+        () => useUserCollectionsContaining('artist', 42, { enabled: false }),
+        { wrapper: createWrapper() }
+      )
+
+      // Idle = no request fired. Without this gate the popover would fetch
+      // on every entity page render even when the user never opens it.
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
+
+    it('skips the request for a zero entity ID', async () => {
+      const { result } = renderHook(
+        () => useUserCollectionsContaining('artist', 0),
+        { wrapper: createWrapper() }
+      )
+
+      // Zero ID means the entity hasn't been loaded yet — skip the request
+      // rather than hitting the server with a guaranteed-empty answer.
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
     })
   })
 })

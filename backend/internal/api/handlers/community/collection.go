@@ -711,6 +711,59 @@ func (h *CollectionHandler) GetUserCollectionsHandler(ctx context.Context, req *
 }
 
 // ============================================================================
+// Get User Collections Containing Entity (PSY-359)
+// ============================================================================
+
+// GetUserCollectionsContainingHandlerRequest is the query for the
+// "which of MY collections already contain this entity?" lookup that backs
+// the multi-select Add-to-Collection popover.
+type GetUserCollectionsContainingHandlerRequest struct {
+	EntityType string `query:"entity_type" required:"true" doc:"Entity type (artist, release, label, show, venue, festival)" example:"artist"`
+	EntityID   uint   `query:"entity_id" required:"true" doc:"Entity ID" example:"42"`
+}
+
+// GetUserCollectionsContainingHandlerResponse returns the collection IDs
+// (within the user's own + subscribed-to set) that already contain the
+// entity. Empty array — not null — when no match.
+type GetUserCollectionsContainingHandlerResponse struct {
+	Body struct {
+		CollectionIDs []uint `json:"collection_ids" doc:"IDs of the user's collections that already contain the entity"`
+	}
+}
+
+// GetUserCollectionsContainingHandler handles
+// GET /auth/collections/contains?entity_type=&entity_id=
+//
+// Pre-checks the popover so users see which of their own collections already
+// contain the entity in a single round-trip (no N+1 across cards).
+func (h *CollectionHandler) GetUserCollectionsContainingHandler(ctx context.Context, req *GetUserCollectionsContainingHandlerRequest) (*GetUserCollectionsContainingHandlerResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	validTypes := map[string]bool{
+		"artist": true, "release": true, "label": true,
+		"show": true, "venue": true, "festival": true,
+	}
+	if !validTypes[req.EntityType] {
+		return nil, huma.Error422UnprocessableEntity("Invalid entity type")
+	}
+	if req.EntityID == 0 {
+		return nil, huma.Error400BadRequest("entity_id must be > 0")
+	}
+
+	ids, err := h.collectionService.GetUserCollectionsContainingEntity(user.ID, req.EntityType, req.EntityID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to look up containing collections", err)
+	}
+
+	resp := &GetUserCollectionsContainingHandlerResponse{}
+	resp.Body.CollectionIDs = ids
+	return resp, nil
+}
+
+// ============================================================================
 // Get Entity Collections
 // ============================================================================
 

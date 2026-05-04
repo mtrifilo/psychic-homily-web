@@ -399,6 +399,11 @@ type CollectionServiceInterface interface {
 	Unlike(slug string, userID uint) (*CollectionLikeResponse, error)
 	GetStats(slug string) (*CollectionStatsResponse, error)
 	GetUserCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
+	// GetUserCollectionsContainingEntity returns the IDs of the user's
+	// editable collections (creator + subscribed) that already contain
+	// the supplied entity. Backs the multi-select Add-to-Collection
+	// popover (PSY-359). Returns empty slice for userID == 0.
+	GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]uint, error)
 	GetEntityCollections(entityType string, entityID uint, limit int) ([]*CollectionListResponse, error)
 	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*CollectionListResponse, int64, error)

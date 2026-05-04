@@ -75,6 +75,12 @@ vi.mock('./ArtistShowsList', () => ({
 vi.mock('@/features/contributions', () => ({
   EntityEditDrawer: ({ open }: { open: boolean }) =>
     open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
+  EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>
+    visible ? <div data-testid="save-success-banner">Changes saved</div> : null,
+  useEntitySaveSuccessBanner: () => ({
+    isVisible: false,
+    handleSaveSuccess: vi.fn(),
+  }),
   AttributionLine: () => null,
   ReportEntityDialog: ({ open, entityName }: { open: boolean; entityName: string }) =>
     open ? <div data-testid="report-dialog">Report {entityName}</div> : null,
