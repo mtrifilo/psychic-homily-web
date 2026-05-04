@@ -273,6 +273,10 @@ export const API_ENDPOINTS = {
     // PSY-366: artist-relationship subgraph for the collection's artist items.
     GRAPH: (slug: string) => `${API_BASE_URL}/collections/${slug}/graph`,
     MY: `${API_BASE_URL}/auth/collections`,
+    // PSY-359: which of the user's own collections already contain a given
+    // entity (entity_type + entity_id). Single round-trip pre-check that
+    // backs the multi-select Add-to-Collection popover.
+    CONTAINS: `${API_BASE_URL}/auth/collections/contains`,
     ENTITY: (entityType: string, entityId: number) =>
       `${API_BASE_URL}/collections/entity/${entityType}/${entityId}`,
     USER_PUBLIC: (username: string) =>

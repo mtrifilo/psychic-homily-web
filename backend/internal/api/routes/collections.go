@@ -99,6 +99,12 @@ func setupCollectionRoutes(rc RouteContext) {
 	// User's own collections (created + subscribed)
 	huma.Get(rc.Protected, "/auth/collections", collectionHandler.GetUserCollectionsHandler)
 
+	// PSY-359: which of the user's own collections already contain a given
+	// entity. Backs the multi-select Add-to-Collection popover so it can
+	// pre-check rows in a single round-trip (no N+1 contains-check fan-out).
+	huma.Get(rc.Protected, "/auth/collections/contains", collectionHandler.GetUserCollectionsContainingHandler)
+
 	// Legacy user collections path (backward compat)
 	huma.Get(rc.Protected, "/auth/crates", collectionHandler.GetUserCollectionsHandler)
+	huma.Get(rc.Protected, "/auth/crates/contains", collectionHandler.GetUserCollectionsContainingHandler)
 }
