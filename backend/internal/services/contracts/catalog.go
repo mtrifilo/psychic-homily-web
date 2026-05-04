@@ -423,6 +423,7 @@ type ArtistDetailResponse struct {
 	Name             string         `json:"name"`
 	State            *string        `json:"state"`
 	City             *string        `json:"city"`
+	Country          *string        `json:"country,omitempty"` // PSY-558: optional country (Australia, UK, etc.)
 	BandcampEmbedURL *string        `json:"bandcamp_embed_url"`
 	Description      *string        `json:"description,omitempty"`
 	ImageURL         *string        `json:"image_url"` // Optional artist photo (PSY-521)
