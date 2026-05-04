@@ -66,6 +66,9 @@ function RevisionEntry({
   isRollingBack: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
+  // user_name is resolved server-side via the full chain (PSY-560); the
+  // 'Anonymous' fallback covers legacy/empty payloads.
+  const displayName = revision.user_name || 'Anonymous'
 
   return (
     <div className="border-b border-border/50 last:border-b-0">
@@ -82,23 +85,18 @@ function RevisionEntry({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* PSY-560: link to /users/:username only when the user has a
-                username slug. Otherwise render the resolved display name
-                (first/last, email-prefix, "Anonymous") as plain text. The
-                resolveUserName chain on the backend means user_name is
-                effectively never empty for known users; the explicit
-                fallback here is defense-in-depth for legacy payloads. */}
+            {/* user_username is the linkable slug; nil means unlinkable. PSY-560. */}
             {revision.user_username ? (
               <Link
                 href={`/users/${revision.user_username}`}
                 onClick={e => e.stopPropagation()}
                 className="text-sm font-medium hover:underline"
               >
-                {revision.user_name || 'Anonymous'}
+                {displayName}
               </Link>
             ) : (
               <span className="text-sm font-medium text-foreground">
-                {revision.user_name || 'Anonymous'}
+                {displayName}
               </span>
             )}
             <span className="text-xs text-muted-foreground">

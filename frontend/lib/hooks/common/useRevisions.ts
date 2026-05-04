@@ -15,17 +15,9 @@ export interface RevisionItem {
   entity_type: string
   entity_id: number
   user_id: number
-  /**
-   * Resolved display name — never empty when the User row exists. Backend
-   * uses the resolveUserName chain (username → first/last → email-prefix →
-   * "Anonymous"). PSY-560.
-   */
+  /** Resolved display name; never empty (backend resolveUserName chain). */
   user_name?: string
-  /**
-   * Linkable username slug. Null when the user has no username set; in that
-   * case the frontend should render `user_name` as plain text rather than a
-   * /users/:username link. Mirrors comment author_username (PSY-552). PSY-560.
-   */
+  /** URL-safe username slug; null when the user has no username set. */
   user_username?: string | null
   changes: FieldChange[]
   summary?: string

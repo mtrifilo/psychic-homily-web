@@ -16,16 +16,9 @@ interface EntityHistoryResponse {
 }
 
 export interface EntityAttribution {
-  /**
-   * Resolved display name — never empty. Backend uses the resolveUserName
-   * chain (username → first/last → email-prefix → "Anonymous"). PSY-560.
-   */
+  /** Resolved display name; never empty (backend resolveUserName chain). */
   userName: string
-  /**
-   * Linkable username slug. Null when the user has no username set; the
-   * AttributionLine renders plain text in that case rather than a broken
-   * /users/:username link. Mirrors PSY-552 / PSY-353. PSY-560.
-   */
+  /** URL-safe username slug; null when the user has no username set. */
   userUsername: string | null
   createdAt: string
 }
@@ -50,9 +43,7 @@ export function useEntityAttribution(
       }
       const revision = data.revisions[0]
       return {
-        // Backend already resolves through the full chain; "Anonymous" is
-        // the final fallback. The `|| 'Anonymous'` here is belt-and-braces
-        // for old payloads or a hypothetical empty string from the wire.
+        // 'Anonymous' fallback is defensive — backend should always populate.
         userName: revision.user_name || 'Anonymous',
         userUsername: revision.user_username ?? null,
         createdAt: revision.created_at,

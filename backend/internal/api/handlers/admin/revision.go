@@ -47,13 +47,9 @@ var validEntityTypes = map[string]bool{
 // --- Response Types ---
 
 // RevisionResponseItem represents a single revision in API responses.
-//
-// PSY-560: UserName uses the full resolveUserName chain (username → first/last
-// → email-prefix → "Anonymous") so it is never empty. UserUsername is a
-// separate, URL-safe slug — nil when the user has no username set, so the
-// frontend can decide whether to render a /users/:username link or plain text.
-// Mirrors the CommentResponse author_name + author_username split (PSY-552 /
-// PSY-353).
+// UserName is never empty (resolveRevisionUserName chain).
+// UserUsername is nil when no username is set — distinct from UserName so
+// the frontend can decide between a /users/:username link and plain text.
 type RevisionResponseItem struct {
 	ID           uint                 `json:"id"`
 	EntityType   string               `json:"entity_type"`
@@ -66,12 +62,11 @@ type RevisionResponseItem struct {
 	CreatedAt    string               `json:"created_at"`
 }
 
-// resolveRevisionUserName returns the display name for a revision's author —
-// never empty. Mirrors CollectionService.resolveUserName (PSY-353) and
-// resolveCommentAuthorName (PSY-552): prefer username, fall back to
-// first/last, then to the local-part of the email, finally "Anonymous".
-// Operates on the preloaded User so callers don't pay an extra query per
-// revision. PSY-560.
+// resolveRevisionUserName returns the display name for a revision's author,
+// never empty. Resolution chain: username → first/last → email-prefix →
+// "Anonymous". Mirrors resolveCommentAuthorName (PSY-552) and
+// CollectionService.resolveUserName (PSY-353); operates on the preloaded
+// User so there's no extra query per revision.
 func resolveRevisionUserName(u *authm.User) string {
 	if u == nil || u.ID == 0 {
 		return "Anonymous"
@@ -94,10 +89,10 @@ func resolveRevisionUserName(u *authm.User) string {
 	return "Anonymous"
 }
 
-// resolveRevisionUserUsername returns the author's username for
-// /users/:username links, or nil when the user has no username set. Distinct
-// from resolveRevisionUserName, which falls back to first/last/email and so
-// cannot be safely used in a URL slug. PSY-560.
+// resolveRevisionUserUsername returns the URL-safe username slug, or nil
+// when the user has no username set. Distinct from resolveRevisionUserName,
+// whose fallback to first/last/email can't be used in a /users/:username
+// link. Mirrors resolveCommentAuthorUsername (PSY-552).
 func resolveRevisionUserUsername(u *authm.User) *string {
 	if u == nil || u.ID == 0 {
 		return nil
