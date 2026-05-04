@@ -177,6 +177,14 @@ vi.mock('@/features/tags', () => ({
   ),
 }))
 
+// PSY-357: stub the report dialog. Its real implementation pulls in
+// useReportEntity (a useMutation hook) which requires a QueryClient at
+// mount time. CollectionDetail tests don't exercise the dialog content
+// so a no-op stub keeps the non-creator render path lean.
+vi.mock('@/features/contributions', () => ({
+  ReportEntityDialog: () => null,
+}))
+
 // Mock useEntitySearch
 // Default mock — empty results across all entity types. Individual tests
 // override `mockUseEntitySearchResult` below to seed shows/artists/etc.

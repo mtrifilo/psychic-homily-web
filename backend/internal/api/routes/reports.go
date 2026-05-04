@@ -93,6 +93,11 @@ func setupEntityReportRoutes(rc RouteContext) {
 		// can display show reports submitted through the existing endpoint or this one.
 		huma.Post(reportAPI, "/shows/{entity_id}/entity-report", entityReportHandler.ReportShowHandler)
 		huma.Post(reportAPI, "/comments/{entity_id}/report", entityReportHandler.ReportCommentHandler)
+		// PSY-357: report a collection. EntityID is the numeric collection ID
+		// (the slug-based detail endpoints elsewhere are unrelated — this
+		// stays on the generic /{type}/{id}/report shape so the moderation
+		// queue can ingest collection reports through the same pipeline.)
+		huma.Post(reportAPI, "/collections/{entity_id}/report", entityReportHandler.ReportCollectionHandler)
 	})
 
 	// Admin: entity report management (PSY-423: rc.Admin enforces auth + IsAdmin)

@@ -179,6 +179,46 @@ func TestReportShow_Success(t *testing.T) {
 	}
 }
 
+// PSY-357: collections accept the same shape as the other entity types and
+// reuse the comment vocabulary (spam/harassment/off_topic/inaccurate/other).
+func TestReportCollection_Success(t *testing.T) {
+	expected := makeEntityReportResponse(5, "collection", "spam")
+	h := NewEntityReportHandler(
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+				if req.EntityType != "collection" {
+					t.Errorf("expected entity_type=collection, got %s", req.EntityType)
+				}
+				if req.ReportType != "spam" {
+					t.Errorf("expected report_type=spam, got %s", req.ReportType)
+				}
+				return expected, nil
+			},
+		},
+		nil,
+	)
+
+	req := &ReportEntityRequest{EntityID: "10"}
+	req.Body.ReportType = "spam"
+
+	resp, err := h.ReportCollectionHandler(entityReportUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.EntityType != "collection" {
+		t.Errorf("expected entity_type=collection, got %s", resp.Body.EntityType)
+	}
+}
+
+func TestReportCollection_InvalidReportType(t *testing.T) {
+	// e.g. "wrong_image" is valid for artist but not for collection.
+	h := testEntityReportHandler()
+	req := &ReportEntityRequest{EntityID: "1"}
+	req.Body.ReportType = "wrong_image"
+	_, err := h.ReportCollectionHandler(entityReportUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 // ============================================================================
 // Tests: Report Entity — Error Cases
 // ============================================================================

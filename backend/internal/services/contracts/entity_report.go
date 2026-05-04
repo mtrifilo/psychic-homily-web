@@ -52,10 +52,14 @@ type EntityReportFilters struct {
 
 // EntityReportResponse is the API response for an entity report.
 type EntityReportResponse struct {
-	ID           uint       `json:"id"`
-	EntityType   string     `json:"entity_type"`
-	EntityID     uint       `json:"entity_id"`
-	EntityName   string     `json:"entity_name,omitempty"`
+	ID         uint   `json:"id"`
+	EntityType string `json:"entity_type"`
+	EntityID   uint   `json:"entity_id"`
+	EntityName string `json:"entity_name,omitempty"`
+	// EntitySlug is populated only for entity types addressed by slug in the
+	// public app (currently `collection`). Other entity types use ID-based
+	// URLs and leave this nil so the JSON omits the field. PSY-357.
+	EntitySlug   *string    `json:"entity_slug,omitempty"`
 	ReportedBy   uint       `json:"reported_by"`
 	ReporterName string     `json:"reporter_name,omitempty"`
 	ReportType   string     `json:"report_type"`
