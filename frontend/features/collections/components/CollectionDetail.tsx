@@ -31,6 +31,7 @@ import {
   LayoutGrid,
   List,
   Network,
+  Flag,
 } from 'lucide-react'
 import {
   DndContext,
@@ -104,6 +105,7 @@ import type { ApiError } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { CommentThread } from '@/features/comments'
 import { EntityTagList } from '@/features/tags'
+import { ReportEntityDialog } from '@/features/contributions'
 
 interface CollectionDetailProps {
   slug: string
@@ -184,6 +186,10 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
+  // PSY-357: report dialog open state. The trigger is only rendered for
+  // authenticated, non-creator viewers (private collections aren't visible
+  // to non-creators, so no extra public-state gate is needed).
+  const [isReportOpen, setIsReportOpen] = useState(false)
   // null = not interacted; URL hash drives the default. User toggle sticks once set.
   const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
   const hash = useUrlHash()
@@ -603,6 +609,26 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   </Button>
                 )}
 
+                {/* PSY-357: report a collection. Mirrors the Report button
+                    on artist/venue/festival/show detail pages. Only shown
+                    to authenticated non-owners — owners shouldn't report
+                    themselves, and unauthenticated viewers see no trigger
+                    (consistent with the comment-report pattern; the
+                    dialog opens directly so we don't need the
+                    LoginPromptDialog dance here). */}
+                {isAuthenticated && !isCreator && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setIsReportOpen(true)}
+                    aria-label="Report collection"
+                    data-testid="collection-report-button"
+                  >
+                    <Flag className="h-4 w-4 mr-1.5" />
+                    Report
+                  </Button>
+                )}
+
                 {isCreator && (
                   <>
                     <Button
@@ -672,6 +698,19 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
       {/* Discussion */}
       <CommentThread entityType="collection" entityId={collection.id} />
+
+      {/* PSY-357: report dialog. Only mounted when the caller is allowed
+          to report (authenticated non-owner) so we don't ship the dialog
+          tree to viewers who can't open it. */}
+      {isAuthenticated && !isCreator && (
+        <ReportEntityDialog
+          open={isReportOpen}
+          onOpenChange={setIsReportOpen}
+          entityType="collection"
+          entityId={collection.id}
+          entityName={collection.title}
+        />
+      )}
 
       {/* Delete Confirmation Dialog */}
       <Dialog open={isDeleteDialogOpen} onOpenChange={setIsDeleteDialogOpen}>

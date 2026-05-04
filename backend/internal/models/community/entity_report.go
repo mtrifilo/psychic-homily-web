@@ -17,11 +17,12 @@ const (
 
 // Supported entity types for entity reports.
 const (
-	EntityReportEntityArtist   = "artist"
-	EntityReportEntityVenue    = "venue"
-	EntityReportEntityFestival = "festival"
-	EntityReportEntityShow     = "show"
-	EntityReportEntityComment  = "comment"
+	EntityReportEntityArtist     = "artist"
+	EntityReportEntityVenue      = "venue"
+	EntityReportEntityFestival   = "festival"
+	EntityReportEntityShow       = "show"
+	EntityReportEntityComment    = "comment"
+	EntityReportEntityCollection = "collection"
 )
 
 // Valid report types per entity type.
@@ -60,6 +61,16 @@ var validReportTypes = map[string]map[string]bool{
 		"inaccurate": true,
 		"other":      true,
 	},
+	// PSY-357: collections reuse the comment vocabulary verbatim.
+	// Both are user-generated content surfaces where the abuse vectors
+	// (spam/harassment/off-topic/inaccurate/other) are the same shape.
+	EntityReportEntityCollection: {
+		"spam":       true,
+		"harassment": true,
+		"off_topic":  true,
+		"inaccurate": true,
+		"other":      true,
+	},
 }
 
 // EntityReport represents a user report about an entity issue.
@@ -86,7 +97,14 @@ func (EntityReport) TableName() string { return "entity_reports" }
 
 // ValidEntityReportEntityTypes returns the set of entity types that support reports.
 func ValidEntityReportEntityTypes() []string {
-	return []string{EntityReportEntityArtist, EntityReportEntityVenue, EntityReportEntityFestival, EntityReportEntityShow, EntityReportEntityComment}
+	return []string{
+		EntityReportEntityArtist,
+		EntityReportEntityVenue,
+		EntityReportEntityFestival,
+		EntityReportEntityShow,
+		EntityReportEntityComment,
+		EntityReportEntityCollection,
+	}
 }
 
 // IsValidEntityReportEntityType checks if the given entity type supports reports.
