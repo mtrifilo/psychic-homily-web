@@ -39,21 +39,21 @@ const (
 
 // PSY-358: rank-gated collection creation limits.
 //
-// CollectionTierLimits maps each user_tier to the maximum number of OWNED
+// collectionTierLimits maps each user_tier to the maximum number of OWNED
 // (non-forked) collections that user can have at once. Drafts and private
 // collections count toward the cap (prevents draft hoarding). Forks have
 // their OWN cap (CollectionForkSoftCap) and are excluded from this count.
 // Admins (User.IsAdmin) bypass the check entirely — no cap.
 //
 // Tier names mirror backend/internal/services/admin/auto_promotion.go.
-// Local-ambassador users are unlimited; surface that as
-// CollectionUnlimitedTier (a sentinel sentinel value of 0 would be
-// ambiguous with "0 collections allowed"). Mirrored in
-// frontend/lib/tiers.ts so the in-app counter stays in sync; update both
-// when limits change.
+// Local-ambassador users are unlimited; CollectionUnlimitedTier is the
+// sentinel for that (the alternative — 0 — would be ambiguous with "0
+// collections allowed"). Mirrored in frontend/lib/tiers.ts so the in-app
+// counter stays in sync; update both when limits change.
 const (
 	CollectionUnlimitedTier = -1
 	CollectionForkSoftCap   = 20
+	defaultCollectionTier   = "new_user"
 )
 
 var collectionTierLimits = map[string]int{
@@ -183,32 +183,32 @@ func (s *CollectionService) loadUserForLimitCheck(userID uint) (*authm.User, err
 	return &u, nil
 }
 
-// countOwnedCollections returns the number of collections the user CREATED
-// that are NOT forks (forked_from_collection_id IS NULL). Drafts and private
-// collections are included — the cap covers ALL owned collections, so a user
-// can't dodge it by hoarding drafts. PSY-358.
-func (s *CollectionService) countOwnedCollections(userID uint) (int, error) {
-	var count int64
-	err := s.db.Model(&communitym.Collection{}).
-		Where("creator_id = ? AND forked_from_collection_id IS NULL", userID).
-		Count(&count).Error
-	if err != nil {
-		return 0, fmt.Errorf("failed to count owned collections: %w", err)
+// userTierOrDefault returns the user's tier, falling back to
+// defaultCollectionTier (the strictest cap) when the user is missing or
+// has an empty tier. Centralizes the fallback so error messages and
+// limit lookups can't drift apart.
+func userTierOrDefault(user *authm.User) string {
+	if user == nil || user.UserTier == "" {
+		return defaultCollectionTier
 	}
-	return int(count), nil
+	return user.UserTier
 }
 
-// countForkedCollections returns the number of collections the user CREATED
-// that ARE forks (forked_from_collection_id IS NOT NULL). This is the
-// counterpart to countOwnedCollections — together the two are exhaustive
-// and disjoint over the user's owned set. PSY-358.
-func (s *CollectionService) countForkedCollections(userID uint) (int, error) {
+// countOwnedByForkStatus returns the number of collections the user
+// CREATED, partitioned by fork status — pass forked=false for OWNED
+// (forked_from_collection_id IS NULL) and forked=true for FORKS (NOT
+// NULL). Drafts and private collections are included on the owned side
+// so users can't dodge the cap by hoarding drafts. PSY-358.
+func (s *CollectionService) countOwnedByForkStatus(userID uint, forked bool) (int, error) {
+	clause := "creator_id = ? AND forked_from_collection_id IS NULL"
+	if forked {
+		clause = "creator_id = ? AND forked_from_collection_id IS NOT NULL"
+	}
 	var count int64
-	err := s.db.Model(&communitym.Collection{}).
-		Where("creator_id = ? AND forked_from_collection_id IS NOT NULL", userID).
-		Count(&count).Error
-	if err != nil {
-		return 0, fmt.Errorf("failed to count forked collections: %w", err)
+	if err := s.db.Model(&communitym.Collection{}).
+		Where(clause, userID).
+		Count(&count).Error; err != nil {
+		return 0, fmt.Errorf("failed to count user collections: %w", err)
 	}
 	return int(count), nil
 }
@@ -227,22 +227,19 @@ func (s *CollectionService) enforceOwnedCollectionLimit(userID uint) error {
 		return nil
 	}
 
-	tier := "new_user"
-	if user != nil && user.UserTier != "" {
-		tier = user.UserTier
-	}
+	tier := userTierOrDefault(user)
 	limit, ok := collectionTierLimits[tier]
 	if !ok {
 		// Unknown tier: fall back to the strictest cap. Surface the user's
 		// real tier in the error so the curator UI can still link to
 		// /help/tiers cleanly even when the constants drift apart.
-		limit = collectionTierLimits["new_user"]
+		limit = collectionTierLimits[defaultCollectionTier]
 	}
 	if limit == CollectionUnlimitedTier {
 		return nil
 	}
 
-	used, err := s.countOwnedCollections(userID)
+	used, err := s.countOwnedByForkStatus(userID, false)
 	if err != nil {
 		return err
 	}
@@ -266,17 +263,13 @@ func (s *CollectionService) enforceForkLimit(userID uint) error {
 		return nil
 	}
 
-	used, err := s.countForkedCollections(userID)
+	used, err := s.countOwnedByForkStatus(userID, true)
 	if err != nil {
 		return err
 	}
 	if used >= CollectionForkSoftCap {
-		tier := "new_user"
-		if user != nil && user.UserTier != "" {
-			tier = user.UserTier
-		}
 		return apperrors.ErrCollectionLimitExceeded(
-			tier, used, CollectionForkSoftCap, apperrors.CollectionLimitKindFork,
+			userTierOrDefault(user), used, CollectionForkSoftCap, apperrors.CollectionLimitKindFork,
 		)
 	}
 	return nil

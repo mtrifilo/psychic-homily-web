@@ -91,8 +91,8 @@ func TestCollectionServiceIntegrationTestSuite(t *testing.T) {
 // createTestUser creates a user marked IsAdmin=true so the PSY-358
 // rank-gated collection cap (default new_user → 2 collections) doesn't
 // reject existing tests that legitimately create many collections per
-// user (search/list/pagination/batch fixtures). The PSY-358 cap is
-// covered by dedicated tier-tier tests further down (search for
+// user (search/list/pagination/batch fixtures). The PSY-358 cap itself
+// is covered by dedicated tests further down (search for
 // "TestCreateCollection_TierLimit_*"). Tests that need a non-admin or
 // tier-specific user should call createTierUser instead.
 func (suite *CollectionServiceIntegrationTestSuite) createTestUser(name string) *authm.User {
