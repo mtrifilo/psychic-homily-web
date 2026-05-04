@@ -14,14 +14,39 @@ const (
 	// CodeCollectionTagLimitExceeded is returned when a curator tries to add
 	// an 11th tag to a collection (PSY-354). Maps to HTTP 422 (PSY-524).
 	CodeCollectionTagLimitExceeded = "COLLECTION_TAG_LIMIT_EXCEEDED"
+	// CodeCollectionLimitExceeded is returned when a user tries to create a
+	// new collection beyond their per-tier cap or to fork beyond the soft
+	// fork cap (PSY-358). Maps to HTTP 403 — the request is well-formed,
+	// but the caller's authorization (their tier) does not permit it.
+	CodeCollectionLimitExceeded = "COLLECTION_LIMIT_EXCEEDED"
+)
+
+// CollectionLimitKind identifies which cap the caller hit. Surfaced verbatim
+// in the structured error so the frontend can format messages per kind.
+const (
+	CollectionLimitKindOwned = "owned"
+	CollectionLimitKindFork  = "fork"
 )
 
 // CollectionError represents a collection-related error with additional context.
+//
+// Limit fields (Tier, Used, Limit, SoftCapKind) are populated by
+// ErrCollectionLimitExceeded and are zero-valued for every other code; the
+// frontend reads them off the structured error body to render
+// "X of Y collections (tier — link to /help/tiers)" copy without
+// re-parsing the human message.
 type CollectionError struct {
 	Code         string
 	Message      string
 	Internal     error
 	CollectionID uint
+	// PSY-358: structured fields for the create/fork-limit error. Populated
+	// only when Code == CodeCollectionLimitExceeded; left at zero values for
+	// other codes.
+	Tier        string
+	Used        int
+	Limit       int
+	SoftCapKind string
 }
 
 // Error implements the error interface.
@@ -90,5 +115,41 @@ func ErrCollectionTagLimitExceeded(currentCount, maxAllowed int) *CollectionErro
 			"Collections can have at most %d tags (currently %d). Remove a tag before adding another.",
 			maxAllowed, currentCount,
 		),
+	}
+}
+
+// ErrCollectionLimitExceeded creates an error for the per-tier owned-
+// collection cap or the soft fork cap (PSY-358). Maps to HTTP 403. The
+// structured fields (Tier/Used/Limit/SoftCapKind) are echoed back in the
+// Huma error body's `errors[].value` so the frontend can render targeted
+// copy without parsing the human message.
+//
+// kind must be one of CollectionLimitKindOwned / CollectionLimitKindFork.
+// The human message and remediation tip differ slightly per kind — fork
+// callers see "fork", owned callers see "collection".
+func ErrCollectionLimitExceeded(tier string, used, limit int, kind string) *CollectionError {
+	var message string
+	switch kind {
+	case CollectionLimitKindFork:
+		message = fmt.Sprintf(
+			"Fork limit reached: %d of %d forks. Delete a fork before creating another.",
+			used, limit,
+		)
+	default:
+		// CollectionLimitKindOwned — also the safe default if a caller
+		// passes an unknown kind, since "collection" copy still reads
+		// correctly for any owned-style cap.
+		message = fmt.Sprintf(
+			"Collection limit reached for your tier (%s): %d of %d collections. See /help/tiers to learn how to advance.",
+			tier, used, limit,
+		)
+	}
+	return &CollectionError{
+		Code:        CodeCollectionLimitExceeded,
+		Message:     message,
+		Tier:        tier,
+		Used:        used,
+		Limit:       limit,
+		SoftCapKind: kind,
 	}
 }

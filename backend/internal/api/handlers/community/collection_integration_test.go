@@ -221,7 +221,9 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_NotFound() {
 // ============================================================================
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_Success() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
+	// Admin user so PSY-358's per-tier owned-collection cap (new_user → 2)
+	// doesn't reject the third create — this test isn't about the cap.
+	user := testhelpers.CreateAdminUser(s.deps.DB)
 	s.createCollectionViaService(user, "List A", true)
 	s.createCollectionViaService(user, "List B", true)
 	s.createCollectionViaService(user, "List C", true)
@@ -254,7 +256,8 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_DefaultLimit() {
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestListCollections_WithLimit() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
+	// Admin so PSY-358 cap doesn't gate the third create.
+	user := testhelpers.CreateAdminUser(s.deps.DB)
 	s.createCollectionViaService(user, "Limited A", true)
 	s.createCollectionViaService(user, "Limited B", true)
 	s.createCollectionViaService(user, "Limited C", true)
@@ -1131,7 +1134,8 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_DoesNotInclud
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_WithLimit() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
+	// Admin so PSY-358 cap doesn't gate the third create.
+	user := testhelpers.CreateAdminUser(s.deps.DB)
 	s.createCollectionViaService(user, "Limit A", true)
 	s.createCollectionViaService(user, "Limit B", true)
 	s.createCollectionViaService(user, "Limit C", true)

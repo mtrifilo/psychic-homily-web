@@ -37,6 +37,32 @@ const (
 	MinPublicCollectionDescriptionChars = 50
 )
 
+// PSY-358: rank-gated collection creation limits.
+//
+// collectionTierLimits maps each user_tier to the maximum number of OWNED
+// (non-forked) collections that user can have at once. Drafts and private
+// collections count toward the cap (prevents draft hoarding). Forks have
+// their OWN cap (CollectionForkSoftCap) and are excluded from this count.
+// Admins (User.IsAdmin) bypass the check entirely — no cap.
+//
+// Tier names mirror backend/internal/services/admin/auto_promotion.go.
+// Local-ambassador users are unlimited; CollectionUnlimitedTier is the
+// sentinel for that (the alternative — 0 — would be ambiguous with "0
+// collections allowed"). Mirrored in frontend/lib/tiers.ts so the in-app
+// counter stays in sync; update both when limits change.
+const (
+	CollectionUnlimitedTier = -1
+	CollectionForkSoftCap   = 20
+	defaultCollectionTier   = "new_user"
+)
+
+var collectionTierLimits = map[string]int{
+	"new_user":            2,
+	"contributor":         5,
+	"trusted_contributor": 10,
+	"local_ambassador":    CollectionUnlimitedTier,
+}
+
 // CollectionService handles collection-related business logic.
 // md is the shared utils.MarkdownRenderer (goldmark + bluemonday) used to
 // render Description and per-item Notes on read. Sanitization is applied on
@@ -131,10 +157,135 @@ func validatePublishGate(itemCount int, description string) error {
 	}
 }
 
+// loadUserForLimitCheck loads (User.IsAdmin, User.UserTier) for the given
+// userID. Returns (nil, nil) when the user is not found — the caller treats
+// "no user" as "not admin, default tier" and lets the limit check run, since
+// silently letting orphan creator IDs through would defeat the cap. Any
+// other DB error is wrapped and returned. PSY-358.
+//
+// We deliberately re-query rather than relying on a cached User pulled from
+// JWT claims so a tier upgrade applied between login and Create takes effect
+// immediately (one of the AC's for PSY-358).
+func (s *CollectionService) loadUserForLimitCheck(userID uint) (*authm.User, error) {
+	if userID == 0 {
+		return nil, nil
+	}
+	var u authm.User
+	err := s.db.Select("id, is_admin, user_tier").
+		Where("id = ?", userID).
+		First(&u).Error
+	if err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to load user for limit check: %w", err)
+	}
+	return &u, nil
+}
+
+// userTierOrDefault returns the user's tier, falling back to
+// defaultCollectionTier (the strictest cap) when the user is missing or
+// has an empty tier. Centralizes the fallback so error messages and
+// limit lookups can't drift apart.
+func userTierOrDefault(user *authm.User) string {
+	if user == nil || user.UserTier == "" {
+		return defaultCollectionTier
+	}
+	return user.UserTier
+}
+
+// countOwnedByForkStatus returns the number of collections the user
+// CREATED, partitioned by fork status — pass forked=false for OWNED
+// (forked_from_collection_id IS NULL) and forked=true for FORKS (NOT
+// NULL). Drafts and private collections are included on the owned side
+// so users can't dodge the cap by hoarding drafts. PSY-358.
+func (s *CollectionService) countOwnedByForkStatus(userID uint, forked bool) (int, error) {
+	clause := "creator_id = ? AND forked_from_collection_id IS NULL"
+	if forked {
+		clause = "creator_id = ? AND forked_from_collection_id IS NOT NULL"
+	}
+	var count int64
+	if err := s.db.Model(&communitym.Collection{}).
+		Where(clause, userID).
+		Count(&count).Error; err != nil {
+		return 0, fmt.Errorf("failed to count user collections: %w", err)
+	}
+	return int(count), nil
+}
+
+// enforceOwnedCollectionLimit denies CreateCollection when the caller is
+// over their tier's cap. Admins always pass. Unknown tiers fall back to
+// the most restrictive (new_user) cap so a future tier addition can never
+// silently widen the gate. Returns nil when the user is allowed to create
+// another collection. PSY-358.
+func (s *CollectionService) enforceOwnedCollectionLimit(userID uint) error {
+	user, err := s.loadUserForLimitCheck(userID)
+	if err != nil {
+		return err
+	}
+	if user != nil && user.IsAdmin {
+		return nil
+	}
+
+	tier := userTierOrDefault(user)
+	limit, ok := collectionTierLimits[tier]
+	if !ok {
+		// Unknown tier: fall back to the strictest cap. Surface the user's
+		// real tier in the error so the curator UI can still link to
+		// /help/tiers cleanly even when the constants drift apart.
+		limit = collectionTierLimits[defaultCollectionTier]
+	}
+	if limit == CollectionUnlimitedTier {
+		return nil
+	}
+
+	used, err := s.countOwnedByForkStatus(userID, false)
+	if err != nil {
+		return err
+	}
+	if used >= limit {
+		return apperrors.ErrCollectionLimitExceeded(
+			tier, used, limit, apperrors.CollectionLimitKindOwned,
+		)
+	}
+	return nil
+}
+
+// enforceForkLimit denies CloneCollection when the caller is over the
+// fork soft cap. Forks have their own bucket — they do NOT count toward
+// the per-tier owned cap. Admins bypass. PSY-358.
+func (s *CollectionService) enforceForkLimit(userID uint) error {
+	user, err := s.loadUserForLimitCheck(userID)
+	if err != nil {
+		return err
+	}
+	if user != nil && user.IsAdmin {
+		return nil
+	}
+
+	used, err := s.countOwnedByForkStatus(userID, true)
+	if err != nil {
+		return err
+	}
+	if used >= CollectionForkSoftCap {
+		return apperrors.ErrCollectionLimitExceeded(
+			userTierOrDefault(user), used, CollectionForkSoftCap, apperrors.CollectionLimitKindFork,
+		)
+	}
+	return nil
+}
+
 // CreateCollection creates a new collection and auto-subscribes the creator
 func (s *CollectionService) CreateCollection(creatorID uint, req *contracts.CreateCollectionRequest) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
+	}
+
+	// PSY-358: rank-gated cap. Read the user fresh from the DB so a tier
+	// upgrade takes effect immediately (no in-flight cache to invalidate).
+	// Admins bypass entirely.
+	if err := s.enforceOwnedCollectionLimit(creatorID); err != nil {
+		return nil, err
 	}
 
 	// Generate unique slug from title
@@ -256,6 +407,12 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 	// Visibility: match GetBySlug — public OR owned by caller.
 	if !src.IsPublic && src.CreatorID != callerID {
 		return nil, apperrors.ErrCollectionForbidden(srcSlug)
+	}
+
+	// PSY-358: separate fork soft cap. Forks have their own bucket so they
+	// don't burn the user's owned-collection cap. Admins bypass.
+	if err := s.enforceForkLimit(callerID); err != nil {
+		return nil, err
 	}
 
 	// Generate a unique slug from "<title> (fork)".

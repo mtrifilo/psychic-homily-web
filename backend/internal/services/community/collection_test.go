@@ -88,6 +88,13 @@ func TestCollectionServiceIntegrationTestSuite(t *testing.T) {
 // HELPERS
 // =============================================================================
 
+// createTestUser creates a user marked IsAdmin=true so the PSY-358
+// rank-gated collection cap (default new_user → 2 collections) doesn't
+// reject existing tests that legitimately create many collections per
+// user (search/list/pagination/batch fixtures). The PSY-358 cap itself
+// is covered by dedicated tests further down (search for
+// "TestCreateCollection_TierLimit_*"). Tests that need a non-admin or
+// tier-specific user should call createTierUser instead.
 func (suite *CollectionServiceIntegrationTestSuite) createTestUser(name string) *authm.User {
 	user := &authm.User{
 		Email:         strPtrCollection(fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())),
@@ -95,12 +102,15 @@ func (suite *CollectionServiceIntegrationTestSuite) createTestUser(name string) 
 		LastName:      strPtrCollection("User"),
 		IsActive:      true,
 		EmailVerified: true,
+		IsAdmin:       true,
 	}
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	return user
 }
 
+// createTestUserWithUsername mirrors createTestUser; admin-by-default for
+// the same reason — see createTestUser's comment.
 func (suite *CollectionServiceIntegrationTestSuite) createTestUserWithUsername(name, username string) *authm.User {
 	user := &authm.User{
 		Email:         strPtrCollection(fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())),
@@ -109,6 +119,27 @@ func (suite *CollectionServiceIntegrationTestSuite) createTestUserWithUsername(n
 		LastName:      strPtrCollection("User"),
 		IsActive:      true,
 		EmailVerified: true,
+		IsAdmin:       true,
+	}
+	err := suite.db.Create(user).Error
+	suite.Require().NoError(err)
+	return user
+}
+
+// createTierUser creates a NON-admin user pinned to the given tier. Used
+// by the PSY-358 rank-gated collection-limit tests where we need the
+// cap to actually trigger. tier must be one of the
+// services.collectionTierLimits keys ("new_user" / "contributor" /
+// "trusted_contributor" / "local_ambassador").
+func (suite *CollectionServiceIntegrationTestSuite) createTierUser(name, tier string) *authm.User {
+	user := &authm.User{
+		Email:         strPtrCollection(fmt.Sprintf("%s-%d@test.com", name, time.Now().UnixNano())),
+		FirstName:     strPtrCollection(name),
+		LastName:      strPtrCollection("User"),
+		IsActive:      true,
+		EmailVerified: true,
+		IsAdmin:       false,
+		UserTier:      tier,
 	}
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
@@ -2353,6 +2384,227 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_AutoPass
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total, "source + clone both pass the gate")
 	suite.Len(resp, 2)
+}
+
+// =============================================================================
+// PSY-358: Rank-gated collection creation limits
+// =============================================================================
+//
+// Per-tier owned-collection cap. Forks have a separate soft cap. Admins
+// bypass entirely. Tier upgrade takes effect immediately on next create
+// (no caching) — covered by TestCreateCollection_TierUpgradeAppliesImmediately.
+
+// TestCreateCollection_TierLimit_NewUser_BlocksThird verifies the new_user
+// limit (2) rejects the 3rd owned collection with a structured error.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_TierLimit_NewUser_BlocksThird() {
+	user := suite.createTierUser("NewUserCap", "new_user")
+
+	// First two creates succeed.
+	for i := 0; i < 2; i++ {
+		_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+			Title:    fmt.Sprintf("New User Coll %d", i),
+			IsPublic: false,
+		})
+		suite.Require().NoError(err, "create %d should succeed", i)
+	}
+
+	// Third is rejected with the structured tier/used/limit/kind fields.
+	_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    "Third Should Fail",
+		IsPublic: false,
+	})
+	suite.Require().Error(err)
+
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionLimitExceeded, collErr.Code)
+	suite.Equal("new_user", collErr.Tier)
+	suite.Equal(2, collErr.Used)
+	suite.Equal(2, collErr.Limit)
+	suite.Equal(apperrors.CollectionLimitKindOwned, collErr.SoftCapKind)
+	suite.Contains(collErr.Message, "new_user")
+	suite.Contains(collErr.Message, "/help/tiers")
+}
+
+// TestCreateCollection_TierLimit_Contributor_BlocksSixth verifies the
+// contributor limit (5) rejects the 6th owned collection.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_TierLimit_Contributor_BlocksSixth() {
+	user := suite.createTierUser("ContribCap", "contributor")
+
+	for i := 0; i < 5; i++ {
+		_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+			Title:    fmt.Sprintf("Contrib Coll %d", i),
+			IsPublic: false,
+		})
+		suite.Require().NoError(err, "create %d should succeed", i)
+	}
+
+	_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    "Sixth Should Fail",
+		IsPublic: false,
+	})
+	suite.Require().Error(err)
+
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionLimitExceeded, collErr.Code)
+	suite.Equal("contributor", collErr.Tier)
+	suite.Equal(5, collErr.Used)
+	suite.Equal(5, collErr.Limit)
+}
+
+// TestCreateCollection_TierLimit_LocalAmbassadorUnlimited verifies that the
+// curator/local_ambassador tier has no cap — well past contributor's 5.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_TierLimit_LocalAmbassadorUnlimited() {
+	user := suite.createTierUser("AmbCap", "local_ambassador")
+
+	for i := 0; i < 12; i++ {
+		_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+			Title:    fmt.Sprintf("Amb Coll %d", i),
+			IsPublic: false,
+		})
+		suite.Require().NoError(err, "create %d should succeed for local_ambassador", i)
+	}
+}
+
+// TestCreateCollection_AdminBypassesCap verifies admins are exempt from
+// the tier cap regardless of UserTier.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_AdminBypassesCap() {
+	// Manually craft a non-admin new_user so we know the DB default kicks in,
+	// then flip is_admin=true.
+	user := suite.createTierUser("AdminBypass", "new_user")
+	suite.Require().NoError(suite.db.Model(&authm.User{}).
+		Where("id = ?", user.ID).
+		Update("is_admin", true).Error)
+
+	// Create 5 — well past new_user's 2 cap. All should succeed.
+	for i := 0; i < 5; i++ {
+		_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+			Title:    fmt.Sprintf("Admin Coll %d", i),
+			IsPublic: false,
+		})
+		suite.Require().NoError(err, "create %d should succeed for admin", i)
+	}
+}
+
+// TestCreateCollection_TierUpgradeAppliesImmediately verifies that
+// promoting a user to a higher tier between Create calls increases the
+// effective limit on the very next call — confirms there is no in-memory
+// cache that would defeat tier upgrades.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_TierUpgradeAppliesImmediately() {
+	user := suite.createTierUser("TierUp", "new_user")
+
+	// Hit the new_user cap.
+	for i := 0; i < 2; i++ {
+		_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+			Title:    fmt.Sprintf("TierUp Coll %d", i),
+			IsPublic: false,
+		})
+		suite.Require().NoError(err)
+	}
+	// 3rd is rejected.
+	_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    "Pre-Upgrade Third",
+		IsPublic: false,
+	})
+	suite.Require().Error(err)
+
+	// Promote to contributor (limit 5).
+	suite.Require().NoError(suite.db.Model(&authm.User{}).
+		Where("id = ?", user.ID).
+		Update("user_tier", "contributor").Error)
+
+	// 3rd now succeeds (used=2 < limit=5).
+	_, err = suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    "Post-Upgrade Third",
+		IsPublic: false,
+	})
+	suite.Require().NoError(err, "tier upgrade must apply immediately on next create")
+}
+
+// TestCreateCollection_ForksDoNotCountTowardOwnedCap verifies that forks
+// (collections with forked_from_collection_id set) are excluded from the
+// per-tier owned cap. A new_user with 2 owned + several forks must still
+// be at-cap for owned and CAN'T create another owned collection — but
+// the forks themselves don't bump the owned count past 2.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_ForksDoNotCountTowardOwnedCap() {
+	source := suite.createTestUser("ForkSource") // admin — can create freely.
+	src := suite.createBasicCollection(source, "Source For Fork")
+	// Make source public so the new_user clone path passes visibility.
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+		Where("id = ?", src.ID).
+		Update("is_public", true).Error)
+
+	user := suite.createTierUser("ForkUser", "new_user")
+	// Owned: 2 — at cap.
+	for i := 0; i < 2; i++ {
+		_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+			Title:    fmt.Sprintf("Owned %d", i),
+			IsPublic: false,
+		})
+		suite.Require().NoError(err)
+	}
+	// Two forks — should NOT count against the owned cap.
+	for i := 0; i < 2; i++ {
+		_, err := suite.collectionService.CloneCollection(src.Slug, user.ID)
+		suite.Require().NoError(err, "fork %d should not be blocked by owned cap", i)
+	}
+
+	// 3rd OWNED still rejected — the cap is on owned, not on fork count.
+	_, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    "Third Owned",
+		IsPublic: false,
+	})
+	suite.Require().Error(err)
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionLimitExceeded, collErr.Code)
+	suite.Equal(2, collErr.Used, "owned count is 2, not 4 (forks excluded)")
+}
+
+// TestCloneCollection_ForkSoftCap_Blocks21st verifies the 20-fork soft cap
+// rejects the 21st clone. Pin the user to local_ambassador so the per-tier
+// cap can't fire first.
+func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_ForkSoftCap_Blocks21st() {
+	source := suite.createTestUser("ForkCapSource")
+	src := suite.createBasicCollection(source, "Cap Source")
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+		Where("id = ?", src.ID).
+		Update("is_public", true).Error)
+
+	user := suite.createTierUser("ForkCapUser", "local_ambassador")
+	for i := 0; i < 20; i++ {
+		_, err := suite.collectionService.CloneCollection(src.Slug, user.ID)
+		suite.Require().NoError(err, "fork %d should succeed", i)
+	}
+
+	_, err := suite.collectionService.CloneCollection(src.Slug, user.ID)
+	suite.Require().Error(err)
+
+	var collErr *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &collErr)
+	suite.Equal(apperrors.CodeCollectionLimitExceeded, collErr.Code)
+	suite.Equal(20, collErr.Used)
+	suite.Equal(20, collErr.Limit)
+	suite.Equal(apperrors.CollectionLimitKindFork, collErr.SoftCapKind)
+	suite.Contains(collErr.Message, "Fork limit")
+}
+
+// TestCloneCollection_AdminBypassesForkCap verifies admins can clone past
+// the 20-fork cap.
+func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_AdminBypassesForkCap() {
+	source := suite.createTestUser("AdminForkSource")
+	src := suite.createBasicCollection(source, "Admin Fork Source")
+	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
+		Where("id = ?", src.ID).
+		Update("is_public", true).Error)
+
+	admin := suite.createTestUser("AdminForker") // already admin via helper.
+	// 21 successful clones for an admin.
+	for i := 0; i < 21; i++ {
+		_, err := suite.collectionService.CloneCollection(src.Slug, admin.ID)
+		suite.Require().NoError(err, "admin fork %d should succeed", i)
+	}
 }
 
 // =============================================================================

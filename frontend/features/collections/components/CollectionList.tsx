@@ -2,6 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import { Plus, Search, Library, Star, Clock, TrendingUp, User, X } from 'lucide-react'
+import Link from 'next/link'
 import { useDebounce } from 'use-debounce'
 import { useCollections, useMyCollections, useCreateCollection } from '../hooks'
 import { CollectionCard } from './CollectionCard'
@@ -27,6 +28,12 @@ import {
   type CollectionEntityType,
 } from '../types'
 import { cn } from '@/lib/utils'
+import {
+  COLLECTION_UNLIMITED,
+  TIERS_HELP_PATH,
+  getCollectionLimitForTier,
+  getTierInfo,
+} from '@/lib/tiers'
 
 type BrowseTab = 'all' | 'popular' | 'recent' | 'featured' | 'yours'
 
@@ -427,6 +434,26 @@ function EmptyState({
 
 function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => void }) {
   const createMutation = useCreateCollection()
+  const { user } = useAuthContext()
+  // PSY-358: per-tier owned-collection cap. Read user's collections so we
+  // can render "X of Y collections" before they submit. We filter to OWNED
+  // (creator_id == user.id) and exclude FORKS — same shape the backend
+  // uses for enforcement. Admins bypass the cap entirely.
+  const myCollections = useMyCollections()
+  const ownedCount = useMemo(() => {
+    if (!user?.id) return 0
+    const userId = Number(user.id)
+    return (myCollections.data?.collections ?? []).filter(
+      (c) => c.creator_id === userId && c.forked_from_collection_id == null
+    ).length
+  }, [myCollections.data?.collections, user?.id])
+
+  const tier = user?.user_tier ?? 'new_user'
+  const limit = getCollectionLimitForTier(tier)
+  const isUnlimited = user?.is_admin === true || limit === COLLECTION_UNLIMITED
+  const atOrOverCap = !isUnlimited && ownedCount >= limit
+  const tierLabel = getTierInfo(tier).label
+
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
   const [isPublic, setIsPublic] = useState(true)
@@ -455,6 +482,40 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      {/* PSY-358: per-tier owned-collection limit explainer. Hidden for
+          admins and unlimited tiers (local_ambassador). */}
+      {!isUnlimited && (
+        <div
+          className={cn(
+            'rounded-md border px-3 py-2 text-xs',
+            atOrOverCap
+              ? 'border-destructive/50 bg-destructive/5 text-destructive'
+              : 'border-border bg-muted/30 text-muted-foreground'
+          )}
+          data-testid="collection-tier-limit-banner"
+        >
+          {atOrOverCap ? (
+            <>
+              You&apos;ve reached your limit of {limit} collections at the{' '}
+              <span className="font-medium">{tierLabel}</span> tier ({ownedCount}/{limit}).{' '}
+              <Link href={TIERS_HELP_PATH} className="underline">
+                Learn how to advance
+              </Link>{' '}
+              or delete an existing collection to make room.
+            </>
+          ) : (
+            <>
+              {ownedCount} of {limit} collections used at the{' '}
+              <span className="font-medium">{tierLabel}</span> tier.{' '}
+              <Link href={TIERS_HELP_PATH} className="underline">
+                Tier limits
+              </Link>
+              .
+            </>
+          )}
+        </div>
+      )}
+
       <div>
         <label
           htmlFor="collection-title"
@@ -513,7 +574,7 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
       </div>
 
       {createMutation.error && (
-        <p className="text-sm text-destructive">
+        <p className="text-sm text-destructive" data-testid="collection-create-error">
           {createMutation.error instanceof Error
             ? createMutation.error.message
             : 'Failed to create collection'}
@@ -523,7 +584,7 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
       <div className="flex justify-end gap-2">
         <Button
           type="submit"
-          disabled={!title.trim() || createMutation.isPending}
+          disabled={!title.trim() || createMutation.isPending || atOrOverCap}
         >
           {createMutation.isPending ? 'Creating...' : 'Create'}
         </Button>
