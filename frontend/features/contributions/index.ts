@@ -9,6 +9,7 @@ export type {
   SuggestEditResponse,
   SuggestEditRequest,
   EditableField,
+  EntityEditSuccess,
   DataQualityCategory,
   DataQualitySummary,
   DataQualityItem,
@@ -25,11 +26,13 @@ export {
   useContributeOpportunities,
   useContributeCategory,
   useDataGaps,
+  useEntitySaveSuccessBanner,
 } from './hooks'
 export type { EntityAttribution, DataGap } from './hooks'
 
 // Components
 export { EntityEditDrawer } from './components/EntityEditDrawer'
+export { EntitySaveSuccessBanner } from './components/EntitySaveSuccessBanner'
 export { AttributionLine } from './components/AttributionLine'
 export { ReportEntityDialog } from './components/ReportEntityDialog'
 export { ContributeDashboard } from './components/ContributeDashboard'

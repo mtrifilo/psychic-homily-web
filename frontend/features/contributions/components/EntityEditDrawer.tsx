@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { useSuggestEdit } from '../hooks/useSuggestEdit'
-import type { EditableEntityType, EditableField, FieldChange } from '../types'
+import type { EditableEntityType, EditableField, FieldChange, EntityEditSuccess } from '../types'
 import { EDITABLE_FIELDS } from '../types'
 
 /** Extracts a field value from an entity object, handling nested social fields. */
@@ -42,8 +42,14 @@ interface EntityEditDrawerProps {
   entity: Record<string, unknown>
   /** Whether the current user can edit directly (trusted_contributor+/admin). */
   canEditDirectly: boolean
-  /** Called after a successful edit (direct or pending). */
-  onSuccess?: () => void
+  /**
+   * Called after a successful edit. Receives `{ applied }` so callers can
+   * differentiate a direct (admin/trusted) save — drawer closes silently —
+   * from a pending submission, which keeps the in-drawer review banner.
+   * Direct saves leave nothing on the page; the parent should render its
+   * own page-level success banner via `useEntitySaveSuccessBanner`.
+   */
+  onSuccess?: (result: EntityEditSuccess) => void
   /** When set, the drawer will scroll to and focus this field after opening. */
   focusField?: string
 }
@@ -149,13 +155,16 @@ export function EntityEditDrawer({
         onSuccess: (data) => {
           setSubmitted(true)
           if (data.applied) {
-            // Direct edit — close after brief success message
+            // Direct edit — close after brief success message. The brief
+            // in-drawer flash is intentional: the page-level success banner
+            // (rendered by the parent via `useEntitySaveSuccessBanner`) is
+            // what carries the confirmation forward after the drawer closes.
             setTimeout(() => {
               onOpenChange(false)
-              onSuccess?.()
+              onSuccess?.({ applied: true })
             }, 1000)
           } else {
-            onSuccess?.()
+            onSuccess?.({ applied: false })
           }
         },
       }

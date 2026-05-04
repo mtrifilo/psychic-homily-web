@@ -20,7 +20,7 @@ import { CommentThread } from '@/features/comments'
 import { EntityTagList } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
 import { useIsAuthenticated } from '@/features/auth'
-import { AttributionLine, ContributionPrompt, EntityEditDrawer } from '@/features/contributions'
+import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -56,6 +56,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
+  const saveBanner = useEntitySaveSuccessBanner()
 
   if (isLoading) {
     return (
@@ -234,6 +235,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
               </div>
             }
           />
+          <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
           <AttributionLine entityType="label" entityId={label.id} />
           <EntityTagList
             entityType="label"
@@ -409,10 +411,11 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
         entity={label as unknown as Record<string, unknown>}
         canEditDirectly={!!canEditDirectly}
         focusField={editFocusField}
-        onSuccess={() => {
+        onSuccess={(result) => {
           queryClient.invalidateQueries({
             queryKey: queryKeys.labels.detail(idOrSlug),
           })
+          saveBanner.handleSaveSuccess(result)
         }}
       />
     )}

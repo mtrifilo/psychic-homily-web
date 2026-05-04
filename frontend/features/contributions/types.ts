@@ -61,6 +61,17 @@ export interface SuggestEditResponse {
   message: string
 }
 
+/**
+ * Result payload passed to {@link EntityEditDrawer}'s `onSuccess` callback.
+ * `applied: true` means the change was committed directly (admin / trusted
+ * contributor / owner); `applied: false` means a pending edit was filed for
+ * review. Page-level success affordances (e.g. the "Changes saved" banner)
+ * key off `applied`.
+ */
+export interface EntityEditSuccess {
+  applied: boolean
+}
+
 export interface SuggestEditRequest {
   changes: FieldChange[]
   summary: string

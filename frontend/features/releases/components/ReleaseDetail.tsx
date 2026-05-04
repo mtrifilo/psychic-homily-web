@@ -22,7 +22,7 @@ import {
   RevisionHistory,
   AddToCollectionButton,
 } from '@/components/shared'
-import { AttributionLine, ContributionPrompt, EntityEditDrawer } from '@/features/contributions'
+import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { EntityTagList } from '@/features/tags'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
@@ -76,6 +76,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
+  const saveBanner = useEntitySaveSuccessBanner()
 
   if (isLoading) {
     return (
@@ -269,6 +270,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                 </div>
               }
             />
+            <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
             <AttributionLine entityType="release" entityId={release.id} />
             <EntityTagList
               entityType="release"
@@ -409,10 +411,11 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           entity={release as unknown as Record<string, unknown>}
           canEditDirectly={!!canEditDirectly}
           focusField={editFocusField}
-          onSuccess={() => {
+          onSuccess={(result) => {
             queryClient.invalidateQueries({
               queryKey: queryKeys.releases.detail(idOrSlug),
             })
+            saveBanner.handleSaveSuccess(result)
           }}
         />
       )}

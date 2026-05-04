@@ -37,7 +37,7 @@ import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHist
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
 import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
-import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
@@ -850,6 +850,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
+  const saveBanner = useEntitySaveSuccessBanner()
 
   // Fetch labels for sidebar
   const { data: labelsData, isLoading: labelsLoading } = useArtistLabels({
@@ -970,6 +971,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
               subtitle={headerSubtitle}
               actions={headerActions}
             />
+            <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
             <AttributionLine entityType="artist" entityId={artist.id} />
             <EntityTagList
               entityType="artist"
@@ -1077,10 +1079,11 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           entity={artist as unknown as Record<string, unknown>}
           canEditDirectly={!!canEditDirectly}
           focusField={editFocusField}
-          onSuccess={() => {
+          onSuccess={(result) => {
             queryClient.invalidateQueries({
               queryKey: queryKeys.artists.detail(artistId),
             })
+            saveBanner.handleSaveSuccess(result)
           }}
         />
       )}
