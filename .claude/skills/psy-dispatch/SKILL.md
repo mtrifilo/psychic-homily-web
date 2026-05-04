@@ -10,14 +10,17 @@ Encodes the workflow for taking a batch of PSY tickets and dispatching one paral
 
 ## When this skill fires
 
-The user provides a list of two or more PSY-XXX tickets along with intent to work them in parallel. Typical phrasings:
+The user provides a list of PSY-XXX tickets along with intent to work them in parallel worktrees. Typical phrasings:
 - "Let's tackle PSY-551, PSY-552, PSY-553 in parallel worktrees"
 - "Dispatch these tickets" (with a list or screenshot)
 - "Work this batch in worktrees so we don't block other agents"
 - A pasted screenshot of a Linear project view + "let's do these"
 
+Also fires for the **tail-of-batch single ticket** — when a multi-ticket project sweep has wound down to one remaining ticket and the user invokes `/psy-dispatch` to continue the sweep. Common shape: a prior dispatcher's handoff message lists what shipped and what's "ready to dispatch", and the next session works the remaining ticket. Worktree isolation, background execution, and the same PR flow as the rest of the sweep are still wins; downgrading to inline work just because the count hit one creates an inconsistent tail. Do NOT, however, blindly skip the single-ticket pre-flight: still resolve ambiguity, still move to In Progress, still verify isolation, still run `/simplify`.
+
 Do NOT use for:
-- A single ticket → just do the work directly. One ticket doesn't need a parallel-dispatch workflow.
+- A genuine one-off ticket — no multi-ticket sweep context, no prior dispatcher handoff, the user just wants help with PSY-XXX. Do the work directly; the dispatch overhead isn't worth it when the user is actively pairing.
+- A ticket whose only edits land in gitignored paths (e.g. `docs/` in this repo). Worktree edits to ignored files don't commit, don't push, don't surface in a PR, and vanish on worktree cleanup. See the anti-pattern entry below for the recovery path when this is discovered mid-flight.
 - Ticket *creation* → that's `psy-ticket`.
 - Generic Linear queries → that's `linear-cli`.
 
@@ -181,6 +184,7 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - **Skipping `/simplify` for "small" tickets.** The discipline is the point. Most small tickets produce no simplify diff anyway; running it costs nothing.
 - **Trusting `isolation: "worktree"` blindly.** In the May 2026 dogfood batch (PSY-551 through PSY-556), 2 of 6 agents had Edit/Write tool calls land in the main worktree's CWD despite the isolation flag. The agents that detected and recovered (copy-edits-to-worktree → `git restore` leaked paths in main → resume) shipped clean PRs; without the recovery they would have committed the wrong files to the wrong branch. Always verify isolation up front and pre-commit, and run the orchestrator-level diff check at step 6.
 - **Using `git checkout .` or `git clean -fd` to "reset" main during recovery.** Both can wipe unrelated untracked files in the main worktree (e.g. another in-flight WIP, or session-scope draft files like a new skill). Use `git restore <specific paths>` only — target the leaked paths explicitly.
+- **Dispatching a ticket whose targets are all gitignored.** A worktree creates an isolated branch, but edits to gitignored paths live only in the worktree's filesystem — they don't commit, don't push, don't reach a PR, and disappear when the worktree is cleaned up. **PSY-427 (May 2026)** hit this: the target was `docs/runbooks/agent-workflow.md` + `docs/INDEX.md`, and `docs/` is in `.gitignore`. Pre-flight check before step 4: run `git check-ignore -v` against each target file the ticket calls out (or run it against the entire `docs/` tree if the ticket is a docs-only update). If everything is ignored, abort the dispatch and do the work inline on main — the user reviews the diff in-conversation, accepts, and the ticket transitions Done directly. There is no merge event to gate on.
 
 ## Related skills and memories
 
