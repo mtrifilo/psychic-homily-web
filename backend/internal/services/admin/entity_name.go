@@ -44,6 +44,9 @@ func resolveEntityName(db *gorm.DB, entityType string, entityID uint) string {
 			return result.Body
 		}
 	case "collection":
+		// resolveEntityNameAndSlug is the canonical path for collections; this
+		// arm exists for callers that only need the name. It still issues a
+		// single query (no extra slug fetch).
 		var result struct{ Title string }
 		if err := db.Table("collections").Select("title").Where("id = ?", entityID).Scan(&result).Error; err == nil && result.Title != "" {
 			return result.Title
@@ -53,25 +56,33 @@ func resolveEntityName(db *gorm.DB, entityType string, entityID uint) string {
 	return fmt.Sprintf("%s #%d", entityType, entityID)
 }
 
-// resolveEntitySlug returns the entity's URL slug for entity types that are
-// addressed by slug in the public app (currently only collections — every
-// other report-able entity type uses ID-based URLs in the admin moderation
-// queue, so this returns nil for those). Returns nil when no slug exists.
+// resolveEntityNameAndSlug returns the entity's display name and (if the
+// type is addressed by slug in the public app) its URL slug. Used by
+// callers that need both — a single combined query keeps the
+// non-name-only path from doing two round-trips per row in the admin
+// moderation list. PSY-357.
 //
-// PSY-357: callers use this to render a slug-based link in the admin
-// moderation card without exposing the slug everywhere — the response
-// contract carries an optional `entity_slug` field that's omitted on every
-// other type.
-func resolveEntitySlug(db *gorm.DB, entityType string, entityID uint) *string {
-	if db == nil {
-		return nil
-	}
+// Slug is non-nil only for entity types whose public URLs are slug-based
+// (currently only `collection`). All other types return slug==nil so the
+// JSON response omits the field.
+func resolveEntityNameAndSlug(db *gorm.DB, entityType string, entityID uint) (string, *string) {
 	if entityType != "collection" {
-		return nil
+		return resolveEntityName(db, entityType, entityID), nil
 	}
-	var result struct{ Slug string }
-	if err := db.Table("collections").Select("slug").Where("id = ?", entityID).Scan(&result).Error; err == nil && result.Slug != "" {
-		return &result.Slug
+	if db == nil {
+		return fmt.Sprintf("%s #%d", entityType, entityID), nil
 	}
-	return nil
+	var result struct {
+		Title string
+		Slug  string
+	}
+	err := db.Table("collections").Select("title, slug").Where("id = ?", entityID).Scan(&result).Error
+	if err != nil || result.Title == "" {
+		return fmt.Sprintf("%s #%d", entityType, entityID), nil
+	}
+	var slug *string
+	if result.Slug != "" {
+		slug = &result.Slug
+	}
+	return result.Title, slug
 }

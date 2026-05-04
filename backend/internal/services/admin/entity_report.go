@@ -252,12 +252,13 @@ func (s *EntityReportService) DismissEntityReport(reportID uint, reviewerID uint
 
 // toResponse converts an EntityReport model to a response DTO.
 func (s *EntityReportService) toResponse(report *communitym.EntityReport) *contracts.EntityReportResponse {
+	name, slug := resolveEntityNameAndSlug(s.db, report.EntityType, report.EntityID)
 	resp := &contracts.EntityReportResponse{
 		ID:         report.ID,
 		EntityType: report.EntityType,
 		EntityID:   report.EntityID,
-		EntityName: resolveEntityName(s.db, report.EntityType, report.EntityID),
-		EntitySlug: resolveEntitySlug(s.db, report.EntityType, report.EntityID),
+		EntityName: name,
+		EntitySlug: slug,
 		ReportedBy: report.ReportedBy,
 		ReportType: report.ReportType,
 		Details:    report.Details,

@@ -7,7 +7,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest, API_BASE_URL, API_ENDPOINTS } from '../../api'
+import { apiRequest, API_ENDPOINTS } from '../../api'
 import { queryKeys, createInvalidateQueries } from '../../queryClient'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -123,7 +123,7 @@ export function useAdminHideCollection() {
 
   return useMutation({
     mutationFn: async ({ slug }: { slug: string }): Promise<void> => {
-      return apiRequest<void>(`${API_BASE_URL}/collections/${slug}`, {
+      return apiRequest<void>(API_ENDPOINTS.COLLECTIONS.DETAIL(slug), {
         method: 'PUT',
         body: JSON.stringify({ is_public: false }),
       })
