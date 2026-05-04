@@ -112,6 +112,9 @@ export {
   useMyShows,
 } from './hooks'
 
+// Utilities
+export { dedupArtistShows, dedupVenueShows } from './utils'
+
 // Components
 export {
   AttendanceButton,
