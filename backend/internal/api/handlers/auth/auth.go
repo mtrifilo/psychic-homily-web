@@ -1758,23 +1758,15 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 	requestID := logger.GetRequestID(ctx)
 	resp.Body.RequestID = requestID
 
-	// Get authenticated user from context
+	// Get authenticated user from context. HumaAdminMiddleware on the rc.Admin
+	// route group already enforces JWT + IsAdmin upstream, so by the time we
+	// run here we know the user is a non-nil admin. The nil check stays as a
+	// belt-and-suspenders against a future wiring bug rather than a 500.
 	contextUser := middleware.GetUserFromContext(ctx)
 	if contextUser == nil {
 		logger.AuthWarn(ctx, "generate_cli_token_no_user")
 		resp.Body.Success = false
 		resp.Body.Message = "User not found in context"
-		resp.Body.ErrorCode = autherrors.CodeUnauthorized
-		return resp, nil
-	}
-
-	// Only allow admins to generate CLI tokens
-	if !contextUser.IsAdmin {
-		logger.AuthWarn(ctx, "generate_cli_token_not_admin",
-			"user_id", contextUser.ID,
-		)
-		resp.Body.Success = false
-		resp.Body.Message = "CLI tokens are only available for admin users"
 		resp.Body.ErrorCode = autherrors.CodeUnauthorized
 		return resp, nil
 	}

@@ -12,7 +12,7 @@ import (
 )
 
 // adminCtx returns a context populated with an admin user, suitable for
-// invoking handlers that gate on shared.RequireAdmin.
+// invoking handlers that gate on HumaAdminMiddleware.
 func adminCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }

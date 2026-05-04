@@ -13,13 +13,13 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	"psychic-homily-backend/internal/services"
+	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// Local alias so the helper isn't tied to the `services.` qualifier on every
+// Local alias so the helper isn't tied to the `community.` qualifier on every
 // reference. PSY-356.
-const MinPublicCollectionItems = services.MinPublicCollectionItems
+const MinPublicCollectionItems = community.MinPublicCollectionItems
 
 type CollectionHandlerIntegrationSuite struct {
 	suite.Suite

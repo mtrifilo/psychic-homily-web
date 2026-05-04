@@ -39,6 +39,7 @@ backend/*.log
 backend/backfill-slugs
 backend/discovery-import
 backend/link-release-labels
+backend/scaffold
 backend/scrape-import
 backend/seed
 backend/server

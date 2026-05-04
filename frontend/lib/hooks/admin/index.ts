@@ -69,6 +69,7 @@ export {
   useAdminEntityReports,
   useResolveEntityReport,
   useDismissEntityReport,
+  useAdminHideCollection,
 } from './useAdminEntityReports'
 
 export {
