@@ -19,7 +19,7 @@ import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueBillNetwork } from './VenueBillNetwork'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
-import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
@@ -97,7 +97,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
     (venue?.submitted_by != null && venue.submitted_by === Number(user?.id))
   )
 
-  const handleVenueUpdated = (result: { applied: boolean }) => {
+  const handleVenueUpdated = (result: EntityEditSuccess) => {
     // Invalidate venue detail query
     queryClient.invalidateQueries({
       queryKey: queryKeys.venues.detail(String(venueId)),

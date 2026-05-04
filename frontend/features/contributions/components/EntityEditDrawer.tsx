@@ -15,7 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { useSuggestEdit } from '../hooks/useSuggestEdit'
-import type { EditableEntityType, EditableField, FieldChange } from '../types'
+import type { EditableEntityType, EditableField, FieldChange, EntityEditSuccess } from '../types'
 import { EDITABLE_FIELDS } from '../types'
 
 /** Extracts a field value from an entity object, handling nested social fields. */
@@ -49,7 +49,7 @@ interface EntityEditDrawerProps {
    * Direct saves leave nothing on the page; the parent should render its
    * own page-level success banner via `useEntitySaveSuccessBanner`.
    */
-  onSuccess?: (result: { applied: boolean }) => void
+  onSuccess?: (result: EntityEditSuccess) => void
   /** When set, the drawer will scroll to and focus this field after opening. */
   focusField?: string
 }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback } from 'react'
+import type { EntityEditSuccess } from '../types'
 
 /**
  * Auto-dismiss delay for the page-level "Changes saved" banner that follows a
@@ -20,7 +21,7 @@ interface UseEntitySaveSuccessBannerResult {
    * passes `{ applied }`; we only flash the banner on direct saves (the
    * pending-review path keeps the in-drawer amber banner instead).
    */
-  handleSaveSuccess: (result: { applied: boolean }) => void
+  handleSaveSuccess: (result: EntityEditSuccess) => void
 }
 
 /**
@@ -35,7 +36,7 @@ interface UseEntitySaveSuccessBannerResult {
 export function useEntitySaveSuccessBanner(): UseEntitySaveSuccessBannerResult {
   const [isVisible, setIsVisible] = useState(false)
 
-  const handleSaveSuccess = useCallback((result: { applied: boolean }) => {
+  const handleSaveSuccess = useCallback((result: EntityEditSuccess) => {
     // Only flash on direct saves. Pending submissions keep the in-drawer
     // amber "submitted for review" banner — the drawer stays open.
     if (result.applied) {

@@ -9,6 +9,7 @@ export type {
   SuggestEditResponse,
   SuggestEditRequest,
   EditableField,
+  EntityEditSuccess,
   DataQualityCategory,
   DataQualitySummary,
   DataQualityItem,
