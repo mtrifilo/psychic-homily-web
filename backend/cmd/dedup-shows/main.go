@@ -110,11 +110,6 @@ func main() {
 		fmt.Printf("  [MERGED] winner=%d, losers=%v\n", cluster.WinnerID, cluster.LoserIDs)
 	}
 
-	// Slug recanonicalise on shows that were already in canonical
-	// form is a separate pass for non-cluster shows? Out of scope —
-	// the work plan only requires winners be backfilled to canonical
-	// form, and the cluster loop handles that above.
-
 	printSummary(summary)
 }
 

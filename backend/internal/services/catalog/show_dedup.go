@@ -3,6 +3,7 @@ package catalog
 import (
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -179,9 +180,7 @@ func FindShowDedupClusters(db *gorm.DB) ([]ShowDedupCluster, error) {
 
 // MergeDuplicateShow merges loser into winner inside an existing
 // transaction. All FKs (direct + polymorphic) are repointed with
-// conflict-aware semantics. The loser is then deleted, which cascades
-// to show_venues / show_artists / show_reports / enrichment_queue
-// rows that still belong to it.
+// conflict-aware semantics. The loser is then deleted.
 //
 // Conflict policy: when a UNIQUE / PK conflict would occur on the
 // winner, the loser's row is dropped (the winner's pre-existing row
@@ -194,7 +193,7 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 		return fmt.Errorf("winnerID == loserID")
 	}
 
-	// 1. show_venues — copy missing rows from loser to winner, drop conflicts.
+	// Junction tables with composite PK (show_id, otherCol).
 	moved, skipped, err := movePolymorphicJunction(tx, "show_venues", "show_id", "venue_id", winnerID, loserID)
 	if err != nil {
 		return fmt.Errorf("show_venues: %w", err)
@@ -202,9 +201,6 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	summary.ShowVenuesMoved += moved
 	summary.ShowVenuesSkipped += skipped
 
-	// 2. show_artists — same pattern. Preserve position/set_type from
-	// loser only when winner doesn't already have the artist (handled
-	// by the conflict-skip below).
 	moved, skipped, err = movePolymorphicJunction(tx, "show_artists", "show_id", "artist_id", winnerID, loserID)
 	if err != nil {
 		return fmt.Errorf("show_artists: %w", err)
@@ -212,136 +208,68 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	summary.ShowArtistsMoved += moved
 	summary.ShowArtistsSkipped += skipped
 
-	// 3. show_reports — repoint to winner (no unique constraint).
-	res := tx.Exec(`UPDATE show_reports SET show_id = ? WHERE show_id = ?`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("show_reports: %w", res.Error)
+	// Plain FK repoints — no unique constraint to worry about.
+	for _, op := range []struct {
+		name string
+		sql  string
+		dst  *int64
+	}{
+		{"show_reports", `UPDATE show_reports SET show_id = ? WHERE show_id = ?`, &summary.ShowReportsMoved},
+		{"enrichment_queue", `UPDATE enrichment_queue SET show_id = ? WHERE show_id = ?`, &summary.EnrichmentMoved},
+		{"duplicate_of_show_id", `UPDATE shows SET duplicate_of_show_id = ? WHERE duplicate_of_show_id = ?`, &summary.DuplicateOfRepoint},
+	} {
+		res := tx.Exec(op.sql, winnerID, loserID)
+		if res.Error != nil {
+			return fmt.Errorf("%s: %w", op.name, res.Error)
+		}
+		*op.dst += res.RowsAffected
 	}
-	summary.ShowReportsMoved += res.RowsAffected
 
-	// 4. enrichment_queue — repoint to winner.
-	res = tx.Exec(`UPDATE enrichment_queue SET show_id = ? WHERE show_id = ?`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("enrichment_queue: %w", res.Error)
+	// Polymorphic FK repoints (entity_type='show'). Tables with no
+	// uniqueness constraint on (entity_type, entity_id) just need a
+	// straight UPDATE.
+	for _, op := range []struct {
+		name string
+		sql  string
+		dst  *int64
+	}{
+		{"comments", `UPDATE comments SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.CommentsRepointed},
+		{"entity_reports", `UPDATE entity_reports SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.EntityReportsMoved},
+		{"pending_entity_edits", `UPDATE pending_entity_edits SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.PendingEditsMoved},
+		{"revisions", `UPDATE revisions SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.RevisionsMoved},
+		{"audit_logs", `UPDATE audit_logs SET entity_id = ? WHERE entity_type = 'show' AND entity_id = ?`, &summary.AuditLogsMoved},
+		// requests uses requested_entity_id, not entity_id.
+		{"requests", `UPDATE requests SET requested_entity_id = ? WHERE entity_type = 'show' AND requested_entity_id = ?`, &summary.RequestsMoved},
+	} {
+		res := tx.Exec(op.sql, winnerID, loserID)
+		if res.Error != nil {
+			return fmt.Errorf("%s: %w", op.name, res.Error)
+		}
+		*op.dst += res.RowsAffected
 	}
-	summary.EnrichmentMoved += res.RowsAffected
 
-	// 5. shows.duplicate_of_show_id — repoint loser→winner so any
-	// existing duplicate-of pointer survives the merge.
-	res = tx.Exec(`UPDATE shows SET duplicate_of_show_id = ? WHERE duplicate_of_show_id = ?`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("duplicate_of_show_id: %w", res.Error)
+	// Polymorphic FK repoints WITH a uniqueness constraint —
+	// conflict-correlation columns vary per table.
+	for _, op := range []struct {
+		name        string
+		correlation []string
+		moved       *int64
+		skipped     *int64
+	}{
+		{"comment_subscriptions", []string{"user_id"}, &summary.SubsRepointed, &summary.SubsSkipped},
+		{"entity_tags", []string{"tag_id"}, &summary.EntityTagsMoved, &summary.EntityTagsSkipped},
+		{"collection_items", []string{"collection_id"}, &summary.CollectionsMoved, &summary.CollectionsSkipped},
+		{"user_bookmarks", []string{"user_id", "action"}, &summary.BookmarksMoved, &summary.BookmarksSkipped},
+	} {
+		moved, skipped, err = movePolymorphicEntity(tx, op.name, op.correlation, winnerID, loserID)
+		if err != nil {
+			return fmt.Errorf("%s: %w", op.name, err)
+		}
+		*op.moved += moved
+		*op.skipped += skipped
 	}
-	summary.DuplicateOfRepoint += res.RowsAffected
 
-	// 6. comments — repoint entity_id (no unique constraint on
-	// (entity_type, entity_id) for comments — same comment thread
-	// just gets renamed under the winner).
-	res = tx.Exec(`
-		UPDATE comments
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("comments: %w", res.Error)
-	}
-	summary.CommentsRepointed += res.RowsAffected
-
-	// 7. comment_subscriptions — PK is (user_id, entity_type,
-	// entity_id). Drop conflicts then repoint.
-	moved, skipped, err = movePolymorphicEntity(tx, "comment_subscriptions",
-		`(SELECT 1 FROM comment_subscriptions cs2
-		   WHERE cs2.user_id = comment_subscriptions.user_id
-			 AND cs2.entity_type = 'show'
-			 AND cs2.entity_id = ?)`, winnerID, loserID)
-	if err != nil {
-		return fmt.Errorf("comment_subscriptions: %w", err)
-	}
-	summary.SubsRepointed += moved
-	summary.SubsSkipped += skipped
-
-	// 8. entity_tags — UNIQUE (tag_id, entity_type, entity_id) per
-	// migration 000051. Drop conflicts, then move.
-	moved, skipped, err = movePolymorphicEntityWithTagConflict(tx, "entity_tags", winnerID, loserID)
-	if err != nil {
-		return fmt.Errorf("entity_tags: %w", err)
-	}
-	summary.EntityTagsMoved += moved
-	summary.EntityTagsSkipped += skipped
-
-	// 9. entity_reports — repoint (no relevant unique).
-	res = tx.Exec(`
-		UPDATE entity_reports
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("entity_reports: %w", res.Error)
-	}
-	summary.EntityReportsMoved += res.RowsAffected
-
-	// 10. pending_entity_edits — repoint.
-	res = tx.Exec(`
-		UPDATE pending_entity_edits
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("pending_entity_edits: %w", res.Error)
-	}
-	summary.PendingEditsMoved += res.RowsAffected
-
-	// 11. revisions — repoint.
-	res = tx.Exec(`
-		UPDATE revisions
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("revisions: %w", res.Error)
-	}
-	summary.RevisionsMoved += res.RowsAffected
-
-	// 12. requests — points via requested_entity_id, not entity_id.
-	res = tx.Exec(`
-		UPDATE requests
-		SET requested_entity_id = ?
-		WHERE entity_type = 'show' AND requested_entity_id = ?
-	`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("requests: %w", res.Error)
-	}
-	summary.RequestsMoved += res.RowsAffected
-
-	// 13. audit_logs — repoint.
-	res = tx.Exec(`
-		UPDATE audit_logs
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, winnerID, loserID)
-	if res.Error != nil {
-		return fmt.Errorf("audit_logs: %w", res.Error)
-	}
-	summary.AuditLogsMoved += res.RowsAffected
-
-	// 14. collection_items — UNIQUE (collection_id, entity_type,
-	// entity_id) handled inline; conflicts dropped.
-	moved, skipped, err = moveCollectionItems(tx, winnerID, loserID)
-	if err != nil {
-		return fmt.Errorf("collection_items: %w", err)
-	}
-	summary.CollectionsMoved += moved
-	summary.CollectionsSkipped += skipped
-
-	// 15. user_bookmarks — UNIQUE (user_id, entity_type, entity_id, action).
-	moved, skipped, err = moveBookmarks(tx, winnerID, loserID)
-	if err != nil {
-		return fmt.Errorf("user_bookmarks: %w", err)
-	}
-	summary.BookmarksMoved += moved
-	summary.BookmarksSkipped += skipped
-
-	// 16. Delete the loser show. CASCADE handles anything left in
+	// Delete the loser show. CASCADE handles anything left in
 	// show_venues / show_artists / show_reports / enrichment_queue
 	// (i.e. nothing — all repointed above).
 	if err := tx.Delete(&catalogm.Show{}, loserID).Error; err != nil {
@@ -381,17 +309,32 @@ func movePolymorphicJunction(tx *gorm.DB, table, primaryCol, otherCol string, wi
 	return moved, skipped, nil
 }
 
-// movePolymorphicEntity is a generic conflict-aware move for tables
-// keyed on (some_user_or_other_col, entity_type='show', entity_id).
-// `existsClause` must use a placeholder `?` that gets bound to
-// winnerID — see the comment_subscriptions call site for the shape.
-func movePolymorphicEntity(tx *gorm.DB, table, existsClause string, winnerID, loserID uint) (moved, skipped int64, err error) {
+// movePolymorphicEntity is a conflict-aware FK repoint for tables
+// keyed on `(<correlation columns>, entity_type='show', entity_id)`.
+// Loser rows whose `<correlation>` already collides with a winner
+// row are deleted (winner wins); remaining rows are repointed to the
+// winner. Used for comment_subscriptions, entity_tags,
+// collection_items and user_bookmarks — `correlation` differs per
+// table (e.g. `["user_id", "action"]` for user_bookmarks).
+func movePolymorphicEntity(tx *gorm.DB, table string, correlation []string, winnerID, loserID uint) (moved, skipped int64, err error) {
+	if len(correlation) == 0 {
+		return 0, 0, fmt.Errorf("correlation must not be empty")
+	}
+	conds := make([]string, len(correlation))
+	for i, col := range correlation {
+		conds[i] = fmt.Sprintf("t2.%s = %s.%s", col, table, col)
+	}
 	delSQL := fmt.Sprintf(`
 		DELETE FROM %s
 		WHERE entity_type = 'show'
 		  AND entity_id = ?
-		  AND EXISTS %s
-	`, table, existsClause)
+		  AND EXISTS (
+			SELECT 1 FROM %s t2
+			WHERE t2.entity_type = 'show'
+			  AND t2.entity_id = ?
+			  AND %s
+		  )
+	`, table, table, strings.Join(conds, " AND "))
 	del := tx.Exec(delSQL, loserID, winnerID)
 	if del.Error != nil {
 		return 0, 0, del.Error
@@ -404,101 +347,6 @@ func movePolymorphicEntity(tx *gorm.DB, table, existsClause string, winnerID, lo
 		WHERE entity_type = 'show' AND entity_id = ?
 	`, table)
 	upd := tx.Exec(updSQL, winnerID, loserID)
-	if upd.Error != nil {
-		return 0, 0, upd.Error
-	}
-	moved = upd.RowsAffected
-	return moved, skipped, nil
-}
-
-// movePolymorphicEntityWithTagConflict handles entity_tags, where the
-// uniqueness key is (tag_id, entity_type, entity_id) — distinct from
-// the simpler (user_id, entity_type, entity_id) shape.
-func movePolymorphicEntityWithTagConflict(tx *gorm.DB, table string, winnerID, loserID uint) (moved, skipped int64, err error) {
-	del := tx.Exec(`
-		DELETE FROM entity_tags
-		WHERE entity_type = 'show'
-		  AND entity_id = ?
-		  AND EXISTS (
-			SELECT 1 FROM entity_tags et2
-			WHERE et2.tag_id = entity_tags.tag_id
-			  AND et2.entity_type = 'show'
-			  AND et2.entity_id = ?
-		  )
-	`, loserID, winnerID)
-	if del.Error != nil {
-		return 0, 0, del.Error
-	}
-	skipped = del.RowsAffected
-
-	upd := tx.Exec(`
-		UPDATE entity_tags
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, winnerID, loserID)
-	if upd.Error != nil {
-		return 0, 0, upd.Error
-	}
-	moved = upd.RowsAffected
-	return moved, skipped, nil
-}
-
-// moveCollectionItems handles collection_items uniqueness on
-// (collection_id, entity_type, entity_id).
-func moveCollectionItems(tx *gorm.DB, winnerID, loserID uint) (moved, skipped int64, err error) {
-	del := tx.Exec(`
-		DELETE FROM collection_items
-		WHERE entity_type = 'show'
-		  AND entity_id = ?
-		  AND EXISTS (
-			SELECT 1 FROM collection_items ci2
-			WHERE ci2.collection_id = collection_items.collection_id
-			  AND ci2.entity_type = 'show'
-			  AND ci2.entity_id = ?
-		  )
-	`, loserID, winnerID)
-	if del.Error != nil {
-		return 0, 0, del.Error
-	}
-	skipped = del.RowsAffected
-
-	upd := tx.Exec(`
-		UPDATE collection_items
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, winnerID, loserID)
-	if upd.Error != nil {
-		return 0, 0, upd.Error
-	}
-	moved = upd.RowsAffected
-	return moved, skipped, nil
-}
-
-// moveBookmarks handles user_bookmarks uniqueness on
-// (user_id, entity_type, entity_id, action).
-func moveBookmarks(tx *gorm.DB, winnerID, loserID uint) (moved, skipped int64, err error) {
-	del := tx.Exec(`
-		DELETE FROM user_bookmarks
-		WHERE entity_type = 'show'
-		  AND entity_id = ?
-		  AND EXISTS (
-			SELECT 1 FROM user_bookmarks b2
-			WHERE b2.user_id = user_bookmarks.user_id
-			  AND b2.action  = user_bookmarks.action
-			  AND b2.entity_type = 'show'
-			  AND b2.entity_id = ?
-		  )
-	`, loserID, winnerID)
-	if del.Error != nil {
-		return 0, 0, del.Error
-	}
-	skipped = del.RowsAffected
-
-	upd := tx.Exec(`
-		UPDATE user_bookmarks
-		SET entity_id = ?
-		WHERE entity_type = 'show' AND entity_id = ?
-	`, winnerID, loserID)
 	if upd.Error != nil {
 		return 0, 0, upd.Error
 	}
