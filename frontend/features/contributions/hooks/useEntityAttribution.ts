@@ -6,6 +6,7 @@ interface RevisionItem {
   id: number
   user_id: number
   user_name?: string
+  user_username?: string | null
   created_at: string
 }
 
@@ -15,13 +16,16 @@ interface EntityHistoryResponse {
 }
 
 export interface EntityAttribution {
+  /** Resolved display name; never empty (backend resolveUserName chain). */
   userName: string
+  /** URL-safe username slug; null when the user has no username set. */
+  userUsername: string | null
   createdAt: string
 }
 
 /**
  * Fetches the most recent revision for an entity to show "Last edited by" attribution.
- * Returns the most recent editor's username and timestamp.
+ * Returns the most recent editor's display name and (when set) linkable username.
  * Returns null data if no revisions exist.
  */
 export function useEntityAttribution(
@@ -39,7 +43,9 @@ export function useEntityAttribution(
       }
       const revision = data.revisions[0]
       return {
-        userName: revision.user_name || `User #${revision.user_id}`,
+        // 'Anonymous' fallback is defensive — backend should always populate.
+        userName: revision.user_name || 'Anonymous',
+        userUsername: revision.user_username ?? null,
         createdAt: revision.created_at,
       }
     },

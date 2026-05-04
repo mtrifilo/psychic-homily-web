@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -12,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -45,36 +47,76 @@ var validEntityTypes = map[string]bool{
 // --- Response Types ---
 
 // RevisionResponseItem represents a single revision in API responses.
+// UserName is never empty (resolveRevisionUserName chain).
+// UserUsername is nil when no username is set — distinct from UserName so
+// the frontend can decide between a /users/:username link and plain text.
 type RevisionResponseItem struct {
-	ID         uint                 `json:"id"`
-	EntityType string               `json:"entity_type"`
-	EntityID   uint                 `json:"entity_id"`
-	UserID     uint                 `json:"user_id"`
-	UserName   string               `json:"user_name,omitempty"`
-	Changes    []adminm.FieldChange `json:"changes"`
-	Summary    string               `json:"summary,omitempty"`
-	CreatedAt  string               `json:"created_at"`
+	ID           uint                 `json:"id"`
+	EntityType   string               `json:"entity_type"`
+	EntityID     uint                 `json:"entity_id"`
+	UserID       uint                 `json:"user_id"`
+	UserName     string               `json:"user_name,omitempty"`
+	UserUsername *string              `json:"user_username"`
+	Changes      []adminm.FieldChange `json:"changes"`
+	Summary      string               `json:"summary,omitempty"`
+	CreatedAt    string               `json:"created_at"`
+}
+
+// resolveRevisionUserName returns the display name for a revision's author,
+// never empty. Resolution chain: username → first/last → email-prefix →
+// "Anonymous". Mirrors resolveCommentAuthorName (PSY-552) and
+// CollectionService.resolveUserName (PSY-353); operates on the preloaded
+// User so there's no extra query per revision.
+func resolveRevisionUserName(u *authm.User) string {
+	if u == nil || u.ID == 0 {
+		return "Anonymous"
+	}
+	if u.Username != nil && *u.Username != "" {
+		return *u.Username
+	}
+	if u.FirstName != nil && *u.FirstName != "" {
+		name := *u.FirstName
+		if u.LastName != nil && *u.LastName != "" {
+			name += " " + *u.LastName
+		}
+		return name
+	}
+	if u.Email != nil && *u.Email != "" {
+		if idx := strings.Index(*u.Email, "@"); idx > 0 {
+			return (*u.Email)[:idx]
+		}
+	}
+	return "Anonymous"
+}
+
+// resolveRevisionUserUsername returns the URL-safe username slug, or nil
+// when the user has no username set. Distinct from resolveRevisionUserName,
+// whose fallback to first/last/email can't be used in a /users/:username
+// link. Mirrors resolveCommentAuthorUsername (PSY-552).
+func resolveRevisionUserUsername(u *authm.User) *string {
+	if u == nil || u.ID == 0 {
+		return nil
+	}
+	if u.Username == nil || *u.Username == "" {
+		return nil
+	}
+	username := *u.Username
+	return &username
 }
 
 // mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem.
 func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 	item := RevisionResponseItem{
-		ID:         r.ID,
-		EntityType: r.EntityType,
-		EntityID:   r.EntityID,
-		UserID:     r.UserID,
-		CreatedAt:  r.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		ID:           r.ID,
+		EntityType:   r.EntityType,
+		EntityID:     r.EntityID,
+		UserID:       r.UserID,
+		UserName:     resolveRevisionUserName(&r.User),
+		UserUsername: resolveRevisionUserUsername(&r.User),
+		CreatedAt:    r.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 
 	item.Summary = shared.Deref(r.Summary)
-
-	// Populate user name from preloaded User relation. Username wins;
-	// FirstName is the fallback when Username is unset.
-	if r.User.Username != nil {
-		item.UserName = *r.User.Username
-	} else if r.User.FirstName != nil {
-		item.UserName = *r.User.FirstName
-	}
 
 	// Unmarshal field changes from JSONB
 	if r.FieldChanges != nil {

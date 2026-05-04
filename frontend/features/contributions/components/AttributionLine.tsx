@@ -21,15 +21,20 @@ export function AttributionLine({ entityType, entityId }: AttributionLineProps) 
     return null
   }
 
+  // userUsername is the linkable slug; nil means unlinkable. PSY-560.
   return (
     <p className="text-xs text-muted-foreground">
       Last edited by{' '}
-      <Link
-        href={`/users/${attribution.userName}`}
-        className="hover:underline"
-      >
-        {attribution.userName}
-      </Link>
+      {attribution.userUsername ? (
+        <Link
+          href={`/users/${attribution.userUsername}`}
+          className="hover:underline"
+        >
+          {attribution.userName}
+        </Link>
+      ) : (
+        <span>{attribution.userName}</span>
+      )}
       {' '}&middot;{' '}
       {formatRelativeTime(attribution.createdAt)}
     </p>
