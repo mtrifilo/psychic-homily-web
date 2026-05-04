@@ -26,18 +26,8 @@ interface AddToCollectionButtonProps {
   size?: 'sm' | 'default' | 'icon'
 }
 
-/**
- * Per-collection error from the most recent Add submission. Cleared on
- * retry. The id keys collection.id so successive retries replace the
- * previous attempt's row instead of stacking.
- */
 type SubmitError = { collectionId: number; message: string }
 
-/**
- * Single failure-message extraction so the empty-message and Error-message
- * cases share one fallback string. Keeping it module-scope avoids reallocating
- * the closure on every render.
- */
 function describeError(reason: unknown): string {
   if (reason instanceof Error && reason.message) return reason.message
   if (typeof reason === 'string' && reason.length > 0) return reason
@@ -51,55 +41,39 @@ export function AddToCollectionButton({
   variant = 'ghost',
   size = 'sm',
 }: AddToCollectionButtonProps) {
-  // NOTE: every hook below this comment must be called UNCONDITIONALLY,
-  // BEFORE any early return. Earlier versions placed `useState` after the
-  // `!isAuthenticated` early return, which produced a Rules-of-Hooks
-  // violation once the auth profile resolved (PSY-466 regression). The
-  // existing test suite (`renders without hook-order errors during the
-  // auth loading → authenticated transition`) covers the regression.
+  // Every hook below this comment must be called UNCONDITIONALLY, BEFORE
+  // any early return. Placing `useState` after the `!isAuthenticated`
+  // early return triggered a Rules-of-Hooks violation once the auth
+  // profile resolved (PSY-466).
   const { isAuthenticated } = useAuthContext()
   const [open, setOpen] = useState(false)
 
-  // User's editable collections + the subset that already contain this entity.
-  // The contains query is gated on `open` so we don't fetch on every entity
-  // page render — only when the user actually opens the popover.
+  // The contains query is gated on `open` so we don't fetch on every
+  // entity page render — only when the user actually opens the popover.
   const { data: myCollectionsData, isLoading: collectionsLoading } =
     useMyCollections()
   const { data: containingIds, isLoading: containingLoading } =
     useUserCollectionsContaining(entityType, entityId, { enabled: open })
   const addMutation = useAddCollectionItem()
 
-  // Selected = the set the user wants the entity to be in after Submit.
-  // Seeded from `containingIds` once it resolves, mutated by checkbox toggles.
   const [selected, setSelected] = useState<Set<number>>(new Set())
-  // Server's last-known truth: the IDs the entity is already in. Diff against
-  // `selected` to compute "newly checked" rows for submission, and to disable
-  // Submit when nothing changed.
+  // Server's last-known truth. `selected` minus `savedIds` is the diff the
+  // Submit handler needs to fan out.
   const [savedIds, setSavedIds] = useState<Set<number>>(new Set())
-  // Per-collection feedback after the most recent Submit. Successes flip the
-  // row to a green check; failures show an inline error + retry affordance.
   const [submitErrors, setSubmitErrors] = useState<SubmitError[]>([])
   const [submitting, setSubmitting] = useState(false)
-  // IDs successfully added during the current popover session. Clears on
-  // close so a re-open of the popover starts with no green-check chips
-  // (server-known checked state takes over). Persists through `containingIds`
-  // refetches so the chip doesn't flicker off when the cache invalidates.
+  // IDs successfully added during the current popover session. Persists
+  // through `containingIds` cache invalidations so the green chip doesn't
+  // flicker off mid-refetch; cleared on popover close.
   const [justSaved, setJustSaved] = useState<Set<number>>(new Set())
 
-  // Sync the popover state from server data each time we get a fresh answer
-  // (popover open, mutation success → cache invalidation, etc.). Without
-  // this, toggling a row, closing the popover, and reopening would show
-  // stale local state.
   useEffect(() => {
     if (!containingIds) return
     setSelected(new Set(containingIds))
     setSavedIds(new Set(containingIds))
-    // Stale errors from a previous open should not persist into a fresh open.
     setSubmitErrors([])
   }, [containingIds])
 
-  // Reset session-only state when the popover closes — re-opening should
-  // start fresh, with checked state coming from the server (containingIds).
   useEffect(() => {
     if (open) return
     setJustSaved(new Set())
@@ -108,9 +82,6 @@ export function AddToCollectionButton({
 
   const collections = myCollectionsData?.collections ?? []
 
-  // Newly-checked rows are the ones the Submit handler will fan out to.
-  // Memoized so the disabled-state check + button label don't recompute on
-  // every keypress unrelated to this set.
   const newlyChecked = useMemo(() => {
     const result: number[] = []
     for (const id of selected) {
@@ -135,26 +106,19 @@ export function AddToCollectionButton({
       }
       return next
     })
-    // Toggling clears the error for that row so the user sees a clean retry.
     setSubmitErrors((prev) => prev.filter((e) => e.collectionId !== collectionId))
   }
 
-  /**
-   * Fan out N parallel AddItem requests via Promise.allSettled so one failure
-   * doesn't kill the rest. Successes update the local "saved" set so they
-   * flip to checked-and-green; failures collect into `submitErrors` for
-   * inline display + retry.
-   */
+  // Fan out via Promise.allSettled so one failure doesn't kill the rest.
   const handleSubmit = async () => {
     if (newlyChecked.length === 0 || submitting) return
 
     setSubmitting(true)
     setSubmitErrors([])
 
-    // Resolve slugs + titles up front so the closure body is just the call.
     const targets = newlyChecked
       .map((id) => collections.find((c) => c.id === id))
-      .filter((c): c is NonNullable<typeof c> => Boolean(c))
+      .filter((c) => c !== undefined)
 
     const results = await Promise.allSettled(
       targets.map((collection) =>
@@ -164,9 +128,8 @@ export function AddToCollectionButton({
             entityType,
             entityId,
           })
-          // Wrap so .allSettled gets the collection.id alongside the error.
           .then(
-            () => ({ kind: 'ok' as const, id: collection.id }),
+            () => ({ id: collection.id }),
             (err: unknown) => {
               throw { id: collection.id, error: err }
             }
@@ -190,9 +153,7 @@ export function AddToCollectionButton({
 
     setSavedIds(newlySaved)
     setJustSaved(sessionSavedIds)
-    // Successes are still checked from earlier `selected` mutation — only
-    // failures need to drop back out so the row's pre-mutation state is
-    // visually accurate (unchecked + error message).
+    // Drop failures back out of `selected` so the row state matches reality.
     if (errors.length > 0) {
       setSelected((prev) => {
         const next = new Set(prev)
