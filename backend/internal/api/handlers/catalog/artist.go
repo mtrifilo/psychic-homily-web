@@ -909,6 +909,9 @@ func computeArtistChanges(old, new *contracts.ArtistDetailResponse) []adminm.Fie
 	if ptrToStr(old.State) != ptrToStr(new.State) {
 		changes = append(changes, adminm.FieldChange{Field: "state", OldValue: ptrToStr(old.State), NewValue: ptrToStr(new.State)})
 	}
+	if ptrToStr(old.Country) != ptrToStr(new.Country) {
+		changes = append(changes, adminm.FieldChange{Field: "country", OldValue: ptrToStr(old.Country), NewValue: ptrToStr(new.Country)})
+	}
 	if ptrToStr(old.Social.Instagram) != ptrToStr(new.Social.Instagram) {
 		changes = append(changes, adminm.FieldChange{Field: "instagram", OldValue: ptrToStr(old.Social.Instagram), NewValue: ptrToStr(new.Social.Instagram)})
 	}

@@ -62,7 +62,10 @@ export function LabelCard({ label, density = 'comfortable' }: LabelCardProps) {
 
           <div className="flex-1 min-w-0">
             <Link href={labelUrl} className="block group">
-              <h3 className="font-bold text-xl text-foreground group-hover:text-primary transition-colors truncate">
+              <h3
+                className="font-bold text-xl text-foreground group-hover:text-primary transition-colors line-clamp-2"
+                title={label.name}
+              >
                 {label.name}
               </h3>
             </Link>
@@ -108,7 +111,10 @@ export function LabelCard({ label, density = 'comfortable' }: LabelCardProps) {
 
         <div className="flex-1 min-w-0">
           <Link href={labelUrl} className="block group">
-            <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors truncate">
+            <h3
+              className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
+              title={label.name}
+            >
               {label.name}
             </h3>
           </Link>

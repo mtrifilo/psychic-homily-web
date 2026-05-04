@@ -131,6 +131,77 @@ describe('Type Helper Functions', () => {
       // Empty string is falsy, so it gets filtered out
       expect(getArtistLocation(artist)).toBe('AZ')
     })
+
+    // PSY-558: country display rule. State + US-coded country suppresses the
+    // country segment because "Phoenix, AZ" is US-implicit to local readers.
+    // Everything else includes the country.
+    const baseArtist = (
+      overrides: Partial<Artist>,
+    ): Artist => ({
+      id: 100,
+      slug: 's',
+      name: 'n',
+      city: null,
+      state: null,
+      country: null,
+      bandcamp_embed_url: null,
+      social: {
+        instagram: null,
+        facebook: null,
+        twitter: null,
+        youtube: null,
+        spotify: null,
+        soundcloud: null,
+        bandcamp: null,
+        website: null,
+      },
+      created_at: '2025-01-01T00:00:00Z',
+      updated_at: '2025-01-01T00:00:00Z',
+      ...overrides,
+    })
+
+    it('suppresses country when state is set and country is "USA"', () => {
+      expect(
+        getArtistLocation(baseArtist({ city: 'Phoenix', state: 'AZ', country: 'USA' })),
+      ).toBe('Phoenix, AZ')
+    })
+
+    it('suppresses country when state is set and country is "US"', () => {
+      expect(
+        getArtistLocation(baseArtist({ city: 'Phoenix', state: 'AZ', country: 'US' })),
+      ).toBe('Phoenix, AZ')
+    })
+
+    it('treats US suppression as case-insensitive', () => {
+      expect(
+        getArtistLocation(baseArtist({ city: 'Phoenix', state: 'AZ', country: 'usa' })),
+      ).toBe('Phoenix, AZ')
+    })
+
+    it('includes non-US country with city only', () => {
+      expect(
+        getArtistLocation(baseArtist({ city: 'Melbourne', country: 'Australia' })),
+      ).toBe('Melbourne, Australia')
+    })
+
+    it('includes non-US country with city + state', () => {
+      expect(
+        getArtistLocation(baseArtist({ city: 'London', state: 'England', country: 'UK' })),
+      ).toBe('London, England, UK')
+    })
+
+    it('includes country when state is null even if country is US', () => {
+      // No state => "USA" carries the locator load and should render.
+      expect(
+        getArtistLocation(baseArtist({ city: 'Phoenix', country: 'USA' })),
+      ).toBe('Phoenix, USA')
+    })
+
+    it('handles Tokyo, Japan (no state, non-US country)', () => {
+      expect(
+        getArtistLocation(baseArtist({ city: 'Tokyo', country: 'Japan' })),
+      ).toBe('Tokyo, Japan')
+    })
   })
 
   describe('getVenueLocation', () => {
