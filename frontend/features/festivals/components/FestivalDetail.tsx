@@ -35,7 +35,7 @@ import {
   formatFestivalDateRange,
 } from '../types'
 import { useIsAuthenticated } from '@/features/auth'
-import { EntityEditDrawer, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { CommentThread } from '@/features/comments'
 import { EntityTagList } from '@/features/tags'
 import { useQueryClient } from '@tanstack/react-query'
@@ -56,6 +56,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
+  const saveBanner = useEntitySaveSuccessBanner()
   const { data: artistsData, isLoading: artistsLoading } = useFestivalArtists({
     festivalIdOrSlug: idOrSlug,
     enabled: !!festival,
@@ -324,6 +325,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
               </div>
             }
           />
+          <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
           <AttributionLine entityType="festival" entityId={festival.id} />
           <EntityTagList
             entityType="festival"
@@ -517,10 +519,11 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         entity={festival as unknown as Record<string, unknown>}
         canEditDirectly={!!canEditDirectly}
         focusField={editFocusField}
-        onSuccess={() => {
+        onSuccess={(result) => {
           queryClient.invalidateQueries({
             queryKey: ['festivals', 'detail'],
           })
+          saveBanner.handleSaveSuccess(result)
         }}
       />
     )}
