@@ -256,6 +256,12 @@ export const queryKeys = {
     // PSY-366: artist-relationship subgraph for the collection's artist items.
     graph: (slug: string, types?: string[]) => ['collections', 'graph', slug, types ?? null] as const,
     my: ['collections', 'my'] as const,
+    // PSY-359: which of the user's own collections already contain a given
+    // entity. Drives the pre-check state on the multi-select Add-to-Collection
+    // popover. Cached per (entityType, entityId) so each entity page has its
+    // own answer and the popover opens instantly on revisit.
+    containing: (entityType: string, entityId: number) =>
+      ['collections', 'containing', entityType, entityId] as const,
     entity: (entityType: string, entityId: number) =>
       ['collections', 'entity', entityType, entityId] as const,
     userPublic: (username: string) =>
