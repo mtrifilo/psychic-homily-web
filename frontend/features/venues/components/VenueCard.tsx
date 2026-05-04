@@ -71,7 +71,7 @@ export function VenueCard({ venue }: VenueCardProps) {
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
-              <h2 className="text-lg font-bold truncate">
+              <h2 className="text-lg font-bold line-clamp-2" title={venue.name}>
                 {venue.slug ? (
                   <Link
                     href={`/venues/${venue.slug}`}

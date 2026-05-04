@@ -34,7 +34,10 @@ export function RadioStationCard({ station }: RadioStationCardProps) {
         {/* Content */}
         <div className="flex-1 min-w-0">
           <Link href={stationUrl} className="block group">
-            <h3 className="font-bold text-lg text-foreground group-hover:text-primary transition-colors truncate">
+            <h3
+              className="font-bold text-lg text-foreground group-hover:text-primary transition-colors line-clamp-2"
+              title={station.name}
+            >
               {station.name}
             </h3>
           </Link>
