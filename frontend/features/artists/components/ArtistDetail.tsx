@@ -19,7 +19,6 @@ import {
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '../hooks/useArtists'
 import { getArtistLocation } from '../types'
-import type { Artist } from '../types'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { useArtistAliases } from '@/lib/hooks/admin/useAdminArtists'
 import { useArtistLabels, useLabelRoster } from '@/features/labels/hooks/useLabels'
@@ -339,7 +338,7 @@ function ArtistSidebar({
           </h3>
           <div className="flex items-center gap-1.5 text-sm">
             <MapPin className="h-4 w-4 text-muted-foreground" />
-            <span>{getArtistLocation(artist as Artist)}</span>
+            <span>{getArtistLocation(artist)}</span>
           </div>
         </div>
       )}

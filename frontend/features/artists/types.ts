@@ -97,9 +97,13 @@ export interface ArtistSearchResponse {
  * not enough to locate them.
  *
  * Comparison is case-insensitive and trimmed; either spelling ("USA"/"US")
- * triggers the suppression.
+ * triggers the suppression. Parameter is structurally typed (city/state/country
+ * only) so callers with a narrower row shape — e.g. the ArtistSidebar prop —
+ * can pass directly without a cast.
  */
-export const getArtistLocation = (artist: Artist): string => {
+export const getArtistLocation = (
+  artist: { city?: string | null; state?: string | null; country?: string | null },
+): string => {
   const parts = [artist.city, artist.state].filter(Boolean) as string[]
   const country = artist.country?.trim() ?? ''
   const stateSet = !!artist.state
