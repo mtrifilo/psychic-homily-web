@@ -5,7 +5,11 @@ import { Loader2, Calendar, History } from 'lucide-react'
 import { useArtistShows } from '../hooks/useArtists'
 import type { ArtistTimeFilter } from '../types'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
-import { CompactShowRow, SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
+import {
+  CompactShowRow,
+  SHOW_LIST_FEATURE_POLICY,
+  dedupArtistShows,
+} from '@/features/shows'
 
 interface ArtistShowsListProps {
   artistId: number
@@ -55,11 +59,15 @@ function ShowsTabContent({
     )
   }
 
+  // PSY-559: Render-time dedup so duplicate shows sharing
+  // (artist_id, venue_id, event_date+time) collapse to one row even
+  // before the backend dedup cmd runs against this DB.
+  const visibleShows = dedupArtistShows(data.shows)
   const isPastShow = timeFilter === 'past'
 
   return (
     <div>
-      {data.shows.map(show => {
+      {visibleShows.map(show => {
         const otherArtists = show.artists.filter(a => a.id !== artistId)
         return (
           <CompactShowRow
@@ -74,9 +82,9 @@ function ShowsTabContent({
           />
         )
       })}
-      {data.total > data.shows.length && (
+      {data.total > visibleShows.length && (
         <div className="text-center text-sm text-muted-foreground pt-4">
-          Showing {data.shows.length} of {data.total} shows
+          Showing {visibleShows.length} of {data.total} shows
         </div>
       )}
     </div>

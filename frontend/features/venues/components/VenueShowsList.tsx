@@ -7,7 +7,11 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms/ShowForm'
-import { CompactShowRow, SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
+import {
+  CompactShowRow,
+  SHOW_LIST_FEATURE_POLICY,
+  dedupVenueShows,
+} from '@/features/shows'
 
 interface VenueShowsListProps {
   venueId: number
@@ -66,11 +70,15 @@ function ShowsTabContent({
     )
   }
 
+  // PSY-559: Render-time dedup so duplicate shows sharing
+  // (artist_id, venue_id, event_date+time) collapse to one row even
+  // before the backend dedup cmd runs against this DB.
+  const visibleShows = dedupVenueShows(data.shows)
   const isPastShow = timeFilter === 'past'
 
   return (
     <div>
-      {data.shows.map(show => (
+      {visibleShows.map(show => (
         <CompactShowRow
           key={show.id}
           show={show}

@@ -45,6 +45,10 @@ vi.mock('@/features/shows', () => ({
       useCompactLayout: true,
     },
   },
+  // PSY-559: render-time dedup helper. Identity passthrough in tests
+  // keeps fixtures deterministic — dedup behaviour is exercised in
+  // features/shows/utils.test.ts.
+  dedupArtistShows: <T,>(shows: T[]) => shows,
 }))
 
 import { ArtistShowsList } from './ArtistShowsList'
