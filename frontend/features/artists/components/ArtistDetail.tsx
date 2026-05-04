@@ -18,6 +18,7 @@ import {
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '../hooks/useArtists'
+import { getArtistLocation } from '../types'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { useArtistAliases } from '@/lib/hooks/admin/useAdminArtists'
 import { useArtistLabels, useLabelRoster } from '@/features/labels/hooks/useLabels'
@@ -307,6 +308,7 @@ function ArtistSidebar({
     slug: string
     city: string | null
     state: string | null
+    country?: string | null
     bandcamp_embed_url: string | null
     social: {
       instagram: string | null
@@ -322,7 +324,7 @@ function ArtistSidebar({
   labels: ArtistLabel[]
   labelsLoading: boolean
 }) {
-  const hasLocation = artist.city || artist.state
+  const hasLocation = artist.city || artist.state || artist.country
   const { data: aliasesData } = useArtistAliases(artist.id)
   const aliases = aliasesData?.aliases ?? []
 
@@ -336,7 +338,7 @@ function ArtistSidebar({
           </h3>
           <div className="flex items-center gap-1.5 text-sm">
             <MapPin className="h-4 w-4 text-muted-foreground" />
-            <span>{[artist.city, artist.state].filter(Boolean).join(', ')}</span>
+            <span>{getArtistLocation(artist)}</span>
           </div>
         </div>
       )}
@@ -919,10 +921,10 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     { value: 'labels', label: 'Labels' },
   ]
 
-  const headerSubtitle = (artist.city || artist.state) ? (
+  const headerSubtitle = (artist.city || artist.state || artist.country) ? (
     <>
       <MapPin className="h-4 w-4" />
-      <span>{[artist.city, artist.state].filter(Boolean).join(', ')}</span>
+      <span>{getArtistLocation(artist)}</span>
     </>
   ) : undefined
 
