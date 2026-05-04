@@ -21,15 +21,23 @@ export function AttributionLine({ entityType, entityId }: AttributionLineProps) 
     return null
   }
 
+  // PSY-560: link to /users/:username only when the user has a username
+  // slug — falling back to the resolved display name (first/last,
+  // email-prefix, "Anonymous") as plain text otherwise. Mirrors the
+  // CommentCard byline pattern (PSY-552 / PSY-353).
   return (
     <p className="text-xs text-muted-foreground">
       Last edited by{' '}
-      <Link
-        href={`/users/${attribution.userName}`}
-        className="hover:underline"
-      >
-        {attribution.userName}
-      </Link>
+      {attribution.userUsername ? (
+        <Link
+          href={`/users/${attribution.userUsername}`}
+          className="hover:underline"
+        >
+          {attribution.userName}
+        </Link>
+      ) : (
+        <span>{attribution.userName}</span>
+      )}
       {' '}&middot;{' '}
       {formatRelativeTime(attribution.createdAt)}
     </p>

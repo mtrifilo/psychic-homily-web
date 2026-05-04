@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strconv"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -12,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -45,36 +47,81 @@ var validEntityTypes = map[string]bool{
 // --- Response Types ---
 
 // RevisionResponseItem represents a single revision in API responses.
+//
+// PSY-560: UserName uses the full resolveUserName chain (username → first/last
+// → email-prefix → "Anonymous") so it is never empty. UserUsername is a
+// separate, URL-safe slug — nil when the user has no username set, so the
+// frontend can decide whether to render a /users/:username link or plain text.
+// Mirrors the CommentResponse author_name + author_username split (PSY-552 /
+// PSY-353).
 type RevisionResponseItem struct {
-	ID         uint                 `json:"id"`
-	EntityType string               `json:"entity_type"`
-	EntityID   uint                 `json:"entity_id"`
-	UserID     uint                 `json:"user_id"`
-	UserName   string               `json:"user_name,omitempty"`
-	Changes    []adminm.FieldChange `json:"changes"`
-	Summary    string               `json:"summary,omitempty"`
-	CreatedAt  string               `json:"created_at"`
+	ID           uint                 `json:"id"`
+	EntityType   string               `json:"entity_type"`
+	EntityID     uint                 `json:"entity_id"`
+	UserID       uint                 `json:"user_id"`
+	UserName     string               `json:"user_name,omitempty"`
+	UserUsername *string              `json:"user_username"`
+	Changes      []adminm.FieldChange `json:"changes"`
+	Summary      string               `json:"summary,omitempty"`
+	CreatedAt    string               `json:"created_at"`
+}
+
+// resolveRevisionUserName returns the display name for a revision's author —
+// never empty. Mirrors CollectionService.resolveUserName (PSY-353) and
+// resolveCommentAuthorName (PSY-552): prefer username, fall back to
+// first/last, then to the local-part of the email, finally "Anonymous".
+// Operates on the preloaded User so callers don't pay an extra query per
+// revision. PSY-560.
+func resolveRevisionUserName(u *authm.User) string {
+	if u == nil || u.ID == 0 {
+		return "Anonymous"
+	}
+	if u.Username != nil && *u.Username != "" {
+		return *u.Username
+	}
+	if u.FirstName != nil && *u.FirstName != "" {
+		name := *u.FirstName
+		if u.LastName != nil && *u.LastName != "" {
+			name += " " + *u.LastName
+		}
+		return name
+	}
+	if u.Email != nil && *u.Email != "" {
+		if idx := strings.Index(*u.Email, "@"); idx > 0 {
+			return (*u.Email)[:idx]
+		}
+	}
+	return "Anonymous"
+}
+
+// resolveRevisionUserUsername returns the author's username for
+// /users/:username links, or nil when the user has no username set. Distinct
+// from resolveRevisionUserName, which falls back to first/last/email and so
+// cannot be safely used in a URL slug. PSY-560.
+func resolveRevisionUserUsername(u *authm.User) *string {
+	if u == nil || u.ID == 0 {
+		return nil
+	}
+	if u.Username == nil || *u.Username == "" {
+		return nil
+	}
+	username := *u.Username
+	return &username
 }
 
 // mapRevisionToResponse converts a adminm.Revision to a RevisionResponseItem.
 func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 	item := RevisionResponseItem{
-		ID:         r.ID,
-		EntityType: r.EntityType,
-		EntityID:   r.EntityID,
-		UserID:     r.UserID,
-		CreatedAt:  r.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		ID:           r.ID,
+		EntityType:   r.EntityType,
+		EntityID:     r.EntityID,
+		UserID:       r.UserID,
+		UserName:     resolveRevisionUserName(&r.User),
+		UserUsername: resolveRevisionUserUsername(&r.User),
+		CreatedAt:    r.CreatedAt.Format("2006-01-02T15:04:05Z"),
 	}
 
 	item.Summary = shared.Deref(r.Summary)
-
-	// Populate user name from preloaded User relation. Username wins;
-	// FirstName is the fallback when Username is unset.
-	if r.User.Username != nil {
-		item.UserName = *r.User.Username
-	} else if r.User.FirstName != nil {
-		item.UserName = *r.User.FirstName
-	}
 
 	// Unmarshal field changes from JSONB
 	if r.FieldChanges != nil {

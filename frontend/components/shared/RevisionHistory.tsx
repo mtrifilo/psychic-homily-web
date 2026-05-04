@@ -82,17 +82,23 @@ function RevisionEntry({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            {revision.user_name ? (
+            {/* PSY-560: link to /users/:username only when the user has a
+                username slug. Otherwise render the resolved display name
+                (first/last, email-prefix, "Anonymous") as plain text. The
+                resolveUserName chain on the backend means user_name is
+                effectively never empty for known users; the explicit
+                fallback here is defense-in-depth for legacy payloads. */}
+            {revision.user_username ? (
               <Link
-                href={`/users/${revision.user_name}`}
+                href={`/users/${revision.user_username}`}
                 onClick={e => e.stopPropagation()}
                 className="text-sm font-medium hover:underline"
               >
-                {revision.user_name}
+                {revision.user_name || 'Anonymous'}
               </Link>
             ) : (
-              <span className="text-sm font-medium text-muted-foreground">
-                User #{revision.user_id}
+              <span className="text-sm font-medium text-foreground">
+                {revision.user_name || 'Anonymous'}
               </span>
             )}
             <span className="text-xs text-muted-foreground">
