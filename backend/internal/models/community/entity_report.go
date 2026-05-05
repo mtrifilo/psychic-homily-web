@@ -61,15 +61,21 @@ var validReportTypes = map[string]map[string]bool{
 		"inaccurate": true,
 		"other":      true,
 	},
-	// PSY-357: collections reuse the comment vocabulary verbatim.
-	// Both are user-generated content surfaces where the abuse vectors
-	// (spam/harassment/off-topic/inaccurate/other) are the same shape.
+	// PSY-578: collection-specific taxonomy. Diverges from the comment set
+	// because curated lists have different abuse vectors:
+	//   - Harassment: rare on a list of items vs. on a personal message;
+	//     when present, "Inappropriate" covers it.
+	//   - Off Topic: doesn't fit a curated list (the curator chose the
+	//     items; "off topic" is a category complaint, not a moderation
+	//     issue).
+	// Replaces both with:
+	//   - Inappropriate: NSFW cover image, hateful theme, etc.
+	//   - Misleading: false claims in description / item notes.
 	EntityReportEntityCollection: {
-		"spam":       true,
-		"harassment": true,
-		"off_topic":  true,
-		"inaccurate": true,
-		"other":      true,
+		"spam":          true,
+		"inappropriate": true,
+		"misleading":    true,
+		"other":         true,
 	},
 }
 

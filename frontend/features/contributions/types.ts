@@ -130,13 +130,15 @@ export const REPORT_TYPES: Record<ReportableEntityType, ReportTypeOption[]> = {
     { value: 'inaccurate', label: 'Inaccurate', description: 'This comment contains incorrect information' },
     { value: 'other', label: 'Other', description: 'Another issue not listed above' },
   ],
-  // PSY-357: collection reuses the comment vocabulary verbatim — both are
-  // user-generated content surfaces with the same abuse vectors.
+  // PSY-578: collection-specific taxonomy (diverges from comment vocab —
+  // "Harassment" rarely fits a curated list, "Off Topic" is a category
+  // complaint not a moderation issue, and "Inaccurate" doesn't capture the
+  // common cases). Aligned with the backend allow list in
+  // backend/internal/models/community/entity_report.go.
   collection: [
     { value: 'spam', label: 'Spam', description: 'This collection is spam or advertising' },
-    { value: 'harassment', label: 'Harassment', description: 'This collection is abusive or harassing' },
-    { value: 'off_topic', label: 'Off Topic', description: 'This collection is irrelevant or misplaced' },
-    { value: 'inaccurate', label: 'Inaccurate', description: 'This collection contains incorrect information' },
+    { value: 'inappropriate', label: 'Inappropriate', description: 'NSFW cover, hateful theme, or abusive content' },
+    { value: 'misleading', label: 'Misleading', description: 'False claims in the description or item notes' },
     { value: 'other', label: 'Other', description: 'Another issue not listed above' },
   ],
 }

@@ -1022,6 +1022,38 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_FilterByKind()
 	suite.Equal("field_note", result.Comments[0].Kind)
 }
 
+// PSY-588: when no kind filter is supplied, ListCommentsForEntity must return
+// ONLY rows with kind='comment'. Field notes have a dedicated endpoint and
+// previously leaked into the discussion list, causing the same row to render
+// twice on the show detail page (once correctly under "Field Notes", once
+// incorrectly under "Discussion" with edit/delete affordances exposed).
+func (suite *CommentServiceIntegrationTestSuite) TestListComments_DefaultKindExcludesFieldNotes() {
+	user := suite.createTestUser()
+	showID := suite.createTestShow("Default Kind Show")
+
+	// One regular comment + one field note on the same show.
+	suite.insertComment(user.ID, "show", showID, "Regular comment", nil, nil, 0)
+	fnComment := &engagementm.Comment{
+		EntityType:      engagementm.CommentEntityShow,
+		EntityID:        showID,
+		Kind:            engagementm.CommentKindFieldNote,
+		UserID:          user.ID,
+		Body:            "Field note body",
+		BodyHTML:        "<p>Field note body</p>",
+		Visibility:      engagementm.CommentVisibilityVisible,
+		ReplyPermission: engagementm.ReplyPermissionAnyone,
+	}
+	suite.Require().NoError(suite.db.Create(fnComment).Error)
+
+	// No kind filter → must return only the comment, never the field note.
+	result, err := suite.commentService.ListCommentsForEntity("show", showID, contracts.CommentListFilters{})
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), result.Total)
+	suite.Require().Len(result.Comments, 1)
+	suite.Equal(string(engagementm.CommentKindComment), result.Comments[0].Kind)
+	suite.Equal("Regular comment", result.Comments[0].Body)
+}
+
 func (suite *CommentServiceIntegrationTestSuite) TestListComments_HiddenNotVisible() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Hidden Artist")

@@ -5,7 +5,14 @@ import { CollectionDetail } from './CollectionDetail'
 import type { CollectionDetail as CollectionDetailType } from '../types'
 
 // Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
+type MockAuthUser = { id: string; is_admin?: boolean } | null
+type MockAuthValue = {
+  user: MockAuthUser
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthValue>(() => ({
   user: { id: '1' },
   isAuthenticated: true,
   isLoading: false,
@@ -733,6 +740,89 @@ describe('CollectionDetail', () => {
       await user.click(screen.getByTestId('collection-like-button'))
       expect(mockUnlikeMutate).toHaveBeenCalledWith({ slug: 'test-collection' })
       expect(mockLikeMutate).not.toHaveBeenCalled()
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-578: report button visibility on collection header
+  // ──────────────────────────────────────────────
+
+  describe('PSY-578 report button visibility', () => {
+    it('renders Report for an authenticated non-creator non-admin', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '999', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_id: 1 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(
+        screen.getByTestId('collection-report-button')
+      ).toBeInTheDocument()
+    })
+
+    it('hides Report for the collection creator', () => {
+      // Creator uses Edit / Delete instead of Report.
+      mockAuthContext.mockReturnValue({
+        user: { id: '1', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_id: 1 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(
+        screen.queryByTestId('collection-report-button')
+      ).not.toBeInTheDocument()
+    })
+
+    it('hides Report for admins (they use the moderation queue)', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '999', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_id: 1 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(
+        screen.queryByTestId('collection-report-button')
+      ).not.toBeInTheDocument()
+    })
+
+    it('hides Report for unauthenticated viewers', () => {
+      mockAuthContext.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({ creator_id: 1 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+
+      expect(
+        screen.queryByTestId('collection-report-button')
+      ).not.toBeInTheDocument()
     })
   })
 
