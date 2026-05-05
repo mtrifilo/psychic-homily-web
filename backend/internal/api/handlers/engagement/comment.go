@@ -3,6 +3,7 @@ package engagement
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
 
@@ -13,6 +14,23 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
+
+// rateLimited429 wraps a 429 service-layer error with a `Retry-After` header
+// per RFC 7231 §7.1.3 so clients can populate countdown copy without parsing
+// the body. The per-entity cooldown is 60s; the global hourly cap is bounded
+// by 3600s (clients should treat the hourly variant as a soft upper bound).
+// Both branches share the same handler wrapping so reply/top-level/field-note
+// surfaces stay consistent.
+func rateLimited429(err error) error {
+	retryAfter := "60"
+	if strings.Contains(err.Error(), "hourly comment limit") {
+		retryAfter = "3600"
+	}
+	return huma.ErrorWithHeaders(
+		huma.Error429TooManyRequests(err.Error()),
+		http.Header{"Retry-After": []string{retryAfter}},
+	)
+}
 
 // ============================================================================
 // Focused interfaces for dependency injection
@@ -284,7 +302,7 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
-			return nil, huma.Error429TooManyRequests(err.Error())
+			return nil, rateLimited429(err)
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -380,7 +398,7 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 			return nil, huma.Error404NotFound(err.Error())
 		}
 		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
-			return nil, huma.Error429TooManyRequests(err.Error())
+			return nil, rateLimited429(err)
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

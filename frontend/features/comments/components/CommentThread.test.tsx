@@ -11,17 +11,23 @@ const mockUseAuthContext = vi.fn()
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
 
-vi.mock('../hooks', () => ({
-  useComments: (...args: unknown[]) => mockUseComments(...args),
-  useCreateComment: () => mockUseCreateComment(),
-  useReplyToComment: () => defaultMutationReturn,
-  useUpdateComment: () => defaultMutationReturn,
-  useUpdateReplyPermission: () => defaultMutationReturn,
-  useDeleteComment: () => defaultMutationReturn,
-  useVoteComment: () => defaultMutationReturn,
-  useUnvoteComment: () => defaultMutationReturn,
-  useCommentThread: () => ({ data: undefined }),
-}))
+vi.mock('../hooks', async () => {
+  // PSY-589: bring through the real formatCommentSubmissionError so the
+  // CommentThread test can assert on the exact banner copy under 429.
+  const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
+  return {
+    useComments: (...args: unknown[]) => mockUseComments(...args),
+    useCreateComment: () => mockUseCreateComment(),
+    useReplyToComment: () => defaultMutationReturn,
+    useUpdateComment: () => defaultMutationReturn,
+    useUpdateReplyPermission: () => defaultMutationReturn,
+    useDeleteComment: () => defaultMutationReturn,
+    useVoteComment: () => defaultMutationReturn,
+    useUnvoteComment: () => defaultMutationReturn,
+    useCommentThread: () => ({ data: undefined }),
+    formatCommentSubmissionError: actual.formatCommentSubmissionError,
+  }
+})
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockUseAuthContext(),
@@ -300,6 +306,34 @@ describe('CommentThread', () => {
 
       expect(screen.queryByTestId('pending-review-banner')).not.toBeInTheDocument()
       expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+    })
+
+    // PSY-589: when the create mutation 429s, the form must surface an
+    // inline banner instead of silently clearing.
+    it('renders inline 429 banner with countdown copy when create mutation rate-limits', () => {
+      const err = Object.assign(
+        new Error('please wait 60 seconds between comments on the same entity'),
+        { status: 429, retryAfter: 60 }
+      )
+      mockUseCreateComment.mockReturnValue({
+        mutate: vi.fn(),
+        isPending: false,
+        error: err,
+      })
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '7', email: 'rate@example.com' },
+      })
+      mockUseComments.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(<CommentThread {...defaultProps} />)
+
+      const banner = screen.getByTestId('comment-form-error')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveTextContent('Please wait 60s before commenting again.')
     })
 
     it('drops the optimistic entry once the canonical row appears in the list (post-approval refetch)', () => {

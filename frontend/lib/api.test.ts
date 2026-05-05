@@ -337,6 +337,83 @@ describe('API Module', () => {
       }
     })
 
+    // PSY-589: Retry-After surfacing for inline rate-limit countdown copy.
+    it('exposes Retry-After seconds on the thrown error for 429 responses', async () => {
+      const headers = new Headers()
+      headers.set('Retry-After', '60')
+
+      const mockResponse = {
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        json: () =>
+          Promise.resolve({
+            detail: 'please wait 60 seconds between comments on the same entity',
+          }),
+        headers,
+      }
+      vi.mocked(fetch).mockResolvedValue(mockResponse as Response)
+
+      const { apiRequest } = await import('./api')
+
+      try {
+        await apiRequest('/test')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect((error as { status: number }).status).toBe(429)
+        expect((error as { retryAfter: number }).retryAfter).toBe(60)
+      }
+    })
+
+    it('omits retryAfter when Retry-After is absent on 429', async () => {
+      const mockResponse = {
+        ok: false,
+        status: 429,
+        statusText: 'Too Many Requests',
+        json: () => Promise.resolve({ detail: 'rate limited' }),
+        headers: new Headers(),
+      }
+      vi.mocked(fetch).mockResolvedValue(mockResponse as Response)
+
+      const { apiRequest } = await import('./api')
+
+      try {
+        await apiRequest('/test')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect((error as { status: number }).status).toBe(429)
+        expect(
+          (error as { retryAfter?: number }).retryAfter
+        ).toBeUndefined()
+      }
+    })
+
+    it('does not parse Retry-After on non-429 responses', async () => {
+      const headers = new Headers()
+      headers.set('Retry-After', '120') // some servers send this on 503
+
+      const mockResponse = {
+        ok: false,
+        status: 503,
+        statusText: 'Service Unavailable',
+        json: () => Promise.resolve({ message: 'down' }),
+        headers,
+      }
+      vi.mocked(fetch).mockResolvedValue(mockResponse as Response)
+
+      const { apiRequest } = await import('./api')
+
+      try {
+        await apiRequest('/test')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect((error as { status: number }).status).toBe(503)
+        expect(
+          (error as { retryAfter?: number }).retryAfter
+        ).toBeUndefined()
+      }
+    })
+
     it('handles JSON parse errors in error response', async () => {
       const mockResponse = {
         ok: false,

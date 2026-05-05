@@ -2,14 +2,32 @@ package engagement
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
+
+	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
+
+// assertRetryAfter asserts that a 429-class error carries the expected
+// `Retry-After` header. RFC 7231 §7.1.3 requires it on a 429 so clients
+// can populate countdown copy without parsing the body.
+func assertRetryAfter(t *testing.T, err error, expected string) {
+	t.Helper()
+	var he huma.HeadersError
+	if !errors.As(err, &he) {
+		t.Fatalf("expected error with headers, got %T: %v", err, err)
+	}
+	got := he.GetHeaders().Get("Retry-After")
+	if got != expected {
+		t.Errorf("Retry-After = %q, want %q", got, expected)
+	}
+}
 
 // ============================================================================
 // Test helpers
@@ -329,6 +347,7 @@ func TestCreateComment_RateLimitError(t *testing.T) {
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 429)
+	assertRetryAfter(t, err, "60")
 }
 
 func TestCreateComment_HourlyLimitError(t *testing.T) {
@@ -342,6 +361,26 @@ func TestCreateComment_HourlyLimitError(t *testing.T) {
 	req.Body.Body = "Hello"
 	_, err := h.CreateCommentHandler(commentUserCtx(), req)
 	testhelpers.AssertHumaError(t, err, 429)
+	assertRetryAfter(t, err, "3600")
+}
+
+// PSY-589: reply path should also surface Retry-After so the inline 429
+// banner on the reply form can populate countdown copy.
+func TestCreateReply_RateLimitError_HasRetryAfter(t *testing.T) {
+	mock := &testhelpers.MockCommentService{
+		GetCommentFn: func(id uint) (*contracts.CommentResponse, error) {
+			return makeCommentResponse(id, "show", 1, 99), nil
+		},
+		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
+			return nil, fmt.Errorf("please wait 60 seconds between comments on the same entity")
+		},
+	}
+	h := NewCommentHandler(mock, mock, nil, nil)
+	req := &CreateReplyRequest{CommentID: "5"}
+	req.Body.Body = "Hello"
+	_, err := h.CreateReplyHandler(commentUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 429)
+	assertRetryAfter(t, err, "60")
 }
 
 // ============================================================================
