@@ -1157,7 +1157,8 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollections_WithLimit() {
 // user's collections containing artist X and one that doesn't, then asserts
 // only the two matching IDs come back.
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_OnlyMatchingCollections() {
-	user := testhelpers.CreateTestUser(s.deps.DB)
+	// Admin so PSY-358 cap doesn't gate the third create.
+	user := testhelpers.CreateAdminUser(s.deps.DB)
 	collA := s.createCollectionViaService(user, "Has Artist A", false)
 	collB := s.createCollectionViaService(user, "Has Artist B", false)
 	collC := s.createCollectionViaService(user, "No Artist", false)
