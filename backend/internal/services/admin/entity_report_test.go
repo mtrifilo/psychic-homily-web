@@ -55,12 +55,15 @@ func TestEntityReportModel_Validation(t *testing.T) {
 	assert.True(t, communitym.IsValidReportType("show", "wrong_date"))
 	assert.False(t, communitym.IsValidReportType("show", "removal_request"))
 
-	// PSY-357: collection reuses the comment vocabulary verbatim.
+	// PSY-578: collection-specific taxonomy.
 	assert.True(t, communitym.IsValidReportType("collection", "spam"))
-	assert.True(t, communitym.IsValidReportType("collection", "harassment"))
-	assert.True(t, communitym.IsValidReportType("collection", "off_topic"))
-	assert.True(t, communitym.IsValidReportType("collection", "inaccurate"))
+	assert.True(t, communitym.IsValidReportType("collection", "inappropriate"))
+	assert.True(t, communitym.IsValidReportType("collection", "misleading"))
 	assert.True(t, communitym.IsValidReportType("collection", "other"))
+	// Legacy comment-vocabulary types no longer accepted for collections.
+	assert.False(t, communitym.IsValidReportType("collection", "harassment"))
+	assert.False(t, communitym.IsValidReportType("collection", "off_topic"))
+	assert.False(t, communitym.IsValidReportType("collection", "inaccurate"))
 	assert.False(t, communitym.IsValidReportType("collection", "cancelled"))
 	assert.False(t, communitym.IsValidReportType("collection", "wrong_image"))
 
@@ -81,8 +84,9 @@ func TestValidReportTypesForEntity(t *testing.T) {
 	showTypes := communitym.ValidReportTypesForEntity("show")
 	assert.Len(t, showTypes, 5)
 
+	// PSY-578: collection has 4 types (spam/inappropriate/misleading/other).
 	collectionTypes := communitym.ValidReportTypesForEntity("collection")
-	assert.Len(t, collectionTypes, 5)
+	assert.Len(t, collectionTypes, 4)
 
 	unknownTypes := communitym.ValidReportTypesForEntity("release")
 	assert.Nil(t, unknownTypes)
