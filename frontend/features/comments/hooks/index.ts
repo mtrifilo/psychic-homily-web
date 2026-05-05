@@ -1,7 +1,7 @@
 'use client'
 
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { apiRequest } from '@/lib/api'
+import { apiRequest, type ApiError } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
 import {
   commentEndpoints,
@@ -17,6 +17,45 @@ import type {
   CreateFieldNoteInput,
   ReplyPermission,
 } from '../types'
+
+// ============================================================================
+// Error formatting (PSY-589)
+// ============================================================================
+
+/**
+ * Capitalize the first character of a non-empty string. Backend service
+ * messages use lowercase ("please wait 60 seconds...") to keep substring
+ * routing in handlers simple; the project copy convention is to capitalize
+ * the first word in user-facing text, so we normalize at the display
+ * boundary.
+ */
+function capitalizeFirst(s: string): string {
+  if (!s) return s
+  return s.charAt(0).toUpperCase() + s.slice(1)
+}
+
+/**
+ * Format a submission error into a user-facing inline-banner string. 429
+ * gets countdown copy populated from the `Retry-After` header (or the
+ * service message body as a fallback). Any other status falls back to the
+ * raw message. Returns null if there is no error.
+ *
+ * Exported for unit testing — the hook test asserts that 429 with a
+ * Retry-After header produces "Please wait Ns before commenting again."
+ */
+export function formatCommentSubmissionError(error: unknown): string | null {
+  if (!error) return null
+  const apiErr = error as ApiError
+  if (apiErr.status === 429) {
+    if (apiErr.retryAfter && Number.isFinite(apiErr.retryAfter)) {
+      return `Please wait ${apiErr.retryAfter}s before commenting again.`
+    }
+    if (apiErr.message) return capitalizeFirst(apiErr.message)
+    return 'Please wait a minute before commenting again.'
+  }
+  if (apiErr.message) return capitalizeFirst(apiErr.message)
+  return 'Something went wrong. Please try again.'
+}
 
 // ============================================================================
 // Queries

@@ -111,7 +111,7 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
-			return nil, huma.Error429TooManyRequests(err.Error())
+			return nil, rateLimited429(err)
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

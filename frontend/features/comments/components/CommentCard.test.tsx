@@ -5,7 +5,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { CommentCard } from './CommentCard'
 import type { Comment } from '../types'
 
@@ -16,16 +16,23 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
+const mockUseReplyToComment = vi.fn()
 
-vi.mock('../hooks', () => ({
-  useReplyToComment: () => defaultMutationReturn,
-  useUpdateComment: () => defaultMutationReturn,
-  useUpdateReplyPermission: () => defaultMutationReturn,
-  useDeleteComment: () => defaultMutationReturn,
-  useVoteComment: () => defaultMutationReturn,
-  useUnvoteComment: () => defaultMutationReturn,
-  useCommentThread: () => ({ data: undefined }),
-}))
+vi.mock('../hooks', async () => {
+  // Bring through formatCommentSubmissionError (PSY-589) so the form
+  // renders the same banner copy in tests as it does in the real card.
+  const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
+  return {
+    useReplyToComment: () => mockUseReplyToComment(),
+    useUpdateComment: () => defaultMutationReturn,
+    useUpdateReplyPermission: () => defaultMutationReturn,
+    useDeleteComment: () => defaultMutationReturn,
+    useVoteComment: () => defaultMutationReturn,
+    useUnvoteComment: () => defaultMutationReturn,
+    useCommentThread: () => ({ data: undefined }),
+    formatCommentSubmissionError: actual.formatCommentSubmissionError,
+  }
+})
 
 vi.mock('@/features/contributions', () => ({
   ReportEntityDialog: () => null,
@@ -64,6 +71,7 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
 describe('CommentCard — admin edit history trigger (PSY-297)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
   })
 
   const defaultProps = {
@@ -134,6 +142,7 @@ describe('CommentCard — admin edit history trigger (PSY-297)', () => {
 describe('CommentCard — pending review badge (PSY-513)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
   })
 
   const defaultProps = {
@@ -347,5 +356,48 @@ describe('CommentCard — author byline linkability (PSY-552)', () => {
 
     expect(screen.getByTestId('comment-author-name')).toBeInTheDocument()
     expect(screen.queryByTestId('comment-author-link')).not.toBeInTheDocument()
+  })
+})
+
+// PSY-589: reply form must surface 429 inline, not silently clear.
+describe('CommentCard — reply rate-limit banner (PSY-589)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
+  })
+
+  const defaultProps = {
+    entityType: 'artist',
+    entityId: 10,
+  }
+
+  it('renders inline 429 banner with countdown copy when reply mutation rate-limits', () => {
+    const err = Object.assign(
+      new Error('please wait 60 seconds between comments on the same entity'),
+      { status: 429, retryAfter: 60 }
+    )
+    mockUseReplyToComment.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      error: err,
+    })
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '7', email: 'rate@example.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ user_id: 99, edit_count: 0, is_edited: false })}
+      />
+    )
+
+    // Open the reply form.
+    fireEvent.click(screen.getByText('Reply'))
+
+    const banner = screen.getByTestId('comment-form-error')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveTextContent('Please wait 60s before commenting again.')
   })
 })

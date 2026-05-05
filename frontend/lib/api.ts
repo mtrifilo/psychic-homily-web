@@ -398,6 +398,13 @@ export interface ApiError extends Error {
   requestId?: string
   errorCode?: string
   details?: unknown
+  /**
+   * Seconds until the client may retry. Populated from the `Retry-After`
+   * response header per RFC 7231 §7.1.3 (currently only an integer-second
+   * Retry-After is parsed; HTTP-date variants are ignored). Used by the
+   * comment compose form (PSY-589) to populate countdown copy on 429.
+   */
+  retryAfter?: number
 }
 
 /**
@@ -516,6 +523,21 @@ export const apiRequest = async <T = unknown>(
     apiError.requestId = requestId || errorBody.request_id
     apiError.errorCode = errorBody.error_code
     apiError.details = errorBody.details || errorBody.errors || errorBody
+
+    // PSY-589: surface Retry-After on 429 so callers can render a
+    // countdown ("Please wait Ns before commenting again"). RFC 7231
+    // §7.1.3 also allows an HTTP-date form; we only parse the integer
+    // delta-seconds variant since every backend rate-limit path emits
+    // that form.
+    if (response.status === 429) {
+      const retryAfterRaw = response.headers.get('Retry-After')
+      if (retryAfterRaw) {
+        const seconds = parseInt(retryAfterRaw, 10)
+        if (Number.isFinite(seconds) && seconds > 0) {
+          apiError.retryAfter = seconds
+        }
+      }
+    }
 
     throw apiError
   }

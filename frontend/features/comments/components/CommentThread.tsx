@@ -4,7 +4,11 @@ import { useState } from 'react'
 import { MessageSquare, Clock } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
-import { useComments, useCreateComment } from '../hooks'
+import {
+  useComments,
+  useCreateComment,
+  formatCommentSubmissionError,
+} from '../hooks'
 import { CommentForm } from './CommentForm'
 import { CommentCard } from './CommentCard'
 import type { Comment, ReplyPermission } from '../types'
@@ -31,6 +35,10 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
   // source of truth until a moderator approves it (after which a refetch
   // surfaces the canonical row and the optimistic entry is de-duped by id).
   const [pendingComment, setPendingComment] = useState<Comment | null>(null)
+  // PSY-589: bumped on every successful submit so the form can clear its
+  // textarea via `resetSignal`. The form keeps the draft on error so the
+  // user can retry without retyping.
+  const [submitGeneration, setSubmitGeneration] = useState(0)
 
   const { data, isLoading } = useComments(entityType, entityId, sort)
   const createMutation = useCreateComment()
@@ -63,6 +71,9 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
           if (created.visibility === 'pending_review') {
             setPendingComment(created)
           }
+          // PSY-589: clear the form ONLY on success. On 4xx the form
+          // retains the draft so the user can retry.
+          setSubmitGeneration((g) => g + 1)
         },
       }
     )
@@ -108,6 +119,8 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
             placeholder="Share your thoughts..."
             isPending={createMutation.isPending}
             allowReplyPermission
+            errorMessage={formatCommentSubmissionError(createMutation.error)}
+            resetSignal={submitGeneration}
           />
         </div>
       ) : (

@@ -19,6 +19,7 @@ import {
   useVoteComment,
   useUnvoteComment,
   useCommentThread,
+  formatCommentSubmissionError,
 } from '../hooks'
 import {
   REPLY_PERMISSION_BADGE_LABELS,
@@ -88,6 +89,9 @@ export function CommentCard({
         entityId,
         replyPermission,
       },
+      // On success, the form unmounts (clearing its draft); on error
+      // (e.g. 429 — PSY-589), it stays open with the inline banner so the
+      // user can retry without retyping.
       { onSuccess: () => setIsReplying(false) }
     )
   }
@@ -364,6 +368,7 @@ export function CommentCard({
             submitLabel="Reply"
             onCancel={() => setIsReplying(false)}
             isPending={replyMutation.isPending}
+            errorMessage={formatCommentSubmissionError(replyMutation.error)}
           />
         </div>
       )}
