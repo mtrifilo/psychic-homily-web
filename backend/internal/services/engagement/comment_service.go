@@ -530,9 +530,13 @@ func (s *CommentService) ListCommentsForEntity(entityType string, entityID uint,
 		query = query.Where("visibility = ?", engagementm.CommentVisibilityVisible)
 	}
 
-	// Filter by kind
+	// Filter by kind (default: regular comments only — field notes have a
+	// dedicated /shows/{id}/field-notes endpoint and must not leak into
+	// the discussion list, PSY-588).
 	if filters.Kind != "" {
 		query = query.Where("kind = ?", filters.Kind)
+	} else {
+		query = query.Where("kind = ?", engagementm.CommentKindComment)
 	}
 
 	// Count total matching comments

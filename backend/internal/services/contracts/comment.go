@@ -51,9 +51,13 @@ type FieldNoteStructuredData struct {
 type CommentListFilters struct {
 	Sort       string // best, new, top, controversial
 	Visibility string // visible, hidden_by_user, hidden_by_mod, pending_review, or empty for visible only
-	Kind       string // comment, field_note, or empty for all
-	Limit      int
-	Offset     int
+	// Kind: "comment", "field_note", or empty for the default ("comment").
+	// Field notes have a dedicated `/shows/{id}/field-notes` endpoint and must
+	// never leak into the discussion list (PSY-588). Callers that legitimately
+	// need both must request each kind separately.
+	Kind   string
+	Limit  int
+	Offset int
 }
 
 // ──────────────────────────────────────────────
