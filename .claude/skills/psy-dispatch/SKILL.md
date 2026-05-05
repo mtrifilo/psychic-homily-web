@@ -39,7 +39,7 @@ These are the non-negotiables. They are encoded in the per-agent prompt template
 
 1. **Resolve ambiguity BEFORE dispatch.** If any ticket has an explicit design fork ("Option A or B", "pick one and document", taxonomy/threshold/UX choice not already decided), the orchestrator MUST surface those forks via `AskUserQuestion` in a single batched call before spawning any agents. See `feedback_no_speculative_implementation.md` and `feedback_plan_mode_questions_first.md`.
 2. **Move tickets to In Progress on dispatch.** Before spawning agents, transition every dispatched ticket to the team's "In Progress" state. The state transition is the canonical signal to other humans/agents that work has started.
-3. **`/simplify` runs before every PR opens.** No exceptions. See `feedback_simplify_before_pr.md`. The simplify pass lands as a SEPARATE commit so the diff is independently reviewable.
+3. **Both `/simplify` AND relevant local tests run before every PR opens; failure blocks push.** No exceptions. The simplify pass lands as a SEPARATE commit if it produced edits. Local tests must be the relevant suite for what the PR touches (backend test packages, frontend unit + typecheck, plus the E2E spec if a file under `frontend/e2e/` was modified). If ANY test fails — even one the agent believes is pre-existing on main — the agent must STOP, leave the branch unpushed, and report the failure for orchestrator-level escalation. The judgment "this is pre-existing, safe to push" is NOT the agent's call to make unilaterally; pushing first and triaging via GitHub CI wastes cycles, masks the diff's true signal, and fails the engineering bar. See `feedback_simplify_before_pr.md`.
 4. **One ticket = one PR.** Never bundle multiple PSY tickets into a single PR.
 5. **Agents never mark Done.** Linear ticket transitions to Done happen on PR merge (which is a human call). Agents leave the ticket In Progress.
 6. **Agents never merge their own PRs.** PR creation is the agent's last step; merging is the user's.
@@ -180,14 +180,19 @@ Fix PSY-{N}: {ticket title}.
 1. **Verify isolation FIRST.** Run `git rev-parse --show-toplevel`. It must resolve under `.claude/worktrees/`, not the main repo root.
 2. Explore: {what to read first}
 3. Implement the fix.
-4. Run typecheck / relevant tests.
+4. **Run all relevant local tests. Failure blocks push.** This is non-negotiable. Run, in order of how directly they exercise your diff:
+   - **Backend changes:** `cd backend && go test ./<package(s) you touched>/...` — target the package(s) you edited plus any package whose tests directly exercise the changed surface. If the diff is large, run `go test ./...`.
+   - **Frontend type safety:** `cd frontend && bun run typecheck`.
+   - **Frontend unit tests:** `cd frontend && bun run test:unit -- <relevant scope>`.
+   - **E2E:** if you modified any file under `frontend/e2e/`, run that spec — `cd frontend && bun run test:e2e -- <path-to-spec>`. The E2E global-setup hard-requires port 8080 to be free; if the user's dev backend occupies 8080, STOP and report back so the orchestrator can ask the user to free it. Do NOT skip the E2E run silently.
+   - **STOP if any test fails.** Do not try to debug whether the failure is "pre-existing" or whether your diff caused it — that's the orchestrator's call, and the orchestrator will escalate to the user. Report back with: failing test name, error excerpt, the exact command you ran, and your one-sentence hypothesis. Do NOT proceed to commit/push. The judgment "this is pre-existing on main, safe to push" is NOT yours to make. Pushing untested or known-failing code is the single worst pattern this skill exists to prevent.
 5. **Pre-commit isolation check.** Run `git status` from your worktree. Then run `git -C <main-repo-path> status` (the main repo absolute path). If the main repo shows YOUR file changes uncommitted, the harness CWD didn't propagate — recovery procedure:
    - Copy your edits from the main repo into your worktree (`cp` with absolute paths).
    - In the main repo, `git restore <leaked-paths>` to revert (use `git restore`, not `git checkout .` or `git clean` — both can wipe unrelated untracked files).
    - Verify `git status` in main shows only the pre-existing untracked files from session start.
    - Continue from your worktree.
 6. Commit the implementation.
-7. Run `/simplify` (Skill tool, skill: "simplify"). If it edited files, commit them as a SEPARATE commit `PSY-{N}: simplify pass`.
+7. Run `/simplify` (Skill tool, skill: "simplify"). If it edited files, commit them as a SEPARATE commit `PSY-{N}: simplify pass`. **Re-run the relevant local tests from step 4** if simplify changed anything substantive.
 8. Push branch with `-u origin <branch>`.
 9. Open PR with `gh pr create`. Body template:
    ```
@@ -196,24 +201,26 @@ Fix PSY-{N}: {ticket title}.
    - <bullet 2>
 
    ## Test plan
-   - [ ] <concrete check>
-   - [ ] <concrete check>
+   - [x] <command you ran locally> — passed
+   - [x] <command you ran locally> — passed
 
    Closes PSY-{N}
    ```
+   The Test plan section must list the actual commands you ran in step 4, with `[x]` checkboxes (not unchecked) — they're statements of "I verified this", not aspirations.
 
 # Reporting back
-Short report (under 250 words):
-- Branch + worktree path; PR URL
+Short report (under 300 words):
+- Branch + worktree path; PR URL (or "not pushed — see Local tests run below" if you stopped on test failure)
 - Files changed (count + brief category breakdown)
 - Behaviour change (one or two sentences)
-- `/simplify` diff (or "no changes")
+- **Local tests run (REQUIRED):** list every command you ran from step 4 and its outcome ("ok", "FAIL: <test name> — <one-line excerpt>"). If you skipped a class because it wasn't relevant to the diff, say so explicitly with one-sentence justification. An empty/missing field = orchestrator treats the PR as untested and escalates as a process violation.
+- `/simplify` diff (or "no changes"). If simplify changed code, list the post-simplify re-run of the test commands from step 4.
 - Isolation check: clean, or tripped + recovered
 - **Proposed memory entries** (only if relevant): if your acceptance criteria called for a memory/CLAUDE.md note and no in-repo `CLAUDE.md` exists to land it in-PR, paste the proposed entry verbatim and identify the target section header in user-level `MEMORY.md` (e.g. "Key Non-Obvious Patterns"). Orchestrator applies post-batch.
 - Scope-adjacent observations: out-of-scope patterns / refactors / warnings noticed. Do NOT expand PR scope to address them.
 - Blockers / open questions
 
-No full diff. Don't mark Done in Linear (happens on merge). Don't push to main. If you discover an unsurfaced design ambiguity during exploration, STOP and report back instead of guessing.
+No full diff. Don't mark Done in Linear (happens on merge). Don't push to main. If you discover an unsurfaced design ambiguity during exploration OR any local test fails, STOP and report back instead of guessing or pushing.
 ```
 
 ## Anti-patterns
@@ -221,6 +228,8 @@ No full diff. Don't mark Done in Linear (happens on merge). Don't push to main. 
 These supplement the ironclad rules with tactical guidance from observed batch failures. Rule restatements have been omitted — see "The ironclad rules" above.
 
 - **Skipping `/simplify` for "small" tickets.** The discipline is the point. Most small tickets produce no simplify diff anyway; running it costs nothing.
+- **Pushing past failing local tests by labeling them "pre-existing on main".** **PSY-588 (May 2026)** ran `go test ./...`, observed `TestCollectionHandlerIntegration/TestGetUserCollectionsContaining_OnlyMatchingCollections` failing in the `community` handlers package, judged it "unrelated to PSY-588 — reproduced on stashed main", and pushed PR #547 anyway. CI failed on the same test the agent had already seen locally — wasted CI cycle, PR looked broken to a casual reviewer despite the diff being clean, and the engineering-bar signal it sent ("agents push without testing their changes") triggered the user-feedback that produced rule 3 above. The judgment "this is pre-existing, safe to push" is NOT the agent's call to make unilaterally — STOP, escalate to the orchestrator, and let the user decide between (a) fixing the flake first (canonical recovery: a CI-restoration ticket like PSY-611 ran inline before the dependent batch lands), (b) skipping the test, (c) accepting the noise. Even when the agent's diagnosis is correct, the wasted cycle and the bar-setting cost is real. Encoded in rule 3 + step 4 of the work plan; this entry exists to keep the incident named so the cost stays visible.
+- **Skipping the E2E run because the user's dev backend occupies port 8080.** E2E global-setup hard-checks port 8080 and refuses to start the test backend if anything is listening. The right move when the agent (or orchestrator) hits this is to STOP and ask the user to free port 8080 — not to skip E2E and push a frontend `e2e/` change unverified. Caught on PSY-611 (May 2026) where the user had a dev backend running locally; freeing it took ~10 seconds and unblocked the verification.
 - **Trusting `isolation: "worktree"` blindly.** In the May 2026 dogfood batch (PSY-551 through PSY-556), 2 of 6 agents had Edit/Write tool calls land in the main worktree's CWD despite the isolation flag. The agents that detected and recovered (copy-edits-to-worktree → `git restore` leaked paths in main → resume) shipped clean PRs; without the recovery they would have committed the wrong files to the wrong branch. Always verify isolation up front and pre-commit, and run the orchestrator-level diff check at step 6.
 - **Using `git checkout .` or `git clean -fd` to "reset" main during recovery.** Both can wipe unrelated untracked files in the main worktree (e.g. another in-flight WIP, or session-scope draft files like a new skill). Use `git restore <specific paths>` only — target the leaked paths explicitly.
 - **Dispatching a ticket whose targets are all gitignored.** A worktree creates an isolated branch, but edits to gitignored paths live only in the worktree's filesystem — they don't commit, don't push, don't reach a PR, and disappear when the worktree is cleaned up. **PSY-427 (May 2026)** hit this: the target was `docs/runbooks/agent-workflow.md` + `docs/INDEX.md`, and `docs/` is in `.gitignore`. Pre-flight check before step 4: run `git check-ignore -v` against each target file the ticket calls out (or run it against the entire `docs/` tree if the ticket is a docs-only update). If everything is ignored, abort the dispatch and do the work inline on main — the user reviews the diff in-conversation, accepts, and the ticket transitions Done directly. There is no merge event to gate on.
@@ -232,7 +241,7 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - **`psy-ticket`** — ticket *creation* (this skill is for ticket *execution*).
 - **`linear-cli`** — generic Linear CLI surface; drop down to it if `linear issue update --state` lacks a flag you need.
 - **`simplify`** — invoked by every dispatched agent before opening its PR.
-- `feedback_simplify_before_pr.md` — `/simplify` runs before every PR (single-ticket or batched).
+- `feedback_simplify_before_pr.md` — `/simplify` AND relevant local tests run before every PR (single-ticket or batched); failure blocks push, escalate to orchestrator instead of pushing past it.
 - `feedback_no_speculative_implementation.md` — when a ticket is ambiguous about WHAT to build, STOP and ask.
 - `feedback_plan_mode_questions_first.md` — surface forks via `AskUserQuestion` before exiting plan mode / dispatching.
 - `feedback_code_complete.md` — manage complexity, plan before coding, decompose big changes.
