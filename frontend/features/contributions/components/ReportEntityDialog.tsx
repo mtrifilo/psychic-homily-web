@@ -97,17 +97,8 @@ export function ReportEntityDialog({
             Report Issue
           </DialogTitle>
           <DialogDescription>
-            {entityTypeLabel ? (
-              <>
-                Report an issue with {entityTypeLabel} &quot;{entityName}&quot;.
-                Our team will review your report.
-              </>
-            ) : (
-              <>
-                Report an issue with &quot;{entityName}&quot;. Our team will
-                review your report.
-              </>
-            )}
+            Report an issue with {entityTypeLabel ? `${entityTypeLabel} ` : ''}
+            &quot;{entityName}&quot;. Our team will review your report.
           </DialogDescription>
         </DialogHeader>
 
