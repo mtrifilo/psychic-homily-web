@@ -40,16 +40,21 @@ test.describe('Add to Collection', () => {
       await collectButton.click()
 
       // 3. Pick the pre-seeded "E2E Worker Collection" from the picker.
-      // The picker renders each collection as a button whose text is the
-      // collection title.
-      const collectionRow = authenticatedPage.getByRole('button', {
+      // PSY-359 rebuilt the picker into a multi-select: each collection is a
+      // checkbox (accessible name = collection title) and submission happens
+      // through a single bottom "Add to N collection(s)" button.
+      const collectionCheckbox = authenticatedPage.getByRole('checkbox', {
         name: RESERVED_COLLECTION_TITLE,
       })
-      await expect(collectionRow).toBeVisible({ timeout: 5_000 })
+      await expect(collectionCheckbox).toBeVisible({ timeout: 5_000 })
+      await collectionCheckbox.click()
+
+      const submitButton = authenticatedPage.getByRole('button', {
+        name: /Add to 1 collection/,
+      })
 
       // PSY-430: waitForResponse wraps the mutation so we don't race on the
-      // optimistic UI state — the popover shows success before the network
-      // request completes.
+      // optimistic UI state — the popover updates before the request completes.
       const [addResponse] = await Promise.all([
         authenticatedPage.waitForResponse(
           (resp) =>
@@ -58,7 +63,7 @@ test.describe('Add to Collection', () => {
             resp.request().method() === 'POST',
           { timeout: 10_000 }
         ),
-        collectionRow.click(),
+        submitButton.click(),
       ])
       expect(addResponse.status()).toBeLessThan(400)
 
@@ -69,10 +74,9 @@ test.describe('Add to Collection', () => {
       expect(slugMatch).not.toBeNull()
       const collectionSlug = slugMatch![1]
 
-      // 4. Confirm success feedback rendered in the popover.
-      await expect(
-        authenticatedPage.getByText(`Added to "${RESERVED_COLLECTION_TITLE}"`)
-      ).toBeVisible({ timeout: 5_000 })
+      // 4. Confirm the popover reflects success: the checkbox stays checked
+      // (PSY-359 keeps the row in `savedIds` after a successful add).
+      await expect(collectionCheckbox).toBeChecked()
 
       // 5. Navigate to the collection detail page.
       await authenticatedPage.goto(`/collections/${collectionSlug}`)
