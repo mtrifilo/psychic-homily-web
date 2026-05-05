@@ -49,9 +49,11 @@ These are the non-negotiables. They are encoded in the per-agent prompt template
 
 ## Workflow
 
-### Pre-flight: sync local main
+### Pre-flight: sync local main + verify main CI is green
 
-Before reading tickets, ensure local main matches origin/main. Worktrees branch off local main; if local main is stale, every dispatched PR inherits a stale base and CI will fail with stale-fallout from work that merged in the meantime.
+Before reading tickets, do BOTH steps. They cover two independent failure modes that compound at batch scale.
+
+**Step A — Sync local main with origin.** Worktrees branch off local main; if local main is stale, every dispatched PR inherits a stale base and CI will fail with stale-fallout from work that merged in the meantime.
 
 ```bash
 git -C <main-repo> fetch origin main
@@ -61,6 +63,23 @@ git -C <main-repo> pull --ff-only origin main
 ```
 
 If `--ff-only` rejects (local main has commits not in origin/main, e.g. a stash-WIP commit), pause and ask the user before resolving — do not blindly merge or reset. Capture the pre-flight `origin/main` SHA so step 7 can detect movement during dispatch.
+
+**Step B — Verify origin/main CI is currently green.** A red main propagates failure shape to every PR opened off it; agents waste cycles diagnosing failures they didn't introduce, and the orchestrator wastes cycles distinguishing batch-fault from base-fault. **The May 2026 Entity & Collections Dogfood batch (PSY-577/578/588/589)** hit exactly this: main had been red for 5+ merges on a backend tier-cap test (PSY-358 fallout) + an E2E selector mismatch (PSY-359 fallout); all 4 dispatched PRs inherited identical red CI; the dependent rebase round was wasted work that a five-second pre-flight would have prevented.
+
+```bash
+gh run list --branch main --limit 4 --json conclusion,status,headSha,displayTitle
+```
+
+Read the most recent run with `status: "completed"` (skip in-progress runs from a recent merge — they're not yet decisive). Decision tree:
+
+- `conclusion: "success"` → main is green; proceed to step 1.
+- `conclusion: "failure"` (or `"cancelled"` / `"timed_out"`) → main is red. **STOP and surface to the user** with the failing run URL + diagnosed cause if quickly identifiable (look for repeated failures across recent runs — that's the steady-state failure shape, not a single flake). Choose one of:
+  - **Fix main first via an inline CI-restoration ticket.** Recommended. Canonical example: **PSY-611 (May 2026)** — single PR off red main, two test fixes (backend `CreateTestUser` → `CreateAdminUser` for tier-cap, E2E selector update for popover rebuild), ~30 min from filing → merged. The dispatched batch then rebases onto green main and ships clean. Trades a small upfront delay for zero rebase rounds and clean per-PR CI signal.
+  - **Accept red base.** Dispatch anyway with explicit per-agent context: *"origin/main CI is currently failing on `<failure name>`; ignore that specific failure, focus on whether YOUR diff introduces NEW failures."* High judgment cost on the agent; not recommended unless the base-fix is genuinely out of scope and the user explicitly opts in.
+  - **Hold the dispatch entirely.** Wait for someone else to fix main; surface back when CI is green.
+- All recent completed runs are in-progress or pending → wait briefly (`gh run watch <id>` on the latest), or surface to user with the in-flight context.
+
+Do NOT silently dispatch on red main and hope CI gets fixed before merge — wasted CI cycles + muddled per-PR signal are real costs that compound across batch size.
 
 ### 1. Read every ticket in parallel
 
@@ -185,6 +204,7 @@ Fix PSY-{N}: {ticket title}.
    - **Frontend type safety:** `cd frontend && bun run typecheck`.
    - **Frontend unit tests:** `cd frontend && bun run test:unit -- <relevant scope>`.
    - **E2E:** if you modified any file under `frontend/e2e/`, run that spec — `cd frontend && bun run test:e2e -- <path-to-spec>`. The E2E global-setup hard-requires port 8080 to be free; if the user's dev backend occupies 8080, STOP and report back so the orchestrator can ask the user to free it. Do NOT skip the E2E run silently.
+   - **Docs-only PRs (no code changes):** if your diff touches ONLY non-functional docs — markdown files, `.claude/skills/*/SKILL.md`, README updates, comment-only changes — there is no code path to exercise and no functional tests to run. Note `"docs-only, no tests applicable"` in your "Local tests run" line and proceed. **Exception:** if the same diff also touches a config/build file (`package.json`, `go.mod`, `tsconfig.json`, `playwright.config.ts`, `Makefile`, CI workflow YAML), run the corresponding typecheck or build to confirm nothing broke at that boundary.
    - **STOP if any test fails.** Do not try to debug whether the failure is "pre-existing" or whether your diff caused it — that's the orchestrator's call, and the orchestrator will escalate to the user. Report back with: failing test name, error excerpt, the exact command you ran, and your one-sentence hypothesis. Do NOT proceed to commit/push. The judgment "this is pre-existing on main, safe to push" is NOT yours to make. Pushing untested or known-failing code is the single worst pattern this skill exists to prevent.
 5. **Pre-commit isolation check.** Run `git status` from your worktree. Then run `git -C <main-repo-path> status` (the main repo absolute path). If the main repo shows YOUR file changes uncommitted, the harness CWD didn't propagate — recovery procedure:
    - Copy your edits from the main repo into your worktree (`cp` with absolute paths).
@@ -230,6 +250,7 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - **Skipping `/simplify` for "small" tickets.** The discipline is the point. Most small tickets produce no simplify diff anyway; running it costs nothing.
 - **Pushing past failing local tests by labeling them "pre-existing on main".** **PSY-588 (May 2026)** ran `go test ./...`, observed `TestCollectionHandlerIntegration/TestGetUserCollectionsContaining_OnlyMatchingCollections` failing in the `community` handlers package, judged it "unrelated to PSY-588 — reproduced on stashed main", and pushed PR #547 anyway. CI failed on the same test the agent had already seen locally — wasted CI cycle, PR looked broken to a casual reviewer despite the diff being clean, and the engineering-bar signal it sent ("agents push without testing their changes") triggered the user-feedback that produced rule 3 above. The judgment "this is pre-existing, safe to push" is NOT the agent's call to make unilaterally — STOP, escalate to the orchestrator, and let the user decide between (a) fixing the flake first (canonical recovery: a CI-restoration ticket like PSY-611 ran inline before the dependent batch lands), (b) skipping the test, (c) accepting the noise. Even when the agent's diagnosis is correct, the wasted cycle and the bar-setting cost is real. Encoded in rule 3 + step 4 of the work plan; this entry exists to keep the incident named so the cost stays visible.
 - **Skipping the E2E run because the user's dev backend occupies port 8080.** E2E global-setup hard-checks port 8080 and refuses to start the test backend if anything is listening. The right move when the agent (or orchestrator) hits this is to STOP and ask the user to free port 8080 — not to skip E2E and push a frontend `e2e/` change unverified. Caught on PSY-611 (May 2026) where the user had a dev backend running locally; freeing it took ~10 seconds and unblocked the verification.
+- **Opening a side-PR off stale main while a base-fix PR is still in flight.** If you open a separate-purpose PR (a docs-only skill update, an unrelated tooling tweak, etc.) while a CI-restoration / base-fix PR is still open and unmerged, your side-PR's branch is created from main BEFORE the fix lands and inherits the broken base. **PR #551 (May 2026)** hit this: the skill update was opened off main while #550 (PSY-611 CI restoration) was still in review; #551 inherited #550's red CI shape until #550 merged and #551 was rebased + force-pushed. Wasted one extra CI cycle. Either wait for the base-fix to merge before opening the side-PR, or commit upfront to rebasing it afterward and budget for the extra cycle.
 - **Trusting `isolation: "worktree"` blindly.** In the May 2026 dogfood batch (PSY-551 through PSY-556), 2 of 6 agents had Edit/Write tool calls land in the main worktree's CWD despite the isolation flag. The agents that detected and recovered (copy-edits-to-worktree → `git restore` leaked paths in main → resume) shipped clean PRs; without the recovery they would have committed the wrong files to the wrong branch. Always verify isolation up front and pre-commit, and run the orchestrator-level diff check at step 6.
 - **Using `git checkout .` or `git clean -fd` to "reset" main during recovery.** Both can wipe unrelated untracked files in the main worktree (e.g. another in-flight WIP, or session-scope draft files like a new skill). Use `git restore <specific paths>` only — target the leaked paths explicitly.
 - **Dispatching a ticket whose targets are all gitignored.** A worktree creates an isolated branch, but edits to gitignored paths live only in the worktree's filesystem — they don't commit, don't push, don't reach a PR, and disappear when the worktree is cleaned up. **PSY-427 (May 2026)** hit this: the target was `docs/runbooks/agent-workflow.md` + `docs/INDEX.md`, and `docs/` is in `.gitignore`. Pre-flight check before step 4: run `git check-ignore -v` against each target file the ticket calls out (or run it against the entire `docs/` tree if the ticket is a docs-only update). If everything is ignored, abort the dispatch and do the work inline on main — the user reviews the diff in-conversation, accepts, and the ticket transitions Done directly. There is no merge event to gate on.
