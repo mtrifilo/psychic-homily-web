@@ -22,7 +22,20 @@ interface ReportEntityDialogProps {
   onOpenChange: (open: boolean) => void
   entityType: ReportableEntityType
   entityId: number
+  /**
+   * Display name for the entity being reported. The dialog quotes this
+   * verbatim ("Report Issue with 'X'"), so callers should pass the
+   * thing the viewer would recognise — collection title, artist name,
+   * "Comment by Foo", etc. — not a raw ID.
+   */
   entityName: string
+  /**
+   * Optional human-readable type label inserted before the entity name
+   * (e.g. `entityTypeLabel="collection"` yields "Report Issue with
+   * collection 'X'"). Omit when the entity name is already
+   * self-describing (e.g. "Comment by Foo"). PSY-578.
+   */
+  entityTypeLabel?: string
 }
 
 export function ReportEntityDialog({
@@ -31,6 +44,7 @@ export function ReportEntityDialog({
   entityType,
   entityId,
   entityName,
+  entityTypeLabel,
 }: ReportEntityDialogProps) {
   const [selectedType, setSelectedType] = useState<string | null>(null)
   const [details, setDetails] = useState('')
@@ -83,8 +97,17 @@ export function ReportEntityDialog({
             Report Issue
           </DialogTitle>
           <DialogDescription>
-            Report an issue with &quot;{entityName}&quot;. Our team will review
-            your report.
+            {entityTypeLabel ? (
+              <>
+                Report an issue with {entityTypeLabel} &quot;{entityName}&quot;.
+                Our team will review your report.
+              </>
+            ) : (
+              <>
+                Report an issue with &quot;{entityName}&quot;. Our team will
+                review your report.
+              </>
+            )}
           </DialogDescription>
         </DialogHeader>
 

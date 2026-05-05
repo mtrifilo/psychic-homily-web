@@ -179,8 +179,9 @@ func TestReportShow_Success(t *testing.T) {
 	}
 }
 
-// PSY-357: collections accept the same shape as the other entity types and
-// reuse the comment vocabulary (spam/harassment/off_topic/inaccurate/other).
+// PSY-357: collections accept the same shape as the other entity types.
+// PSY-578: collection-specific taxonomy is spam/inappropriate/misleading/other
+// (diverges from the comment vocabulary — see entity_report.go for rationale).
 func TestReportCollection_Success(t *testing.T) {
 	expected := makeEntityReportResponse(5, "collection", "spam")
 	h := NewEntityReportHandler(

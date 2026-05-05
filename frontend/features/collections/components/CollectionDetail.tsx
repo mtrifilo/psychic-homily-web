@@ -263,11 +263,18 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
   const currentUserId = user?.id ? Number(user.id) : undefined
   const isCreator = currentUserId === collection.creator_id
+  const isAdmin = user?.is_admin === true
   const canSubscribe = isAuthenticated && !isCreator
   // PSY-351: per ticket, the clone button is hidden on the user's own
   // collections (you wouldn't fork yourself). Anyone else who is
   // authenticated may clone any public collection.
   const canClone = isAuthenticated && !isCreator && collection.is_public
+  // PSY-578: Report button is for community members. Admins use the
+  // moderation queue instead, so the trigger is suppressed for them
+  // (acceptance criterion: "Admin sees their existing Edit/Delete
+  // buttons (no Report button — they use the moderation queue)").
+  // Owners can't report themselves either.
+  const canReport = isAuthenticated && !isCreator && !isAdmin
 
   // PSY-351 attribution state.
   // - forkedFromInfo set + collection.forked_from_collection_id set →
@@ -609,14 +616,12 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   </Button>
                 )}
 
-                {/* PSY-357: report a collection. Mirrors the Report button
-                    on artist/venue/festival/show detail pages. Only shown
-                    to authenticated non-owners — owners shouldn't report
-                    themselves, and unauthenticated viewers see no trigger
-                    (consistent with the comment-report pattern; the
-                    dialog opens directly so we don't need the
-                    LoginPromptDialog dance here). */}
-                {isAuthenticated && !isCreator && (
+                {/* PSY-357 / PSY-578: report a collection. Mirrors the
+                    Report button on artist/venue/festival/show detail
+                    pages. Visible to authenticated non-creators who are
+                    not admins (admins moderate via the queue, see
+                    canReport). */}
+                {canReport && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -699,16 +704,20 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
       {/* Discussion */}
       <CommentThread entityType="collection" entityId={collection.id} />
 
-      {/* PSY-357: report dialog. Only mounted when the caller is allowed
-          to report (authenticated non-owner) so we don't ship the dialog
-          tree to viewers who can't open it. */}
-      {isAuthenticated && !isCreator && (
+      {/* PSY-357 / PSY-578: report dialog. Only mounted when the caller
+          is allowed to report (matches `canReport` above) so we don't
+          ship the dialog tree to viewers who can't open it. The
+          `entityTypeLabel` makes the dialog copy explicit ("Report Issue
+          with collection 'X'") rather than the bare entity-name fallback
+          used by other entity reports. */}
+      {canReport && (
         <ReportEntityDialog
           open={isReportOpen}
           onOpenChange={setIsReportOpen}
           entityType="collection"
           entityId={collection.id}
           entityName={collection.title}
+          entityTypeLabel="collection"
         />
       )}
 
