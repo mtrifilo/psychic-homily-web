@@ -55,11 +55,6 @@ export function CommentCard({
   // PSY-297: admin edit history viewer. Gated by is_admin and only fetched
   // when the dialog is opened (hook is `enabled` on open).
   const [isEditHistoryOpen, setIsEditHistoryOpen] = useState(false)
-  // PSY-589: bumped on a successful reply submission so the reply form
-  // clears its textarea. The form is also closed on success below; the
-  // reset is belt-and-suspenders for the case where future code path
-  // keeps the form mounted across submits.
-  const [replyGeneration, setReplyGeneration] = useState(0)
 
   const replyMutation = useReplyToComment()
   const updateMutation = useUpdateComment()
@@ -94,15 +89,10 @@ export function CommentCard({
         entityId,
         replyPermission,
       },
-      {
-        onSuccess: () => {
-          setIsReplying(false)
-          // PSY-589: clear the reply form on success. On 4xx the form
-          // stays open with the draft intact and the inline banner
-          // shown so the user can fix and retry.
-          setReplyGeneration((g) => g + 1)
-        },
-      }
+      // On success, the form unmounts (clearing its draft); on error
+      // (e.g. 429 — PSY-589), it stays open with the inline banner so the
+      // user can retry without retyping.
+      { onSuccess: () => setIsReplying(false) }
     )
   }
 
@@ -379,7 +369,6 @@ export function CommentCard({
             onCancel={() => setIsReplying(false)}
             isPending={replyMutation.isPending}
             errorMessage={formatCommentSubmissionError(replyMutation.error)}
-            resetSignal={replyGeneration}
           />
         </div>
       )}

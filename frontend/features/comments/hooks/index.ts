@@ -50,13 +50,10 @@ export function formatCommentSubmissionError(error: unknown): string | null {
     if (apiErr.retryAfter && Number.isFinite(apiErr.retryAfter)) {
       return `Please wait ${apiErr.retryAfter}s before commenting again.`
     }
-    if (apiErr.message) {
-      return capitalizeFirst(apiErr.message)
-    }
+    if (apiErr.message) return capitalizeFirst(apiErr.message)
     return 'Please wait a minute before commenting again.'
   }
   if (apiErr.message) return capitalizeFirst(apiErr.message)
-  if (error instanceof Error) return capitalizeFirst(error.message)
   return 'Something went wrong. Please try again.'
 }
 

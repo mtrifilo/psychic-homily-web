@@ -52,16 +52,14 @@ export function CommentForm({
     initialReplyPermission
   )
 
-  // PSY-589: parent bumps `resetSignal` from a mutation `onSuccess` callback.
-  // We only clear when the bumped value differs from the seed (undefined),
-  // so an edit-mode form (which never receives a resetSignal) keeps its body
-  // for the entire edit lifetime.
+  // PSY-589: parent bumps `resetSignal` from mutation onSuccess. Edit-mode
+  // callers don't pass it, so the body is preserved for the edit lifetime.
   useEffect(() => {
     if (resetSignal === undefined) return
     setBody('')
     setReplyPermission(initialReplyPermission)
-    // initialReplyPermission is captured at signal time; we don't want a
-    // change to it (or to the body via setBody) to re-fire a clear.
+    // Only fire on resetSignal changes; initialReplyPermission is read
+    // lazily on success and shouldn't re-trigger.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetSignal])
 
