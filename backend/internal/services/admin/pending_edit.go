@@ -12,6 +12,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // PendingEditService handles business logic for generic pending entity edits.
@@ -359,12 +360,12 @@ func (s *PendingEditService) toResponse(edit *adminm.PendingEntityEdit) *contrac
 
 	// Resolve submitter name
 	if edit.Submitter.ID != 0 {
-		resp.SubmitterName = displayName(&edit.Submitter)
+		resp.SubmitterName = shared.ResolveUserName(&edit.Submitter)
 	}
 
 	// Resolve reviewer name
 	if edit.Reviewer != nil && edit.Reviewer.ID != 0 {
-		resp.ReviewerName = displayName(edit.Reviewer)
+		resp.ReviewerName = shared.ResolveUserName(edit.Reviewer)
 	}
 
 	return resp
@@ -377,24 +378,6 @@ func (s *PendingEditService) toResponses(edits []adminm.PendingEntityEdit) []con
 		responses[i] = *s.toResponse(&edits[i])
 	}
 	return responses
-}
-
-// displayName returns a display name from a user, preferring username > first+last > email.
-func displayName(u *authm.User) string {
-	if u.Username != nil && *u.Username != "" {
-		return *u.Username
-	}
-	if u.FirstName != nil && *u.FirstName != "" {
-		name := *u.FirstName
-		if u.LastName != nil && *u.LastName != "" {
-			name += " " + *u.LastName
-		}
-		return name
-	}
-	if u.Email != nil {
-		return *u.Email
-	}
-	return ""
 }
 
 // sendApprovalEmail looks up the submitter and entity, then sends an approval notification.
@@ -415,7 +398,7 @@ func (s *PendingEditService) sendApprovalEmail(edit *adminm.PendingEntityEdit) {
 	}
 
 	entityName, entityURL := s.resolveEntityInfo(edit.EntityType, edit.EntityID)
-	username := displayName(&user)
+	username := shared.ResolveUserName(&user)
 
 	if err := s.emailService.SendEditApprovedEmail(*user.Email, username, edit.EntityType, entityName, entityURL); err != nil {
 		log.Printf("sendApprovalEmail: failed to send email to %s: %v", *user.Email, err)
@@ -440,7 +423,7 @@ func (s *PendingEditService) sendRejectionEmail(edit *adminm.PendingEntityEdit, 
 	}
 
 	entityName, _ := s.resolveEntityInfo(edit.EntityType, edit.EntityID)
-	username := displayName(&user)
+	username := shared.ResolveUserName(&user)
 
 	if err := s.emailService.SendEditRejectedEmail(*user.Email, username, edit.EntityType, entityName, reason); err != nil {
 		log.Printf("sendRejectionEmail: failed to send email to %s: %v", *user.Email, err)

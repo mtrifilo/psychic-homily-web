@@ -11,9 +11,9 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // RequestHandler handles request-related API requests
@@ -460,30 +460,15 @@ func buildRequestResponse(request *communitym.Request, userVote *int) *contracts
 
 	// Resolve requester name
 	if request.Requester.ID > 0 {
-		resp.RequesterName = resolveUserDisplayName(&request.Requester)
+		resp.RequesterName = shared.ResolveUserName(&request.Requester)
 	}
 
 	// Resolve fulfiller name
 	if request.Fulfiller != nil && request.Fulfiller.ID > 0 {
-		resp.FulfillerName = resolveUserDisplayName(request.Fulfiller)
+		resp.FulfillerName = shared.ResolveUserName(request.Fulfiller)
 	}
 
 	return resp
-}
-
-// resolveUserDisplayName returns a display name for a user.
-func resolveUserDisplayName(user *authm.User) string {
-	if user.Username != nil && *user.Username != "" {
-		return *user.Username
-	}
-	if user.FirstName != nil && *user.FirstName != "" {
-		name := *user.FirstName
-		if user.LastName != nil && *user.LastName != "" {
-			name += " " + *user.LastName
-		}
-		return name
-	}
-	return "Unknown"
 }
 
 // mapRequestError converts a RequestError to an appropriate Huma HTTP error

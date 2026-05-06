@@ -19,16 +19,24 @@ type AuditLogFilters struct {
 	ActorID    *uint
 }
 
-// AuditLogResponse represents an audit log entry in API responses
+// AuditLogResponse represents an audit log entry in API responses.
+//
+// PSY-612: ActorName + ActorUsername were added so the admin audit log can
+// render a resolved display name (matching the rest of the moderation UI)
+// and an optional /users/:slug link, rather than leaking the raw email.
+// ActorEmail is retained for backward compatibility — the UI can phase off
+// it once the frontend ships the <UserAttribution /> primitive (PSY-613).
 type AuditLogResponse struct {
-	ID         uint                   `json:"id"`
-	ActorID    *uint                  `json:"actor_id"`
-	ActorEmail string                 `json:"actor_email,omitempty"`
-	Action     string                 `json:"action"`
-	EntityType string                 `json:"entity_type"`
-	EntityID   uint                   `json:"entity_id"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt  time.Time              `json:"created_at"`
+	ID            uint                   `json:"id"`
+	ActorID       *uint                  `json:"actor_id"`
+	ActorEmail    string                 `json:"actor_email,omitempty"`
+	ActorName     string                 `json:"actor_name,omitempty"`
+	ActorUsername *string                `json:"actor_username,omitempty"`
+	Action        string                 `json:"action"`
+	EntityType    string                 `json:"entity_type"`
+	EntityID      uint                   `json:"entity_id"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt     time.Time              `json:"created_at"`
 }
 
 // ──────────────────────────────────────────────

@@ -16,6 +16,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -1849,97 +1850,51 @@ func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 // Helper methods
 // ============================================================================
 
-// resolveUserUsername returns the user's username (for /users/:username
-// links) or nil when the user has no username set. Distinct from
-// resolveUserName, which falls back to first/last/email so it can never be
-// safely used in a URL slug. PSY-353.
+// resolveUserUsername loads a user by ID and returns the *string username.
+// Thin wrapper around shared.ResolveUserUsername — see that helper for the
+// behaviour contract. PSY-612 consolidated the resolution chain into a
+// single shared helper; this method exists for callsite ergonomics
+// (callers in this file have a userID, not a preloaded *User).
 func (s *CollectionService) resolveUserUsername(userID uint) *string {
 	var user authm.User
 	if err := s.db.Select("id, username").First(&user, userID).Error; err != nil {
 		return nil
 	}
-	if user.Username == nil || *user.Username == "" {
-		return nil
-	}
-	username := *user.Username
-	return &username
+	return shared.ResolveUserUsername(&user)
 }
 
-// batchResolveUserUsernames resolves usernames for multiple user IDs.
-// Map values are nil-pointer when the user has no username — callers should
-// treat that as "render unlinked". PSY-353.
+// batchResolveUserUsernames resolves usernames for multiple user IDs in a
+// single query. Delegates to shared.BatchResolveUserUsernames. Returns an
+// empty map on DB error (parity with the prior implementation, which
+// silently ignored Find errors).
 func (s *CollectionService) batchResolveUserUsernames(userIDs []uint) map[uint]*string {
-	result := make(map[uint]*string)
-	if len(userIDs) == 0 {
-		return result
-	}
-	var users []authm.User
-	s.db.Select("id, username").Where("id IN ?", userIDs).Find(&users)
-	for _, user := range users {
-		if user.Username != nil && *user.Username != "" {
-			username := *user.Username
-			result[user.ID] = &username
-		} else {
-			result[user.ID] = nil
-		}
+	result, err := shared.BatchResolveUserUsernames(s.db, userIDs)
+	if err != nil {
+		return make(map[uint]*string)
 	}
 	return result
 }
 
-// resolveUserName returns the display name for a user ID
+// resolveUserName loads a user by ID and returns the never-empty display
+// name. Thin wrapper around shared.ResolveUserName — see that helper for
+// the resolution chain.
 func (s *CollectionService) resolveUserName(userID uint) string {
 	var user authm.User
 	if err := s.db.Select("id, username, first_name, last_name, email").First(&user, userID).Error; err != nil {
 		return "Anonymous"
 	}
-	if user.Username != nil && *user.Username != "" {
-		return *user.Username
-	}
-	if user.FirstName != nil && *user.FirstName != "" {
-		name := *user.FirstName
-		if user.LastName != nil && *user.LastName != "" {
-			name += " " + *user.LastName
-		}
-		return name
-	}
-	if user.Email != nil && *user.Email != "" {
-		if idx := strings.Index(*user.Email, "@"); idx > 0 {
-			return (*user.Email)[:idx]
-		}
-	}
-	return "Anonymous"
+	return shared.ResolveUserName(&user)
 }
 
-// batchResolveUserNames resolves user names for multiple user IDs
+// batchResolveUserNames resolves display names for multiple user IDs in a
+// single query. Delegates to shared.BatchResolveUserNames. Returns an empty
+// map on DB error (parity with the prior implementation, which silently
+// ignored Find errors).
 func (s *CollectionService) batchResolveUserNames(userIDs []uint) map[uint]string {
-	result := make(map[uint]string)
-	if len(userIDs) == 0 {
-		return result
+	result, err := shared.BatchResolveUserNames(s.db, userIDs)
+	if err != nil {
+		return make(map[uint]string)
 	}
-
-	var users []authm.User
-	s.db.Select("id, username, first_name, last_name, email").Where("id IN ?", userIDs).Find(&users)
-
-	for _, user := range users {
-		if user.Username != nil && *user.Username != "" {
-			result[user.ID] = *user.Username
-		} else if user.FirstName != nil && *user.FirstName != "" {
-			name := *user.FirstName
-			if user.LastName != nil && *user.LastName != "" {
-				name += " " + *user.LastName
-			}
-			result[user.ID] = name
-		} else if user.Email != nil && *user.Email != "" {
-			if idx := strings.Index(*user.Email, "@"); idx > 0 {
-				result[user.ID] = (*user.Email)[:idx]
-			} else {
-				result[user.ID] = "Anonymous"
-			}
-		} else {
-			result[user.ID] = "Anonymous"
-		}
-	}
-
 	return result
 }
 

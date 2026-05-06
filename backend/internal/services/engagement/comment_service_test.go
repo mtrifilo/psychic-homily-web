@@ -295,109 +295,12 @@ func TestUserTierHourlyLimit(t *testing.T) {
 	assert.Equal(t, 5, userTierHourlyLimit("unknown_tier"))
 }
 
-// PSY-552: AuthorName resolver chain — username → first/last → email-prefix
-// → "Anonymous". Mirrors the PSY-353 collection contributor pattern. These
-// are pure-function tests (no DB) so the chain is locked down even when the
-// integration suite can't run.
-func TestResolveCommentAuthorName(t *testing.T) {
-	t.Run("NilUser_Anonymous", func(t *testing.T) {
-		assert.Equal(t, "Anonymous", resolveCommentAuthorName(nil))
-	})
-
-	t.Run("ZeroIDUser_Anonymous", func(t *testing.T) {
-		assert.Equal(t, "Anonymous", resolveCommentAuthorName(&authm.User{}))
-	})
-
-	t.Run("UsernameWins", func(t *testing.T) {
-		username := "ph_user"
-		first := "Ignored"
-		email := "ignored@example.com"
-		u := &authm.User{Username: &username, FirstName: &first, Email: &email}
-		u.ID = 7
-		assert.Equal(t, "ph_user", resolveCommentAuthorName(u))
-	})
-
-	t.Run("FirstAndLast_NoUsername", func(t *testing.T) {
-		first := "Jane"
-		last := "Doe"
-		u := &authm.User{FirstName: &first, LastName: &last}
-		u.ID = 8
-		assert.Equal(t, "Jane Doe", resolveCommentAuthorName(u))
-	})
-
-	t.Run("FirstOnly_NoUsername", func(t *testing.T) {
-		first := "Jane"
-		u := &authm.User{FirstName: &first}
-		u.ID = 9
-		assert.Equal(t, "Jane", resolveCommentAuthorName(u))
-	})
-
-	t.Run("EmailPrefixFallback", func(t *testing.T) {
-		email := "dogfood@psychichomily.com"
-		u := &authm.User{Email: &email}
-		u.ID = 10
-		assert.Equal(t, "dogfood", resolveCommentAuthorName(u))
-	})
-
-	t.Run("EmailWithNoAtSign_Anonymous", func(t *testing.T) {
-		// Should never happen in practice (email column has @ on insert),
-		// but the helper falls through to "Anonymous" rather than echo a
-		// malformed string.
-		email := "noatsign"
-		u := &authm.User{Email: &email}
-		u.ID = 11
-		assert.Equal(t, "Anonymous", resolveCommentAuthorName(u))
-	})
-
-	t.Run("EmptyUsernamePointer_FallsThrough", func(t *testing.T) {
-		// PSY-552 regression check: a non-nil Username pointer pointing at
-		// an empty string must NOT short-circuit the chain (the original
-		// bug surfaced because *Username == "" was treated as a valid
-		// display name, leaking an empty author_name on the wire).
-		empty := ""
-		first := "Backup"
-		u := &authm.User{Username: &empty, FirstName: &first}
-		u.ID = 12
-		assert.Equal(t, "Backup", resolveCommentAuthorName(u))
-	})
-}
-
-// PSY-552: AuthorUsername must be non-nil only when the user has a real
-// username. Mirrors PSY-353's resolveUserUsername: nil signals to the
-// frontend "render byline as plain text — no /users/:slug link".
-func TestResolveCommentAuthorUsername(t *testing.T) {
-	t.Run("NilUser_Nil", func(t *testing.T) {
-		assert.Nil(t, resolveCommentAuthorUsername(nil))
-	})
-
-	t.Run("ZeroIDUser_Nil", func(t *testing.T) {
-		assert.Nil(t, resolveCommentAuthorUsername(&authm.User{}))
-	})
-
-	t.Run("NoUsername_Nil", func(t *testing.T) {
-		first := "Jane"
-		u := &authm.User{FirstName: &first}
-		u.ID = 1
-		assert.Nil(t, resolveCommentAuthorUsername(u))
-	})
-
-	t.Run("EmptyUsername_Nil", func(t *testing.T) {
-		empty := ""
-		u := &authm.User{Username: &empty}
-		u.ID = 2
-		assert.Nil(t, resolveCommentAuthorUsername(u))
-	})
-
-	t.Run("UsernameSet_Pointer", func(t *testing.T) {
-		username := "ph_user"
-		u := &authm.User{Username: &username}
-		u.ID = 3
-		got := resolveCommentAuthorUsername(u)
-		if assert.NotNil(t, got) {
-			assert.Equal(t, "ph_user", *got)
-		}
-	})
-}
+// PSY-552: AuthorName / AuthorUsername resolution is now centralised in
+// services/shared.ResolveUserName / ResolveUserUsername (PSY-612). The full
+// chain — including the PSY-552 regression for non-nil-but-empty username
+// pointers — is locked down in services/shared/user_resolver_test.go.
+// Integration coverage that the comment surface delegates correctly is
+// retained via the CommentServiceIntegrationTestSuite.
 
 func TestWilsonScore(t *testing.T) {
 	t.Run("NoVotes", func(t *testing.T) {

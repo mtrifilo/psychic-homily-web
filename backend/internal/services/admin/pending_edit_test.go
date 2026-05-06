@@ -874,41 +874,11 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCancelPendingEdit_AllowsNew
 	s.NotNil(resp)
 }
 
-// =============================================================================
-// displayName helper tests
-// =============================================================================
-
-func TestDisplayName(t *testing.T) {
-	username := "testuser"
-	first := "John"
-	last := "Doe"
-	email := "john@test.com"
-
-	t.Run("PreferUsername", func(t *testing.T) {
-		u := &authm.User{Username: &username, FirstName: &first, Email: &email}
-		assert.Equal(t, "testuser", displayName(u))
-	})
-
-	t.Run("FallbackToFirstLast", func(t *testing.T) {
-		u := &authm.User{FirstName: &first, LastName: &last, Email: &email}
-		assert.Equal(t, "John Doe", displayName(u))
-	})
-
-	t.Run("FallbackToFirstOnly", func(t *testing.T) {
-		u := &authm.User{FirstName: &first, Email: &email}
-		assert.Equal(t, "John", displayName(u))
-	})
-
-	t.Run("FallbackToEmail", func(t *testing.T) {
-		u := &authm.User{Email: &email}
-		assert.Equal(t, "john@test.com", displayName(u))
-	})
-
-	t.Run("EmptyUser", func(t *testing.T) {
-		u := &authm.User{}
-		assert.Equal(t, "", displayName(u))
-	})
-}
+// PSY-612: the per-service displayName helper has been replaced with
+// services/shared.ResolveUserName. The full chain — including the email
+// local-part fallback that this surface previously omitted (it leaked the
+// raw email and returned "" for empty users) — is locked down in
+// services/shared/user_resolver_test.go.
 
 // =============================================================================
 // Email notification tests

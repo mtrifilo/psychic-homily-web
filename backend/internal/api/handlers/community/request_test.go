@@ -672,28 +672,10 @@ func TestBuildRequestResponse_NoVote(t *testing.T) {
 	}
 }
 
-func TestResolveUserDisplayName(t *testing.T) {
-	username := "cooluser"
-	firstName := "Jane"
-	lastName := "Doe"
-
-	tests := []struct {
-		name     string
-		user     *authm.User
-		expected string
-	}{
-		{"username", &authm.User{Username: &username}, "cooluser"},
-		{"first+last", &authm.User{FirstName: &firstName, LastName: &lastName}, "Jane Doe"},
-		{"first only", &authm.User{FirstName: &firstName}, "Jane"},
-		{"empty", &authm.User{}, "Unknown"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := resolveUserDisplayName(tc.user)
-			if result != tc.expected {
-				t.Errorf("expected %q, got %q", tc.expected, result)
-			}
-		})
-	}
-}
+// PSY-612: Request requester/fulfiller name resolution now delegates to
+// services/shared.ResolveUserName. The full chain — including the email
+// local-part fallback that this surface previously omitted (it stopped at
+// "Unknown" instead of falling through to the email prefix) — is locked
+// down in services/shared/user_resolver_test.go. Integration coverage that
+// buildRequestResponse delegates correctly is retained via
+// TestBuildRequestResponse_WithVote.

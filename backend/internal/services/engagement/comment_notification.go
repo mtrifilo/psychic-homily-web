@@ -16,9 +16,9 @@ import (
 	"github.com/getsentry/sentry-go"
 	"gorm.io/gorm"
 
-	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // CommentNotificationService sends emails to subscribers and @-mentioned users on
@@ -232,21 +232,6 @@ func (s *CommentNotificationService) buildCommentURL(entityType engagementm.Comm
 	return fmt.Sprintf("%s#comment-%d", s.buildEntityURL(entityType, entityID), commentID)
 }
 
-// displayName returns a friendly name for a user: username first, else
-// first name, else "A contributor".
-func displayName(u *authm.User) string {
-	if u == nil {
-		return "A contributor"
-	}
-	if u.Username != nil && *u.Username != "" {
-		return *u.Username
-	}
-	if u.FirstName != nil && *u.FirstName != "" {
-		return *u.FirstName
-	}
-	return "A contributor"
-}
-
 // ─────────────────────────────────────────────────────────────
 // NotifySubscribers
 // ─────────────────────────────────────────────────────────────
@@ -315,7 +300,7 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 	entityName := s.buildEntityName(comment.EntityType, comment.EntityID)
 	entityURL := s.buildEntityURL(comment.EntityType, comment.EntityID)
 	excerpt := buildExcerpt(comment.Body)
-	commenterName := displayName(&comment.User)
+	commenterName := shared.ResolveUserName(&comment.User)
 	now := time.Now().UTC()
 
 	for _, r := range rows {
@@ -429,7 +414,7 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 	entityName := s.buildEntityName(comment.EntityType, comment.EntityID)
 	commentURL := s.buildCommentURL(comment.EntityType, comment.EntityID, comment.ID)
 	excerpt := buildExcerpt(comment.Body)
-	mentionerName := displayName(&comment.User)
+	mentionerName := shared.ResolveUserName(&comment.User)
 
 	for _, r := range rows {
 		if r.UserID == comment.UserID {
