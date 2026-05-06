@@ -214,12 +214,11 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 		}
 	}
 
-	// PSY-601: do NOT write a "suggest_edit_*" audit_log row here. The
-	// pending_entity_edits row created above is already the user-facing
-	// activity event (it surfaces as "submit_<type>_edit" via the UNION in
-	// ContributorProfileService.GetContributionHistory). Writing both made
-	// every Suggest Edit appear twice in the contributor's Recent Activity
-	// feed. The "suggest_edit_*" audit action has no other readers.
+	// No audit_log emit on the pending path: the pending_entity_edits row
+	// above is the user-facing event, surfaced as "submit_<type>_edit" by
+	// the UNION in ContributorProfileService.GetContributionHistory. A
+	// parallel "suggest_edit_*" audit row would double-render in Recent
+	// Activity (no other reader consumes that audit action).
 
 	out := &SuggestEntityEditResponse{}
 	out.Body.PendingEdit = resp

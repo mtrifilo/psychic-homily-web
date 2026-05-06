@@ -886,11 +886,12 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Equal(show1.ID, entries[1].EntityID)
 }
 
-// TestGetContributionHistory_PendingEditEnriched_AllEntityTypes is the
-// PSY-601 regression test: pending_entity_edits rows surface in the feed
-// with synthetic entity_type "<type>_edit" (e.g. "artist_edit"). All five
-// supported entity types must resolve back to a human-readable entity name
-// rather than leaking the raw discriminator string into the UI.
+// TestGetContributionHistory_PendingEditEnriched_AllEntityTypes verifies
+// that pending_entity_edits rows — which surface in the feed with the
+// synthetic entity_type "<type>_edit" — resolve to a human-readable entity
+// name for every supported type. Without enrichment, the activity-feed
+// entity-name slot leaks the raw discriminator string ("artist_edit", etc.)
+// directly into the UI.
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_PendingEditEnriched_AllEntityTypes() {
 	cases := []struct {
 		name           string
@@ -916,11 +917,10 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 			name:         "venue",
 			entityType:   adminm.PendingEditEntityVenue,
 			expectedName: "Valley Bar",
+			// Bypass createVenue: setting submitted_by here would inject an
+			// extra "submit_venue" row from the venueQuery UNION and stop
+			// us from isolating the _edit enrichment path.
 			setup: func(_ uint) uint {
-				// Create the venue WITHOUT a submitted_by — otherwise the
-				// venueQuery UNION would emit a "submit_venue" row alongside
-				// the "submit_venue_edit" row, and the test wouldn't be
-				// isolating the enrichment-of-_edit-types behaviour.
 				v := &catalogm.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
 				suite.Require().NoError(suite.db.Create(v).Error)
 				return v.ID

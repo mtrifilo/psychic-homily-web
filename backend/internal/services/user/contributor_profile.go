@@ -865,6 +865,9 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			continue
 		}
 		names := make(map[uint]string)
+		// "<type>_edit" cases handle the synthetic discriminator emitted by
+		// the pending_entity_edits UNION in GetContributionHistory; they
+		// resolve from the same underlying table as their base type.
 		switch entityType {
 		case "show":
 			var results []struct {
@@ -875,11 +878,6 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Title
 			}
-		// venue/release/label/festival/artist + their "_edit" synthetic
-		// discriminators (emitted by the pending_entity_edits UNION in
-		// GetContributionHistory) all resolve names from the same underlying
-		// table. Without these aliases, the activity-feed entity-name slot
-		// renders the raw discriminator string ("artist_edit", etc.).
 		case "venue", "venue_edit":
 			var results []struct {
 				ID   uint

@@ -106,9 +106,9 @@ describe('ContributionTimeline', () => {
     }
   })
 
-  // PSY-601: pending_entity_edits surface as "<type>_edit" and must link
-  // back to the underlying entity (not 404, not no-link). The action label
-  // must also be the friendly form, not the auto-formatted "Submit X Edit".
+  // pending_entity_edits surface as "<type>_edit" and must link back to
+  // the underlying entity (not 404, not no-link). Action label must also
+  // be the friendly form, not the auto-formatted "Submit X Edit".
   it('links pending-edit synthetic types to their underlying entity', () => {
     const cases = [
       { entityType: 'venue_edit', expectedHref: '/venues/42', friendlyAction: 'Suggested venue edit' },
