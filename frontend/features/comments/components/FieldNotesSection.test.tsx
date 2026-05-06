@@ -11,14 +11,21 @@ const mockUseAuthContext = vi.fn()
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
 
-vi.mock('../hooks', () => ({
-  useFieldNotes: (...args: unknown[]) => mockUseFieldNotes(...args),
-  useCreateFieldNote: () => mockUseCreateFieldNote(),
-  useReplyToComment: () => defaultMutationReturn,
-  useVoteComment: () => defaultMutationReturn,
-  useUnvoteComment: () => defaultMutationReturn,
-  useCommentThread: () => ({ data: undefined }),
-}))
+vi.mock('../hooks', async () => {
+  // PSY-608: bring through the real formatCommentSubmissionError so the
+  // FieldNotesSection test can assert on the exact 4xx banner copy.
+  const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
+  return {
+    useFieldNotes: (...args: unknown[]) => mockUseFieldNotes(...args),
+    useCreateFieldNote: () => mockUseCreateFieldNote(),
+    useReplyToComment: () => defaultMutationReturn,
+    useVoteComment: () => defaultMutationReturn,
+    useUnvoteComment: () => defaultMutationReturn,
+    useCommentThread: () => ({ data: undefined }),
+    useAutoDismissError: actual.useAutoDismissError,
+    formatCommentSubmissionError: actual.formatCommentSubmissionError,
+  }
+})
 
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockUseAuthContext(),
@@ -377,6 +384,45 @@ describe('FieldNotesSection', () => {
 
       expect(screen.queryByTestId('pending-review-banner')).not.toBeInTheDocument()
       expect(screen.queryByTestId('pending-review-badge')).not.toBeInTheDocument()
+    })
+  })
+
+  // PSY-608: createFieldNote 4xx must surface inline (was silent — same
+  // failure mode as PSY-589 on createComment).
+  describe('mutation error surfacing (PSY-608)', () => {
+    it('renders inline 429 banner with countdown copy when create mutation rate-limits', () => {
+      const err = Object.assign(
+        new Error('please wait 60 seconds between comments on the same entity'),
+        { status: 429, retryAfter: 60 }
+      )
+      mockUseCreateFieldNote.mockReturnValue({
+        mutate: vi.fn(),
+        isPending: false,
+        error: err,
+      })
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '8', email: 'rate@example.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+
+      render(
+        <FieldNotesSection
+          showId={1}
+          showDate={pastDate}
+          artists={mockArtists}
+        />
+      )
+
+      const banner = screen.getByTestId('field-note-form-error')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveAttribute('role', 'alert')
+      expect(banner).toHaveTextContent(
+        'Please wait 60s before commenting again.'
+      )
     })
   })
 })

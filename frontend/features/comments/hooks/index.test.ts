@@ -1,6 +1,7 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, renderHook } from '@testing-library/react'
 import type { ApiError } from '@/lib/api'
-import { formatCommentSubmissionError } from './index'
+import { formatCommentSubmissionError, useAutoDismissError } from './index'
 
 // PSY-589: the hook's 429 path must surface an inline error message
 // (instead of silently swallowing the failure and clearing the form).
@@ -50,5 +51,92 @@ describe('formatCommentSubmissionError (PSY-589)', () => {
 
   it('handles plain Error instances without ApiError fields', () => {
     expect(formatCommentSubmissionError(new Error('boom'))).toBe('Boom')
+  })
+})
+
+// PSY-608: auto-dismiss banner state for optimistic-rollback mutations.
+// The hook keeps the rollback's silent cache restore but surfaces a brief
+// "action was reverted" message so the user knows what happened.
+describe('useAutoDismissError (PSY-608)', () => {
+  beforeEach(() => {
+    vi.useFakeTimers()
+  })
+
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it('starts with no error', () => {
+    const { result } = renderHook(() => useAutoDismissError())
+    expect(result.current.error).toBeNull()
+  })
+
+  it('exposes the error after show() is called', () => {
+    const { result } = renderHook(() => useAutoDismissError(3000))
+    const err = new Error('boom')
+
+    act(() => {
+      result.current.show(err)
+    })
+
+    expect(result.current.error).toBe(err)
+  })
+
+  it('clears the error after the timeout elapses', () => {
+    const { result } = renderHook(() => useAutoDismissError(3000))
+
+    act(() => {
+      result.current.show(new Error('boom'))
+    })
+    expect(result.current.error).not.toBeNull()
+
+    act(() => {
+      vi.advanceTimersByTime(3000)
+    })
+
+    expect(result.current.error).toBeNull()
+  })
+
+  it('resets the timer when show() is called again before timeout', () => {
+    const { result } = renderHook(() => useAutoDismissError(3000))
+
+    act(() => {
+      result.current.show(new Error('first'))
+    })
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    // Re-trigger before timeout — second error visible, timer reset.
+    const second = new Error('second')
+    act(() => {
+      result.current.show(second)
+    })
+    expect(result.current.error).toBe(second)
+
+    // Original timeout would have fired by now, but the reset delays it.
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    expect(result.current.error).toBe(second)
+
+    // Full second-timeout window completes.
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(result.current.error).toBeNull()
+  })
+
+  it('clears the pending timeout on unmount (no setState on unmounted component)', () => {
+    const { result, unmount } = renderHook(() => useAutoDismissError(3000))
+
+    act(() => {
+      result.current.show(new Error('boom'))
+    })
+    unmount()
+
+    // Advancing past the dismiss window must not throw or warn.
+    act(() => {
+      vi.advanceTimersByTime(5000)
+    })
   })
 })

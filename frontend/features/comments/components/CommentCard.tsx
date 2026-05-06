@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CommentForm } from './CommentForm'
 import { CommentEditHistory } from './CommentEditHistory'
+import { MutationErrorBanner } from './MutationErrorBanner'
 import { ReplyPermissionSelect } from './ReplyPermissionSelect'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
@@ -19,6 +20,7 @@ import {
   useVoteComment,
   useUnvoteComment,
   useCommentThread,
+  useAutoDismissError,
   formatCommentSubmissionError,
 } from '../hooks'
 import {
@@ -62,6 +64,10 @@ export function CommentCard({
   const deleteMutation = useDeleteComment()
   const voteMutation = useVoteComment()
   const unvoteMutation = useUnvoteComment()
+  // PSY-608: optimistic vote/unvote rollback hides the failure visually.
+  // Show a brief auto-dismissing banner so the user knows the action was
+  // reverted, mirroring SaveButton / FavoriteVenueButton (~3s).
+  const voteError = useAutoDismissError()
 
   // Load thread on demand if no inline replies were provided
   const hasInlineReplies = replies.length > 0
@@ -74,9 +80,15 @@ export function CommentCard({
     if (!isAuthenticated) return
     if (comment.user_vote === direction) {
       // Toggle off
-      unvoteMutation.mutate({ commentId: comment.id, entityType, entityId })
+      unvoteMutation.mutate(
+        { commentId: comment.id, entityType, entityId },
+        { onError: (err) => voteError.show(err) }
+      )
     } else {
-      voteMutation.mutate({ commentId: comment.id, direction, entityType, entityId })
+      voteMutation.mutate(
+        { commentId: comment.id, direction, entityType, entityId },
+        { onError: (err) => voteError.show(err) }
+      )
     }
   }
 
@@ -202,6 +214,7 @@ export function CommentCard({
             submitLabel="Save"
             onCancel={() => setIsEditing(false)}
             isPending={updateMutation.isPending}
+            errorMessage={formatCommentSubmissionError(updateMutation.error)}
           />
         </div>
       ) : (
@@ -336,6 +349,37 @@ export function CommentCard({
           )}
           {/* PSY-296 end */}
         </div>
+      )}
+
+      {/* PSY-608: sticky banners for non-optimistic owner mutations
+          (delete, change reply-permission); auto-dismiss for the
+          optimistic vote/unvote rollback path. */}
+      {!isEditing && deleteMutation.isError && (
+        <MutationErrorBanner
+          testId="delete-error-banner"
+          message={
+            formatCommentSubmissionError(deleteMutation.error) ??
+            'Failed to delete comment. Please try again.'
+          }
+        />
+      )}
+      {!isEditing && updateReplyPermissionMutation.isError && (
+        <MutationErrorBanner
+          testId="reply-permission-error-banner"
+          message={
+            formatCommentSubmissionError(updateReplyPermissionMutation.error) ??
+            'Failed to update reply permission. Please try again.'
+          }
+        />
+      )}
+      {!isEditing && voteError.error !== null && (
+        <MutationErrorBanner
+          testId="vote-error-banner"
+          message={
+            formatCommentSubmissionError(voteError.error) ??
+            'Vote failed. Please try again.'
+          }
+        />
       )}
 
       {/* PSY-297: Admin-only edit history trigger.

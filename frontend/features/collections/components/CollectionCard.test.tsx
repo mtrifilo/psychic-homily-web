@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { render, screen, fireEvent, waitFor } from '@testing-library/react'
 
 // Mock next/link
 vi.mock('next/link', () => ({
@@ -19,9 +19,17 @@ vi.mock('@/lib/formatRelativeTime', () => ({
 // PSY-352: auth + like mutation mocks. Default: anonymous viewer + no-op
 // mutations. Individual tests override these via mockIsAuthenticated and
 // the mutation spies below.
+// PSY-609: the like/unlike toggle now calls mutateAsync (so the catch
+// block can render an auto-dismiss error banner). Spies expose both
+// `mutate` (legacy) and `mutateAsync` (current) to keep older
+// assertions stable; tests asserting click-handler dispatch use
+// `mutateAsync`. The async stubs resolve by default; tests that need
+// the rejected path swap them to mockRejectedValue.
 let mockIsAuthenticated = false
 const mockLikeMutate = vi.fn()
 const mockUnlikeMutate = vi.fn()
+const mockLikeMutateAsync = vi.fn().mockResolvedValue(undefined)
+const mockUnlikeMutateAsync = vi.fn().mockResolvedValue(undefined)
 let mockIsLikePending = false
 
 vi.mock('@/lib/context/AuthContext', () => ({
@@ -31,10 +39,12 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('../hooks', () => ({
   useLikeCollection: () => ({
     mutate: mockLikeMutate,
+    mutateAsync: mockLikeMutateAsync,
     isPending: mockIsLikePending,
   }),
   useUnlikeCollection: () => ({
     mutate: mockUnlikeMutate,
+    mutateAsync: mockUnlikeMutateAsync,
     isPending: mockIsLikePending,
   }),
 }))
@@ -44,6 +54,8 @@ beforeEach(() => {
   mockIsLikePending = false
   mockLikeMutate.mockReset()
   mockUnlikeMutate.mockReset()
+  mockLikeMutateAsync.mockReset().mockResolvedValue(undefined)
+  mockUnlikeMutateAsync.mockReset().mockResolvedValue(undefined)
 })
 
 import { CollectionCard } from './CollectionCard'
@@ -305,8 +317,12 @@ describe('CollectionCard', () => {
     render(<CollectionCard collection={collection} />)
 
     fireEvent.click(screen.getByTestId('collection-like-button'))
-    expect(mockLikeMutate).toHaveBeenCalledWith({ slug: 'arizona-indie-essentials' })
-    expect(mockUnlikeMutate).not.toHaveBeenCalled()
+    // PSY-609: the toggle now calls mutateAsync so the surrounding
+    // catch can render an inline error banner on rejection.
+    expect(mockLikeMutateAsync).toHaveBeenCalledWith({
+      slug: 'arizona-indie-essentials',
+    })
+    expect(mockUnlikeMutateAsync).not.toHaveBeenCalled()
   })
 
   it('calls unlikeCollection when an already-liked heart is clicked', () => {
@@ -315,8 +331,10 @@ describe('CollectionCard', () => {
     render(<CollectionCard collection={collection} />)
 
     fireEvent.click(screen.getByTestId('collection-like-button'))
-    expect(mockUnlikeMutate).toHaveBeenCalledWith({ slug: 'arizona-indie-essentials' })
-    expect(mockLikeMutate).not.toHaveBeenCalled()
+    expect(mockUnlikeMutateAsync).toHaveBeenCalledWith({
+      slug: 'arizona-indie-essentials',
+    })
+    expect(mockLikeMutateAsync).not.toHaveBeenCalled()
   })
 
   it('disables the heart while a like mutation is pending', () => {
@@ -326,6 +344,88 @@ describe('CollectionCard', () => {
     render(<CollectionCard collection={collection} />)
 
     expect(screen.getByTestId('collection-like-button')).toBeDisabled()
+  })
+
+  // PSY-609: surface like/unlike failures inline on the card so the
+  // optimistic-rollback snap-back has a visible reason. Auto-dismisses
+  // after ~3s but the assertion only checks initial render.
+  describe('like/unlike error banner (PSY-609)', () => {
+    it('renders a 403-private error banner when liking fails on a private collection', async () => {
+      mockIsAuthenticated = true
+      mockLikeMutateAsync.mockRejectedValueOnce(
+        Object.assign(new Error('forbidden'), { status: 403 })
+      )
+      const collection = {
+        ...baseCollection,
+        like_count: 0,
+        user_likes_this: false,
+      }
+      render(<CollectionCard collection={collection} />)
+
+      fireEvent.click(screen.getByTestId('collection-like-button'))
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('collection-card-like-error')
+        ).toHaveTextContent('This collection is private.')
+      )
+    })
+
+    it('renders a generic error banner when liking fails for non-403 reasons', async () => {
+      mockIsAuthenticated = true
+      mockLikeMutateAsync.mockRejectedValueOnce(new Error('network blew up'))
+      const collection = {
+        ...baseCollection,
+        like_count: 0,
+        user_likes_this: false,
+      }
+      render(<CollectionCard collection={collection} />)
+
+      fireEvent.click(screen.getByTestId('collection-like-button'))
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('collection-card-like-error')
+        ).toHaveTextContent('network blew up')
+      )
+    })
+
+    it('renders a privacy-aware unlike error when unliking fails with 403', async () => {
+      mockIsAuthenticated = true
+      mockUnlikeMutateAsync.mockRejectedValueOnce(
+        Object.assign(new Error('forbidden'), { status: 403 })
+      )
+      const collection = {
+        ...baseCollection,
+        like_count: 1,
+        user_likes_this: true,
+      }
+      render(<CollectionCard collection={collection} />)
+
+      fireEvent.click(screen.getByTestId('collection-like-button'))
+      await waitFor(() =>
+        expect(
+          screen.getByTestId('collection-card-like-error')
+        ).toHaveTextContent(/your like was removed/i)
+      )
+    })
+
+    it('does not render the banner on success', async () => {
+      mockIsAuthenticated = true
+      mockLikeMutateAsync.mockResolvedValueOnce(undefined)
+      const collection = {
+        ...baseCollection,
+        like_count: 0,
+        user_likes_this: false,
+      }
+      render(<CollectionCard collection={collection} />)
+
+      fireEvent.click(screen.getByTestId('collection-like-button'))
+      // Give microtasks a chance to run; banner should never appear.
+      await Promise.resolve()
+      await Promise.resolve()
+      expect(
+        screen.queryByTestId('collection-card-like-error')
+      ).not.toBeInTheDocument()
+    })
   })
 
   // PSY-353: "Built by N contributors" badge surfaces community curation
