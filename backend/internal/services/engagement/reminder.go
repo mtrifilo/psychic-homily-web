@@ -17,6 +17,7 @@ import (
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Default reminder check interval (30 minutes)
@@ -85,28 +86,12 @@ func (s *ReminderService) Stop() {
 	s.logger.Info("show reminder service stopped")
 }
 
-// run is the main loop for the reminder service
+// run is the main loop for the reminder service.
 func (s *ReminderService) run(ctx context.Context) {
 	defer s.wg.Done()
-
-	// Run immediately on startup
-	s.runReminderCycle()
-
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("reminder service context cancelled")
-			return
-		case <-s.stopCh:
-			s.logger.Info("reminder service received stop signal")
-			return
-		case <-ticker.C:
-			s.runReminderCycle()
-		}
-	}
+	shared.RunTickerLoop(ctx, "reminder", s.interval, s.stopCh, true, func(_ context.Context) {
+		s.runReminderCycle()
+	})
 }
 
 // runReminderCycle finds shows happening in ~24h and sends reminders

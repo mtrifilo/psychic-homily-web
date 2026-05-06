@@ -17,6 +17,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/notification"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // User tier constants.
@@ -111,25 +112,9 @@ func (s *AutoPromotionService) Stop() {
 // run is the main loop for the auto-promotion scheduler.
 func (s *AutoPromotionService) run(ctx context.Context) {
 	defer s.wg.Done()
-
-	// Run immediately on startup
-	s.runEvaluationCycle()
-
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("auto-promotion scheduler context cancelled")
-			return
-		case <-s.stopCh:
-			s.logger.Info("auto-promotion scheduler received stop signal")
-			return
-		case <-ticker.C:
-			s.runEvaluationCycle()
-		}
-	}
+	shared.RunTickerLoop(ctx, "auto_promotion", s.interval, s.stopCh, true, func(_ context.Context) {
+		s.runEvaluationCycle()
+	})
 }
 
 // runEvaluationCycle performs a single evaluation of all users.
