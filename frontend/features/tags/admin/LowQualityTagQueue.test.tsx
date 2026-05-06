@@ -132,7 +132,9 @@ describe('LowQualityTagQueue', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /ignore mystery for 30 days/i })
     )
-    expect(mockSnooze).toHaveBeenCalledWith(42)
+    // The handler now wires an onError callback for inline error surfacing
+    // (PSY-610), so the second arg is the react-query options object.
+    expect(mockSnooze).toHaveBeenCalledWith(42, expect.any(Object))
   })
 
   it('fires the mark-official mutation when Official is clicked', () => {
@@ -150,7 +152,7 @@ describe('LowQualityTagQueue', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /mark goodbadtag official/i })
     )
-    expect(mockMarkOfficial).toHaveBeenCalledWith(7)
+    expect(mockMarkOfficial).toHaveBeenCalledWith(7, expect.any(Object))
   })
 
   it('shows loading state while fetching', () => {
