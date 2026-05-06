@@ -1690,9 +1690,10 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
-	// PSY-352: like aggregate; viewer ID isn't threaded through this call,
-	// so UserLikesThis is left false here (clients that need it should
-	// use the detail endpoint).
+	// PSY-352: like aggregate. UserLikesThis is intentionally left false
+	// on this surface — the entity-backlinks card doesn't render a like
+	// state, so we skip the per-viewer batchCheckUserLikes round-trip.
+	// Clients that need it should use the detail endpoint.
 	likeCounts := s.batchCountLikes(collectionIDs)
 	// PSY-354: tag chips on entity-collection cards.
 	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)
