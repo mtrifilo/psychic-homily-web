@@ -190,26 +190,18 @@ function MutationFeedback({
  * snap-back of the optimistic state is the primary signal; this banner
  * just makes the *reason* visible.
  *
- * Returns the message to render plus a stable `dismiss` callback for
- * cases where a follow-up success should clear an in-flight error
- * banner early.
+ * `formatter` MUST be stable across renders (wrap in useCallback) — it
+ * sits in the effect's dependency array, so an unstable reference
+ * resets the auto-dismiss timer on every render.
  */
 function useAutoDismissError(
   err: unknown,
   isError: boolean,
   formatter: (e: unknown) => string,
   delayMs = 3000
-): { message: string | null; dismiss: () => void } {
+): string | null {
   const [message, setMessage] = useState<string | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  const dismiss = useCallback(() => {
-    if (timeoutRef.current) {
-      clearTimeout(timeoutRef.current)
-      timeoutRef.current = null
-    }
-    setMessage(null)
-  }, [])
 
   useEffect(() => {
     if (!isError) return
@@ -227,7 +219,7 @@ function useAutoDismissError(
     }
   }, [])
 
-  return { message, dismiss }
+  return message
 }
 
 /**
@@ -833,18 +825,18 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 )}
               />
             )}
-            {likeError.message && (
+            {likeError && (
               <MutationFeedback
                 variant="error"
                 testId="like-error"
-                message={likeError.message}
+                message={likeError}
               />
             )}
-            {unlikeError.message && (
+            {unlikeError && (
               <MutationFeedback
                 variant="error"
                 testId="unlike-error"
-                message={unlikeError.message}
+                message={unlikeError}
               />
             )}
           </div>
@@ -1266,11 +1258,11 @@ function CollectionItemsList({
         rejected request leaves the items in their original order with no
         feedback. Auto-dismiss the banner after ~3s.
       */}
-      {reorderError.message && (
+      {reorderError && (
         <MutationFeedback
           variant="error"
           testId="reorder-error"
-          message={reorderError.message}
+          message={reorderError}
         />
       )}
       {canReorder ? (
