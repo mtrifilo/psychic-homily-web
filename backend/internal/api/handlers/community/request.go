@@ -458,14 +458,11 @@ func buildRequestResponse(request *communitym.Request, userVote *int) *contracts
 		UpdatedAt:         request.UpdatedAt,
 	}
 
-	// Resolve requester name + username (username is *string, nil when not set
-	// — frontend treats nil as "render unlinked"). PSY-619.
 	if request.Requester.ID > 0 {
 		resp.RequesterName = shared.ResolveUserName(&request.Requester)
 		resp.RequesterUsername = shared.ResolveUserUsername(&request.Requester)
 	}
 
-	// Resolve fulfiller name + username
 	if request.Fulfiller != nil && request.Fulfiller.ID > 0 {
 		resp.FulfillerName = shared.ResolveUserName(request.Fulfiller)
 		resp.FulfillerUsername = shared.ResolveUserUsername(request.Fulfiller)
