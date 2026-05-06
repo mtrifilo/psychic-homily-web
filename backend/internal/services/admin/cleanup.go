@@ -16,6 +16,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/notification"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Default cleanup interval (24 hours)
@@ -97,10 +98,15 @@ func NewCleanupService(database *gorm.DB, userSvc cleanupUserService) *CleanupSe
 	}
 }
 
-// Start begins the background cleanup job
+// Start begins the background cleanup job.
+//
+// Account cleanup and tag prune run on two independent goroutines (one
+// per ticker) so a panic in one cycle can't take down the other.
 func (s *CleanupService) Start(ctx context.Context) {
 	s.wg.Add(1)
-	go s.run(ctx)
+	go s.runCleanupLoop(ctx)
+	s.wg.Add(1)
+	go s.runTagPruneLoop(ctx)
 	s.logger.Info("account cleanup service started",
 		"interval_hours", s.interval.Hours(),
 		"tag_prune_enabled", s.tagPruneEnabled,
@@ -109,42 +115,28 @@ func (s *CleanupService) Start(ctx context.Context) {
 	)
 }
 
-// Stop gracefully stops the cleanup service
+// Stop gracefully stops the cleanup service.
+// Both ticker loops watch the same stopCh, so one close drains both.
 func (s *CleanupService) Stop() {
 	close(s.stopCh)
 	s.wg.Wait()
 	s.logger.Info("account cleanup service stopped")
 }
 
-// run is the main loop for the cleanup service.
-// Runs account cleanup and tag prune on independent tickers in a single goroutine.
-func (s *CleanupService) run(ctx context.Context) {
+// runCleanupLoop runs the account cleanup cycle on its own ticker.
+func (s *CleanupService) runCleanupLoop(ctx context.Context) {
 	defer s.wg.Done()
+	shared.RunTickerLoop(ctx, "cleanup_accounts", s.interval, s.stopCh, true, func(_ context.Context) {
+		s.runCleanupCycle()
+	})
+}
 
-	// Run immediately on startup
-	s.runCleanupCycle()
-	s.runTagPruneCycle(ctx)
-
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-
-	tagPruneTicker := time.NewTicker(s.tagPruneInterval)
-	defer tagPruneTicker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("cleanup service context cancelled")
-			return
-		case <-s.stopCh:
-			s.logger.Info("cleanup service received stop signal")
-			return
-		case <-ticker.C:
-			s.runCleanupCycle()
-		case <-tagPruneTicker.C:
-			s.runTagPruneCycle(ctx)
-		}
-	}
+// runTagPruneLoop runs the entity-tags prune cycle on its own ticker.
+func (s *CleanupService) runTagPruneLoop(ctx context.Context) {
+	defer s.wg.Done()
+	shared.RunTickerLoop(ctx, "cleanup_tag_prune", s.tagPruneInterval, s.stopCh, true, func(c context.Context) {
+		s.runTagPruneCycle(c)
+	})
 }
 
 // runCleanupCycle performs a single cleanup cycle

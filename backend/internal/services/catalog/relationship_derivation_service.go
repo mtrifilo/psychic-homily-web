@@ -7,6 +7,8 @@ import (
 	"strconv"
 	"sync"
 	"time"
+
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // DefaultDerivationInterval is the default interval for relationship derivation (24 hours).
@@ -63,24 +65,12 @@ func (s *RelationshipDerivationService) Stop() {
 }
 
 // runLoop runs the periodic derivation cycle.
+// No startup cycle — the admin endpoint is used for immediate triggering.
 func (s *RelationshipDerivationService) runLoop(ctx context.Context) {
 	defer s.wg.Done()
-
-	// Don't run immediately on startup — let the server initialize first.
-	// The admin endpoint can be used for immediate triggering.
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.stopCh:
-			return
-		case <-ticker.C:
-			s.RunDerivationCycle()
-		}
-	}
+	shared.RunTickerLoop(ctx, "relationship_derivation", s.interval, s.stopCh, false, func(_ context.Context) {
+		s.RunDerivationCycle()
+	})
 }
 
 // RunDerivationCycle runs both shared_bills and shared_label derivation.
