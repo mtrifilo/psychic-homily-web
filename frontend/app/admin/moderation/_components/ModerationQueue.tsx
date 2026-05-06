@@ -992,7 +992,6 @@ export function ModerationQueue() {
     return () => clearTimeout(timer)
   }, [lastAction])
 
-  // Clear the banner when the admin switches filter tabs.
   useEffect(() => {
     setLastAction(null)
   }, [itemTypeFilter, entityTypeFilter])
@@ -1090,9 +1089,6 @@ export function ModerationQueue() {
 
   return (
     <div className="space-y-4">
-      {/* PSY-603: page-level success banner for Approve / Reject. Reuses the
-          PSY-562 pattern (green border + Check icon) from EntityEditDrawer.
-          Auto-dismisses after 5s or clears on filter change (see effects above). */}
       {lastAction && <ModerationSuccessBanner action={lastAction} />}
 
       {/* Filter bar */}
