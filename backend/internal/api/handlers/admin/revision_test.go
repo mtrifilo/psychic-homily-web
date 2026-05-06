@@ -109,6 +109,55 @@ func TestRevisionHandler_GetEntityHistory_Success(t *testing.T) {
 	}
 }
 
+// TestRevisionHandler_GetEntityHistory_CreatedAtIsUTC is the PSY-604
+// regression guard. Before the fix, a revision whose CreatedAt was a local
+// time.Time (e.g. served from a DB driver that returns timestamptz in the
+// session TZ) was formatted via t.Format("2006-01-02T15:04:05Z") — Format
+// does NOT convert to UTC, so the literal "Z" in the layout asserted UTC
+// while the value still carried the local clock reading. The frontend
+// then parsed the (correctly-marked-but-wrong) UTC value and rendered the
+// AttributionLine relative time off by exactly the local UTC offset
+// (e.g. "7 hours ago" for Phoenix MST). The fix is to call .UTC() before
+// .Format(...) on this specific field. Test asserts the response field
+// reflects the UTC equivalent of the input time, not the local clock.
+func TestRevisionHandler_GetEntityHistory_CreatedAtIsUTC(t *testing.T) {
+	// 13:00 Phoenix MST (UTC-7) == 20:00 UTC
+	phoenix, err := time.LoadLocation("America/Phoenix")
+	if err != nil {
+		t.Fatalf("failed to load Phoenix location: %v", err)
+	}
+	localTime := time.Date(2026, 5, 4, 13, 0, 0, 0, phoenix)
+
+	rev := makeTestRevision(1)
+	rev.CreatedAt = localTime
+
+	h := NewRevisionHandler(
+		&testhelpers.MockRevisionService{
+			GetEntityHistoryFn: func(entityType string, entityID uint, limit, offset int) ([]adminm.Revision, int64, error) {
+				return []adminm.Revision{rev}, 1, nil
+			},
+		},
+		nil,
+	)
+
+	resp, err := h.GetEntityHistoryHandler(context.Background(), &GetEntityHistoryRequest{
+		EntityType: "artist",
+		EntityID:   "10",
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Revisions) != 1 {
+		t.Fatalf("expected 1 revision, got %d", len(resp.Body.Revisions))
+	}
+
+	got := resp.Body.Revisions[0].CreatedAt
+	want := "2026-05-04T20:00:00Z"
+	if got != want {
+		t.Errorf("CreatedAt timezone drift: got %q, want %q (input was 13:00 Phoenix == 20:00 UTC)", got, want)
+	}
+}
+
 func TestRevisionHandler_GetEntityHistory_InvalidEntityType(t *testing.T) {
 	h := NewRevisionHandler(&testhelpers.MockRevisionService{}, nil)
 

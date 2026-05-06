@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -113,7 +114,12 @@ func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 		UserID:       r.UserID,
 		UserName:     resolveRevisionUserName(&r.User),
 		UserUsername: resolveRevisionUserUsername(&r.User),
-		CreatedAt:    r.CreatedAt.Format("2006-01-02T15:04:05Z"),
+		// PSY-604: must convert to UTC before formatting — the literal "Z"
+		// in the layout asserts the value is UTC but Format does not convert.
+		// A local time.Time would otherwise be stamped with "Z" while still
+		// carrying the local clock reading, drifting relative-time renders by
+		// the local UTC offset (e.g. 7h on Phoenix MST).
+		CreatedAt:    r.CreatedAt.UTC().Format(time.RFC3339),
 	}
 
 	item.Summary = shared.Deref(r.Summary)
