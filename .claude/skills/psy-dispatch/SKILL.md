@@ -52,7 +52,9 @@ These are the non-negotiables. They are encoded in the per-agent prompt template
 
 ### Pre-flight: sync local main + verify main CI is green
 
-Before reading tickets, do BOTH steps. They cover two independent failure modes that compound at batch scale.
+Before reading tickets, do all THREE steps. They cover three independent failure modes that compound at batch scale.
+
+**Skill-currency check (preliminary, before Step A).** If a `psy-dispatch` SKILL.md update has been merged in this session — check via `git -C <main-repo> log --oneline -10 -- .claude/skills/psy-dispatch/SKILL.md` and look for commits whose timestamps post-date the start of your session — re-read the file via `Read .claude/skills/psy-dispatch/SKILL.md` BEFORE drafting agent prompts. Your in-memory snapshot was loaded when the skill was first invoked; if the user has merged a rule-10-style addition mid-session, prompts authored from the stale snapshot will not reflect it (e.g. agents won't run manual repro, won't `go build` before `go test`, won't use the new PR template). **Caught: May 2026 dogfix-2 (PSY-601/613/616)** — wave-2 agents shipped sound PRs but missed the just-merged manual-repro convention because the orchestrator drafted from a pre-merge snapshot.
 
 **Step A — Confirm main repo HEAD is on `main`, then sync with origin.** Worktrees branch off the main repo's CURRENT HEAD — NOT the named `main` ref — so two failure modes compound here: (1) a non-`main` HEAD inherits unrelated side-branch commits into every dispatched PR; (2) a stale main inherits stale-fallout from work that merged in the meantime.
 
@@ -93,6 +95,21 @@ Read the most recent run with `status: "completed"` (skip in-progress runs from 
 - All recent completed runs are in-progress or pending → wait briefly (`gh run watch <id>` on the latest), or surface to user with the in-flight context.
 
 Do NOT silently dispatch on red main and hope CI gets fixed before merge — wasted CI cycles + muddled per-PR signal are real costs that compound across batch size.
+
+**Step C — Audit other in-flight work in the repo.** The orchestrator's job isn't just file-level conflict avoidance for THIS batch but also conceptual-scope avoidance: another agent (a separate Claude session, or a human) may be migrating a primitive your tickets consume, or a recently-merged PR may have invalidated a ticket's premise.
+
+```bash
+git -C <main-repo> worktree list                                                    # other agents' active worktrees → their in-flight branches
+gh pr list --state open --limit 10 --json number,title,headRefName,updatedAt        # open PRs (in-flight or queued for merge)
+linear issue list --team PSY --state "In Progress" --all-assignees                  # tickets currently being worked
+```
+
+Cross-reference the tickets you're about to dispatch against active worktrees + open PRs to identify:
+- **File overlap**: another agent is editing files your ticket would touch → defer or coordinate.
+- **Conceptual overlap**: another agent's ticket modifies a primitive (resolver, drawer component, route group) your ticket consumes → wait for theirs to merge first so your ticket consumes the new shape.
+- **Recent invalidation**: a recently-merged PR (last few hours) may have already addressed your ticket's root cause → re-read the ticket against current code before dispatching, or close it as auto-resolved.
+
+**Caught: May 2026 dogfix-1 (PSY-604/615)** — surfacing another agent's PSY-608/609/610/612 scope made it possible to pick non-overlapping tickets from the start. Without this check, the two batches would have produced colliding PRs in the comment + collection + user-resolver areas.
 
 ### 1. Read every ticket in parallel
 
@@ -182,10 +199,11 @@ Always `--force-with-lease`, never `--force` — bails out if the remote moved (
 
 **Apply orchestrator-pending memory entries.** For each agent that returned a *Proposed memory entries* block in its report (because no in-repo `CLAUDE.md` existed), work through this checklist after PRs are pushed and CI is clean:
 
-1. Read the proposed entry text from the agent's return report.
-2. Locate the target section header in user-level `MEMORY.md` (the agent should have named it; if not, find by topical fit).
-3. Append, OR replace if the new entry resolves an existing caveat (e.g. PSY-612 dropped the "canonical chain is NOT project-wide" caveat from the PSY-353 entry). Keep any one-line index pointer in `MEMORY.md`'s top-level index under ~150 chars per the existing memory rules.
-4. After all entries are applied, verify total `MEMORY.md` size is still under the index-loading limit (`MEMORY.md` shows a warning at the top when overrun). If close, move the longest entries into per-topic files and leave only the index pointer in `MEMORY.md`.
+1. **Re-read user-level `MEMORY.md` BEFORE editing.** The user may be doing parallel housekeeping during the batch — moving long entries into topic files (e.g. `pattern_*.md` pointers in the index), updating in-place caveats as related work merges, or normalising entry structure. The cached file content from your earlier read may be stale by the time you go to apply entries; `Edit` will fail with `"String to replace not found in file"` and you'll waste a turn on diagnosis. **Caught: May 2026 dogfix-2** — user updated the PSY-353 entry in-place (added PSY-612 reference, dropped the in-flight caveat) while orchestrator was working from a stale read; the agent's proposed text targeted the OLD entry shape and the Edit failed. Re-read first, then resolve any drift between the agent's proposal and the current entry shape, then edit.
+2. Read the proposed entry text from the agent's return report.
+3. Locate the target section header in user-level `MEMORY.md` (the agent should have named it; if not, find by topical fit).
+4. Append, OR replace if the new entry resolves an existing caveat (e.g. PSY-612 dropped the "canonical chain is NOT project-wide" caveat from the PSY-353 entry). Keep any one-line index pointer in `MEMORY.md`'s top-level index under ~150 chars per the existing memory rules.
+5. After all entries are applied, verify total `MEMORY.md` size is still under the index-loading limit (`MEMORY.md` shows a warning at the top when overrun). If close, move the longest entries into per-topic files and leave only the index pointer in `MEMORY.md`.
 
 The orchestrator owns the user-level memory file; agents do not edit it from inside their worktrees. Skipping this checklist means the next dispatch operates on stale memory.
 
@@ -290,6 +308,9 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - **Dispatching from a stale local main (whole-batch CI failure).** Worktrees branch off local main; if it's behind origin/main at dispatch time, every PR inherits the same stale base. **The May 2026 dogfix sweep (PSY-558/559/560/561/562)** hit this: local main was 8 commits behind origin/main; two of those commits (PSY-357 + PSY-359) added test files exercising new collection paths; ALL 5 PRs failed the same Backend + E2E suites despite each PR's diff being clean and unrelated to collections. Frontend unit tests passed on every PR — the only suite actually exercising the diff. The signature is **identical CI failure shape across PRs that touch different files**. Pre-flight (sync local main before step 1) catches the stale-at-dispatch case; step 7 catches the moved-during-dispatch case. Recovery is a parallel `git rebase origin/main && git push --force-with-lease origin <branch>` per worktree (per step 7).
 - **Agents writing project-pattern docs to user-level MEMORY.md from inside their worktree.** When the per-agent prompt says "add a CLAUDE.md note" but no project-level `CLAUDE.md` exists in the repo, agents fall through to the user-level memory file at `~/.claude/projects/<project>/memory/MEMORY.md` — which sits OUTSIDE the worktree, OUTSIDE the repo, and OUTSIDE the PR. Same shape as the gitignored-target anti-pattern: edits that don't reach review. **PSY-558 + PSY-559 (May 2026)** both did this; content was correct and ended up in the right file, but it bypassed PR review and bypassed orchestrator visibility. Fix: the per-agent template's *Repo context* + *Reporting back* sections instruct agents to edit in-repo `CLAUDE.md` if present (lands in the PR), otherwise return the proposed entry in their report under *Proposed memory entries* — the orchestrator applies user-level `MEMORY.md` updates in step 7 with full visibility.
 - **Dispatching while the main repo HEAD is on a side branch.** The harness's `isolation: "worktree"` flag creates each worktree off the main repo's CURRENT HEAD, not the named `main` ref. If the user has a feature/skill-update branch checked out at dispatch time, every dispatched PR would inherit that branch's unmerged commits — including the commit that branch was iterating on. **May 2026 dogfix-2 dispatch (PSY-601/613/616)** caught this: orchestrator's `pull --ff-only origin main` failed with `"Diverging branches"` even though local main was strictly behind origin/main; root cause was that the user had `dispatch-skill-level-a-and-fixes` checked out (their in-flight skill iteration). Without the Step-A `branch --show-current` guard, the dispatch would have produced 3 PRs each carrying a stray skill-update commit. Fix encoded in Step-A: check HEAD before sync, switch to `main` (with announcement) if the side branch is clean and synced, STOP and ask if it has uncommitted or unpushed work.
+- **Calling `gh pr view --json merged` instead of `--json mergedAt`.** The field is `mergedAt` (ISO timestamp string when merged, `null` when not). `merged` doesn't exist; the call returns `Unknown JSON field: "merged"` and lists valid fields. Use `--json state,mergedAt` to read both at once. Also useful for the same check: `--json state,statusCheckRollup` for the merged-and-CI-was-green compound check. Caught: May 2026 dogfix-2.
+- **Running `git pull` / `git status` from the orchestrator without `-C <main-repo>` after agents return.** The harness's CWD propagation can leave the orchestrator's shell inside a worktree that just completed; subsequent unscoped `git` calls then run inside the worktree, not the main repo. Symptom: `git pull --ff-only origin main` failing in unexpected ways, or `git status` reporting on the wrong branch. Distinct from the side-branch HEAD anti-pattern: that one is the user's choice, this one is harness CWD propagation. **Always use `git -C /Users/mtrifilo/dev/psychic-homily-web` (or `git -C <main-repo>`) explicitly** for main-repo operations after dispatch returns. If unsure, `pwd` first to verify CWD before running unscoped `git`. Caught: May 2026 dogfix-2 — orchestrator's `pull --ff-only` from the main repo path was actually executing inside a returned-agent worktree because Bash CWD had shifted there.
+- **Drafting agent prompts from a stale skill snapshot when a SKILL.md update has merged mid-session.** Encoded in the new skill-currency check at the top of pre-flight; this entry exists to keep the cost named so the next orchestrator doesn't repeat it. **Caught: May 2026 dogfix-2** — wave-1 orchestrator's snapshot of psy-dispatch SKILL.md was loaded BEFORE the user merged a rule-10 update adding the manual-repro requirement. Wave-2 prompts (PSY-601/613/616) were authored from that pre-merge snapshot; agents shipped sound PRs but skipped the new manual-repro / `go build`-first / new-PR-template conventions. Re-reading the file before dispatch would have caught it.
 
 ## Related skills and memories
 
