@@ -8,6 +8,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CommentForm } from './CommentForm'
+import { MutationErrorBanner } from './MutationErrorBanner'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
   useReplyToComment,
@@ -252,16 +253,14 @@ export function FieldNoteCard({
           optimistic-rollback restores the cached state silently; without
           this, the user sees the icon flip back with no explanation. */}
       {voteError.error !== null && (
-        <div
-          className="mt-3 rounded-md border border-red-800 bg-red-950/50 px-3 py-2"
-          role="alert"
-          data-testid="vote-error-banner"
-        >
-          <p className="text-sm text-red-400">
-            {formatCommentSubmissionError(voteError.error) ??
-              'Vote failed. Please try again.'}
-          </p>
-        </div>
+        <MutationErrorBanner
+          testId="vote-error-banner"
+          marginTop="mt-3"
+          message={
+            formatCommentSubmissionError(voteError.error) ??
+            'Vote failed. Please try again.'
+          }
+        />
       )}
 
       {/* Actions row: votes + reply + report */}

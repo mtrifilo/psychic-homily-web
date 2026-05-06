@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CommentForm } from './CommentForm'
 import { CommentEditHistory } from './CommentEditHistory'
+import { MutationErrorBanner } from './MutationErrorBanner'
 import { ReplyPermissionSelect } from './ReplyPermissionSelect'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
@@ -351,46 +352,34 @@ export function CommentCard({
       )}
 
       {/* PSY-608: sticky banners for non-optimistic owner mutations
-          (delete, change reply-permission). Stay visible until the next
-          retry / success so the user has a chance to read the message. */}
+          (delete, change reply-permission); auto-dismiss for the
+          optimistic vote/unvote rollback path. */}
       {!isEditing && deleteMutation.isError && (
-        <div
-          className="mt-2 rounded-md border border-red-800 bg-red-950/50 px-3 py-2"
-          role="alert"
-          data-testid="delete-error-banner"
-        >
-          <p className="text-sm text-red-400">
-            {formatCommentSubmissionError(deleteMutation.error) ??
-              'Failed to delete comment. Please try again.'}
-          </p>
-        </div>
+        <MutationErrorBanner
+          testId="delete-error-banner"
+          message={
+            formatCommentSubmissionError(deleteMutation.error) ??
+            'Failed to delete comment. Please try again.'
+          }
+        />
       )}
       {!isEditing && updateReplyPermissionMutation.isError && (
-        <div
-          className="mt-2 rounded-md border border-red-800 bg-red-950/50 px-3 py-2"
-          role="alert"
-          data-testid="reply-permission-error-banner"
-        >
-          <p className="text-sm text-red-400">
-            {formatCommentSubmissionError(updateReplyPermissionMutation.error) ??
-              'Failed to update reply permission. Please try again.'}
-          </p>
-        </div>
+        <MutationErrorBanner
+          testId="reply-permission-error-banner"
+          message={
+            formatCommentSubmissionError(updateReplyPermissionMutation.error) ??
+            'Failed to update reply permission. Please try again.'
+          }
+        />
       )}
-      {/* PSY-608: auto-dismiss banner for vote/unvote failures. The
-          optimistic-rollback restores the cached state silently; without
-          this, the user sees the icon flip back with no explanation. */}
       {!isEditing && voteError.error !== null && (
-        <div
-          className="mt-2 rounded-md border border-red-800 bg-red-950/50 px-3 py-2"
-          role="alert"
-          data-testid="vote-error-banner"
-        >
-          <p className="text-sm text-red-400">
-            {formatCommentSubmissionError(voteError.error) ??
-              'Vote failed. Please try again.'}
-          </p>
-        </div>
+        <MutationErrorBanner
+          testId="vote-error-banner"
+          message={
+            formatCommentSubmissionError(voteError.error) ??
+            'Vote failed. Please try again.'
+          }
+        />
       )}
 
       {/* PSY-297: Admin-only edit history trigger.
