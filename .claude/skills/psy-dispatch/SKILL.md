@@ -111,6 +111,16 @@ Cross-reference the tickets you're about to dispatch against active worktrees + 
 
 **Caught: May 2026 dogfix-1 (PSY-604/615)** — surfacing another agent's PSY-608/609/610/612 scope made it possible to pick non-overlapping tickets from the start. Without this check, the two batches would have produced colliding PRs in the comment + collection + user-resolver areas.
 
+**Per-ticket branch + worktree + PR cross-check** (in addition to the broad audit above). For each ticket in this batch, also cross-check whether a branch already exists locally or remotely. The broad worktree/PR list above catches active scope overlap; this narrower per-ticket check catches the orphaned-worktree / parallel-session-mid-flight case:
+
+```bash
+git -C <main-repo> branch -a | grep -iE "PSY-{N}( |/|$)"
+git -C <main-repo> worktree list | grep -iE "PSY-{N}( |/|$)"
+gh pr list --search "PSY-{N}" --state all --json number,state,title,url
+```
+
+If any check turns up a match — a branch exists, a worktree holds it, or any PR (open / merged / closed) is already in place for that ticket — the ticket is NOT a fresh dispatch. See **"Take-over flow when prior partial work exists"** below for the disposition decision tree. Do NOT dispatch a fresh agent on a ticket whose branch is already held by another worktree — `git checkout -b` will fail at the agent's first step, and force-deleting the branch would silently destroy the parallel session's work.
+
 ### 1. Read every ticket in parallel
 
 ```bash
@@ -124,6 +134,20 @@ Scan each description for:
 - Acceptance criteria
 - Pointers to related work (PSY-XXX references, file paths, prior-art examples)
 - Scope blast radius (cross-cutting? local? backend+frontend?)
+
+### Take-over flow when prior partial work exists
+
+When the per-ticket branch + worktree + PR cross-check (Step C) turns up a match for a ticket in this batch, you have a parallel-session race or a paused-mid-flight ticket. Three dispositions, ranked by value:
+
+1. **Take over from the orchestrator (preferred when work is non-trivial).** Inspect the worktree state — `git -C <worktree-path> log main..HEAD --oneline` for committed work, `git -C <worktree-path> status` for uncommitted edits, `gh pr list --search "PSY-{N}"` for any opened PR. If the work is substantive (matches the ticket's AC partially or completely), the orchestrator handles the rest directly — verify the existing commits against AC, run typecheck + tests + manual repro per the per-agent template's steps 4–5, run `/simplify` if not already done, push and open the PR (or `gh pr edit --body` if a PR is already open against an outdated convention). DO NOT dispatch a fresh agent on top — they'd race with whoever was working in that worktree, the branch checkout would fail, and force-deleting would destroy the parallel session's work.
+
+2. **Discard and dispatch fresh (when prior work is sparse or wrong-direction).** If the worktree contains only a few uncommitted edits in the wrong direction OR untracked files that miss the ticket scope, **ask the user before destroying the work**. Use `git restore` for tracked files, surface untracked files with their paths so the user can decide. Then `git worktree remove <path> --force` to free the branch, `git branch -D <branch-name>`, and dispatch a fresh agent.
+
+3. **Skip this ticket in the wave.** If you can't tell whether the parallel session is still actively working — recent commits within the last few minutes, an active claude process holding the worktree — leave the ticket in its current state and surface to user. Don't race.
+
+**Race-condition mitigation:** if a parallel session may still be active, defer the take-over to a separate orchestrator turn. Pushing or editing the worktree mid-flight to another session would corrupt their state.
+
+**Canonical example: PSY-613 (May 2026).** A parallel claude session had partial work in `agent-ab5cb884f857468a0`. When the orchestrator's pre-flight tried to delete what looked like an empty branch, the delete failed because the worktree held it. Inspecting the worktree showed: 2 commits (initial implementation + simplify pass), clean working tree, no PR yet. The orchestrator took over (verified, pushed, PR'd, edited the PR body to follow the new convention). Result: clean PR #563 without a competing agent, no wasted CI cycle, and the parallel session's work was preserved.
 
 ### 2. Surface ambiguity (mandatory)
 
@@ -175,6 +199,12 @@ When all agents have returned (or as each returns):
 - Flag any agent that reported a STOP / blocker / open question — that takes precedence over reporting the others.
 - Do NOT include diffs in the summary. PRs carry the diff.
 - **Verify isolation post-hoc.** Run `git status` from the main repo and `gh pr view <PR> --json files` for each PR. Each PR's file list should match the ticket's stated scope; the main repo should have no uncommitted changes from any agent (only the pre-existing untracked files from session start). If you find leakage, the agent's recovery procedure should have handled it — but verify rather than trust.
+- **Verify PR body convention compliance.** For each PR opened, confirm the body contains the current convention's required sections:
+   ```bash
+   gh pr view <PR> --json body --jq .body | grep -cE "^## (Manual repro|Simplify)"
+   # Expected: 2 — one ## Manual repro header + one ## Simplify header.
+   ```
+   If sections are missing — typically because a parallel session opened the PR off a stale skill snapshot, OR an orchestrator-takeover inherited a PR opened before a convention update merged — edit the body via `gh pr edit <PR> --body "<new content>"` to bring it up to spec. Reuse the agent's return-message details (Manual repro and Simplify outcomes) verbatim where possible; the convention exists so reviewers can audit verification from the PR alone, not from the agent's chat trace. **Caught: May 2026 dogfix-2 (PR #563)** — parallel session opened PSY-613's PR before PR #559 (the convention-adding skill update) merged; orchestrator took over and edited the body to add the missing `## Manual repro` + `## Simplify` sections. Without this check, drift accumulates: each merged off-spec PR sets a precedent that the next reviewer accepts.
 
 ### 7. Stale-base recovery + apply orchestrator-pending memory entries
 
@@ -248,8 +278,9 @@ Fix PSY-{N}: {ticket title}.
    - **STOP if any test fails.** Do not try to debug whether the failure is "pre-existing" or whether your diff caused it — that's the orchestrator's call, and the orchestrator will escalate to the user. Report back with: failing test name, error excerpt, the exact command you ran, and your one-sentence hypothesis. Do NOT proceed to commit/push. The judgment "this is pre-existing on main, safe to push" is NOT yours to make. Pushing untested or known-failing code is the single worst pattern this skill exists to prevent.
 5. **Manual repro the change end-to-end.** Tests verify the contract the agent wrote; manual repro verifies the user-facing behaviour matches the ticket. Skipping this because "tests passed" fails the engineering bar — per CLAUDE.md: *"Type checking and test suites verify code correctness, not feature correctness."*
    - **Frontend changes:** start the dev server on a FREE PORT (e.g. `cd frontend && PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()") && bun run dev --port $PORT`) — sharing port 3000 with the orchestrator or other parallel agents will fail. Connect to the existing dev backend at the standard port (read paths and most write paths share fine in this repo; if the change exercises rate-limited or singleton state, flag it and serialize across the batch). Use `chrome-devtools` MCP or `agent-browser` to navigate to the affected screen, exercise the canonical failing path the ticket described, and capture a screenshot of the new behaviour into `dogfood-output/PSY-{N}/screenshots/<short-name>.png`. STOP if the canonical failure mode does NOT now surface in the UI — the fix is incomplete; iterate from step 3 before proceeding.
-   - **Backend changes:** EITHER hit the affected endpoint(s) via `curl` against a backend you started in your worktree on a free port, OR write/extend a focused integration test that drives the change end-to-end through the real stack (preferred — faster, no DB setup). Capture the request + response (or test output) verbatim. STOP if the response shape diverges from the ticket's expectation.
+   - **Backend changes: integration tests are the canonical manual repro.** Write or extend a focused integration test that drives the change end-to-end through the real stack — exact-message assertions, response-shape assertions, all AC cases covered. **PSY-592 (May 2026)** is the canonical example: three tests (`_EmptyPermission`, `_InvalidEnum`, `_AcceptsAllValidEnumValues`), each asserting the exact response body. The test name + assertion outcome is what goes in the PR body's *Manual repro* section. Use `curl` against a backend you started on a free port ONLY when the test harness genuinely can't reach the path (rare — most paths have a test entrypoint). Capture the request + response (or test output) verbatim. STOP if the response shape diverges from the ticket's expectation.
    - **Docs-only PRs (no code path):** no manual repro applicable. Note `"docs-only, no manual repro applicable"` in your report and PR body.
+   - **Render-only refactor carveout.** Pure refactors that don't change behaviour (extracting a primitive across N existing call sites, renaming a prop, consolidating duplicate render logic) verify the user-facing surface via unit tests asserting on rendered DOM output. If the local dev environment can't run end-to-end (backend unavailable on standard port, port conflict, DB seed missing), the agent MAY proceed with an honest-disclosure Manual repro section: *"Unit tests at `<file>` (N lines, M cases) cover the rendered output for all affected surfaces. Local navigation-level smoke skipped because <reason>. Recommended pre-merge: spot-check on Vercel preview or local-with-backend."* This is **NOT a free pass** to skip manual repro — it's specifically for refactors where unit-test DOM assertions cover what manual repro would verify, AND the local environment genuinely can't run. Surface the limitation explicitly per CLAUDE.md "if you can't test the UI, say so explicitly rather than claiming success." Most often invoked during an orchestrator-takeover (Step 1's take-over flow) of a render-only refactor where the dev backend isn't running. **Canonical example: PSY-613 (May 2026)** — orchestrator-takeover of a `<UserAttribution />` primitive extraction (10 inline implementations replaced); 3080 unit tests + 137-line `UserAttribution.test.tsx` covered the rendered output; backend not running locally; PR body explicitly disclosed the gap and recommended a pre-merge spot-check.
 6. **Pre-commit isolation check.** Run `git status` from your worktree. Then run `git -C <main-repo-path> status` (the main repo absolute path). If the main repo shows YOUR file changes uncommitted, the harness CWD didn't propagate — recovery procedure:
    - Copy your edits from the main repo into your worktree (`cp` with absolute paths).
    - In the main repo, `git restore <leaked-paths>` to revert (use `git restore`, not `git checkout .` or `git clean` — both can wipe unrelated untracked files).
