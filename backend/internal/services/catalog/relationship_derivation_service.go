@@ -65,8 +65,7 @@ func (s *RelationshipDerivationService) Stop() {
 }
 
 // runLoop runs the periodic derivation cycle.
-// Panic recovery via shared.RunTickerLoop (PSY-615). Does NOT run on startup —
-// the admin endpoint is used for immediate triggering.
+// No startup cycle — the admin endpoint is used for immediate triggering.
 func (s *RelationshipDerivationService) runLoop(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "relationship_derivation", s.interval, s.stopCh, false, func(_ context.Context) {

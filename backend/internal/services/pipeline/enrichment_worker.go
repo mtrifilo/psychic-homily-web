@@ -56,8 +56,7 @@ func (w *EnrichmentWorker) Stop() {
 }
 
 // run is the main loop for the enrichment worker.
-// Panic recovery via shared.RunTickerLoop (PSY-615). The enrichment worker
-// does NOT run a startup cycle — it waits one interval before processing.
+// No startup cycle — waits one interval before the first tick.
 func (w *EnrichmentWorker) run(ctx context.Context) {
 	defer w.wg.Done()
 	shared.RunTickerLoop(ctx, "enrichment_worker", w.interval, w.stopCh, false, func(c context.Context) {

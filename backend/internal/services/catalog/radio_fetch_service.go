@@ -115,8 +115,7 @@ func (s *RadioFetchService) Stop() {
 	s.logger.Info("radio fetch service stopped")
 }
 
-// runFetchLoop runs the periodic station fetch cycle.
-// Panic recovery via shared.RunTickerLoop (PSY-615). Runs once on startup.
+// runFetchLoop runs the periodic station fetch cycle. Runs once on startup.
 func (s *RadioFetchService) runFetchLoop(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "radio_fetch", s.fetchInterval, s.stopCh, true, func(_ context.Context) {
@@ -125,8 +124,7 @@ func (s *RadioFetchService) runFetchLoop(ctx context.Context) {
 }
 
 // runAffinityLoop runs the periodic affinity computation.
-// Panic recovery via shared.RunTickerLoop (PSY-615). Does NOT run on startup —
-// the first fetch cycle is allowed to complete first.
+// No startup cycle — the first fetch cycle is allowed to complete first.
 func (s *RadioFetchService) runAffinityLoop(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "radio_affinity", s.affinityInterval, s.stopCh, false, func(_ context.Context) {
@@ -135,8 +133,7 @@ func (s *RadioFetchService) runAffinityLoop(ctx context.Context) {
 }
 
 // runReMatchLoop runs the periodic re-matching of unmatched plays.
-// Panic recovery via shared.RunTickerLoop (PSY-615). Does NOT run on startup —
-// the first fetch cycle is allowed to complete first.
+// No startup cycle — the first fetch cycle is allowed to complete first.
 func (s *RadioFetchService) runReMatchLoop(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "radio_rematch", s.rematchInterval, s.stopCh, false, func(_ context.Context) {

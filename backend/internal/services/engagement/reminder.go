@@ -87,9 +87,6 @@ func (s *ReminderService) Stop() {
 }
 
 // run is the main loop for the reminder service.
-// Panic recovery is provided by shared.RunTickerLoop (PSY-615): a panic
-// in a single tick is logged and the loop continues; a panic in the
-// ticker setup is logged and the loop returns.
 func (s *ReminderService) run(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "reminder", s.interval, s.stopCh, true, func(_ context.Context) {

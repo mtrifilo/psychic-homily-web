@@ -112,11 +112,10 @@ func (s *CollectionDigestService) Stop() {
 	s.logger.Info("collection digest service stopped")
 }
 
-// run is the main loop for the digest service.
-// Panic recovery via shared.RunTickerLoop (PSY-615). Runs once on startup —
-// admins exercising the service don't have to wait a full interval to see
-// output. The job is idempotent — running twice in a row sends nothing the
-// second time because cursors moved.
+// run is the main loop for the digest service. Runs once on startup so
+// admins exercising the service don't wait a full interval to see output.
+// The job is idempotent — running twice in a row sends nothing the second
+// time because cursors moved.
 func (s *CollectionDigestService) run(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "collection_digest", s.interval, s.stopCh, true, func(_ context.Context) {

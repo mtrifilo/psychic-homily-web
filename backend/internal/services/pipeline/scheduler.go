@@ -116,7 +116,6 @@ func (s *SchedulerService) Stop() {
 }
 
 // run is the main loop for the scheduler.
-// Panic recovery via shared.RunTickerLoop (PSY-615).
 func (s *SchedulerService) run(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "scheduler", s.interval, s.stopCh, true, func(_ context.Context) {

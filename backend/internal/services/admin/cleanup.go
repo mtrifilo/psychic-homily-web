@@ -100,10 +100,8 @@ func NewCleanupService(database *gorm.DB, userSvc cleanupUserService) *CleanupSe
 
 // Start begins the background cleanup job.
 //
-// PSY-615: account cleanup and tag prune run on two independent goroutines
-// (one per ticker) so a panic in one cycle can't take down the other. Each
-// loop is wrapped in shared.RunTickerLoop for panic recovery + isolated
-// per-tick recover.
+// Account cleanup and tag prune run on two independent goroutines (one
+// per ticker) so a panic in one cycle can't take down the other.
 func (s *CleanupService) Start(ctx context.Context) {
 	s.wg.Add(1)
 	go s.runCleanupLoop(ctx)
@@ -118,8 +116,7 @@ func (s *CleanupService) Start(ctx context.Context) {
 }
 
 // Stop gracefully stops the cleanup service.
-// Both ticker loops watch the same stopCh + ctx, so a single close + wait
-// drains both goroutines.
+// Both ticker loops watch the same stopCh, so one close drains both.
 func (s *CleanupService) Stop() {
 	close(s.stopCh)
 	s.wg.Wait()
