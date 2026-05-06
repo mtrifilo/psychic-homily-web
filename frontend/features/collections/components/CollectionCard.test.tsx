@@ -259,6 +259,62 @@ describe('CollectionCard', () => {
     expect(screen.queryByText(/new$/)).not.toBeInTheDocument()
   })
 
+  // PSY-582: render the FULL entity-type breakdown so badge counts always
+  // sum to item_count. Previous behaviour silently sliced to the top 2
+  // entity types, producing math discrepancies on the card (e.g. "3 artists
+  // 1 festival" + "7 items" with no indication of the 3 missing types).
+  describe('entity-type breakdown (PSY-582)', () => {
+    it('renders a badge for every entity type, no truncation', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        item_count: 7,
+        entity_type_counts: {
+          venue: 1,
+          artist: 3,
+          release: 1,
+          label: 1,
+          festival: 1,
+        },
+      }
+      render(<CollectionCard collection={collection} />)
+
+      expect(screen.getByText('3 artists')).toBeInTheDocument()
+      expect(screen.getByText('1 venue')).toBeInTheDocument()
+      expect(screen.getByText('1 release')).toBeInTheDocument()
+      expect(screen.getByText('1 label')).toBeInTheDocument()
+      expect(screen.getByText('1 festival')).toBeInTheDocument()
+    })
+
+    it('counts on the breakdown badges sum to item_count', () => {
+      const collection: Collection = {
+        ...baseCollection,
+        item_count: 7,
+        entity_type_counts: {
+          venue: 1,
+          artist: 3,
+          release: 1,
+          label: 1,
+          festival: 1,
+        },
+      }
+      const { container } = render(<CollectionCard collection={collection} />)
+
+      // Pull the leading integer off every breakdown badge and sum them.
+      // We match against the known label suffixes so other badges (Featured,
+      // Collaborative, "5 items", etc.) don't get caught.
+      const badges = Array.from(container.querySelectorAll('span,div'))
+        .map((el) => el.textContent ?? '')
+        .filter((t) =>
+          /^\d+\s+(artist|venue|show|release|label|festival)s?$/.test(t.trim())
+        )
+      const sum = badges.reduce((acc, t) => {
+        const match = t.trim().match(/^(\d+)/)
+        return acc + (match ? Number(match[1]) : 0)
+      }, 0)
+      expect(sum).toBe(7)
+    })
+  })
+
   // ──────────────────────────────────────────────
   // PSY-352: like toggle
   // ──────────────────────────────────────────────

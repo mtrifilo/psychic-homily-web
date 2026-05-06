@@ -100,15 +100,19 @@ export function CollectionCard({ collection }: CollectionCardProps) {
 
   const isLikePending = likeMutation.isPending || unlikeMutation.isPending
 
-  const topEntityTypes = Object.entries(collection.entity_type_counts ?? {})
+  // PSY-582: render the FULL entity-type breakdown so badge counts always
+  // sum to item_count. Slicing to top-N silently dropped types (the original
+  // truncation showed only 2) and produced cards where "3 artists 1 festival"
+  // didn't add up to the displayed "7 items". Most collections have ≤5
+  // entity types so the badges still wrap cleanly at narrow widths; matches
+  // the detail-page rendering. Keep the count-desc sort so the largest
+  // bucket leads.
+  const entityTypeBreakdown = Object.entries(collection.entity_type_counts ?? {})
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 2)
 
-  // Get up to 4 entity type icons for the mosaic placeholder
-  const mosaicTypes = Object.entries(collection.entity_type_counts ?? {})
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 4)
-    .map(([type]) => type)
+  // Get up to 4 entity type icons for the mosaic placeholder. The mosaic
+  // fallback is space-bounded (4 icons in a 2x2 grid), so this slice stays.
+  const mosaicTypes = entityTypeBreakdown.slice(0, 4).map(([type]) => type)
 
   return (
     <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
@@ -192,7 +196,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
                 Collaborative
               </Badge>
             )}
-            {topEntityTypes.map(([type, count]) => (
+            {entityTypeBreakdown.map(([type, count]) => (
               <Badge
                 key={type}
                 variant="outline"
