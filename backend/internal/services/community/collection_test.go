@@ -3167,3 +3167,141 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_ImageURL_NilWh
 	suite.Nil(detail.Items[0].ImageURL,
 		"whitespace-only image URLs should normalize to nil so the frontend renders the typed-icon fallback")
 }
+
+// =============================================================================
+// Group 16 (PSY-583): GetEntityCollections privacy filter
+// =============================================================================
+//
+// The "In Collections" backlinks block is built from GetEntityCollections.
+// Public collections are visible to everyone. Private collections are
+// visible only to their creator — anonymous viewers and authenticated
+// non-owners must NOT see them in the entity backlinks.
+//
+// The fixture seeds one public + one private collection by the same
+// owner, both containing the same artist, and asserts what each viewer
+// class sees.
+
+// TestGetEntityCollections_AnonymousViewerSeesOnlyPublic verifies that
+// an unauthenticated caller (viewerID == 0) sees public collections but
+// NOT the owner's private collection containing the same entity.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetEntityCollections_AnonymousViewerSeesOnlyPublic() {
+	owner := suite.createTestUser("BacklinkOwner")
+	artist := suite.createTestArtist(fmt.Sprintf("Backlink Anon %d", time.Now().UnixNano()))
+
+	pub := suite.createPublicCollection(owner, "Backlink Public")
+	_, err := suite.collectionService.AddItem(pub.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	priv := suite.createBasicCollection(owner, "Backlink Private")
+	_, err = suite.collectionService.AddItem(priv.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.GetEntityCollections(
+		communitym.CollectionEntityArtist, artist.ID, 0, 10,
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1, "anonymous viewer must see exactly the public collection")
+	suite.Equal(pub.ID, resp[0].ID)
+}
+
+// TestGetEntityCollections_NonOwnerSeesOnlyPublic verifies that an
+// authenticated viewer who is NOT the creator sees public collections
+// but not the creator's private collection.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetEntityCollections_NonOwnerSeesOnlyPublic() {
+	owner := suite.createTestUser("BacklinkOwnerNonOwnerCase")
+	other := suite.createTestUser("BacklinkOtherViewer")
+	artist := suite.createTestArtist(fmt.Sprintf("Backlink NonOwner %d", time.Now().UnixNano()))
+
+	pub := suite.createPublicCollection(owner, "Backlink Public NonOwner Case")
+	_, err := suite.collectionService.AddItem(pub.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	priv := suite.createBasicCollection(owner, "Backlink Private NonOwner Case")
+	_, err = suite.collectionService.AddItem(priv.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.GetEntityCollections(
+		communitym.CollectionEntityArtist, artist.ID, other.ID, 10,
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1, "non-owner authenticated viewer must see only the public collection")
+	suite.Equal(pub.ID, resp[0].ID)
+}
+
+// TestGetEntityCollections_OwnerSeesPublicAndOwnPrivate verifies that
+// the creator sees their own private collections in the entity backlinks
+// — the bug PSY-583 fixes. Public collections continue to appear too.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetEntityCollections_OwnerSeesPublicAndOwnPrivate() {
+	owner := suite.createTestUser("BacklinkOwnerCase")
+	artist := suite.createTestArtist(fmt.Sprintf("Backlink Owner %d", time.Now().UnixNano()))
+
+	pub := suite.createPublicCollection(owner, "Backlink Public Owner Case")
+	_, err := suite.collectionService.AddItem(pub.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	priv := suite.createBasicCollection(owner, "Backlink Private Owner Case")
+	_, err = suite.collectionService.AddItem(priv.Slug, owner.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	resp, err := suite.collectionService.GetEntityCollections(
+		communitym.CollectionEntityArtist, artist.ID, owner.ID, 10,
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 2, "owner must see both their public and private collections containing the entity")
+
+	ids := map[uint]bool{resp[0].ID: true, resp[1].ID: true}
+	suite.True(ids[pub.ID], "owner result set must include the public collection")
+	suite.True(ids[priv.ID], "owner result set must include their own private collection (PSY-583)")
+}
+
+// TestGetEntityCollections_OtherUsersPrivateInvisible_ToOwner ensures
+// the privacy filter is scoped to the viewer's OWN private collections —
+// a viewer who happens to also own private collections does not gain
+// visibility into a different user's private collections.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetEntityCollections_OtherUsersPrivateInvisible_ToOwner() {
+	ownerA := suite.createTestUser("BacklinkOwnerA")
+	ownerB := suite.createTestUser("BacklinkOwnerB")
+	artist := suite.createTestArtist(fmt.Sprintf("Backlink Cross %d", time.Now().UnixNano()))
+
+	// Owner A has a private collection containing the artist.
+	privA := suite.createBasicCollection(ownerA, "A Private")
+	_, err := suite.collectionService.AddItem(privA.Slug, ownerA.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	// Owner B has a private collection ALSO containing the artist.
+	privB := suite.createBasicCollection(ownerB, "B Private")
+	_, err = suite.collectionService.AddItem(privB.Slug, ownerB.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   artist.ID,
+	})
+	suite.Require().NoError(err)
+
+	// Owner A queries — should see only their own private, not B's.
+	resp, err := suite.collectionService.GetEntityCollections(
+		communitym.CollectionEntityArtist, artist.ID, ownerA.ID, 10,
+	)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 1, "owner A must see only their own private collection, not owner B's")
+	suite.Equal(privA.ID, resp[0].ID)
+}
