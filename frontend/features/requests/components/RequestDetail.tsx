@@ -254,13 +254,9 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     </span>
                   </div>
 
-                  {/* PSY-613: requester byline. Backend ships
-                      requester_name via the canonical resolver chain
-                      (PSY-612) but does not yet ship requester_username;
-                      we render plain text until the contract is extended.
-                      The previous code linked /users/{requester_name},
-                      which 404s for non-username display strings, and
-                      fell back to "User #{id}" — both removed. */}
+                  {/* PSY-613: byline is unlinked because the request DTO
+                      doesn't ship requester_username yet. Once the contract
+                      is extended, swap `null` for `request.requester_username`. */}
                   <p className="text-sm text-muted-foreground mt-2">
                     Requested by{' '}
                     <UserAttribution

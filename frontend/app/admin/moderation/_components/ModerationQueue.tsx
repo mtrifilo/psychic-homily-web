@@ -159,9 +159,10 @@ function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
           </span>
         </div>
 
-        {/* Meta. PSY-613: byline via shared UserAttribution. The
-            moderation contract doesn't ship submitter_username yet, so we
-            pass null and the primitive renders plain text. */}
+        {/* PSY-613: bylines on this page are unlinked because the moderation
+            DTOs don't currently ship submitter_username / reporter_username /
+            author_username. Once the contract is extended, swap `null` for
+            the corresponding *_username field. */}
         <div className="mt-2 text-sm text-muted-foreground">
           <span>
             by{' '}
@@ -343,9 +344,6 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              {/* PSY-613: byline via shared UserAttribution. The
-                  moderation report contract doesn't ship reporter_username
-                  yet, so we pass null and the primitive renders plain text. */}
               by{' '}
               <UserAttribution
                 name={report.reporter_name}
@@ -492,9 +490,6 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
           </span>
         </div>
 
-        {/* Meta. PSY-613: byline via shared UserAttribution. The moderation
-            comment contract doesn't ship author_username yet, so we pass
-            null and the primitive renders plain text. */}
         <div className="mt-2 text-sm text-muted-foreground flex items-center flex-wrap gap-2">
           <span>
             by{' '}
@@ -677,9 +672,6 @@ function CommentReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              {/* PSY-613: byline via shared UserAttribution. The
-                  moderation report contract doesn't ship reporter_username
-                  yet, so we pass null and the primitive renders plain text. */}
               by{' '}
               <UserAttribution
                 name={report.reporter_name}
@@ -876,9 +868,6 @@ function CollectionReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              {/* PSY-613: byline via shared UserAttribution. The
-                  moderation report contract doesn't ship reporter_username
-                  yet, so we pass null and the primitive renders plain text. */}
               by{' '}
               <UserAttribution
                 name={report.reporter_name}

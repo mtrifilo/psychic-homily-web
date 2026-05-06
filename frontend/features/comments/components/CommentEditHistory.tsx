@@ -161,10 +161,8 @@ function EditTransition({
   edit: CommentEditHistoryEntry
   nextBody: string
 }) {
-  // PSY-613: drop the "user #${id}" debug fallback (it leaks an internal DB
-  // row id and reads like placeholder content). The backend's canonical
-  // resolver (PSY-612) guarantees editor_name is non-empty for users with
-  // ID > 0; "unknown editor" is reserved for absent/anonymous payloads.
+  // editor_name is server-resolved via the canonical chain (PSY-612), so
+  // "unknown editor" only fires for absent / anonymous payloads.
   const editorLabel = edit.editor_username
     ? `@${edit.editor_username}`
     : edit.editor_name || 'unknown editor'

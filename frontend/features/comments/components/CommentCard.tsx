@@ -146,10 +146,6 @@ export function CommentCard({
 
   return (
     <div className={depthMargin} data-testid="comment-card">
-      {/* Header: author + timestamp. PSY-552: link byline to the author's
-          profile when author_username is set; otherwise plain text (matches
-          PSY-353 collection attribution). PSY-613: extracted into the
-          shared UserAttribution primitive. */}
       <div className="flex items-center gap-2 text-sm">
         <UserAttribution
           name={comment.author_name}

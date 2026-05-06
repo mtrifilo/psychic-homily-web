@@ -120,10 +120,6 @@ export function FieldNoteCard({
 
   return (
     <div data-testid="field-note-card" className="rounded-lg border border-border/50 bg-card p-4">
-      {/* Header: author + verified badge + timestamp. PSY-552: link byline
-          to the author's profile when author_username is set; otherwise
-          plain text. PSY-613: extracted into the shared UserAttribution
-          primitive. */}
       <div className="flex items-center gap-2 text-sm">
         <UserAttribution
           name={comment.author_name}
