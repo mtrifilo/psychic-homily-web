@@ -46,6 +46,7 @@ These are the non-negotiables. They are encoded in the per-agent prompt template
 7. **Use `isolation: "worktree"` and `run_in_background: true`** on every dispatched Agent call. Running in the main worktree blocks other agents and defeats the purpose of the batch.
 8. **Verify worktree isolation.** `isolation: "worktree"` is necessary but not sufficient — in the May 2026 dogfood batch, 2 of 6 agents had Edit/Write tool calls land in the main worktree's CWD instead of their isolated worktree. Each agent must verify CWD via `pwd` and `git rev-parse --show-toplevel` before editing, and must run a recovery procedure if leakage is detected (see per-agent template). The orchestrator must verify each PR's diff matches the ticket's stated scope before declaring the batch done.
 9. **Verify base currency before AND after dispatch.** Worktrees branch off local main; a stale base produces stale-fallout CI failures from unrelated work that landed during dispatch. Pre-flight (before step 1): sync local main with origin/main. After step 6: re-fetch and rebase if origin/main moved during dispatch. See the stale-base anti-pattern below for the canonical May 2026 dogfix-sweep example.
+10. **Manual repro before opening the PR.** Each agent must exercise the change end-to-end before pushing — local dev + screenshot for frontend, `curl` or a focused integration test for backend — and attach the artifact to the PR body's *Manual repro* section. Tests verify the contract the agent wrote (code-correct); manual repro verifies the user-facing behaviour matches the ticket (feature-correct). Per CLAUDE.md: *"Type checking and test suites verify code correctness, not feature correctness."* An empty Manual repro = the orchestrator treats the PR as unverified and escalates as a process violation.
 
 ## Workflow
 
@@ -167,7 +168,14 @@ git -C <worktree> push --force-with-lease origin <branch>
 
 Always `--force-with-lease`, never `--force` — bails out if the remote moved (someone pushed during the rebase) instead of overwriting their work. If a rebase produces conflicts, stop and surface the conflict to the user; don't auto-resolve.
 
-**Apply orchestrator-pending memory entries.** If any agent returned a *Proposed memory entries* block in its report (because no in-repo `CLAUDE.md` existed), apply those entries to user-level `MEMORY.md` here — after PRs are pushed and CI is clean. The orchestrator owns the user-level memory file; agents do not edit it from inside their worktrees.
+**Apply orchestrator-pending memory entries.** For each agent that returned a *Proposed memory entries* block in its report (because no in-repo `CLAUDE.md` existed), work through this checklist after PRs are pushed and CI is clean:
+
+1. Read the proposed entry text from the agent's return report.
+2. Locate the target section header in user-level `MEMORY.md` (the agent should have named it; if not, find by topical fit).
+3. Append, OR replace if the new entry resolves an existing caveat (e.g. PSY-612 dropped the "canonical chain is NOT project-wide" caveat from the PSY-353 entry). Keep any one-line index pointer in `MEMORY.md`'s top-level index under ~150 chars per the existing memory rules.
+4. After all entries are applied, verify total `MEMORY.md` size is still under the index-loading limit (`MEMORY.md` shows a warning at the top when overrun). If close, move the longest entries into per-topic files and leave only the index pointer in `MEMORY.md`.
+
+The orchestrator owns the user-level memory file; agents do not edit it from inside their worktrees. Skipping this checklist means the next dispatch operates on stale memory.
 
 ## Per-agent prompt template
 
@@ -195,38 +203,50 @@ Fix PSY-{N}: {ticket title}.
 # Pointers
 {2–6 bullets on where to look — prior-art files, related shipped tickets, framework primitives. Helps the agent skip the discovery phase. If you don't know the file paths, say so and let the agent grep.}
 
+**If a research/audit doc is cited in this Pointers section** (`docs/research/*.md`, audit deliverables): treat its counts/sites/claims as point-in-time, NOT authoritative. Re-verify against current code in step 2 before relying on them. Audit docs drift fast; **PSY-610 (May 2026)** found an audit claimed 10/10 silent surfaces when only 5/11 were actually silent post-prior-work; **PSY-612 (May 2026)** found a 6th call site the user-attribution audit missed. Trust current code over the doc — per `feedback_no_speculative_implementation.md` and CLAUDE.md "distinguish 'the doc says X' from 'X is currently true'".
+
 # Work plan
 1. **Verify isolation FIRST.** Run `git rev-parse --show-toplevel`. It must resolve under `.claude/worktrees/`, not the main repo root.
 2. Explore: {what to read first}
 3. Implement the fix.
 4. **Run all relevant local tests. Failure blocks push.** This is non-negotiable. Run, in order of how directly they exercise your diff:
-   - **Backend changes:** `cd backend && go test ./<package(s) you touched>/...` — target the package(s) you edited plus any package whose tests directly exercise the changed surface. If the diff is large, run `go test ./...`.
+   - **Backend changes (build first, then test):** `cd backend && go build ./...` BEFORE `go test`. Build catches whole-graph compile errors (missed call sites after a refactor, broken imports across packages); tests catch behaviour. **PSY-612 (May 2026)** caught a sixth user-resolver call site (`services/admin/entity_report.go`, sharing the package-private `displayName` helper with `pending_edit.go`) at `go build` time that the audit doc had missed — without the build pre-step, this would have been runtime-discovered post-merge. Then `go test ./<package(s) you touched>/...` — target the package(s) you edited plus any package whose tests directly exercise the changed surface. If the diff is large, run `go test ./...`.
    - **Frontend type safety:** `cd frontend && bun run typecheck`.
-   - **Frontend unit tests:** `cd frontend && bun run test:unit -- <relevant scope>`.
+   - **Frontend unit tests:** `cd frontend && bun run test:run <relevant scope>` (e.g. `bun run test:run features/comments`). The actual scoped runner is `test:run`; `test:unit` does not exist as a script, and `--`-prefixed argument-passing is not how the runner accepts a path filter — confirm via `package.json` `scripts` if uncertain.
    - **E2E:** if you modified any file under `frontend/e2e/`, run that spec — `cd frontend && bun run test:e2e -- <path-to-spec>`. The E2E global-setup hard-requires port 8080 to be free; if the user's dev backend occupies 8080, STOP and report back so the orchestrator can ask the user to free it. Do NOT skip the E2E run silently.
    - **Docs-only PRs (no code changes):** if your diff touches ONLY non-functional docs — markdown files, `.claude/skills/*/SKILL.md`, README updates, comment-only changes — there is no code path to exercise and no functional tests to run. Note `"docs-only, no tests applicable"` in your "Local tests run" line and proceed. **Exception:** if the same diff also touches a config/build file (`package.json`, `go.mod`, `tsconfig.json`, `playwright.config.ts`, `Makefile`, CI workflow YAML), run the corresponding typecheck or build to confirm nothing broke at that boundary.
    - **STOP if any test fails.** Do not try to debug whether the failure is "pre-existing" or whether your diff caused it — that's the orchestrator's call, and the orchestrator will escalate to the user. Report back with: failing test name, error excerpt, the exact command you ran, and your one-sentence hypothesis. Do NOT proceed to commit/push. The judgment "this is pre-existing on main, safe to push" is NOT yours to make. Pushing untested or known-failing code is the single worst pattern this skill exists to prevent.
-5. **Pre-commit isolation check.** Run `git status` from your worktree. Then run `git -C <main-repo-path> status` (the main repo absolute path). If the main repo shows YOUR file changes uncommitted, the harness CWD didn't propagate — recovery procedure:
+5. **Manual repro the change end-to-end.** Tests verify the contract the agent wrote; manual repro verifies the user-facing behaviour matches the ticket. Skipping this because "tests passed" fails the engineering bar — per CLAUDE.md: *"Type checking and test suites verify code correctness, not feature correctness."*
+   - **Frontend changes:** start the dev server on a FREE PORT (e.g. `cd frontend && PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()") && bun run dev --port $PORT`) — sharing port 3000 with the orchestrator or other parallel agents will fail. Connect to the existing dev backend at the standard port (read paths and most write paths share fine in this repo; if the change exercises rate-limited or singleton state, flag it and serialize across the batch). Use `chrome-devtools` MCP or `agent-browser` to navigate to the affected screen, exercise the canonical failing path the ticket described, and capture a screenshot of the new behaviour into `dogfood-output/PSY-{N}/screenshots/<short-name>.png`. STOP if the canonical failure mode does NOT now surface in the UI — the fix is incomplete; iterate from step 3 before proceeding.
+   - **Backend changes:** EITHER hit the affected endpoint(s) via `curl` against a backend you started in your worktree on a free port, OR write/extend a focused integration test that drives the change end-to-end through the real stack (preferred — faster, no DB setup). Capture the request + response (or test output) verbatim. STOP if the response shape diverges from the ticket's expectation.
+   - **Docs-only PRs (no code path):** no manual repro applicable. Note `"docs-only, no manual repro applicable"` in your report and PR body.
+6. **Pre-commit isolation check.** Run `git status` from your worktree. Then run `git -C <main-repo-path> status` (the main repo absolute path). If the main repo shows YOUR file changes uncommitted, the harness CWD didn't propagate — recovery procedure:
    - Copy your edits from the main repo into your worktree (`cp` with absolute paths).
    - In the main repo, `git restore <leaked-paths>` to revert (use `git restore`, not `git checkout .` or `git clean` — both can wipe unrelated untracked files).
    - Verify `git status` in main shows only the pre-existing untracked files from session start.
    - Continue from your worktree.
-6. Commit the implementation.
-7. Run `/simplify` (Skill tool, skill: "simplify"). If it edited files, commit them as a SEPARATE commit `PSY-{N}: simplify pass`. **Re-run the relevant local tests from step 4** if simplify changed anything substantive.
-8. Push branch with `-u origin <branch>`.
-9. Open PR with `gh pr create`. Body template:
-   ```
-   ## Summary
-   - <bullet 1>
-   - <bullet 2>
+7. Commit the implementation.
+8. Run `/simplify` (Skill tool, skill: "simplify"). If it edited files, commit them as a SEPARATE commit `PSY-{N}: simplify pass`. **Re-run the relevant local tests from step 4** if simplify changed anything substantive. Re-run the manual repro from step 5 only if simplify edited a file you exercised in step 5.
+9. Push branch with `-u origin <branch>`.
+10. Open PR with `gh pr create`. Body template:
+    ```
+    ## Summary
+    - <bullet 1>
+    - <bullet 2>
 
-   ## Test plan
-   - [x] <command you ran locally> — passed
-   - [x] <command you ran locally> — passed
+    ## Test plan
+    - [x] <command you ran locally> — passed
+    - [x] <command you ran locally> — passed
 
-   Closes PSY-{N}
-   ```
-   The Test plan section must list the actual commands you ran in step 4, with `[x]` checkboxes (not unchecked) — they're statements of "I verified this", not aspirations.
+    ## Manual repro
+    <Frontend: link to screenshot at `dogfood-output/PSY-{N}/screenshots/<name>.png` + one-sentence description of what the screenshot shows. Backend: exact `curl` command + response body verbatim, OR test name + relevant assertion output. State what you exercised — the canonical failing path from the ticket — and what you saw. "docs-only, no manual repro applicable" is the only valid placeholder.>
+
+    ## Simplify
+    <one-line outcome: "no changes" OR "edited N files, -M net lines, <one-phrase summary>". Post-simplify retest commands belong in the Test plan above with [x].>
+
+    Closes PSY-{N}
+    ```
+    The Test plan section must list the actual commands you ran in step 4, with `[x]` checkboxes (not unchecked) — they're statements of "I verified this", not aspirations. The Manual repro section is the artifact from step 5; without it the PR is unverified and the orchestrator escalates as a process violation. The Simplify section makes the simplify outcome auditable from the PR alone, not just the agent's return-message.
 
 # Reporting back
 Short report (under 300 words):
@@ -234,7 +254,8 @@ Short report (under 300 words):
 - Files changed (count + brief category breakdown)
 - Behaviour change (one or two sentences)
 - **Local tests run (REQUIRED):** list every command you ran from step 4 and its outcome ("ok", "FAIL: <test name> — <one-line excerpt>"). If you skipped a class because it wasn't relevant to the diff, say so explicitly with one-sentence justification. An empty/missing field = orchestrator treats the PR as untested and escalates as a process violation.
-- `/simplify` diff (or "no changes"). If simplify changed code, list the post-simplify re-run of the test commands from step 4.
+- **Manual repro (REQUIRED):** what you exercised in step 5 and what you saw — mirrors the PR body's *Manual repro* section. Frontend: screenshot path + observed behaviour. Backend: command + observed output, or integration-test name + assertion outcome. Empty/missing = orchestrator treats the PR as unverified and escalates as a process violation.
+- `/simplify` diff (or "no changes"). If simplify changed code, list the post-simplify re-run of the test commands from step 4. Manual repro re-run only if simplify edited a file you exercised in step 5.
 - Isolation check: clean, or tripped + recovered
 - **Proposed memory entries** (only if relevant): if your acceptance criteria called for a memory/CLAUDE.md note and no in-repo `CLAUDE.md` exists to land it in-PR, paste the proposed entry verbatim and identify the target section header in user-level `MEMORY.md` (e.g. "Key Non-Obvious Patterns"). Orchestrator applies post-batch.
 - Scope-adjacent observations: out-of-scope patterns / refactors / warnings noticed. Do NOT expand PR scope to address them.
