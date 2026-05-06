@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { ModerationQueue } from './ModerationQueue'
 
 // --- Mock data ---
@@ -325,5 +325,119 @@ describe('ModerationQueue', () => {
     expect(screen.getByTestId('pending-comment-edit-badge')).toHaveTextContent(
       '1 edit'
     )
+  })
+
+  // ─── PSY-603: page-level success banner on Approve / Reject ───────────────
+  //
+  // The banner state lives on ModerationQueue (not the card) because the card
+  // unmounts on success when the pending-edits query invalidates. These tests
+  // drive the success path by overriding the approve/reject mutation mocks to
+  // immediately invoke the per-call onSuccess option.
+
+  describe('Approve / Reject success banner (PSY-603)', () => {
+    function captureMutationOnSuccess() {
+      // Approve takes (editId, options); reject takes (variables, options).
+      // Both pass options as the SECOND argument, so the same shape works.
+      const approveMutate = vi.fn(
+        (_args: unknown, opts?: { onSuccess?: () => void }) => {
+          opts?.onSuccess?.()
+        }
+      )
+      const rejectMutate = vi.fn(
+        (_args: unknown, opts?: { onSuccess?: () => void }) => {
+          opts?.onSuccess?.()
+        }
+      )
+      mockUseApprovePendingEdit.mockReturnValue({
+        ...defaultMutationReturn,
+        mutate: approveMutate,
+      })
+      mockUseRejectPendingEdit.mockReturnValue({
+        ...defaultMutationReturn,
+        mutate: rejectMutate,
+      })
+      return { approveMutate, rejectMutate }
+    }
+
+    it('does NOT render the banner before any action is taken', () => {
+      setDefaultMocks({ edits: [mockPendingEdit] })
+
+      render(<ModerationQueue />)
+
+      expect(
+        screen.queryByTestId('moderation-success-banner')
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders the success banner with entity name after Approve succeeds', () => {
+      captureMutationOnSuccess()
+      setDefaultMocks({ edits: [mockPendingEdit] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Approve'))
+
+      const banner = screen.getByTestId('moderation-success-banner')
+      expect(banner).toHaveTextContent('Approved')
+      expect(banner).toHaveTextContent('Test Artist')
+    })
+
+    it('renders the success banner with submitter-notified copy after Reject succeeds', () => {
+      captureMutationOnSuccess()
+      setDefaultMocks({ edits: [mockPendingEdit] })
+
+      render(<ModerationQueue />)
+      // Open the rejection-reason input, fill it, confirm.
+      fireEvent.click(screen.getByText('Reject'))
+      const textarea = screen.getByPlaceholderText(/Rejection reason/i)
+      fireEvent.change(textarea, { target: { value: 'Inaccurate change' } })
+      fireEvent.click(screen.getByText('Confirm Reject'))
+
+      const banner = screen.getByTestId('moderation-success-banner')
+      expect(banner).toHaveTextContent('Rejected')
+      expect(banner).toHaveTextContent(/submitter notified/i)
+    })
+
+    it('auto-dismisses the banner after the timeout elapses', () => {
+      vi.useFakeTimers()
+      try {
+        captureMutationOnSuccess()
+        setDefaultMocks({ edits: [mockPendingEdit] })
+
+        render(<ModerationQueue />)
+        fireEvent.click(screen.getByText('Approve'))
+        expect(
+          screen.getByTestId('moderation-success-banner')
+        ).toBeInTheDocument()
+
+        // Advance just past the 5s timeout.
+        act(() => {
+          vi.advanceTimersByTime(5001)
+        })
+
+        expect(
+          screen.queryByTestId('moderation-success-banner')
+        ).not.toBeInTheDocument()
+      } finally {
+        vi.useRealTimers()
+      }
+    })
+
+    it('clears the banner immediately when the admin switches filter tabs', () => {
+      captureMutationOnSuccess()
+      setDefaultMocks({ edits: [mockPendingEdit] })
+
+      render(<ModerationQueue />)
+      fireEvent.click(screen.getByText('Approve'))
+      expect(
+        screen.getByTestId('moderation-success-banner')
+      ).toBeInTheDocument()
+
+      // Click the "Reports" filter tab.
+      fireEvent.click(screen.getByText('Reports'))
+
+      expect(
+        screen.queryByTestId('moderation-success-banner')
+      ).not.toBeInTheDocument()
+    })
   })
 })

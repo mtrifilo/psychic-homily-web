@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Loader2,
   Inbox,
@@ -106,9 +106,26 @@ type ModerationItem =
   | { type: 'report'; data: EntityReportResponse }
   | { type: 'comment'; data: PendingComment }
 
+// ─── PSY-603: success banner state ───────────────────────────────────────────
+
+type ModerationActionVerb = 'approved' | 'rejected'
+
+interface ModerationAction {
+  verb: ModerationActionVerb
+  entityLabel: string
+}
+
+const SUCCESS_BANNER_TIMEOUT_MS = 5000
+
 // ─── Pending Edit Card ───────────────────────────────────────────────────────
 
-function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
+function PendingEditCard({
+  edit,
+  onActionSuccess,
+}: {
+  edit: PendingEditResponse
+  onActionSuccess: (action: ModerationAction) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
@@ -118,17 +135,31 @@ function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
 
   const isActioning = approveMutation.isPending || rejectMutation.isPending
 
+  const entityLabel = edit.entity_name || `${entityTypeLabel(edit.entity_type)} #${edit.entity_id}`
+
   const handleApprove = useCallback(() => {
-    approveMutation.mutate(edit.id)
-  }, [approveMutation, edit.id])
+    approveMutation.mutate(edit.id, {
+      // PSY-603: bubble success up to ModerationQueue so the page-level
+      // banner can render. The card itself is about to unmount because the
+      // pending-edits query gets invalidated, so a card-local banner would
+      // disappear with the row.
+      onSuccess: () => onActionSuccess({ verb: 'approved', entityLabel }),
+    })
+  }, [approveMutation, edit.id, onActionSuccess, entityLabel])
 
   const handleReject = useCallback(() => {
     if (!rejectionReason.trim()) return
     rejectMutation.mutate(
       { editId: edit.id, reason: rejectionReason.trim() },
-      { onSuccess: () => { setRejecting(false); setRejectionReason('') } }
+      {
+        onSuccess: () => {
+          setRejecting(false)
+          setRejectionReason('')
+          onActionSuccess({ verb: 'rejected', entityLabel })
+        },
+      }
     )
-  }, [rejectMutation, edit.id, rejectionReason])
+  }, [rejectMutation, edit.id, rejectionReason, onActionSuccess, entityLabel])
 
   return (
     <Card className="overflow-hidden">
@@ -149,7 +180,7 @@ function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              {edit.entity_name || `${entityTypeLabel(edit.entity_type)} #${edit.entity_id}`}
+              {entityLabel}
               <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
             </a>
           </div>
@@ -944,6 +975,28 @@ export function ModerationQueue() {
   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all')
   const [entityTypeFilter, setEntityTypeFilter] = useState<EntityTypeFilter>('')
 
+  // PSY-603: page-level success banner. Cards bubble up via onActionSuccess
+  // because they unmount on success (the row is removed from the queue).
+  // Auto-dismisses after SUCCESS_BANNER_TIMEOUT_MS, and clears immediately
+  // when the admin changes either filter (treating filter change as a "tab
+  // change" — a fresh review surface should not carry a stale confirmation).
+  const [lastAction, setLastAction] = useState<ModerationAction | null>(null)
+
+  const handleActionSuccess = useCallback((action: ModerationAction) => {
+    setLastAction(action)
+  }, [])
+
+  useEffect(() => {
+    if (!lastAction) return
+    const timer = setTimeout(() => setLastAction(null), SUCCESS_BANNER_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [lastAction])
+
+  // Clear the banner when the admin switches filter tabs.
+  useEffect(() => {
+    setLastAction(null)
+  }, [itemTypeFilter, entityTypeFilter])
+
   // Fetch pending edits
   const {
     data: editsData,
@@ -1037,6 +1090,11 @@ export function ModerationQueue() {
 
   return (
     <div className="space-y-4">
+      {/* PSY-603: page-level success banner for Approve / Reject. Reuses the
+          PSY-562 pattern (green border + Check icon) from EntityEditDrawer.
+          Auto-dismisses after 5s or clears on filter change (see effects above). */}
+      {lastAction && <ModerationSuccessBanner action={lastAction} />}
+
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Item type filter */}
@@ -1111,7 +1169,13 @@ export function ModerationQueue() {
         <div className="grid gap-3">
           {items.map(item => {
             if (item.type === 'edit') {
-              return <PendingEditCard key={`edit-${item.data.id}`} edit={item.data as PendingEditResponse} />
+              return (
+                <PendingEditCard
+                  key={`edit-${item.data.id}`}
+                  edit={item.data as PendingEditResponse}
+                  onActionSuccess={handleActionSuccess}
+                />
+              )
             }
             if (item.type === 'comment') {
               return <PendingCommentCard key={`comment-${item.data.id}`} comment={item.data as PendingComment} />
@@ -1130,6 +1194,38 @@ export function ModerationQueue() {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Moderation Success Banner (PSY-603) ─────────────────────────────────────
+
+/**
+ * Inline success banner shown above the moderation queue after a successful
+ * Approve or Reject. Mirrors the PSY-562 EntityEditDrawer success-state
+ * pattern (green border + Check icon) so the admin surface is consistent
+ * with the contributor-side direct-edit flow.
+ *
+ * The optimistic row removal stays as-is; this banner is purely additive
+ * positive feedback. The parent owns auto-dismiss + filter-change reset.
+ */
+function ModerationSuccessBanner({ action }: { action: ModerationAction }) {
+  const message =
+    action.verb === 'approved'
+      ? `Approved — change applied to ${action.entityLabel}`
+      : `Rejected — submitter notified of reason`
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="moderation-success-banner"
+      className="rounded-md border border-green-800 bg-green-950/50 p-4"
+    >
+      <div className="flex items-center gap-2 text-green-400">
+        <Check className="h-4 w-4" />
+        <span className="font-medium">{message}</span>
+      </div>
     </div>
   )
 }
