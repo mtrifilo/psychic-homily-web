@@ -214,13 +214,11 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 		}
 	}
 
-	// Fire-and-forget audit log for pending edit
-	if h.auditLogService != nil {
-		go h.auditLogService.LogAction(user.ID, "suggest_edit_"+entityType, entityType, uint(entityID), map[string]interface{}{
-			"edit_id": resp.ID,
-			"summary": summary,
-		})
-	}
+	// No audit_log emit on the pending path: the pending_entity_edits row
+	// above is the user-facing event, surfaced as "submit_<type>_edit" by
+	// the UNION in ContributorProfileService.GetContributionHistory. A
+	// parallel "suggest_edit_*" audit row would double-render in Recent
+	// Activity (no other reader consumes that audit action).
 
 	out := &SuggestEntityEditResponse{}
 	out.Body.PendingEdit = resp

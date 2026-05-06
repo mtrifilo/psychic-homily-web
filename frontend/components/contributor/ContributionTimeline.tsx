@@ -14,6 +14,9 @@ import type { LucideIcon } from 'lucide-react'
 import type { ContributionEntry } from '@/features/auth'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 
+// "<type>_edit" entries are the synthetic discriminators emitted by the
+// pending_entity_edits UNION in GetContributionHistory; they reuse the
+// underlying entity's icon, fallback label, and link target.
 const entityTypeIcons: Record<string, LucideIcon> = {
   show: Calendar,
   venue: MapPin,
@@ -21,6 +24,11 @@ const entityTypeIcons: Record<string, LucideIcon> = {
   label: Tag,
   festival: Tent,
   artist: Mic2,
+  venue_edit: MapPin,
+  artist_edit: Mic2,
+  release_edit: Disc3,
+  label_edit: Tag,
+  festival_edit: Tent,
 }
 
 function getEntityIcon(entityType: string): LucideIcon {
@@ -41,7 +49,13 @@ function getEntityLink(entry: ContributionEntry): string | null {
     case 'collection':
       return `/collections/${entry.entity_id}`
     case 'venue_edit':
-      return `/venues/${entry.entity_id}`
+    case 'artist_edit':
+    case 'release_edit':
+    case 'label_edit':
+    case 'festival_edit': {
+      const baseType = entry.entity_type.slice(0, -'_edit'.length)
+      return `/${baseType}s/${entry.entity_id}`
+    }
     default:
       return null
   }
@@ -61,6 +75,10 @@ const entityTypeLabels: Record<string, string> = {
   request: 'a request',
   collection: 'a collection',
   venue_edit: 'a venue',
+  artist_edit: 'an artist',
+  release_edit: 'a release',
+  label_edit: 'a label',
+  festival_edit: 'a festival',
 }
 
 function getFallbackEntityLabel(entry: ContributionEntry): string {
@@ -75,7 +93,11 @@ function getFallbackEntityLabel(entry: ContributionEntry): string {
 const actionLabels: Record<string, string> = {
   submit_show: 'Submitted show',
   submit_venue: 'Submitted venue',
+  submit_artist_edit: 'Suggested artist edit',
   submit_venue_edit: 'Suggested venue edit',
+  submit_release_edit: 'Suggested release edit',
+  submit_label_edit: 'Suggested label edit',
+  submit_festival_edit: 'Suggested festival edit',
   create: 'Created',
   update: 'Updated',
   delete: 'Deleted',
