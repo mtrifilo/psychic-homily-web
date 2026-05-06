@@ -17,19 +17,27 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
 const mockUseReplyToComment = vi.fn()
+// PSY-608: per-mutation overrides so we can assert the new error banners.
+const mockUseUpdateComment = vi.fn()
+const mockUseUpdateReplyPermission = vi.fn()
+const mockUseDeleteComment = vi.fn()
+const mockUseVoteComment = vi.fn()
+const mockUseUnvoteComment = vi.fn()
 
 vi.mock('../hooks', async () => {
-  // Bring through formatCommentSubmissionError (PSY-589) so the form
-  // renders the same banner copy in tests as it does in the real card.
+  // Bring through formatCommentSubmissionError (PSY-589) and
+  // useAutoDismissError (PSY-608) so the card renders the canonical
+  // inline-banner copy and the auto-dismiss vote banner state in tests.
   const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
   return {
     useReplyToComment: () => mockUseReplyToComment(),
-    useUpdateComment: () => defaultMutationReturn,
-    useUpdateReplyPermission: () => defaultMutationReturn,
-    useDeleteComment: () => defaultMutationReturn,
-    useVoteComment: () => defaultMutationReturn,
-    useUnvoteComment: () => defaultMutationReturn,
+    useUpdateComment: () => mockUseUpdateComment(),
+    useUpdateReplyPermission: () => mockUseUpdateReplyPermission(),
+    useDeleteComment: () => mockUseDeleteComment(),
+    useVoteComment: () => mockUseVoteComment(),
+    useUnvoteComment: () => mockUseUnvoteComment(),
     useCommentThread: () => ({ data: undefined }),
+    useAutoDismissError: actual.useAutoDismissError,
     formatCommentSubmissionError: actual.formatCommentSubmissionError,
   }
 })
@@ -42,6 +50,18 @@ vi.mock('@/features/contributions', () => ({
 vi.mock('./CommentEditHistory', () => ({
   CommentEditHistory: () => <div data-testid="stub-edit-history-dialog" />,
 }))
+
+// PSY-608: convenience reset for every per-mutation mock. Default to the
+// neutral { mutate, isPending: false } shape so the card renders normally;
+// individual tests override one mutation at a time to assert error UI.
+function resetAllMutationMocks() {
+  mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
+  mockUseUpdateComment.mockReturnValue(defaultMutationReturn)
+  mockUseUpdateReplyPermission.mockReturnValue(defaultMutationReturn)
+  mockUseDeleteComment.mockReturnValue(defaultMutationReturn)
+  mockUseVoteComment.mockReturnValue(defaultMutationReturn)
+  mockUseUnvoteComment.mockReturnValue(defaultMutationReturn)
+}
 
 function makeComment(overrides: Partial<Comment> = {}): Comment {
   return {
@@ -71,7 +91,7 @@ function makeComment(overrides: Partial<Comment> = {}): Comment {
 describe('CommentCard — admin edit history trigger (PSY-297)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
+    resetAllMutationMocks()
   })
 
   const defaultProps = {
@@ -142,7 +162,7 @@ describe('CommentCard — admin edit history trigger (PSY-297)', () => {
 describe('CommentCard — pending review badge (PSY-513)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
+    resetAllMutationMocks()
   })
 
   const defaultProps = {
@@ -224,6 +244,7 @@ describe('CommentCard — pending review badge (PSY-513)', () => {
 describe('CommentCard — Show replies button gating (PSY-514)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetAllMutationMocks()
     mockAuthContext.mockReturnValue({
       isAuthenticated: false,
       user: null,
@@ -307,6 +328,7 @@ describe('CommentCard — Show replies button gating (PSY-514)', () => {
 describe('CommentCard — author byline linkability (PSY-552)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetAllMutationMocks()
     mockAuthContext.mockReturnValue({
       isAuthenticated: false,
       user: null,
@@ -363,7 +385,7 @@ describe('CommentCard — author byline linkability (PSY-552)', () => {
 describe('CommentCard — reply rate-limit banner (PSY-589)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
-    mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
+    resetAllMutationMocks()
   })
 
   const defaultProps = {
@@ -399,5 +421,144 @@ describe('CommentCard — reply rate-limit banner (PSY-589)', () => {
     const banner = screen.getByTestId('comment-form-error')
     expect(banner).toBeInTheDocument()
     expect(banner).toHaveTextContent('Please wait 60s before commenting again.')
+  })
+})
+
+// PSY-608: every comment mutation must surface 4xx feedback. Optimistic
+// rollback (vote/unvote) uses an auto-dismiss banner; the rest stay sticky
+// until the next retry / success.
+describe('CommentCard — mutation error surfacing (PSY-608)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetAllMutationMocks()
+  })
+
+  const ownerProps = {
+    entityType: 'artist' as const,
+    entityId: 10,
+  }
+
+  function ownerAuth() {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '99', email: 'me@me.com' },
+    })
+  }
+
+  it('renders the edit-form error banner when useUpdateComment fails', () => {
+    ownerAuth()
+    mockUseUpdateComment.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      error: Object.assign(new Error('comment is too long'), { status: 400 }),
+    })
+
+    render(<CommentCard {...ownerProps} comment={makeComment()} />)
+
+    // Open edit mode.
+    fireEvent.click(screen.getByText('Edit'))
+
+    const banner = screen.getByTestId('comment-form-error')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveTextContent('Comment is too long')
+  })
+
+  it('renders the delete-error banner when useDeleteComment fails', () => {
+    ownerAuth()
+    mockUseDeleteComment.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: Object.assign(new Error('cannot delete pinned comment'), {
+        status: 403,
+      }),
+    })
+
+    render(<CommentCard {...ownerProps} comment={makeComment()} />)
+
+    const banner = screen.getByTestId('delete-error-banner')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveAttribute('role', 'alert')
+    expect(banner).toHaveTextContent('Cannot delete pinned comment')
+  })
+
+  it('renders the reply-permission error banner when useUpdateReplyPermission fails', () => {
+    ownerAuth()
+    mockUseUpdateReplyPermission.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: true,
+      error: Object.assign(new Error('invalid permission'), { status: 400 }),
+    })
+
+    render(<CommentCard {...ownerProps} comment={makeComment()} />)
+
+    const banner = screen.getByTestId('reply-permission-error-banner')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveAttribute('role', 'alert')
+    expect(banner).toHaveTextContent('Invalid permission')
+  })
+
+  it('renders the auto-dismiss vote-error banner when useVoteComment rejects via onError', () => {
+    ownerAuth()
+    // Mock vote mutation that fires onError synchronously when mutate() is
+    // called — emulates the rollback path. The auto-dismiss banner reads
+    // from useAutoDismissError state, so a synchronous onError populates it
+    // before the next render.
+    const voteError = Object.assign(new Error('rate limited'), {
+      status: 429,
+      retryAfter: 60,
+    })
+    const mutateImpl = vi.fn(
+      (_args: unknown, opts?: { onError?: (err: unknown) => void }) => {
+        opts?.onError?.(voteError)
+      }
+    )
+    mockUseVoteComment.mockReturnValue({
+      mutate: mutateImpl,
+      isPending: false,
+    })
+
+    render(<CommentCard {...ownerProps} comment={makeComment()} />)
+
+    expect(screen.queryByTestId('vote-error-banner')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByLabelText('Upvote'))
+
+    const banner = screen.getByTestId('vote-error-banner')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveAttribute('role', 'alert')
+    // Reuses formatCommentSubmissionError → 429 countdown copy.
+    expect(banner).toHaveTextContent(
+      'Please wait 60s before commenting again.'
+    )
+  })
+
+  it('renders the auto-dismiss vote-error banner when useUnvoteComment rejects via onError', () => {
+    ownerAuth()
+    const voteError = Object.assign(new Error('vote failed'), { status: 500 })
+    const mutateImpl = vi.fn(
+      (_args: unknown, opts?: { onError?: (err: unknown) => void }) => {
+        opts?.onError?.(voteError)
+      }
+    )
+    mockUseUnvoteComment.mockReturnValue({
+      mutate: mutateImpl,
+      isPending: false,
+    })
+
+    // Comment already upvoted — clicking upvote toggles off (unvote path).
+    render(
+      <CommentCard
+        {...ownerProps}
+        comment={makeComment({ user_vote: 1 })}
+      />
+    )
+
+    fireEvent.click(screen.getByLabelText('Upvote'))
+
+    const banner = screen.getByTestId('vote-error-banner')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveTextContent('Vote failed')
   })
 })

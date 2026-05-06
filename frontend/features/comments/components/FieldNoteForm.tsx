@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Loader2, Star } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { Input } from '@/components/ui/input'
@@ -20,6 +20,19 @@ interface FieldNoteFormProps {
   isPending?: boolean
   disabled?: boolean
   disabledMessage?: string
+  /**
+   * PSY-608: optional inline error banner. When set, renders a
+   * destructive-styled message above the textarea. Mirrors CommentForm's
+   * errorMessage; reuse the same `formatCommentSubmissionError` helper for
+   * 429 countdown copy.
+   */
+  errorMessage?: string | null
+  /**
+   * PSY-608: bumping this number signals "submission succeeded — clear
+   * the form." Mirrors CommentForm.resetSignal. Without this, the previous
+   * eager-clear-on-submit behaviour discarded the draft on 4xx errors.
+   */
+  resetSignal?: number
 }
 
 function StarRating({
@@ -68,6 +81,8 @@ export function FieldNoteForm({
   isPending = false,
   disabled = false,
   disabledMessage,
+  errorMessage,
+  resetSignal,
 }: FieldNoteFormProps) {
   const [body, setBody] = useState('')
   const [soundQuality, setSoundQuality] = useState(0)
@@ -76,6 +91,19 @@ export function FieldNoteForm({
   const [setlistSpoiler, setSetlistSpoiler] = useState(false)
   const [showArtistId, setShowArtistId] = useState<number | undefined>(undefined)
   const [songPosition, setSongPosition] = useState('')
+
+  // PSY-608: parent bumps resetSignal from mutation onSuccess. Mirrors the
+  // CommentForm pattern so a 4xx response keeps the user's draft intact.
+  useEffect(() => {
+    if (resetSignal === undefined) return
+    setBody('')
+    setSoundQuality(0)
+    setCrowdEnergy(0)
+    setNotableMoments('')
+    setSetlistSpoiler(false)
+    setShowArtistId(undefined)
+    setSongPosition('')
+  }, [resetSignal])
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
@@ -94,14 +122,9 @@ export function FieldNoteForm({
     }
 
     onSubmit(input)
-    // Reset form
-    setBody('')
-    setSoundQuality(0)
-    setCrowdEnergy(0)
-    setNotableMoments('')
-    setSetlistSpoiler(false)
-    setShowArtistId(undefined)
-    setSongPosition('')
+    // PSY-608: reset is parent-driven via resetSignal (mirrors CommentForm).
+    // Eagerly clearing here previously discarded the draft when the request
+    // came back 4xx; now the parent bumps resetSignal only on success.
   }
 
   if (disabled && disabledMessage) {
@@ -119,6 +142,17 @@ export function FieldNoteForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4" data-testid="field-note-form">
+      {/* PSY-608: inline error banner — same shape as CommentForm. Parent
+          wires this from the createFieldNote mutation error. */}
+      {errorMessage && (
+        <div
+          className="rounded-md border border-red-800 bg-red-950/50 p-3"
+          role="alert"
+          data-testid="field-note-form-error"
+        >
+          <p className="text-sm text-red-400">{errorMessage}</p>
+        </div>
+      )}
       {/* Body */}
       <Textarea
         value={body}
