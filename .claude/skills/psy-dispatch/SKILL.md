@@ -54,16 +54,28 @@ These are the non-negotiables. They are encoded in the per-agent prompt template
 
 Before reading tickets, do BOTH steps. They cover two independent failure modes that compound at batch scale.
 
-**Step A — Sync local main with origin.** Worktrees branch off local main; if local main is stale, every dispatched PR inherits a stale base and CI will fail with stale-fallout from work that merged in the meantime.
+**Step A — Confirm main repo HEAD is on `main`, then sync with origin.** Worktrees branch off the main repo's CURRENT HEAD — NOT the named `main` ref — so two failure modes compound here: (1) a non-`main` HEAD inherits unrelated side-branch commits into every dispatched PR; (2) a stale main inherits stale-fallout from work that merged in the meantime.
 
 ```bash
+git -C <main-repo> branch --show-current        # must equal "main"; if not, see "Side-branch checkout" below
 git -C <main-repo> fetch origin main
 git -C <main-repo> log --oneline main..origin/main   # commits ahead of local?
 # If main is behind:
 git -C <main-repo> pull --ff-only origin main
 ```
 
-If `--ff-only` rejects (local main has commits not in origin/main, e.g. a stash-WIP commit), pause and ask the user before resolving — do not blindly merge or reset. Capture the pre-flight `origin/main` SHA so step 7 can detect movement during dispatch.
+**Side-branch checkout recovery.** If `branch --show-current` returns anything other than `main`, the user has a side branch checked out (commonly: a feature branch they're iterating on, a skill-update branch, an in-flight PR they're locally reviewing). Worktrees would branch off that side branch and inherit its unmerged commits into every PR. Don't dispatch yet:
+
+1. `git -C <main-repo> status` — confirm no uncommitted changes.
+2. `git -C <main-repo> log --oneline @{u}..HEAD` — confirm the side branch is in sync with its remote (no unpushed commits).
+3. **If clean + synced:** surface the side-branch name to the user with a one-sentence "switching main repo to `main` for this dispatch — can switch back after if you want." Then `git switch main` and continue with the sync. Switching is non-destructive when the working tree is clean and the branch is pushed; the user can `git switch <side-branch>` back at any time.
+4. **If dirty (uncommitted changes) OR has unpushed commits:** STOP and surface to user. Never auto-switch — risk of losing the user's in-flight context. Wait for explicit instruction before continuing.
+
+Common false-flag for this check: a `pull --ff-only origin main` that fails with `"Diverging branches"` even though local main is strictly behind origin/main. The failure is misleading — it means the *currently-checked-out* branch (which isn't `main`) can't be fast-forwarded to `origin/main`, not that local main itself is divergent. Always run `branch --show-current` BEFORE diagnosing pull failures as divergence.
+
+If `--ff-only` rejects after the side-branch check passed, the most likely cause is local main has commits not in origin/main (e.g. a stash-WIP commit). Pause and ask the user before resolving — do not blindly merge or reset.
+
+Capture the pre-flight `origin/main` SHA so step 7 can detect movement during dispatch.
 
 **Step B — Verify origin/main CI is currently green.** A red main propagates failure shape to every PR opened off it; agents waste cycles diagnosing failures they didn't introduce, and the orchestrator wastes cycles distinguishing batch-fault from base-fault. **The May 2026 Entity & Collections Dogfood batch (PSY-577/578/588/589)** hit exactly this: main had been red for 5+ merges on a backend tier-cap test (PSY-358 fallout) + an E2E selector mismatch (PSY-359 fallout); all 4 dispatched PRs inherited identical red CI; the dependent rebase round was wasted work that a five-second pre-flight would have prevented.
 
@@ -277,6 +289,7 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - **Dispatching a ticket whose targets are all gitignored.** A worktree creates an isolated branch, but edits to gitignored paths live only in the worktree's filesystem — they don't commit, don't push, don't reach a PR, and disappear when the worktree is cleaned up. **PSY-427 (May 2026)** hit this: the target was `docs/runbooks/agent-workflow.md` + `docs/INDEX.md`, and `docs/` is in `.gitignore`. Pre-flight check before step 4: run `git check-ignore -v` against each target file the ticket calls out (or run it against the entire `docs/` tree if the ticket is a docs-only update). If everything is ignored, abort the dispatch and do the work inline on main — the user reviews the diff in-conversation, accepts, and the ticket transitions Done directly. There is no merge event to gate on.
 - **Dispatching from a stale local main (whole-batch CI failure).** Worktrees branch off local main; if it's behind origin/main at dispatch time, every PR inherits the same stale base. **The May 2026 dogfix sweep (PSY-558/559/560/561/562)** hit this: local main was 8 commits behind origin/main; two of those commits (PSY-357 + PSY-359) added test files exercising new collection paths; ALL 5 PRs failed the same Backend + E2E suites despite each PR's diff being clean and unrelated to collections. Frontend unit tests passed on every PR — the only suite actually exercising the diff. The signature is **identical CI failure shape across PRs that touch different files**. Pre-flight (sync local main before step 1) catches the stale-at-dispatch case; step 7 catches the moved-during-dispatch case. Recovery is a parallel `git rebase origin/main && git push --force-with-lease origin <branch>` per worktree (per step 7).
 - **Agents writing project-pattern docs to user-level MEMORY.md from inside their worktree.** When the per-agent prompt says "add a CLAUDE.md note" but no project-level `CLAUDE.md` exists in the repo, agents fall through to the user-level memory file at `~/.claude/projects/<project>/memory/MEMORY.md` — which sits OUTSIDE the worktree, OUTSIDE the repo, and OUTSIDE the PR. Same shape as the gitignored-target anti-pattern: edits that don't reach review. **PSY-558 + PSY-559 (May 2026)** both did this; content was correct and ended up in the right file, but it bypassed PR review and bypassed orchestrator visibility. Fix: the per-agent template's *Repo context* + *Reporting back* sections instruct agents to edit in-repo `CLAUDE.md` if present (lands in the PR), otherwise return the proposed entry in their report under *Proposed memory entries* — the orchestrator applies user-level `MEMORY.md` updates in step 7 with full visibility.
+- **Dispatching while the main repo HEAD is on a side branch.** The harness's `isolation: "worktree"` flag creates each worktree off the main repo's CURRENT HEAD, not the named `main` ref. If the user has a feature/skill-update branch checked out at dispatch time, every dispatched PR would inherit that branch's unmerged commits — including the commit that branch was iterating on. **May 2026 dogfix-2 dispatch (PSY-601/613/616)** caught this: orchestrator's `pull --ff-only origin main` failed with `"Diverging branches"` even though local main was strictly behind origin/main; root cause was that the user had `dispatch-skill-level-a-and-fixes` checked out (their in-flight skill iteration). Without the Step-A `branch --show-current` guard, the dispatch would have produced 3 PRs each carrying a stray skill-update commit. Fix encoded in Step-A: check HEAD before sync, switch to `main` (with announcement) if the side branch is clean and synced, STOP and ask if it has uncommitted or unpushed work.
 
 ## Related skills and memories
 
