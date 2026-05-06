@@ -132,8 +132,6 @@ describe('LowQualityTagQueue', () => {
     fireEvent.click(
       screen.getByRole('button', { name: /ignore mystery for 30 days/i })
     )
-    // The handler now wires an onError callback for inline error surfacing
-    // (PSY-610), so the second arg is the react-query options object.
     expect(mockSnooze).toHaveBeenCalledWith(42, expect.any(Object))
   })
 
