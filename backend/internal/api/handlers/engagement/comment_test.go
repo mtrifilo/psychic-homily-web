@@ -768,12 +768,11 @@ func TestUpdateReplyPermission_EmptyPermission(t *testing.T) {
 	testhelpers.AssertHumaErrorWithDetail(t, err, 400, "permission is required")
 }
 
-// TestUpdateReplyPermission_InvalidEnum exercises PSY-592: the handler
-// must reject an unrecognized value with a message that lists the valid
-// options, NOT the misleading "permission is required" (which implies
-// the field was absent). The service mock fails the test if invoked —
-// the handler-level enum check must short-circuit before the service
-// is called.
+// TestUpdateReplyPermission_InvalidEnum: an unrecognized value must
+// be rejected with the explicit-list message, NOT "permission is
+// required" (which implies the field was absent). The service mock
+// fails the test if invoked — the handler-level enum check must
+// short-circuit before the service is called.
 func TestUpdateReplyPermission_InvalidEnum(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
@@ -843,10 +842,10 @@ func TestUpdateReplyPermission_Success(t *testing.T) {
 	}
 }
 
-// TestUpdateReplyPermission_AcceptsAllValidEnumValues pins down PSY-592's
-// AC that all three recognized enum values reach the service layer (and
-// thus succeed when the service accepts them). Complements the
-// _InvalidEnum and _EmptyPermission negative cases above.
+// TestUpdateReplyPermission_AcceptsAllValidEnumValues: all three
+// recognized enum values must clear the handler-level enum check and
+// reach the service layer. Complements the _InvalidEnum and
+// _EmptyPermission negative cases above.
 func TestUpdateReplyPermission_AcceptsAllValidEnumValues(t *testing.T) {
 	for _, perm := range []string{"anyone", "followers", "author_only"} {
 		t.Run(perm, func(t *testing.T) {

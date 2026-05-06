@@ -16,11 +16,10 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// invalidReplyPermissionMessage is the canonical 400 response detail used
-// when the request's `permission` field is present but not a recognized
-// enum value. PSY-592: distinguishes "missing field" (`permission is
-// required`) from "invalid value" so clients aren't sent chasing the wrong
-// cause. Update this message in lockstep with the enum in
+// invalidReplyPermissionMessage is the canonical 400 response detail
+// when `permission` is present but unrecognized. Distinct from
+// "permission is required" (sent when the field is empty) so clients
+// can tell which failure they hit. Keep in lockstep with
 // `engagementm.IsValidReplyPermission`.
 const invalidReplyPermissionMessage = "permission must be one of: anyone, followers, author_only"
 
@@ -521,11 +520,9 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 		return nil, huma.Error400BadRequest("Invalid comment ID")
 	}
 
-	// PSY-592: distinguish missing field from invalid enum value so the
-	// 400 detail accurately describes the failure. The empty check stays
-	// "permission is required"; an unrecognized value gets the explicit
-	// list of valid options. The service-layer check below remains as
-	// defence-in-depth (Code Complete: validate at boundaries of trust).
+	// Two-step validation distinguishes "field absent" from "field
+	// present with bad value" so the 400 detail isn't misleading.
+	// The service-layer check below stays as defence-in-depth.
 	perm := strings.TrimSpace(req.Body.Permission)
 	if perm == "" {
 		return nil, huma.Error400BadRequest("permission is required")
