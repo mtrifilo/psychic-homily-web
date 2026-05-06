@@ -112,6 +112,50 @@ const mockCloneMutation = vi.fn(() => ({
   error: null,
 }))
 
+// PSY-609: factories for the mutation hooks that need configurable
+// isError / error state per-test so we can render the new inline error
+// banners. Default state is "idle, no error" — individual tests use
+// `mockReturnValueOnce` (or a helper) to flip into the error state.
+type MutationStub = {
+  mutate: ReturnType<typeof vi.fn>
+  isPending: boolean
+  isError: boolean
+  error: Error | null
+}
+const idleMutation = (): MutationStub => ({
+  mutate: vi.fn(),
+  isPending: false,
+  isError: false,
+  error: null,
+})
+const mockSubscribeMutation = vi.fn(idleMutation)
+const mockUnsubscribeMutation = vi.fn(idleMutation)
+const mockLikeMutation = vi.fn(
+  (): MutationStub => ({
+    mutate: mockLikeMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  })
+)
+const mockUnlikeMutation = vi.fn(
+  (): MutationStub => ({
+    mutate: mockUnlikeMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  })
+)
+const mockReorderMutation = vi.fn(
+  (): MutationStub => ({
+    mutate: mockReorderMutate,
+    isPending: false,
+    isError: false,
+    error: null,
+  })
+)
+const mockRemoveMutation = vi.fn(idleMutation)
+
 vi.mock('../hooks', () => ({
   useCollection: (...args: unknown[]) => mockCollection(...args),
   useUpdateCollection: () => ({
@@ -125,38 +169,20 @@ vi.mock('../hooks', () => ({
     isError: false,
     error: null,
   }),
-  useRemoveCollectionItem: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-  }),
-  useReorderCollectionItems: () => ({
-    mutate: mockReorderMutate,
-    isPending: false,
-  }),
+  useRemoveCollectionItem: () => mockRemoveMutation(),
+  useReorderCollectionItems: () => mockReorderMutation(),
   useUpdateCollectionItem: () => ({
     mutate: vi.fn(),
     isPending: false,
     isError: false,
     error: null,
   }),
-  useSubscribeCollection: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-  }),
-  useUnsubscribeCollection: () => ({
-    mutate: vi.fn(),
-    isPending: false,
-  }),
+  useSubscribeCollection: () => mockSubscribeMutation(),
+  useUnsubscribeCollection: () => mockUnsubscribeMutation(),
   useDeleteCollection: () => mockDeleteMutation(),
   useCloneCollection: () => mockCloneMutation(),
-  useLikeCollection: () => ({
-    mutate: mockLikeMutate,
-    isPending: false,
-  }),
-  useUnlikeCollection: () => ({
-    mutate: mockUnlikeMutate,
-    isPending: false,
-  }),
+  useLikeCollection: () => mockLikeMutation(),
+  useUnlikeCollection: () => mockUnlikeMutation(),
 }))
 
 // Mock comments feature
@@ -282,6 +308,29 @@ describe('CollectionDetail', () => {
       isError: false,
       error: null,
     })
+    // PSY-609: reset configurable mutation factories so each test starts
+    // from "idle, no error".
+    mockSubscribeMutation.mockImplementation(idleMutation)
+    mockUnsubscribeMutation.mockImplementation(idleMutation)
+    mockLikeMutation.mockReturnValue({
+      mutate: mockLikeMutate,
+      isPending: false,
+      isError: false,
+      error: null,
+    })
+    mockUnlikeMutation.mockReturnValue({
+      mutate: mockUnlikeMutate,
+      isPending: false,
+      isError: false,
+      error: null,
+    })
+    mockReorderMutation.mockReturnValue({
+      mutate: mockReorderMutate,
+      isPending: false,
+      isError: false,
+      error: null,
+    })
+    mockRemoveMutation.mockImplementation(idleMutation)
     mockCollection.mockReturnValue({
       data: makeCollection(),
       isLoading: false,
@@ -2069,6 +2118,155 @@ describe('CollectionDetail', () => {
         name: 'Move down',
       })
       expect(moveDownButtons[moveDownButtons.length - 1]).toBeDisabled()
+    })
+  })
+
+  // PSY-609: surface mutation failures across the silent collection
+  // action surfaces. The hooks themselves keep React Query's mutation
+  // state machine; these tests pin the user-visible result.
+  describe('PSY-609 mutation error banners', () => {
+    it('renders the subscribe error banner when subscribeMutation isError', () => {
+      mockAuthContext.mockReturnValue({
+        // Non-creator viewer — subscribe button is rendered.
+        user: { id: '99' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockSubscribeMutation.mockReturnValue({
+        mutate: vi.fn(),
+        isPending: false,
+        isError: true,
+        error: new Error('subscription quota exceeded'),
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.getByTestId('subscribe-error')).toHaveTextContent(
+        'subscription quota exceeded'
+      )
+    })
+
+    it('renders the clone error banner when cloneMutation isError', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '99' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockCloneMutation.mockReturnValue({
+        mutate: mockCloneMutate,
+        isPending: false,
+        isError: true,
+        error: new Error('Failed to fork: backend down'),
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.getByTestId('clone-error')).toHaveTextContent(
+        'Failed to fork: backend down'
+      )
+    })
+
+    it('uses the privacy-aware copy on subscribe 403', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '99' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockSubscribeMutation.mockReturnValue({
+        mutate: vi.fn(),
+        isPending: false,
+        isError: true,
+        error: Object.assign(new Error('forbidden'), { status: 403 }),
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.getByTestId('subscribe-error')).toHaveTextContent(
+        'This collection is private.'
+      )
+    })
+
+    it('renders the like error banner when likeMutation isError', () => {
+      mockLikeMutation.mockReturnValue({
+        mutate: mockLikeMutate,
+        isPending: false,
+        isError: true,
+        error: new Error('rate limit'),
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.getByTestId('like-error')).toHaveTextContent('rate limit')
+    })
+
+    it('renders the unlike error banner with privacy-aware copy on 403', () => {
+      mockUnlikeMutation.mockReturnValue({
+        mutate: mockUnlikeMutate,
+        isPending: false,
+        isError: true,
+        error: Object.assign(new Error('forbidden'), { status: 403 }),
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.getByTestId('unlike-error')).toHaveTextContent(
+        /your like was removed/i
+      )
+    })
+
+    it('does not render any action-error banner when mutations are idle', () => {
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.queryByTestId('subscribe-error')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('unsubscribe-error')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('clone-error')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('like-error')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('unlike-error')).not.toBeInTheDocument()
+    })
+
+    it('renders the reorder error banner when reorderMutation isError', () => {
+      // Need at least 1 item with the items-list visible — supply ranked
+      // mode + creator so the items list renders.
+      mockReorderMutation.mockReturnValue({
+        mutate: mockReorderMutate,
+        isPending: false,
+        isError: true,
+        error: new Error('Failed to save order'),
+      })
+      mockCollection.mockReturnValue({
+        data: makeCollection({
+          display_mode: 'ranked',
+          item_count: 2,
+          items: [
+            {
+              id: 1,
+              entity_type: 'release',
+              entity_id: 10,
+              entity_name: 'Item One',
+              entity_slug: 'item-one',
+              image_url: null,
+              position: 0,
+              added_by_user_id: 1,
+              added_by_name: 'curator',
+              notes: null,
+              notes_html: undefined,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+            {
+              id: 2,
+              entity_type: 'release',
+              entity_id: 11,
+              entity_name: 'Item Two',
+              entity_slug: 'item-two',
+              image_url: null,
+              position: 1,
+              added_by_user_id: 1,
+              added_by_name: 'curator',
+              notes: null,
+              notes_html: undefined,
+              created_at: '2025-01-01T00:00:00Z',
+            },
+          ],
+        }),
+        isLoading: false,
+        error: null,
+      })
+      render(<CollectionDetail slug="test-collection" />)
+      expect(screen.getByTestId('reorder-error')).toHaveTextContent(
+        'Failed to save order'
+      )
     })
   })
 })

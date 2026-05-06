@@ -3,7 +3,11 @@
 import { useState } from 'react'
 import { ClipboardList, Clock } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useFieldNotes, useCreateFieldNote } from '../hooks'
+import {
+  useFieldNotes,
+  useCreateFieldNote,
+  formatCommentSubmissionError,
+} from '../hooks'
 import { FieldNoteForm } from './FieldNoteForm'
 import { FieldNoteCard } from './FieldNoteCard'
 import type { Comment, CreateFieldNoteInput } from '../types'
@@ -41,6 +45,10 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
   // it optimistically alongside the public list (which filters out
   // pending_review). De-duped once the canonical row appears post-approval.
   const [pendingNote, setPendingNote] = useState<Comment | null>(null)
+  // PSY-608: bumped on every successful submit so FieldNoteForm clears its
+  // local state. The form keeps the draft on error so the user can retry
+  // without retyping (mirrors CommentForm's resetSignal pattern).
+  const [submitGeneration, setSubmitGeneration] = useState(0)
 
   const fieldNotes = data?.comments ?? []
   const total = data?.total ?? 0
@@ -58,6 +66,9 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
           if (created.visibility === 'pending_review') {
             setPendingNote(created)
           }
+          // PSY-608: clear the form ONLY on success. On 4xx the form
+          // retains the draft so the user can retry.
+          setSubmitGeneration((g) => g + 1)
         },
       }
     )
@@ -95,6 +106,10 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
                 onSubmit={handleCreate}
                 artists={artists}
                 isPending={createMutation.isPending}
+                errorMessage={formatCommentSubmissionError(
+                  createMutation.error
+                )}
+                resetSignal={submitGeneration}
               />
             </div>
           ) : (

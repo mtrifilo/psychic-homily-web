@@ -42,7 +42,7 @@ describe('FieldNoteForm', () => {
     expect(screen.getByTestId('field-note-submit')).not.toBeDisabled()
   })
 
-  it('calls onSubmit with body and resets form', () => {
+  it('calls onSubmit with trimmed body but does NOT clear form (PSY-608 — clear is parent-driven via resetSignal)', () => {
     const handleSubmit = vi.fn()
     render(<FieldNoteForm onSubmit={handleSubmit} />)
 
@@ -54,7 +54,73 @@ describe('FieldNoteForm', () => {
     expect(handleSubmit).toHaveBeenCalledWith(
       expect.objectContaining({ body: 'Amazing performance' })
     )
+    // PSY-608: form keeps the draft so 4xx errors don't discard typed text.
+    // Parent clears via resetSignal on mutation success.
+    expect(screen.getByTestId('field-note-textarea')).toHaveValue(
+      '  Amazing performance  '
+    )
+  })
+
+  it('clears form when parent bumps resetSignal (PSY-608)', () => {
+    const handleSubmit = vi.fn()
+    const { rerender } = render(
+      <FieldNoteForm onSubmit={handleSubmit} resetSignal={0} />
+    )
+
+    fireEvent.change(screen.getByTestId('field-note-textarea'), {
+      target: { value: 'My note' },
+    })
+    fireEvent.click(screen.getByTestId('field-note-submit'))
+
+    expect(handleSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ body: 'My note' })
+    )
+    // Pre-bump: draft preserved.
+    expect(screen.getByTestId('field-note-textarea')).toHaveValue('My note')
+
+    // Parent signals success.
+    rerender(<FieldNoteForm onSubmit={handleSubmit} resetSignal={1} />)
     expect(screen.getByTestId('field-note-textarea')).toHaveValue('')
+  })
+
+  it('renders an inline error banner when errorMessage is set (PSY-608)', () => {
+    render(
+      <FieldNoteForm
+        onSubmit={vi.fn()}
+        errorMessage="Please wait 60s before commenting again."
+      />
+    )
+    const banner = screen.getByTestId('field-note-form-error')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveAttribute('role', 'alert')
+    expect(banner).toHaveTextContent(
+      'Please wait 60s before commenting again.'
+    )
+  })
+
+  it('preserves draft when an errorMessage is present and no resetSignal bump (PSY-608)', () => {
+    const handleSubmit = vi.fn()
+    const { rerender } = render(
+      <FieldNoteForm onSubmit={handleSubmit} resetSignal={0} />
+    )
+
+    fireEvent.change(screen.getByTestId('field-note-textarea'), {
+      target: { value: 'first try' },
+    })
+    fireEvent.click(screen.getByTestId('field-note-submit'))
+
+    // Mutation comes back 4xx — parent renders errorMessage but does NOT
+    // bump resetSignal. The draft must survive.
+    rerender(
+      <FieldNoteForm
+        onSubmit={handleSubmit}
+        resetSignal={0}
+        errorMessage="Please wait 60s before commenting again."
+      />
+    )
+
+    expect(screen.getByTestId('field-note-form-error')).toBeInTheDocument()
+    expect(screen.getByTestId('field-note-textarea')).toHaveValue('first try')
   })
 
   it('includes sound quality when set', async () => {

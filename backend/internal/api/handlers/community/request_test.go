@@ -671,29 +671,3 @@ func TestBuildRequestResponse_NoVote(t *testing.T) {
 		t.Errorf("expected user_vote=nil, got %v", resp.UserVote)
 	}
 }
-
-func TestResolveUserDisplayName(t *testing.T) {
-	username := "cooluser"
-	firstName := "Jane"
-	lastName := "Doe"
-
-	tests := []struct {
-		name     string
-		user     *authm.User
-		expected string
-	}{
-		{"username", &authm.User{Username: &username}, "cooluser"},
-		{"first+last", &authm.User{FirstName: &firstName, LastName: &lastName}, "Jane Doe"},
-		{"first only", &authm.User{FirstName: &firstName}, "Jane"},
-		{"empty", &authm.User{}, "Unknown"},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			result := resolveUserDisplayName(tc.user)
-			if result != tc.expected {
-				t.Errorf("expected %q, got %q", tc.expected, result)
-			}
-		})
-	}
-}

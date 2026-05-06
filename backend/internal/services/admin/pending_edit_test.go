@@ -875,42 +875,6 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCancelPendingEdit_AllowsNew
 }
 
 // =============================================================================
-// displayName helper tests
-// =============================================================================
-
-func TestDisplayName(t *testing.T) {
-	username := "testuser"
-	first := "John"
-	last := "Doe"
-	email := "john@test.com"
-
-	t.Run("PreferUsername", func(t *testing.T) {
-		u := &authm.User{Username: &username, FirstName: &first, Email: &email}
-		assert.Equal(t, "testuser", displayName(u))
-	})
-
-	t.Run("FallbackToFirstLast", func(t *testing.T) {
-		u := &authm.User{FirstName: &first, LastName: &last, Email: &email}
-		assert.Equal(t, "John Doe", displayName(u))
-	})
-
-	t.Run("FallbackToFirstOnly", func(t *testing.T) {
-		u := &authm.User{FirstName: &first, Email: &email}
-		assert.Equal(t, "John", displayName(u))
-	})
-
-	t.Run("FallbackToEmail", func(t *testing.T) {
-		u := &authm.User{Email: &email}
-		assert.Equal(t, "john@test.com", displayName(u))
-	})
-
-	t.Run("EmptyUser", func(t *testing.T) {
-		u := &authm.User{}
-		assert.Equal(t, "", displayName(u))
-	})
-}
-
-// =============================================================================
 // Email notification tests
 // =============================================================================
 

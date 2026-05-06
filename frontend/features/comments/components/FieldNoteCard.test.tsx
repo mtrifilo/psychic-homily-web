@@ -12,13 +12,31 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
+// PSY-608: per-mutation overrides so we can assert reply + vote error UI.
+const mockUseReplyToComment = vi.fn()
+const mockUseVoteComment = vi.fn()
+const mockUseUnvoteComment = vi.fn()
 
-vi.mock('../hooks', () => ({
-  useReplyToComment: () => defaultMutationReturn,
-  useVoteComment: () => defaultMutationReturn,
-  useUnvoteComment: () => defaultMutationReturn,
-  useCommentThread: () => ({ data: undefined }),
-}))
+vi.mock('../hooks', async () => {
+  // PSY-608: bring through the real formatCommentSubmissionError +
+  // useAutoDismissError so the FieldNoteCard renders the canonical inline
+  // error banner copy in tests.
+  const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
+  return {
+    useReplyToComment: () => mockUseReplyToComment(),
+    useVoteComment: () => mockUseVoteComment(),
+    useUnvoteComment: () => mockUseUnvoteComment(),
+    useCommentThread: () => ({ data: undefined }),
+    useAutoDismissError: actual.useAutoDismissError,
+    formatCommentSubmissionError: actual.formatCommentSubmissionError,
+  }
+})
+
+function resetFieldNoteCardMocks() {
+  mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
+  mockUseVoteComment.mockReturnValue(defaultMutationReturn)
+  mockUseUnvoteComment.mockReturnValue(defaultMutationReturn)
+}
 
 vi.mock('@/features/contributions', () => ({
   ReportEntityDialog: () => null,
@@ -59,6 +77,7 @@ function makeFieldNote(overrides: Partial<Comment> = {}): Comment {
 describe('FieldNoteCard', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    resetFieldNoteCardMocks()
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -338,6 +357,97 @@ describe('FieldNoteCard', () => {
       )
 
       expect(screen.getByTestId('show-replies-button')).toBeInTheDocument()
+    })
+  })
+
+  // PSY-608: vote/unvote optimistic-rollback shows an auto-dismiss banner;
+  // reply form shows a sticky banner via the shared CommentForm slot.
+  describe('mutation error surfacing (PSY-608)', () => {
+    function authedUser() {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '7', email: 'rate@example.com' },
+      })
+    }
+
+    it('renders inline 429 banner with countdown copy when reply mutation rate-limits', () => {
+      authedUser()
+      const err = Object.assign(
+        new Error('please wait 60 seconds between comments on the same entity'),
+        { status: 429, retryAfter: 60 }
+      )
+      mockUseReplyToComment.mockReturnValue({
+        mutate: vi.fn(),
+        isPending: false,
+        error: err,
+      })
+
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+
+      // Open the reply form.
+      fireEvent.click(screen.getByText('Reply'))
+
+      const banner = screen.getByTestId('comment-form-error')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveTextContent('Please wait 60s before commenting again.')
+    })
+
+    it('renders the auto-dismiss vote-error banner when useVoteComment rejects', () => {
+      authedUser()
+      const voteError = Object.assign(new Error('vote failed'), { status: 500 })
+      const mutateImpl = vi.fn(
+        (_args: unknown, opts?: { onError?: (err: unknown) => void }) => {
+          opts?.onError?.(voteError)
+        }
+      )
+      mockUseVoteComment.mockReturnValue({
+        mutate: mutateImpl,
+        isPending: false,
+      })
+
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+
+      expect(screen.queryByTestId('vote-error-banner')).not.toBeInTheDocument()
+
+      fireEvent.click(screen.getByLabelText('Upvote'))
+
+      const banner = screen.getByTestId('vote-error-banner')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveAttribute('role', 'alert')
+      expect(banner).toHaveTextContent('Vote failed')
+    })
+
+    it('renders the auto-dismiss vote-error banner when useUnvoteComment rejects', () => {
+      authedUser()
+      const voteError = Object.assign(new Error('rate limited'), {
+        status: 429,
+        retryAfter: 60,
+      })
+      const mutateImpl = vi.fn(
+        (_args: unknown, opts?: { onError?: (err: unknown) => void }) => {
+          opts?.onError?.(voteError)
+        }
+      )
+      mockUseUnvoteComment.mockReturnValue({
+        mutate: mutateImpl,
+        isPending: false,
+      })
+
+      // Already upvoted — clicking upvote toggles off (unvote path).
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ user_vote: 1 })}
+          showId={10}
+        />
+      )
+
+      fireEvent.click(screen.getByLabelText('Upvote'))
+
+      const banner = screen.getByTestId('vote-error-banner')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveTextContent(
+        'Please wait 60s before commenting again.'
+      )
     })
   })
 })

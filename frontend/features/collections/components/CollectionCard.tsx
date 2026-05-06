@@ -1,12 +1,14 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useRef, useState } from 'react'
 import {
   Library,
   Users,
   Star,
   Clock,
   Heart,
+  AlertCircle,
   Mic2,
   MapPin,
   Calendar,
@@ -41,16 +43,57 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   const { isAuthenticated } = useAuthContext()
   const likeMutation = useLikeCollection()
   const unlikeMutation = useUnlikeCollection()
+  // PSY-609: like/unlike are optimistic-rollback hooks; on a 4xx the heart
+  // snaps back but the user got no explanation. Keep an auto-dismiss
+  // banner in the card so the *reason* is visible for ~3s. 403 (private
+  // target) gets dedicated copy.
+  const [likeError, setLikeError] = useState<string | null>(null)
+  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const handleToggleLike = (e: React.MouseEvent) => {
+  useEffect(() => {
+    return () => {
+      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current)
+    }
+  }, [])
+
+  const handleToggleLike = async (e: React.MouseEvent) => {
     // Card body is wrapped in a link; stop propagation so clicking the
     // heart doesn't navigate to the detail page.
     e.preventDefault()
     e.stopPropagation()
-    if (collection.user_likes_this) {
-      unlikeMutation.mutate({ slug: collection.slug })
-    } else {
-      likeMutation.mutate({ slug: collection.slug })
+
+    const wasLiked = Boolean(collection.user_likes_this)
+
+    setLikeError(null)
+    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current)
+
+    try {
+      if (wasLiked) {
+        await unlikeMutation.mutateAsync({ slug: collection.slug })
+      } else {
+        await likeMutation.mutateAsync({ slug: collection.slug })
+      }
+    } catch (err) {
+      // Status comes from ApiError.status / AuthError.status (403 wraps
+      // as AuthError for the privacy-blocked path).
+      const status =
+        err && typeof err === 'object' && 'status' in err
+          ? Number((err as { status?: number }).status)
+          : undefined
+      let message: string
+      if (status === 403) {
+        message = wasLiked
+          ? "This collection is private — your like was removed."
+          : 'This collection is private.'
+      } else if (err instanceof Error && err.message) {
+        message = err.message
+      } else {
+        message = wasLiked
+          ? 'Failed to unlike collection.'
+          : 'Failed to like collection.'
+      }
+      setLikeError(message)
+      errorTimeoutRef.current = setTimeout(() => setLikeError(null), 3000)
     }
   }
 
@@ -296,6 +339,26 @@ export function CollectionCard({ collection }: CollectionCardProps) {
               {formatRelativeTime(collection.updated_at)}
             </span>
           </div>
+
+          {/*
+            PSY-609: like/unlike error banner. Auto-dismisses after ~3s
+            (set by handleToggleLike's setTimeout). role="status" because
+            this is informational — the optimistic state already snapped
+            back; this banner just explains why.
+          */}
+          {likeError && (
+            <div
+              role="status"
+              data-testid="collection-card-like-error"
+              className="mt-1.5 flex items-start gap-1 text-xs text-destructive"
+            >
+              <AlertCircle
+                className="h-3 w-3 mt-0.5 shrink-0"
+                aria-hidden="true"
+              />
+              <span className="flex-1">{likeError}</span>
+            </div>
+          )}
         </div>
       </div>
     </article>

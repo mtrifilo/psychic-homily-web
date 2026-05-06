@@ -203,6 +203,10 @@ export function CollectionManagement() {
   const { data, isLoading, error } = useCollections()
   const setFeatured = useSetFeatured()
   const [selectedSlug, setSelectedSlug] = useState<string | null>(null)
+  // PSY-609: surface featured-toggle failures so admins aren't left
+  // wondering why the switch flipped back. Mirrors the LabelManagement
+  // setError pattern called out in the audit.
+  const [featuredError, setFeaturedError] = useState<string | null>(null)
 
   if (isLoading)
     return <p className="text-muted-foreground">Loading collections...</p>
@@ -219,6 +223,18 @@ export function CollectionManagement() {
           {data?.total ?? 0} total
         </span>
       </div>
+
+      {/* PSY-609: featured-toggle error banner. Sticky until the next
+          successful toggle clears it (handled in the Switch onCheckedChange). */}
+      {featuredError && (
+        <div
+          role="alert"
+          data-testid="featured-toggle-error"
+          className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          {featuredError}
+        </div>
+      )}
 
       {collections.length === 0 ? (
         <p className="text-muted-foreground">No collections yet</p>
@@ -273,10 +289,22 @@ export function CollectionManagement() {
                       <Switch
                         checked={collection.is_featured}
                         onCheckedChange={(checked) => {
-                          setFeatured.mutate({
-                            slug: collection.slug,
-                            featured: checked,
-                          })
+                          setFeaturedError(null)
+                          setFeatured.mutate(
+                            {
+                              slug: collection.slug,
+                              featured: checked,
+                            },
+                            {
+                              onError: (err) => {
+                                setFeaturedError(
+                                  err instanceof Error
+                                    ? err.message
+                                    : 'Failed to update featured status'
+                                )
+                              },
+                            }
+                          )
                         }}
                         disabled={setFeatured.isPending}
                         size="sm"

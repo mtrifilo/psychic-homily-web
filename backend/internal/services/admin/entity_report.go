@@ -9,6 +9,7 @@ import (
 	"psychic-homily-backend/db"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // EntityReportService handles business logic for generalized entity reports.
@@ -271,12 +272,12 @@ func (s *EntityReportService) toResponse(report *communitym.EntityReport) *contr
 
 	// Resolve reporter name
 	if report.Reporter.ID != 0 {
-		resp.ReporterName = displayName(&report.Reporter)
+		resp.ReporterName = shared.ResolveUserName(&report.Reporter)
 	}
 
 	// Resolve reviewer name
 	if report.Reviewer != nil && report.Reviewer.ID != 0 {
-		resp.ReviewerName = displayName(report.Reviewer)
+		resp.ReviewerName = shared.ResolveUserName(report.Reviewer)
 	}
 
 	return resp

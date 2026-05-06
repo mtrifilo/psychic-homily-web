@@ -8,12 +8,15 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { CommentForm } from './CommentForm'
+import { MutationErrorBanner } from './MutationErrorBanner'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
   useReplyToComment,
   useVoteComment,
   useUnvoteComment,
   useCommentThread,
+  useAutoDismissError,
+  formatCommentSubmissionError,
 } from '../hooks'
 import type { Comment } from '../types'
 
@@ -65,6 +68,10 @@ export function FieldNoteCard({
   const replyMutation = useReplyToComment()
   const voteMutation = useVoteComment()
   const unvoteMutation = useUnvoteComment()
+  // PSY-608: optimistic vote/unvote rollback hides the failure visually.
+  // Show a brief auto-dismissing banner so the user knows the action was
+  // reverted, mirroring SaveButton / FavoriteVenueButton (~3s).
+  const voteError = useAutoDismissError()
 
   const hasInlineReplies = replies.length > 0
   const { data: threadData } = useCommentThread(comment.id, loadedThread && !hasInlineReplies)
@@ -82,9 +89,15 @@ export function FieldNoteCard({
   const handleVote = (direction: 1 | -1) => {
     if (!isAuthenticated) return
     if (comment.user_vote === direction) {
-      unvoteMutation.mutate({ commentId: comment.id, entityType: 'show', entityId: showId })
+      unvoteMutation.mutate(
+        { commentId: comment.id, entityType: 'show', entityId: showId },
+        { onError: (err) => voteError.show(err) }
+      )
     } else {
-      voteMutation.mutate({ commentId: comment.id, direction, entityType: 'show', entityId: showId })
+      voteMutation.mutate(
+        { commentId: comment.id, direction, entityType: 'show', entityId: showId },
+        { onError: (err) => voteError.show(err) }
+      )
     }
   }
 
@@ -236,6 +249,20 @@ export function FieldNoteCard({
         </div>
       )}
 
+      {/* PSY-608: auto-dismiss banner for vote/unvote failures. The
+          optimistic-rollback restores the cached state silently; without
+          this, the user sees the icon flip back with no explanation. */}
+      {voteError.error !== null && (
+        <MutationErrorBanner
+          testId="vote-error-banner"
+          marginTop="mt-3"
+          message={
+            formatCommentSubmissionError(voteError.error) ??
+            'Vote failed. Please try again.'
+          }
+        />
+      )}
+
       {/* Actions row: votes + reply + report */}
       <div className="flex items-center gap-1 mt-3">
         {/* Vote buttons */}
@@ -293,7 +320,8 @@ export function FieldNoteCard({
         )}
       </div>
 
-      {/* Inline reply form */}
+      {/* Inline reply form. PSY-608: surface 4xx (e.g. 429) inline so reply
+          mutations don't fail silently — same pattern as CommentCard. */}
       {isReplying && (
         <div className="mt-3 ml-4">
           <CommentForm
@@ -302,6 +330,7 @@ export function FieldNoteCard({
             submitLabel="Reply"
             onCancel={() => setIsReplying(false)}
             isPending={replyMutation.isPending}
+            errorMessage={formatCommentSubmissionError(replyMutation.error)}
           />
         </div>
       )}
