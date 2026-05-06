@@ -19,16 +19,23 @@ type AuditLogFilters struct {
 	ActorID    *uint
 }
 
-// AuditLogResponse represents an audit log entry in API responses
+// AuditLogResponse represents an audit log entry in API responses.
+//
+// ActorEmail is retained alongside ActorName/ActorUsername for backward
+// compatibility with existing frontend consumers; new consumers should
+// prefer the resolved name (and the optional /users/:slug link via
+// ActorUsername) and treat ActorEmail as deprecated.
 type AuditLogResponse struct {
-	ID         uint                   `json:"id"`
-	ActorID    *uint                  `json:"actor_id"`
-	ActorEmail string                 `json:"actor_email,omitempty"`
-	Action     string                 `json:"action"`
-	EntityType string                 `json:"entity_type"`
-	EntityID   uint                   `json:"entity_id"`
-	Metadata   map[string]interface{} `json:"metadata,omitempty"`
-	CreatedAt  time.Time              `json:"created_at"`
+	ID            uint                   `json:"id"`
+	ActorID       *uint                  `json:"actor_id"`
+	ActorEmail    string                 `json:"actor_email,omitempty"`
+	ActorName     string                 `json:"actor_name,omitempty"`
+	ActorUsername *string                `json:"actor_username,omitempty"`
+	Action        string                 `json:"action"`
+	EntityType    string                 `json:"entity_type"`
+	EntityID      uint                   `json:"entity_id"`
+	Metadata      map[string]interface{} `json:"metadata,omitempty"`
+	CreatedAt     time.Time              `json:"created_at"`
 }
 
 // ──────────────────────────────────────────────

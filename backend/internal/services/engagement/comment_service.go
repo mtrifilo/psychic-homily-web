@@ -20,6 +20,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // FollowChecker is the minimal FollowService surface that CommentService
@@ -151,8 +152,8 @@ func commentToResponse(c *engagementm.Comment) *contracts.CommentResponse {
 		EntityID:        c.EntityID,
 		Kind:            string(c.Kind),
 		UserID:          c.UserID,
-		AuthorName:      resolveCommentAuthorName(&c.User),
-		AuthorUsername:  resolveCommentAuthorUsername(&c.User),
+		AuthorName:      shared.ResolveUserName(&c.User),
+		AuthorUsername:  shared.ResolveUserUsername(&c.User),
 		ParentID:        c.ParentID,
 		RootID:          c.RootID,
 		Depth:           c.Depth,
@@ -170,49 +171,6 @@ func commentToResponse(c *engagementm.Comment) *contracts.CommentResponse {
 		UpdatedAt:       c.UpdatedAt,
 	}
 	return resp
-}
-
-// resolveCommentAuthorName returns the display name for a comment's author —
-// never empty. Mirrors CollectionService.resolveUserName (PSY-353): prefer
-// username, fall back to first/last, then to the local-part of the email,
-// finally "Anonymous". Operates on the preloaded User so callers don't pay
-// an extra query per comment. PSY-552.
-func resolveCommentAuthorName(u *authm.User) string {
-	if u == nil || u.ID == 0 {
-		return "Anonymous"
-	}
-	if u.Username != nil && *u.Username != "" {
-		return *u.Username
-	}
-	if u.FirstName != nil && *u.FirstName != "" {
-		name := *u.FirstName
-		if u.LastName != nil && *u.LastName != "" {
-			name += " " + *u.LastName
-		}
-		return name
-	}
-	if u.Email != nil && *u.Email != "" {
-		if idx := strings.Index(*u.Email, "@"); idx > 0 {
-			return (*u.Email)[:idx]
-		}
-	}
-	return "Anonymous"
-}
-
-// resolveCommentAuthorUsername returns the author's username for /users/:username
-// links, or nil when the user has no username set. Distinct from
-// resolveCommentAuthorName, which falls back to first/last/email and so cannot
-// be safely used in a URL slug. Mirrors CollectionService.resolveUserUsername
-// (PSY-353). PSY-552.
-func resolveCommentAuthorUsername(u *authm.User) *string {
-	if u == nil || u.ID == 0 {
-		return nil
-	}
-	if u.Username == nil || *u.Username == "" {
-		return nil
-	}
-	username := *u.Username
-	return &username
 }
 
 // userTierHourlyLimit returns the hourly comment limit for a given user tier.
@@ -799,11 +757,9 @@ func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint)
 			EditorUserID: e.EditorUserID,
 		}
 		if e.Editor != nil && e.Editor.ID != 0 {
-			if e.Editor.Username != nil {
-				entry.EditorUsername = *e.Editor.Username
-			}
-			if e.Editor.FirstName != nil {
-				entry.EditorName = *e.Editor.FirstName
+			entry.EditorName = shared.ResolveUserName(e.Editor)
+			if username := shared.ResolveUserUsername(e.Editor); username != nil {
+				entry.EditorUsername = *username
 			}
 		}
 		entries[i] = entry

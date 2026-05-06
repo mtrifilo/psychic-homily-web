@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // AuditLogService handles audit log business logic
@@ -124,8 +125,12 @@ func (s *AuditLogService) buildResponse(log *adminm.AuditLog) *contracts.AuditLo
 		CreatedAt:  log.CreatedAt,
 	}
 
-	if log.Actor != nil && log.Actor.Email != nil {
-		resp.ActorEmail = *log.Actor.Email
+	if log.Actor != nil {
+		if log.Actor.Email != nil {
+			resp.ActorEmail = *log.Actor.Email
+		}
+		resp.ActorName = shared.ResolveUserName(log.Actor)
+		resp.ActorUsername = shared.ResolveUserUsername(log.Actor)
 	}
 
 	if log.Metadata != nil {
