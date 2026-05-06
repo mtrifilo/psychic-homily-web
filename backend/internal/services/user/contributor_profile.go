@@ -865,6 +865,9 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			continue
 		}
 		names := make(map[uint]string)
+		// "<type>_edit" cases handle the synthetic discriminator emitted by
+		// the pending_entity_edits UNION in GetContributionHistory; they
+		// resolve from the same underlying table as their base type.
 		switch entityType {
 		case "show":
 			var results []struct {
@@ -884,7 +887,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Name
 			}
-		case "artist":
+		case "artist", "artist_edit":
 			var results []struct {
 				ID   uint
 				Name string
@@ -893,7 +896,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Name
 			}
-		case "release":
+		case "release", "release_edit":
 			var results []struct {
 				ID    uint
 				Title string
@@ -902,7 +905,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Title
 			}
-		case "label":
+		case "label", "label_edit":
 			var results []struct {
 				ID   uint
 				Name string
@@ -911,7 +914,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Name
 			}
-		case "festival":
+		case "festival", "festival_edit":
 			var results []struct {
 				ID   uint
 				Name string

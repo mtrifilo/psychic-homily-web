@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -72,11 +73,17 @@ func (h *OAuthAccountHandler) GetOAuthAccountsHandler(ctx context.Context, req *
 	responseAccounts := make([]OAuthAccountResponse, len(accounts))
 	for i, acc := range accounts {
 		responseAccounts[i] = OAuthAccountResponse{
-			Provider:    acc.Provider,
-			Email:       acc.ProviderEmail,
-			Name:        acc.ProviderName,
-			AvatarURL:   acc.ProviderAvatarURL,
-			ConnectedAt: acc.CreatedAt.Format("2006-01-02T15:04:05Z"),
+			Provider:  acc.Provider,
+			Email:     acc.ProviderEmail,
+			Name:      acc.ProviderName,
+			AvatarURL: acc.ProviderAvatarURL,
+			// PSY-616 (sibling of PSY-604): must convert to UTC before
+			// formatting — the literal "Z" in the layout asserts the value
+			// is UTC but Format does not convert. A local time.Time would
+			// otherwise be stamped with "Z" while still carrying the local
+			// clock reading, drifting any downstream timestamp render by
+			// the local UTC offset (e.g. 7h on Phoenix MST).
+			ConnectedAt: acc.CreatedAt.UTC().Format(time.RFC3339),
 		}
 	}
 
