@@ -37,6 +37,7 @@ import {
   GripVertical,
   ChevronUp,
   ChevronDown,
+  AlertCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useSortable } from '@dnd-kit/sortable'
@@ -390,36 +391,66 @@ function CollectionItemCardRemoveControl({
       onPointerDown={stop}
     >
       {showRemoveConfirm ? (
-        <div className="flex items-center gap-1 rounded-md bg-background/95 p-1 shadow-md ring-1 ring-border">
-          <Button
-            variant="destructive"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={(e) => {
-              stop(e)
-              handleRemove()
-            }}
-            disabled={removeMutation.isPending}
-            data-testid="collection-item-card-remove-confirm"
-          >
-            {removeMutation.isPending ? (
-              <Loader2 className="h-3 w-3 animate-spin" />
-            ) : (
-              'Remove'
-            )}
-          </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={(e) => {
-              stop(e)
-              setShowRemoveConfirm(false)
-            }}
-            disabled={removeMutation.isPending}
-          >
-            Cancel
-          </Button>
+        <div className="flex flex-col items-end gap-1">
+          <div className="flex items-center gap-1 rounded-md bg-background/95 p-1 shadow-md ring-1 ring-border">
+            <Button
+              variant="destructive"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={(e) => {
+                stop(e)
+                handleRemove()
+              }}
+              disabled={removeMutation.isPending}
+              data-testid="collection-item-card-remove-confirm"
+            >
+              {removeMutation.isPending ? (
+                <Loader2 className="h-3 w-3 animate-spin" />
+              ) : (
+                'Remove'
+              )}
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs"
+              onClick={(e) => {
+                stop(e)
+                setShowRemoveConfirm(false)
+              }}
+              disabled={removeMutation.isPending}
+            >
+              Cancel
+            </Button>
+          </div>
+          {/*
+            PSY-609: surface the remove failure inline so the user knows
+            the click didn't take effect. Sticky while the confirm UI is
+            open; clears as soon as the user clicks Remove again or
+            Cancels (mutation state transitions to pending/idle).
+          */}
+          {removeMutation.isError && (
+            <div
+              role="status"
+              data-testid={`collection-item-card-remove-error-${itemId}`}
+              className={cn(
+                'flex max-w-[14rem] items-start gap-1 rounded-md',
+                'bg-background/95 px-2 py-1 text-[11px] text-destructive',
+                'shadow-md ring-1 ring-destructive/40'
+              )}
+            >
+              <AlertCircle
+                className="h-3 w-3 mt-0.5 shrink-0"
+                aria-hidden="true"
+              />
+              <span className="flex-1">
+                {removeMutation.error instanceof Error &&
+                removeMutation.error.message
+                  ? removeMutation.error.message
+                  : 'Failed to remove this item.'}
+              </span>
+            </div>
+          )}
         </div>
       ) : (
         <>

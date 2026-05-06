@@ -24,13 +24,19 @@ vi.mock('next/link', () => ({
 // right slug + itemId without standing up a QueryClientProvider. The
 // `mutate` impl pulls `onSuccess` from its options arg so we can assert
 // post-success state-resets too.
+// PSY-609: also expose `isError` + `error` so tests can flip the
+// remove control into the error state and assert the inline banner.
 const mockRemoveMutate = vi.fn()
 const mockRemoveIsPending = vi.fn(() => false)
+const mockRemoveIsError = vi.fn(() => false)
+const mockRemoveError = vi.fn<() => Error | null>(() => null)
 
 vi.mock('../hooks', () => ({
   useRemoveCollectionItem: () => ({
     mutate: mockRemoveMutate,
     isPending: mockRemoveIsPending(),
+    isError: mockRemoveIsError(),
+    error: mockRemoveError(),
   }),
 }))
 
@@ -41,6 +47,10 @@ beforeEach(() => {
   mockRemoveMutate.mockReset()
   mockRemoveIsPending.mockReset()
   mockRemoveIsPending.mockReturnValue(false)
+  mockRemoveIsError.mockReset()
+  mockRemoveIsError.mockReturnValue(false)
+  mockRemoveError.mockReset()
+  mockRemoveError.mockReturnValue(null)
 })
 
 function makeItem(overrides: Partial<CollectionItem> = {}): CollectionItem {
@@ -520,6 +530,52 @@ describe('CollectionItemCard', () => {
       ).not.toBeInTheDocument()
       expect(
         screen.queryByTestId('collection-item-card-drag-handle')
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  // PSY-609: surface remove failures inline on the grid card. The error
+  // state hangs around as long as the confirm UI is open so the user
+  // sees why their click didn't take effect; tapping Cancel or Remove
+  // again re-runs the mutation (wiping isError on the next dispatch).
+  describe('PSY-609 remove error banner', () => {
+    it('renders the inline error banner when removeMutation isError + confirm is open', async () => {
+      const user = userEvent.setup()
+      mockRemoveIsError.mockReturnValue(true)
+      mockRemoveError.mockReturnValue(new Error('Failed to remove this item.'))
+
+      render(
+        <CollectionItemCard
+          item={makeItem({ id: 42 })}
+          density="comfortable"
+          isCreator
+          slug="my-collection"
+        />
+      )
+
+      // Open the confirm UI via the desktop X.
+      await user.click(screen.getByTestId('collection-item-card-remove'))
+
+      const banner = screen.getByTestId(
+        'collection-item-card-remove-error-42'
+      )
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveTextContent('Failed to remove this item.')
+    })
+
+    it('does not render the error banner when isError is false', async () => {
+      const user = userEvent.setup()
+      render(
+        <CollectionItemCard
+          item={makeItem({ id: 42 })}
+          density="comfortable"
+          isCreator
+          slug="my-collection"
+        />
+      )
+      await user.click(screen.getByTestId('collection-item-card-remove'))
+      expect(
+        screen.queryByTestId('collection-item-card-remove-error-42')
       ).not.toBeInTheDocument()
     })
   })
