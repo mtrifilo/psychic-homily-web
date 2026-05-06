@@ -19,6 +19,7 @@ import {
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Badge } from '@/components/ui/badge'
+import { UserAttribution } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { getEntityTypeLabel, type Collection } from '../types'
 import { MarkdownContent } from './MarkdownEditor'
@@ -254,16 +255,11 @@ export function CollectionCard({ collection }: CollectionCardProps) {
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground flex-wrap">
             <span>
               by{' '}
-              {collection.creator_username ? (
-                <Link
-                  href={`/users/${collection.creator_username}`}
-                  className="text-foreground hover:underline"
-                >
-                  {collection.creator_name}
-                </Link>
-              ) : (
-                collection.creator_name
-              )}
+              <UserAttribution
+                name={collection.creator_name}
+                username={collection.creator_username}
+                className="text-foreground hover:underline"
+              />
             </span>
             <span className="flex items-center gap-1">
               <Library className="h-3 w-3" />

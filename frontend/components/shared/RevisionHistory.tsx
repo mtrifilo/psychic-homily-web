@@ -1,13 +1,13 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { ChevronDown, ChevronRight, History, Loader2, RotateCcw } from 'lucide-react'
 import { useEntityRevisions, useRollbackRevision } from '@/lib/hooks/common/useRevisions'
 import type { RevisionItem, FieldChange } from '@/lib/hooks/common/useRevisions'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
+import { UserAttribution } from './UserAttribution'
 
 interface RevisionHistoryProps {
   entityType: string
@@ -66,9 +66,6 @@ function RevisionEntry({
   isRollingBack: boolean
 }) {
   const [expanded, setExpanded] = useState(false)
-  // user_name is resolved server-side via the full chain (PSY-560); the
-  // 'Anonymous' fallback covers legacy/empty payloads.
-  const displayName = revision.user_name || 'Anonymous'
 
   return (
     <div className="border-b border-border/50 last:border-b-0">
@@ -85,20 +82,16 @@ function RevisionEntry({
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            {/* user_username is the linkable slug; nil means unlinkable. PSY-560. */}
-            {revision.user_username ? (
-              <Link
-                href={`/users/${revision.user_username}`}
-                onClick={e => e.stopPropagation()}
-                className="text-sm font-medium hover:underline"
-              >
-                {displayName}
-              </Link>
-            ) : (
-              <span className="text-sm font-medium text-foreground">
-                {displayName}
-              </span>
-            )}
+            {/* Stop byline-link clicks from also toggling the surrounding
+                expand button (we're nested inside <button>; the link should
+                navigate, not collapse the row). */}
+            <span onClick={e => e.stopPropagation()}>
+              <UserAttribution
+                name={revision.user_name}
+                username={revision.user_username}
+                className="text-sm font-medium text-foreground hover:underline"
+              />
+            </span>
             <span className="text-xs text-muted-foreground">
               {formatRelativeTime(revision.created_at)}
             </span>

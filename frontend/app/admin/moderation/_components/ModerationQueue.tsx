@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useCallback } from 'react'
+import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Loader2,
   Inbox,
@@ -17,6 +17,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { UserAttribution } from '@/components/shared'
 import {
   useAdminPendingEdits,
   useApprovePendingEdit,
@@ -106,9 +107,26 @@ type ModerationItem =
   | { type: 'report'; data: EntityReportResponse }
   | { type: 'comment'; data: PendingComment }
 
+// ─── PSY-603: success banner state ───────────────────────────────────────────
+
+type ModerationActionVerb = 'approved' | 'rejected'
+
+interface ModerationAction {
+  verb: ModerationActionVerb
+  entityLabel: string
+}
+
+const SUCCESS_BANNER_TIMEOUT_MS = 5000
+
 // ─── Pending Edit Card ───────────────────────────────────────────────────────
 
-function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
+function PendingEditCard({
+  edit,
+  onActionSuccess,
+}: {
+  edit: PendingEditResponse
+  onActionSuccess: (action: ModerationAction) => void
+}) {
   const [expanded, setExpanded] = useState(false)
   const [rejecting, setRejecting] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
@@ -118,17 +136,31 @@ function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
 
   const isActioning = approveMutation.isPending || rejectMutation.isPending
 
+  const entityLabel = edit.entity_name || `${entityTypeLabel(edit.entity_type)} #${edit.entity_id}`
+
   const handleApprove = useCallback(() => {
-    approveMutation.mutate(edit.id)
-  }, [approveMutation, edit.id])
+    approveMutation.mutate(edit.id, {
+      // PSY-603: bubble success up to ModerationQueue so the page-level
+      // banner can render. The card itself is about to unmount because the
+      // pending-edits query gets invalidated, so a card-local banner would
+      // disappear with the row.
+      onSuccess: () => onActionSuccess({ verb: 'approved', entityLabel }),
+    })
+  }, [approveMutation, edit.id, onActionSuccess, entityLabel])
 
   const handleReject = useCallback(() => {
     if (!rejectionReason.trim()) return
     rejectMutation.mutate(
       { editId: edit.id, reason: rejectionReason.trim() },
-      { onSuccess: () => { setRejecting(false); setRejectionReason('') } }
+      {
+        onSuccess: () => {
+          setRejecting(false)
+          setRejectionReason('')
+          onActionSuccess({ verb: 'rejected', entityLabel })
+        },
+      }
     )
-  }, [rejectMutation, edit.id, rejectionReason])
+  }, [rejectMutation, edit.id, rejectionReason, onActionSuccess, entityLabel])
 
   return (
     <Card className="overflow-hidden">
@@ -149,7 +181,7 @@ function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              {edit.entity_name || `${entityTypeLabel(edit.entity_type)} #${edit.entity_id}`}
+              {entityLabel}
               <ExternalLink className="h-3 w-3 inline ml-1 opacity-50" />
             </a>
           </div>
@@ -158,9 +190,15 @@ function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
           </span>
         </div>
 
-        {/* Meta */}
+        {/* PSY-613: bylines on this page are unlinked because the moderation
+            DTOs don't currently ship submitter_username / reporter_username /
+            author_username. Once the contract is extended, swap `null` for
+            the corresponding *_username field. */}
         <div className="mt-2 text-sm text-muted-foreground">
-          <span>by {edit.submitter_name || `User #${edit.submitted_by}`}</span>
+          <span>
+            by{' '}
+            <UserAttribution name={edit.submitter_name} username={null} />
+          </span>
           {edit.summary && (
             <span className="ml-1">
               &mdash; {edit.summary}
@@ -337,7 +375,11 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              by {report.reporter_name || `User #${report.reported_by}`}
+              by{' '}
+              <UserAttribution
+                name={report.reporter_name}
+                username={null}
+              />
             </span>
           </div>
           {report.details && (
@@ -479,9 +521,11 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
           </span>
         </div>
 
-        {/* Meta */}
         <div className="mt-2 text-sm text-muted-foreground flex items-center flex-wrap gap-2">
-          <span>by {comment.author_name || `User #${comment.user_id}`}</span>
+          <span>
+            by{' '}
+            <UserAttribution name={comment.author_name} username={null} />
+          </span>
           {comment.trust_tier && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0">
               {comment.trust_tier}
@@ -659,7 +703,11 @@ function CommentReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              by {report.reporter_name || `User #${report.reported_by}`}
+              by{' '}
+              <UserAttribution
+                name={report.reporter_name}
+                username={null}
+              />
             </span>
           </div>
           {bodyPreview && (
@@ -851,7 +899,11 @@ function CollectionReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              by {report.reporter_name || `User #${report.reported_by}`}
+              by{' '}
+              <UserAttribution
+                name={report.reporter_name}
+                username={null}
+              />
             </span>
           </div>
           {report.details && (
@@ -943,6 +995,27 @@ function CollectionReportCard({ report }: { report: EntityReportResponse }) {
 export function ModerationQueue() {
   const [itemTypeFilter, setItemTypeFilter] = useState<ItemTypeFilter>('all')
   const [entityTypeFilter, setEntityTypeFilter] = useState<EntityTypeFilter>('')
+
+  // PSY-603: page-level success banner. Cards bubble up via onActionSuccess
+  // because they unmount on success (the row is removed from the queue).
+  // Auto-dismisses after SUCCESS_BANNER_TIMEOUT_MS, and clears immediately
+  // when the admin changes either filter (treating filter change as a "tab
+  // change" — a fresh review surface should not carry a stale confirmation).
+  const [lastAction, setLastAction] = useState<ModerationAction | null>(null)
+
+  const handleActionSuccess = useCallback((action: ModerationAction) => {
+    setLastAction(action)
+  }, [])
+
+  useEffect(() => {
+    if (!lastAction) return
+    const timer = setTimeout(() => setLastAction(null), SUCCESS_BANNER_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [lastAction])
+
+  useEffect(() => {
+    setLastAction(null)
+  }, [itemTypeFilter, entityTypeFilter])
 
   // Fetch pending edits
   const {
@@ -1037,6 +1110,8 @@ export function ModerationQueue() {
 
   return (
     <div className="space-y-4">
+      {lastAction && <ModerationSuccessBanner action={lastAction} />}
+
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3">
         {/* Item type filter */}
@@ -1111,7 +1186,13 @@ export function ModerationQueue() {
         <div className="grid gap-3">
           {items.map(item => {
             if (item.type === 'edit') {
-              return <PendingEditCard key={`edit-${item.data.id}`} edit={item.data as PendingEditResponse} />
+              return (
+                <PendingEditCard
+                  key={`edit-${item.data.id}`}
+                  edit={item.data as PendingEditResponse}
+                  onActionSuccess={handleActionSuccess}
+                />
+              )
             }
             if (item.type === 'comment') {
               return <PendingCommentCard key={`comment-${item.data.id}`} comment={item.data as PendingComment} />
@@ -1130,6 +1211,38 @@ export function ModerationQueue() {
           })}
         </div>
       )}
+    </div>
+  )
+}
+
+// ─── Moderation Success Banner (PSY-603) ─────────────────────────────────────
+
+/**
+ * Inline success banner shown above the moderation queue after a successful
+ * Approve or Reject. Mirrors the PSY-562 EntityEditDrawer success-state
+ * pattern (green border + Check icon) so the admin surface is consistent
+ * with the contributor-side direct-edit flow.
+ *
+ * The optimistic row removal stays as-is; this banner is purely additive
+ * positive feedback. The parent owns auto-dismiss + filter-change reset.
+ */
+function ModerationSuccessBanner({ action }: { action: ModerationAction }) {
+  const message =
+    action.verb === 'approved'
+      ? `Approved — change applied to ${action.entityLabel}`
+      : `Rejected — submitter notified of reason`
+
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="moderation-success-banner"
+      className="rounded-md border border-green-800 bg-green-950/50 p-4"
+    >
+      <div className="flex items-center gap-2 text-green-400">
+        <Check className="h-4 w-4" />
+        <span className="font-medium">{message}</span>
+      </div>
     </div>
   )
 }
