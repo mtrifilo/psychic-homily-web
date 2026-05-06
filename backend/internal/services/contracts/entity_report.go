@@ -59,15 +59,21 @@ type EntityReportResponse struct {
 	// EntitySlug is populated only for entity types addressed by slug in the
 	// public app (currently `collection`). Other entity types use ID-based
 	// URLs and leave this nil so the JSON omits the field. PSY-357.
-	EntitySlug   *string    `json:"entity_slug,omitempty"`
-	ReportedBy   uint       `json:"reported_by"`
-	ReporterName string     `json:"reporter_name,omitempty"`
-	ReportType   string     `json:"report_type"`
-	Details      *string    `json:"details,omitempty"`
-	Status       string     `json:"status"`
-	AdminNotes   *string    `json:"admin_notes,omitempty"`
-	ReviewedBy   *uint      `json:"reviewed_by,omitempty"`
-	ReviewerName string     `json:"reviewer_name,omitempty"`
-	ReviewedAt   *time.Time `json:"reviewed_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
+	EntitySlug   *string `json:"entity_slug,omitempty"`
+	ReportedBy   uint    `json:"reported_by"`
+	ReporterName string  `json:"reporter_name,omitempty"`
+	// ReporterUsername is the reporter's username when set — pointer so the
+	// JSON encodes null for accounts that never set a username. Frontend
+	// renders the byline as a link to /users/:username when non-nil; nil
+	// renders as plain text. PSY-619.
+	ReporterUsername *string    `json:"reporter_username"`
+	ReportType       string     `json:"report_type"`
+	Details          *string    `json:"details,omitempty"`
+	Status           string     `json:"status"`
+	AdminNotes       *string    `json:"admin_notes,omitempty"`
+	ReviewedBy       *uint      `json:"reviewed_by,omitempty"`
+	ReviewerName     string     `json:"reviewer_name,omitempty"`
+	ReviewerUsername *string    `json:"reviewer_username"`
+	ReviewedAt       *time.Time `json:"reviewed_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
 }

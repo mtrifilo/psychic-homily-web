@@ -25,12 +25,19 @@ export interface EntityReportResponse {
   entity_slug?: string
   reported_by: number
   reporter_name?: string
+  /**
+   * PSY-619: reporter's username when set, null otherwise. Pass to
+   * `<UserAttribution username={...} />` to render the byline as a link to
+   * /users/:username when non-null.
+   */
+  reporter_username: string | null
   report_type: string
   details?: string
   status: string
   admin_notes?: string
   reviewed_by?: number
   reviewer_name?: string
+  reviewer_username?: string | null
   reviewed_at?: string
   created_at: string
 }

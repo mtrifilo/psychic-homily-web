@@ -358,14 +358,17 @@ func (s *PendingEditService) toResponse(edit *adminm.PendingEntityEdit) *contrac
 		}
 	}
 
-	// Resolve submitter name
+	// Resolve submitter name + username (username is *string, nil when not set
+	// — frontend treats nil as "render unlinked"). PSY-619.
 	if edit.Submitter.ID != 0 {
 		resp.SubmitterName = shared.ResolveUserName(&edit.Submitter)
+		resp.SubmitterUsername = shared.ResolveUserUsername(&edit.Submitter)
 	}
 
-	// Resolve reviewer name
+	// Resolve reviewer name + username
 	if edit.Reviewer != nil && edit.Reviewer.ID != 0 {
 		resp.ReviewerName = shared.ResolveUserName(edit.Reviewer)
+		resp.ReviewerUsername = shared.ResolveUserUsername(edit.Reviewer)
 	}
 
 	return resp

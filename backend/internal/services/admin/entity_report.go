@@ -270,14 +270,17 @@ func (s *EntityReportService) toResponse(report *communitym.EntityReport) *contr
 		CreatedAt:  report.CreatedAt,
 	}
 
-	// Resolve reporter name
+	// Resolve reporter name + username (username is *string, nil when not set
+	// — frontend treats nil as "render unlinked"). PSY-619.
 	if report.Reporter.ID != 0 {
 		resp.ReporterName = shared.ResolveUserName(&report.Reporter)
+		resp.ReporterUsername = shared.ResolveUserUsername(&report.Reporter)
 	}
 
-	// Resolve reviewer name
+	// Resolve reviewer name + username
 	if report.Reviewer != nil && report.Reviewer.ID != 0 {
 		resp.ReviewerName = shared.ResolveUserName(report.Reviewer)
+		resp.ReviewerUsername = shared.ResolveUserUsername(report.Reviewer)
 	}
 
 	return resp
