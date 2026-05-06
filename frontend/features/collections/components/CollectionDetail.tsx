@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import {
   Loader2,
@@ -32,6 +32,7 @@ import {
   List,
   Network,
   Flag,
+  AlertCircle,
 } from 'lucide-react'
 import {
   DndContext,
@@ -121,6 +122,115 @@ const ENTITY_ICONS: Record<string, React.ElementType> = {
 }
 
 /**
+ * PSY-609: render a 4xx mutation failure with copy that handles the common
+ * "this collection is private" case (403). Falls back to the server's
+ * `detail`/`message` for everything else, then to a generic copy.
+ *
+ * `unlikePrivate` toggles the wording for the like-vs-unlike asymmetry —
+ * unlike on a 403 means the target was made private after the like, which
+ * deserves slightly different copy from "you can't like a private collection".
+ */
+function describeCollectionMutationError(
+  err: unknown,
+  fallback: string,
+  context?: { unlikePrivate?: boolean }
+): string {
+  const status =
+    err && typeof err === 'object' && 'status' in err
+      ? Number((err as { status?: number }).status)
+      : undefined
+  if (status === 403) {
+    return context?.unlikePrivate
+      ? "This collection is private — your like was removed."
+      : 'This collection is private.'
+  }
+  if (err instanceof Error && err.message) return err.message
+  return fallback
+}
+
+/**
+ * PSY-609: shared inline-banner primitive used by the silent collection
+ * mutation surfaces. Mirrors the success banner already in
+ * AddItemsSection (Check icon + green tone) and adds a destructive
+ * variant (AlertCircle + destructive tone). Used as a sibling to the
+ * mutating control so screen readers + sighted users see the result on
+ * the same card. `role="status"` (vs `alert`) keeps the announcement
+ * polite — these are not safety-critical errors.
+ */
+function MutationFeedback({
+  variant,
+  message,
+  testId,
+}: {
+  variant: 'success' | 'error'
+  message: string
+  testId?: string
+}) {
+  const Icon = variant === 'success' ? Check : AlertCircle
+  const tone =
+    variant === 'success'
+      ? 'text-green-600 dark:text-green-400'
+      : 'text-destructive'
+  return (
+    <div
+      role="status"
+      data-testid={testId}
+      className={cn('mt-2 flex items-start gap-1.5 text-sm', tone)}
+    >
+      <Icon className="h-3.5 w-3.5 mt-0.5 shrink-0" aria-hidden="true" />
+      <span className="flex-1">{message}</span>
+    </div>
+  )
+}
+
+/**
+ * PSY-609: when an optimistic-rollback mutation fails (like / unlike /
+ * reorder), surface the error inline for ~3s then auto-dismiss so the
+ * UI doesn't accrue stale banners after the user already moved on. The
+ * snap-back of the optimistic state is the primary signal; this banner
+ * just makes the *reason* visible.
+ *
+ * Returns the message to render plus a stable `dismiss` callback for
+ * cases where a follow-up success should clear an in-flight error
+ * banner early.
+ */
+function useAutoDismissError(
+  err: unknown,
+  isError: boolean,
+  formatter: (e: unknown) => string,
+  delayMs = 3000
+): { message: string | null; dismiss: () => void } {
+  const [message, setMessage] = useState<string | null>(null)
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const dismiss = useCallback(() => {
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current)
+      timeoutRef.current = null
+    }
+    setMessage(null)
+  }, [])
+
+  useEffect(() => {
+    if (!isError) return
+    setMessage(formatter(err))
+    if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    timeoutRef.current = setTimeout(() => {
+      setMessage(null)
+      timeoutRef.current = null
+    }, delayMs)
+  }, [isError, err, formatter, delayMs])
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current)
+    }
+  }, [])
+
+  return { message, dismiss }
+}
+
+/**
  * PSY-356: curator-only banner shown on a collection's detail page when it
  * fails the public-visibility gate (>= 3 items AND >= 50-char description).
  * Copy enumerates only the missing pieces and changes wording based on
@@ -193,6 +303,34 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   // null = not interacted; URL hash drives the default. User toggle sticks once set.
   const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
   const hash = useUrlHash()
+
+  // PSY-609: like/unlike use optimistic-rollback — when the server rejects
+  // the action, the optimistic state snaps back but until now the user got
+  // no explanation. Auto-dismiss the banner after ~3s so it doesn't
+  // accumulate after the user moves on. The 403 case (private target)
+  // gets dedicated copy via describeCollectionMutationError.
+  const formatLikeError = useCallback(
+    (err: unknown) =>
+      describeCollectionMutationError(err, 'Failed to like collection.'),
+    []
+  )
+  const formatUnlikeError = useCallback(
+    (err: unknown) =>
+      describeCollectionMutationError(err, 'Failed to unlike collection.', {
+        unlikePrivate: true,
+      }),
+    []
+  )
+  const likeError = useAutoDismissError(
+    likeMutation.error,
+    likeMutation.isError,
+    formatLikeError
+  )
+  const unlikeError = useAutoDismissError(
+    unlikeMutation.error,
+    unlikeMutation.isError,
+    formatUnlikeError
+  )
 
   const handleShare = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(() => {
@@ -652,6 +790,63 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 )}
               </div>
             </div>
+
+            {/*
+              PSY-609: surface failures from the header-row action buttons
+              so the user isn't left guessing why nothing happened.
+              - Subscribe / unsubscribe: sticky inline banner on 4xx.
+              - Clone (Fork): sticky inline banner on 4xx (no navigation
+                happened, so the user needs to know).
+              - Like / unlike (PSY-352): optimistic-rollback hooks; the
+                snap-back of the heart is the visual signal, the banner
+                just explains the *why* and auto-dismisses after ~3s so
+                it doesn't accrue after the user moves on. 403 (private
+                target) renders dedicated copy via describeCollectionMutationError.
+            */}
+            {subscribeMutation.isError && (
+              <MutationFeedback
+                variant="error"
+                testId="subscribe-error"
+                message={describeCollectionMutationError(
+                  subscribeMutation.error,
+                  'Failed to subscribe to this collection.'
+                )}
+              />
+            )}
+            {unsubscribeMutation.isError && (
+              <MutationFeedback
+                variant="error"
+                testId="unsubscribe-error"
+                message={describeCollectionMutationError(
+                  unsubscribeMutation.error,
+                  'Failed to unsubscribe from this collection.'
+                )}
+              />
+            )}
+            {cloneMutation.isError && (
+              <MutationFeedback
+                variant="error"
+                testId="clone-error"
+                message={describeCollectionMutationError(
+                  cloneMutation.error,
+                  'Failed to fork this collection.'
+                )}
+              />
+            )}
+            {likeError.message && (
+              <MutationFeedback
+                variant="error"
+                testId="like-error"
+                message={likeError.message}
+              />
+            )}
+            {unlikeError.message && (
+              <MutationFeedback
+                variant="error"
+                testId="unlike-error"
+                message={unlikeError.message}
+              />
+            )}
           </div>
         )}
       </header>
@@ -824,6 +1019,21 @@ function CollectionItemsList({
   const isRanked = displayMode === 'ranked'
   // Reordering only makes sense in ranked mode and only for creators.
   const canReorder = isCreator && isRanked
+
+  // PSY-609: drag-drop and arrow-key reorder were silent on failure — the
+  // mutation has no optimistic update so a 4xx left the items in their
+  // original order with no explanation. Auto-dismiss after ~3s so the
+  // banner doesn't sit around once the user has registered the failure.
+  const formatReorderError = useCallback(
+    (err: unknown) =>
+      describeCollectionMutationError(err, 'Failed to save the new order.'),
+    []
+  )
+  const reorderError = useAutoDismissError(
+    reorderMutation.error,
+    reorderMutation.isError,
+    formatReorderError
+  )
 
   // PSY-360: density preference for the grid view. List view ignores
   // density (its layout is intentionally fixed). Storage key matches the
@@ -1050,6 +1260,19 @@ function CollectionItemsList({
   return (
     <div>
       {header}
+      {/*
+        PSY-609: surface drag-drop / arrow-key reorder failures. The
+        useReorderCollectionItems mutation has no optimistic update, so a
+        rejected request leaves the items in their original order with no
+        feedback. Auto-dismiss the banner after ~3s.
+      */}
+      {reorderError.message && (
+        <MutationFeedback
+          variant="error"
+          testId="reorder-error"
+          message={reorderError.message}
+        />
+      )}
       {canReorder ? (
         <DndContext
           sensors={sensors}
@@ -1307,6 +1530,24 @@ function CollectionItemRow({
         )}
       </div>
 
+      {/*
+        PSY-609: surface remove failures inline so the user knows their
+        click didn't take effect. Sticky (no auto-dismiss) until the
+        confirmation flow is dismissed — once the user clicks Cancel or
+        Remove again, a fresh attempt clears the error via the mutation's
+        own state transition.
+      */}
+      {removeMutation.isError && (
+        <MutationFeedback
+          variant="error"
+          testId={`remove-error-${item.id}`}
+          message={describeCollectionMutationError(
+            removeMutation.error,
+            'Failed to remove this item.'
+          )}
+        />
+      )}
+
       {/* Inline notes editor (PSY-349: markdown w/ preview toggle) */}
       {isEditingNotes && isCreator && (
         <div className="mt-2 ml-[4.25rem] space-y-2">
@@ -1458,10 +1699,11 @@ function AddItemsSection({
 
           {/* Success feedback */}
           {addedMessage && (
-            <div className="mt-2 text-sm text-green-600 dark:text-green-400 flex items-center gap-1.5">
-              <Check className="h-3.5 w-3.5" />
-              {addedMessage}
-            </div>
+            <MutationFeedback
+              variant="success"
+              message={addedMessage}
+              testId="add-item-success"
+            />
           )}
 
           {/* Search results */}
@@ -1529,13 +1771,18 @@ function AddItemsSection({
             </div>
           )}
 
-          {/* Error feedback */}
+          {/* PSY-609: error feedback. Uses the shared inline-banner
+              primitive so the search-box add path renders feedback in the
+              same shape as every other collection mutation surface. */}
           {addMutation.isError && (
-            <p className="mt-2 text-sm text-destructive">
-              {addMutation.error instanceof Error
-                ? addMutation.error.message
-                : 'Failed to add item'}
-            </p>
+            <MutationFeedback
+              variant="error"
+              testId="add-item-error"
+              message={describeCollectionMutationError(
+                addMutation.error,
+                'Failed to add item.'
+              )}
+            />
           )}
         </div>
       )}
