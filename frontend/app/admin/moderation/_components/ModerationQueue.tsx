@@ -36,6 +36,7 @@ import {
   useAdminHideComment,
 } from '@/lib/hooks/admin/useAdminComments'
 import { CommentEditHistory } from '@/features/comments'
+import { EntitySaveSuccessBanner } from '@/features/contributions'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
 import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
@@ -1110,7 +1111,14 @@ export function ModerationQueue() {
 
   return (
     <div className="space-y-4">
-      {lastAction && <ModerationSuccessBanner action={lastAction} />}
+      {/* PSY-603 / PSY-622: page-level success banner. Reuses the shared
+          EntitySaveSuccessBanner primitive (originally PSY-562's "Changes
+          saved" entity-detail banner) with an action-specific message. */}
+      <EntitySaveSuccessBanner
+        visible={lastAction !== null}
+        message={lastAction ? formatModerationActionMessage(lastAction) : undefined}
+      />
+
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3">
@@ -1215,36 +1223,23 @@ export function ModerationQueue() {
   )
 }
 
-// ─── Moderation Success Banner (PSY-603) ─────────────────────────────────────
+// ─── Moderation Success Banner (PSY-603 / PSY-622) ───────────────────────────
 
 /**
- * Inline success banner shown above the moderation queue after a successful
- * Approve or Reject. Mirrors the PSY-562 EntityEditDrawer success-state
- * pattern (green border + Check icon) so the admin surface is consistent
- * with the contributor-side direct-edit flow.
+ * Maps a successful Approve/Reject action onto the message string passed to
+ * the shared {@link EntitySaveSuccessBanner}. Approve names the affected
+ * entity so admins can confirm they actioned the right row at a glance;
+ * Reject leans on the rejection-reason input as the source of truth and
+ * just confirms the submitter was notified.
  *
- * The optimistic row removal stays as-is; this banner is purely additive
- * positive feedback. The parent owns auto-dismiss + filter-change reset.
+ * Originally an inline {@link ModerationSuccessBanner} (PSY-603); collapsed
+ * to a string formatter in PSY-622 once {@link EntitySaveSuccessBanner} grew
+ * an optional `message` prop.
  */
-function ModerationSuccessBanner({ action }: { action: ModerationAction }) {
-  const message =
-    action.verb === 'approved'
-      ? `Approved — change applied to ${action.entityLabel}`
-      : `Rejected — submitter notified of reason`
-
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      data-testid="moderation-success-banner"
-      className="rounded-md border border-green-800 bg-green-950/50 p-4"
-    >
-      <div className="flex items-center gap-2 text-green-400">
-        <Check className="h-4 w-4" />
-        <span className="font-medium">{message}</span>
-      </div>
-    </div>
-  )
+function formatModerationActionMessage(action: ModerationAction): string {
+  return action.verb === 'approved'
+    ? `Approved — change applied to ${action.entityLabel}`
+    : 'Rejected — submitter notified of reason'
 }
 
 // ─── Filter Button ───────────────────────────────────────────────────────────

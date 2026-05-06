@@ -331,14 +331,18 @@ describe('ModerationQueue', () => {
     )
   })
 
-  // ─── PSY-603: page-level success banner on Approve / Reject ───────────────
+  // ─── PSY-603 / PSY-622: page-level success banner on Approve / Reject ────
   //
   // The banner state lives on ModerationQueue (not the card) because the card
   // unmounts on success when the pending-edits query invalidates. These tests
   // drive the success path by overriding the approve/reject mutation mocks to
   // immediately invoke the per-call onSuccess option.
+  //
+  // Banner DOM is the shared `EntitySaveSuccessBanner` (PSY-562 / PSY-622); we
+  // query it via `role="status"` rather than a bespoke testid because the
+  // primitive is intentionally the same on entity-detail pages and moderation.
 
-  describe('Approve / Reject success banner (PSY-603)', () => {
+  describe('Approve / Reject success banner (PSY-603 / PSY-622)', () => {
     function captureMutationOnSuccess() {
       // Approve takes (editId, options); reject takes (variables, options).
       // Both pass options as the SECOND argument, so the same shape works.
@@ -368,9 +372,7 @@ describe('ModerationQueue', () => {
 
       render(<ModerationQueue />)
 
-      expect(
-        screen.queryByTestId('moderation-success-banner')
-      ).not.toBeInTheDocument()
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
     })
 
     it('renders the success banner with entity name after Approve succeeds', () => {
@@ -380,7 +382,7 @@ describe('ModerationQueue', () => {
       render(<ModerationQueue />)
       fireEvent.click(screen.getByText('Approve'))
 
-      const banner = screen.getByTestId('moderation-success-banner')
+      const banner = screen.getByRole('status')
       expect(banner).toHaveTextContent('Approved')
       expect(banner).toHaveTextContent('Test Artist')
     })
@@ -396,7 +398,7 @@ describe('ModerationQueue', () => {
       fireEvent.change(textarea, { target: { value: 'Inaccurate change' } })
       fireEvent.click(screen.getByText('Confirm Reject'))
 
-      const banner = screen.getByTestId('moderation-success-banner')
+      const banner = screen.getByRole('status')
       expect(banner).toHaveTextContent('Rejected')
       expect(banner).toHaveTextContent(/submitter notified/i)
     })
@@ -409,18 +411,14 @@ describe('ModerationQueue', () => {
 
         render(<ModerationQueue />)
         fireEvent.click(screen.getByText('Approve'))
-        expect(
-          screen.getByTestId('moderation-success-banner')
-        ).toBeInTheDocument()
+        expect(screen.getByRole('status')).toBeInTheDocument()
 
         // Advance just past the 5s timeout.
         act(() => {
           vi.advanceTimersByTime(5001)
         })
 
-        expect(
-          screen.queryByTestId('moderation-success-banner')
-        ).not.toBeInTheDocument()
+        expect(screen.queryByRole('status')).not.toBeInTheDocument()
       } finally {
         vi.useRealTimers()
       }
@@ -432,16 +430,12 @@ describe('ModerationQueue', () => {
 
       render(<ModerationQueue />)
       fireEvent.click(screen.getByText('Approve'))
-      expect(
-        screen.getByTestId('moderation-success-banner')
-      ).toBeInTheDocument()
+      expect(screen.getByRole('status')).toBeInTheDocument()
 
       // Click the "Reports" filter tab.
       fireEvent.click(screen.getByText('Reports'))
 
-      expect(
-        screen.queryByTestId('moderation-success-banner')
-      ).not.toBeInTheDocument()
+      expect(screen.queryByRole('status')).not.toBeInTheDocument()
     })
   })
 })
