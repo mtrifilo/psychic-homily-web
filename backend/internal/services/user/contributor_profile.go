@@ -875,6 +875,11 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Title
 			}
+		// venue/release/label/festival/artist + their "_edit" synthetic
+		// discriminators (emitted by the pending_entity_edits UNION in
+		// GetContributionHistory) all resolve names from the same underlying
+		// table. Without these aliases, the activity-feed entity-name slot
+		// renders the raw discriminator string ("artist_edit", etc.).
 		case "venue", "venue_edit":
 			var results []struct {
 				ID   uint
@@ -884,7 +889,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Name
 			}
-		case "artist":
+		case "artist", "artist_edit":
 			var results []struct {
 				ID   uint
 				Name string
@@ -893,7 +898,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Name
 			}
-		case "release":
+		case "release", "release_edit":
 			var results []struct {
 				ID    uint
 				Title string
@@ -902,7 +907,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Title
 			}
-		case "label":
+		case "label", "label_edit":
 			var results []struct {
 				ID   uint
 				Name string
@@ -911,7 +916,7 @@ func (s *ContributorProfileService) enrichEntityNames(entries []*contracts.Contr
 			for _, r := range results {
 				names[r.ID] = r.Name
 			}
-		case "festival":
+		case "festival", "festival_edit":
 			var results []struct {
 				ID   uint
 				Name string

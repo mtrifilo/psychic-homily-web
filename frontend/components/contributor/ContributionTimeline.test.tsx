@@ -106,6 +106,39 @@ describe('ContributionTimeline', () => {
     }
   })
 
+  // PSY-601: pending_entity_edits surface as "<type>_edit" and must link
+  // back to the underlying entity (not 404, not no-link). The action label
+  // must also be the friendly form, not the auto-formatted "Submit X Edit".
+  it('links pending-edit synthetic types to their underlying entity', () => {
+    const cases = [
+      { entityType: 'venue_edit', expectedHref: '/venues/42', friendlyAction: 'Suggested venue edit' },
+      { entityType: 'artist_edit', expectedHref: '/artists/42', friendlyAction: 'Suggested artist edit' },
+      { entityType: 'release_edit', expectedHref: '/releases/42', friendlyAction: 'Suggested release edit' },
+      { entityType: 'label_edit', expectedHref: '/labels/42', friendlyAction: 'Suggested label edit' },
+      { entityType: 'festival_edit', expectedHref: '/festivals/42', friendlyAction: 'Suggested festival edit' },
+    ] as const
+    for (const { entityType, expectedHref, friendlyAction } of cases) {
+      const action = `submit_${entityType}` // e.g. submit_artist_edit
+      const { unmount } = render(
+        <ContributionTimeline
+          contributions={[
+            makeEntry({
+              id: Math.random(),
+              action,
+              entity_type: entityType,
+              entity_id: 42,
+              entity_name: 'Resolved Entity Name',
+            }),
+          ]}
+        />
+      )
+      const link = screen.getByText('Resolved Entity Name')
+      expect(link.closest('a')).toHaveAttribute('href', expectedHref)
+      expect(screen.getByText(friendlyAction)).toBeInTheDocument()
+      unmount()
+    }
+  })
+
   it('renders entity name without link for unknown entity types', () => {
     render(
       <ContributionTimeline

@@ -886,6 +886,124 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionH
 	suite.Equal(show1.ID, entries[1].EntityID)
 }
 
+// TestGetContributionHistory_PendingEditEnriched_AllEntityTypes is the
+// PSY-601 regression test: pending_entity_edits rows surface in the feed
+// with synthetic entity_type "<type>_edit" (e.g. "artist_edit"). All five
+// supported entity types must resolve back to a human-readable entity name
+// rather than leaking the raw discriminator string into the UI.
+func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionHistory_PendingEditEnriched_AllEntityTypes() {
+	cases := []struct {
+		name           string
+		entityType     string // value stored on PendingEntityEdit (no _edit suffix)
+		expectedName   string
+		setup          func(submittedBy uint) uint // returns entity ID created
+		wantAction     string
+		wantEntityType string // the synthetic "<type>_edit" we expect on the response
+	}{
+		{
+			name:         "artist",
+			entityType:   adminm.PendingEditEntityArtist,
+			expectedName: "Amyl and The Sniffers",
+			setup: func(_ uint) uint {
+				a := &catalogm.Artist{Name: "Amyl and The Sniffers"}
+				suite.Require().NoError(suite.db.Create(a).Error)
+				return a.ID
+			},
+			wantAction:     "submit_artist_edit",
+			wantEntityType: "artist_edit",
+		},
+		{
+			name:         "venue",
+			entityType:   adminm.PendingEditEntityVenue,
+			expectedName: "Valley Bar",
+			setup: func(_ uint) uint {
+				// Create the venue WITHOUT a submitted_by — otherwise the
+				// venueQuery UNION would emit a "submit_venue" row alongside
+				// the "submit_venue_edit" row, and the test wouldn't be
+				// isolating the enrichment-of-_edit-types behaviour.
+				v := &catalogm.Venue{Name: "Valley Bar", City: "Phoenix", State: "AZ"}
+				suite.Require().NoError(suite.db.Create(v).Error)
+				return v.ID
+			},
+			wantAction:     "submit_venue_edit",
+			wantEntityType: "venue_edit",
+		},
+		{
+			name:         "release",
+			entityType:   adminm.PendingEditEntityRelease,
+			expectedName: "Comfort to Me",
+			setup: func(_ uint) uint {
+				r := &catalogm.Release{Title: "Comfort to Me"}
+				suite.Require().NoError(suite.db.Create(r).Error)
+				return r.ID
+			},
+			wantAction:     "submit_release_edit",
+			wantEntityType: "release_edit",
+		},
+		{
+			name:         "label",
+			entityType:   adminm.PendingEditEntityLabel,
+			expectedName: "Rough Trade",
+			setup: func(_ uint) uint {
+				l := &catalogm.Label{Name: "Rough Trade"}
+				suite.Require().NoError(suite.db.Create(l).Error)
+				return l.ID
+			},
+			wantAction:     "submit_label_edit",
+			wantEntityType: "label_edit",
+		},
+		{
+			name:         "festival",
+			entityType:   adminm.PendingEditEntityFestival,
+			expectedName: "Zona Music Festival",
+			setup: func(_ uint) uint {
+				slug := fmt.Sprintf("zona-2026-%d", time.Now().UnixNano())
+				f := &catalogm.Festival{
+					Name:        "Zona Music Festival",
+					Slug:        slug,
+					SeriesSlug:  "zona",
+					EditionYear: 2026,
+					StartDate:   "2026-12-01",
+					EndDate:     "2026-12-02",
+				}
+				suite.Require().NoError(suite.db.Create(f).Error)
+				return f.ID
+			},
+			wantAction:     "submit_festival_edit",
+			wantEntityType: "festival_edit",
+		},
+	}
+
+	for _, tc := range cases {
+		suite.Run(tc.name, func() {
+			user := suite.createTestUser(fmt.Sprintf("editenrich-%s-%d", tc.name, time.Now().UnixNano()))
+			entityID := tc.setup(user.ID)
+
+			changes := json.RawMessage(`[{"field":"name","old_value":"X","new_value":"Y"}]`)
+			suite.Require().NoError(suite.db.Create(&adminm.PendingEntityEdit{
+				EntityType:   tc.entityType,
+				EntityID:     entityID,
+				SubmittedBy:  user.ID,
+				FieldChanges: &changes,
+				Summary:      "Fix name",
+				Status:       adminm.PendingEditStatusPending,
+			}).Error)
+
+			entries, _, err := suite.profileService.GetContributionHistory(user.ID, 20, 0, "")
+
+			suite.Require().NoError(err)
+			suite.Require().Len(entries, 1, "expected exactly one feed row for one suggest-edit")
+			suite.Equal(tc.wantAction, entries[0].Action)
+			suite.Equal(tc.wantEntityType, entries[0].EntityType)
+			suite.Equal(entityID, entries[0].EntityID)
+			suite.Equal(tc.expectedName, entries[0].EntityName,
+				"entity_name must resolve to the underlying entity, not the raw '%s' discriminator",
+				tc.wantEntityType,
+			)
+		})
+	}
+}
+
 // =============================================================================
 // Group 5: Privacy Settings
 // =============================================================================
