@@ -17,6 +17,7 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { UserAttribution } from '@/components/shared'
 import {
   useAdminPendingEdits,
   useApprovePendingEdit,
@@ -158,9 +159,14 @@ function PendingEditCard({ edit }: { edit: PendingEditResponse }) {
           </span>
         </div>
 
-        {/* Meta */}
+        {/* Meta. PSY-613: byline via shared UserAttribution. The
+            moderation contract doesn't ship submitter_username yet, so we
+            pass null and the primitive renders plain text. */}
         <div className="mt-2 text-sm text-muted-foreground">
-          <span>by {edit.submitter_name || `User #${edit.submitted_by}`}</span>
+          <span>
+            by{' '}
+            <UserAttribution name={edit.submitter_name} username={null} />
+          </span>
           {edit.summary && (
             <span className="ml-1">
               &mdash; {edit.summary}
@@ -337,7 +343,14 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              by {report.reporter_name || `User #${report.reported_by}`}
+              {/* PSY-613: byline via shared UserAttribution. The
+                  moderation report contract doesn't ship reporter_username
+                  yet, so we pass null and the primitive renders plain text. */}
+              by{' '}
+              <UserAttribution
+                name={report.reporter_name}
+                username={null}
+              />
             </span>
           </div>
           {report.details && (
@@ -479,9 +492,14 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
           </span>
         </div>
 
-        {/* Meta */}
+        {/* Meta. PSY-613: byline via shared UserAttribution. The moderation
+            comment contract doesn't ship author_username yet, so we pass
+            null and the primitive renders plain text. */}
         <div className="mt-2 text-sm text-muted-foreground flex items-center flex-wrap gap-2">
-          <span>by {comment.author_name || `User #${comment.user_id}`}</span>
+          <span>
+            by{' '}
+            <UserAttribution name={comment.author_name} username={null} />
+          </span>
           {comment.trust_tier && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0">
               {comment.trust_tier}
@@ -659,7 +677,14 @@ function CommentReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              by {report.reporter_name || `User #${report.reported_by}`}
+              {/* PSY-613: byline via shared UserAttribution. The
+                  moderation report contract doesn't ship reporter_username
+                  yet, so we pass null and the primitive renders plain text. */}
+              by{' '}
+              <UserAttribution
+                name={report.reporter_name}
+                username={null}
+              />
             </span>
           </div>
           {bodyPreview && (
@@ -851,7 +876,14 @@ function CollectionReportCard({ report }: { report: EntityReportResponse }) {
               {reportTypeLabel(report.report_type)}
             </Badge>
             <span className="text-muted-foreground">
-              by {report.reporter_name || `User #${report.reported_by}`}
+              {/* PSY-613: byline via shared UserAttribution. The
+                  moderation report contract doesn't ship reporter_username
+                  yet, so we pass null and the primitive renders plain text. */}
+              by{' '}
+              <UserAttribution
+                name={report.reporter_name}
+                username={null}
+              />
             </span>
           </div>
           {report.details && (

@@ -92,14 +92,13 @@ import { CollectionItemCard } from './CollectionItemCard'
 import { CollectionCoverImage } from './CollectionCoverImage'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
-import { DensityToggle } from '@/components/shared'
+import { DensityToggle, Breadcrumb, UserAttribution } from '@/components/shared'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
-import { Breadcrumb } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useRouter } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
@@ -511,16 +510,11 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
                 <p className="text-sm text-muted-foreground">
                   by{' '}
-                  {collection.creator_username ? (
-                    <Link
-                      href={`/users/${collection.creator_username}`}
-                      className="text-foreground hover:underline"
-                    >
-                      {collection.creator_name}
-                    </Link>
-                  ) : (
-                    collection.creator_name
-                  )}
+                  <UserAttribution
+                    name={collection.creator_name}
+                    username={collection.creator_username}
+                    className="text-foreground hover:underline"
+                  />
                 </p>
 
                 {/* PSY-353: contributor badge surfaces community curation

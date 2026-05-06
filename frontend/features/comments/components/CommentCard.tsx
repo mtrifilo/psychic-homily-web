@@ -1,12 +1,12 @@
 'use client'
 
 import { useState } from 'react'
-import Link from 'next/link'
 import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import { UserAttribution } from '@/components/shared'
 import { CommentForm } from './CommentForm'
 import { CommentEditHistory } from './CommentEditHistory'
 import { MutationErrorBanner } from './MutationErrorBanner'
@@ -148,24 +148,15 @@ export function CommentCard({
     <div className={depthMargin} data-testid="comment-card">
       {/* Header: author + timestamp. PSY-552: link byline to the author's
           profile when author_username is set; otherwise plain text (matches
-          PSY-353 collection attribution). */}
+          PSY-353 collection attribution). PSY-613: extracted into the
+          shared UserAttribution primitive. */}
       <div className="flex items-center gap-2 text-sm">
-        {comment.author_username ? (
-          <Link
-            href={`/users/${comment.author_username}`}
-            className="font-medium text-foreground hover:underline"
-            data-testid="comment-author-link"
-          >
-            {comment.author_name}
-          </Link>
-        ) : (
-          <span
-            className="font-medium text-foreground"
-            data-testid="comment-author-name"
-          >
-            {comment.author_name}
-          </span>
-        )}
+        <UserAttribution
+          name={comment.author_name}
+          username={comment.author_username}
+          className="font-medium text-foreground hover:underline"
+          testId={comment.author_username ? 'comment-author-link' : 'comment-author-name'}
+        />
         <span className="text-muted-foreground">
           {formatRelativeTime(comment.created_at)}
         </span>

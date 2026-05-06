@@ -193,7 +193,11 @@ describe('ModerationQueue', () => {
 
     expect(screen.getByTestId('pending-comment-card')).toBeInTheDocument()
     expect(screen.getByText('Comment')).toBeInTheDocument()
-    expect(screen.getByText('by commenter1')).toBeInTheDocument()
+    // PSY-613: byline is now rendered via the shared UserAttribution
+    // primitive, which puts the name in its own span. Match the byline by
+    // querying for the name text — the surrounding "by " stays a sibling
+    // text node — rather than a single combined string.
+    expect(screen.getByText('commenter1')).toBeInTheDocument()
     expect(screen.getByTestId('comment-body')).toBeInTheDocument()
   })
 

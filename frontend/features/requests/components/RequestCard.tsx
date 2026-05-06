@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { ThumbsUp, ThumbsDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { UserAttribution } from '@/components/shared'
 import { formatTimeAgo } from '../types'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useVoteRequest, useRemoveVoteRequest } from '../hooks'
@@ -134,9 +135,13 @@ export function RequestCard({ request }: RequestCardProps) {
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
             <span>
               by{' '}
-              {request.requester_name && request.requester_name !== 'Unknown'
-                ? request.requester_name
-                : `User #${request.requester_id}`}
+              {/* PSY-613: Backend ships requester_name via the canonical
+                  resolver chain (PSY-612); username field is not yet on
+                  the request contract, so we render plain text. */}
+              <UserAttribution
+                name={request.requester_name}
+                username={null}
+              />
             </span>
             <span>{formatTimeAgo(request.created_at)}</span>
           </div>
