@@ -129,8 +129,6 @@ func (s *AuditLogService) buildResponse(log *adminm.AuditLog) *contracts.AuditLo
 		if log.Actor.Email != nil {
 			resp.ActorEmail = *log.Actor.Email
 		}
-		// PSY-612: ship resolved name + username so the admin audit log can
-		// render the same display string as every other moderation surface.
 		resp.ActorName = shared.ResolveUserName(log.Actor)
 		resp.ActorUsername = shared.ResolveUserUsername(log.Actor)
 	}

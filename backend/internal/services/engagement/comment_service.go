@@ -757,10 +757,6 @@ func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint)
 			EditorUserID: e.EditorUserID,
 		}
 		if e.Editor != nil && e.Editor.ID != 0 {
-			// PSY-591/PSY-612: full canonical resolution chain — the prior
-			// implementation only set EditorName from FirstName and skipped
-			// the username + email-prefix fallbacks, so editors without a
-			// first name rendered as a blank cell in the admin UI.
 			entry.EditorName = shared.ResolveUserName(e.Editor)
 			if username := shared.ResolveUserUsername(e.Editor); username != nil {
 				entry.EditorUsername = *username

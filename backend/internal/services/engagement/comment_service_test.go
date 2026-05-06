@@ -295,13 +295,6 @@ func TestUserTierHourlyLimit(t *testing.T) {
 	assert.Equal(t, 5, userTierHourlyLimit("unknown_tier"))
 }
 
-// PSY-552: AuthorName / AuthorUsername resolution is now centralised in
-// services/shared.ResolveUserName / ResolveUserUsername (PSY-612). The full
-// chain — including the PSY-552 regression for non-nil-but-empty username
-// pointers — is locked down in services/shared/user_resolver_test.go.
-// Integration coverage that the comment surface delegates correctly is
-// retained via the CommentServiceIntegrationTestSuite.
-
 func TestWilsonScore(t *testing.T) {
 	t.Run("NoVotes", func(t *testing.T) {
 		score := wilsonScore(0, 0)

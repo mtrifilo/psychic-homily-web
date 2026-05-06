@@ -874,12 +874,6 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCancelPendingEdit_AllowsNew
 	s.NotNil(resp)
 }
 
-// PSY-612: the per-service displayName helper has been replaced with
-// services/shared.ResolveUserName. The full chain — including the email
-// local-part fallback that this surface previously omitted (it leaked the
-// raw email and returned "" for empty users) — is locked down in
-// services/shared/user_resolver_test.go.
-
 // =============================================================================
 // Email notification tests
 // =============================================================================

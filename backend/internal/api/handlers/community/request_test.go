@@ -671,11 +671,3 @@ func TestBuildRequestResponse_NoVote(t *testing.T) {
 		t.Errorf("expected user_vote=nil, got %v", resp.UserVote)
 	}
 }
-
-// PSY-612: Request requester/fulfiller name resolution now delegates to
-// services/shared.ResolveUserName. The full chain — including the email
-// local-part fallback that this surface previously omitted (it stopped at
-// "Unknown" instead of falling through to the email prefix) — is locked
-// down in services/shared/user_resolver_test.go. Integration coverage that
-// buildRequestResponse delegates correctly is retained via
-// TestBuildRequestResponse_WithVote.

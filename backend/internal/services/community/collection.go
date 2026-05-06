@@ -1850,11 +1850,9 @@ func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 // Helper methods
 // ============================================================================
 
-// resolveUserUsername loads a user by ID and returns the *string username.
-// Thin wrapper around shared.ResolveUserUsername — see that helper for the
-// behaviour contract. PSY-612 consolidated the resolution chain into a
-// single shared helper; this method exists for callsite ergonomics
-// (callers in this file have a userID, not a preloaded *User).
+// resolveUserUsername loads a user by ID and delegates to
+// shared.ResolveUserUsername. Returns nil when the lookup fails so the
+// caller can render the byline unlinked.
 func (s *CollectionService) resolveUserUsername(userID uint) *string {
 	var user authm.User
 	if err := s.db.Select("id, username").First(&user, userID).Error; err != nil {
@@ -1864,9 +1862,8 @@ func (s *CollectionService) resolveUserUsername(userID uint) *string {
 }
 
 // batchResolveUserUsernames resolves usernames for multiple user IDs in a
-// single query. Delegates to shared.BatchResolveUserUsernames. Returns an
-// empty map on DB error (parity with the prior implementation, which
-// silently ignored Find errors).
+// single query. Returns an empty (non-nil) map on DB error so callers can
+// index without a nil-check guard.
 func (s *CollectionService) batchResolveUserUsernames(userIDs []uint) map[uint]*string {
 	result, err := shared.BatchResolveUserUsernames(s.db, userIDs)
 	if err != nil {
@@ -1875,9 +1872,8 @@ func (s *CollectionService) batchResolveUserUsernames(userIDs []uint) map[uint]*
 	return result
 }
 
-// resolveUserName loads a user by ID and returns the never-empty display
-// name. Thin wrapper around shared.ResolveUserName — see that helper for
-// the resolution chain.
+// resolveUserName loads a user by ID and delegates to shared.ResolveUserName.
+// Falls back to "Anonymous" when the lookup fails.
 func (s *CollectionService) resolveUserName(userID uint) string {
 	var user authm.User
 	if err := s.db.Select("id, username, first_name, last_name, email").First(&user, userID).Error; err != nil {
@@ -1887,9 +1883,8 @@ func (s *CollectionService) resolveUserName(userID uint) string {
 }
 
 // batchResolveUserNames resolves display names for multiple user IDs in a
-// single query. Delegates to shared.BatchResolveUserNames. Returns an empty
-// map on DB error (parity with the prior implementation, which silently
-// ignored Find errors).
+// single query. Returns an empty (non-nil) map on DB error so callers can
+// index without a nil-check guard.
 func (s *CollectionService) batchResolveUserNames(userIDs []uint) map[uint]string {
 	result, err := shared.BatchResolveUserNames(s.db, userIDs)
 	if err != nil {
