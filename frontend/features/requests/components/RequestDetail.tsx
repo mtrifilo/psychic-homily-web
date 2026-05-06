@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
-import { Breadcrumb } from '@/components/shared'
+import { Breadcrumb, UserAttribution } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   useRequest,
@@ -254,20 +254,16 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     </span>
                   </div>
 
+                  {/* PSY-613: byline is unlinked because the request DTO
+                      doesn't ship requester_username yet. Once the contract
+                      is extended, swap `null` for `request.requester_username`. */}
                   <p className="text-sm text-muted-foreground mt-2">
                     Requested by{' '}
-                    {request.requester_name && request.requester_name !== 'Unknown' ? (
-                      <Link
-                        href={`/users/${request.requester_name}`}
-                        className="text-foreground hover:text-primary transition-colors"
-                      >
-                        {request.requester_name}
-                      </Link>
-                    ) : (
-                      <span className="text-foreground">
-                        User #{request.requester_id}
-                      </span>
-                    )}{' '}
+                    <UserAttribution
+                      name={request.requester_name}
+                      username={null}
+                      className="text-foreground"
+                    />{' '}
                     {formatTimeAgo(request.created_at)}
                   </p>
 

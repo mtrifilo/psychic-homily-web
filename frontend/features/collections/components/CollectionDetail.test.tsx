@@ -82,6 +82,42 @@ vi.mock('@/components/shared', () => ({
       <span data-testid="density-current">{density}</span>
     </div>
   ),
+  // PSY-613: UserAttribution stub mirrors the real primitive's shape
+  // (link when username is set; plain span otherwise) so the existing
+  // PSY-353 attribution tests still find the right role + href.
+  UserAttribution: ({
+    name,
+    username,
+    fallback = 'Anonymous',
+    linkable = true,
+    className,
+    testId,
+  }: {
+    name?: string | null
+    username?: string | null
+    fallback?: string
+    linkable?: boolean
+    className?: string
+    testId?: string
+  }) => {
+    const displayName = name && name.length > 0 ? name : fallback
+    if (linkable && username && username.length > 0) {
+      return (
+        <a
+          href={`/users/${username}`}
+          className={className}
+          data-testid={testId}
+        >
+          {displayName}
+        </a>
+      )
+    }
+    return (
+      <span className={className} data-testid={testId}>
+        {displayName}
+      </span>
+    )
+  },
 }))
 
 // Mock hooks
