@@ -312,3 +312,73 @@ func (s *ShowDedupTestSuite) TestRecanonicaliseShowSlug() {
 	s.Contains(*got.Slug, "2026-09-15")
 	s.Contains(*got.Slug, "at-the-van-buren")
 }
+
+// TestDedupChetFakerPair_LegacyAndCanonicalSlugs_PSY571 locks in the
+// end-to-end behaviour for the Chet Faker shape from PSY-571: two
+// shows share the same (artist, venue, event_date) but carry
+// different slug forms — the older record has the legacy migration-
+// 000019 UTC-derived slug ("…YYYY-MM-DD"), the newer record has the
+// canonical venue-local-date-first slug ("YYYY-MM-DD-…").
+//
+// The full dedup pass must:
+//  1. detect the pair as a single cluster (existing key catches it);
+//  2. merge the loser into the winner (older record wins by created_at);
+//  3. recanonicalise the surviving record's slug to the canonical form.
+//
+// After the pass exactly one show remains, with the canonical slug.
+func (s *ShowDedupTestSuite) TestDedupChetFakerPair_LegacyAndCanonicalSlugs_PSY571() {
+	a := s.seedArtist("Chet Faker")
+	v := s.seedVenue("The Van Buren", "Phoenix", "AZ")
+
+	// 8pm Phoenix on May 3 = 03:00 UTC on May 4. Same event_date for
+	// both records — only the slugs differ.
+	eventDate := time.Date(2026, 5, 4, 3, 0, 0, 0, time.UTC)
+	earlier := time.Date(2025, 11, 29, 0, 0, 0, 0, time.UTC)
+	later := time.Date(2026, 4, 24, 0, 0, 0, 0, time.UTC)
+
+	// seedShow generates a slug from title — give the two records
+	// distinct titles so initial inserts don't collide on the unique
+	// index, then overwrite each slug below.
+	winnerID := s.seedShow("Chet Faker (legacy)", eventDate, earlier, a.ID, v.ID, "AZ")
+	loserID := s.seedShow("Chet Faker (canonical)", eventDate, later, a.ID, v.ID, "AZ")
+
+	// Force the legacy + canonical slug pairing seen in production.
+	legacySlug := "chet-faker-at-the-van-buren-2026-05-04"
+	canonicalSlug := "2026-05-03-chet-faker-at-the-van-buren"
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", winnerID).Update("slug", legacySlug).Error)
+	s.Require().NoError(s.db.Model(&catalogm.Show{}).Where("id = ?", loserID).Update("slug", canonicalSlug).Error)
+
+	clusters, err := FindShowDedupClusters(s.db)
+	s.Require().NoError(err)
+	s.Require().Len(clusters, 1)
+	s.Equal(winnerID, clusters[0].WinnerID, "older record should win")
+	s.Equal([]uint{loserID}, clusters[0].LoserIDs)
+
+	// Mirror the dedup-shows cmd's per-cluster transaction: merge
+	// losers, then recanonicalise the winner's slug.
+	summary := &ShowDedupSummary{}
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		if err := MergeDuplicateShow(tx, winnerID, loserID, summary); err != nil {
+			return err
+		}
+		_, err := RecanonicaliseShowSlug(tx, winnerID)
+		return err
+	})
+	s.Require().NoError(err)
+
+	// Loser is gone, exactly one Chet Faker show remains.
+	var remaining int64
+	s.db.Model(&catalogm.Show{}).
+		Joins("JOIN show_artists sa ON sa.show_id = shows.id").
+		Joins("JOIN show_venues  sv ON sv.show_id = shows.id").
+		Where("sa.artist_id = ? AND sv.venue_id = ? AND shows.event_date = ?", a.ID, v.ID, eventDate).
+		Count(&remaining)
+	s.Equal(int64(1), remaining, "exactly one Chet Faker show should remain post-merge")
+
+	// Surviving slug is the canonical venue-local form.
+	var got catalogm.Show
+	s.Require().NoError(s.db.First(&got, winnerID).Error)
+	s.Require().NotNil(got.Slug)
+	s.Equal(canonicalSlug, *got.Slug,
+		"winner's slug should be recanonicalised to the venue-local-date-first form")
+}
