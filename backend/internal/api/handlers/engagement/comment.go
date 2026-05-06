@@ -12,8 +12,17 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
+
+// invalidReplyPermissionMessage is the canonical 400 response detail used
+// when the request's `permission` field is present but not a recognized
+// enum value. PSY-592: distinguishes "missing field" (`permission is
+// required`) from "invalid value" so clients aren't sent chasing the wrong
+// cause. Update this message in lockstep with the enum in
+// `engagementm.IsValidReplyPermission`.
+const invalidReplyPermissionMessage = "permission must be one of: anyone, followers, author_only"
 
 // rateLimited429 wraps a 429 service-layer error with a `Retry-After` header
 // per RFC 7231 §7.1.3 so clients can populate countdown copy without parsing
@@ -512,15 +521,23 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 		return nil, huma.Error400BadRequest("Invalid comment ID")
 	}
 
+	// PSY-592: distinguish missing field from invalid enum value so the
+	// 400 detail accurately describes the failure. The empty check stays
+	// "permission is required"; an unrecognized value gets the explicit
+	// list of valid options. The service-layer check below remains as
+	// defence-in-depth (Code Complete: validate at boundaries of trust).
 	perm := strings.TrimSpace(req.Body.Permission)
 	if perm == "" {
 		return nil, huma.Error400BadRequest("permission is required")
+	}
+	if !engagementm.IsValidReplyPermission(perm) {
+		return nil, huma.Error400BadRequest(invalidReplyPermissionMessage)
 	}
 
 	comment, err := h.writer.UpdateReplyPermission(user.ID, uint(commentID), perm)
 	if err != nil {
 		if strings.Contains(err.Error(), "invalid reply_permission") {
-			return nil, huma.Error400BadRequest(err.Error())
+			return nil, huma.Error400BadRequest(invalidReplyPermissionMessage)
 		}
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound("Comment not found")

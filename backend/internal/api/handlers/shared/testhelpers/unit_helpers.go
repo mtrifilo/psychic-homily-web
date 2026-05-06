@@ -37,6 +37,29 @@ func AssertHumaError(t *testing.T, err error, expectedStatus int) {
 	}
 }
 
+// AssertHumaErrorWithDetail asserts both the HTTP status AND that the
+// huma.ErrorModel's Detail message matches expectedDetail exactly.
+// Use this when the precise error message is part of the contract
+// (e.g. PSY-592 reply-permission errors that distinguish "missing" vs
+// "invalid value"). Prefer AssertHumaError when only the status code
+// matters.
+func AssertHumaErrorWithDetail(t *testing.T, err error, expectedStatus int, expectedDetail string) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+	}
+	var he *huma.ErrorModel
+	if !errors.As(err, &he) {
+		t.Fatalf("expected *huma.ErrorModel, got %T: %v", err, err)
+	}
+	if he.Status != expectedStatus {
+		t.Errorf("expected status %d, got %d (detail: %s)", expectedStatus, he.Status, he.Detail)
+	}
+	if he.Detail != expectedDetail {
+		t.Errorf("expected detail %q, got %q", expectedDetail, he.Detail)
+	}
+}
+
 // CtxWithUser returns a context with the given user attached at
 // middleware.UserContextKey. Mirrors what the auth middleware does in
 // production so handler unit tests can simulate authenticated requests
