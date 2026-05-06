@@ -7,14 +7,16 @@
 #
 set -euo pipefail
 
-E2E_DB_URL="postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable"
+E2E_DB_URL="${DATABASE_URL:-postgres://e2euser:e2epassword@localhost:5433/e2edb?sslmode=disable}"
+COMPOSE_PROJECT="${COMPOSE_PROJECT:-e2e}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.e2e.yml}"
 
 echo "==> Waiting for migrate service to finish..."
 # Block until the migrate container exits; propagates its exit code.
 # (docker compose wait is available since Compose v2.23)
-if ! docker compose -p e2e -f docker-compose.e2e.yml wait migrate; then
+if ! docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" wait migrate; then
   echo "ERROR: Migrations failed. Container logs:"
-  docker compose -p e2e -f docker-compose.e2e.yml logs migrate
+  docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" logs migrate
   exit 1
 fi
 echo "    Migrations completed successfully."
