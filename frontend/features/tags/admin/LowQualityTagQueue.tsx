@@ -78,6 +78,11 @@ export function LowQualityTagQueue() {
   // successful bulk action.
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
   const [bulkError, setBulkError] = useState<string | null>(null)
+  // Row-level error for the inline per-tag actions (Snooze / Mark Official /
+  // Delete). Lives on the queue page (not inside the row) so it can't be
+  // missed when the row drops out of view on success, and so a single banner
+  // covers all three single-row mutations.
+  const [rowError, setRowError] = useState<string | null>(null)
   const [bulkDeleteConfirmText, setBulkDeleteConfirmText] = useState('')
 
   // Multi-select signal-type filter chips (PSY-487).
@@ -106,22 +111,39 @@ export function LowQualityTagQueue() {
 
   const handleSnooze = useCallback(
     (id: number) => {
-      snoozeMutation.mutate(id)
+      setRowError(null)
+      snoozeMutation.mutate(id, {
+        onError: (err) => {
+          setRowError(err instanceof Error ? err.message : 'Failed to ignore tag')
+        },
+      })
     },
     [snoozeMutation]
   )
 
   const handleMarkOfficial = useCallback(
     (id: number) => {
-      markOfficialMutation.mutate(id)
+      setRowError(null)
+      markOfficialMutation.mutate(id, {
+        onError: (err) => {
+          setRowError(
+            err instanceof Error ? err.message : 'Failed to mark tag official'
+          )
+        },
+      })
     },
     [markOfficialMutation]
   )
 
   const handleDelete = useCallback(() => {
     if (selectedTagId == null) return
+    setRowError(null)
     deleteMutation.mutate(selectedTagId, {
       onSuccess: () => closeDialog(),
+      onError: (err) => {
+        setRowError(err instanceof Error ? err.message : 'Failed to delete tag')
+        closeDialog()
+      },
     })
   }, [selectedTagId, deleteMutation, closeDialog])
 
@@ -367,6 +389,15 @@ export function LowQualityTagQueue() {
               ? error.message
               : 'Failed to load review queue.'}
           </p>
+        </div>
+      )}
+
+      {rowError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          {rowError}
         </div>
       )}
 
