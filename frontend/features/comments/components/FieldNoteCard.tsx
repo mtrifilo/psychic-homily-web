@@ -1,17 +1,20 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag, Clock } from 'lucide-react'
+import { ChevronUp, ChevronDown, MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag, Clock, Pencil, Trash2, History } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
 import { CommentForm } from './CommentForm'
+import { CommentEditHistory } from './CommentEditHistory'
 import { MutationErrorBanner } from './MutationErrorBanner'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
   useReplyToComment,
+  useUpdateComment,
+  useDeleteComment,
   useVoteComment,
   useUnvoteComment,
   useCommentThread,
@@ -58,14 +61,22 @@ export function FieldNoteCard({
   const { user, isAuthenticated } = useAuthContext()
   const currentUserId = user?.id ? Number(user.id) : null
   const isOwner = currentUserId === comment.user_id
+  const isAdmin = Boolean(user?.is_admin)
 
   const [isReplying, setIsReplying] = useState(false)
+  const [isEditing, setIsEditing] = useState(false)
+  const [isDeleteConfirm, setIsDeleteConfirm] = useState(false)
   const [showSpoiler, setShowSpoiler] = useState(false)
   const [showReplies, setShowReplies] = useState(true)
   const [loadedThread, setLoadedThread] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
+  // PSY-590: admin edit history viewer — gated by is_admin and only fetched
+  // when the dialog is opened (mirrors CommentCard / PSY-297 pattern).
+  const [isEditHistoryOpen, setIsEditHistoryOpen] = useState(false)
 
   const replyMutation = useReplyToComment()
+  const updateMutation = useUpdateComment()
+  const deleteMutation = useDeleteComment()
   const voteMutation = useVoteComment()
   const unvoteMutation = useUnvoteComment()
   // PSY-608: optimistic vote/unvote rollback hides the failure visually.
@@ -105,6 +116,27 @@ export function FieldNoteCard({
     replyMutation.mutate(
       { commentId: comment.id, body, entityType: 'show', entityId: showId },
       { onSuccess: () => setIsReplying(false) }
+    )
+  }
+
+  // PSY-590: edit + delete mirror the CommentCard wiring. The backend
+  // PUT/DELETE /comments/{id} endpoints operate on the row regardless of
+  // kind, so field-note edits go through the same useUpdateComment hook
+  // and inherit the comment_edits history (admin-visible via PSY-297).
+  // Structured fields (sound/crowd/notable/etc.) are intentionally NOT
+  // editable here — only the body, matching the existing comment-edit
+  // surface and the "mirror comment behavior" decision on this ticket.
+  const handleEdit = (body: string) => {
+    updateMutation.mutate(
+      { commentId: comment.id, body, entityType: 'show', entityId: showId },
+      { onSuccess: () => setIsEditing(false) }
+    )
+  }
+
+  const handleDelete = () => {
+    deleteMutation.mutate(
+      { commentId: comment.id, entityType: 'show', entityId: showId },
+      { onSuccess: () => setIsDeleteConfirm(false) }
     )
   }
 
@@ -192,8 +224,22 @@ export function FieldNoteCard({
         </div>
       )}
 
-      {/* Body — with spoiler handling */}
-      {isSpoiler && !showSpoiler ? (
+      {/* Body — with spoiler handling. PSY-590: edit mode replaces the
+          rendered body with a CommentForm; only the body field is editable
+          (mirrors comment-edit). Structured fields (sound/crowd/notable/etc.)
+          remain saved as-is on the row. */}
+      {isEditing ? (
+        <div className="mt-2">
+          <CommentForm
+            onSubmit={handleEdit}
+            initialBody={comment.body}
+            submitLabel="Save"
+            onCancel={() => setIsEditing(false)}
+            isPending={updateMutation.isPending}
+            errorMessage={formatCommentSubmissionError(updateMutation.error)}
+          />
+        </div>
+      ) : isSpoiler && !showSpoiler ? (
         <div className="mt-2" data-testid="spoiler-gate">
           <button
             onClick={() => setShowSpoiler(true)}
@@ -239,7 +285,7 @@ export function FieldNoteCard({
       {/* PSY-608: auto-dismiss banner for vote/unvote failures. The
           optimistic-rollback restores the cached state silently; without
           this, the user sees the icon flip back with no explanation. */}
-      {voteError.error !== null && (
+      {!isEditing && voteError.error !== null && (
         <MutationErrorBanner
           testId="vote-error-banner"
           marginTop="mt-3"
@@ -250,62 +296,150 @@ export function FieldNoteCard({
         />
       )}
 
-      {/* Actions row: votes + reply + report */}
-      <div className="flex items-center gap-1 mt-3">
-        {/* Vote buttons */}
-        <Button
-          variant="ghost"
-          size="sm"
-          className={`h-7 w-7 p-0 ${comment.user_vote === 1 ? 'text-primary' : 'text-muted-foreground'}`}
-          onClick={() => handleVote(1)}
-          disabled={!isAuthenticated}
-          aria-label="Upvote"
-          data-testid="upvote-button"
-        >
-          <ChevronUp className="h-4 w-4" />
-        </Button>
-        <span className="text-xs font-medium min-w-[1.5rem] text-center" data-testid="vote-score">
-          {comment.ups - comment.downs}
-        </span>
-        <Button
-          variant="ghost"
-          size="sm"
-          className={`h-7 w-7 p-0 ${comment.user_vote === -1 ? 'text-destructive' : 'text-muted-foreground'}`}
-          onClick={() => handleVote(-1)}
-          disabled={!isAuthenticated}
-          aria-label="Downvote"
-          data-testid="downvote-button"
-        >
-          <ChevronDown className="h-4 w-4" />
-        </Button>
+      {/* PSY-590: sticky banner for delete failures — mirrors CommentCard
+          (the inline edit-form banner is owned by CommentForm via
+          errorMessage above). */}
+      {!isEditing && deleteMutation.isError && (
+        <MutationErrorBanner
+          testId="delete-error-banner"
+          message={
+            formatCommentSubmissionError(deleteMutation.error) ??
+            'Failed to delete field note. Please try again.'
+          }
+        />
+      )}
 
-        {/* Reply button */}
-        {isAuthenticated && comment.depth < 2 && comment.reply_permission !== 'author_only' && (
+      {/* Actions row: votes + reply + edit + delete + report */}
+      {!isEditing && (
+        <div className="flex items-center gap-1 mt-3">
+          {/* Vote buttons */}
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={() => setIsReplying(!isReplying)}
+            className={`h-7 w-7 p-0 ${comment.user_vote === 1 ? 'text-primary' : 'text-muted-foreground'}`}
+            onClick={() => handleVote(1)}
+            disabled={!isAuthenticated}
+            aria-label="Upvote"
+            data-testid="upvote-button"
           >
-            <MessageSquare className="h-3.5 w-3.5 mr-1" />
-            Reply
+            <ChevronUp className="h-4 w-4" />
           </Button>
-        )}
-
-        {/* Report button (non-owner, authenticated) */}
-        {isAuthenticated && !isOwner && (
+          <span className="text-xs font-medium min-w-[1.5rem] text-center" data-testid="vote-score">
+            {comment.ups - comment.downs}
+          </span>
           <Button
             variant="ghost"
             size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={() => setIsReportOpen(true)}
-            data-testid="report-field-note-button"
+            className={`h-7 w-7 p-0 ${comment.user_vote === -1 ? 'text-destructive' : 'text-muted-foreground'}`}
+            onClick={() => handleVote(-1)}
+            disabled={!isAuthenticated}
+            aria-label="Downvote"
+            data-testid="downvote-button"
           >
-            <Flag className="h-3.5 w-3.5 mr-1" />
-            Report
+            <ChevronDown className="h-4 w-4" />
           </Button>
-        )}
-      </div>
+
+          {/* Reply button */}
+          {isAuthenticated && comment.depth < 2 && comment.reply_permission !== 'author_only' && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => setIsReplying(!isReplying)}
+            >
+              <MessageSquare className="h-3.5 w-3.5 mr-1" />
+              Reply
+            </Button>
+          )}
+
+          {/* PSY-590: Edit button (own field notes). Mirrors CommentCard. */}
+          {isOwner && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => setIsEditing(true)}
+              data-testid="edit-field-note-button"
+            >
+              <Pencil className="h-3.5 w-3.5 mr-1" />
+              Edit
+            </Button>
+          )}
+
+          {/* PSY-590: Delete button (own field notes) with inline Yes/No
+              confirmation, mirroring CommentCard. */}
+          {isOwner && !isDeleteConfirm && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => setIsDeleteConfirm(true)}
+              data-testid="delete-field-note-button"
+            >
+              <Trash2 className="h-3.5 w-3.5 mr-1" />
+              Delete
+            </Button>
+          )}
+
+          {isDeleteConfirm && (
+            <div className="flex items-center gap-1 ml-1" data-testid="delete-field-note-confirm">
+              <span className="text-xs text-destructive">Delete?</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-destructive"
+                onClick={handleDelete}
+                disabled={deleteMutation.isPending}
+                data-testid="delete-field-note-yes"
+              >
+                Yes
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-xs text-muted-foreground"
+                onClick={() => setIsDeleteConfirm(false)}
+                data-testid="delete-field-note-no"
+              >
+                No
+              </Button>
+            </div>
+          )}
+
+          {/* Report button (non-owner, authenticated) */}
+          {isAuthenticated && !isOwner && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={() => setIsReportOpen(true)}
+              data-testid="report-field-note-button"
+            >
+              <Flag className="h-3.5 w-3.5 mr-1" />
+              Report
+            </Button>
+          )}
+        </div>
+      )}
+
+      {/* PSY-590: admin-only edit history trigger. Mirrors CommentCard
+          (PSY-297) — gated on is_admin and rendered only when at least one
+          edit has been recorded. */}
+      {!isEditing && isAdmin && comment.edit_count > 0 && (
+        <div className="mt-1 pt-1 border-t border-border/40 flex items-center">
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-6 px-2 text-[11px] text-muted-foreground hover:text-foreground"
+            onClick={() => setIsEditHistoryOpen(true)}
+            data-testid="admin-edit-history-button"
+            aria-label="View edit history"
+          >
+            <History className="h-3 w-3 mr-1" />
+            Edit history ({comment.edit_count})
+          </Button>
+        </div>
+      )}
 
       {/* Inline reply form. PSY-608: surface 4xx (e.g. 429) inline so reply
           mutations don't fail silently — same pattern as CommentCard. */}
@@ -377,6 +511,16 @@ export function FieldNoteCard({
           entityType="comment"
           entityId={comment.id}
           entityName={`Field note by ${comment.author_name}`}
+        />
+      )}
+
+      {/* PSY-590: admin edit history dialog. Mounted on-demand so we don't
+          fetch history for every field note on the page (mirrors PSY-297). */}
+      {isAdmin && isEditHistoryOpen && (
+        <CommentEditHistory
+          open={isEditHistoryOpen}
+          onOpenChange={setIsEditHistoryOpen}
+          commentId={comment.id}
         />
       )}
     </div>
