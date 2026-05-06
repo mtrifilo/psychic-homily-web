@@ -78,18 +78,37 @@ function AliasManager({ tagId }: { tagId: number }) {
   const createAlias = useCreateAlias()
   const deleteAlias = useDeleteAlias()
   const [newAlias, setNewAlias] = useState('')
+  const [aliasError, setAliasError] = useState<string | null>(null)
 
   const handleAdd = useCallback(() => {
     if (!newAlias.trim()) return
+    setAliasError(null)
     createAlias.mutate(
       { tagId, alias: newAlias.trim() },
-      { onSuccess: () => setNewAlias('') }
+      {
+        onSuccess: () => setNewAlias(''),
+        onError: (err) => {
+          setAliasError(
+            err instanceof Error ? err.message : 'Failed to add alias'
+          )
+        },
+      }
     )
   }, [tagId, newAlias, createAlias])
 
   const handleRemove = useCallback(
     (aliasId: number) => {
-      deleteAlias.mutate({ tagId, aliasId })
+      setAliasError(null)
+      deleteAlias.mutate(
+        { tagId, aliasId },
+        {
+          onError: (err) => {
+            setAliasError(
+              err instanceof Error ? err.message : 'Failed to remove alias'
+            )
+          },
+        }
+      )
     },
     [tagId, deleteAlias]
   )
@@ -97,6 +116,14 @@ function AliasManager({ tagId }: { tagId: number }) {
   return (
     <div className="space-y-3">
       <Label>Aliases</Label>
+      {aliasError && (
+        <div
+          role="alert"
+          className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
+        >
+          {aliasError}
+        </div>
+      )}
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <Input
