@@ -264,19 +264,20 @@ describe('CollectionCard', () => {
   // entity types, producing math discrepancies on the card (e.g. "3 artists
   // 1 festival" + "7 items" with no indication of the 3 missing types).
   describe('entity-type breakdown (PSY-582)', () => {
+    const fiveTypeCollection: Collection = {
+      ...baseCollection,
+      item_count: 7,
+      entity_type_counts: {
+        venue: 1,
+        artist: 3,
+        release: 1,
+        label: 1,
+        festival: 1,
+      },
+    }
+
     it('renders a badge for every entity type, no truncation', () => {
-      const collection: Collection = {
-        ...baseCollection,
-        item_count: 7,
-        entity_type_counts: {
-          venue: 1,
-          artist: 3,
-          release: 1,
-          label: 1,
-          festival: 1,
-        },
-      }
-      render(<CollectionCard collection={collection} />)
+      render(<CollectionCard collection={fiveTypeCollection} />)
 
       expect(screen.getByText('3 artists')).toBeInTheDocument()
       expect(screen.getByText('1 venue')).toBeInTheDocument()
@@ -286,31 +287,19 @@ describe('CollectionCard', () => {
     })
 
     it('counts on the breakdown badges sum to item_count', () => {
-      const collection: Collection = {
-        ...baseCollection,
-        item_count: 7,
-        entity_type_counts: {
-          venue: 1,
-          artist: 3,
-          release: 1,
-          label: 1,
-          festival: 1,
-        },
-      }
-      const { container } = render(<CollectionCard collection={collection} />)
+      const { container } = render(
+        <CollectionCard collection={fiveTypeCollection} />
+      )
 
       // Pull the leading integer off every breakdown badge and sum them.
       // We match against the known label suffixes so other badges (Featured,
       // Collaborative, "5 items", etc.) don't get caught.
-      const badges = Array.from(container.querySelectorAll('span,div'))
-        .map((el) => el.textContent ?? '')
+      const sum = Array.from(container.querySelectorAll('span,div'))
+        .map((el) => (el.textContent ?? '').trim())
         .filter((t) =>
-          /^\d+\s+(artist|venue|show|release|label|festival)s?$/.test(t.trim())
+          /^\d+\s+(artist|venue|show|release|label|festival)s?$/.test(t)
         )
-      const sum = badges.reduce((acc, t) => {
-        const match = t.trim().match(/^(\d+)/)
-        return acc + (match ? Number(match[1]) : 0)
-      }, 0)
+        .reduce((acc, t) => acc + Number(t.match(/^(\d+)/)![1]), 0)
       expect(sum).toBe(7)
     })
   })
