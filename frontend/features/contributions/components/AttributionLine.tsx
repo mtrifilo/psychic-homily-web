@@ -1,6 +1,6 @@
 'use client'
 
-import Link from 'next/link'
+import { UserAttribution } from '@/components/shared'
 import { useEntityAttribution } from '../hooks/useEntityAttribution'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 
@@ -21,20 +21,14 @@ export function AttributionLine({ entityType, entityId }: AttributionLineProps) 
     return null
   }
 
-  // userUsername is the linkable slug; nil means unlinkable. PSY-560.
   return (
     <p className="text-xs text-muted-foreground">
       Last edited by{' '}
-      {attribution.userUsername ? (
-        <Link
-          href={`/users/${attribution.userUsername}`}
-          className="hover:underline"
-        >
-          {attribution.userName}
-        </Link>
-      ) : (
-        <span>{attribution.userName}</span>
-      )}
+      <UserAttribution
+        name={attribution.userName}
+        username={attribution.userUsername}
+        className="hover:underline"
+      />
       {' '}&middot;{' '}
       {formatRelativeTime(attribution.createdAt)}
     </p>

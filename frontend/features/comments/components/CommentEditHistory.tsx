@@ -161,10 +161,11 @@ function EditTransition({
   edit: CommentEditHistoryEntry
   nextBody: string
 }) {
-  const editorLabel =
-    edit.editor_username
-      ? `@${edit.editor_username}`
-      : edit.editor_name || (edit.editor_user_id ? `user #${edit.editor_user_id}` : 'unknown editor')
+  // editor_name is server-resolved via the canonical chain (PSY-612), so
+  // "unknown editor" only fires for absent / anonymous payloads.
+  const editorLabel = edit.editor_username
+    ? `@${edit.editor_username}`
+    : edit.editor_name || 'unknown editor'
 
   return (
     <li
