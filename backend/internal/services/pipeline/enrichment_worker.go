@@ -5,6 +5,8 @@ import (
 	"log/slog"
 	"sync"
 	"time"
+
+	"psychic-homily-backend/internal/services/shared"
 )
 
 const (
@@ -54,24 +56,13 @@ func (w *EnrichmentWorker) Stop() {
 }
 
 // run is the main loop for the enrichment worker.
+// Panic recovery via shared.RunTickerLoop (PSY-615). The enrichment worker
+// does NOT run a startup cycle — it waits one interval before processing.
 func (w *EnrichmentWorker) run(ctx context.Context) {
 	defer w.wg.Done()
-
-	ticker := time.NewTicker(w.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			w.logger.Info("enrichment worker context cancelled")
-			return
-		case <-w.stopCh:
-			w.logger.Info("enrichment worker received stop signal")
-			return
-		case <-ticker.C:
-			w.processTick(ctx)
-		}
-	}
+	shared.RunTickerLoop(ctx, "enrichment_worker", w.interval, w.stopCh, false, func(c context.Context) {
+		w.processTick(c)
+	})
 }
 
 // processTick processes a batch of enrichment items.

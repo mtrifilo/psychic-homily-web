@@ -14,6 +14,7 @@ import (
 	"psychic-homily-backend/db"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Default extraction interval (24 hours)
@@ -115,27 +116,12 @@ func (s *SchedulerService) Stop() {
 }
 
 // run is the main loop for the scheduler.
+// Panic recovery via shared.RunTickerLoop (PSY-615).
 func (s *SchedulerService) run(ctx context.Context) {
 	defer s.wg.Done()
-
-	// Run immediately on startup
-	s.runExtractionCycle()
-
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("extraction scheduler context cancelled")
-			return
-		case <-s.stopCh:
-			s.logger.Info("extraction scheduler received stop signal")
-			return
-		case <-ticker.C:
-			s.runExtractionCycle()
-		}
-	}
+	shared.RunTickerLoop(ctx, "scheduler", s.interval, s.stopCh, true, func(_ context.Context) {
+		s.runExtractionCycle()
+	})
 }
 
 // runExtractionCycle performs a single extraction cycle across all configured venues.

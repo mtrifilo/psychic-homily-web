@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Default radio fetch interval (6 hours)
@@ -115,65 +116,32 @@ func (s *RadioFetchService) Stop() {
 }
 
 // runFetchLoop runs the periodic station fetch cycle.
+// Panic recovery via shared.RunTickerLoop (PSY-615). Runs once on startup.
 func (s *RadioFetchService) runFetchLoop(ctx context.Context) {
 	defer s.wg.Done()
-
-	// Run immediately on startup
-	s.runFetchCycle()
-
-	ticker := time.NewTicker(s.fetchInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.stopCh:
-			return
-		case <-ticker.C:
-			s.runFetchCycle()
-		}
-	}
+	shared.RunTickerLoop(ctx, "radio_fetch", s.fetchInterval, s.stopCh, true, func(_ context.Context) {
+		s.runFetchCycle()
+	})
 }
 
 // runAffinityLoop runs the periodic affinity computation.
+// Panic recovery via shared.RunTickerLoop (PSY-615). Does NOT run on startup —
+// the first fetch cycle is allowed to complete first.
 func (s *RadioFetchService) runAffinityLoop(ctx context.Context) {
 	defer s.wg.Done()
-
-	// Don't run immediately — let the first fetch cycle complete
-	ticker := time.NewTicker(s.affinityInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.stopCh:
-			return
-		case <-ticker.C:
-			s.runAffinityCycle()
-		}
-	}
+	shared.RunTickerLoop(ctx, "radio_affinity", s.affinityInterval, s.stopCh, false, func(_ context.Context) {
+		s.runAffinityCycle()
+	})
 }
 
 // runReMatchLoop runs the periodic re-matching of unmatched plays.
+// Panic recovery via shared.RunTickerLoop (PSY-615). Does NOT run on startup —
+// the first fetch cycle is allowed to complete first.
 func (s *RadioFetchService) runReMatchLoop(ctx context.Context) {
 	defer s.wg.Done()
-
-	// Don't run immediately — let the first fetch cycle complete
-	ticker := time.NewTicker(s.rematchInterval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-s.stopCh:
-			return
-		case <-ticker.C:
-			s.runReMatchCycle()
-		}
-	}
+	shared.RunTickerLoop(ctx, "radio_rematch", s.rematchInterval, s.stopCh, false, func(_ context.Context) {
+		s.runReMatchCycle()
+	})
 }
 
 // runFetchCycle fetches new episodes from all active stations sequentially.

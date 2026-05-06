@@ -19,6 +19,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // DefaultCollectionDigestInterval is how often the digest job runs.
@@ -112,29 +113,15 @@ func (s *CollectionDigestService) Stop() {
 }
 
 // run is the main loop for the digest service.
+// Panic recovery via shared.RunTickerLoop (PSY-615). Runs once on startup —
+// admins exercising the service don't have to wait a full interval to see
+// output. The job is idempotent — running twice in a row sends nothing the
+// second time because cursors moved.
 func (s *CollectionDigestService) run(ctx context.Context) {
 	defer s.wg.Done()
-
-	// Run immediately on startup so admins exercising the service don't have
-	// to wait a full interval to see output. The job is idempotent — running
-	// twice in a row sends nothing the second time because cursors moved.
-	s.runDigestCycle()
-
-	ticker := time.NewTicker(s.interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			s.logger.Info("collection digest service context cancelled")
-			return
-		case <-s.stopCh:
-			s.logger.Info("collection digest service received stop signal")
-			return
-		case <-ticker.C:
-			s.runDigestCycle()
-		}
-	}
+	shared.RunTickerLoop(ctx, "collection_digest", s.interval, s.stopCh, true, func(_ context.Context) {
+		s.runDigestCycle()
+	})
 }
 
 // digestCandidate is the result of the per-(user,collection) candidate query —
