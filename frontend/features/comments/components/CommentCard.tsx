@@ -19,6 +19,7 @@ import {
   useVoteComment,
   useUnvoteComment,
   useCommentThread,
+  useAutoDismissError,
   formatCommentSubmissionError,
 } from '../hooks'
 import {
@@ -62,6 +63,10 @@ export function CommentCard({
   const deleteMutation = useDeleteComment()
   const voteMutation = useVoteComment()
   const unvoteMutation = useUnvoteComment()
+  // PSY-608: optimistic vote/unvote rollback hides the failure visually.
+  // Show a brief auto-dismissing banner so the user knows the action was
+  // reverted, mirroring SaveButton / FavoriteVenueButton (~3s).
+  const voteError = useAutoDismissError()
 
   // Load thread on demand if no inline replies were provided
   const hasInlineReplies = replies.length > 0
@@ -74,9 +79,15 @@ export function CommentCard({
     if (!isAuthenticated) return
     if (comment.user_vote === direction) {
       // Toggle off
-      unvoteMutation.mutate({ commentId: comment.id, entityType, entityId })
+      unvoteMutation.mutate(
+        { commentId: comment.id, entityType, entityId },
+        { onError: (err) => voteError.show(err) }
+      )
     } else {
-      voteMutation.mutate({ commentId: comment.id, direction, entityType, entityId })
+      voteMutation.mutate(
+        { commentId: comment.id, direction, entityType, entityId },
+        { onError: (err) => voteError.show(err) }
+      )
     }
   }
 
@@ -202,6 +213,7 @@ export function CommentCard({
             submitLabel="Save"
             onCancel={() => setIsEditing(false)}
             isPending={updateMutation.isPending}
+            errorMessage={formatCommentSubmissionError(updateMutation.error)}
           />
         </div>
       ) : (
@@ -335,6 +347,49 @@ export function CommentCard({
             </label>
           )}
           {/* PSY-296 end */}
+        </div>
+      )}
+
+      {/* PSY-608: sticky banners for non-optimistic owner mutations
+          (delete, change reply-permission). Stay visible until the next
+          retry / success so the user has a chance to read the message. */}
+      {!isEditing && deleteMutation.isError && (
+        <div
+          className="mt-2 rounded-md border border-red-800 bg-red-950/50 px-3 py-2"
+          role="alert"
+          data-testid="delete-error-banner"
+        >
+          <p className="text-sm text-red-400">
+            {formatCommentSubmissionError(deleteMutation.error) ??
+              'Failed to delete comment. Please try again.'}
+          </p>
+        </div>
+      )}
+      {!isEditing && updateReplyPermissionMutation.isError && (
+        <div
+          className="mt-2 rounded-md border border-red-800 bg-red-950/50 px-3 py-2"
+          role="alert"
+          data-testid="reply-permission-error-banner"
+        >
+          <p className="text-sm text-red-400">
+            {formatCommentSubmissionError(updateReplyPermissionMutation.error) ??
+              'Failed to update reply permission. Please try again.'}
+          </p>
+        </div>
+      )}
+      {/* PSY-608: auto-dismiss banner for vote/unvote failures. The
+          optimistic-rollback restores the cached state silently; without
+          this, the user sees the icon flip back with no explanation. */}
+      {!isEditing && voteError.error !== null && (
+        <div
+          className="mt-2 rounded-md border border-red-800 bg-red-950/50 px-3 py-2"
+          role="alert"
+          data-testid="vote-error-banner"
+        >
+          <p className="text-sm text-red-400">
+            {formatCommentSubmissionError(voteError.error) ??
+              'Vote failed. Please try again.'}
+          </p>
         </div>
       )}
 
