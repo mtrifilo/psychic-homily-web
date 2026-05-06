@@ -1114,11 +1114,12 @@ export function ModerationQueue() {
       {/* PSY-603 / PSY-622: page-level success banner. Reuses the shared
           EntitySaveSuccessBanner primitive (originally PSY-562's "Changes
           saved" entity-detail banner) with an action-specific message. */}
-      <EntitySaveSuccessBanner
-        visible={lastAction !== null}
-        message={lastAction ? formatModerationActionMessage(lastAction) : undefined}
-      />
-
+      {lastAction && (
+        <EntitySaveSuccessBanner
+          visible
+          message={formatModerationActionMessage(lastAction)}
+        />
+      )}
 
       {/* Filter bar */}
       <div className="flex flex-wrap items-center gap-3">
