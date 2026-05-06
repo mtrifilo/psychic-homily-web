@@ -20,20 +20,44 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
+// humaErrorModel asserts err is a *huma.ErrorModel with the expected
+// status and returns it so callers can inspect Detail or other fields.
+// On any failure it calls t.Fatal and returns nil.
+func humaErrorModel(t *testing.T, err error, expectedStatus int) *huma.ErrorModel {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected error, got nil")
+		return nil
+	}
+	var he *huma.ErrorModel
+	if !errors.As(err, &he) {
+		t.Fatalf("expected *huma.ErrorModel, got %T: %v", err, err)
+		return nil
+	}
+	if he.Status != expectedStatus {
+		t.Errorf("expected status %d, got %d (detail: %s)", expectedStatus, he.Status, he.Detail)
+	}
+	return he
+}
+
 // AssertHumaError checks that an error is a *huma.ErrorModel with the
 // expected HTTP status. Used by every handler unit test that exercises
 // huma's error path.
 func AssertHumaError(t *testing.T, err error, expectedStatus int) {
 	t.Helper()
-	if err == nil {
-		t.Fatal("expected error, got nil")
-	}
-	var he *huma.ErrorModel
-	if !errors.As(err, &he) {
-		t.Fatalf("expected *huma.ErrorModel, got %T: %v", err, err)
-	}
-	if he.Status != expectedStatus {
-		t.Errorf("expected status %d, got %d (detail: %s)", expectedStatus, he.Status, he.Detail)
+	humaErrorModel(t, err, expectedStatus)
+}
+
+// AssertHumaErrorWithDetail asserts both the HTTP status AND that the
+// huma.ErrorModel's Detail message matches expectedDetail exactly.
+// Use this when the precise error message is part of the contract
+// (e.g. error copy that disambiguates "missing field" from "invalid
+// value"). Prefer AssertHumaError when only the status code matters.
+func AssertHumaErrorWithDetail(t *testing.T, err error, expectedStatus int, expectedDetail string) {
+	t.Helper()
+	he := humaErrorModel(t, err, expectedStatus)
+	if he != nil && he.Detail != expectedDetail {
+		t.Errorf("expected detail %q, got %q", expectedDetail, he.Detail)
 	}
 }
 
