@@ -544,6 +544,62 @@ func (s *PendingEditServiceIntegrationTestSuite) TestGetUserPendingEdits_Paginat
 	s.NotEqual(edits[0].ID, edits2[0].ID)
 }
 
+// PSY-600: contributor /submissions surface must NEVER leak edits submitted
+// by other users. Two users with overlapping pending edits — each sees only
+// their own.
+func (s *PendingEditServiceIntegrationTestSuite) TestGetUserPendingEdits_OnlyOwnEdits() {
+	alice := s.createTestUser()
+	bob := s.createTestUser()
+	artist := s.createTestArtist("Shared Artist")
+
+	_, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: alice.ID,
+		Changes: makeChanges("description", "old", "alice's note"), Summary: "alice edit",
+	})
+	s.Require().NoError(err)
+	_, err = s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: bob.ID,
+		Changes: makeChanges("city", "Old City", "Phoenix"), Summary: "bob edit",
+	})
+	s.Require().NoError(err)
+
+	aliceEdits, aliceTotal, err := s.svc.GetUserPendingEdits(alice.ID, 20, 0)
+	s.NoError(err)
+	s.Equal(int64(1), aliceTotal)
+	s.Len(aliceEdits, 1)
+	s.Equal(alice.ID, aliceEdits[0].SubmittedBy, "alice must only see her own pending edit")
+	s.Equal("alice edit", aliceEdits[0].Summary)
+
+	bobEdits, bobTotal, err := s.svc.GetUserPendingEdits(bob.ID, 20, 0)
+	s.NoError(err)
+	s.Equal(int64(1), bobTotal)
+	s.Len(bobEdits, 1)
+	s.Equal(bob.ID, bobEdits[0].SubmittedBy, "bob must only see his own pending edit")
+	s.Equal("bob edit", bobEdits[0].Summary)
+}
+
+// PSY-600: pending-edit responses must include EntitySlug for slug-addressed
+// types so the contributor list can render functional /artists/:slug-style
+// links instead of broken /artists/:id-style ones.
+func (s *PendingEditServiceIntegrationTestSuite) TestGetUserPendingEdits_PopulatesEntitySlug() {
+	user := s.createTestUser()
+	artist := s.createTestArtist("With Slug")
+	s.Require().NotNil(artist.Slug, "test fixture should set artist slug")
+
+	_, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
+		Changes: makeChanges("name", artist.Name, "Renamed"), Summary: "rename",
+	})
+	s.Require().NoError(err)
+
+	edits, _, err := s.svc.GetUserPendingEdits(user.ID, 20, 0)
+	s.NoError(err)
+	s.Require().Len(edits, 1)
+	s.Require().NotNil(edits[0].EntitySlug, "EntitySlug must be set for artist edits")
+	s.Equal(*artist.Slug, *edits[0].EntitySlug)
+	s.Equal("With Slug", edits[0].EntityName)
+}
+
 // =============================================================================
 // ListPendingEdits tests
 // =============================================================================

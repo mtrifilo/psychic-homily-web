@@ -42,13 +42,29 @@ export interface PendingEditResponse {
   id: number
   entity_type: string
   entity_id: number
+  /** Resolved display name for the affected entity (e.g. "Phantogram"). */
+  entity_name?: string
+  /**
+   * Slug-based URL segment for entity types whose public pages are slug-
+   * addressed (artist, venue, festival, release, label). nil for entities
+   * without slugs. Use to build /artists/:slug-style links — falling back
+   * to entity_id alone produces broken URLs (those routes are slug-only).
+   */
+  entity_slug?: string | null
   submitted_by: number
   submitter_name: string
+  /**
+   * Submitter's username when set, null otherwise. Pass to
+   * `<UserAttribution username={...} />` to render the byline as a link to
+   * /users/:username when non-null. PSY-619.
+   */
+  submitter_username?: string | null
   field_changes: FieldChange[]
   summary: string
   status: PendingEditStatus
   reviewed_by?: number
   reviewer_name?: string
+  reviewer_username?: string | null
   reviewed_at?: string
   rejection_reason?: string
   created_at: string

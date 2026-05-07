@@ -62,27 +62,69 @@ func resolveEntityName(db *gorm.DB, entityType string, entityID uint) string {
 // non-name-only path from doing two round-trips per row in the admin
 // moderation list. PSY-357.
 //
-// Slug is non-nil only for entity types whose public URLs are slug-based
-// (currently only `collection`). All other types return slug==nil so the
+// Slug is non-nil for entity types whose public URLs are slug-based:
+// `collection`, `artist`, `venue`, `festival`, `release`, `label`. For
+// types not in this list (`show`, `comment`), slug is always nil so the
 // JSON response omits the field.
+//
+// PSY-600: extended past `collection` so the contributor-facing
+// /submissions pending-edits surface can render functional links to the
+// affected entity (the moderation queue still uses raw IDs and is
+// unaffected by this addition).
 func resolveEntityNameAndSlug(db *gorm.DB, entityType string, entityID uint) (string, *string) {
-	if entityType != "collection" {
-		return resolveEntityName(db, entityType, entityID), nil
-	}
 	if db == nil {
 		return fmt.Sprintf("%s #%d", entityType, entityID), nil
 	}
-	var result struct {
-		Title string
-		Slug  string
+
+	// Per-type table + display column. Returning ("", "") from any branch
+	// triggers the fallback at the bottom of the function.
+	type lookup struct {
+		table       string
+		displayCol  string
+		slugNonNull bool // some tables type slug as NOT NULL
 	}
-	err := db.Table("collections").Select("title, slug").Where("id = ?", entityID).Scan(&result).Error
-	if err != nil || result.Title == "" {
+	lookups := map[string]lookup{
+		"artist":     {table: "artists", displayCol: "name"},
+		"venue":      {table: "venues", displayCol: "name"},
+		"festival":   {table: "festivals", displayCol: "name", slugNonNull: true},
+		"release":    {table: "releases", displayCol: "title"},
+		"label":      {table: "labels", displayCol: "name"},
+		"collection": {table: "collections", displayCol: "title", slugNonNull: true},
+	}
+	cfg, ok := lookups[entityType]
+	if !ok {
+		return resolveEntityName(db, entityType, entityID), nil
+	}
+
+	if cfg.slugNonNull {
+		var result struct {
+			Display string
+			Slug    string
+		}
+		err := db.Table(cfg.table).
+			Select(cfg.displayCol+" AS display, slug").
+			Where("id = ?", entityID).
+			Scan(&result).Error
+		if err != nil || result.Display == "" {
+			return fmt.Sprintf("%s #%d", entityType, entityID), nil
+		}
+		var slug *string
+		if result.Slug != "" {
+			slug = &result.Slug
+		}
+		return result.Display, slug
+	}
+
+	var result struct {
+		Display string
+		Slug    *string
+	}
+	err := db.Table(cfg.table).
+		Select(cfg.displayCol+" AS display, slug").
+		Where("id = ?", entityID).
+		Scan(&result).Error
+	if err != nil || result.Display == "" {
 		return fmt.Sprintf("%s #%d", entityType, entityID), nil
 	}
-	var slug *string
-	if result.Slug != "" {
-		slug = &result.Slug
-	}
-	return result.Title, slug
+	return result.Display, result.Slug
 }

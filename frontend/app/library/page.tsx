@@ -733,7 +733,7 @@ function SubmissionsTab({
         icon={Send}
         title="No submissions yet"
         description="Shows you submit will appear here."
-        browseHref="/submissions"
+        browseHref="/shows/submit"
         browseLabel="Submit a Show"
       />
     )

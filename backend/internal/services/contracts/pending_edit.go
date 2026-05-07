@@ -67,12 +67,18 @@ type PendingEditFilters struct {
 
 // PendingEditResponse is the API response for a pending entity edit.
 type PendingEditResponse struct {
-	ID            uint   `json:"id"`
-	EntityType    string `json:"entity_type"`
-	EntityID      uint   `json:"entity_id"`
-	EntityName    string `json:"entity_name,omitempty"`
-	SubmittedBy   uint   `json:"submitted_by"`
-	SubmitterName string `json:"submitter_name,omitempty"`
+	ID         uint   `json:"id"`
+	EntityType string `json:"entity_type"`
+	EntityID   uint   `json:"entity_id"`
+	EntityName string `json:"entity_name,omitempty"`
+	// EntitySlug is the slug-based URL segment for entity types whose
+	// public pages are slug-addressed (artist, venue, festival, release,
+	// label, collection). nil for types without slugs and for entities
+	// where the slug column is empty. Used by the contributor-facing
+	// /submissions surface (PSY-600) to build functional entity links.
+	EntitySlug    *string `json:"entity_slug,omitempty"`
+	SubmittedBy   uint    `json:"submitted_by"`
+	SubmitterName string  `json:"submitter_name,omitempty"`
 	// SubmitterUsername is the submitter's username when set — pointer so
 	// the JSON encodes null for accounts that never set a username. Frontend
 	// renders the byline as a link to /users/:username when non-nil; nil
