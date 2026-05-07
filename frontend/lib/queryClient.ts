@@ -255,7 +255,20 @@ export const queryKeys = {
     stats: (slug: string) => ['collections', 'stats', slug] as const,
     // PSY-366: artist-relationship subgraph for the collection's artist items.
     graph: (slug: string, types?: string[]) => ['collections', 'graph', slug, types ?? null] as const,
+    // Bare prefix used by mutation invalidations — TanStack matches every
+    // descendant query (myList(...) variants below) under this prefix.
     my: ['collections', 'my'] as const,
+    /**
+     * PSY-580: parameterized "Yours tab" key. Pass `{ search }` to scope a
+     * query to a specific search term so loading + cached results don't
+     * bleed across distinct searches. Bare invocation (no params) lands at
+     * the same key as `my`, so existing callers that didn't search continue
+     * to share that cache entry.
+     */
+    myList: (params?: { search?: string }) =>
+      params && Object.values(params).some((v) => v != null && v !== '')
+        ? (['collections', 'my', params] as const)
+        : (['collections', 'my'] as const),
     // PSY-359: which of the user's own collections already contain a given
     // entity. Drives the pre-check state on the multi-select Add-to-Collection
     // popover. Cached per (entityType, entityId) so each entity page has its

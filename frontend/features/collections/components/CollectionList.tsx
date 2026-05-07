@@ -87,12 +87,16 @@ export function CollectionList() {
     tag: tagFilter || undefined,
   })
 
-  // Fetch user's own collections (only when on "yours" tab and authenticated)
+  // Fetch user's own collections (only when on "yours" tab and authenticated).
+  // PSY-580: pass the same search term the public-browse hook receives so the
+  // Yours tab filters via the backend's expanded search (title / description /
+  // item notes / tag names+aliases — PSY-355). Empty / whitespace short-
+  // circuits inside the hook.
   const {
     data: myData,
     isLoading: myLoading,
     error: myError,
-  } = useMyCollections()
+  } = useMyCollections({ search: searchTerm || undefined })
 
   // Determine which data to use based on active tab
   const isYoursTab = activeTab === 'yours'

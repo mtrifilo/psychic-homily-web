@@ -36,7 +36,9 @@ const mockCreateMutate = vi.fn()
 
 vi.mock('../hooks', () => ({
   useCollections: (params: unknown) => mockUseCollections(params),
-  useMyCollections: () => mockUseMyCollections(),
+  // PSY-580: Yours-tab hook now takes an optional `{ search }` arg. Forward
+  // it to the spy so tests can assert the search box is wired through.
+  useMyCollections: (params: unknown) => mockUseMyCollections(params),
   useCreateCollection: () => ({
     mutate: mockCreateMutate,
     isPending: false,
@@ -331,6 +333,79 @@ describe('CollectionList', () => {
       const searchInput = screen.getByPlaceholderText('Search collections...')
       await user.type(searchInput, 'nonexistent')
       expect(screen.getByText('No collections found')).toBeInTheDocument()
+    })
+
+    // PSY-580 regression: previously the Yours tab silently ignored the
+    // search box because useMyCollections() didn't accept any params, so
+    // every keystroke widened the cache hit but the rendered list never
+    // narrowed. Verify the typed term flows into the hook now. Note:
+    // useMyCollections is also called from the inline CreateCollectionForm
+    // (with no args) so we filter to the call coming from the list view —
+    // the one whose first arg is the params object.
+    it('forwards search term to useMyCollections on the Yours tab', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseMyCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionList />)
+      const searchInput = screen.getByPlaceholderText('Search collections...')
+      await user.type(searchInput, 'shoegaze')
+
+      // CreateCollectionForm also invokes useMyCollections() with no args —
+      // filter to the list view's call (the one that carries the search arg).
+      const searchCalls = mockUseMyCollections.mock.calls.filter(
+        (args: unknown[]) => args[0] !== undefined
+      )
+      expect(searchCalls.length).toBeGreaterThan(0)
+      const lastSearchCall = searchCalls[searchCalls.length - 1]
+      expect(lastSearchCall[0]).toEqual({ search: 'shoegaze' })
+    })
+
+    // No search → list view passes `{ search: undefined }`. Confirms the
+    // empty case doesn't pass an empty string through (which would still
+    // differ from undefined and could fragment the query cache).
+    it('passes search: undefined when the box is empty', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      mockUseMyCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionList />)
+      // List-view call is the one with a params object (the form's call has
+      // no args); confirm the params shape is `{ search: undefined }`.
+      const listViewCall = mockUseMyCollections.mock.calls.find(
+        (args: unknown[]) => args[0] !== undefined
+      )
+      expect(listViewCall).toBeDefined()
+      expect(listViewCall![0]).toEqual({ search: undefined })
     })
   })
 

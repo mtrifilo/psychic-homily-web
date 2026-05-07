@@ -704,27 +704,7 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// `collection_items.notes`, `tags.name`, and `tag_aliases.alias`.
 	searchTerm := strings.TrimSpace(filters.Search)
 	if searchTerm != "" {
-		pattern := "%" + searchTerm + "%"
-		query = query.Where(`
-			collections.title ILIKE ?
-			OR collections.description ILIKE ?
-			OR EXISTS (
-				SELECT 1 FROM collection_items ci
-				WHERE ci.collection_id = collections.id
-				  AND ci.notes ILIKE ?
-			)
-			OR EXISTS (
-				SELECT 1 FROM entity_tags et
-				JOIN tags t ON t.id = et.tag_id
-				LEFT JOIN tag_aliases ta ON ta.tag_id = t.id
-				WHERE et.entity_type = ?
-				  AND et.entity_id = collections.id
-				  AND (t.name ILIKE ? OR ta.alias ILIKE ?)
-			)
-		`,
-			pattern, pattern, pattern,
-			catalogm.TagEntityCollection, pattern, pattern,
-		)
+		query = applyCollectionSearchWhere(query, searchTerm)
 	}
 	if filters.EntityType != "" {
 		query = query.Where("id IN (?)",
@@ -879,6 +859,47 @@ func applyCollectionSort(query *gorm.DB, sort string) *gorm.DB {
 		) DESC`).Order("collections.updated_at DESC")
 	}
 	return query.Order("updated_at DESC")
+}
+
+// applyCollectionSearchWhere appends the PSY-355 expanded-search OR clause
+// to the query, matching across:
+//
+//	1. collections.title           (exact field on the row)
+//	2. collections.description     (raw markdown source on the row)
+//	3. any item's notes            (correlated EXISTS over collection_items)
+//	4. any applied tag name/alias  (correlated EXISTS over entity_tags +
+//	                               tags + tag_aliases for the polymorphic
+//	                               collection entity)
+//
+// Caller is responsible for trimming whitespace and short-circuiting the
+// empty case BEFORE invoking this helper — passing an empty searchTerm
+// here would widen the result set with `%%`. Both ListCollections (public
+// browse) and GetUserCollections (Yours tab — PSY-580) share this clause
+// so the per-tab endpoint separation doesn't drift into two SQL
+// implementations. Pair this with applySearchRelevanceOrder for the
+// matching tier rank ORDER BY.
+func applyCollectionSearchWhere(query *gorm.DB, searchTerm string) *gorm.DB {
+	pattern := "%" + searchTerm + "%"
+	return query.Where(`
+		collections.title ILIKE ?
+		OR collections.description ILIKE ?
+		OR EXISTS (
+			SELECT 1 FROM collection_items ci
+			WHERE ci.collection_id = collections.id
+			  AND ci.notes ILIKE ?
+		)
+		OR EXISTS (
+			SELECT 1 FROM entity_tags et
+			JOIN tags t ON t.id = et.tag_id
+			LEFT JOIN tag_aliases ta ON ta.tag_id = t.id
+			WHERE et.entity_type = ?
+			  AND et.entity_id = collections.id
+			  AND (t.name ILIKE ? OR ta.alias ILIKE ?)
+		)
+	`,
+		pattern, pattern, pattern,
+		catalogm.TagEntityCollection, pattern, pattern,
+	)
 }
 
 // applySearchRelevanceOrder is the search-rank ORDER BY clause used when
@@ -1490,7 +1511,7 @@ func (s *CollectionService) GetStats(slug string) (*contracts.CollectionStatsRes
 }
 
 // GetUserCollections retrieves collections created by or subscribed to by a user
-func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
+func (s *CollectionService) GetUserCollections(userID uint, search string, limit, offset int) ([]*contracts.CollectionListResponse, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -1507,14 +1528,34 @@ func (s *CollectionService) GetUserCollections(userID uint, limit, offset int) (
 	query := s.db.Model(&communitym.Collection{}).
 		Where("creator_id = ? OR id IN (?)", userID, subQuery)
 
+	// PSY-580: Yours tab now honours the search box. Reuse the public-browse
+	// field expansion (title / description / item notes / tag name+aliases —
+	// PSY-355) so the search behaviour is identical regardless of which tab
+	// the user is on. Whitespace-only queries short-circuit at the handler
+	// boundary; the trim here is defensive for direct service callers.
+	searchTerm := strings.TrimSpace(search)
+	if searchTerm != "" {
+		query = applyCollectionSearchWhere(query, searchTerm)
+	}
+
 	// Count total
 	var total int64
 	if err := query.Count(&total).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to count user collections: %w", err)
 	}
 
+	// PSY-580: when search is active, lead with the same tier rank used by
+	// the public browse path (title > description > notes > tag, then
+	// updated_at DESC). No-search path keeps the long-standing
+	// updated_at DESC ordering that the library tab expects.
 	var collections []communitym.Collection
-	if err := query.Order("updated_at DESC").Limit(limit).Offset(offset).Find(&collections).Error; err != nil {
+	if searchTerm != "" {
+		pattern := "%" + searchTerm + "%"
+		query = applySearchRelevanceOrder(query, pattern).Limit(limit).Offset(offset)
+	} else {
+		query = query.Order("updated_at DESC").Limit(limit).Offset(offset)
+	}
+	if err := query.Find(&collections).Error; err != nil {
 		return nil, 0, fmt.Errorf("failed to get user collections: %w", err)
 	}
 

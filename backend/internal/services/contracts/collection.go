@@ -398,7 +398,13 @@ type CollectionServiceInterface interface {
 	// when the like doesn't exist is a no-op. PSY-352.
 	Unlike(slug string, userID uint) (*CollectionLikeResponse, error)
 	GetStats(slug string) (*CollectionStatsResponse, error)
-	GetUserCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
+	// GetUserCollections returns the user's own + subscribed-to collections.
+	// `search` is optional (PSY-580); empty/whitespace disables the predicate
+	// and returns the full library. When set, it expands across title,
+	// description, item notes, and tag names/aliases — same fields as the
+	// public browse listing (PSY-355). Tier-ranked relevance ORDER BY is
+	// applied when search is non-empty; otherwise default updated_at DESC.
+	GetUserCollections(userID uint, search string, limit, offset int) ([]*CollectionListResponse, int64, error)
 	// GetUserCollectionsContainingEntity returns the IDs of the user's
 	// editable collections (creator + subscribed) that already contain
 	// the supplied entity. Backs the multi-select Add-to-Collection
