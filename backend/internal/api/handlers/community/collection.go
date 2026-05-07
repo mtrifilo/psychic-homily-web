@@ -801,7 +801,15 @@ func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req
 		limit = 10
 	}
 
-	collections, err := h.collectionService.GetEntityCollections(req.EntityType, uint(entityID), limit)
+	// PSY-583: surface the viewer's own private collections so a creator
+	// sees their own private collections in the entity backlinks block.
+	// Anonymous viewers and non-owners continue to see only public ones.
+	var viewerID uint
+	if user := middleware.GetUserFromContext(ctx); user != nil {
+		viewerID = user.ID
+	}
+
+	collections, err := h.collectionService.GetEntityCollections(req.EntityType, uint(entityID), viewerID, limit)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch entity collections", err)
 	}

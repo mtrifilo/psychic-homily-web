@@ -14,11 +14,15 @@ const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
 vi.mock('../hooks', async () => {
   // PSY-608: bring through the real formatCommentSubmissionError so the
   // FieldNotesSection test can assert on the exact 4xx banner copy.
+  // PSY-590: FieldNoteCard now consumes useUpdateComment + useDeleteComment;
+  // stub them with the same neutral mutation return so the cards render.
   const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
   return {
     useFieldNotes: (...args: unknown[]) => mockUseFieldNotes(...args),
     useCreateFieldNote: () => mockUseCreateFieldNote(),
     useReplyToComment: () => defaultMutationReturn,
+    useUpdateComment: () => defaultMutationReturn,
+    useDeleteComment: () => defaultMutationReturn,
     useVoteComment: () => defaultMutationReturn,
     useUnvoteComment: () => defaultMutationReturn,
     useCommentThread: () => ({ data: undefined }),
@@ -33,6 +37,12 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 vi.mock('@/features/contributions', () => ({
   ReportEntityDialog: () => null,
+}))
+
+// PSY-590: stub the admin edit-history dialog so the section renders even when
+// authenticated as admin (cards may try to lazy-mount the dialog).
+vi.mock('./CommentEditHistory', () => ({
+  CommentEditHistory: () => null,
 }))
 
 const pastDate = '2025-01-15T20:00:00Z'

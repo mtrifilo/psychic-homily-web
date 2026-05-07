@@ -404,7 +404,11 @@ type CollectionServiceInterface interface {
 	// the supplied entity. Backs the multi-select Add-to-Collection
 	// popover (PSY-359). Returns empty slice for userID == 0.
 	GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]uint, error)
-	GetEntityCollections(entityType string, entityID uint, limit int) ([]*CollectionListResponse, error)
+	// GetEntityCollections returns collections that contain the given
+	// entity. Public collections are returned to all viewers; the viewer's
+	// own private collections are included when viewerID > 0. Pass
+	// viewerID == 0 for anonymous callers. PSY-583.
+	GetEntityCollections(entityType string, entityID uint, viewerID uint, limit int) ([]*CollectionListResponse, error)
 	GetUserPublicCollections(userID uint, limit, offset int) ([]*CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsername(username string, limit, offset int) ([]*CollectionListResponse, int64, error)
 	SetFeatured(slug string, featured bool) error

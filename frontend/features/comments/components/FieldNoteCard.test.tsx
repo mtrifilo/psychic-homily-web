@@ -13,7 +13,10 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
 // PSY-608: per-mutation overrides so we can assert reply + vote error UI.
+// PSY-590: edit + delete mutations join the mock surface.
 const mockUseReplyToComment = vi.fn()
+const mockUseUpdateComment = vi.fn()
+const mockUseDeleteComment = vi.fn()
 const mockUseVoteComment = vi.fn()
 const mockUseUnvoteComment = vi.fn()
 
@@ -24,6 +27,8 @@ vi.mock('../hooks', async () => {
   const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
   return {
     useReplyToComment: () => mockUseReplyToComment(),
+    useUpdateComment: () => mockUseUpdateComment(),
+    useDeleteComment: () => mockUseDeleteComment(),
     useVoteComment: () => mockUseVoteComment(),
     useUnvoteComment: () => mockUseUnvoteComment(),
     useCommentThread: () => ({ data: undefined }),
@@ -34,12 +39,19 @@ vi.mock('../hooks', async () => {
 
 function resetFieldNoteCardMocks() {
   mockUseReplyToComment.mockReturnValue(defaultMutationReturn)
+  mockUseUpdateComment.mockReturnValue(defaultMutationReturn)
+  mockUseDeleteComment.mockReturnValue(defaultMutationReturn)
   mockUseVoteComment.mockReturnValue(defaultMutationReturn)
   mockUseUnvoteComment.mockReturnValue(defaultMutationReturn)
 }
 
 vi.mock('@/features/contributions', () => ({
   ReportEntityDialog: () => null,
+}))
+
+// PSY-590: stub the edit history dialog — only its render condition matters here.
+vi.mock('./CommentEditHistory', () => ({
+  CommentEditHistory: () => <div data-testid="stub-edit-history-dialog" />,
 }))
 
 function makeFieldNote(overrides: Partial<Comment> = {}): Comment {
@@ -448,6 +460,229 @@ describe('FieldNoteCard', () => {
       expect(banner).toHaveTextContent(
         'Please wait 60s before commenting again.'
       )
+    })
+  })
+
+  // PSY-590: Edit + Delete affordances on the author's own field note. Mirrors
+  // the CommentCard surface (Pencil + Trash2 + inline Yes/No confirm + admin-
+  // only edit history trigger). The makeFieldNote helper fixes user_id=2, so
+  // we sign in as that user to exercise the owner branch.
+  describe('Edit + Delete affordances (PSY-590)', () => {
+    function ownerAuth() {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '2', email: 'owner@example.com', is_admin: false },
+      })
+    }
+    function adminAuth() {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '99', email: 'admin@example.com', is_admin: true },
+      })
+    }
+    function otherUserAuth() {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '99', email: 'other@example.com', is_admin: false },
+      })
+    }
+
+    it('renders Edit + Delete for the author', () => {
+      ownerAuth()
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+      expect(screen.getByTestId('edit-field-note-button')).toBeInTheDocument()
+      expect(screen.getByTestId('delete-field-note-button')).toBeInTheDocument()
+    })
+
+    it('does NOT render Edit + Delete for non-author non-admin viewers', () => {
+      otherUserAuth()
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+      expect(
+        screen.queryByTestId('edit-field-note-button')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByTestId('delete-field-note-button')
+      ).not.toBeInTheDocument()
+      // Non-owner sees Report instead.
+      expect(
+        screen.getByTestId('report-field-note-button')
+      ).toBeInTheDocument()
+    })
+
+    it('does NOT render Edit + Delete for anonymous viewers', () => {
+      // beforeEach sets isAuthenticated=false by default.
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+      expect(
+        screen.queryByTestId('edit-field-note-button')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByTestId('delete-field-note-button')
+      ).not.toBeInTheDocument()
+    })
+
+    it('opens an inline edit form populated with the existing body when Edit is clicked', () => {
+      ownerAuth()
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ body: 'My original take' })}
+          showId={10}
+        />
+      )
+
+      fireEvent.click(screen.getByTestId('edit-field-note-button'))
+
+      const textarea = screen.getByTestId(
+        'comment-textarea'
+      ) as HTMLTextAreaElement
+      expect(textarea.value).toBe('My original take')
+      // The read-only body view is replaced while editing.
+      expect(screen.queryByTestId('field-note-body')).not.toBeInTheDocument()
+    })
+
+    it('calls useUpdateComment with the edited body on Save', () => {
+      ownerAuth()
+      const mutate = vi.fn()
+      mockUseUpdateComment.mockReturnValue({
+        mutate,
+        isPending: false,
+      })
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ body: 'before' })}
+          showId={10}
+        />
+      )
+
+      fireEvent.click(screen.getByTestId('edit-field-note-button'))
+      const textarea = screen.getByTestId('comment-textarea')
+      fireEvent.change(textarea, { target: { value: 'after' } })
+      fireEvent.click(screen.getByText('Save'))
+
+      expect(mutate).toHaveBeenCalledTimes(1)
+      const [args] = mutate.mock.calls[0]
+      expect(args).toMatchObject({
+        commentId: 1,
+        body: 'after',
+        entityType: 'show',
+        entityId: 10,
+      })
+    })
+
+    it('renders inline edit-form error banner on update failure', () => {
+      ownerAuth()
+      mockUseUpdateComment.mockReturnValue({
+        mutate: vi.fn(),
+        isPending: false,
+        error: Object.assign(new Error('comment is too long'), { status: 400 }),
+      })
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+      fireEvent.click(screen.getByTestId('edit-field-note-button'))
+
+      const banner = screen.getByTestId('comment-form-error')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveTextContent('Comment is too long')
+    })
+
+    it('shows inline Yes/No confirmation when Delete is clicked', () => {
+      ownerAuth()
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+
+      fireEvent.click(screen.getByTestId('delete-field-note-button'))
+
+      expect(
+        screen.getByTestId('delete-field-note-confirm')
+      ).toBeInTheDocument()
+      expect(screen.getByTestId('delete-field-note-yes')).toBeInTheDocument()
+      expect(screen.getByTestId('delete-field-note-no')).toBeInTheDocument()
+      // Delete button itself is replaced by the confirm row.
+      expect(
+        screen.queryByTestId('delete-field-note-button')
+      ).not.toBeInTheDocument()
+    })
+
+    it('calls useDeleteComment when Yes is clicked, dismisses on No', () => {
+      ownerAuth()
+      const mutate = vi.fn()
+      mockUseDeleteComment.mockReturnValue({ mutate, isPending: false })
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+
+      // Open confirm, then cancel.
+      fireEvent.click(screen.getByTestId('delete-field-note-button'))
+      fireEvent.click(screen.getByTestId('delete-field-note-no'))
+      expect(
+        screen.queryByTestId('delete-field-note-confirm')
+      ).not.toBeInTheDocument()
+      expect(mutate).not.toHaveBeenCalled()
+
+      // Open again, confirm.
+      fireEvent.click(screen.getByTestId('delete-field-note-button'))
+      fireEvent.click(screen.getByTestId('delete-field-note-yes'))
+
+      expect(mutate).toHaveBeenCalledTimes(1)
+      const [args] = mutate.mock.calls[0]
+      expect(args).toMatchObject({
+        commentId: 1,
+        entityType: 'show',
+        entityId: 10,
+      })
+    })
+
+    it('renders the delete-error banner when useDeleteComment fails', () => {
+      ownerAuth()
+      mockUseDeleteComment.mockReturnValue({
+        mutate: vi.fn(),
+        isPending: false,
+        isError: true,
+        error: Object.assign(new Error('cannot delete pinned note'), {
+          status: 403,
+        }),
+      })
+      render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
+
+      const banner = screen.getByTestId('delete-error-banner')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveAttribute('role', 'alert')
+      expect(banner).toHaveTextContent('Cannot delete pinned note')
+    })
+
+    it('renders the admin edit-history button for admins when the field note has edits', () => {
+      adminAuth()
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ edit_count: 2, is_edited: true })}
+          showId={10}
+        />
+      )
+
+      const btn = screen.getByTestId('admin-edit-history-button')
+      expect(btn).toBeInTheDocument()
+      expect(btn).toHaveTextContent('Edit history (2)')
+    })
+
+    it('hides the admin edit-history button for admins when the field note has never been edited', () => {
+      adminAuth()
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ edit_count: 0, is_edited: false })}
+          showId={10}
+        />
+      )
+      expect(
+        screen.queryByTestId('admin-edit-history-button')
+      ).not.toBeInTheDocument()
+    })
+
+    it('does NOT render the admin edit-history button for non-admin viewers', () => {
+      ownerAuth()
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ edit_count: 2, is_edited: true })}
+          showId={10}
+        />
+      )
+      expect(
+        screen.queryByTestId('admin-edit-history-button')
+      ).not.toBeInTheDocument()
     })
   })
 })

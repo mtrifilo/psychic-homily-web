@@ -1629,8 +1629,13 @@ func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, enti
 	return ids, nil
 }
 
-// GetEntityCollections returns public collections that contain the given entity
-func (s *CollectionService) GetEntityCollections(entityType string, entityID uint, limit int) ([]*contracts.CollectionListResponse, error) {
+// GetEntityCollections returns collections that contain the given entity.
+// Privacy filter: public collections are visible to everyone; private
+// collections are surfaced only when the viewer is the creator (the owner
+// already has full visibility into their own private content). Pass
+// viewerID == 0 for anonymous callers — only public collections will
+// match. PSY-583.
+func (s *CollectionService) GetEntityCollections(entityType string, entityID uint, viewerID uint, limit int) ([]*contracts.CollectionListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -1639,12 +1644,20 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 		limit = 10
 	}
 
-	// Find collection IDs that contain this entity (public collections only)
+	// Find collection IDs that contain this entity. Public collections are
+	// visible to everyone; the viewer's own private collections are also
+	// included when viewerID > 0.
+	visibility := s.db.Where("collections.is_public = ?", true)
+	if viewerID > 0 {
+		visibility = visibility.Or("collections.creator_id = ?", viewerID)
+	}
+
 	var collectionIDs []uint
 	err := s.db.Model(&communitym.CollectionItem{}).
 		Select("DISTINCT collection_items.collection_id").
 		Joins("JOIN collections ON collections.id = collection_items.collection_id").
-		Where("collection_items.entity_type = ? AND collection_items.entity_id = ? AND collections.is_public = ?", entityType, entityID, true).
+		Where("collection_items.entity_type = ? AND collection_items.entity_id = ?", entityType, entityID).
+		Where(visibility).
 		Limit(limit).
 		Pluck("collection_items.collection_id", &collectionIDs).Error
 	if err != nil {
@@ -1677,9 +1690,10 @@ func (s *CollectionService) GetEntityCollections(entityType string, entityID uin
 	entityTypeCounts := s.batchEntityTypeCounts(collectionIDs)
 	creatorNames := s.batchResolveUserNames(creatorIDs)
 	creatorUsernames := s.batchResolveUserUsernames(creatorIDs)
-	// PSY-352: like aggregate; viewer ID isn't threaded through this call,
-	// so UserLikesThis is left false here (clients that need it should
-	// use the detail endpoint).
+	// PSY-352: like aggregate. UserLikesThis is intentionally left false
+	// on this surface — the entity-backlinks card doesn't render a like
+	// state, so we skip the per-viewer batchCheckUserLikes round-trip.
+	// Clients that need it should use the detail endpoint.
 	likeCounts := s.batchCountLikes(collectionIDs)
 	// PSY-354: tag chips on entity-collection cards.
 	tagsByCollection := s.batchListCollectionTagSummaries(collectionIDs)

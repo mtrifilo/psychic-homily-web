@@ -9,19 +9,13 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
-
-// invalidReplyPermissionMessage is the canonical 400 response detail
-// when `permission` is present but unrecognized. Distinct from
-// "permission is required" (sent when the field is empty) so clients
-// can tell which failure they hit. Keep in lockstep with
-// `engagementm.IsValidReplyPermission`.
-const invalidReplyPermissionMessage = "permission must be one of: anyone, followers, author_only"
 
 // rateLimited429 wraps a 429 service-layer error with a `Retry-After` header
 // per RFC 7231 §7.1.3 so clients can populate countdown copy without parsing
@@ -528,13 +522,13 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 		return nil, huma.Error400BadRequest("permission is required")
 	}
 	if !engagementm.IsValidReplyPermission(perm) {
-		return nil, huma.Error400BadRequest(invalidReplyPermissionMessage)
+		return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
 	}
 
 	comment, err := h.writer.UpdateReplyPermission(user.ID, uint(commentID), perm)
 	if err != nil {
 		if strings.Contains(err.Error(), "invalid reply_permission") {
-			return nil, huma.Error400BadRequest(invalidReplyPermissionMessage)
+			return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
 		}
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound("Comment not found")

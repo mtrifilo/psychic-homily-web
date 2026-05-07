@@ -269,6 +269,14 @@ export function useUpdateComment() {
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
       })
+      // PSY-590: field notes share the comments table but live in a separate
+      // query cache (`fieldNoteQueryKeys.show`). Field-note edits flow through
+      // this hook too, so refresh that cache when the target is a show.
+      if (variables.entityType === 'show') {
+        queryClient.invalidateQueries({
+          queryKey: fieldNoteQueryKeys.show(variables.entityId),
+        })
+      }
     },
   })
 }
@@ -291,6 +299,12 @@ export function useDeleteComment() {
       queryClient.invalidateQueries({
         queryKey: commentQueryKeys.entity(variables.entityType, variables.entityId),
       })
+      // PSY-590: see useUpdateComment — keep the field-note cache in sync.
+      if (variables.entityType === 'show') {
+        queryClient.invalidateQueries({
+          queryKey: fieldNoteQueryKeys.show(variables.entityId),
+        })
+      }
     },
   })
 }

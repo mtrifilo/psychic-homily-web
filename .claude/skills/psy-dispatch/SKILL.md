@@ -205,6 +205,7 @@ When all agents have returned (or as each returns):
    # Expected: 2 — one ## Manual repro header + one ## Simplify header.
    ```
    If sections are missing — typically because a parallel session opened the PR off a stale skill snapshot, OR an orchestrator-takeover inherited a PR opened before a convention update merged — edit the body via `gh pr edit <PR> --body "<new content>"` to bring it up to spec. Reuse the agent's return-message details (Manual repro and Simplify outcomes) verbatim where possible; the convention exists so reviewers can audit verification from the PR alone, not from the agent's chat trace. **Caught: May 2026 dogfix-2 (PR #563)** — parallel session opened PSY-613's PR before PR #559 (the convention-adding skill update) merged; orchestrator took over and edited the body to add the missing `## Manual repro` + `## Simplify` sections. Without this check, drift accumulates: each merged off-spec PR sets a precedent that the next reviewer accepts.
+- **Verify no orphaned dispatch stacks.** Run `bash scripts/dispatch/stack-cleanup.sh --dry-run`. Expected output: zero `[dry-run] would run: ...` lines. If the script finds orphans (stale compose projects, stale PID files, stale `dispatch-stack/` dirs), one of the agents skipped its `stack-down.sh` — re-run `stack-cleanup.sh` (no flag) to reap, and surface to user as a process violation so the next dispatch has clean state. See "Per-worktree dev stack" section for the full cleanup model.
 
 ### 7. Stale-base recovery + apply orchestrator-pending memory entries
 
@@ -236,6 +237,55 @@ Always `--force-with-lease`, never `--force` — bails out if the remote moved (
 5. After all entries are applied, verify total `MEMORY.md` size is still under the index-loading limit (`MEMORY.md` shows a warning at the top when overrun). If close, move the longest entries into per-topic files and leave only the index pointer in `MEMORY.md`.
 
 The orchestrator owns the user-level memory file; agents do not edit it from inside their worktrees. Skipping this checklist means the next dispatch operates on stale memory.
+
+## Per-worktree dev stack
+
+Manual repro (rule 10) requires the agent to actually exercise the change end-to-end. For tickets that touch backend code or migrations, "exercise end-to-end" requires an isolated stack — multiple agents cannot share one backend if any of them is changing backend behaviour, and migration races corrupt shared DBs. The skill ships three helper scripts to manage this:
+
+- `scripts/dispatch/stack-up.sh <worktree-path> --mode={none,shared,isolated}` — bring up a stack
+- `scripts/dispatch/stack-down.sh <worktree-path>` — tear it down at end-of-task
+- `scripts/dispatch/stack-cleanup.sh [--dry-run]` — orphan reaper, runnable anytime
+
+### Mode decision tree
+
+The agent runs `git diff main --name-only` after step 4 (tests pass) and matches against this table:
+
+| Diff shape | Mode | Why |
+| --- | --- | --- |
+| Backend-only, no migration | `none` | Integration tests are the manual repro (PSY-592 pattern). No stack needed. |
+| Frontend-only, no migration | `shared` | Backend code is unchanged across all frontend-only agents — they can safely share the user's dev backend at :8080. Free-port frontend points at it. |
+| Backend WITH migration | `isolated` | Migration races corrupt a shared DB; each agent needs its own postgres. |
+| Fullstack (backend + frontend) | `isolated` | Each agent's backend code is different — they cannot share a backend instance. |
+| Frontend + migration | `isolated` | Migration race forces own DB. |
+| Docs-only | `none` | No code path. Manual repro section says "docs-only, no manual repro applicable". |
+
+**Mode decision happens at step 5 of the per-agent prompt template, NOT at orchestrator dispatch-time.** Orchestrator-level guess from ticket scope is wrong too often (a "frontend ticket" can reveal a backend tweak); the agent picks based on what they actually touched.
+
+### What each mode does
+
+- **`--mode=none`** — writes a marker `.env` and exits 0. The agent's manual repro is the integration test from step 4.
+- **`--mode=shared`** — probes :8080. If a dev backend responds, allocates a free frontend port and starts `bun run dev --port $PORT` in the worktree, pointing at :8080. PID written to `<worktree>/dispatch-stack/frontend.pid`. If :8080 is free, the script auto-escalates to `isolated` and warns.
+- **`--mode=isolated`** — full per-worktree stack:
+  - Allocates 3 free ports (postgres, backend, frontend) via `python3 -c "socket.bind(('',0))"`
+  - `docker compose -p dispatch-${WORKTREE_ID} -f backend/docker-compose.dispatch.yml up -d --wait`
+  - Runs the full E2E seed (`frontend/e2e/setup-db.sh` reused with `DATABASE_URL` / `COMPOSE_PROJECT` / `COMPOSE_FILE` env overrides — single source of seed truth across E2E and dispatch)
+  - Starts native backend (`go run ./cmd/server`) with the same `DISABLE_*` env flags as E2E global-setup, plus per-worktree `API_PORT` and `DATABASE_URL`
+  - Starts native frontend (`bun run dev --port $FRONTEND_PORT`) with `NEXT_PUBLIC_API_BASE_URL` pointing at the backend
+  - All URLs written to `<worktree>/dispatch-stack/.env` for the agent to source
+
+**Costs:**
+- `none`: $0
+- `shared`: ~5s startup, ~300MB RAM (frontend dev server only)
+- `isolated`: ~30-60s startup, ~600MB-1GB RAM per stack
+
+### Cleanup
+
+After PR is opened, the agent runs `scripts/dispatch/stack-down.sh <worktree-path>` to release resources. The orchestrator runs `scripts/dispatch/stack-cleanup.sh --dry-run` at step 6 (Surface results) to verify no orphaned stacks survive — clean output reports zero orphans. The user can run `stack-cleanup.sh` (no flag) anytime to reap orphans from crashed dispatches or deleted worktrees.
+
+**Orphan failure modes the cleanup script handles:**
+- Agent crashed mid-flight → backend / frontend processes survive; `stack-cleanup.sh` finds them via PID files + worktree-aliveness check.
+- Worktree was force-deleted before stack-down → docker compose project + processes survive; `stack-cleanup.sh` finds them via `docker compose ls` + worktree-aliveness check.
+- User Ctrl-C'd a stack-up mid-startup → partial state in `dispatch-stack/`; `stack-cleanup.sh` removes the directory.
 
 ## Per-agent prompt template
 
@@ -276,11 +326,23 @@ Fix PSY-{N}: {ticket title}.
    - **E2E:** if you modified any file under `frontend/e2e/`, run that spec — `cd frontend && bun run test:e2e -- <path-to-spec>`. The E2E global-setup hard-requires port 8080 to be free; if the user's dev backend occupies 8080, STOP and report back so the orchestrator can ask the user to free it. Do NOT skip the E2E run silently.
    - **Docs-only PRs (no code changes):** if your diff touches ONLY non-functional docs — markdown files, `.claude/skills/*/SKILL.md`, README updates, comment-only changes — there is no code path to exercise and no functional tests to run. Note `"docs-only, no tests applicable"` in your "Local tests run" line and proceed. **Exception:** if the same diff also touches a config/build file (`package.json`, `go.mod`, `tsconfig.json`, `playwright.config.ts`, `Makefile`, CI workflow YAML), run the corresponding typecheck or build to confirm nothing broke at that boundary.
    - **STOP if any test fails.** Do not try to debug whether the failure is "pre-existing" or whether your diff caused it — that's the orchestrator's call, and the orchestrator will escalate to the user. Report back with: failing test name, error excerpt, the exact command you ran, and your one-sentence hypothesis. Do NOT proceed to commit/push. The judgment "this is pre-existing on main, safe to push" is NOT yours to make. Pushing untested or known-failing code is the single worst pattern this skill exists to prevent.
-5. **Manual repro the change end-to-end.** Tests verify the contract the agent wrote; manual repro verifies the user-facing behaviour matches the ticket. Skipping this because "tests passed" fails the engineering bar — per CLAUDE.md: *"Type checking and test suites verify code correctness, not feature correctness."*
-   - **Frontend changes:** start the dev server on a FREE PORT (e.g. `cd frontend && PORT=$(python3 -c "import socket; s=socket.socket(); s.bind(('',0)); print(s.getsockname()[1]); s.close()") && bun run dev --port $PORT`) — sharing port 3000 with the orchestrator or other parallel agents will fail. Connect to the existing dev backend at the standard port (read paths and most write paths share fine in this repo; if the change exercises rate-limited or singleton state, flag it and serialize across the batch). Use `chrome-devtools` MCP or `agent-browser` to navigate to the affected screen, exercise the canonical failing path the ticket described, and capture a screenshot of the new behaviour into `dogfood-output/PSY-{N}/screenshots/<short-name>.png`. STOP if the canonical failure mode does NOT now surface in the UI — the fix is incomplete; iterate from step 3 before proceeding.
-   - **Backend changes: integration tests are the canonical manual repro.** Write or extend a focused integration test that drives the change end-to-end through the real stack — exact-message assertions, response-shape assertions, all AC cases covered. **PSY-592 (May 2026)** is the canonical example: three tests (`_EmptyPermission`, `_InvalidEnum`, `_AcceptsAllValidEnumValues`), each asserting the exact response body. The test name + assertion outcome is what goes in the PR body's *Manual repro* section. Use `curl` against a backend you started on a free port ONLY when the test harness genuinely can't reach the path (rare — most paths have a test entrypoint). Capture the request + response (or test output) verbatim. STOP if the response shape diverges from the ticket's expectation.
-   - **Docs-only PRs (no code path):** no manual repro applicable. Note `"docs-only, no manual repro applicable"` in your report and PR body.
-   - **Render-only refactor carveout.** Pure refactors that don't change behaviour (extracting a primitive across N existing call sites, renaming a prop, consolidating duplicate render logic) verify the user-facing surface via unit tests asserting on rendered DOM output. If the local dev environment can't run end-to-end (backend unavailable on standard port, port conflict, DB seed missing), the agent MAY proceed with an honest-disclosure Manual repro section: *"Unit tests at `<file>` (N lines, M cases) cover the rendered output for all affected surfaces. Local navigation-level smoke skipped because <reason>. Recommended pre-merge: spot-check on Vercel preview or local-with-backend."* This is **NOT a free pass** to skip manual repro — it's specifically for refactors where unit-test DOM assertions cover what manual repro would verify, AND the local environment genuinely can't run. Surface the limitation explicitly per CLAUDE.md "if you can't test the UI, say so explicitly rather than claiming success." Most often invoked during an orchestrator-takeover (Step 1's take-over flow) of a render-only refactor where the dev backend isn't running. **Canonical example: PSY-613 (May 2026)** — orchestrator-takeover of a `<UserAttribution />` primitive extraction (10 inline implementations replaced); 3080 unit tests + 137-line `UserAttribution.test.tsx` covered the rendered output; backend not running locally; PR body explicitly disclosed the gap and recommended a pre-merge spot-check.
+5. **Manual repro the change end-to-end.** Tests verify code-correct; manual repro verifies feature-correct (per CLAUDE.md: *"Type checking and test suites verify code correctness, not feature correctness."*). Use the `scripts/dispatch/stack-up.sh` helper for stack management (see the "Per-worktree dev stack" section above for the full mode model).
+   - **Pick a stack mode** based on `git diff main --name-only`. Short version: backend-only no migration → `--mode=none`; frontend-only no migration → `--mode=shared`; fullstack OR migration → `--mode=isolated`. (Full table in the "Per-worktree dev stack" section.)
+   - **Bring up the stack:**
+     ```bash
+     bash scripts/dispatch/stack-up.sh "$(git rev-parse --show-toplevel)" --mode=<chosen>
+     ```
+     The script writes `<worktree>/dispatch-stack/.env` with `STACK_FRONTEND_URL`, `STACK_BACKEND_URL`, etc. Source that file before navigating.
+   - **Exercise the change:**
+     - `mode=none`: integration test name + relevant assertion outcome IS the manual repro. **PSY-592 (May 2026)** is the canonical example — three tests (`_EmptyPermission`, `_InvalidEnum`, `_AcceptsAllValidEnumValues`), each asserting the exact response body. The test name + assertion outcome is what goes in the PR body's *Manual repro* section. Use `curl` against a backend you started on a free port ONLY when the test harness genuinely can't reach the path (rare — most paths have a test entrypoint). No browser navigation needed.
+     - `mode=shared` / `mode=isolated`: navigate `$STACK_FRONTEND_URL` via `chrome-devtools` MCP or `agent-browser`, exercise the canonical failing path the ticket described, and capture a screenshot of the new behaviour into `dogfood-output/PSY-{N}/screenshots/<short-name>.png`. STOP if the canonical failure mode does NOT now surface in the UI — the fix is incomplete; iterate from step 3 before proceeding.
+   - **Tear down the stack** after capturing the artifact:
+     ```bash
+     bash scripts/dispatch/stack-down.sh "$(git rev-parse --show-toplevel)"
+     ```
+     Skipping this leaves processes + a docker compose project running; orchestrator's `stack-cleanup.sh --dry-run` at step 6 will flag the leak.
+   - **Render-only refactor carveout.** Pure refactors that don't change behaviour (extracting a primitive across N existing call sites, renaming a prop, consolidating duplicate render logic) verify the user-facing surface via unit-test DOM assertions. If the local dev environment can't run end-to-end (backend unavailable, port conflict, DB seed missing), the agent MAY proceed with an honest-disclosure Manual repro section: *"Unit tests at `<file>` (N lines, M cases) cover the rendered output for all affected surfaces. Local navigation-level smoke skipped because <reason>. Recommended pre-merge: spot-check on Vercel preview or local-with-backend."* This is **NOT a free pass** — specifically for refactors where unit-test DOM assertions cover what manual repro would verify, AND the local environment genuinely can't run. Surface the limitation explicitly per CLAUDE.md "if you can't test the UI, say so explicitly rather than claiming success." Most often invoked during an orchestrator-takeover (Step 1's take-over flow) of a render-only refactor where the dev backend isn't running. **Canonical example: PSY-613 (May 2026)** — orchestrator-takeover of `<UserAttribution />` primitive extraction (10 inline implementations replaced); 3080 unit tests + 137-line `UserAttribution.test.tsx` covered the rendered output; backend not running locally; PR body explicitly disclosed the gap and recommended a pre-merge spot-check.
+   - **Docs-only PRs (no code path):** no manual repro applicable. Note `"docs-only, no manual repro applicable"` in your report and PR body. Skip stack-up entirely.
 6. **Pre-commit isolation check.** Run `git status` from your worktree. Then run `git -C <main-repo-path> status` (the main repo absolute path). If the main repo shows YOUR file changes uncommitted, the harness CWD didn't propagate — recovery procedure:
    - Copy your edits from the main repo into your worktree (`cp` with absolute paths).
    - In the main repo, `git restore <leaked-paths>` to revert (use `git restore`, not `git checkout .` or `git clean` — both can wipe unrelated untracked files).
@@ -354,3 +416,4 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - `feedback_plan_mode_questions_first.md` — surface forks via `AskUserQuestion` before exiting plan mode / dispatching.
 - `feedback_code_complete.md` — manage complexity, plan before coding, decompose big changes.
 - `feedback_verify_before_push.md` — verify the fix actually fixes the thing before pushing.
+- **`scripts/dispatch/stack-up.sh` / `stack-down.sh` / `stack-cleanup.sh`** — per-worktree dev stack helpers; full model documented in the "Per-worktree dev stack" section above. `stack-cleanup.sh [--dry-run]` is the authoritative orphan reaper, runnable anytime by the user or the orchestrator.

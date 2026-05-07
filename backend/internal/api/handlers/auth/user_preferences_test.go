@@ -355,3 +355,87 @@ func TestUnsubscribeMentionHandler_Success(t *testing.T) {
 		t.Fatal("expected SetNotifyOnMention to be called")
 	}
 }
+
+// ──────────────────────────────────────────────
+// PSY-621: SetDefaultReplyPermissionHandler validation contract
+// ──────────────────────────────────────────────
+//
+// Mirrors the three-case shape used by PUT /comments/{id}/reply-permission
+// (PSY-592 in comment_test.go: _EmptyPermission / _InvalidEnum /
+// _AcceptsAllValidEnumValues). PSY-621 unifies the validation contract:
+// missing/empty -> 400 "reply_permission is required"; unrecognized ->
+// 400 with the canonical `shared.InvalidReplyPermissionMessage`. Previously
+// invalid-enum returned 422 with a different message.
+
+func TestSetDefaultReplyPermission_EmptyPermission(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		SetDefaultReplyPermissionFn: func(userID uint, permission string) error {
+			t.Fatalf("service must not be invoked for empty permission; got call with permission=%q", permission)
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetDefaultReplyPermissionRequest{}
+	req.Body.Permission = "   "
+	_, err := h.SetDefaultReplyPermissionHandler(ctx, req)
+	testhelpers.AssertHumaErrorWithDetail(t, err, 400, "reply_permission is required")
+}
+
+// TestSetDefaultReplyPermission_InvalidEnum: an unrecognized value must
+// be rejected with the explicit-list message, NOT
+// "reply_permission is required" (which implies the field was absent).
+// The service mock fails the test if invoked — the handler-level enum
+// check must short-circuit before the service is called.
+func TestSetDefaultReplyPermission_InvalidEnum(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		SetDefaultReplyPermissionFn: func(userID uint, permission string) error {
+			t.Fatalf("service must not be invoked for invalid enum value; got call with permission=%q", permission)
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetDefaultReplyPermissionRequest{}
+	req.Body.Permission = "garbage"
+	_, err := h.SetDefaultReplyPermissionHandler(ctx, req)
+	testhelpers.AssertHumaErrorWithDetail(t, err, 400, "permission must be one of: anyone, followers, author_only")
+}
+
+// TestSetDefaultReplyPermission_AcceptsAllValidEnumValues: all three
+// recognized enum values must clear the handler-level enum check and
+// reach the service layer. Complements the _InvalidEnum and
+// _EmptyPermission negative cases above.
+func TestSetDefaultReplyPermission_AcceptsAllValidEnumValues(t *testing.T) {
+	for _, perm := range []string{"anyone", "followers", "author_only"} {
+		t.Run(perm, func(t *testing.T) {
+			var called bool
+			mock := &testhelpers.MockUserService{
+				SetDefaultReplyPermissionFn: func(userID uint, permission string) error {
+					called = true
+					if permission != perm {
+						t.Errorf("expected permission=%q, got %q", perm, permission)
+					}
+					return nil
+				},
+			}
+			h := NewUserPreferencesHandler(mock, "secret")
+			ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+			req := &SetDefaultReplyPermissionRequest{}
+			req.Body.Permission = perm
+			resp, err := h.SetDefaultReplyPermissionHandler(ctx, req)
+			if err != nil {
+				t.Fatalf("unexpected error for permission=%q: %v", perm, err)
+			}
+			if !called {
+				t.Fatalf("expected service called for permission=%q", perm)
+			}
+			if !resp.Body.Success {
+				t.Fatalf("expected success=true for permission=%q", perm)
+			}
+			if resp.Body.DefaultReplyPermission != perm {
+				t.Errorf("expected default_reply_permission=%q, got %q", perm, resp.Body.DefaultReplyPermission)
+			}
+		})
+	}
+}
