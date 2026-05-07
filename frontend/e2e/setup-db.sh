@@ -13,9 +13,48 @@ COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.e2e.yml}"
 
 echo "==> Waiting for migrate service to finish..."
 # Block until the migrate container exits; propagates its exit code.
-# (docker compose wait is available since Compose v2.23)
-if ! docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" wait migrate; then
-  echo "ERROR: Migrations failed. Container logs:"
+#
+# `docker compose wait` is unreliable here: it returns "no containers for
+# project" with exit 1 once the container has already exited, which happens
+# when the parent already used `up -d --wait` (PSY-624 dispatch path) and
+# the migrate one-shot finished before we polled. Inspect ps state directly.
+#
+# Output format is one JSON object per service (NDJSON) — `--format json
+# <service>` filters to a single line. Tested against Docker Compose v5.0.1.
+wait_migrate_done() {
+  local timeout_sec="${1:-60}" start row state exit_code
+  start=$(date +%s)
+  while true; do
+    row=$(docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" \
+      ps -a --format json migrate 2>/dev/null) || row=""
+    if [ -n "$row" ]; then
+      state=$(echo "$row" | jq -r '.State')
+      exit_code=$(echo "$row" | jq -r '.ExitCode')
+      case "$state" in
+        exited)
+          if [ "$exit_code" = "0" ]; then
+            return 0
+          fi
+          echo "ERROR: migrate exited with code $exit_code"
+          return 1
+          ;;
+        running|created|restarting)
+          ;;
+        *)
+          echo "WARN: migrate in unexpected state '$state'"
+          ;;
+      esac
+    fi
+    if [ "$(($(date +%s) - start))" -ge "$timeout_sec" ]; then
+      echo "ERROR: timeout waiting for migrate to finish"
+      return 1
+    fi
+    sleep 0.5
+  done
+}
+
+if ! wait_migrate_done 60; then
+  echo "Container logs:"
   docker compose -p "$COMPOSE_PROJECT" -f "$COMPOSE_FILE" logs migrate
   exit 1
 fi
