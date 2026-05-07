@@ -710,7 +710,7 @@ function AddTagForm({
   // same gate client-side so users see a tooltip instead of a dead-end 403.
   // Admins bypass the tier check (PSY-584) — matches the backend short-circuit
   // in createTagInline (`user.UserTier == "new_user" && !user.IsAdmin`).
-  const canCreateTags = Boolean(user?.is_admin) || user?.user_tier !== 'new_user'
+  const canCreateTags = user?.is_admin || user?.user_tier !== 'new_user'
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [filterCategory, setFilterCategory] = useState<string>('')
