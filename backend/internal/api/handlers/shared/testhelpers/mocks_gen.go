@@ -497,12 +497,18 @@ func (m *MockAttendanceService) GetUserAttendingShows(userID uint, status string
 
 type MockAuditLogService struct {
 	LogActionFn func(uint, string, string, uint, map[string]interface{})
+	LogEntityEditFn func(uint, string, uint, map[string]interface{})
 	GetAuditLogsFn func(int, int, contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error)
 }
 
 func (m *MockAuditLogService) LogAction(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{}) {
 	if m.LogActionFn != nil {
 		m.LogActionFn(actorID, action, entityType, entityID, metadata)
+	}
+}
+func (m *MockAuditLogService) LogEntityEdit(actorID uint, entityType string, entityID uint, metadata map[string]interface{}) {
+	if m.LogEntityEditFn != nil {
+		m.LogEntityEditFn(actorID, entityType, entityID, metadata)
 	}
 }
 func (m *MockAuditLogService) GetAuditLogs(limit int, offset int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {

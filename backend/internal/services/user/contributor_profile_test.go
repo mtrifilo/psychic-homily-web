@@ -343,11 +343,12 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionS
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetContributionStats_AuditLogActions() {
 	user := suite.createTestUser("audituser")
 
-	// Content creation actions
+	// Content creation actions stay in audit_logs.
 	suite.auditLog.LogAction(user.ID, "create_release", "release", 1, nil)
 	suite.auditLog.LogAction(user.ID, "create_release", "release", 2, nil)
 	suite.auditLog.LogAction(user.ID, "create_label", "label", 1, nil)
-	suite.auditLog.LogAction(user.ID, "edit_artist", "artist", 1, nil)
+	// PSY-618: edit events live in entity_edit_audit_logs now.
+	suite.auditLog.LogEntityEdit(user.ID, "artist", 1, nil)
 
 	stats, err := suite.profileService.GetContributionStats(user.ID)
 

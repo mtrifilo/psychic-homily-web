@@ -283,7 +283,11 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 		Where("submitted_by = ? AND entity_type = ?", userID, adminm.PendingEditEntityVenue).
 		Count(&stats.VenueEditsSubmitted)
 
-	// Count actions from audit_log grouped by action
+	// Count actions from audit_log grouped by action.
+	// PSY-618: edit_<type> rows live in entity_edit_audit_logs now and are
+	// counted separately below so the contributor activity feed stops
+	// dual-rendering trusted-user direct-edits and the stats counters read
+	// from a single source of truth.
 	type actionCount struct {
 		Action string
 		Count  int64
@@ -299,19 +303,44 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 		if moderationActions[ac.Action] {
 			stats.ModerationActions += ac.Count
 		} else {
-			switch {
-			case ac.Action == "create_release" || ac.Action == "edit_release":
+			switch ac.Action {
+			case "create_release":
 				stats.ReleasesCreated += ac.Count
-			case ac.Action == "create_label" || ac.Action == "edit_label":
+			case "create_label":
 				stats.LabelsCreated += ac.Count
-			case ac.Action == "create_festival" || ac.Action == "edit_festival" ||
-				ac.Action == "add_festival_artist" || ac.Action == "remove_festival_artist" ||
-				ac.Action == "update_festival_artist" || ac.Action == "add_festival_venue" ||
-				ac.Action == "remove_festival_venue":
+			case "create_festival",
+				"add_festival_artist", "remove_festival_artist",
+				"update_festival_artist",
+				"add_festival_venue", "remove_festival_venue":
 				stats.FestivalsCreated += ac.Count
-			case ac.Action == "edit_artist":
-				stats.ArtistsEdited += ac.Count
 			}
+		}
+	}
+
+	// Count edit events from entity_edit_audit_logs (PSY-618). Edits used to
+	// live in audit_logs as "edit_<type>" actions but were split out so
+	// trusted-user direct-edits stop dual-rendering in the activity feed.
+	type entityEditCount struct {
+		EntityType string
+		Count      int64
+	}
+	var entityEditCounts []entityEditCount
+	s.db.Model(&adminm.EntityEditAuditLog{}).
+		Select("entity_type, count(*) as count").
+		Where("actor_id = ?", userID).
+		Group("entity_type").
+		Scan(&entityEditCounts)
+
+	for _, ec := range entityEditCounts {
+		switch ec.EntityType {
+		case "artist":
+			stats.ArtistsEdited += ec.Count
+		case "release":
+			stats.ReleasesCreated += ec.Count
+		case "label":
+			stats.LabelsCreated += ec.Count
+		case "festival":
+			stats.FestivalsCreated += ec.Count
 		}
 	}
 
