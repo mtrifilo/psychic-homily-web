@@ -42,11 +42,6 @@ func NewFeedDetector() *FeedDetector {
 	}
 }
 
-// NewFeedDetectorWithClient creates a FeedDetector with a custom HTTP client (for testing).
-func NewFeedDetectorWithClient(client *http.Client) *FeedDetector {
-	return &FeedDetector{httpClient: client}
-}
-
 // DetectFeeds scans HTML content for iCal and RSS feed links.
 // Returns all detected feeds sorted by confidence (highest first).
 func (d *FeedDetector) DetectFeeds(calendarURL string, htmlBody string) ([]DetectedFeed, error) {

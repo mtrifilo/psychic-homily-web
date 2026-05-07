@@ -308,9 +308,3 @@ func StringPtr(s string) *string { return &s }
 
 // BoolPtr returns a pointer to b.
 func BoolPtr(b bool) *bool { return &b }
-
-// UintPtr returns a pointer to u.
-func UintPtr(u uint) *uint { return &u }
-
-// Float64Ptr returns a pointer to f.
-func Float64Ptr(f float64) *float64 { return &f }
