@@ -7,8 +7,61 @@ import (
 	"context"
 	"log/slog"
 	"runtime/debug"
+	"sync"
 	"time"
 )
+
+// PanicHandler is invoked when a panic is recovered inside RunTickerLoop.
+// `service` is the loop name, `panicValue` is the recovered value (whatever
+// the work passed to `panic`), and `stack` is the stack trace as a string.
+//
+// Wiring point for observability: cmd/server/main.go installs a Sentry-
+// capturing handler at startup. Tests install their own handler. When no
+// handler is set, panics are logged via slog and otherwise swallowed —
+// matching pre-PSY-617 behaviour.
+//
+// The handler runs on the goroutine that recovered the panic; it should
+// return promptly (Sentry's CaptureException is non-blocking, so the
+// canonical handler is fine).
+type PanicHandler func(service string, panicValue any, stack []byte)
+
+var (
+	panicHandlerMu sync.RWMutex
+	panicHandler   PanicHandler
+)
+
+// SetPanicHandler installs a process-wide handler for ticker-loop panics.
+// Pass nil to clear (used by tests via t.Cleanup).
+//
+// Intended to be called once at startup from cmd/server/main.go after
+// Sentry is initialised. Safe to call concurrently with RunTickerLoop.
+func SetPanicHandler(h PanicHandler) {
+	panicHandlerMu.Lock()
+	panicHandler = h
+	panicHandlerMu.Unlock()
+}
+
+// invokePanicHandler runs the registered handler under the read lock so it
+// can't race with SetPanicHandler. Recovers any panic the handler itself
+// raises so a buggy handler can't take down the loop it was meant to
+// observe.
+func invokePanicHandler(service string, panicValue any, stack []byte) {
+	panicHandlerMu.RLock()
+	h := panicHandler
+	panicHandlerMu.RUnlock()
+	if h == nil {
+		return
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Default().Error("ticker-loop panic handler itself panicked",
+				"service", service,
+				"panic", r,
+			)
+		}
+	}()
+	h(service, panicValue, stack)
+}
 
 // RunTickerLoop runs `work` on every tick of `interval`, returning when
 // `ctx` is canceled or `stopCh` is closed.
@@ -46,11 +99,13 @@ func RunTickerLoop(
 ) {
 	defer func() {
 		if r := recover(); r != nil {
+			stack := debug.Stack()
 			slog.Default().Error("background service panic — service stopping",
 				"service", name,
 				"panic", r,
-				"stack", string(debug.Stack()),
+				"stack", string(stack),
 			)
+			invokePanicHandler(name, r, stack)
 		}
 	}()
 
@@ -79,11 +134,13 @@ func RunTickerLoop(
 func runOneCycle(ctx context.Context, name string, work func(context.Context)) {
 	defer func() {
 		if r := recover(); r != nil {
+			stack := debug.Stack()
 			slog.Default().Error("background service tick panic — continuing",
 				"service", name,
 				"panic", r,
-				"stack", string(debug.Stack()),
+				"stack", string(stack),
 			)
+			invokePanicHandler(name, r, stack)
 		}
 	}()
 	work(ctx)

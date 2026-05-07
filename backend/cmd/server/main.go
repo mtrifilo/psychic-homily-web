@@ -25,6 +25,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 func main() {
@@ -84,6 +85,20 @@ func main() {
 	} else {
 		log.Printf("SENTRY_DSN not set, error tracking disabled")
 	}
+
+	// PSY-617: escalate background-service panics to Sentry. The handler
+	// runs after the slog.Error inside RunTickerLoop's recover paths, so a
+	// panicking ticker now logs AND pages, instead of only logging. Safe
+	// when SENTRY_DSN is unset — sentry.CaptureException no-ops without a
+	// configured hub.
+	servicesshared.SetPanicHandler(func(service string, panicValue any, stack []byte) {
+		sentry.WithScope(func(scope *sentry.Scope) {
+			scope.SetTag("service", service)
+			scope.SetTag("source", "background_ticker")
+			scope.SetExtra("stack", string(stack))
+			sentry.CaptureException(fmt.Errorf("background service panic in %s: %v", service, panicValue))
+		})
+	})
 
 	// Connect to database
 	if err := db.Connect(cfg); err != nil {
