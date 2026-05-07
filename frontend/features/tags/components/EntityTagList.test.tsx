@@ -124,7 +124,7 @@ vi.mock('../types', () => ({
 // Default auth context: a contributor (can create tags). Individual tests
 // override `mockAuthUser` to exercise the new_user disabled-Create path
 // added in PSY-443.
-type MockAuthUser = { user_tier?: string } | null
+type MockAuthUser = { user_tier?: string; is_admin?: boolean } | null
 let mockAuthUser: MockAuthUser = { user_tier: 'contributor' }
 vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => ({
@@ -692,6 +692,28 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
 
   it('renders an enabled Create button for trusted_contributor tier', async () => {
     mockAuthUser = { user_tier: 'trusted_contributor' }
+    await openDialogAndSearch('brand-new-tag')
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
+    })
+
+    const createButton = screen.getByRole('button', {
+      name: /Create "brand-new-tag"/,
+    })
+    expect(createButton).not.toBeDisabled()
+    expect(
+      screen.queryByTestId('tag-create-tier-gate')
+    ).not.toBeInTheDocument()
+  })
+
+  // PSY-584: admins bypass the tier check even when their user_tier is
+  // 'new_user' (matches the backend short-circuit in createTagInline).
+  // Without this short-circuit, an admin who hasn't earned Contributor tier
+  // through normal contributions would see the "New tags require Contributor
+  // tier" gate and never reach the Create button.
+  it('renders an enabled Create button for admin even with new_user tier', async () => {
+    mockAuthUser = { user_tier: 'new_user', is_admin: true }
     await openDialogAndSearch('brand-new-tag')
 
     await waitFor(() => {
