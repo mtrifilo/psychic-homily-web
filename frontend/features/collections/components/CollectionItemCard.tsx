@@ -141,7 +141,12 @@ export function CollectionItemCard({
     <article
       ref={canReorder ? setNodeRef : undefined}
       style={sortableStyle}
-      className="relative flex flex-col gap-2"
+      // PSY-579: `group` lives on the <article> (not just the inner <Link>)
+      // so the hover-revealed Remove control — which is a sibling of the
+      // Link, not a descendant — can resolve `group-hover:opacity-100`
+      // correctly. Keeping `group` on the Link as well would be redundant
+      // (any descendant `group-hover:` walks up to the article and fires).
+      className="group relative flex flex-col gap-2"
       data-testid="collection-item-card"
       data-entity-type={item.entity_type}
     >
@@ -151,7 +156,7 @@ export function CollectionItemCard({
           outside so inline links in markdown notes remain independent. */}
       <Link
         href={entityUrl}
-        className="group flex flex-col gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex flex-col gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`${item.entity_name} (${typeLabel})`}
       >
         <div

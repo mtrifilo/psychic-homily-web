@@ -478,6 +478,32 @@ describe('CollectionItemCard', () => {
       ).toBe(true)
     })
 
+    it('places `group` on the <article> so group-hover: resolves on the sibling Remove control (PSY-579)', () => {
+      // PSY-579 regression guard: PSY-526 originally put the `group`
+      // class on the <Link> wrapper, but the Remove control is a sibling
+      // of (not a descendant of) the Link. With `group` only on the
+      // Link, `group-hover:opacity-100` on the Remove button never
+      // resolved a matching `.group:hover` ancestor and the button
+      // stayed at opacity-0 forever — present in the DOM but invisible.
+      // Anchor the marker on the <article> so any descendant with a
+      // `group-hover:` class fires correctly when the card is hovered.
+      render(
+        <CollectionItemCard
+          item={makeItem()}
+          density="comfortable"
+          isCreator={true}
+          slug="my-coll"
+        />
+      )
+      const card = screen.getByTestId('collection-item-card')
+      const removeBtn = screen.getByTestId('collection-item-card-remove')
+      // The article carries `group`.
+      expect(card.classList.contains('group')).toBe(true)
+      // And the Remove control's `group-hover:` resolves at least one
+      // `.group` ancestor — proving the visibility toggle is wired.
+      expect(removeBtn.closest('.group')).toBe(card)
+    })
+
     it('keeps the title="Remove from collection" smoke-test selector intact', () => {
       // PSY-526: the existing E2E smoke test in add-to-collection.spec.ts
       // queries by title to find the Remove trigger. Preserve that
