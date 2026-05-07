@@ -141,11 +141,10 @@ export function CollectionItemCard({
     <article
       ref={canReorder ? setNodeRef : undefined}
       style={sortableStyle}
-      // PSY-579: `group` lives on the <article> (not just the inner <Link>)
-      // so the hover-revealed Remove control — which is a sibling of the
-      // Link, not a descendant — can resolve `group-hover:opacity-100`
-      // correctly. Keeping `group` on the Link as well would be redundant
-      // (any descendant `group-hover:` walks up to the article and fires).
+      // PSY-579: `group` must live on the <article> (a shared ancestor)
+      // because the hover-revealed Remove control is a sibling of the
+      // <Link>, not a descendant — so its `group-hover:opacity-100`
+      // would never resolve a `.group:hover` ancestor otherwise.
       className="group relative flex flex-col gap-2"
       data-testid="collection-item-card"
       data-entity-type={item.entity_type}
