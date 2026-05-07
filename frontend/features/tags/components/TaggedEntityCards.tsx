@@ -15,7 +15,7 @@
  */
 
 import Link from 'next/link'
-import { BadgeCheck, Calendar, Library, MapPin, Music, Disc3, Tag } from 'lucide-react'
+import { BadgeCheck, Library, MapPin } from 'lucide-react'
 import { ArtistCard } from '@/features/artists'
 import { FestivalCard } from '@/features/festivals'
 import { LabelCard } from '@/features/labels'
@@ -296,19 +296,3 @@ export function TaggedEntityCard({ item }: TaggedEntityCardProps) {
       )
   }
 }
-
-// Icon helper used by the tab labels — exported alongside so the parent
-// component can stay free of per-type icon mapping repetition.
-export const ENTITY_TYPE_TAB_ICON: Record<
-  string,
-  React.ComponentType<{ className?: string }>
-> = {
-  artist: Music,
-  venue: MapPin,
-  festival: Calendar,
-  label: Tag,
-  release: Disc3,
-  show: Calendar,
-  collection: Library,
-}
-
