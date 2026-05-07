@@ -19,9 +19,9 @@ import (
 // PSY-492 contract drift guard.
 func TestAllowedEditFieldsCoversAllTypes(t *testing.T) {
 	for _, entityType := range adminm.ValidPendingEditEntityTypes() {
-		fields, ok := allowedEditFields[entityType]
-		assert.Truef(t, ok, "allowedEditFields missing entry for %q", entityType)
-		assert.NotEmptyf(t, fields, "allowedEditFields[%q] is empty", entityType)
+		fields, ok := adminm.AllowedEditFields(entityType)
+		assert.Truef(t, ok, "AllowedEditFields missing entry for %q", entityType)
+		assert.NotEmptyf(t, fields, "AllowedEditFields(%q) is empty", entityType)
 	}
 }
 
