@@ -25,12 +25,12 @@ export function AttributionLine({ entityType, entityId }: AttributionLineProps) 
     <p className="text-xs text-muted-foreground">
       Last edited by{' '}
       <UserAttribution
-        name={attribution.userName}
-        username={attribution.userUsername}
+        name={attribution.user_name}
+        username={attribution.user_username}
         className="hover:underline"
       />
       {' '}&middot;{' '}
-      {formatRelativeTime(attribution.createdAt)}
+      {formatRelativeTime(attribution.created_at)}
     </p>
   )
 }

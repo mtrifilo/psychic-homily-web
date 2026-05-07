@@ -1714,10 +1714,14 @@ func (suite *CommentServiceIntegrationTestSuite) TestGetCommentEditHistory_Admin
 	suite.Equal("first", history.Edits[0].OldBody)
 	suite.Equal("second", history.Edits[1].OldBody)
 
-	// Editor attribution is populated
+	// Editor attribution must come from the canonical shared.ResolveUser*
+	// chain so the frontend never has to fall back to "user #${id}".
 	suite.Require().NotNil(history.Edits[0].EditorUserID)
 	suite.Equal(user.ID, *history.Edits[0].EditorUserID)
-	suite.NotEmpty(history.Edits[0].EditorUsername)
+	suite.NotEmpty(history.Edits[0].EditorUsername, "EditorUsername should be resolved when the user has a username")
+	suite.NotEmpty(history.Edits[0].EditorName, "EditorName should be resolved via the canonical chain")
+	suite.Equal(*user.Username, history.Edits[0].EditorUsername)
+	suite.Equal(*user.Username, history.Edits[0].EditorName, "ResolveUserName prefers username over first/last")
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TestGetCommentEditHistory_NonAdminForbidden() {

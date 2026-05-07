@@ -478,6 +478,26 @@ describe('CollectionItemCard', () => {
       ).toBe(true)
     })
 
+    it('places `group` on the <article> so group-hover: resolves on the sibling Remove control (PSY-579)', () => {
+      // The Remove control is a SIBLING of the wrapping <Link>, not a
+      // descendant. If `group` lives only on the Link (as PSY-526
+      // originally placed it), the button's `group-hover:opacity-100`
+      // has no matching `.group:hover` ancestor and stays at
+      // opacity-0 — present in the DOM but invisible.
+      render(
+        <CollectionItemCard
+          item={makeItem()}
+          density="comfortable"
+          isCreator={true}
+          slug="my-coll"
+        />
+      )
+      const card = screen.getByTestId('collection-item-card')
+      const removeBtn = screen.getByTestId('collection-item-card-remove')
+      expect(card.classList.contains('group')).toBe(true)
+      expect(removeBtn.closest('.group')).toBe(card)
+    })
+
     it('keeps the title="Remove from collection" smoke-test selector intact', () => {
       // PSY-526: the existing E2E smoke test in add-to-collection.spec.ts
       // queries by title to find the Remove trigger. Preserve that
