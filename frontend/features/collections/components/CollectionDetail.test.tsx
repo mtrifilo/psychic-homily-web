@@ -1796,18 +1796,15 @@ describe('CollectionDetail', () => {
 
       render(<CollectionDetail slug="test-collection" />)
 
-      // Toggle button is rendered…
       expect(
         screen.getByRole('button', { name: /Add Items/i })
       ).toBeInTheDocument()
-      // …and the search input is NOT yet rendered.
       expect(
         screen.queryByPlaceholderText(
           'Search artists, shows, venues, releases, labels, festivals...'
         )
       ).not.toBeInTheDocument()
     })
-
   })
 
   // ──────────────────────────────────────────────
