@@ -32,9 +32,9 @@ describe('AttributionLine', () => {
   it('renders "Last edited by" with username', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'alice',
-        userUsername: 'alice',
-        createdAt: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
+        user_name: 'alice',
+        user_username: 'alice',
+        created_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
       },
     })
     render(<AttributionLine entityType="artist" entityId={42} />)
@@ -45,9 +45,9 @@ describe('AttributionLine', () => {
   it('links username to profile page', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'alice',
-        userUsername: 'alice',
-        createdAt: new Date().toISOString(),
+        user_name: 'alice',
+        user_username: 'alice',
+        created_at: new Date().toISOString(),
       },
     })
     render(<AttributionLine entityType="artist" entityId={42} />)
@@ -59,12 +59,12 @@ describe('AttributionLine', () => {
   // the resolved display name (first/last, email-prefix, "Anonymous") as
   // plain text — never as a link, since /users/:username would 404. Mirrors
   // CommentCard byline behavior (PSY-552).
-  it('renders display name as plain text when userUsername is null', () => {
+  it('renders display name as plain text when user_username is null', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'asdf',
-        userUsername: null,
-        createdAt: new Date().toISOString(),
+        user_name: 'asdf',
+        user_username: null,
+        created_at: new Date().toISOString(),
       },
     })
     render(<AttributionLine entityType="artist" entityId={42} />)
@@ -75,12 +75,12 @@ describe('AttributionLine', () => {
   // Display name and slug can differ — e.g. a user with username "jdoe"
   // and first name "Jane Doe" would surface "Jane Doe" as the visible
   // text but link to /users/jdoe. PSY-560.
-  it('uses userUsername for the link href but userName for visible text', () => {
+  it('uses user_username for the link href but user_name for visible text', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'Jane Doe',
-        userUsername: 'jdoe',
-        createdAt: new Date().toISOString(),
+        user_name: 'Jane Doe',
+        user_username: 'jdoe',
+        created_at: new Date().toISOString(),
       },
     })
     render(<AttributionLine entityType="artist" entityId={42} />)
@@ -91,9 +91,9 @@ describe('AttributionLine', () => {
   it('shows relative time for recent edits', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'bob',
-        userUsername: 'bob',
-        createdAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
+        user_name: 'bob',
+        user_username: 'bob',
+        created_at: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString(),
       },
     })
     render(<AttributionLine entityType="venue" entityId={10} />)
@@ -103,9 +103,9 @@ describe('AttributionLine', () => {
   it('shows "just now" for very recent edits', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'carol',
-        userUsername: 'carol',
-        createdAt: new Date(Date.now() - 10 * 1000).toISOString(),
+        user_name: 'carol',
+        user_username: 'carol',
+        created_at: new Date(Date.now() - 10 * 1000).toISOString(),
       },
     })
     render(<AttributionLine entityType="festival" entityId={5} />)
@@ -115,9 +115,9 @@ describe('AttributionLine', () => {
   it('shows hours for edits a few hours ago', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'dave',
-        userUsername: 'dave',
-        createdAt: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
+        user_name: 'dave',
+        user_username: 'dave',
+        created_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
       },
     })
     render(<AttributionLine entityType="artist" entityId={1} />)
@@ -127,9 +127,9 @@ describe('AttributionLine', () => {
   it('shows date for edits older than 30 days', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'eve',
-        userUsername: 'eve',
-        createdAt: '2025-01-15T12:00:00Z',
+        user_name: 'eve',
+        user_username: 'eve',
+        created_at: '2025-01-15T12:00:00Z',
       },
     })
     render(<AttributionLine entityType="artist" entityId={1} />)
@@ -146,9 +146,9 @@ describe('AttributionLine', () => {
   it('has muted styling', () => {
     mockUseEntityAttribution.mockReturnValue({
       data: {
-        userName: 'testuser',
-        userUsername: 'testuser',
-        createdAt: new Date().toISOString(),
+        user_name: 'testuser',
+        user_username: 'testuser',
+        created_at: new Date().toISOString(),
       },
     })
     const { container } = render(
