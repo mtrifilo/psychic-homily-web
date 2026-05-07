@@ -235,12 +235,11 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 	// before mutating the entity.
 	_, rejectedFields := adminm.FilterAllowedFields(edit.EntityType, changes)
 	if len(rejectedFields) > 0 {
+		joined := strings.Join(rejectedFields, ", ")
 		reason := fmt.Sprintf(
 			"Rejected automatically: pending edit carries %d field(s) not allowed for %s entities (%s). "+
 				"This usually indicates a corrupted submission — the contributor's UI does not expose these fields.",
-			len(rejectedFields),
-			edit.EntityType,
-			strings.Join(rejectedFields, ", "),
+			len(rejectedFields), edit.EntityType, joined,
 		)
 		slog.Default().Error("pending_edit_disallowed_fields",
 			"edit_id", edit.ID,
@@ -260,7 +259,7 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		}).Error; err != nil {
 			return nil, fmt.Errorf("failed to auto-reject pending edit with disallowed fields: %w", err)
 		}
-		return nil, fmt.Errorf("%w: %s", adminm.ErrPendingEditDisallowedFields, strings.Join(rejectedFields, ", "))
+		return nil, fmt.Errorf("%w: %s", adminm.ErrPendingEditDisallowedFields, joined)
 	}
 
 	// Build update map from new values

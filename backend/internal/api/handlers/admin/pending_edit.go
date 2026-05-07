@@ -390,9 +390,13 @@ func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context,
 		// PSY-572: pending_edit carried fields not on the per-entity allowlist.
 		// The service has already auto-marked the row 'rejected' and logged
 		// the rejected fields with the edit ID + admin user ID; surface a 400
-		// so the admin UI can show the reason.
+		// so the admin UI can show which fields blocked the approval.
 		if errors.Is(err, adminm.ErrPendingEditDisallowedFields) {
-			return nil, huma.Error400BadRequest(err.Error())
+			rejected := strings.TrimPrefix(err.Error(), adminm.ErrPendingEditDisallowedFields.Error()+": ")
+			return nil, huma.Error400BadRequest(fmt.Sprintf(
+				"This edit was auto-rejected: it includes field(s) the contributor UI does not allow (%s). The pending edit has been marked rejected.",
+				rejected,
+			))
 		}
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound("Pending edit not found")
