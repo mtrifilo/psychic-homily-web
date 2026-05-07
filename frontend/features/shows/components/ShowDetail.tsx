@@ -56,10 +56,8 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   const handleEditSuccess = () => {
     setIsEditing(false)
-    // Show edits flow through an admin/owner-only direct-save path (see the
-    // PSY-461 / PSY-489 note below) — no pending-review branch — so this is
-    // always an "applied" save. Mirrors the artist/venue/release/label/festival
-    // detail pages' use of `EntitySaveSuccessBanner` post-PSY-562/PSY-622.
+    // Show edits have no pending-review branch (admin/owner-only direct
+    // save), so the result is always `applied: true`.
     saveBanner.handleSaveSuccess({ applied: true })
   }
 
@@ -181,11 +179,12 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </>
         }
       >
-        {/* Page-level success banner (PSY-569). Renders briefly after a
-            direct admin/owner save via the inline {@link ShowForm}, mirroring
-            the artist / venue / release / label / festival detail pages
-            (PSY-562 / PSY-622). Show edits always flow through the
-            direct-save path, so the banner key is unconditional. */}
+        {/* Page-level "Changes saved" banner (PSY-569). Mirrors the artist /
+            venue / release / label / festival detail pages (PSY-562 / PSY-622)
+            but is fed by the inline {@link ShowForm} instead of the shared
+            {@link EntityEditDrawer}, since show edits run through an
+            admin/owner-only direct-save path (see PSY-461 / PSY-489 note
+            below). */}
         <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
 
         {/* Edit Form */}
