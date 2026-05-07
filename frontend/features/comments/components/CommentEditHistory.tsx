@@ -27,6 +27,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import { Badge } from '@/components/ui/badge'
+import { UserAttribution } from '@/components/shared/UserAttribution'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import {
   useAdminCommentEditHistory,
@@ -161,12 +162,6 @@ function EditTransition({
   edit: CommentEditHistoryEntry
   nextBody: string
 }) {
-  // editor_name is server-resolved via the canonical chain (PSY-612), so
-  // "unknown editor" only fires for absent / anonymous payloads.
-  const editorLabel = edit.editor_username
-    ? `@${edit.editor_username}`
-    : edit.editor_name || 'unknown editor'
-
   return (
     <li
       className="rounded-md border bg-background p-3 space-y-3"
@@ -174,7 +169,16 @@ function EditTransition({
     >
       <header className="flex items-center gap-2 text-xs text-muted-foreground">
         <Clock className="h-3.5 w-3.5" />
-        <span data-testid="edit-history-editor">{editorLabel}</span>
+        {/* editor_name + editor_username come from the canonical backend
+            resolver (PSY-612). UserAttribution (PSY-613) renders the link
+            when username is set and falls back to the literal "Unknown user"
+            for orphaned edits — never leaks "user #${id}". */}
+        <UserAttribution
+          name={edit.editor_name}
+          username={edit.editor_username || null}
+          fallback="Unknown user"
+          testId="edit-history-editor"
+        />
         <span aria-hidden="true">·</span>
         <time dateTime={edit.edited_at} title={edit.edited_at}>
           {formatRelativeTime(edit.edited_at)}

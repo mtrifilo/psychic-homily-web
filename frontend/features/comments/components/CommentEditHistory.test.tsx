@@ -139,19 +139,25 @@ describe('EditHistoryBody', () => {
     expect(afterBlocks[1]).toHaveTextContent('Version 2')
   })
 
-  it('labels the editor by username when available', () => {
+  // PSY-591: render via the canonical UserAttribution primitive. When username
+  // is set, the byline renders as a link to /users/${username}; the backend's
+  // ResolveUserName chain (PSY-612) guarantees `editor_name` is non-empty for
+  // any user with ID > 0, so the fallback only fires for orphaned edits.
+  it('renders the editor display name and links to their profile when username is set', () => {
     render(<EditHistoryBody data={makeHistory()} />)
 
     const editors = screen.getAllByTestId('edit-history-editor')
-    expect(editors[0]).toHaveTextContent('@alice')
-    expect(editors[1]).toHaveTextContent('@alice')
+    expect(editors[0]).toHaveTextContent('Alice')
+    expect(editors[0].tagName).toBe('A')
+    expect(editors[0]).toHaveAttribute('href', '/users/alice')
+    expect(editors[1]).toHaveTextContent('Alice')
+    expect(editors[1]).toHaveAttribute('href', '/users/alice')
   })
 
   // PSY-613: the "user #${id}" fallback was removed because it leaks an
-  // internal DB row id. The backend's canonical resolver (PSY-612)
-  // guarantees editor_name is non-empty for any user with ID > 0; the
-  // remaining fallback is the literal "unknown editor" for absent payloads.
-  it('falls back to name, then "unknown editor", when username is missing', () => {
+  // internal DB row id. PSY-591: missing-payload fallback is "Unknown user"
+  // (matches the canonical UserAttribution surface; matches PSY-591 AC).
+  it('falls back to name, then "Unknown user", when username is missing', () => {
     const data = makeHistory({
       edits: [
         {
@@ -175,10 +181,12 @@ describe('EditHistoryBody', () => {
 
     const editors = screen.getAllByTestId('edit-history-editor')
     // The newest row (index 0) corresponds to edits[1] (no username or name)
-    expect(editors[0]).toHaveTextContent('unknown editor')
+    expect(editors[0]).toHaveTextContent('Unknown user')
     expect(editors[0]).not.toHaveTextContent(/user #/)
-    // The older row (index 1) corresponds to edits[0] (has a name)
+    expect(editors[0].tagName).toBe('SPAN')
+    // The older row (index 1) corresponds to edits[0] (has a name, no username)
     expect(editors[1]).toHaveTextContent('Bob')
+    expect(editors[1].tagName).toBe('SPAN')
   })
 
   it('shows an empty-state message when no edits exist', () => {
