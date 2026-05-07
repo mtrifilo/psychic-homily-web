@@ -36,6 +36,13 @@ vi.mock('@/lib/queryClient', () => ({
       detail: (slug: string) => ['collections', 'detail', slug],
       stats: (slug: string) => ['collections', 'stats', slug],
       my: ['collections', 'my'],
+      // PSY-580: parameterized "Yours tab" key — bare invocation collapses to
+      // the same key as `my` so legacy callers and mutation invalidations
+      // continue to share the cache slot. Distinct searches get distinct keys.
+      myList: (params?: { search?: string }) =>
+        params && Object.values(params).some((v) => v != null && v !== '')
+          ? ['collections', 'my', params]
+          : ['collections', 'my'],
       // PSY-359: pre-check answer for "does the user already have this entity
       // in any of their collections" — drives the multi-select popover.
       containing: (entityType: string, entityId: number) =>
@@ -175,6 +182,55 @@ describe('Collection query hooks', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(mockApiRequest).toHaveBeenCalledWith('/auth/collections')
+    })
+
+    // PSY-580: passes the search term through as a `?search=` query param so
+    // the backend applies the same field-expansion (title/description/notes/
+    // tag-name+aliases) as the public browse listing.
+    it('forwards search term as ?search= query param', async () => {
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useMyCollections({ search: 'shoegaze' }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/auth/collections?search=shoegaze'
+      )
+    })
+
+    // Empty / whitespace-only searches must not append a useless query param —
+    // the bare endpoint URL is the cached cache key, and adding `?search=` to
+    // it would silently fragment the cache.
+    it('omits the search param when the value is whitespace', async () => {
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useMyCollections({ search: '   \t  ' }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith('/auth/collections')
+    })
+
+    // URL-encodes search terms with reserved characters so a query like
+    // "post-punk & jazz" round-trips through the URL bar without
+    // accidentally splitting on the ampersand.
+    it('URL-encodes search terms with reserved characters', async () => {
+      mockApiRequest.mockResolvedValueOnce({ collections: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useMyCollections({ search: 'post-punk & jazz' }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/auth/collections?search=post-punk%20%26%20jazz'
+      )
     })
   })
 

@@ -122,18 +122,33 @@ export function useCollectionStats(slug: string, options?: { enabled?: boolean }
   })
 }
 
-/** Fetch the authenticated user's own collections */
-export function useMyCollections() {
+/**
+ * Fetch the authenticated user's own collections.
+ *
+ * PSY-580: optional `search` param. When set, the backend expands the match
+ * across title, description, item notes, and tag names/aliases (same field
+ * coverage as the public browse listing — PSY-355). Empty / whitespace
+ * disables the predicate and returns the full library. The query key is
+ * scoped per-search so distinct searches don't share a cache entry, but
+ * the bare prefix matches mutation invalidations on `queryKeys.collections.my`.
+ */
+export function useMyCollections(params?: { search?: string }) {
+  const search = params?.search?.trim() || undefined
   return useQuery({
-    queryKey: queryKeys.collections.my,
-    queryFn: () =>
-      apiRequest<{ collections: Collection[]; total: number }>(
-        API_ENDPOINTS.COLLECTIONS.MY
-      ).then((data) => ({
-        collections: data.collections ?? [],
-        total: data.total,
-      })),
+    queryKey: queryKeys.collections.myList({ search }),
+    queryFn: () => {
+      const url = search
+        ? `${API_ENDPOINTS.COLLECTIONS.MY}?search=${encodeURIComponent(search)}`
+        : API_ENDPOINTS.COLLECTIONS.MY
+      return apiRequest<{ collections: Collection[]; total: number }>(url).then(
+        (data) => ({
+          collections: data.collections ?? [],
+          total: data.total,
+        })
+      )
+    },
     staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
   })
 }
 

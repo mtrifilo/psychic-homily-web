@@ -674,8 +674,12 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 
 // GetUserCollectionsHandlerRequest represents the request for getting the authenticated user's collections
 type GetUserCollectionsHandlerRequest struct {
-	Limit  int `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
-	Offset int `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	// PSY-580: search across title, description, item notes, and tag
+	// names/aliases — same field expansion as the public browse listing
+	// (PSY-355). Empty / whitespace disables the predicate.
+	Search string `query:"search" required:"false" doc:"Search across collection title, description, item notes, and tag names/aliases (case-insensitive substring)"`
+	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
+	Offset int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
 }
 
 // GetUserCollectionsHandlerResponse represents the response for the user collections endpoint
@@ -698,7 +702,12 @@ func (h *CollectionHandler) GetUserCollectionsHandler(ctx context.Context, req *
 		limit = 20
 	}
 
-	collections, total, err := h.collectionService.GetUserCollections(user.ID, limit, req.Offset)
+	// PSY-580: trim whitespace at the boundary so an all-spaces query never
+	// reaches the SQL layer. Mirrors the public ListCollectionsHandler
+	// short-circuit (PSY-520 + PSY-355 convention).
+	search := strings.TrimSpace(req.Search)
+
+	collections, total, err := h.collectionService.GetUserCollections(user.ID, search, limit, req.Offset)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch collections", err)
 	}

@@ -1661,7 +1661,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Creat
 	suite.createBasicCollection(user, "My Collection 1")
 	suite.createBasicCollection(user, "My Collection 2")
 
-	resp, total, err := suite.collectionService.GetUserCollections(user.ID, 20, 0)
+	resp, total, err := suite.collectionService.GetUserCollections(user.ID, "", 20, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total)
@@ -1679,7 +1679,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Inclu
 	// Subscriber's own collection
 	suite.createBasicCollection(subscriber, "Own Collection")
 
-	resp, total, err := suite.collectionService.GetUserCollections(subscriber.ID, 20, 0)
+	resp, total, err := suite.collectionService.GetUserCollections(subscriber.ID, "", 20, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total) // 1 created + 1 subscribed
@@ -1689,11 +1689,193 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Inclu
 func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Empty() {
 	user := suite.createTestUser("EmptyUserColl")
 
-	resp, total, err := suite.collectionService.GetUserCollections(user.ID, 20, 0)
+	resp, total, err := suite.collectionService.GetUserCollections(user.ID, "", 20, 0)
 
 	suite.Require().NoError(err)
 	suite.Equal(int64(0), total)
 	suite.Empty(resp)
+}
+
+// =============================================================================
+// PSY-580: Yours-tab search applies the same field-expansion as the public
+// browse listing (PSY-355). Mirrors the public-browse search test cases so
+// the two paths stay in sync via the shared applyCollectionSearchWhere +
+// applySearchRelevanceOrder helpers.
+// =============================================================================
+
+// TestGetUserCollections_Search_TitleMatch confirms a title-only match wins
+// when the search box is non-empty on the Yours tab — the bug repro from the
+// ticket (typing nonsense yields all of the user's collections) is gone.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Search_TitleMatch() {
+	user := suite.createTestUser("YoursTitleSearcher")
+	suite.createBasicCollection(user, "Phoenix Punk Bands")
+	suite.createBasicCollection(user, "Chicago Jazz Venues")
+
+	resp, total, err := suite.collectionService.GetUserCollections(user.ID, "punk", 20, 0)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal("Phoenix Punk Bands", resp[0].Title)
+}
+
+// TestGetUserCollections_Search_NotesMatch covers the per-item notes branch
+// (PSY-355 tier 3) — the second high-impact match type the ticket called out.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Search_NotesMatch() {
+	user := suite.createTestUser("YoursNotesSearcher")
+	target := suite.createBasicCollection(user, "Generic Title")
+	suite.createBasicCollection(user, "Other Generic Title")
+
+	suite.addItemWithNotes(target.Slug, user.ID,
+		"saw them open for slowdive at the warehouse — wall of sound")
+
+	resp, total, err := suite.collectionService.GetUserCollections(
+		user.ID, "slowdive", 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestGetUserCollections_Search_TagAliasMatch verifies tag-name and
+// tag-alias resolution works on the Yours-tab path. The test seeds an alias
+// row and queries by the alias text — the polymorphic entity_tags subquery
+// must surface the collection tagged with the canonical name.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Search_TagAliasMatch() {
+	user := suite.createTestUser("YoursAliasSearcher")
+	suite.promoteContributor(user)
+
+	target := suite.createBasicCollection(user, "Untitled Yours Mix")
+	suite.createBasicCollection(user, "Other Untitled")
+
+	tag, err := suite.tagService.CreateTag("psychedelic-rock", nil, nil, catalogm.TagCategoryGenre, false, &user.ID)
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.db.Create(&catalogm.TagAlias{
+		TagID: tag.ID,
+		Alias: "psych-rock",
+	}).Error)
+
+	_, err = suite.collectionService.AddTagToCollection(target.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagID: tag.ID})
+	suite.Require().NoError(err)
+
+	resp, total, err := suite.collectionService.GetUserCollections(
+		user.ID, "psych-rock", 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
+// TestGetUserCollections_Search_NoMatch covers the original ticket repro:
+// typing nonsense returns an empty list (not the full library).
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Search_NoMatch() {
+	user := suite.createTestUser("YoursNoMatchSearcher")
+	suite.createBasicCollection(user, "Alpha")
+	suite.createBasicCollection(user, "Beta")
+	suite.createBasicCollection(user, "Gamma")
+
+	resp, total, err := suite.collectionService.GetUserCollections(
+		user.ID, "qzxqzxqzxnonsense", 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(0), total, "nonsense search must return zero matches")
+	suite.Empty(resp, "rendered list must be empty for a no-match search")
+}
+
+// TestGetUserCollections_Search_Empty_ShortCircuits confirms that clearing
+// the search box re-shows all of the user's collections — the ticket's
+// "Clearing the search re-shows all of the user's collections" AC.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Search_Empty_ShortCircuits() {
+	user := suite.createTestUser("YoursEmptySearch")
+	suite.createBasicCollection(user, "Alpha")
+	suite.createBasicCollection(user, "Beta")
+	suite.createBasicCollection(user, "Gamma")
+
+	resp, total, err := suite.collectionService.GetUserCollections(user.ID, "", 20, 0)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(3), total)
+	suite.Len(resp, 3)
+}
+
+// TestGetUserCollections_Search_Whitespace_ShortCircuits guards the
+// service-direct path (the handler trims at the boundary too) — a
+// whitespace-only query must not fragment the SQL OR clause.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Search_Whitespace_ShortCircuits() {
+	user := suite.createTestUser("YoursWhitespace")
+	suite.createBasicCollection(user, "Alpha")
+	suite.createBasicCollection(user, "Beta")
+
+	resp, total, err := suite.collectionService.GetUserCollections(user.ID, "   \t  ", 20, 0)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Len(resp, 2)
+}
+
+// TestGetUserCollections_Search_OwnPrivateNotLeaked guards the privacy
+// invariant: search must only widen the match within the user's own +
+// subscribed-to set, never leak some other user's private collections.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Search_OwnPrivateNotLeaked() {
+	owner := suite.createTestUser("YoursPrivacyOwner")
+	stranger := suite.createTestUser("YoursPrivacyStranger")
+
+	// Owner's own private collection — should appear when owner searches.
+	ownTarget := suite.createBasicCollection(owner, "Owner Private Punk")
+
+	// Stranger's private collection with a matching title — must NOT appear
+	// in the owner's Yours list, even though the search would otherwise hit
+	// it. is_public=false on creation; no subscription link.
+	suite.createBasicCollection(stranger, "Stranger Private Punk")
+
+	resp, total, err := suite.collectionService.GetUserCollections(
+		owner.ID, "punk", 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "owner's search must not surface stranger's private collection")
+	suite.Require().Len(resp, 1)
+	suite.Equal(ownTarget.ID, resp[0].ID)
+}
+
+// TestGetUserCollections_Search_RelevanceTierOrder mirrors the public-browse
+// tier-rank test on the Yours-tab path. Confirms the shared
+// applySearchRelevanceOrder helper kicks in on the user-library query too,
+// so a title hit beats a description hit beats a notes hit beats a tag hit.
+func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_Search_RelevanceTierOrder() {
+	user := suite.createTestUser("YoursRelevance")
+	suite.promoteContributor(user)
+
+	tagOnly := suite.createBasicCollection(user, "Tag Only Yours")
+	_, err := suite.collectionService.AddTagToCollection(tagOnly.Slug, user.ID,
+		&contracts.AddCollectionTagRequest{TagName: "rocketship"})
+	suite.Require().NoError(err)
+
+	notesOnly := suite.createBasicCollection(user, "Notes Only Yours")
+	suite.addItemWithNotes(notesOnly.Slug, user.ID, "rocketship-only-yours")
+
+	descOnly := suite.createBasicCollection(user, "Description Only Yours")
+	suite.updateCollectionDescription(descOnly.Slug, user.ID, "a deep dive into rocketship sounds")
+
+	titleOnly := suite.createBasicCollection(user, "Rocketship Yours Best Of")
+
+	resp, total, err := suite.collectionService.GetUserCollections(
+		user.ID, "rocketship", 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(4), total)
+	suite.Require().Len(resp, 4)
+	suite.Equal(titleOnly.ID, resp[0].ID, "tier 1: title match leads")
+	suite.Equal(descOnly.ID, resp[1].ID, "tier 2: description match second")
+	suite.Equal(notesOnly.ID, resp[2].ID, "tier 3: notes match third")
+	suite.Equal(tagOnly.ID, resp[3].ID, "tier 4: tag match last")
 }
 
 // =============================================================================
@@ -1904,7 +2086,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 		Update("created_at", visitedAt.Add(45*time.Minute)).Error)
 
 	// Fetch via the user-collections endpoint.
-	resp, _, err := suite.collectionService.GetUserCollections(subscriber.ID, 20, 0)
+	resp, _, err := suite.collectionService.GetUserCollections(subscriber.ID, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
 	suite.Equal(1, resp[0].NewSinceLastVisit, "expected exactly one new item since visit (excluding self-add)")
@@ -1933,7 +2115,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 	})
 	suite.Require().NoError(err)
 
-	resp, _, err := suite.collectionService.GetUserCollections(subscriber.ID, 20, 0)
+	resp, _, err := suite.collectionService.GetUserCollections(subscriber.ID, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Require().Len(resp, 1)
 	suite.Equal(1, resp[0].NewSinceLastVisit)
@@ -2251,7 +2433,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestUserLibrary_NotFilteredB
 	user := suite.createTestUser("LibraryOwner")
 	suite.createBareCollection(user, "Below Gate Library")
 
-	resp, total, err := suite.collectionService.GetUserCollections(user.ID, 20, 0)
+	resp, total, err := suite.collectionService.GetUserCollections(user.ID, "", 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total, "user's own library must include under-gate collections")
 	suite.Require().Len(resp, 1)
