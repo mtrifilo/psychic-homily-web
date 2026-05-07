@@ -234,6 +234,38 @@ func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_ArtistSuc
 	s.Len(resp.FieldChanges, 1)
 	s.Equal("name", resp.FieldChanges[0].Field)
 	s.NotEmpty(resp.SubmitterName)
+	// PSY-619: SubmitterUsername populated for users who set a username so the
+	// frontend renders the moderation-queue byline as a /users/:username link.
+	s.Require().NotNil(resp.SubmitterUsername)
+	s.Equal(*user.Username, *resp.SubmitterUsername)
+}
+
+// TestCreatePendingEdit_NoUsername covers the unlinked-byline path (PSY-619):
+// a submitter without a username on file should ship `submitter_username: null`
+// so the frontend renders plain text rather than a broken /users/null link.
+func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_NoUsername() {
+	user := &authm.User{
+		Email:         stringPtr(fmt.Sprintf("pe-user-no-uname-%d@test.com", time.Now().UnixNano())),
+		FirstName:     stringPtr("Test"),
+		LastName:      stringPtr("User"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	s.Require().NoError(s.db.Create(user).Error)
+	artist := s.createTestArtist("Old Name")
+
+	resp, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+		UserID:     user.ID,
+		Changes:    makeChanges("name", "Old Name", "New Name"),
+		Summary:    "Fix artist name",
+	})
+
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.NotEmpty(resp.SubmitterName, "name should fall back through the resolution chain")
+	s.Nil(resp.SubmitterUsername, "username should be nil when not set on the user")
 }
 
 func (s *PendingEditServiceIntegrationTestSuite) TestCreatePendingEdit_VenueSuccess() {

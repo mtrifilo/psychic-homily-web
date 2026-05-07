@@ -20,6 +20,13 @@ export interface PendingComment {
   entity_name?: string
   user_id: number
   author_name: string
+  /**
+   * PSY-619: author's username when set, null otherwise. The backend already
+   * ships `author_username` on `CommentResponse` (PSY-552); this declares it
+   * on the admin-pending-comment frontend type so ModerationQueue can pass
+   * the link-aware byline through `<UserAttribution>`.
+   */
+  author_username: string | null
   body: string
   body_html: string
   parent_id: number | null

@@ -358,14 +358,14 @@ func (s *PendingEditService) toResponse(edit *adminm.PendingEntityEdit) *contrac
 		}
 	}
 
-	// Resolve submitter name
 	if edit.Submitter.ID != 0 {
 		resp.SubmitterName = shared.ResolveUserName(&edit.Submitter)
+		resp.SubmitterUsername = shared.ResolveUserUsername(&edit.Submitter)
 	}
 
-	// Resolve reviewer name
 	if edit.Reviewer != nil && edit.Reviewer.ID != 0 {
 		resp.ReviewerName = shared.ResolveUserName(edit.Reviewer)
+		resp.ReviewerUsername = shared.ResolveUserUsername(edit.Reviewer)
 	}
 
 	return resp

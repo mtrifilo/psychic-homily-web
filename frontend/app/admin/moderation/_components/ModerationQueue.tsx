@@ -191,14 +191,13 @@ function PendingEditCard({
           </span>
         </div>
 
-        {/* PSY-613: bylines on this page are unlinked because the moderation
-            DTOs don't currently ship submitter_username / reporter_username /
-            author_username. Once the contract is extended, swap `null` for
-            the corresponding *_username field. */}
         <div className="mt-2 text-sm text-muted-foreground">
           <span>
             by{' '}
-            <UserAttribution name={edit.submitter_name} username={null} />
+            <UserAttribution
+              name={edit.submitter_name}
+              username={edit.submitter_username}
+            />
           </span>
           {edit.summary && (
             <span className="ml-1">
@@ -379,7 +378,7 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
               by{' '}
               <UserAttribution
                 name={report.reporter_name}
-                username={null}
+                username={report.reporter_username}
               />
             </span>
           </div>
@@ -525,7 +524,10 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
         <div className="mt-2 text-sm text-muted-foreground flex items-center flex-wrap gap-2">
           <span>
             by{' '}
-            <UserAttribution name={comment.author_name} username={null} />
+            <UserAttribution
+              name={comment.author_name}
+              username={comment.author_username}
+            />
           </span>
           {comment.trust_tier && (
             <Badge variant="outline" className="text-[10px] px-1.5 py-0">
@@ -707,7 +709,7 @@ function CommentReportCard({ report }: { report: EntityReportResponse }) {
               by{' '}
               <UserAttribution
                 name={report.reporter_name}
-                username={null}
+                username={report.reporter_username}
               />
             </span>
           </div>
@@ -903,7 +905,7 @@ function CollectionReportCard({ report }: { report: EntityReportResponse }) {
               by{' '}
               <UserAttribution
                 name={report.reporter_name}
-                username={null}
+                username={report.reporter_username}
               />
             </span>
           </div>

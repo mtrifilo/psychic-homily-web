@@ -135,11 +135,9 @@ export function RequestCard({ request }: RequestCardProps) {
           <div className="mt-1.5 flex items-center gap-3 text-xs text-muted-foreground">
             <span>
               by{' '}
-              {/* PSY-613: unlinked until requester_username ships on the
-                  request DTO. */}
               <UserAttribution
                 name={request.requester_name}
-                username={null}
+                username={request.requester_username}
               />
             </span>
             <span>{formatTimeAgo(request.created_at)}</span>

@@ -202,17 +202,26 @@ type SetDefaultReplyPermissionResponse struct {
 }
 
 // SetDefaultReplyPermissionHandler handles PATCH /auth/preferences/default-reply-permission.
+//
+// Validation contract is unified with PUT /comments/{id}/reply-permission
+// (PSY-621): missing/empty -> 400 "reply_permission is required";
+// unrecognized -> 400 with `shared.InvalidReplyPermissionMessage`. The
+// service-layer enum check stays as defence-in-depth and surfaces as 400
+// for the same reason.
 func (h *UserPreferencesHandler) SetDefaultReplyPermissionHandler(ctx context.Context, req *SetDefaultReplyPermissionRequest) (*SetDefaultReplyPermissionResponse, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	perm := req.Body.Permission
+	// Two-step validation distinguishes "field absent / blank" from
+	// "field present with bad value" so the 400 detail isn't misleading.
+	perm := strings.TrimSpace(req.Body.Permission)
+	if perm == "" {
+		return nil, huma.Error400BadRequest("reply_permission is required")
+	}
 	if !engagementm.IsValidReplyPermission(perm) {
-		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("invalid reply_permission: %q (want anyone, followers, or author_only)", perm),
-		)
+		return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
 	}
 
 	if err := h.userService.SetDefaultReplyPermission(user.ID, perm); err != nil {
@@ -221,7 +230,7 @@ func (h *UserPreferencesHandler) SetDefaultReplyPermissionHandler(ctx context.Co
 			"user_id", user.ID,
 		)
 		if strings.Contains(err.Error(), "invalid reply_permission") {
-			return nil, huma.Error422UnprocessableEntity(err.Error())
+			return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
 		}
 		return nil, huma.Error422UnprocessableEntity(
 			fmt.Sprintf("Failed to update default reply permission: %s", err.Error()),

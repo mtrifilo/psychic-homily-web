@@ -254,14 +254,11 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     </span>
                   </div>
 
-                  {/* PSY-613: byline is unlinked because the request DTO
-                      doesn't ship requester_username yet. Once the contract
-                      is extended, swap `null` for `request.requester_username`. */}
                   <p className="text-sm text-muted-foreground mt-2">
                     Requested by{' '}
                     <UserAttribution
                       name={request.requester_name}
-                      username={null}
+                      username={request.requester_username}
                       className="text-foreground"
                     />{' '}
                     {formatTimeAgo(request.created_at)}

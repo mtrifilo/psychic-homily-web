@@ -35,8 +35,15 @@ export interface Request {
   status: string
   requester_id: number
   requester_name: string
+  /**
+   * PSY-619: requester's username when set, null otherwise. Pass to
+   * `<UserAttribution username={...} />` to render the byline as a link to
+   * /users/:username when non-null; null renders plain text.
+   */
+  requester_username: string | null
   fulfiller_id?: number
   fulfiller_name?: string
+  fulfiller_username?: string | null
   vote_score: number
   upvotes: number
   downvotes: number
