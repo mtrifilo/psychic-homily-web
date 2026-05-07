@@ -17,7 +17,6 @@ export type {
   FestivalVenue,
   FestivalVenuesResponse,
   ArtistFestivalListItem,
-  ArtistFestival,
   ArtistFestivalsResponse,
   // Intelligence types
   FestivalSummary,
@@ -25,7 +24,6 @@ export type {
   SharedArtist,
   SimilarFestival,
   SimilarFestivalsResponse,
-  FestivalOverlap,
   TrajectoryEntry,
   ArtistBreakout,
   ArtistMilestone,

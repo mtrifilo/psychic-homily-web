@@ -3,10 +3,8 @@
 
 export type {
   NotificationFilter,
-  NotificationLogEntry,
   CreateFilterInput,
   UpdateFilterInput,
-  QuickCreateFilterInput,
   NotifyEntityType,
   FilterCity,
 } from './types'
