@@ -208,6 +208,165 @@ func TestRunTickerLoop_ContextCancellationStopsLoop(t *testing.T) {
 	}
 }
 
+// capturedPanic records the args invokePanicHandler passes through so
+// PSY-617's Sentry-wiring tests can assert against them without depending
+// on the live Sentry SDK or a transport mock.
+type capturedPanic struct {
+	service    string
+	panicValue any
+	stack      []byte
+}
+
+// installRecordingPanicHandler installs a thread-safe recorder for the
+// duration of the test, restoring the previous (nil) handler on cleanup.
+// Returns a function that snapshots the captured calls.
+func installRecordingPanicHandler(t *testing.T) func() []capturedPanic {
+	t.Helper()
+	var (
+		mu       sync.Mutex
+		captured []capturedPanic
+	)
+	SetPanicHandler(func(service string, panicValue any, stack []byte) {
+		mu.Lock()
+		defer mu.Unlock()
+		captured = append(captured, capturedPanic{service: service, panicValue: panicValue, stack: stack})
+	})
+	t.Cleanup(func() { SetPanicHandler(nil) })
+	return func() []capturedPanic {
+		mu.Lock()
+		defer mu.Unlock()
+		out := make([]capturedPanic, len(captured))
+		copy(out, captured)
+		return out
+	}
+}
+
+// TestRunTickerLoop_PanicHandlerInvokedOnTickPanic is the load-bearing
+// PSY-617 assertion: a panic inside per-tick work invokes the registered
+// PanicHandler with the service name, panic value, and stack trace —
+// in addition to the slog.Error already exercised by the PSY-615 test.
+// The handler is the wiring point cmd/server/main.go uses to escalate
+// to Sentry.
+func TestRunTickerLoop_PanicHandlerInvokedOnTickPanic(t *testing.T) {
+	_ = withCapturedSlog(t) // suppress noisy stack trace from slog.Error
+	snapshot := installRecordingPanicHandler(t)
+
+	var calls atomic.Int32
+	work := func(_ context.Context) {
+		if calls.Add(1) == 1 {
+			panic("boom-tick")
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoop(ctx, "panic-handler-test-service", 10*time.Millisecond, nil, false, work)
+		close(done)
+	}()
+	<-done
+
+	got := snapshot()
+	require.Len(t, got, 1, "panic handler should be invoked exactly once for the single tick panic")
+	assert.Equal(t, "panic-handler-test-service", got[0].service)
+	assert.Equal(t, "boom-tick", got[0].panicValue)
+	assert.NotEmpty(t, got[0].stack, "stack trace should be populated")
+	assert.Contains(t, string(got[0].stack), "ticker_loop.go", "stack should reference the recover site")
+}
+
+// TestRunTickerLoop_PanicHandlerInvokedOnSetupPanic exercises the outer
+// recover path: time.NewTicker(0) panics during loop setup. The handler
+// must be invoked exactly once, with the configured service name, before
+// the loop returns.
+func TestRunTickerLoop_PanicHandlerInvokedOnSetupPanic(t *testing.T) {
+	_ = withCapturedSlog(t)
+	snapshot := installRecordingPanicHandler(t)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("outer recover failed; panic escaped: %v", r)
+		}
+	}()
+
+	RunTickerLoop(ctx, "setup-panic-handler-service", 0, nil, false, func(_ context.Context) {})
+
+	got := snapshot()
+	require.Len(t, got, 1, "panic handler should be invoked exactly once for the setup panic")
+	assert.Equal(t, "setup-panic-handler-service", got[0].service)
+	assert.NotNil(t, got[0].panicValue, "panic value should be propagated")
+	assert.NotEmpty(t, got[0].stack)
+}
+
+// TestRunTickerLoop_NilPanicHandlerIsNoop guards the contract that an
+// unset handler (the package default) doesn't panic and doesn't change
+// the existing slog-only behaviour. Defensive clear in case a sibling
+// test in the package leaked a handler past its t.Cleanup.
+func TestRunTickerLoop_NilPanicHandlerIsNoop(t *testing.T) {
+	logs := withCapturedSlog(t)
+	SetPanicHandler(nil)
+	t.Cleanup(func() { SetPanicHandler(nil) })
+
+	var calls atomic.Int32
+	work := func(_ context.Context) {
+		if calls.Add(1) == 1 {
+			panic("boom-no-handler")
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoop(ctx, "no-handler-service", 10*time.Millisecond, nil, false, work)
+		close(done)
+	}()
+	<-done
+
+	assert.Greater(t, int(calls.Load()), 1, "loop should still continue past the panic")
+	assert.Contains(t, logs.String(), "boom-no-handler", "slog path still fires when handler is nil")
+}
+
+// TestRunTickerLoop_PanicHandlerOwnPanicDoesNotKillLoop guards against a
+// buggy handler taking down the loop it was meant to observe. If the
+// handler panics, the recover inside invokePanicHandler must swallow it
+// and the loop must continue ticking.
+func TestRunTickerLoop_PanicHandlerOwnPanicDoesNotKillLoop(t *testing.T) {
+	_ = withCapturedSlog(t)
+
+	var handlerCalls atomic.Int32
+	SetPanicHandler(func(_ string, _ any, _ []byte) {
+		handlerCalls.Add(1)
+		panic("handler is buggy")
+	})
+	t.Cleanup(func() { SetPanicHandler(nil) })
+
+	var calls atomic.Int32
+	work := func(_ context.Context) {
+		if calls.Add(1) == 1 {
+			panic("trigger-handler")
+		}
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 250*time.Millisecond)
+	defer cancel()
+
+	done := make(chan struct{})
+	go func() {
+		RunTickerLoop(ctx, "buggy-handler-service", 10*time.Millisecond, nil, false, work)
+		close(done)
+	}()
+	<-done
+
+	require.Greater(t, int(handlerCalls.Load()), 0, "handler should have been called at least once")
+	assert.Greater(t, int(calls.Load()), 1, "loop should keep ticking after handler panic")
+}
+
 // TestRunTickerLoop_OuterRecoverCatchesSetupPanic covers the outer
 // recover. `time.NewTicker(0)` panics with a duration <= 0; without the
 // outer recover that panic would bubble out and kill the supervising

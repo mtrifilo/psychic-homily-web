@@ -708,7 +708,9 @@ function AddTagForm({
   // Only `new_user` tier is blocked from creating new tags server-side
   // (CodeTagCreationForbidden in backend/internal/errors/tag.go). Mirror the
   // same gate client-side so users see a tooltip instead of a dead-end 403.
-  const canCreateTags = user?.user_tier !== 'new_user'
+  // Admins bypass the tier check (PSY-584) — matches the backend short-circuit
+  // in createTagInline (`user.UserTier == "new_user" && !user.IsAdmin`).
+  const canCreateTags = user?.is_admin || user?.user_tier !== 'new_user'
   const [searchQuery, setSearchQuery] = useState('')
   const [debouncedQuery, setDebouncedQuery] = useState('')
   const [filterCategory, setFilterCategory] = useState<string>('')
