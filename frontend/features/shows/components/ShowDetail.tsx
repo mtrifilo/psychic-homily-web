@@ -13,6 +13,7 @@ import { SocialLinks, MusicEmbed, EntityDetailLayout } from '@/components/shared
 import { EntityCollections } from '@/features/collections'
 import { EntityTagList } from '@/features/tags'
 import { CommentThread, FieldNotesSection } from '@/features/comments'
+import { EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { ShowForm } from '@/components/forms'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { DeleteShowDialog } from './DeleteShowDialog'
@@ -38,6 +39,7 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const saveBanner = useEntitySaveSuccessBanner()
 
   // Admin mutations for status flags
   const setSoldOutMutation = useSetShowSoldOut()
@@ -54,6 +56,11 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   const handleEditSuccess = () => {
     setIsEditing(false)
+    // Show edits flow through an admin/owner-only direct-save path (see the
+    // PSY-461 / PSY-489 note below) — no pending-review branch — so this is
+    // always an "applied" save. Mirrors the artist/venue/release/label/festival
+    // detail pages' use of `EntitySaveSuccessBanner` post-PSY-562/PSY-622.
+    saveBanner.handleSaveSuccess({ applied: true })
   }
 
   const handleEditCancel = () => {
@@ -174,6 +181,13 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </>
         }
       >
+        {/* Page-level success banner (PSY-569). Renders briefly after a
+            direct admin/owner save via the inline {@link ShowForm}, mirroring
+            the artist / venue / release / label / festival detail pages
+            (PSY-562 / PSY-622). Show edits always flow through the
+            direct-save path, so the banner key is unconditional. */}
+        <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
+
         {/* Edit Form */}
         {isEditing && (
           <div className="mb-8 p-4 rounded-lg border border-border bg-muted/30">
