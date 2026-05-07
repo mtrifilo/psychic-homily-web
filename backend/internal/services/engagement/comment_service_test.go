@@ -1714,10 +1714,8 @@ func (suite *CommentServiceIntegrationTestSuite) TestGetCommentEditHistory_Admin
 	suite.Equal("first", history.Edits[0].OldBody)
 	suite.Equal("second", history.Edits[1].OldBody)
 
-	// Editor attribution is populated via the canonical resolver chain
-	// (shared.ResolveUserName / ResolveUserUsername — PSY-612). PSY-591:
-	// editor_name MUST be non-empty so the frontend never falls back to
-	// "user #${id}".
+	// Editor attribution must come from the canonical shared.ResolveUser*
+	// chain so the frontend never has to fall back to "user #${id}".
 	suite.Require().NotNil(history.Edits[0].EditorUserID)
 	suite.Equal(user.ID, *history.Edits[0].EditorUserID)
 	suite.NotEmpty(history.Edits[0].EditorUsername, "EditorUsername should be resolved when the user has a username")

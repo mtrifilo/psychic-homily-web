@@ -169,10 +169,8 @@ function EditTransition({
     >
       <header className="flex items-center gap-2 text-xs text-muted-foreground">
         <Clock className="h-3.5 w-3.5" />
-        {/* editor_name + editor_username come from the canonical backend
-            resolver (PSY-612). UserAttribution (PSY-613) renders the link
-            when username is set and falls back to the literal "Unknown user"
-            for orphaned edits — never leaks "user #${id}". */}
+        {/* `Unknown user` (not `user #${id}`) is the terminal fallback —
+            the byline must never leak the internal DB row id. */}
         <UserAttribution
           name={edit.editor_name}
           username={edit.editor_username || null}

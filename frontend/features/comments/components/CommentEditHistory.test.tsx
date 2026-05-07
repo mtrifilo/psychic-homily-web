@@ -139,10 +139,6 @@ describe('EditHistoryBody', () => {
     expect(afterBlocks[1]).toHaveTextContent('Version 2')
   })
 
-  // PSY-591: render via the canonical UserAttribution primitive. When username
-  // is set, the byline renders as a link to /users/${username}; the backend's
-  // ResolveUserName chain (PSY-612) guarantees `editor_name` is non-empty for
-  // any user with ID > 0, so the fallback only fires for orphaned edits.
   it('renders the editor display name and links to their profile when username is set', () => {
     render(<EditHistoryBody data={makeHistory()} />)
 
@@ -154,9 +150,10 @@ describe('EditHistoryBody', () => {
     expect(editors[1]).toHaveAttribute('href', '/users/alice')
   })
 
-  // PSY-613: the "user #${id}" fallback was removed because it leaks an
-  // internal DB row id. PSY-591: missing-payload fallback is "Unknown user"
-  // (matches the canonical UserAttribution surface; matches PSY-591 AC).
+  // The "user #${id}" template literal MUST never appear in the rendered
+  // output — it leaks an internal DB row id and reads like placeholder
+  // content. UserAttribution's `Unknown user` fallback is the only allowed
+  // terminal label for orphaned edits.
   it('falls back to name, then "Unknown user", when username is missing', () => {
     const data = makeHistory({
       edits: [
