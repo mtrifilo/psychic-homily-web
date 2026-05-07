@@ -649,11 +649,41 @@ func TestBuildRequestResponse(t *testing.T) {
 	if resp.RequesterName != "testuser" {
 		t.Errorf("expected requester_name=testuser, got %s", resp.RequesterName)
 	}
+	// PSY-619: RequesterUsername populated when the user has a username set —
+	// frontend uses this to render the byline as a /users/:username link.
+	if resp.RequesterUsername == nil {
+		t.Errorf("expected requester_username=&%q, got nil", username)
+	} else if *resp.RequesterUsername != username {
+		t.Errorf("expected requester_username=%q, got %q", username, *resp.RequesterUsername)
+	}
 	if resp.UserVote == nil || *resp.UserVote != 1 {
 		t.Errorf("expected user_vote=1, got %v", resp.UserVote)
 	}
 	if resp.WilsonScore <= 0 {
 		t.Errorf("expected positive wilson_score, got %f", resp.WilsonScore)
+	}
+}
+
+// TestBuildRequestResponse_NoUsername asserts the unlinked-byline path (PSY-619):
+// when the requester has no username on file, RequesterUsername is nil so the
+// frontend renders plain text rather than a broken /users/null link.
+func TestBuildRequestResponse_NoUsername(t *testing.T) {
+	firstName := "Jane"
+	request := &communitym.Request{
+		ID:          1,
+		Title:       "Test",
+		EntityType:  "artist",
+		Status:      communitym.RequestStatusPending,
+		RequesterID: 10,
+		Requester:   authm.User{ID: 10, FirstName: &firstName},
+	}
+
+	resp := buildRequestResponse(request, nil)
+	if resp.RequesterName != "Jane" {
+		t.Errorf("expected requester_name=Jane (first-name fallback), got %s", resp.RequesterName)
+	}
+	if resp.RequesterUsername != nil {
+		t.Errorf("expected requester_username=nil, got %q", *resp.RequesterUsername)
 	}
 }
 

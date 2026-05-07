@@ -246,6 +246,37 @@ func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_ArtistS
 	s.Require().NotNil(resp.Details)
 	s.Equal(details, *resp.Details)
 	s.NotEmpty(resp.ReporterName)
+	// PSY-619: ReporterUsername populated for users who set a username so the
+	// frontend renders the moderation-queue byline as a /users/:username link.
+	s.Require().NotNil(resp.ReporterUsername)
+	s.Equal(*user.Username, *resp.ReporterUsername)
+}
+
+// TestCreateEntityReport_NoUsername covers the unlinked-byline path (PSY-619):
+// a reporter without a username on file should ship `reporter_username: null`
+// so the frontend renders plain text rather than a broken /users/null link.
+func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_NoUsername() {
+	user := &authm.User{
+		Email:         stringPtr(fmt.Sprintf("er-user-no-uname-%d@test.com", time.Now().UnixNano())),
+		FirstName:     stringPtr("Test"),
+		LastName:      stringPtr("User"),
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	s.Require().NoError(s.db.Create(user).Error)
+	artist := s.createTestArtist("Test Artist")
+
+	resp, err := s.svc.CreateEntityReport(&contracts.CreateEntityReportRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+		UserID:     user.ID,
+		ReportType: "inaccurate",
+	})
+
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.NotEmpty(resp.ReporterName, "name should fall back through the resolution chain")
+	s.Nil(resp.ReporterUsername, "username should be nil when not set on the user")
 }
 
 func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_VenueSuccess() {
@@ -643,6 +674,9 @@ func (s *EntityReportServiceIntegrationTestSuite) TestReporterName_Included() {
 	s.NoError(err)
 	s.Require().NotNil(resp)
 	s.NotEmpty(resp.ReporterName)
+	// PSY-619: ReporterUsername populated for users who set a username.
+	s.Require().NotNil(resp.ReporterUsername)
+	s.Equal(*user.Username, *resp.ReporterUsername)
 }
 
 func (s *EntityReportServiceIntegrationTestSuite) TestReviewerName_Included() {
@@ -655,4 +689,7 @@ func (s *EntityReportServiceIntegrationTestSuite) TestReviewerName_Included() {
 	s.NoError(err)
 	s.Require().NotNil(resolved)
 	s.NotEmpty(resolved.ReviewerName)
+	// PSY-619: ReviewerUsername populated for admins who set a username.
+	s.Require().NotNil(resolved.ReviewerUsername)
+	s.Equal(*admin.Username, *resolved.ReviewerUsername)
 }

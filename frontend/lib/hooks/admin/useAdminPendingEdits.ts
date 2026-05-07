@@ -23,11 +23,18 @@ export interface PendingEditResponse {
   entity_name?: string
   submitted_by: number
   submitter_name?: string
+  /**
+   * PSY-619: submitter's username when set, null otherwise. Pass to
+   * `<UserAttribution username={...} />` to render the byline as a link to
+   * /users/:username when non-null.
+   */
+  submitter_username: string | null
   field_changes: FieldChange[]
   summary: string
   status: 'pending' | 'approved' | 'rejected'
   reviewed_by?: number
   reviewer_name?: string
+  reviewer_username?: string | null
   reviewed_at?: string
   rejection_reason?: string
   created_at: string

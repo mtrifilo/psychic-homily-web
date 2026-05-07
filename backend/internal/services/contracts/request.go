@@ -11,16 +11,23 @@ import (
 
 // RequestResponse represents a request returned to clients.
 type RequestResponse struct {
-	ID                uint       `json:"id"`
-	Title             string     `json:"title"`
-	Description       *string    `json:"description,omitempty"`
-	EntityType        string     `json:"entity_type"`
-	RequestedEntityID *uint      `json:"requested_entity_id,omitempty"`
-	Status            string     `json:"status"`
-	RequesterID       uint       `json:"requester_id"`
-	RequesterName     string     `json:"requester_name"`
+	ID                uint    `json:"id"`
+	Title             string  `json:"title"`
+	Description       *string `json:"description,omitempty"`
+	EntityType        string  `json:"entity_type"`
+	RequestedEntityID *uint   `json:"requested_entity_id,omitempty"`
+	Status            string  `json:"status"`
+	RequesterID       uint    `json:"requester_id"`
+	RequesterName     string  `json:"requester_name"`
+	// RequesterUsername is the requester's username when set — pointer so
+	// the JSON encodes null (not "") for accounts that never set a username.
+	// Frontend uses this to render the byline as a link to /users/:username
+	// when non-nil; nil renders as plain text. Mirrors the same shape PSY-353
+	// standardized for collection contributor attribution. PSY-619.
+	RequesterUsername *string    `json:"requester_username"`
 	FulfillerID       *uint      `json:"fulfiller_id,omitempty"`
 	FulfillerName     string     `json:"fulfiller_name,omitempty"`
+	FulfillerUsername *string    `json:"fulfiller_username"`
 	VoteScore         int        `json:"vote_score"`
 	Upvotes           int        `json:"upvotes"`
 	Downvotes         int        `json:"downvotes"`
