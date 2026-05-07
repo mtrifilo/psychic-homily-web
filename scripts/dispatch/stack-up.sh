@@ -60,7 +60,12 @@ wait_for_url() {
 }
 
 dev_backend_up() {
-  curl -fsS -o /dev/null --max-time 2 http://localhost:8080/health 2>/dev/null
+  # The /health handler always returns 200 — even when the database is down
+  # the body reports status:"unhealthy". Parse the body so we don't pick a
+  # broken backend and silently skip the isolated-mode setup.
+  local body
+  body=$(curl -fsS --max-time 2 http://localhost:8080/health 2>/dev/null) || return 1
+  echo "$body" | jq -e '.status == "healthy"' >/dev/null 2>&1
 }
 
 # === Mode dispatch ===
@@ -85,6 +90,7 @@ if [ "$MODE" = "shared" ]; then
     log "Starting frontend on :$FRONTEND_PORT..."
     cd "$WORKTREE_PATH/frontend"
     nohup env NEXT_PUBLIC_API_BASE_URL="http://localhost:8080" \
+      BACKEND_URL="http://localhost:8080" \
       bun run dev --port "$FRONTEND_PORT" \
       </dev/null >"$STACK_DIR/frontend.log" 2>&1 &
     echo $! > "$STACK_DIR/frontend.pid"
@@ -99,6 +105,7 @@ STACK_WORKTREE_ID=$WORKTREE_ID
 STACK_BACKEND_URL=http://localhost:8080
 STACK_FRONTEND_PORT=$FRONTEND_PORT
 STACK_FRONTEND_URL=http://localhost:$FRONTEND_PORT
+BACKEND_URL=http://localhost:8080
 EOF
     cat "$STACK_DIR/.env"
     log "Stack up (mode=shared): http://localhost:$FRONTEND_PORT -> http://localhost:8080"
@@ -122,8 +129,13 @@ log "Postgres :$POSTGRES_PORT, Backend :$BACKEND_PORT, Frontend :$FRONTEND_PORT"
 cd "$WORKTREE_PATH/backend"
 
 log "Starting postgres + migrate (project=$COMPOSE_PROJECT)..."
+# Don't pass --wait: the migrate one-shot exits with 0, which `compose up
+# --wait` treats as failure. setup-db.sh waits for migrate to finish via
+# `compose ps -a --format json migrate`, and the db's healthcheck is
+# observed transitively (migrate `depends_on: db: condition: service_healthy`,
+# so migrate completing implies db is healthy). Mirrors frontend/e2e/global-setup.ts.
 POSTGRES_PORT="$POSTGRES_PORT" \
-  docker compose -p "$COMPOSE_PROJECT" -f docker-compose.dispatch.yml up -d --wait
+  docker compose -p "$COMPOSE_PROJECT" -f docker-compose.dispatch.yml up -d
 
 log "Seeding database (full E2E fixture)..."
 DATABASE_URL="$STACK_POSTGRES_URL" \
@@ -135,7 +147,7 @@ log "Starting backend on :$BACKEND_PORT..."
 cd "$WORKTREE_PATH/backend"
 nohup env \
   DATABASE_URL="$STACK_POSTGRES_URL" \
-  API_PORT="$BACKEND_PORT" \
+  API_ADDR="localhost:$BACKEND_PORT" \
   CORS_ALLOWED_ORIGINS="$STACK_FRONTEND_URL" \
   ENVIRONMENT=test \
   ENABLE_TEST_FIXTURES=1 \
@@ -163,7 +175,12 @@ wait_for_url "$STACK_BACKEND_URL/health" 90
 
 log "Starting frontend on :$FRONTEND_PORT..."
 cd "$WORKTREE_PATH/frontend"
+# BACKEND_URL is read by the catch-all proxy at app/api/[...path]/route.ts
+# and the per-route admin/AI proxies under app/api/admin/* and app/api/ai/*.
+# Without it, the Next.js proxy hardcodes http://localhost:8080 and can't
+# reach an isolated-mode backend on a non-default port.
 nohup env NEXT_PUBLIC_API_BASE_URL="$STACK_BACKEND_URL" \
+  BACKEND_URL="$STACK_BACKEND_URL" \
   bun run dev --port "$FRONTEND_PORT" \
   </dev/null >"$STACK_DIR/frontend.log" 2>&1 &
 echo $! > "$STACK_DIR/frontend.pid"
@@ -182,6 +199,7 @@ STACK_BACKEND_URL=$STACK_BACKEND_URL
 STACK_BACKEND_PORT=$BACKEND_PORT
 STACK_FRONTEND_URL=$STACK_FRONTEND_URL
 STACK_FRONTEND_PORT=$FRONTEND_PORT
+BACKEND_URL=$STACK_BACKEND_URL
 EOF
 cat "$STACK_DIR/.env"
 log "Stack up (mode=isolated): $STACK_FRONTEND_URL -> $STACK_BACKEND_URL -> postgres :$POSTGRES_PORT"
