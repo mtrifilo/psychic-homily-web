@@ -863,9 +863,18 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         <CollectionGraph slug={slug} collectionTitle={collection.title} />
       )}
 
-      {/* Add Items (creator only) */}
+      {/* Add Items (creator only).
+          PSY-581: default the search panel open on empty collections so the
+          empty-state copy ("Add your first item using the search above")
+          is honest — the search IS visible. Non-empty collections keep the
+          collapsed default so the items list stays the focal point and the
+          page doesn't feel busier than it needs to. */}
       {isCreator && (
-        <AddItemsSection slug={slug} existingItems={items} />
+        <AddItemsSection
+          slug={slug}
+          existingItems={items}
+          defaultOpen={items.length === 0}
+        />
       )}
 
       {/* Items list */}
@@ -1591,11 +1600,20 @@ function CollectionItemRow({
 function AddItemsSection({
   slug,
   existingItems,
+  defaultOpen = false,
 }: {
   slug: string
   existingItems: CollectionItem[]
+  /**
+   * PSY-581: when true, the search panel renders open on first paint.
+   * The parent passes `items.length === 0` so empty collections show the
+   * search input immediately (matches the empty-state "use search above"
+   * copy); non-empty collections stay collapsed so the items list keeps
+   * the focal position. The collapse toggle is preserved either way.
+   */
+  defaultOpen?: boolean
 }) {
-  const [isOpen, setIsOpen] = useState(false)
+  const [isOpen, setIsOpen] = useState(defaultOpen)
   const [searchQuery, setSearchQuery] = useState('')
   const [addedMessage, setAddedMessage] = useState<string | null>(null)
   const addMutation = useAddCollectionItem()

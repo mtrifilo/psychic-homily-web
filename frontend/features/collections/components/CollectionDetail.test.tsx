@@ -1616,11 +1616,13 @@ describe('CollectionDetail', () => {
 
   describe('PSY-372 shows in Add Items search', () => {
     /**
-     * Helper: open the Add Items panel and seed the entity-search mock with
-     * results in the requested entity type so the dropdown renders rows the
-     * user can interact with. Calls userEvent.click on "Add Items" but does
-     * not type into the search box — typing is unnecessary because the hook
-     * is mocked and returns the seeded data regardless.
+     * Helper: seed the entity-search mock with results in the requested
+     * entity type so the dropdown renders rows the user can interact with,
+     * then type a 2+ char query to satisfy the dropdown's render gate. The
+     * hook is mocked so the typed value is irrelevant — only the length
+     * matters. PSY-581: the default fixture renders an empty collection
+     * (`items: []`) so the Add Items panel is now open on first paint and
+     * no toggle click is needed.
      */
     async function openAddItemsWith({
       shows = [],
@@ -1658,19 +1660,17 @@ describe('CollectionDetail', () => {
       }
       const user = userEvent.setup()
       render(<CollectionDetail slug="test-collection" />)
-      await user.click(screen.getByRole('button', { name: /Add Items/i }))
       // The Add Items panel only renders the dropdown when the query field
-      // has 2+ chars. Type something to satisfy the gate; the hook is mocked
-      // so the typed value is irrelevant.
+      // has 2+ chars. Type something to satisfy the gate.
       const input = screen.getByPlaceholderText(/Search artists, shows/)
       await user.type(input, 'tt')
       return user
     }
 
     it('placeholder copy includes "shows"', async () => {
-      const user = userEvent.setup()
+      // PSY-581: empty fixture defaults the panel open, so the input is
+      // immediately present without a toggle click.
       render(<CollectionDetail slug="test-collection" />)
-      await user.click(screen.getByRole('button', { name: /Add Items/i }))
 
       const input = screen.getByPlaceholderText(
         'Search artists, shows, venues, releases, labels, festivals...'
@@ -1752,6 +1752,62 @@ describe('CollectionDetail', () => {
       expect(screen.getByText('Dana Point, CA')).toBeInTheDocument()
       expect(screen.getByText('Artist')).toBeInTheDocument()
     })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-581: Add Items default-open on empty collections
+  // ──────────────────────────────────────────────
+
+  describe('PSY-581 Add Items default-open on empty collections', () => {
+    /** Sample item used to drop the collection out of the empty state. */
+    const sampleItem = {
+      id: 100,
+      entity_type: 'artist',
+      entity_id: 1,
+      entity_name: 'Sample Artist',
+      entity_slug: 'sample-artist',
+      image_url: null,
+      position: 0,
+      added_by_user_id: 1,
+      added_by_name: 'testuser',
+      notes: null,
+      created_at: '2025-01-01T00:00:00Z',
+    }
+
+    it('renders the search input by default when the collection is empty', () => {
+      // Default fixture has `items: []` and the current user is the creator
+      // so the empty-state path applies.
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Search input is immediately visible — no toggle click needed.
+      expect(
+        screen.getByPlaceholderText(
+          'Search artists, shows, venues, releases, labels, festivals...'
+        )
+      ).toBeInTheDocument()
+    })
+
+    it('keeps the panel collapsed by default when the collection has items', () => {
+      mockCollection.mockReturnValue({
+        data: makeCollection({ items: [sampleItem] }),
+        isLoading: false,
+        error: null,
+      })
+
+      render(<CollectionDetail slug="test-collection" />)
+
+      // Toggle button is rendered…
+      expect(
+        screen.getByRole('button', { name: /Add Items/i })
+      ).toBeInTheDocument()
+      // …and the search input is NOT yet rendered.
+      expect(
+        screen.queryByPlaceholderText(
+          'Search artists, shows, venues, releases, labels, festivals...'
+        )
+      ).not.toBeInTheDocument()
+    })
+
   })
 
   // ──────────────────────────────────────────────
