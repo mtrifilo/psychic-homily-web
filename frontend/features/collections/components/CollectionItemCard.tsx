@@ -141,7 +141,11 @@ export function CollectionItemCard({
     <article
       ref={canReorder ? setNodeRef : undefined}
       style={sortableStyle}
-      className="relative flex flex-col gap-2"
+      // PSY-579: `group` must live on the <article> (a shared ancestor)
+      // because the hover-revealed Remove control is a sibling of the
+      // <Link>, not a descendant — so its `group-hover:opacity-100`
+      // would never resolve a `.group:hover` ancestor otherwise.
+      className="group relative flex flex-col gap-2"
       data-testid="collection-item-card"
       data-entity-type={item.entity_type}
     >
@@ -151,7 +155,7 @@ export function CollectionItemCard({
           outside so inline links in markdown notes remain independent. */}
       <Link
         href={entityUrl}
-        className="group flex flex-col gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="flex flex-col gap-2 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         aria-label={`${item.entity_name} (${typeLabel})`}
       >
         <div
