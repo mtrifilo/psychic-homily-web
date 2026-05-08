@@ -19,8 +19,6 @@ export type {
   ApproveShowRequest,
   RejectShowRequest,
   RejectionCategory,
-  BatchApproveRequest,
-  BatchRejectRequest,
   BatchShowError,
   BatchApproveResponse,
   BatchRejectResponse,

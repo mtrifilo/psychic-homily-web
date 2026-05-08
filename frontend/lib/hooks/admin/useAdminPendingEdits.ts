@@ -31,12 +31,25 @@ export interface PendingEditResponse {
   submitter_username: string | null
   field_changes: FieldChange[]
   summary: string
+  /**
+   * PSY-605: sanitised HTML of `summary` rendered server-side via the
+   * shared MarkdownRenderer (goldmark + bluemonday, comment-system allowlist).
+   * Render via `dangerouslySetInnerHTML` — the sanitiser is the source of
+   * truth for XSS safety. Falls back to empty string for legacy rows; the
+   * raw `summary` is still available alongside.
+   */
+  summary_html?: string
   status: 'pending' | 'approved' | 'rejected'
   reviewed_by?: number
   reviewer_name?: string
   reviewer_username?: string | null
   reviewed_at?: string
   rejection_reason?: string
+  /**
+   * PSY-605: sanitised HTML of `rejection_reason`. Same renderer + allowlist
+   * as `summary_html`. Empty when no rejection reason has been written.
+   */
+  rejection_reason_html?: string
   created_at: string
   updated_at: string
 }

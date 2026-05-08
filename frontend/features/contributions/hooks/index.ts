@@ -1,6 +1,4 @@
 export { useSuggestEdit } from './useSuggestEdit'
-export { useMyPendingEdits } from './useMyPendingEdits'
-export { useCancelPendingEdit } from './useCancelPendingEdit'
 export { useEntityAttribution } from './useEntityAttribution'
 export type { EntityAttribution } from './useEntityAttribution'
 export { useReportEntity } from './useReportEntity'

@@ -19,8 +19,6 @@ export { EDITABLE_FIELDS, REPORT_TYPES } from './types'
 // Hooks
 export {
   useSuggestEdit,
-  useMyPendingEdits,
-  useCancelPendingEdit,
   useEntityAttribution,
   useReportEntity,
   useContributeOpportunities,

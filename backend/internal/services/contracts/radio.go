@@ -390,23 +390,6 @@ type RadioImportJobResponse struct {
 	UpdatedAt          time.Time  `json:"updated_at"`
 }
 
-// CreateImportJobRequest represents a request to create a radio import job.
-type CreateImportJobRequest struct {
-	ShowID uint   `json:"show_id"`
-	Since  string `json:"since"`
-	Until  string `json:"until"`
-}
-
-// RadioFetchCycleResult summarizes the result of a radio fetch cycle.
-type RadioFetchCycleResult struct {
-	StationsProcessed int      `json:"stations_processed"`
-	EpisodesImported  int      `json:"episodes_imported"`
-	PlaysImported     int      `json:"plays_imported"`
-	PlaysMatched      int      `json:"plays_matched"`
-	Failures          int      `json:"failures"`
-	Errors            []string `json:"errors,omitempty"`
-}
-
 // SyncAffinityResult summarizes the result of syncing radio affinity data
 // to artist relationships.
 type SyncAffinityResult struct {

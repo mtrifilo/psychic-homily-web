@@ -2,8 +2,16 @@ package contracts
 
 import (
 	adminm "psychic-homily-backend/internal/models/admin"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"time"
 )
+
+// MaxPendingEditSummaryLength is the maximum length, in bytes, accepted for
+// the suggest-edit `summary` (the contributor's reason for the edit) and the
+// admin's `rejection_reason`. Both are rendered through utils.MarkdownRenderer
+// (PSY-605), so the cap mirrors engagementm.MaxCommentBodyLength to share the
+// same surface-level UX guarantees as comments + collection descriptions.
+const MaxPendingEditSummaryLength = engagementm.MaxCommentBodyLength
 
 // ──────────────────────────────────────────────
 // Pending Edit Service Interface
@@ -71,13 +79,28 @@ type PendingEditResponse struct {
 	// renders as plain text. PSY-619.
 	SubmitterUsername *string                  `json:"submitter_username"`
 	FieldChanges      []adminm.FieldChange     `json:"field_changes"`
-	Summary           string                   `json:"summary"`
-	Status            adminm.PendingEditStatus `json:"status"`
-	ReviewedBy        *uint                    `json:"reviewed_by,omitempty"`
-	ReviewerName      string                   `json:"reviewer_name,omitempty"`
-	ReviewerUsername  *string                  `json:"reviewer_username"`
-	ReviewedAt        *time.Time               `json:"reviewed_at,omitempty"`
-	RejectionReason   *string                  `json:"rejection_reason,omitempty"`
-	CreatedAt         time.Time                `json:"created_at"`
-	UpdatedAt         time.Time                `json:"updated_at"`
+	// Summary is the raw markdown source of the contributor's reason for the
+	// edit; SummaryHTML is the sanitized rendered HTML produced on each read
+	// via utils.MarkdownRenderer (goldmark + bluemonday, comment-system
+	// allowlist). Mirrors the comment + collection-description shape so the
+	// moderation queue can render formatted bold/links/quotes consistently
+	// (PSY-605). Summary (raw) is preserved alongside HTML so the contributor
+	// can re-populate the textarea in a future edit-the-pending-edit flow.
+	Summary          string                   `json:"summary"`
+	SummaryHTML      string                   `json:"summary_html,omitempty"`
+	Status           adminm.PendingEditStatus `json:"status"`
+	ReviewedBy       *uint                    `json:"reviewed_by,omitempty"`
+	ReviewerName     string                   `json:"reviewer_name,omitempty"`
+	ReviewerUsername *string                  `json:"reviewer_username"`
+	ReviewedAt       *time.Time               `json:"reviewed_at,omitempty"`
+	// RejectionReason is the raw markdown source of the admin's rejection
+	// note; RejectionReasonHTML is the sanitized rendered HTML, computed on
+	// read for the same reason as Summary above (PSY-605). Same renderer +
+	// allowlist; consumed by the contributor-side pending-edits view (when
+	// PSY-600 ships) so submitters see the moderator's note with the same
+	// formatting they get from comments.
+	RejectionReason     *string   `json:"rejection_reason,omitempty"`
+	RejectionReasonHTML string    `json:"rejection_reason_html,omitempty"`
+	CreatedAt           time.Time `json:"created_at"`
+	UpdatedAt           time.Time `json:"updated_at"`
 }

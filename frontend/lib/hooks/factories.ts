@@ -80,29 +80,6 @@ export function createNamedDetailHook<
 }
 
 /**
- * Create a detail hook that takes the ID/slug as a direct argument (not in an options object).
- *
- * Produced hook signature:
- *   (idOrSlug: string | number) => UseQueryResult<T>
- *
- * Used for hooks like useShow(showId) or useSceneDetail(slug).
- */
-export function createSimpleDetailHook<T>(
-  endpoint: (idOrSlug: string | number) => string,
-  queryKey: (idOrSlug: string | number) => readonly unknown[],
-  factoryOptions?: { staleTime?: number }
-) {
-  return function useDetail(idOrSlug: string | number) {
-    return useQuery({
-      queryKey: queryKey(idOrSlug),
-      queryFn: () => apiRequest<T>(endpoint(idOrSlug), { method: 'GET' }),
-      enabled: isValidIdOrSlug(idOrSlug),
-      staleTime: factoryOptions?.staleTime ?? 5 * 60 * 1000,
-    })
-  }
-}
-
-/**
  * Create a search hook with debounced input.
  *
  * Produced hook signature:

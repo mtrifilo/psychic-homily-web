@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -13,14 +15,22 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/utils"
 )
 
 // PendingEditService handles business logic for generic pending entity edits.
+//
+// md is the shared utils.MarkdownRenderer (goldmark + bluemonday,
+// comment-system allowlist) used to render the submitter's `summary` and the
+// admin's `rejection_reason` on read (PSY-605). Sanitization is applied on
+// every response so existing plain-text rows are also rendered safely — the
+// sanitizer is the source of truth for XSS safety, not the input pipeline.
 type PendingEditService struct {
 	db              *gorm.DB
 	revisionService contracts.RevisionServiceInterface
 	emailService    contracts.EmailServiceInterface
 	frontendURL     string
+	md              *utils.MarkdownRenderer
 }
 
 // NewPendingEditService creates a new PendingEditService.
@@ -33,7 +43,31 @@ func NewPendingEditService(database *gorm.DB, revisionService contracts.Revision
 		revisionService: revisionService,
 		emailService:    emailService,
 		frontendURL:     frontendURL,
+		md:              utils.NewMarkdownRenderer(),
 	}
+}
+
+// renderMarkdown returns sanitized HTML for the given markdown source. Returns
+// "" for empty input. Falls back to a freshly-constructed renderer when the
+// service was built without one (older test paths or bare struct literals).
+func (s *PendingEditService) renderMarkdown(src string) string {
+	if src == "" {
+		return ""
+	}
+	if s.md == nil {
+		s.md = utils.NewMarkdownRenderer()
+	}
+	return s.md.Render(src)
+}
+
+// renderRejectionReason is a *string-aware wrapper around renderMarkdown for
+// the nullable rejection_reason column. Returns "" when the pointer is nil or
+// empty.
+func (s *PendingEditService) renderRejectionReason(reason *string) string {
+	if reason == nil {
+		return ""
+	}
+	return s.renderMarkdown(*reason)
 }
 
 // CreatePendingEdit submits a new pending edit for an entity.
@@ -50,6 +84,13 @@ func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditR
 	}
 	if req.Summary == "" {
 		return nil, fmt.Errorf("summary is required")
+	}
+	// PSY-605: cap the markdown source at the same length comments and
+	// collection descriptions use, so the rendered output is bounded and the
+	// renderer's allocation profile stays consistent with the rest of the
+	// markdown surfaces.
+	if len(req.Summary) > contracts.MaxPendingEditSummaryLength {
+		return nil, fmt.Errorf("summary exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength)
 	}
 
 	// Verify the entity exists
@@ -223,6 +264,43 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		return nil, fmt.Errorf("failed to parse field changes: %w", err)
 	}
 
+	// PSY-572: per-entity allowlist gate. Defence in depth — even though the
+	// suggest-edit handler validates field names at submission time, an
+	// attacker (or a buggy/legacy code path) that manages to land a
+	// pending_entity_edits row carrying a non-allowlisted column (e.g.
+	// is_admin, password_hash, trust_tier) must not have it applied via
+	// the untyped Updates() call below. If any rejected fields are present,
+	// auto-mark the pending_edit 'rejected' with a clear reason and bail
+	// before mutating the entity.
+	_, rejectedFields := adminm.FilterAllowedFields(edit.EntityType, changes)
+	if len(rejectedFields) > 0 {
+		joined := strings.Join(rejectedFields, ", ")
+		reason := fmt.Sprintf(
+			"Rejected automatically: pending edit carries %d field(s) not allowed for %s entities (%s). "+
+				"This usually indicates a corrupted submission — the contributor's UI does not expose these fields.",
+			len(rejectedFields), edit.EntityType, joined,
+		)
+		slog.Default().Error("pending_edit_disallowed_fields",
+			"edit_id", edit.ID,
+			"entity_type", edit.EntityType,
+			"entity_id", edit.EntityID,
+			"submitted_by", edit.SubmittedBy,
+			"reviewer_id", reviewerID,
+			"rejected_fields", rejectedFields,
+		)
+		now := time.Now()
+		if err := s.db.Model(&edit).Updates(map[string]interface{}{
+			"status":           adminm.PendingEditStatusRejected,
+			"reviewed_by":      reviewerID,
+			"reviewed_at":      now,
+			"rejection_reason": reason,
+			"updated_at":       now,
+		}).Error; err != nil {
+			return nil, fmt.Errorf("failed to auto-reject pending edit with disallowed fields: %w", err)
+		}
+		return nil, fmt.Errorf("%w: %s", adminm.ErrPendingEditDisallowedFields, joined)
+	}
+
 	// Build update map from new values
 	updates := make(map[string]interface{})
 	for _, c := range changes {
@@ -277,6 +355,11 @@ func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, rea
 
 	if reason == "" {
 		return nil, fmt.Errorf("rejection reason is required")
+	}
+	// PSY-605: rejection_reason mirrors summary's markdown stack and limit so
+	// the contributor-side render (PSY-600 surface, when it ships) is bounded.
+	if len(reason) > contracts.MaxPendingEditSummaryLength {
+		return nil, fmt.Errorf("rejection reason exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength)
 	}
 
 	var edit adminm.PendingEntityEdit
@@ -334,20 +417,28 @@ func (s *PendingEditService) CancelPendingEdit(editID uint, userID uint) error {
 }
 
 // toResponse converts a PendingEntityEdit model to a response DTO.
+//
+// Summary and RejectionReason are rendered on read via the shared
+// utils.MarkdownRenderer (goldmark + bluemonday, comment-system allowlist),
+// matching the comment + collection-description shape (PSY-605). Raw markdown
+// is preserved alongside HTML so contributors can re-populate the textarea
+// without re-parsing HTML back to markdown.
 func (s *PendingEditService) toResponse(edit *adminm.PendingEntityEdit) *contracts.PendingEditResponse {
 	resp := &contracts.PendingEditResponse{
-		ID:              edit.ID,
-		EntityType:      edit.EntityType,
-		EntityID:        edit.EntityID,
-		EntityName:      resolveEntityName(s.db, edit.EntityType, edit.EntityID),
-		SubmittedBy:     edit.SubmittedBy,
-		Summary:         edit.Summary,
-		Status:          edit.Status,
-		ReviewedBy:      edit.ReviewedBy,
-		ReviewedAt:      edit.ReviewedAt,
-		RejectionReason: edit.RejectionReason,
-		CreatedAt:       edit.CreatedAt,
-		UpdatedAt:       edit.UpdatedAt,
+		ID:                  edit.ID,
+		EntityType:          edit.EntityType,
+		EntityID:            edit.EntityID,
+		EntityName:          resolveEntityName(s.db, edit.EntityType, edit.EntityID),
+		SubmittedBy:         edit.SubmittedBy,
+		Summary:             edit.Summary,
+		SummaryHTML:         s.renderMarkdown(edit.Summary),
+		Status:              edit.Status,
+		ReviewedBy:          edit.ReviewedBy,
+		ReviewedAt:          edit.ReviewedAt,
+		RejectionReason:     edit.RejectionReason,
+		RejectionReasonHTML: s.renderRejectionReason(edit.RejectionReason),
+		CreatedAt:           edit.CreatedAt,
+		UpdatedAt:           edit.UpdatedAt,
 	}
 
 	// Parse field changes

@@ -123,16 +123,6 @@ export interface RejectShowRequest {
 
 export type RejectionCategory = 'non_music' | 'duplicate' | 'bad_data' | 'past_event' | 'other'
 
-export interface BatchApproveRequest {
-  show_ids: number[]
-}
-
-export interface BatchRejectRequest {
-  show_ids: number[]
-  reason: string
-  category?: RejectionCategory
-}
-
 export interface BatchShowError {
   show_id: number
   error: string
