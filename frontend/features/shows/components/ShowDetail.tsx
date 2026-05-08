@@ -13,6 +13,7 @@ import { SocialLinks, MusicEmbed, EntityDetailLayout } from '@/components/shared
 import { EntityCollections } from '@/features/collections'
 import { EntityTagList } from '@/features/tags'
 import { CommentThread, FieldNotesSection } from '@/features/comments'
+import { EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { ShowForm } from '@/components/forms'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { DeleteShowDialog } from './DeleteShowDialog'
@@ -38,6 +39,7 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
+  const saveBanner = useEntitySaveSuccessBanner()
 
   // Admin mutations for status flags
   const setSoldOutMutation = useSetShowSoldOut()
@@ -54,6 +56,9 @@ export function ShowDetail({ showId }: ShowDetailProps) {
 
   const handleEditSuccess = () => {
     setIsEditing(false)
+    // Show edits have no pending-review branch (admin/owner-only direct
+    // save), so the result is always `applied: true`.
+    saveBanner.handleSaveSuccess({ applied: true })
   }
 
   const handleEditCancel = () => {
@@ -174,6 +179,14 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </>
         }
       >
+        {/* Page-level "Changes saved" banner (PSY-569). Mirrors the artist /
+            venue / release / label / festival detail pages (PSY-562 / PSY-622)
+            but is fed by the inline {@link ShowForm} instead of the shared
+            {@link EntityEditDrawer}, since show edits run through an
+            admin/owner-only direct-save path (see PSY-461 / PSY-489 note
+            below). */}
+        <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
+
         {/* Edit Form */}
         {isEditing && (
           <div className="mb-8 p-4 rounded-lg border border-border bg-muted/30">
