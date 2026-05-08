@@ -200,9 +200,16 @@ function PendingEditCard({
             />
           </span>
           {edit.summary && (
-            <span className="ml-1">
-              &mdash; {edit.summary}
-            </span>
+            edit.summary_html ? (
+              <span
+                className="ml-1 prose prose-sm max-w-none inline [&>p]:inline [&>p]:m-0"
+                dangerouslySetInnerHTML={{ __html: `&mdash; ${edit.summary_html}` }}
+              />
+            ) : (
+              <span className="ml-1">
+                &mdash; {edit.summary}
+              </span>
+            )
           )}
         </div>
 
