@@ -190,9 +190,6 @@ export interface ArtistFestivalListItem extends FestivalListItem {
   stage: string | null
 }
 
-/** Alias for backward compatibility */
-export type ArtistFestival = ArtistFestivalListItem
-
 export interface ArtistFestivalsResponse {
   festivals: ArtistFestivalListItem[]
   count: number
@@ -283,16 +280,6 @@ export interface SimilarFestival {
 
 export interface SimilarFestivalsResponse {
   similar: SimilarFestival[]
-}
-
-export interface FestivalOverlap {
-  festival_a: FestivalSummary
-  festival_b: FestivalSummary
-  shared_artists: SharedArtist[]
-  jaccard: number
-  weighted_score: number
-  a_only_count: number
-  b_only_count: number
 }
 
 export interface TrajectoryEntry {

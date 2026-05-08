@@ -78,10 +78,6 @@ export interface ArtistsListResponse {
   count: number
 }
 
-export interface ArtistSearchParams {
-  query: string
-}
-
 export interface ArtistSearchResponse {
   artists: Artist[]
   count: number

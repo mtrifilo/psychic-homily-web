@@ -9,8 +9,6 @@ export const REQUEST_ENTITY_TYPES = [
   'festival',
 ] as const
 
-export type RequestEntityType = (typeof REQUEST_ENTITY_TYPES)[number]
-
 export const REQUEST_STATUSES = [
   'pending',
   'in_progress',
@@ -19,11 +17,7 @@ export const REQUEST_STATUSES = [
   'cancelled',
 ] as const
 
-export type RequestStatus = (typeof REQUEST_STATUSES)[number]
-
 export const REQUEST_SORT_OPTIONS = ['votes', 'newest', 'oldest'] as const
-
-export type RequestSortBy = (typeof REQUEST_SORT_OPTIONS)[number]
 
 /** Request list item and detail response */
 export interface Request {

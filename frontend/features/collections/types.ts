@@ -11,14 +11,6 @@ import type { EntityTag, TagSummary } from '@/features/tags/types'
 export const MAX_COLLECTION_MARKDOWN_LENGTH = 10000
 
 /**
- * PSY-354: hard cap on tags per collection. Mirrors backend
- * `contracts.MaxCollectionTags`. Used by the picker to disable the
- * autocomplete + show a "limit reached" message rather than letting the
- * user submit and get a 400.
- */
-export const MAX_COLLECTION_TAGS = 10
-
-/**
  * PSY-356: minimum thresholds for a public collection to appear in the
  * /collections browse listing. Mirrors backend `services.MinPublicCollection*`
  * constants — keep both sides in sync.

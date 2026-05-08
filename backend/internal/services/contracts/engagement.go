@@ -170,14 +170,6 @@ type FollowerResponse struct {
 	DisplayName string `json:"display_name,omitempty"`
 }
 
-// FollowStatusResponse contains follow status for a single entity.
-type FollowStatusResponse struct {
-	EntityType    string `json:"entity_type"`
-	EntityID      uint   `json:"entity_id"`
-	FollowerCount int64  `json:"follower_count"`
-	IsFollowing   bool   `json:"is_following"`
-}
-
 // ──────────────────────────────────────────────
 // Saved Show Service Interface
 // ──────────────────────────────────────────────

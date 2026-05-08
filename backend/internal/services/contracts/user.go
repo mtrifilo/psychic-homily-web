@@ -263,14 +263,6 @@ type LeaderboardEntry struct {
 	Count     int64   `json:"count"`
 }
 
-// LeaderboardResponse is the full leaderboard response including optional user rank.
-type LeaderboardResponse struct {
-	Entries   []LeaderboardEntry `json:"entries"`
-	Dimension string             `json:"dimension"`
-	Period    string             `json:"period"`
-	UserRank  *int               `json:"user_rank,omitempty"`
-}
-
 // ContributionEntry represents a single contribution in the history.
 type ContributionEntry struct {
 	ID         uint                   `json:"id"`
