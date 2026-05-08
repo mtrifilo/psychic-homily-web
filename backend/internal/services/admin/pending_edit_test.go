@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -756,6 +757,134 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AllowsNe
 	})
 	s.NoError(err)
 	s.NotNil(resp)
+}
+
+// =============================================================================
+// PSY-572: per-entity field allowlist gate inside ApprovePendingEdit
+// =============================================================================
+//
+// These tests assert the defence-in-depth gate that filters non-allowlisted
+// columns out of pending_edits.field_changes BEFORE the untyped Updates()
+// call. Even if the suggest-edit handler validator was bypassed (legacy
+// rows, direct DB writes, future code paths), ApprovePendingEdit must
+// not apply privileged columns like is_admin, password_hash, etc.
+
+// TestApprovePendingEdit_RejectsDisallowedField simulates a malformed pending
+// edit row carrying both an in-allowlist column ("name") and an out-of-
+// allowlist column ("is_admin"). The whole approval must fail (no partial
+// apply), the entity must be unchanged, and the pending_edit must move to
+// 'rejected' with a rejection_reason naming the offending field.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsDisallowedField() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Genuine")
+
+	// CreatePendingEdit doesn't validate field names server-side (the
+	// handler-level validator is what blocks contributors), so we can
+	// land a malformed row directly through the service.
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+		UserID:     user.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "name", OldValue: "Genuine", NewValue: "Compromised"},
+			{Field: "is_admin", OldValue: false, NewValue: true},
+		},
+		Summary: "malicious edit smuggling is_admin",
+	})
+	s.Require().NoError(err)
+	s.Require().NotNil(created)
+
+	// Approve must fail with the disallowed-fields sentinel.
+	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.Require().Error(err)
+	s.True(errors.Is(err, adminm.ErrPendingEditDisallowedFields),
+		"expected ErrPendingEditDisallowedFields, got %v", err)
+	s.Contains(err.Error(), "is_admin")
+
+	// Entity must NOT have been mutated — neither the in-allowlist field
+	// (name) nor the out-of-allowlist field (which doesn't exist on artists
+	// anyway, but we want the test to prove "no Updates() ran").
+	var artistAfter catalogm.Artist
+	s.Require().NoError(s.db.First(&artistAfter, artist.ID).Error)
+	s.Equal("Genuine", artistAfter.Name, "name should not have changed despite being on allowlist — the whole approval was rejected")
+
+	// Pending edit must be marked 'rejected' with a reason that names the
+	// offending field, so the admin UI surfaces a clear explanation.
+	resp, err := s.svc.GetPendingEdit(created.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp)
+	s.Equal(adminm.PendingEditStatusRejected, resp.Status)
+	s.Require().NotNil(resp.ReviewedBy)
+	s.Equal(reviewer.ID, *resp.ReviewedBy)
+	s.NotNil(resp.ReviewedAt)
+	s.Require().NotNil(resp.RejectionReason)
+	s.Contains(*resp.RejectionReason, "is_admin")
+	s.Contains(*resp.RejectionReason, "artist")
+}
+
+// TestApprovePendingEdit_AppliesAllAllowedFields covers the happy path
+// alongside the rejection path: a pending_edit with only allowlisted
+// fields still applies cleanly after PSY-572 (no regression).
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_AppliesAllAllowedFields() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Old")
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+		UserID:     user.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "name", OldValue: "Old", NewValue: "New"},
+			{Field: "city", OldValue: nil, NewValue: "Phoenix"},
+			{Field: "instagram", OldValue: nil, NewValue: "https://instagram.com/x"},
+		},
+		Summary: "fill in info",
+	})
+	s.Require().NoError(err)
+
+	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.Require().NoError(err)
+	s.Equal(adminm.PendingEditStatusApproved, resp.Status)
+
+	var artistAfter catalogm.Artist
+	s.Require().NoError(s.db.First(&artistAfter, artist.ID).Error)
+	s.Equal("New", artistAfter.Name)
+	s.Require().NotNil(artistAfter.City)
+	s.Equal("Phoenix", *artistAfter.City)
+}
+
+// TestApprovePendingEdit_RejectsMultipleDisallowedFields: every offending
+// field must show up in the rejection reason, not just the first one.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_RejectsMultipleDisallowedFields() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Genuine Venue")
+
+	created, _ := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue",
+		EntityID:   venue.ID,
+		UserID:     user.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "name", NewValue: "Pwned"},
+			{Field: "is_admin", NewValue: true},
+			{Field: "password_hash", NewValue: "x"},
+			{Field: "trust_tier", NewValue: "admin"},
+		},
+		Summary: "many bad fields",
+	})
+
+	_, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.Require().Error(err)
+	s.True(errors.Is(err, adminm.ErrPendingEditDisallowedFields))
+	for _, bad := range []string{"is_admin", "password_hash", "trust_tier"} {
+		s.Contains(err.Error(), bad)
+	}
+
+	var venueAfter catalogm.Venue
+	s.Require().NoError(s.db.First(&venueAfter, venue.ID).Error)
+	s.Equal("Genuine Venue", venueAfter.Name)
 }
 
 // =============================================================================
