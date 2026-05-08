@@ -431,11 +431,17 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// normalized back to "{type}_edit" so the activity UI keeps a distinct
 	// event icon for edits vs. submissions.
 	entityEditQuery := `SELECT id, 'submit_' || entity_type || '_edit' as action, entity_type || '_edit' as entity_type, entity_id as entity_id, NULL as metadata, created_at, 'submission' as source FROM pending_entity_edits WHERE submitted_by = ?`
+	// Direct entity-edit audits live in their own table post-PSY-618. These
+	// are the terminal "edit applied" events (formerly `edit_<type>` rows in
+	// audit_logs). We synthesise the `edit_<type>` action prefix so the
+	// frontend's icon/label map — which keys on action="edit_artist" et al.
+	// — keeps working without churn.
+	entityEditAuditQuery := `SELECT id, 'edit_' || entity_type as action, entity_type, entity_id, metadata, created_at, 'edit_audit' as source FROM entity_edit_audit_logs WHERE actor_id = ?`
 
-	args := []interface{}{userID, userID, userID, userID}
+	args := []interface{}{userID, userID, userID, userID, userID}
 
-	unionSQL := fmt.Sprintf("(%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s)",
-		auditQuery, showQuery, venueQuery, entityEditQuery)
+	unionSQL := fmt.Sprintf("(%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s)",
+		auditQuery, showQuery, venueQuery, entityEditQuery, entityEditAuditQuery)
 
 	entityFilter := ""
 	if entityType != "" {
@@ -531,6 +537,16 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.
 			FROM revisions
 			WHERE user_id = ? AND created_at >= NOW() - INTERVAL '365 days'
 			GROUP BY DATE(created_at)
+
+			UNION ALL
+
+			-- PSY-618: edit_<type> rows moved out of audit_logs into
+			-- entity_edit_audit_logs. Without this UNION the heatmap
+			-- under-counts trusted-user direct edits post-backfill.
+			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
+			FROM entity_edit_audit_logs
+			WHERE actor_id = ? AND created_at >= NOW() - INTERVAL '365 days'
+			GROUP BY DATE(created_at)
 		) AS combined
 		GROUP BY activity_date
 		ORDER BY activity_date ASC
@@ -542,7 +558,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.
 	}
 
 	var rows []dayRow
-	err := s.db.Raw(query, userID, userID, userID, userID, userID).Scan(&rows).Error
+	err := s.db.Raw(query, userID, userID, userID, userID, userID, userID).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get activity heatmap: %w", err)
 	}
