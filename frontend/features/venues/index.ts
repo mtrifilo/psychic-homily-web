@@ -6,7 +6,6 @@ export { venueEndpoints, venueQueryKeys } from './api'
 // Types
 export type {
   Venue,
-  VenueSearchParams,
   VenueSearchResponse,
   VenueWithShowCount,
   VenuesListResponse,

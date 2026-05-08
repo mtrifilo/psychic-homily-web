@@ -2,6 +2,7 @@ package admin
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -33,40 +34,21 @@ func NewPendingEditHandler(
 	}
 }
 
-// Allowed fields per entity type for user-submitted edits.
-// Admin-only fields (status, verified, auto_approve, etc.) are excluded.
-var allowedEditFields = map[string]map[string]bool{
-	"artist": {
-		"name": true, "city": true, "state": true, "country": true,
-		"description": true, "bandcamp_embed_url": true, "image_url": true,
-		"instagram": true, "facebook": true, "twitter": true,
-		"youtube": true, "spotify": true, "soundcloud": true,
-		"bandcamp": true, "website": true,
-	},
-	"venue": {
-		"name": true, "address": true, "city": true, "state": true,
-		"country": true, "zipcode": true, "description": true, "image_url": true,
-		"instagram": true, "facebook": true, "twitter": true,
-		"youtube": true, "spotify": true, "soundcloud": true,
-		"bandcamp": true, "website": true,
-	},
-	"festival": {
-		"name": true, "description": true, "location_name": true,
-		"city": true, "state": true, "country": true,
-		"website": true, "ticket_url": true, "flyer_url": true,
-	},
-	"release": {
-		"title": true, "release_year": true, "release_date": true,
-		"release_type": true, "cover_art_url": true, "description": true,
-	},
-	"label": {
-		"name": true, "founded_year": true,
-		"city": true, "state": true, "country": true, "description": true,
-		"image_url": true,
-		"instagram": true, "facebook": true, "twitter": true,
-		"youtube": true, "spotify": true, "soundcloud": true,
-		"bandcamp": true, "website": true,
-	},
+// allowedEditFields delegates to the per-entity allowlists co-located with
+// each catalog model (PSY-572). The same maps are consulted by the
+// ApprovePendingEdit gate in services/admin/pending_edit.go, so a malformed
+// pending_entity_edits row that bypassed this handler's suggest-edit
+// validator still cannot land non-allowlisted columns.
+//
+// MUST stay in sync with the frontend EDITABLE_FIELDS map in
+// frontend/features/contributions/types.ts. Per-entity sources of truth
+// live in internal/models/catalog/{entity}_allowlist.go.
+//
+// Admin-only fields (status, verified, auto_approve, etc.) are intentionally
+// excluded — those go through the typed admin Edit handlers.
+func allowedEditFields(entityType string) map[string]bool {
+	allowed, _ := adminm.AllowedEditFields(entityType)
+	return allowed
 }
 
 // canEditDirectly returns true if the user can bypass the pending queue.
@@ -158,7 +140,7 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 	// strings in the pending queue. Without this gate, the field-name
 	// allowlist controls *which* fields can be edited but not *what values*
 	// they take — and ApprovePendingEdit applies values blindly.
-	allowed := allowedEditFields[entityType]
+	allowed := allowedEditFields(entityType)
 	for _, change := range req.Body.Changes {
 		if !allowed[change.Field] {
 			return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Field '%s' is not editable on %s entities", change.Field, entityType))
@@ -411,6 +393,17 @@ func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context,
 
 	approved, err := h.pendingEditService.ApprovePendingEdit(uint(editID), user.ID)
 	if err != nil {
+		// PSY-572: pending_edit carried fields not on the per-entity allowlist.
+		// The service has already auto-marked the row 'rejected' and logged
+		// the rejected fields with the edit ID + admin user ID; surface a 400
+		// so the admin UI can show which fields blocked the approval.
+		if errors.Is(err, adminm.ErrPendingEditDisallowedFields) {
+			rejected := strings.TrimPrefix(err.Error(), adminm.ErrPendingEditDisallowedFields.Error()+": ")
+			return nil, huma.Error400BadRequest(fmt.Sprintf(
+				"This edit was auto-rejected: it includes field(s) the contributor UI does not allow (%s). The pending edit has been marked rejected.",
+				rejected,
+			))
+		}
 		if strings.Contains(err.Error(), "not found") {
 			return nil, huma.Error404NotFound("Pending edit not found")
 		}

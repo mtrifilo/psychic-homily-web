@@ -77,11 +77,27 @@ vi.mock('@/components/shared', () => ({
 }))
 
 vi.mock('@/components/forms', () => ({
-  ShowForm: ({ onCancel }: { onCancel: () => void }) => (
+  ShowForm: ({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) => (
     <div data-testid="show-form">
+      <button onClick={onSuccess}>Save Form</button>
       <button onClick={onCancel}>Cancel Form</button>
     </div>
   ),
+}))
+
+// Mock contributions feature so we can drive the success banner from tests
+// without exercising the real auto-dismiss timer. PSY-569 wires the show edit
+// form's onSuccess into `useEntitySaveSuccessBanner.handleSaveSuccess`; we
+// surface a settable visibility flag here to verify the banner renders.
+const mockSaveBannerHandleSaveSuccess = vi.fn()
+let mockSaveBannerVisible = false
+vi.mock('@/features/contributions', () => ({
+  EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>
+    visible ? <div data-testid="save-success-banner">Changes saved</div> : null,
+  useEntitySaveSuccessBanner: () => ({
+    isVisible: mockSaveBannerVisible,
+    handleSaveSuccess: mockSaveBannerHandleSaveSuccess,
+  }),
 }))
 
 vi.mock('./DeleteShowDialog', () => ({
@@ -162,6 +178,7 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
 describe('ShowDetail', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockSaveBannerVisible = false
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -384,6 +401,33 @@ describe('ShowDetail', () => {
       )
       await user.click(cancelButtons[0])
       expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
+    })
+
+    // PSY-569: after a successful save the banner hook is told to flash, the
+    // edit form collapses, and the success banner is left visible on the
+    // page. Mirrors the artist/venue/release/label/festival detail pages.
+    it('flashes the save banner and collapses the form after a successful save', async () => {
+      const user = userEvent.setup()
+      render(<ShowDetail showId="1" />)
+
+      await user.click(screen.getByRole('button', { name: /Edit/ }))
+      expect(screen.getByTestId('show-form')).toBeInTheDocument()
+
+      await user.click(screen.getByRole('button', { name: 'Save Form' }))
+
+      expect(mockSaveBannerHandleSaveSuccess).toHaveBeenCalledWith({ applied: true })
+      expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
+    })
+
+    it('renders the save success banner when the hook reports it visible', () => {
+      mockSaveBannerVisible = true
+      render(<ShowDetail showId="1" />)
+      expect(screen.getByTestId('save-success-banner')).toBeInTheDocument()
+    })
+
+    it('does not render the save success banner when hidden', () => {
+      render(<ShowDetail showId="1" />)
+      expect(screen.queryByTestId('save-success-banner')).not.toBeInTheDocument()
     })
 
     it('opens delete dialog on click', async () => {

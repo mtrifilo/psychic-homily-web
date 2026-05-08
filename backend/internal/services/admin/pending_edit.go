@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"log/slog"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -260,6 +262,43 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 	var changes []adminm.FieldChange
 	if err := json.Unmarshal(*edit.FieldChanges, &changes); err != nil {
 		return nil, fmt.Errorf("failed to parse field changes: %w", err)
+	}
+
+	// PSY-572: per-entity allowlist gate. Defence in depth — even though the
+	// suggest-edit handler validates field names at submission time, an
+	// attacker (or a buggy/legacy code path) that manages to land a
+	// pending_entity_edits row carrying a non-allowlisted column (e.g.
+	// is_admin, password_hash, trust_tier) must not have it applied via
+	// the untyped Updates() call below. If any rejected fields are present,
+	// auto-mark the pending_edit 'rejected' with a clear reason and bail
+	// before mutating the entity.
+	_, rejectedFields := adminm.FilterAllowedFields(edit.EntityType, changes)
+	if len(rejectedFields) > 0 {
+		joined := strings.Join(rejectedFields, ", ")
+		reason := fmt.Sprintf(
+			"Rejected automatically: pending edit carries %d field(s) not allowed for %s entities (%s). "+
+				"This usually indicates a corrupted submission — the contributor's UI does not expose these fields.",
+			len(rejectedFields), edit.EntityType, joined,
+		)
+		slog.Default().Error("pending_edit_disallowed_fields",
+			"edit_id", edit.ID,
+			"entity_type", edit.EntityType,
+			"entity_id", edit.EntityID,
+			"submitted_by", edit.SubmittedBy,
+			"reviewer_id", reviewerID,
+			"rejected_fields", rejectedFields,
+		)
+		now := time.Now()
+		if err := s.db.Model(&edit).Updates(map[string]interface{}{
+			"status":           adminm.PendingEditStatusRejected,
+			"reviewed_by":      reviewerID,
+			"reviewed_at":      now,
+			"rejection_reason": reason,
+			"updated_at":       now,
+		}).Error; err != nil {
+			return nil, fmt.Errorf("failed to auto-reject pending edit with disallowed fields: %w", err)
+		}
+		return nil, fmt.Errorf("%w: %s", adminm.ErrPendingEditDisallowedFields, joined)
 	}
 
 	// Build update map from new values

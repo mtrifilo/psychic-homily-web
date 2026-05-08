@@ -12,7 +12,6 @@ export type {
   ArtistCitiesResponse,
   ArtistListItem,
   ArtistsListResponse,
-  ArtistSearchParams,
   ArtistSearchResponse,
   ArtistShowVenue,
   ArtistShowArtist,

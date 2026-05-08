@@ -34,10 +34,6 @@ export interface Venue {
   updated_at: string
 }
 
-export interface VenueSearchParams {
-  query: string
-}
-
 export interface VenueSearchResponse {
   venues: Venue[]
   count: number

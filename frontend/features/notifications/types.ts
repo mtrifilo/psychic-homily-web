@@ -27,18 +27,6 @@ export interface NotificationFilter {
   updated_at: string
 }
 
-/** Notification log entry from the API */
-export interface NotificationLogEntry {
-  id: number
-  filter_id?: number | null
-  filter_name?: string
-  entity_type: string
-  entity_id: number
-  channel: string
-  sent_at: string
-  read_at?: string | null
-}
-
 /** Create filter request body */
 export interface CreateFilterInput {
   name: string
@@ -66,12 +54,6 @@ export interface UpdateFilterInput {
   price_max_cents?: number | null
   notify_email?: boolean
   notify_in_app?: boolean
-}
-
-/** Quick-create filter request body */
-export interface QuickCreateFilterInput {
-  entity_type: 'artist' | 'venue' | 'label' | 'tag'
-  entity_id: number
 }
 
 /** Entity types that support quick-create notification filters */

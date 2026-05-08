@@ -39,6 +39,11 @@ type BodyResponse[T any] struct {
 	Body T
 }
 
+// TODO(PSY-426 follow-up): adoption deferred per audit dated 2026-05-04 —
+// delete or document differently if still unused at next audit. Kept so
+// future agents don't re-prototype the same shape; doc-text variation
+// across handlers has made adoption thin in practice.
+
 // IDPathRequest is the canonical path-id input. Use only when the handler's
 // only path input is a numeric id and the doc text is the conventional
 // "Numeric ID". Handlers with custom doc text (e.g. "Festival ID or slug")

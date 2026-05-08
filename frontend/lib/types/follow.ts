@@ -42,10 +42,3 @@ export interface Follower {
   username: string
   display_name?: string
 }
-
-export interface FollowersListResponse {
-  followers: Follower[]
-  total: number
-  limit: number
-  offset: number
-}

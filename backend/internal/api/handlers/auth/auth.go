@@ -201,15 +201,6 @@ func (h *AuthHandler) OAuthLoginHandler(ctx context.Context, input *OAuthLoginRe
 	return resp, nil
 }
 
-// OAuthCallbackResponse represents OAuth callback response
-type OAuthCallbackResponse struct {
-	Body struct {
-		Success bool        `json:"success" example:"true" doc:"Success status"`
-		User    *authm.User `json:"user,omitempty" doc:"User information"`
-		Message string      `json:"message" example:"Login successful" doc:"Response message"`
-	}
-}
-
 // LogoutResponse represents logout response
 type LogoutResponse struct {
 	SetCookie http.Cookie `header:"Set-Cookie" doc:"Authentication cookie"`

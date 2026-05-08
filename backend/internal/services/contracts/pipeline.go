@@ -2,7 +2,6 @@ package contracts
 
 import (
 	"context"
-	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -142,15 +141,6 @@ func (e *FetchError) Error() string {
 
 func (e *FetchError) Unwrap() error {
 	return e.Err
-}
-
-// IsFetchError checks if an error is a FetchError and returns it.
-func IsFetchError(err error) (*FetchError, bool) {
-	var fe *FetchError
-	if errors.As(err, &fe) {
-		return fe, true
-	}
-	return nil, false
 }
 
 // RenderMethod constants for the three rendering tiers.

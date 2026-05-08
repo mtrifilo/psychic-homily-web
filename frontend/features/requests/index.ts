@@ -4,9 +4,6 @@
 export type {
   Request,
   RequestListResponse,
-  RequestEntityType,
-  RequestStatus,
-  RequestSortBy,
 } from './types'
 
 export {
