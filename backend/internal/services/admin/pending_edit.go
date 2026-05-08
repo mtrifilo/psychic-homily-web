@@ -15,14 +15,22 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/utils"
 )
 
 // PendingEditService handles business logic for generic pending entity edits.
+//
+// md is the shared utils.MarkdownRenderer (goldmark + bluemonday,
+// comment-system allowlist) used to render the submitter's `summary` and the
+// admin's `rejection_reason` on read (PSY-605). Sanitization is applied on
+// every response so existing plain-text rows are also rendered safely — the
+// sanitizer is the source of truth for XSS safety, not the input pipeline.
 type PendingEditService struct {
 	db              *gorm.DB
 	revisionService contracts.RevisionServiceInterface
 	emailService    contracts.EmailServiceInterface
 	frontendURL     string
+	md              *utils.MarkdownRenderer
 }
 
 // NewPendingEditService creates a new PendingEditService.
@@ -35,7 +43,31 @@ func NewPendingEditService(database *gorm.DB, revisionService contracts.Revision
 		revisionService: revisionService,
 		emailService:    emailService,
 		frontendURL:     frontendURL,
+		md:              utils.NewMarkdownRenderer(),
 	}
+}
+
+// renderMarkdown returns sanitized HTML for the given markdown source. Returns
+// "" for empty input. Falls back to a freshly-constructed renderer when the
+// service was built without one (older test paths or bare struct literals).
+func (s *PendingEditService) renderMarkdown(src string) string {
+	if src == "" {
+		return ""
+	}
+	if s.md == nil {
+		s.md = utils.NewMarkdownRenderer()
+	}
+	return s.md.Render(src)
+}
+
+// renderRejectionReason is a *string-aware wrapper around renderMarkdown for
+// the nullable rejection_reason column. Returns "" when the pointer is nil or
+// empty.
+func (s *PendingEditService) renderRejectionReason(reason *string) string {
+	if reason == nil {
+		return ""
+	}
+	return s.renderMarkdown(*reason)
 }
 
 // CreatePendingEdit submits a new pending edit for an entity.
@@ -52,6 +84,13 @@ func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditR
 	}
 	if req.Summary == "" {
 		return nil, fmt.Errorf("summary is required")
+	}
+	// PSY-605: cap the markdown source at the same length comments and
+	// collection descriptions use, so the rendered output is bounded and the
+	// renderer's allocation profile stays consistent with the rest of the
+	// markdown surfaces.
+	if len(req.Summary) > contracts.MaxPendingEditSummaryLength {
+		return nil, fmt.Errorf("summary exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength)
 	}
 
 	// Verify the entity exists
@@ -317,6 +356,11 @@ func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, rea
 	if reason == "" {
 		return nil, fmt.Errorf("rejection reason is required")
 	}
+	// PSY-605: rejection_reason mirrors summary's markdown stack and limit so
+	// the contributor-side render (PSY-600 surface, when it ships) is bounded.
+	if len(reason) > contracts.MaxPendingEditSummaryLength {
+		return nil, fmt.Errorf("rejection reason exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength)
+	}
 
 	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
@@ -373,20 +417,28 @@ func (s *PendingEditService) CancelPendingEdit(editID uint, userID uint) error {
 }
 
 // toResponse converts a PendingEntityEdit model to a response DTO.
+//
+// Summary and RejectionReason are rendered on read via the shared
+// utils.MarkdownRenderer (goldmark + bluemonday, comment-system allowlist),
+// matching the comment + collection-description shape (PSY-605). Raw markdown
+// is preserved alongside HTML so contributors can re-populate the textarea
+// without re-parsing HTML back to markdown.
 func (s *PendingEditService) toResponse(edit *adminm.PendingEntityEdit) *contracts.PendingEditResponse {
 	resp := &contracts.PendingEditResponse{
-		ID:              edit.ID,
-		EntityType:      edit.EntityType,
-		EntityID:        edit.EntityID,
-		EntityName:      resolveEntityName(s.db, edit.EntityType, edit.EntityID),
-		SubmittedBy:     edit.SubmittedBy,
-		Summary:         edit.Summary,
-		Status:          edit.Status,
-		ReviewedBy:      edit.ReviewedBy,
-		ReviewedAt:      edit.ReviewedAt,
-		RejectionReason: edit.RejectionReason,
-		CreatedAt:       edit.CreatedAt,
-		UpdatedAt:       edit.UpdatedAt,
+		ID:                  edit.ID,
+		EntityType:          edit.EntityType,
+		EntityID:            edit.EntityID,
+		EntityName:          resolveEntityName(s.db, edit.EntityType, edit.EntityID),
+		SubmittedBy:         edit.SubmittedBy,
+		Summary:             edit.Summary,
+		SummaryHTML:         s.renderMarkdown(edit.Summary),
+		Status:              edit.Status,
+		ReviewedBy:          edit.ReviewedBy,
+		ReviewedAt:          edit.ReviewedAt,
+		RejectionReason:     edit.RejectionReason,
+		RejectionReasonHTML: s.renderRejectionReason(edit.RejectionReason),
+		CreatedAt:           edit.CreatedAt,
+		UpdatedAt:           edit.UpdatedAt,
 	}
 
 	// Parse field changes

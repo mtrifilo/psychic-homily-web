@@ -128,6 +128,12 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 	if summary == "" {
 		return nil, huma.Error422UnprocessableEntity("Summary is required — explain why you are making this change")
 	}
+	// PSY-605: summary is markdown-rendered on read via utils.MarkdownRenderer,
+	// so cap it at the same 10k-char ceiling comments and collection
+	// descriptions use.
+	if len(summary) > contracts.MaxPendingEditSummaryLength {
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Summary exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength))
+	}
 
 	// Validate fields against allowed list, then validate URL field values
 	// (PSY-549) so contributors can't land non-http/https URLs or oversize
@@ -460,6 +466,11 @@ func (h *PendingEditHandler) AdminRejectPendingEditHandler(ctx context.Context, 
 	reason := strings.TrimSpace(req.Body.Reason)
 	if reason == "" {
 		return nil, huma.Error422UnprocessableEntity("Rejection reason is required — be specific to help the contributor learn")
+	}
+	// PSY-605: rejection reason is markdown-rendered on the contributor view
+	// (when PSY-600 ships) via utils.MarkdownRenderer; cap matches summary.
+	if len(reason) > contracts.MaxPendingEditSummaryLength {
+		return nil, huma.Error422UnprocessableEntity(fmt.Sprintf("Rejection reason exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength))
 	}
 
 	rejected, err := h.pendingEditService.RejectPendingEdit(uint(editID), user.ID, reason)
