@@ -168,15 +168,23 @@ function PendingEditRow({ edit }: PendingEditRowProps) {
         </div>
 
         {edit.summary && (
-          <p className="mt-2 text-sm text-muted-foreground">
-            {edit.summary}
-          </p>
+          edit.summary_html ? (
+            <div
+              className="mt-2 text-sm text-muted-foreground prose prose-sm max-w-none"
+              dangerouslySetInnerHTML={{ __html: edit.summary_html }}
+            />
+          ) : (
+            <p className="mt-2 text-sm text-muted-foreground">
+              {edit.summary}
+            </p>
+          )
         )}
 
         {/* Rejection reason — visible by default since it's the moderator's
             response to YOUR edit and the most actionable detail on the row.
-            Plain text rather than markdown until PSY-605 ships a frontend
-            renderer for moderator-authored content. */}
+            Renders sanitised HTML when the backend ships rejection_reason_html
+            (post-PSY-605); falls back to plain whitespace-preserved text for
+            legacy rows that pre-date the markdown roundtrip. */}
         {edit.status === 'rejected' && edit.rejection_reason && (
           <div
             className="mt-3 rounded-md border border-rose-200 dark:border-rose-800 bg-rose-50/50 dark:bg-rose-950/30 p-3"
@@ -188,9 +196,18 @@ function PendingEditRow({ edit }: PendingEditRowProps) {
                 <p className="text-xs font-medium text-rose-700 dark:text-rose-400 uppercase tracking-wide">
                   Moderator response
                 </p>
-                <p className="mt-1 text-sm text-foreground whitespace-pre-wrap break-words">
-                  {edit.rejection_reason}
-                </p>
+                {edit.rejection_reason_html ? (
+                  <div
+                    className="mt-1 text-sm text-foreground prose prose-sm max-w-none"
+                    dangerouslySetInnerHTML={{
+                      __html: edit.rejection_reason_html,
+                    }}
+                  />
+                ) : (
+                  <p className="mt-1 text-sm text-foreground whitespace-pre-wrap break-words">
+                    {edit.rejection_reason}
+                  </p>
+                )}
               </div>
             </div>
           </div>
