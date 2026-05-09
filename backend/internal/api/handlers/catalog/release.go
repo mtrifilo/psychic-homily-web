@@ -329,10 +329,10 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget) — PSY-618: edits go to entity_edit_audit_logs
 	if h.auditLogService != nil {
 		go func() {
-			h.auditLogService.LogAction(user.ID, "edit_release", "release", releaseID, nil)
+			h.auditLogService.LogEntityEdit(user.ID, "release", releaseID, nil)
 		}()
 	}
 

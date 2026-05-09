@@ -185,14 +185,16 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 			)
 			// Fall through — the pending edit was still created
 		} else {
-			// Fire-and-forget audit log
-			if h.auditLogService != nil {
-				go h.auditLogService.LogAction(user.ID, "edit_"+entityType, entityType, uint(entityID), map[string]interface{}{
-					"edit_id": approved.ID,
-					"direct":  true,
-					"summary": summary,
-				})
-			}
+			// PSY-618: do NOT emit a "edit_<type>" audit row here. The
+			// pending_entity_edits row above is the canonical user-facing
+			// event; ApprovePendingEdit also writes a revisions row. A
+			// parallel audit row dual-rendered in the contributor activity
+			// feed (UNION over audit_logs + pending_entity_edits) and
+			// double-counted in stats (ArtistsEdited via audit_log +
+			// RevisionsMade via revisions). Direct admin edits via the
+			// catalog handlers continue to log via LogEntityEdit; this
+			// path's edit is already represented by pending_entity_edits +
+			// revisions.
 
 			out := &SuggestEntityEditResponse{}
 			out.Body.PendingEdit = approved

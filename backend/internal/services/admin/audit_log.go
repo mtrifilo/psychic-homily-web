@@ -71,6 +71,51 @@ func (s *AuditLogService) LogAction(actorID uint, action string, entityType stri
 	}
 }
 
+// LogEntityEdit records a direct content-edit on a knowledge-graph entity in
+// entity_edit_audit_logs. Edit events were split out of audit_logs in
+// PSY-618 so the contributor activity feed (which already reads
+// pending_entity_edits) stops dual-rendering trusted-user direct-edits, and
+// stats counters can read a single source of truth.
+//
+// Errors are logged but not returned — audit logging should not fail the
+// parent operation.
+func (s *AuditLogService) LogEntityEdit(actorID uint, entityType string, entityID uint, metadata map[string]interface{}) {
+	if s.db == nil {
+		logger.Default().Error("entity_edit_audit_log_failed", "error", "database not initialized")
+		return
+	}
+
+	log := adminm.EntityEditAuditLog{
+		ActorID:    &actorID,
+		EntityType: entityType,
+		EntityID:   entityID,
+		CreatedAt:  time.Now().UTC(),
+	}
+
+	if metadata != nil {
+		metadataJSON, err := json.Marshal(metadata)
+		if err != nil {
+			logger.Default().Error("entity_edit_audit_log_metadata_marshal_failed",
+				"error", err.Error(),
+				"entity_type", entityType,
+				"entity_id", entityID,
+			)
+		} else {
+			raw := json.RawMessage(metadataJSON)
+			log.Metadata = &raw
+		}
+	}
+
+	if err := s.db.Create(&log).Error; err != nil {
+		logger.Default().Error("entity_edit_audit_log_create_failed",
+			"error", err.Error(),
+			"entity_type", entityType,
+			"entity_id", entityID,
+			"actor_id", actorID,
+		)
+	}
+}
+
 // GetAuditLogs returns paginated audit log entries with optional filters
 func (s *AuditLogService) GetAuditLogs(limit, offset int, filters contracts.AuditLogFilters) ([]*contracts.AuditLogResponse, int64, error) {
 	if s.db == nil {

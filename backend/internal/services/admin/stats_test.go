@@ -314,13 +314,16 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_BasicE
 }
 
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_WithSlugResolution() {
+	// PSY-618: edit events live in entity_edit_audit_logs now. The merged
+	// recent-activity feed surfaces them with the same "artist_edited"
+	// event type the frontend already maps to a pencil icon.
 	user := suite.createUser("admin@test.com")
 	slug := "test-slug"
 	artist := &catalogm.Artist{Name: "Test Artist", Slug: &slug}
 	err := suite.db.Create(artist).Error
 	suite.Require().NoError(err)
 
-	suite.createAuditLog(user.ID, "edit_artist", "artist", artist.ID)
+	suite.createEntityEditAuditLog(user.ID, "artist", artist.ID)
 
 	feed, err := suite.service.GetRecentActivity()
 	suite.Require().NoError(err)
@@ -441,6 +444,18 @@ func (suite *AdminStatsServiceIntegrationTestSuite) createAuditLogWithTime(actor
 	err := suite.db.Create(log).Error
 	suite.Require().NoError(err)
 	suite.db.Exec("UPDATE audit_logs SET created_at = ? WHERE id = ?", createdAt, log.ID)
+}
+
+// createEntityEditAuditLog inserts a row into entity_edit_audit_logs (PSY-618
+// split-out table for entity-edit events).
+func (suite *AdminStatsServiceIntegrationTestSuite) createEntityEditAuditLog(actorID uint, entityType string, entityID uint) {
+	log := &adminm.EntityEditAuditLog{
+		ActorID:    &actorID,
+		EntityType: entityType,
+		EntityID:   entityID,
+	}
+	err := suite.db.Create(log).Error
+	suite.Require().NoError(err)
 }
 
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetDashboardStats_FullScenario() {

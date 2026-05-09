@@ -863,9 +863,9 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 		)
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget) — PSY-618: edits go to entity_edit_audit_logs
 	if h.auditLogService != nil {
-		h.auditLogService.LogAction(user.ID, "edit_artist", "artist", uint(artistID), nil)
+		h.auditLogService.LogEntityEdit(user.ID, "artist", uint(artistID), nil)
 	}
 
 	// Record revision (fire and forget)

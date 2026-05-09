@@ -585,14 +585,16 @@ func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
 	}
+	// PSY-618: edit events go to entity_edit_audit_logs via LogEntityEdit, not
+	// to audit_logs via LogAction. The handler at artist.go:867-868 dispatches
+	// `LogEntityEdit(user.ID, "artist", artistID, nil)` — there's no action
+	// argument since the table only stores edit rows and entity_type is the
+	// disambiguator.
 	auditMock := &testhelpers.MockAuditLogService{
-		LogActionFn: func(actorID uint, action string, entityType string, entityID uint, _ map[string]interface{}) {
+		LogEntityEditFn: func(actorID uint, entityType string, entityID uint, _ map[string]interface{}) {
 			auditCalled = true
 			if actorID != 1 {
 				t.Errorf("expected actorID=1, got %d", actorID)
-			}
-			if action != "edit_artist" {
-				t.Errorf("expected action='edit_artist', got %q", action)
 			}
 			if entityType != "artist" {
 				t.Errorf("expected entityType='artist', got %q", entityType)
@@ -613,7 +615,7 @@ func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !auditCalled {
-		t.Error("expected audit log to be called")
+		t.Error("expected entity-edit audit log to be called")
 	}
 }
 

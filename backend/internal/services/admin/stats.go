@@ -2,6 +2,7 @@ package admin
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -124,18 +125,34 @@ func (s *AdminStatsService) GetDashboardStats() (*contracts.AdminDashboardStats,
 	return stats, nil
 }
 
-// GetRecentActivity returns the 20 most recent admin-relevant events from the audit log.
+// GetRecentActivity returns the 20 most recent admin-relevant events from
+// the audit log. PSY-618 split entity-edit events into
+// entity_edit_audit_logs; this method merges both tables in Go so admins
+// still see "Artist X was edited" entries on the dashboard without the
+// dual-render that motivated the split.
 func (s *AdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
-	var logs []adminm.AuditLog
-	if err := s.db.Preload("Actor").Order("created_at DESC").Limit(20).Find(&logs).Error; err != nil {
+
+	const limit = 20
+
+	// Pull the top N from each source. The merged result is then re-sorted
+	// and truncated to 20. Pulling 20 from each guarantees we have enough
+	// rows to fill the merged window even if all events came from one
+	// source.
+	var auditLogs []adminm.AuditLog
+	if err := s.db.Preload("Actor").Order("created_at DESC").Limit(limit).Find(&auditLogs).Error; err != nil {
 		return nil, err
 	}
 
-	events := make([]contracts.ActivityEvent, 0, len(logs))
-	for _, log := range logs {
+	var editLogs []adminm.EntityEditAuditLog
+	if err := s.db.Preload("Actor").Order("created_at DESC").Limit(limit).Find(&editLogs).Error; err != nil {
+		return nil, err
+	}
+
+	events := make([]contracts.ActivityEvent, 0, len(auditLogs)+len(editLogs))
+	for _, log := range auditLogs {
 		event := contracts.ActivityEvent{
 			ID:          log.ID,
 			EventType:   mapActionToEventType(log.Action),
@@ -143,16 +160,38 @@ func (s *AdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResponse
 			EntityType:  normalizeEntityType(log.EntityType),
 			Timestamp:   log.CreatedAt,
 		}
-
-		// Resolve actor name
 		if log.Actor != nil {
 			event.ActorName = resolveActorName(log.Actor)
 		}
-
-		// Resolve entity slug
 		event.EntitySlug = s.resolveEntitySlug(log.EntityType, log.EntityID)
-
 		events = append(events, event)
+	}
+	for _, log := range editLogs {
+		// Synthesize the same shape the audit_log code path produced
+		// pre-PSY-618 so the frontend mapping for "<type>_edited" event
+		// types (e.g. "artist_edited") stays unchanged.
+		action := "edit_" + log.EntityType
+		event := contracts.ActivityEvent{
+			ID:          log.ID,
+			EventType:   mapActionToEventType(action),
+			Description: buildDescription(action, log.EntityType, log.EntityID),
+			EntityType:  normalizeEntityType(log.EntityType),
+			Timestamp:   log.CreatedAt,
+		}
+		if log.Actor != nil {
+			event.ActorName = resolveActorName(log.Actor)
+		}
+		event.EntitySlug = s.resolveEntitySlug(log.EntityType, log.EntityID)
+		events = append(events, event)
+	}
+
+	// Sort merged set by timestamp DESC (stable: most-recent first).
+	sort.SliceStable(events, func(i, j int) bool {
+		return events[i].Timestamp.After(events[j].Timestamp)
+	})
+
+	if len(events) > limit {
+		events = events[:limit]
 	}
 
 	return &contracts.ActivityFeedResponse{Events: events}, nil

@@ -393,6 +393,12 @@ type ArtistReportServiceInterface interface {
 // AuditLogServiceInterface defines the contract for audit log operations.
 type AuditLogServiceInterface interface {
 	LogAction(actorID uint, action string, entityType string, entityID uint, metadata map[string]interface{})
+	// LogEntityEdit records a direct content-edit on a knowledge-graph entity
+	// in entity_edit_audit_logs (PSY-618). This is the canonical writer for
+	// every "user edited an entity" event; do NOT call LogAction with
+	// "edit_<type>" for these — that table is moderation/creation events
+	// only.
+	LogEntityEdit(actorID uint, entityType string, entityID uint, metadata map[string]interface{})
 	GetAuditLogs(limit, offset int, filters AuditLogFilters) ([]*AuditLogResponse, int64, error)
 }
 

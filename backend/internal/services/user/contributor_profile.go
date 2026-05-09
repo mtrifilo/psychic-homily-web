@@ -283,7 +283,11 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 		Where("submitted_by = ? AND entity_type = ?", userID, adminm.PendingEditEntityVenue).
 		Count(&stats.VenueEditsSubmitted)
 
-	// Count actions from audit_log grouped by action
+	// Count actions from audit_log grouped by action.
+	// PSY-618: edit_<type> rows live in entity_edit_audit_logs now and are
+	// counted separately below so the contributor activity feed stops
+	// dual-rendering trusted-user direct-edits and the stats counters read
+	// from a single source of truth.
 	type actionCount struct {
 		Action string
 		Count  int64
@@ -299,19 +303,44 @@ func (s *ContributorProfileService) GetContributionStats(userID uint) (*contract
 		if moderationActions[ac.Action] {
 			stats.ModerationActions += ac.Count
 		} else {
-			switch {
-			case ac.Action == "create_release" || ac.Action == "edit_release":
+			switch ac.Action {
+			case "create_release":
 				stats.ReleasesCreated += ac.Count
-			case ac.Action == "create_label" || ac.Action == "edit_label":
+			case "create_label":
 				stats.LabelsCreated += ac.Count
-			case ac.Action == "create_festival" || ac.Action == "edit_festival" ||
-				ac.Action == "add_festival_artist" || ac.Action == "remove_festival_artist" ||
-				ac.Action == "update_festival_artist" || ac.Action == "add_festival_venue" ||
-				ac.Action == "remove_festival_venue":
+			case "create_festival",
+				"add_festival_artist", "remove_festival_artist",
+				"update_festival_artist",
+				"add_festival_venue", "remove_festival_venue":
 				stats.FestivalsCreated += ac.Count
-			case ac.Action == "edit_artist":
-				stats.ArtistsEdited += ac.Count
 			}
+		}
+	}
+
+	// Count edit events from entity_edit_audit_logs (PSY-618). Edits used to
+	// live in audit_logs as "edit_<type>" actions but were split out so
+	// trusted-user direct-edits stop dual-rendering in the activity feed.
+	type entityEditCount struct {
+		EntityType string
+		Count      int64
+	}
+	var entityEditCounts []entityEditCount
+	s.db.Model(&adminm.EntityEditAuditLog{}).
+		Select("entity_type, count(*) as count").
+		Where("actor_id = ?", userID).
+		Group("entity_type").
+		Scan(&entityEditCounts)
+
+	for _, ec := range entityEditCounts {
+		switch ec.EntityType {
+		case "artist":
+			stats.ArtistsEdited += ec.Count
+		case "release":
+			stats.ReleasesCreated += ec.Count
+		case "label":
+			stats.LabelsCreated += ec.Count
+		case "festival":
+			stats.FestivalsCreated += ec.Count
 		}
 	}
 
@@ -402,11 +431,17 @@ func (s *ContributorProfileService) GetContributionHistory(userID uint, limit, o
 	// normalized back to "{type}_edit" so the activity UI keeps a distinct
 	// event icon for edits vs. submissions.
 	entityEditQuery := `SELECT id, 'submit_' || entity_type || '_edit' as action, entity_type || '_edit' as entity_type, entity_id as entity_id, NULL as metadata, created_at, 'submission' as source FROM pending_entity_edits WHERE submitted_by = ?`
+	// Direct entity-edit audits live in their own table post-PSY-618. These
+	// are the terminal "edit applied" events (formerly `edit_<type>` rows in
+	// audit_logs). We synthesise the `edit_<type>` action prefix so the
+	// frontend's icon/label map — which keys on action="edit_artist" et al.
+	// — keeps working without churn.
+	entityEditAuditQuery := `SELECT id, 'edit_' || entity_type as action, entity_type, entity_id, metadata, created_at, 'edit_audit' as source FROM entity_edit_audit_logs WHERE actor_id = ?`
 
-	args := []interface{}{userID, userID, userID, userID}
+	args := []interface{}{userID, userID, userID, userID, userID}
 
-	unionSQL := fmt.Sprintf("(%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s)",
-		auditQuery, showQuery, venueQuery, entityEditQuery)
+	unionSQL := fmt.Sprintf("(%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s) UNION ALL (%s)",
+		auditQuery, showQuery, venueQuery, entityEditQuery, entityEditAuditQuery)
 
 	entityFilter := ""
 	if entityType != "" {
@@ -502,6 +537,16 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.
 			FROM revisions
 			WHERE user_id = ? AND created_at >= NOW() - INTERVAL '365 days'
 			GROUP BY DATE(created_at)
+
+			UNION ALL
+
+			-- PSY-618: edit_<type> rows moved out of audit_logs into
+			-- entity_edit_audit_logs. Without this UNION the heatmap
+			-- under-counts trusted-user direct edits post-backfill.
+			SELECT DATE(created_at) AS activity_date, COUNT(*) AS cnt
+			FROM entity_edit_audit_logs
+			WHERE actor_id = ? AND created_at >= NOW() - INTERVAL '365 days'
+			GROUP BY DATE(created_at)
 		) AS combined
 		GROUP BY activity_date
 		ORDER BY activity_date ASC
@@ -513,7 +558,7 @@ func (s *ContributorProfileService) GetActivityHeatmap(userID uint) (*contracts.
 	}
 
 	var rows []dayRow
-	err := s.db.Raw(query, userID, userID, userID, userID, userID).Scan(&rows).Error
+	err := s.db.Raw(query, userID, userID, userID, userID, userID, userID).Scan(&rows).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to get activity heatmap: %w", err)
 	}
