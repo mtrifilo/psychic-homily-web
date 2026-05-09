@@ -6,3 +6,5 @@ export { useContributeOpportunities, useContributeCategory } from './useContribu
 export { useDataGaps } from './useDataGaps'
 export type { DataGap } from './useDataGaps'
 export { useEntitySaveSuccessBanner } from './useEntitySaveSuccessBanner'
+export { useMyPendingEdits } from './useMyPendingEdits'
+export { useCancelPendingEdit } from './useCancelPendingEdit'
