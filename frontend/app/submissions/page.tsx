@@ -1,103 +1,37 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import {
-  Loader2,
-  Music,
-  AlertCircle,
-  Mail,
-  Settings,
-  ArrowRight,
-} from 'lucide-react'
+import { Loader2, ClipboardList, Music, ArrowRight } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
-import { ShowForm, AIFormFiller } from '@/components/forms'
-import type { ExtractedShowData } from '@/lib/types/extraction'
+import { MyPendingEditsList } from '@/features/contributions'
 
-function EmailVerificationRequired() {
-  return (
-    <div className="min-h-[calc(100vh-64px)] px-4 py-8">
-      <div className="mx-auto max-w-lg">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-amber-500/10">
-            <Mail className="h-6 w-6 text-amber-500" />
-          </div>
-          <h1 className="text-2xl font-bold tracking-tight">
-            Email Verification Required
-          </h1>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Please verify your email to submit shows
-          </p>
-        </div>
-
-        {/* Info Card */}
-        <Card className="border-amber-500/20 bg-amber-500/5">
-          <CardHeader>
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-amber-500" />
-              <CardTitle className="text-lg">Why verify your email?</CardTitle>
-            </div>
-            <CardDescription>
-              To maintain the quality of our community calendar, we require
-              email verification before you can submit shows.
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <p className="text-sm text-muted-foreground">
-              Verifying your email helps us:
-            </p>
-            <ul className="text-sm text-muted-foreground list-disc list-inside space-y-1">
-              <li>Ensure show submissions come from real users</li>
-              <li>Contact you if there are questions about your submission</li>
-              <li>Keep the calendar accurate and spam-free</li>
-            </ul>
-
-            <div className="pt-4 space-y-3">
-              <Button asChild className="w-full gap-2">
-                <Link href="/profile?tab=settings">
-                  <Settings className="h-4 w-4" />
-                  Go to Settings to Verify Email
-                  <ArrowRight className="h-4 w-4" />
-                </Link>
-              </Button>
-              <p className="text-xs text-center text-muted-foreground">
-                After verifying, come back here to submit your show
-              </p>
-            </div>
-          </CardContent>
-        </Card>
-      </div>
-    </div>
-  )
-}
-
+/**
+ * /submissions — contributor pending-edits feedback loop.
+ *
+ * Replaces the previous email-verification gate (PSY-600). The page now
+ * renders the signed-in user's own pending entity edits — status,
+ * moderator response (when rejected), and a link to the affected entity
+ * — so contributors can track the lifecycle of edits they suggested via
+ * EntityEditDrawer. Anonymous users redirect to /auth.
+ *
+ * Show submission has its own home at /shows/submit (the form itself is
+ * gated on email verification there).
+ */
 export default function SubmissionsPage() {
   const router = useRouter()
-  const { isAuthenticated, isLoading, user } = useAuthContext()
+  const { isAuthenticated, isLoading } = useAuthContext()
 
-  // State for AI-extracted show data (must be before any early returns)
-  const [extractedData, setExtractedData] = useState<
-    ExtractedShowData | undefined
-  >()
-
-  // Redirect unauthenticated users to login
+  // Redirect unauthenticated users to login. Mirrors the previous /submissions
+  // behaviour so existing bookmarks land on the same auth flow.
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
       router.push('/auth?returnTo=%2Fsubmissions')
     }
   }, [isAuthenticated, isLoading, router])
 
-  // Show loading state while checking auth
   if (isLoading) {
     return (
       <div className="flex min-h-[calc(100vh-64px)] items-center justify-center">
@@ -106,44 +40,53 @@ export default function SubmissionsPage() {
     )
   }
 
-  // Don't render if not authenticated (will redirect)
   if (!isAuthenticated) {
     return null
   }
 
-  // Check if user can submit shows (admin or verified email)
-  const canSubmit = user?.is_admin || user?.email_verified
-
-  // Show verification required screen for non-admin users with unverified emails
-  if (!canSubmit) {
-    return <EmailVerificationRequired />
-  }
-
   return (
     <div className="min-h-[calc(100vh-64px)] px-4 py-8">
-      <div className="mx-auto max-w-lg">
-        {/* Header */}
-        <div className="mb-8 text-center">
-          <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-primary/10">
-            <Music className="h-6 w-6 text-primary" />
+      <div className="mx-auto max-w-3xl">
+        <div className="mb-8">
+          <div className="flex items-center gap-3 mb-2">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+              <ClipboardList className="h-5 w-5 text-primary" />
+            </div>
+            <h1 className="text-2xl font-bold tracking-tight">My Submissions</h1>
           </div>
-          <h1 className="text-2xl font-bold tracking-tight">Submit a Show</h1>
-          {user && (
-            <p className="mt-1 text-xs text-muted-foreground">
-              Submitting as {user.email}
-            </p>
-          )}
+          <p className="text-sm text-muted-foreground">
+            Edits you have suggested to artists, venues, festivals, releases,
+            and labels. Approved edits land on the entity; rejected ones come
+            with a moderator response.
+          </p>
         </div>
 
-        {/* AI Form Filler */}
-        <AIFormFiller onExtracted={setExtractedData} />
+        <MyPendingEditsList />
 
-        {/* Form Card */}
-        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-          <CardContent className="pt-4">
-            <ShowForm mode="create" initialExtraction={extractedData} />
-          </CardContent>
-        </Card>
+        {/* Submit-a-show shortcut — preserves the discoverability of the
+            previous page's main affordance now that the show form lives at
+            /shows/submit. */}
+        <div className="mt-8 rounded-lg border border-border/50 bg-card/50 p-4">
+          <div className="flex items-center justify-between gap-4 flex-wrap">
+            <div className="flex items-center gap-3 min-w-0">
+              <div className="flex h-9 w-9 items-center justify-center rounded-md bg-primary/10 text-primary shrink-0">
+                <Music className="h-4 w-4" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-medium">Have a show to add?</p>
+                <p className="text-xs text-muted-foreground">
+                  Submit it to the calendar.
+                </p>
+              </div>
+            </div>
+            <Button asChild size="sm" variant="outline">
+              <Link href="/shows/submit" className="gap-2">
+                Submit a Show
+                <ArrowRight className="h-3.5 w-3.5" />
+              </Link>
+            </Button>
+          </div>
+        </div>
       </div>
     </div>
   )

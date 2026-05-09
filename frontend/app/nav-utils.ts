@@ -10,6 +10,9 @@ export const navLinks = [
     external: true,
     prefetch: false as const,
   },
+  // /submissions = contributor pending-edits feedback loop (PSY-600).
+  // Show submission has its own page at /shows/submit and is reachable
+  // from the Sidebar / CommandPalette / Contribute dashboard.
   { href: '/submissions', label: 'My Submissions', prefetch: false as const },
 ]
 

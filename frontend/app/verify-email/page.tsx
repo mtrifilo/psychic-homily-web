@@ -127,7 +127,7 @@ function VerifyEmailContent() {
               </p>
               <div className="flex flex-col gap-2">
                 <Button asChild className="gap-2">
-                  <Link href="/submissions">
+                  <Link href="/shows/submit">
                     <Mail className="h-4 w-4" />
                     Submit a Show
                     <ArrowRight className="h-4 w-4" />

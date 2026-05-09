@@ -424,11 +424,17 @@ func (s *PendingEditService) CancelPendingEdit(editID uint, userID uint) error {
 // is preserved alongside HTML so contributors can re-populate the textarea
 // without re-parsing HTML back to markdown.
 func (s *PendingEditService) toResponse(edit *adminm.PendingEntityEdit) *contracts.PendingEditResponse {
+	// Single combined lookup so name + slug come from the same row read.
+	// Slug is non-nil for slug-addressed entity types — lets the
+	// contributor /submissions view build /artists/:slug links instead of
+	// dead /artists/:id links (PSY-600).
+	entityName, entitySlug := resolveEntityNameAndSlug(s.db, edit.EntityType, edit.EntityID)
 	resp := &contracts.PendingEditResponse{
 		ID:                  edit.ID,
 		EntityType:          edit.EntityType,
 		EntityID:            edit.EntityID,
-		EntityName:          resolveEntityName(s.db, edit.EntityType, edit.EntityID),
+		EntityName:          entityName,
+		EntitySlug:          entitySlug,
 		SubmittedBy:         edit.SubmittedBy,
 		Summary:             edit.Summary,
 		SummaryHTML:         s.renderMarkdown(edit.Summary),

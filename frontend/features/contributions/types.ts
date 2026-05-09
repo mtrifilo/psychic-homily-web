@@ -42,15 +42,44 @@ export interface PendingEditResponse {
   id: number
   entity_type: string
   entity_id: number
+  /** Resolved display name for the affected entity (e.g. "Phantogram"). */
+  entity_name?: string
+  /**
+   * Slug-based URL segment for entity types whose public pages are slug-
+   * addressed (artist, venue, festival, release, label). nil for entities
+   * without slugs. Use to build /artists/:slug-style links — falling back
+   * to entity_id alone produces broken URLs (those routes are slug-only).
+   */
+  entity_slug?: string | null
   submitted_by: number
   submitter_name: string
+  /**
+   * Submitter's username when set, null otherwise. Pass to
+   * `<UserAttribution username={...} />` to render the byline as a link to
+   * /users/:username when non-null. PSY-619.
+   */
+  submitter_username?: string | null
   field_changes: FieldChange[]
   summary: string
+  /**
+   * PSY-605: sanitised HTML of `summary` rendered server-side via the shared
+   * MarkdownRenderer (goldmark + bluemonday, comment-system allowlist).
+   * Render via `dangerouslySetInnerHTML` — the sanitiser is the source of
+   * truth for XSS safety. Empty/undefined for legacy rows; the raw `summary`
+   * is still available alongside as a fallback.
+   */
+  summary_html?: string
   status: PendingEditStatus
   reviewed_by?: number
   reviewer_name?: string
+  reviewer_username?: string | null
   reviewed_at?: string
   rejection_reason?: string
+  /**
+   * PSY-605: sanitised HTML of `rejection_reason`. Same renderer + allowlist
+   * as `summary_html`. Empty when no rejection reason has been written.
+   */
+  rejection_reason_html?: string
   created_at: string
   updated_at: string
 }

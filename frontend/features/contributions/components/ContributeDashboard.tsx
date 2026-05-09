@@ -210,7 +210,7 @@ const quickActions = [
   {
     label: 'Submit a Show',
     description: 'Add an upcoming show to the calendar',
-    href: '/submissions',
+    href: '/shows/submit',
     icon: Music,
   },
   {
@@ -326,7 +326,7 @@ export function ContributeDashboard() {
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3 pt-2">
             <Button variant="outline" size="sm" asChild>
-              <Link href="/submissions">
+              <Link href="/shows/submit">
                 <Music className="h-4 w-4" />
                 Submit a Show
               </Link>

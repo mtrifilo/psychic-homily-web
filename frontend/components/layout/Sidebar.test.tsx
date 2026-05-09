@@ -28,9 +28,9 @@ describe('sidebarGroups', () => {
     expect(discover.items.map(i => i.label)).toEqual(['Shows', 'Festivals', 'Artists', 'Venues', 'Releases', 'Labels', 'Tags', 'Scenes', 'Collections', 'Charts', 'Radio'])
   })
 
-  it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, My Submissions', () => {
+  it('Community contains Contribute, Requests, Blog, DJ Sets, Substack, Submit a Show, My Submissions', () => {
     const community = sidebarGroups.find(g => g.label === 'Community')!
-    expect(community.items.map(i => i.label)).toEqual(['Contribute', 'Leaderboard', 'Requests', 'Blog', 'DJ Sets', 'Substack', 'My Submissions'])
+    expect(community.items.map(i => i.label)).toEqual(['Contribute', 'Leaderboard', 'Requests', 'Blog', 'DJ Sets', 'Substack', 'Submit a Show', 'My Submissions'])
   })
 
   it('only Substack is marked external', () => {
