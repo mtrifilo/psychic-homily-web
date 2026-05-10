@@ -23,6 +23,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { InlineErrorBanner } from '@/components/shared'
 import { useLabels, useLabel } from '../hooks/useLabels'
 import {
   useCreateLabel,
@@ -138,9 +139,7 @@ function CreateLabelForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       <div className="space-y-2">
@@ -486,9 +485,7 @@ function EditLabelForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       <div className="space-y-2">
@@ -726,9 +723,7 @@ function DeleteConfirmation({
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       <p className="text-sm text-muted-foreground">
@@ -880,13 +875,11 @@ export function LabelManagement() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center">
-          <p className="text-destructive">
-            {error instanceof Error
-              ? error.message
-              : 'Failed to load labels.'}
-          </p>
-        </div>
+        <InlineErrorBanner variant="queryFallback">
+          {error instanceof Error
+            ? error.message
+            : 'Failed to load labels.'}
+        </InlineErrorBanner>
       )}
 
       {/* Empty state */}

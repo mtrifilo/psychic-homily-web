@@ -75,4 +75,96 @@ describe('InlineErrorBanner', () => {
     const banner = screen.getByRole('alert')
     expect(banner).not.toHaveAttribute('data-testid')
   })
+
+  describe('variant="default"', () => {
+    it('applies p-3 + text-sm shape classes when variant is omitted', () => {
+      render(<InlineErrorBanner>Failed</InlineErrorBanner>)
+
+      const banner = screen.getByRole('alert')
+      expect(banner).toHaveClass('p-3', 'text-sm', 'text-destructive')
+      // Should NOT pick up the queryFallback shape.
+      expect(banner).not.toHaveClass('p-4', 'text-center')
+    })
+
+    it('applies the same shape classes when variant="default" is explicit', () => {
+      render(<InlineErrorBanner variant="default">Failed</InlineErrorBanner>)
+
+      const banner = screen.getByRole('alert')
+      expect(banner).toHaveClass('p-3', 'text-sm', 'text-destructive')
+      expect(banner).not.toHaveClass('p-4', 'text-center')
+    })
+  })
+
+  describe('variant="queryFallback"', () => {
+    it('applies p-4 + text-center shape classes for query-load fallbacks', () => {
+      render(
+        <InlineErrorBanner variant="queryFallback">
+          Failed to load tags.
+        </InlineErrorBanner>
+      )
+
+      const banner = screen.getByRole('alert')
+      expect(banner).toHaveClass(
+        'p-4',
+        'text-center',
+        'text-destructive'
+      )
+      // Should NOT pick up the default shape.
+      expect(banner).not.toHaveClass('p-3', 'text-sm')
+    })
+
+    it('keeps the destructive tone tokens shared with default', () => {
+      render(
+        <InlineErrorBanner variant="queryFallback">
+          Failed to load tags.
+        </InlineErrorBanner>
+      )
+
+      const banner = screen.getByRole('alert')
+      expect(banner).toHaveClass(
+        'rounded-lg',
+        'border',
+        'border-destructive/50',
+        'bg-destructive/10'
+      )
+    })
+
+    it('still bakes in role="alert" so screen readers announce the fallback', () => {
+      render(
+        <InlineErrorBanner variant="queryFallback">
+          Failed to load tags.
+        </InlineErrorBanner>
+      )
+
+      expect(screen.getByRole('alert')).toHaveTextContent(
+        'Failed to load tags.'
+      )
+    })
+
+    it('merges className without dropping the variant shape', () => {
+      render(
+        <InlineErrorBanner variant="queryFallback" className="my-4">
+          Failed
+        </InlineErrorBanner>
+      )
+
+      const banner = screen.getByRole('alert')
+      expect(banner).toHaveClass('my-4', 'p-4', 'text-center')
+    })
+
+    it('forwards testId on the queryFallback variant', () => {
+      render(
+        <InlineErrorBanner
+          variant="queryFallback"
+          testId="tags-load-error"
+        >
+          Failed to load tags.
+        </InlineErrorBanner>
+      )
+
+      const banner = screen.getByTestId('tags-load-error')
+      expect(banner).toHaveAttribute('role', 'alert')
+      expect(banner).toHaveClass('p-4', 'text-center')
+    })
+  })
 })

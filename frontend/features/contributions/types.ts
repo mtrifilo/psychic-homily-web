@@ -127,6 +127,42 @@ export interface EditableField {
   group?: 'info' | 'social' | 'details'
 }
 
+/**
+ * PSY-599: client-side URL pre-validator for the suggest-edit drawer's
+ * `type: 'url'` fields (Instagram, Bandcamp, Twitter, Image URL, etc.).
+ *
+ * Returns null for valid input, or a short user-facing error string. Empty
+ * input is treated as valid because empty means "clear the field" — the
+ * server preserves that semantic.
+ *
+ * Mirrors the backend rule in `backend/internal/utils/url.go`:
+ * - must parse via the WHATWG `URL` constructor
+ * - protocol must be `http:` or `https:`
+ * - empty or whitespace-only string is valid (clear-the-field intent)
+ *
+ * Server-side validation remains the source of truth; this is purely UX so
+ * curators see the problem before they hit Submit and avoid a 422
+ * roundtrip. Same shape as `validateCoverImageUrl` in
+ * `features/collections/types.ts` so the two surfaces stay congruent.
+ */
+export function validateUrlField(value: string): string | null {
+  const trimmed = value.trim()
+  if (trimmed.length === 0) return null
+
+  let parsed: URL
+  try {
+    parsed = new URL(trimmed)
+  } catch {
+    return 'Enter a valid URL starting with http:// or https://.'
+  }
+
+  if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+    return 'URL must start with http:// or https://.'
+  }
+
+  return null
+}
+
 export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment' | 'collection'
 
 export interface ReportTypeOption {

@@ -26,6 +26,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { InlineErrorBanner } from '@/components/shared'
 import { useReleases, useRelease } from '../hooks/useReleases'
 import { useArtistSearch } from '@/features/artists'
 import {
@@ -513,9 +514,7 @@ function CreateReleaseForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       <div className="space-y-2">
@@ -742,9 +741,7 @@ function EditReleaseForm({
     <div className="space-y-4">
       <form onSubmit={handleSubmit} className="space-y-4">
         {error && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
+          <InlineErrorBanner>{error}</InlineErrorBanner>
         )}
 
         <div className="space-y-2">
@@ -906,9 +903,7 @@ function DeleteConfirmation({
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       <p className="text-sm text-muted-foreground">
@@ -1062,13 +1057,11 @@ export function ReleaseManagement() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center">
-          <p className="text-destructive">
-            {error instanceof Error
-              ? error.message
-              : 'Failed to load releases.'}
-          </p>
-        </div>
+        <InlineErrorBanner variant="queryFallback">
+          {error instanceof Error
+            ? error.message
+            : 'Failed to load releases.'}
+        </InlineErrorBanner>
       )}
 
       {/* Empty state */}

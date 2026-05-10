@@ -209,6 +209,13 @@ export function useCreateCollection() {
       is_public: boolean
       collaborative: boolean
       display_mode?: CollectionDisplayMode
+      /**
+       * Cover image URL. PSY-585. Optional on create — omit / empty / null
+       * means no cover. Backend `CreateCollectionHandler` already accepts
+       * `cover_image_url` (PSY-371 added it for Update; the request struct
+       * carries it on POST too), so this is a UI-only wire-up.
+       */
+      cover_image_url?: string | null
     }) =>
       apiRequest<CollectionDetail>(API_ENDPOINTS.COLLECTIONS.LIST, {
         method: 'POST',
