@@ -288,7 +288,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 		return nil, fmt.Errorf("failed to check rate limit: %w", err)
 	}
 	if recentEntityCount > 0 {
-		return nil, errors.New("please wait 60 seconds between comments on the same entity")
+		return nil, errors.New("Please wait 60 seconds between comments on the same entity")
 	}
 
 	// Rate limiting: global hourly limit based on trust tier
@@ -881,7 +881,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 		return nil, fmt.Errorf("failed to check rate limit: %w", err)
 	}
 	if recentEntityCount > 0 {
-		return nil, errors.New("please wait 60 seconds between comments on the same entity")
+		return nil, errors.New("Please wait 60 seconds between comments on the same entity")
 	}
 
 	// Rate limiting: global hourly limit based on trust tier

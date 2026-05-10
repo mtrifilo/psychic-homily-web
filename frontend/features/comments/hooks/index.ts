@@ -24,11 +24,15 @@ import type {
 // ============================================================================
 
 /**
- * Capitalize the first character of a non-empty string. Backend service
- * messages use lowercase ("please wait 60 seconds...") to keep substring
- * routing in handlers simple; the project copy convention is to capitalize
- * the first word in user-facing text, so we normalize at the display
- * boundary.
+ * Capitalize the first character of a non-empty string. Most backend
+ * service-layer error messages still follow Go's lowercase-leading
+ * convention (e.g. "comment body is required"); the project copy
+ * convention is to capitalize the first word in user-facing text, so we
+ * normalize at the display boundary. PSY-594 capitalized the 429
+ * rate-limit message ("Please wait 60 seconds...") at the source so
+ * mailbox-provider/header tooling sees the user-facing form even
+ * without this hook; capitalizeFirst is idempotent on already-capital
+ * input.
  */
 function capitalizeFirst(s: string): string {
   if (!s) return s
