@@ -991,8 +991,8 @@ func computeShowChanges(old, new *contracts.ShowResponse) []adminm.FieldChange {
 	if ptrToStr(old.State) != ptrToStr(new.State) {
 		changes = append(changes, adminm.FieldChange{Field: "state", OldValue: ptrToStr(old.State), NewValue: ptrToStr(new.State)})
 	}
-	if ptrToFloat(old.Price) != ptrToFloat(new.Price) {
-		changes = append(changes, adminm.FieldChange{Field: "price", OldValue: ptrToFloat(old.Price), NewValue: ptrToFloat(new.Price)})
+	if shared.Deref(old.Price) != shared.Deref(new.Price) {
+		changes = append(changes, adminm.FieldChange{Field: "price", OldValue: shared.Deref(old.Price), NewValue: shared.Deref(new.Price)})
 	}
 	if ptrToStr(old.AgeRequirement) != ptrToStr(new.AgeRequirement) {
 		changes = append(changes, adminm.FieldChange{Field: "age_requirement", OldValue: ptrToStr(old.AgeRequirement), NewValue: ptrToStr(new.AgeRequirement)})
@@ -1008,14 +1008,6 @@ func computeShowChanges(old, new *contracts.ShowResponse) []adminm.FieldChange {
 	}
 
 	return changes
-}
-
-// ptrToFloat safely dereferences a *float64 for diff comparison; nil → 0.
-func ptrToFloat(f *float64) float64 {
-	if f == nil {
-		return 0
-	}
-	return *f
 }
 
 // DeleteShowHandler handles DELETE /shows/{show_id}
