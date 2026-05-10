@@ -35,14 +35,51 @@ import {
   getTierInfo,
 } from '@/lib/tiers'
 
-type BrowseTab = 'all' | 'popular' | 'recent' | 'featured' | 'yours'
+// PSY-586: tab values are URL-routable via `?tab=<value>`. Allowlist is the
+// canonical source of truth — unknown values fall back to `all` silently
+// (no toast, no redirect). The `yours` tab is auth-gated; navigating there
+// while unauthenticated also falls back to `all` since the tab isn't
+// rendered.
+const BROWSE_TABS = ['all', 'popular', 'recent', 'featured', 'yours'] as const
+type BrowseTab = (typeof BROWSE_TABS)[number]
+
+function isBrowseTab(value: string | null): value is BrowseTab {
+  return value !== null && (BROWSE_TABS as readonly string[]).includes(value)
+}
 
 export function CollectionList() {
   const { isAuthenticated } = useAuthContext()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<BrowseTab>('all')
+
+  // PSY-586: derive active tab from `?tab=` so direct nav / bookmarks /
+  // shared links land on the right tab. Unknown values silently fall back
+  // to `all`. The `yours` tab is auth-gated — when unauthenticated, it's
+  // not in the rendered tab list, so we coerce `?tab=yours` to `all` too
+  // (Radix would otherwise highlight nothing).
+  const rawTab = searchParams.get('tab')
+  const activeTab: BrowseTab = (() => {
+    if (!isBrowseTab(rawTab)) return 'all'
+    if (rawTab === 'yours' && !isAuthenticated) return 'all'
+    return rawTab
+  })()
+
+  const handleTabChange = (next: string) => {
+    if (!isBrowseTab(next)) return
+    // PSY-586: push (not replace) so back/forward restores the previous
+    // tab, per ticket. Preserve unrelated query params (e.g. PSY-354's
+    // `?tag=<slug>`). Omit `tab=all` from the URL — it's the default.
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'all') {
+      params.delete('tab')
+    } else {
+      params.set('tab', next)
+    }
+    const qs = params.toString()
+    router.push(qs ? `/collections?${qs}` : '/collections', { scroll: false })
+  }
+
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch] = useDebounce(searchInput, 300)
   const [entityTypeFilter, setEntityTypeFilter] = useState<CollectionEntityType | 'all'>('all')
@@ -192,7 +229,7 @@ export function CollectionList() {
       {/* Tabs */}
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab(v as BrowseTab)}
+        onValueChange={handleTabChange}
         className="w-full"
       >
         <TabsList className="mb-4">
