@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { Pencil, Check, Loader2 } from 'lucide-react'
+import { Pencil, Loader2 } from 'lucide-react'
 import {
   Sheet,
   SheetContent,
@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { StatusBanner } from '@/components/shared'
 import { useSuggestEdit } from '../hooks/useSuggestEdit'
 import { useShowEdit } from '../hooks/useShowEdit'
 import type { EditableEntityType, EditableField, FieldChange, EntityEditSuccess } from '../types'
@@ -258,23 +259,28 @@ export function EntityEditDrawer({
           </SheetDescription>
         </SheetHeader>
 
-        {/* Success state */}
+        {/* Success / pending state. PSY-575: green for direct-save (admin /
+            trusted), amber for "submitted for review" (non-admin) — the
+            shared StatusBanner primitive carries the colour vocabulary. The
+            drawer closes after a brief flash on direct save (success); on
+            pending submission the banner stays until the user closes the
+            drawer. No `dismissAfterMs` either way: drawer-close is the
+            implicit dismiss. */}
         {submitted && editMutation.isSuccess && (
-          <div className="mx-4 rounded-md border border-green-800 bg-green-950/50 p-4">
-            <div className="flex items-center gap-2 text-green-400">
-              <Check className="h-4 w-4" />
-              <span className="font-medium">
-                {editMutation.data?.applied
-                  ? 'Changes applied!'
-                  : 'Edit submitted for review'}
-              </span>
-            </div>
-            {!editMutation.data?.applied && (
-              <p className="mt-1 text-sm text-muted-foreground">
-                An admin will review your changes. You can track your pending edits in your profile.
-              </p>
-            )}
-          </div>
+          editMutation.data?.applied ? (
+            <StatusBanner variant="success" className="mx-4">
+              <span className="font-medium text-green-400">Changes applied!</span>
+            </StatusBanner>
+          ) : (
+            <StatusBanner variant="pending" className="mx-4">
+              <div>
+                <span className="font-medium text-amber-200">Edit submitted for review</span>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  An admin will review your changes. You can track your pending edits in your profile.
+                </p>
+              </div>
+            </StatusBanner>
+          )
         )}
 
         {/* Error state */}
