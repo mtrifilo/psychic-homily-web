@@ -21,3 +21,8 @@ export { UserAttribution } from './UserAttribution'
 export type { UserAttributionProps } from './UserAttribution'
 export { InlineErrorBanner } from './InlineErrorBanner'
 export type { InlineErrorBannerProps } from './InlineErrorBanner'
+export { EntityCardTitle } from './EntityCardTitle'
+export type {
+  EntityCardTitleProps,
+  EntityCardTitleDensity,
+} from './EntityCardTitle'

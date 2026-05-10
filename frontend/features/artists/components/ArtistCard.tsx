@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { MapPin, Music } from 'lucide-react'
+import { EntityCardTitle } from '@/components/shared'
 import type { ArtistListItem } from '../types'
 import { getArtistLocation } from '../types'
 
@@ -66,14 +67,11 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
   if (density === 'expanded') {
     return (
       <article className="rounded-lg border border-border/50 bg-card p-6 hover:shadow-md transition-shadow">
-        <Link href={`/artists/${artist.slug}`} className="block group">
-          <h3
-            className="font-bold text-xl text-foreground group-hover:text-primary transition-colors line-clamp-2"
-            title={artist.name}
-          >
-            {artist.name}
-          </h3>
-        </Link>
+        <EntityCardTitle
+          name={artist.name}
+          href={`/artists/${artist.slug}`}
+          density="expanded"
+        />
         <div className="mt-3 flex items-center gap-4 text-sm text-muted-foreground">
           {hasLocation && (
             <span className="flex items-center gap-1.5">
@@ -93,14 +91,11 @@ export function ArtistCard({ artist, density = 'comfortable' }: ArtistCardProps)
   // Comfortable (default)
   return (
     <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
-      <Link href={`/artists/${artist.slug}`} className="block group">
-        <h3
-          className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
-          title={artist.name}
-        >
-          {artist.name}
-        </h3>
-      </Link>
+      <EntityCardTitle
+        name={artist.name}
+        href={`/artists/${artist.slug}`}
+        density="comfortable"
+      />
 
       <div className="mt-2 space-y-1">
         <div className="flex items-center gap-1.5 text-sm text-muted-foreground">

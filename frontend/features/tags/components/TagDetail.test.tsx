@@ -64,6 +64,19 @@ vi.mock('@/components/shared', () => ({
       <span>{currentPage}</span>
     </nav>
   ),
+  EntityCardTitle: ({
+    name,
+    href,
+    ariaLabel,
+  }: {
+    name: string
+    href: string
+    ariaLabel?: string
+  }) => (
+    <a href={href} aria-label={ariaLabel ?? name}>
+      <h3 title={name}>{name}</h3>
+    </a>
+  ),
 }))
 
 import { TagDetail } from './TagDetail'

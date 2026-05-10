@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Tag, MapPin, Users, Disc3 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { EntityCardTitle } from '@/components/shared'
 import {
   getLabelStatusLabel,
   getLabelStatusVariant,
@@ -61,14 +62,11 @@ export function LabelCard({ label, density = 'comfortable' }: LabelCardProps) {
           </div>
 
           <div className="flex-1 min-w-0">
-            <Link href={labelUrl} className="block group">
-              <h3
-                className="font-bold text-xl text-foreground group-hover:text-primary transition-colors line-clamp-2"
-                title={label.name}
-              >
-                {label.name}
-              </h3>
-            </Link>
+            <EntityCardTitle
+              name={label.name}
+              href={labelUrl}
+              density="expanded"
+            />
 
             <div className="flex items-center gap-3 flex-wrap mt-2">
               <Badge
@@ -110,14 +108,11 @@ export function LabelCard({ label, density = 'comfortable' }: LabelCardProps) {
         </div>
 
         <div className="flex-1 min-w-0">
-          <Link href={labelUrl} className="block group">
-            <h3
-              className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
-              title={label.name}
-            >
-              {label.name}
-            </h3>
-          </Link>
+          <EntityCardTitle
+            name={label.name}
+            href={labelUrl}
+            density="comfortable"
+          />
 
           <div className="flex items-center gap-2 flex-wrap mt-1">
             <Badge
