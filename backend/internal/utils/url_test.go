@@ -174,3 +174,72 @@ func TestValidateHTTPURL_AcceptedSchemesInError(t *testing.T) {
 		strings.Contains(msg, "http") && strings.Contains(msg, "https"),
 		"error %q should name both http and https", msg)
 }
+
+// TestValidateHTTPURL_SurfacesUserInput covers PSY-599: the rejection message
+// must echo the user's actual typed value, not the post-parse normalized
+// fragment. The canonical failure mode is `url.Parse("not-a-real-url")`
+// succeeding with `Scheme == ""`, leading the old message to claim
+// `(got "")` while the diff preview alongside the banner showed the real
+// input. Now both surfaces must agree.
+func TestValidateHTTPURL_SurfacesUserInput(t *testing.T) {
+	cases := []struct {
+		name  string
+		input string
+		// The substring the error message MUST contain — i.e. the trimmed
+		// user input, never the post-parse derivative.
+		mustContain string
+	}{
+		{
+			name:        "scheme-less input parses with empty Scheme",
+			input:       "not-a-real-url",
+			mustContain: `"not-a-real-url"`,
+		},
+		{
+			name:        "scheme-less input that resembles a slug",
+			input:       "amylandthesniffers",
+			mustContain: `"amylandthesniffers"`,
+		},
+		{
+			name:        "leading whitespace is trimmed before echoing",
+			input:       "   not-a-real-url   ",
+			mustContain: `"not-a-real-url"`,
+		},
+		{
+			name:        "non-http scheme echoes the full input, not just the scheme",
+			input:       "ftp://example.com/file.zip",
+			mustContain: `"ftp://example.com/file.zip"`,
+		},
+		{
+			name:        "dangerous javascript scheme echoes the full input",
+			input:       "javascript:alert(1)",
+			mustContain: `"javascript:alert(1)"`,
+		},
+		{
+			name:        "scheme-relative url echoes the full input",
+			input:       "//example.com/path",
+			mustContain: `"//example.com/path"`,
+		},
+		{
+			name:        "https with no host echoes the full input",
+			input:       "https://",
+			mustContain: `"https://"`,
+		},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateHTTPURL(tc.input, "Instagram URL")
+			assert.Error(t, err, "expected an error for %q", tc.input)
+			if err == nil {
+				return
+			}
+			msg := err.Error()
+			assert.Contains(t, msg, tc.mustContain,
+				"error %q must surface the original user input %q", msg, tc.mustContain)
+			// Belt-and-suspenders: explicitly forbid the misleading
+			// post-normalize empty-string render that PSY-599 was filed for.
+			assert.NotContains(t, msg, `(got "")`,
+				"error must not surface a post-normalize empty value (PSY-599)")
+		})
+	}
+}
