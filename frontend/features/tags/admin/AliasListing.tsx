@@ -17,6 +17,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
+import { InlineErrorBanner } from '@/components/shared'
 import {
   Dialog,
   DialogContent,
@@ -324,10 +325,10 @@ function BulkImportDialog({
           </div>
 
           {parseError && (
-            <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive flex items-start gap-2">
+            <InlineErrorBanner className="flex items-start gap-2">
               <AlertCircle className="h-4 w-4 mt-0.5 flex-shrink-0" />
               <span>{parseError}</span>
-            </div>
+            </InlineErrorBanner>
           )}
 
           {result && (
