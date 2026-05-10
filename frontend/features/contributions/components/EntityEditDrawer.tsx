@@ -17,7 +17,7 @@ import { Label } from '@/components/ui/label'
 import { useSuggestEdit } from '../hooks/useSuggestEdit'
 import { useShowEdit } from '../hooks/useShowEdit'
 import type { EditableEntityType, EditableField, FieldChange, EntityEditSuccess } from '../types'
-import { EDITABLE_FIELDS } from '../types'
+import { EDITABLE_FIELDS, validateUrlField } from '../types'
 
 /** Extracts a field value from an entity object, handling nested social fields. */
 function getEntityFieldValue(entity: Record<string, unknown>, field: string): string {
@@ -78,6 +78,10 @@ export function EntityEditDrawer({
   const [formValues, setFormValues] = useState<Record<string, string>>({})
   const [summary, setSummary] = useState('')
   const [submitted, setSubmitted] = useState(false)
+  // PSY-599: track which URL fields the user has interacted with so we
+  // defer the inline error until they've had a chance to finish typing.
+  // Mirrors the touched-state pattern in `CollectionDetail` (PSY-371).
+  const [touchedUrlFields, setTouchedUrlFields] = useState<Record<string, boolean>>({})
 
   // Initialize form values when drawer opens
   const initialValues = useMemo(() => {
@@ -97,6 +101,7 @@ export function EntityEditDrawer({
       setFormValues({})
       setSummary('')
       setSubmitted(false)
+      setTouchedUrlFields({})
       // Reset both — only one is "live" but resetting both is safe
       // and keeps state clean if the parent ever switches entityType
       // on this same drawer instance (unlikely but defensible).
@@ -148,8 +153,35 @@ export function EntityEditDrawer({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [formValues, initialValues, fields])
 
+  // PSY-599: validate URL fields client-side so a malformed value disables
+  // Submit and surfaces an inline hint, instead of forcing the user through
+  // a server roundtrip that returns a confusing 422 banner. We only consider
+  // fields the user actually changed — pre-existing bad values on the
+  // entity stay tolerated (the backend grandfathers them too).
+  const urlFieldErrors = useMemo(() => {
+    const errors: Record<string, string> = {}
+    for (const field of fields) {
+      if (field.type !== 'url') continue
+      const currentVal = getValue(field.key)
+      const originalVal = initialValues[field.key] ?? ''
+      // Only validate when the user has changed the field — otherwise a
+      // pre-existing non-conforming URL on the entity would block edits to
+      // unrelated fields.
+      if (currentVal === originalVal) continue
+      const err = validateUrlField(currentVal)
+      if (err !== null) errors[field.key] = err
+    }
+    return errors
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formValues, initialValues, fields])
+
   const hasChanges = changes.length > 0
-  const canSubmit = hasChanges && summary.trim().length > 0 && !editMutation.isPending
+  const hasUrlErrors = Object.keys(urlFieldErrors).length > 0
+  const canSubmit =
+    hasChanges &&
+    !hasUrlErrors &&
+    summary.trim().length > 0 &&
+    !editMutation.isPending
 
   const handleSubmit = () => {
     if (!canSubmit) return
@@ -266,6 +298,13 @@ export function EntityEditDrawer({
                   const value = getValue(field.key)
                   const original = initialValues[field.key] ?? ''
                   const isChanged = value !== original
+                  // PSY-599: inline URL error visible only after the user
+                  // has touched the field (or attempted submit). Defers
+                  // the red until they've finished typing.
+                  const urlError = urlFieldErrors[field.key]
+                  const isUrlTouched = touchedUrlFields[field.key] === true
+                  const showUrlError = field.type === 'url' && isUrlTouched && urlError !== undefined
+                  const errorId = `edit-${field.key}-error`
 
                   return (
                     <div key={field.key} className="space-y-1.5">
@@ -290,14 +329,42 @@ export function EntityEditDrawer({
                       ) : (
                         <Input
                           id={`edit-${field.key}`}
-                          type="text"
+                          type={field.type === 'url' ? 'url' : 'text'}
+                          inputMode={field.type === 'url' ? 'url' : undefined}
                           value={value}
-                          onChange={(e) =>
+                          onChange={(e) => {
                             setFormValues((prev) => ({ ...prev, [field.key]: e.target.value }))
-                          }
+                            if (field.type === 'url') {
+                              setTouchedUrlFields((prev) => ({ ...prev, [field.key]: true }))
+                            }
+                          }}
+                          onBlur={() => {
+                            if (field.type === 'url') {
+                              setTouchedUrlFields((prev) => ({ ...prev, [field.key]: true }))
+                            }
+                          }}
                           placeholder={field.placeholder}
-                          className={isChanged ? 'border-blue-800' : ''}
+                          className={
+                            showUrlError
+                              ? 'border-red-800'
+                              : isChanged
+                                ? 'border-blue-800'
+                                : ''
+                          }
+                          aria-invalid={showUrlError ? true : undefined}
+                          aria-describedby={showUrlError ? errorId : undefined}
+                          data-testid={`edit-${field.key}-input`}
                         />
+                      )}
+                      {showUrlError && (
+                        <p
+                          id={errorId}
+                          className="text-xs text-red-400"
+                          role="alert"
+                          data-testid={`edit-${field.key}-error`}
+                        >
+                          {urlError}
+                        </p>
                       )}
                     </div>
                   )

@@ -317,6 +317,40 @@ describe('Collection mutation hooks', () => {
         })
       )
     })
+
+    // PSY-585: POST must round-trip cover_image_url so the Create modal can
+    // set the cover in one step (parity with the Edit form's PUT path).
+    it('forwards cover_image_url in the POST body', async () => {
+      mockApiRequest.mockResolvedValueOnce({ id: 1, title: 'New', slug: 'new' })
+
+      const { result } = renderHook(() => useCreateCollection(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          title: 'New',
+          is_public: true,
+          collaborative: false,
+          cover_image_url: 'https://example.com/cover.jpg',
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/collections',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({
+            title: 'New',
+            is_public: true,
+            collaborative: false,
+            cover_image_url: 'https://example.com/cover.jpg',
+          }),
+        })
+      )
+    })
   })
 
   describe('useUpdateCollection', () => {
