@@ -5,6 +5,7 @@ import { Loader2, GitMerge, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { InlineErrorBanner } from '@/components/shared'
 import {
   Dialog,
   DialogContent,
@@ -129,14 +130,7 @@ export function MergeTagDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {error && (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
-            >
-              {error}
-            </div>
-          )}
+          {error && <InlineErrorBanner>{error}</InlineErrorBanner>}
 
           {selectedTarget ? (
             <div className="space-y-3">
@@ -171,11 +165,11 @@ export function MergeTagDialog({
                 </div>
               )}
               {previewError && (
-                <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
+                <InlineErrorBanner>
                   {previewError instanceof Error
                     ? previewError.message
                     : 'Failed to load preview.'}
-                </div>
+                </InlineErrorBanner>
               )}
               {preview && (
                 <div

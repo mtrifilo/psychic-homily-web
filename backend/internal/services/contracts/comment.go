@@ -34,6 +34,12 @@ type CreateFieldNoteRequest struct {
 	CrowdEnergy    *int    `json:"crowd_energy,omitempty"`
 	NotableMoments *string `json:"notable_moments,omitempty"`
 	SetlistSpoiler bool    `json:"setlist_spoiler"`
+	// VerifiedAttendee captures the author's self-claim "I attended this
+	// show" at post time (PSY-568). Snapshot semantics — toggling Going
+	// after posting does NOT flip an existing field-note's badge. The
+	// frontend pre-fills the checkbox from the user's current Going RSVP
+	// but the checkbox value sent here is authoritative.
+	VerifiedAttendee bool `json:"verified_attendee"`
 }
 
 // FieldNoteStructuredData represents the JSONB structured data stored with field note comments.

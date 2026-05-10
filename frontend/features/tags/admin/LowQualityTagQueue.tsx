@@ -15,6 +15,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Input } from '@/components/ui/input'
+import { InlineErrorBanner } from '@/components/shared'
 import {
   Dialog,
   DialogContent,
@@ -392,14 +393,7 @@ export function LowQualityTagQueue() {
         </div>
       )}
 
-      {rowError && (
-        <div
-          role="alert"
-          className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
-        >
-          {rowError}
-        </div>
-      )}
+      {rowError && <InlineErrorBanner>{rowError}</InlineErrorBanner>}
 
       {!isLoading && !error && tags.length === 0 && (
         <div className="flex flex-col items-center justify-center py-12 text-center">
@@ -667,14 +661,7 @@ export function LowQualityTagQueue() {
               snooze window.
             </DialogDescription>
           </DialogHeader>
-          {bulkError && (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
-            >
-              {bulkError}
-            </div>
-          )}
+          {bulkError && <InlineErrorBanner>{bulkError}</InlineErrorBanner>}
           <DialogFooter>
             <Button
               variant="outline"
@@ -716,14 +703,7 @@ export function LowQualityTagQueue() {
               permanently and surfaces them as canonical taxonomy values.
             </DialogDescription>
           </DialogHeader>
-          {bulkError && (
-            <div
-              role="alert"
-              className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
-            >
-              {bulkError}
-            </div>
-          )}
+          {bulkError && <InlineErrorBanner>{bulkError}</InlineErrorBanner>}
           <DialogFooter>
             <Button
               variant="outline"
@@ -766,14 +746,7 @@ export function LowQualityTagQueue() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
-            {bulkError && (
-              <div
-                role="alert"
-                className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
-              >
-                {bulkError}
-              </div>
-            )}
+            {bulkError && <InlineErrorBanner>{bulkError}</InlineErrorBanner>}
             {requireTypedConfirm && (
               <div className="space-y-2">
                 <label
