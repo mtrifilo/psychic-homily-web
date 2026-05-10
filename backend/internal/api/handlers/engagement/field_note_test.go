@@ -155,7 +155,7 @@ func TestCreateFieldNote_ArtistNotOnShow(t *testing.T) {
 func TestCreateFieldNote_RateLimited(t *testing.T) {
 	mock := &testhelpers.MockFieldNoteService{
 		CreateFieldNoteFn: func(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("please wait 60 seconds between comments on the same entity")
+			return nil, fmt.Errorf("Please wait 60 seconds between comments on the same entity")
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)

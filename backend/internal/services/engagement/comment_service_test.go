@@ -1416,7 +1416,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestRateLimit_PerEntityCooldown
 		Body:       "Too fast",
 	})
 	suite.Error(err)
-	suite.Contains(err.Error(), "please wait 60 seconds")
+	suite.Contains(err.Error(), "Please wait 60 seconds")
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TestRateLimit_DifferentEntityAllowed() {

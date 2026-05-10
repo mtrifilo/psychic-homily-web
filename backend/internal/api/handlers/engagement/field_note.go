@@ -112,7 +112,7 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 		if strings.Contains(err.Error(), "artist is not on this show") {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
-		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
+		if strings.Contains(err.Error(), "Please wait") || strings.Contains(err.Error(), "hourly comment limit") {
 			return nil, rateLimited429(err)
 		}
 		requestID := logger.GetRequestID(ctx)

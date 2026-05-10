@@ -303,7 +303,7 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 		if strings.Contains(err.Error(), "body is required") || strings.Contains(err.Error(), "exceeds maximum length") {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
-		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
+		if strings.Contains(err.Error(), "Please wait") || strings.Contains(err.Error(), "hourly comment limit") {
 			return nil, rateLimited429(err)
 		}
 		requestID := logger.GetRequestID(ctx)
@@ -399,7 +399,7 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 		if strings.Contains(err.Error(), "parent comment not found") {
 			return nil, huma.Error404NotFound(err.Error())
 		}
-		if strings.Contains(err.Error(), "please wait") || strings.Contains(err.Error(), "hourly comment limit") {
+		if strings.Contains(err.Error(), "Please wait") || strings.Contains(err.Error(), "hourly comment limit") {
 			return nil, rateLimited429(err)
 		}
 		requestID := logger.GetRequestID(ctx)

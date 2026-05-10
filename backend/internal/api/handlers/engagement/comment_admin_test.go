@@ -339,7 +339,7 @@ func TestAdminRejectComment_Success(t *testing.T) {
 func TestCreateComment_RateLimitError(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("please wait 60 seconds between comments on the same entity")
+			return nil, fmt.Errorf("Please wait 60 seconds between comments on the same entity")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -372,7 +372,7 @@ func TestCreateReply_RateLimitError_HasRetryAfter(t *testing.T) {
 			return makeCommentResponse(id, "show", 1, 99), nil
 		},
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("please wait 60 seconds between comments on the same entity")
+			return nil, fmt.Errorf("Please wait 60 seconds between comments on the same entity")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
