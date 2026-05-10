@@ -35,14 +35,49 @@ import {
   getTierInfo,
 } from '@/lib/tiers'
 
-type BrowseTab = 'all' | 'popular' | 'recent' | 'featured' | 'yours'
+// PSY-586: tab values are URL-routable via `?tab=<value>`. Unknown values
+// fall back to `all` silently (no redirect). The `yours` tab is auth-gated;
+// `?tab=yours` from a logged-out user also coerces to `all` since the tab
+// isn't rendered (Radix would otherwise highlight nothing).
+const BROWSE_TABS = ['all', 'popular', 'recent', 'featured', 'yours'] as const
+type BrowseTab = (typeof BROWSE_TABS)[number]
+
+function isBrowseTab(value: string | null): value is BrowseTab {
+  return value !== null && (BROWSE_TABS as readonly string[]).includes(value)
+}
+
+function resolveActiveTab(
+  rawTab: string | null,
+  isAuthenticated: boolean
+): BrowseTab {
+  if (!isBrowseTab(rawTab)) return 'all'
+  if (rawTab === 'yours' && !isAuthenticated) return 'all'
+  return rawTab
+}
 
 export function CollectionList() {
   const { isAuthenticated } = useAuthContext()
   const router = useRouter()
   const searchParams = useSearchParams()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
-  const [activeTab, setActiveTab] = useState<BrowseTab>('all')
+
+  const activeTab = resolveActiveTab(searchParams.get('tab'), isAuthenticated)
+
+  const handleTabChange = (next: string) => {
+    if (!isBrowseTab(next)) return
+    // PSY-586: push (not replace) so back/forward restores the previous
+    // tab. Preserve unrelated query params (e.g. PSY-354's `?tag=<slug>`).
+    // Omit `tab=all` from the URL since it's the default.
+    const params = new URLSearchParams(searchParams.toString())
+    if (next === 'all') {
+      params.delete('tab')
+    } else {
+      params.set('tab', next)
+    }
+    const qs = params.toString()
+    router.push(qs ? `/collections?${qs}` : '/collections', { scroll: false })
+  }
+
   const [searchInput, setSearchInput] = useState('')
   const [debouncedSearch] = useDebounce(searchInput, 300)
   const [entityTypeFilter, setEntityTypeFilter] = useState<CollectionEntityType | 'all'>('all')
@@ -192,7 +227,7 @@ export function CollectionList() {
       {/* Tabs */}
       <Tabs
         value={activeTab}
-        onValueChange={(v) => setActiveTab(v as BrowseTab)}
+        onValueChange={handleTabChange}
         className="w-full"
       >
         <TabsList className="mb-4">
