@@ -17,6 +17,15 @@
 #             postgres (via docker compose) + native backend + native
 #             frontend, all on free ports.
 #
+# Frontend → backend routing convention (PSY-629):
+#   Frontend talks to the backend via the in-process `/api` proxy
+#   (app/api/[...path]/route.ts), which reads `BACKEND_URL` to forward.
+#   Both browser and SSR fetches go same-origin through the proxy so the
+#   `auth_token` cookie (SameSite=Lax) survives. In shared mode the SSR
+#   dev fallback (`http://localhost:8080`) is correct; in isolated mode
+#   we point `NEXT_PUBLIC_API_URL` at `$STACK_FRONTEND_URL/api` so SSR
+#   resolves to the same proxy instead of hardcoding :8080.
+#
 # Output:
 #   Writes <worktree>/dispatch-stack/.env with STACK_* vars + .pid files.
 #   Prints the .env contents to stdout for the calling agent.
@@ -89,8 +98,12 @@ if [ "$MODE" = "shared" ]; then
     FRONTEND_PORT="$(free_port)"
     log "Starting frontend on :$FRONTEND_PORT..."
     cd "$WORKTREE_PATH/frontend"
-    nohup env NEXT_PUBLIC_API_BASE_URL="http://localhost:8080" \
-      BACKEND_URL="http://localhost:8080" \
+    # BACKEND_URL is read by the catch-all proxy (app/api/[...path]/route.ts).
+    # NEXT_PUBLIC_API_URL is intentionally left unset: SSR pages fall back to
+    # http://localhost:8080 in NODE_ENV=development, which IS the user's dev
+    # backend in shared mode; browser-side `lib/api-base.ts` then routes
+    # through the same-origin /api proxy.
+    nohup env BACKEND_URL="http://localhost:8080" \
       bun run dev --port "$FRONTEND_PORT" \
       </dev/null >"$STACK_DIR/frontend.log" 2>&1 &
     echo $! > "$STACK_DIR/frontend.pid"
@@ -175,11 +188,12 @@ wait_for_url "$STACK_BACKEND_URL/health" 90
 
 log "Starting frontend on :$FRONTEND_PORT..."
 cd "$WORKTREE_PATH/frontend"
-# BACKEND_URL is read by the catch-all proxy at app/api/[...path]/route.ts
-# and the per-route admin/AI proxies under app/api/admin/* and app/api/ai/*.
-# Without it, the Next.js proxy hardcodes http://localhost:8080 and can't
-# reach an isolated-mode backend on a non-default port.
-nohup env NEXT_PUBLIC_API_BASE_URL="$STACK_BACKEND_URL" \
+# See the file header for the routing convention. NEXT_PUBLIC_API_URL points
+# SSR + browser at the frontend's own /api proxy; BACKEND_URL is what that
+# proxy (and the per-route admin/AI proxies under app/api/admin/* and
+# app/api/ai/*) forwards to. Without BACKEND_URL the proxy defaults to :8080
+# and misses the per-worktree backend port.
+nohup env NEXT_PUBLIC_API_URL="$STACK_FRONTEND_URL/api" \
   BACKEND_URL="$STACK_BACKEND_URL" \
   bun run dev --port "$FRONTEND_PORT" \
   </dev/null >"$STACK_DIR/frontend.log" 2>&1 &
@@ -200,6 +214,7 @@ STACK_BACKEND_PORT=$BACKEND_PORT
 STACK_FRONTEND_URL=$STACK_FRONTEND_URL
 STACK_FRONTEND_PORT=$FRONTEND_PORT
 BACKEND_URL=$STACK_BACKEND_URL
+NEXT_PUBLIC_API_URL=$STACK_FRONTEND_URL/api
 EOF
 cat "$STACK_DIR/.env"
 log "Stack up (mode=isolated): $STACK_FRONTEND_URL -> $STACK_BACKEND_URL -> postgres :$POSTGRES_PORT"

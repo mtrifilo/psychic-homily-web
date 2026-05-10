@@ -270,7 +270,7 @@ The agent runs `git diff main --name-only` after step 4 (tests pass) and matches
   - `docker compose -p dispatch-${WORKTREE_ID} -f backend/docker-compose.dispatch.yml up -d --wait`
   - Runs the full E2E seed (`frontend/e2e/setup-db.sh` reused with `DATABASE_URL` / `COMPOSE_PROJECT` / `COMPOSE_FILE` env overrides — single source of seed truth across E2E and dispatch)
   - Starts native backend (`go run ./cmd/server`) with the same `DISABLE_*` env flags as E2E global-setup, plus per-worktree `API_PORT` and `DATABASE_URL`
-  - Starts native frontend (`bun run dev --port $FRONTEND_PORT`) with `NEXT_PUBLIC_API_BASE_URL` pointing at the backend
+  - Starts native frontend (`bun run dev --port $FRONTEND_PORT`) with `NEXT_PUBLIC_API_URL=$STACK_FRONTEND_URL/api` and `BACKEND_URL=$STACK_BACKEND_URL` so SSR + browser both go same-origin through the `/api` proxy → per-worktree backend (PSY-629)
   - All URLs written to `<worktree>/dispatch-stack/.env` for the agent to source
 
 **Costs:**
