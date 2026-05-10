@@ -28,6 +28,7 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import { InlineErrorBanner } from '@/components/shared'
 import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '../hooks/useFestivals'
 import { useArtistSearch } from '@/features/artists'
 import { useVenueSearch } from '@/features/venues'
@@ -157,9 +158,7 @@ function CreateFestivalForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       <div className="space-y-2">
@@ -473,9 +472,7 @@ function EditFestivalForm({
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       <div className="space-y-2">
@@ -699,9 +696,7 @@ function DeleteConfirmation({
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       <p className="text-sm text-muted-foreground">
@@ -872,9 +867,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       {/* Add artist section */}
@@ -1226,9 +1219,7 @@ function VenueManagement({ festivalId }: { festivalId: number }) {
   return (
     <div className="space-y-4">
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
+        <InlineErrorBanner>{error}</InlineErrorBanner>
       )}
 
       {/* Add venue section */}
@@ -1525,13 +1516,11 @@ export function FestivalManagement() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center">
-          <p className="text-destructive">
-            {error instanceof Error
-              ? error.message
-              : 'Failed to load festivals.'}
-          </p>
-        </div>
+        <InlineErrorBanner variant="queryFallback">
+          {error instanceof Error
+            ? error.message
+            : 'Failed to load festivals.'}
+        </InlineErrorBanner>
       )}
 
       {/* Empty state */}

@@ -681,13 +681,11 @@ export function TagManagement() {
 
       {/* Error */}
       {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center">
-          <p className="text-destructive">
-            {error instanceof Error
-              ? error.message
-              : 'Failed to load tags.'}
-          </p>
-        </div>
+        <InlineErrorBanner variant="queryFallback">
+          {error instanceof Error
+            ? error.message
+            : 'Failed to load tags.'}
+        </InlineErrorBanner>
       )}
 
       {/* Empty state */}
