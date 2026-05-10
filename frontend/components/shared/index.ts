@@ -26,3 +26,5 @@ export type {
   EntityCardTitleProps,
   EntityCardTitleDensity,
 } from './EntityCardTitle'
+export { StatusBanner } from './StatusBanner'
+export type { StatusBannerProps, StatusBannerVariant } from './StatusBanner'

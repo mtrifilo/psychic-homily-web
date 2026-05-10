@@ -1,6 +1,6 @@
 'use client'
 
-import { Check } from 'lucide-react'
+import { StatusBanner } from '@/components/shared'
 
 const DEFAULT_MESSAGE = 'Changes saved'
 
@@ -39,9 +39,10 @@ interface EntitySaveSuccessBannerProps {
  * Hide-field-note, Approve-attendance, …) can render the same primitive with
  * action-specific copy.
  *
- * Mirrors the styling of the in-drawer "Edit submitted for review" sibling
- * banner in {@link EntityEditDrawer} so the visual vocabulary (green = success,
- * amber = pending) stays consistent across surfaces.
+ * PSY-575: now a thin wrapper around the shared `StatusBanner` primitive so
+ * the green-vs-amber visual vocabulary stays consistent across all surfaces
+ * (in-drawer admin save, page-level save, ReportEntityDialog success,
+ * pending-review banners on comments + field notes).
  */
 export function EntitySaveSuccessBanner({
   visible,
@@ -50,15 +51,8 @@ export function EntitySaveSuccessBanner({
   if (!visible) return null
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="mb-4 rounded-md border border-green-800 bg-green-950/50 p-4"
-    >
-      <div className="flex items-center gap-2 text-green-400">
-        <Check className="h-4 w-4" aria-hidden="true" />
-        <span className="font-medium">{message}</span>
-      </div>
-    </div>
+    <StatusBanner variant="success" className="mb-4">
+      <span className="font-medium text-green-400">{message}</span>
+    </StatusBanner>
   )
 }

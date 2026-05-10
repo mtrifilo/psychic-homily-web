@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Flag, Loader2, Check } from 'lucide-react'
+import { Flag, Loader2 } from 'lucide-react'
 import {
   Dialog,
   DialogContent,
@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
+import { StatusBanner } from '@/components/shared'
 import { useReportEntity } from '../hooks/useReportEntity'
 import { REPORT_TYPES } from '../types'
 import type { ReportableEntityType } from '../types'
@@ -102,17 +103,16 @@ export function ReportEntityDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Success state */}
+        {/* Success state — PSY-575: shared StatusBanner primitive. */}
         {submitted && reportMutation.isSuccess && (
-          <div className="rounded-md border border-green-800 bg-green-950/50 p-4">
-            <div className="flex items-center gap-2 text-green-400">
-              <Check className="h-4 w-4" />
-              <span className="font-medium">Report submitted</span>
+          <StatusBanner variant="success">
+            <div>
+              <span className="font-medium text-green-400">Report submitted</span>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Thank you for helping improve our data. An admin will review your report.
+              </p>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Thank you for helping improve our data. An admin will review your report.
-            </p>
-          </div>
+          </StatusBanner>
         )}
 
         {/* Duplicate report error — show message only, no form */}

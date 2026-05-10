@@ -1,9 +1,10 @@
 'use client'
 
 import { useState } from 'react'
-import { ClipboardList, Clock } from 'lucide-react'
+import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useShowAttendance } from '@/features/shows/hooks'
+import { StatusBanner } from '@/components/shared'
 import {
   useFieldNotes,
   useCreateFieldNote,
@@ -129,19 +130,18 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
             </p>
           )}
 
-          {/* PSY-513: pending-review confirmation banner. Inline pattern
-              mirrors EntityEditDrawer's success state. Only the author sees it. */}
+          {/* PSY-513 / PSY-575: pending-review confirmation banner via the
+              shared `StatusBanner` primitive. Only the author sees this. */}
           {effectivePending && (
-            <div
-              className="mb-4 rounded-md border border-amber-700/50 bg-amber-950/40 p-3 flex items-start gap-2"
-              role="status"
-              data-testid="pending-review-banner"
+            <StatusBanner
+              variant="pending"
+              testId="pending-review-banner"
+              className="mb-4"
             >
-              <Clock className="h-4 w-4 mt-0.5 text-amber-500 shrink-0" />
               <p className="text-sm text-amber-200">
                 Field note submitted — awaiting moderation. You&apos;ll see it here once an admin approves it.
               </p>
-            </div>
+            </StatusBanner>
           )}
 
           {/* Field notes list */}
