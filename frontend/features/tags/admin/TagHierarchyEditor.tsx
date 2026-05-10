@@ -544,16 +544,11 @@ export function TagHierarchyEditor() {
       )}
 
       {error && (
-        <div
-          className="rounded-lg border border-destructive/50 bg-destructive/10 p-4 text-center"
-          role="alert"
-        >
-          <p className="text-destructive">
-            {error instanceof Error
-              ? error.message
-              : 'Failed to load genre hierarchy.'}
-          </p>
-        </div>
+        <InlineErrorBanner variant="queryFallback">
+          {error instanceof Error
+            ? error.message
+            : 'Failed to load genre hierarchy.'}
+        </InlineErrorBanner>
       )}
 
       {!isLoading && !error && allTags.length === 0 && (
