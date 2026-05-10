@@ -1,4 +1,5 @@
 export { useSuggestEdit } from './useSuggestEdit'
+export { useShowEdit } from './useShowEdit'
 export { useEntityAttribution } from './useEntityAttribution'
 export type { EntityAttribution } from './useEntityAttribution'
 export { useReportEntity } from './useReportEntity'

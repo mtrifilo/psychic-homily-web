@@ -30,7 +30,19 @@ export interface DataQualityItem {
 
 export type PendingEditStatus = 'pending' | 'approved' | 'rejected'
 
-export type EditableEntityType = 'artist' | 'venue' | 'festival' | 'release' | 'label'
+/**
+ * Entity types whose edit flow runs through {@link EntityEditDrawer}.
+ *
+ * Most entities (artist, venue, festival, release, label) route through
+ * `useSuggestEdit` → /suggest-edit endpoint, which supports both direct
+ * application (admin / trusted contributor / owner) and pending-review
+ * submission for community contributions. Shows (PSY-461 / PSY-489 /
+ * PSY-563) intentionally diverge: show edits are admin/owner-only and
+ * always apply directly, so the drawer dispatches show saves to
+ * `useShowUpdate` instead of `useSuggestEdit`. The suggest-edit pipeline
+ * is *not* available for shows; that exclusion is preserved by design.
+ */
+export type EditableEntityType = 'artist' | 'venue' | 'festival' | 'release' | 'label' | 'show'
 
 export interface FieldChange {
   field: string
@@ -243,5 +255,16 @@ export const EDITABLE_FIELDS: Record<EditableEntityType, EditableField[]> = {
     { key: 'soundcloud', label: 'SoundCloud', type: 'url', placeholder: 'https://soundcloud.com/...', group: 'social' },
     { key: 'bandcamp', label: 'Bandcamp', type: 'url', placeholder: 'https://....bandcamp.com', group: 'social' },
     { key: 'website', label: 'Website', type: 'url', placeholder: 'https://...', group: 'social' },
+  ],
+  // PSY-563: shows expose only the scalar fields the backend
+  // UpdateShowRequest accepts via the direct-save pathway. Venue and
+  // artist association edits stay in the dedicated ShowForm — they need
+  // entity-search UI that the field-by-field drawer doesn't model.
+  show: [
+    { key: 'title', label: 'Title', type: 'text', group: 'info' },
+    { key: 'description', label: 'Description', type: 'textarea', group: 'details' },
+    { key: 'age_requirement', label: 'Age Requirement', type: 'text', placeholder: '21+, All Ages', group: 'details' },
+    { key: 'ticket_url', label: 'Ticket URL', type: 'url', placeholder: 'https://...', group: 'details' },
+    { key: 'image_url', label: 'Flyer Image URL', type: 'url', placeholder: 'https://...', group: 'details' },
   ],
 }

@@ -3,18 +3,24 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { ArrowLeft, Loader2, MapPin } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { useShow } from '../hooks/useShows'
 import type { ApiError } from '@/lib/api'
 import { useSetShowSoldOut, useSetShowCancelled } from '@/lib/hooks/admin/useAdminShows'
 import { useAuthContext } from '@/lib/context/AuthContext'
+import { queryKeys } from '@/lib/queryClient'
 import type { ArtistResponse } from '../types'
 import { Button } from '@/components/ui/button'
-import { SocialLinks, MusicEmbed, EntityDetailLayout } from '@/components/shared'
+import { SocialLinks, MusicEmbed, EntityDetailLayout, RevisionHistory } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { EntityTagList } from '@/features/tags'
 import { CommentThread, FieldNotesSection } from '@/features/comments'
-import { EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
-import { ShowForm } from '@/components/forms'
+import {
+  EntityEditDrawer,
+  EntitySaveSuccessBanner,
+  useEntitySaveSuccessBanner,
+  AttributionLine,
+} from '@/features/contributions'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { DeleteShowDialog } from './DeleteShowDialog'
 import { ShowHeader } from './ShowHeader'
@@ -33,6 +39,7 @@ function artistHasMusic(artist: ArtistResponse): boolean {
 }
 
 export function ShowDetail({ showId }: ShowDetailProps) {
+  const queryClient = useQueryClient()
   const { data: show, isLoading, error } = useShow(showId)
   const { isAuthenticated, user } = useAuthContext()
   const isAdmin = !!(isAuthenticated && user?.is_admin)
@@ -54,16 +61,13 @@ export function ShowDetail({ showId }: ShowDetailProps) {
   // Check if user can manage status flags: admin or show owner
   const canManageStatus = isAdmin || isOwner
 
-  const handleEditSuccess = () => {
-    setIsEditing(false)
-    // Show edits have no pending-review branch (admin/owner-only direct
-    // save), so the result is always `applied: true`.
-    saveBanner.handleSaveSuccess({ applied: true })
-  }
-
-  const handleEditCancel = () => {
-    setIsEditing(false)
-  }
+  // PSY-563: shows route through the EntityEditDrawer + show direct-save
+  // path. The suggest-edit pipeline is intentionally NOT extended to
+  // shows (PSY-461 / PSY-489); the drawer dispatches show saves to
+  // /shows/{id} PUT via useShowEdit. canEditDirectly mirrors the legacy
+  // inline-form gate (admin OR submitter) — non-owners see no Edit
+  // button, so the drawer never opens for them.
+  const canEditShow = isAdmin || isOwner
 
   const handleToggleSoldOut = () => {
     if (!show) return
@@ -171,6 +175,10 @@ export function ShowDetail({ showId }: ShowDetailProps) {
                 />
               }
             />
+            {/* PSY-563: "Last edited by …" attribution row directly under the
+                title, mirroring artist/venue/release/label/festival detail
+                pages. Renders nothing until at least one revision exists. */}
+            <AttributionLine entityType="show" entityId={show.id} />
             <EntityTagList
               entityType="show"
               entityId={show.id}
@@ -179,25 +187,13 @@ export function ShowDetail({ showId }: ShowDetailProps) {
           </>
         }
       >
-        {/* Page-level "Changes saved" banner (PSY-569). Mirrors the artist /
-            venue / release / label / festival detail pages (PSY-562 / PSY-622)
-            but is fed by the inline {@link ShowForm} instead of the shared
-            {@link EntityEditDrawer}, since show edits run through an
-            admin/owner-only direct-save path (see PSY-461 / PSY-489 note
-            below). */}
+        {/* Page-level "Changes saved" banner. Mirrors the artist / venue /
+            release / label / festival detail pages — fed by the
+            EntityEditDrawer's onSuccess callback (PSY-563). Show edits
+            still run through an admin/owner-only direct-save path
+            (PSY-461 / PSY-489); the suggest-edit pipeline is intentionally
+            NOT extended to shows. */}
         <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
-
-        {/* Edit Form */}
-        {isEditing && (
-          <div className="mb-8 p-4 rounded-lg border border-border bg-muted/30">
-            <ShowForm
-              mode="edit"
-              initialData={show}
-              onSuccess={handleEditSuccess}
-              onCancel={handleEditCancel}
-            />
-          </div>
-        )}
 
         {/* Artist Music Section */}
         {artistsWithMusic.length > 0 && (
@@ -256,18 +252,44 @@ export function ShowDetail({ showId }: ShowDetailProps) {
         </section>
       </EntityDetailLayout>
 
+      {/* Revision History (PSY-563). Mirrors the artist/venue/release/
+          label/festival detail pages. The suggest-edit pipeline is still
+          intentionally excluded for shows (PSY-461 / PSY-489) — the
+          History accordion shows direct-save revisions only. */}
+      <div className="mt-0">
+        <RevisionHistory entityType="show" entityId={show.id} isAdmin={isAdmin} />
+      </div>
+
       {/* Discussion — rendered as a sibling below the layout to match the
           wrapper shape used by the 4 layout-based detail pages. */}
       <div className="mt-0 px-4 md:px-0">
         <CommentThread entityType="show" entityId={show.id} />
       </div>
 
-      {/* PSY-461 / PSY-489: ShowDetail intentionally omits AttributionLine,
-          ContributionPrompt, and RevisionHistory — shows flow through an
-          admin/owner-only edit pathway, not the community suggest-edit
-          pipeline used by the other 5 detail pages. See
-          docs/research/entity-detail-layout-migration.md for the design
-          rationale. Do not "align for parity" with the other detail pages. */}
+      {/* Edit Drawer (PSY-563). Admin/owner gated via canEditShow.
+          Dispatches to /shows/{id} PUT through useShowEdit — NOT the
+          suggest-edit endpoint, preserving the PSY-461 / PSY-489 design
+          (shows are admin/owner-only direct-save). */}
+      {canEditShow && (
+        <EntityEditDrawer
+          open={isEditing}
+          onOpenChange={setIsEditing}
+          entityType="show"
+          entityId={show.id}
+          entityName={showTitle}
+          entity={show as unknown as Record<string, unknown>}
+          canEditDirectly={true}
+          onSuccess={(result) => {
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.shows.detail(String(showId)),
+            })
+            queryClient.invalidateQueries({
+              queryKey: queryKeys.revisions.entity('show', show.id),
+            })
+            saveBanner.handleSaveSuccess(result)
+          }}
+        />
+      )}
 
       {/* Delete Confirmation Dialog */}
       <DeleteShowDialog
