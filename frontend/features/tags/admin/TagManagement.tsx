@@ -18,6 +18,7 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { InlineErrorBanner } from '@/components/shared'
 import {
   Dialog,
   DialogContent,
@@ -116,14 +117,7 @@ function AliasManager({ tagId }: { tagId: number }) {
   return (
     <div className="space-y-3">
       <Label>Aliases</Label>
-      {aliasError && (
-        <div
-          role="alert"
-          className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
-        >
-          {aliasError}
-        </div>
-      )}
+      {aliasError && <InlineErrorBanner>{aliasError}</InlineErrorBanner>}
       <div className="flex items-end gap-2">
         <div className="flex-1">
           <Input
@@ -234,11 +228,7 @@ function CreateTagForm({
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
+      {error && <InlineErrorBanner>{error}</InlineErrorBanner>}
 
       <div className="space-y-2">
         <Label htmlFor="create-name">Name *</Label>
@@ -399,11 +389,7 @@ function EditTagForm({
   return (
     <div className="space-y-4">
       <form onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-            {error}
-          </div>
-        )}
+        {error && <InlineErrorBanner>{error}</InlineErrorBanner>}
 
         <div className="space-y-2">
           <Label htmlFor="edit-name">Name *</Label>
@@ -528,11 +514,7 @@ function DeleteConfirmation({
 
   return (
     <div className="space-y-4">
-      {error && (
-        <div className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive">
-          {error}
-        </div>
-      )}
+      {error && <InlineErrorBanner>{error}</InlineErrorBanner>}
 
       <p className="text-sm text-muted-foreground">
         Are you sure you want to delete{' '}
