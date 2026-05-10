@@ -29,6 +29,7 @@ func (s *ShowHandlerIntegrationSuite) SetupSuite() {
 		s.deps.DiscordService,
 		s.deps.MusicDiscoveryService,
 		s.deps.ExtractionService,
+		nil, // revisionService — not exercised in integration tests
 	)
 }
 

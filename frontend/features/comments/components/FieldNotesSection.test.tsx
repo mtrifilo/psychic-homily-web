@@ -8,6 +8,18 @@ import type { Comment } from '../types'
 const mockUseFieldNotes = vi.fn()
 const mockUseCreateFieldNote = vi.fn()
 const mockUseAuthContext = vi.fn()
+// PSY-568: FieldNotesSection now reads attendance to pre-check the
+// "I attended this show" checkbox. Default to "no Going RSVP" for tests
+// that don't care; PSY-568-specific tests override per case.
+type MockAttendance = {
+  show_id?: number
+  going_count?: number
+  interested_count?: number
+  user_status?: string
+}
+const mockUseShowAttendance = vi.fn(
+  (_showId: number) => ({ data: undefined as MockAttendance | undefined })
+)
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
 
@@ -35,6 +47,11 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockUseAuthContext(),
 }))
 
+// PSY-568: stub the shows hooks barrel — only useShowAttendance is consumed.
+vi.mock('@/features/shows/hooks', () => ({
+  useShowAttendance: (showId: number) => mockUseShowAttendance(showId),
+}))
+
 vi.mock('@/features/contributions', () => ({
   ReportEntityDialog: () => null,
 }))
@@ -60,6 +77,9 @@ describe('FieldNotesSection', () => {
       mutate: vi.fn(),
       isPending: false,
     })
+    // PSY-568: default to no attendance data (user not Going). Tests that
+    // exercise the pre-checked checkbox override this per case.
+    mockUseShowAttendance.mockReturnValue({ data: undefined })
   })
 
   describe('past show (field notes available)', () => {
@@ -433,6 +453,83 @@ describe('FieldNotesSection', () => {
       expect(banner).toHaveTextContent(
         'Please wait 60s before commenting again.'
       )
+    })
+  })
+
+  // PSY-568: self-claim verified-attendee. Default state of the checkbox
+  // mirrors the user's current Going RSVP, but the checkbox value is
+  // authoritative (snapshot at post time).
+  describe('verified-attendee default state (PSY-568)', () => {
+    it('checkbox is unchecked by default when user has no Going RSVP', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '1', email: 'u@example.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+      // No attendance data — user is not Going.
+      mockUseShowAttendance.mockReturnValue({ data: undefined })
+
+      render(
+        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+      )
+
+      const checkbox = screen.getByTestId('verified-attendee-checkbox')
+      expect(checkbox).toHaveAttribute('aria-checked', 'false')
+    })
+
+    it('checkbox is unchecked when user is only Interested (not Going)', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '1', email: 'u@example.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+      mockUseShowAttendance.mockReturnValue({
+        data: {
+          show_id: 1,
+          going_count: 0,
+          interested_count: 1,
+          user_status: 'interested',
+        },
+      })
+
+      render(
+        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+      )
+
+      const checkbox = screen.getByTestId('verified-attendee-checkbox')
+      expect(checkbox).toHaveAttribute('aria-checked', 'false')
+    })
+
+    it('checkbox is pre-checked when user has Going set on this show', () => {
+      mockUseAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '1', email: 'u@example.com' },
+      })
+      mockUseFieldNotes.mockReturnValue({
+        data: { comments: [], total: 0, has_more: false },
+        isLoading: false,
+      })
+      mockUseShowAttendance.mockReturnValue({
+        data: {
+          show_id: 1,
+          going_count: 1,
+          interested_count: 0,
+          user_status: 'going',
+        },
+      })
+
+      render(
+        <FieldNotesSection showId={1} showDate={pastDate} artists={mockArtists} />
+      )
+
+      const checkbox = screen.getByTestId('verified-attendee-checkbox')
+      expect(checkbox).toHaveAttribute('aria-checked', 'true')
     })
   })
 })

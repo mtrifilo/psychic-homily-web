@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -10,12 +11,13 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	apperrors "psychic-homily-backend/internal/errors"
+	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 func testShowHandler() *ShowHandler {
-	return NewShowHandler(nil, nil, nil, nil, nil, nil, nil)
+	return NewShowHandler(nil, nil, nil, nil, nil, nil, nil, nil)
 }
 
 // --- CreateShowHandler ---
@@ -248,7 +250,7 @@ func TestGetShowHandler_ByID(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "approved"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "42"})
 	if err != nil {
@@ -265,7 +267,7 @@ func TestGetShowHandler_BySlug(t *testing.T) {
 			return &contracts.ShowResponse{ID: 10, Slug: slug, Status: "approved"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "cool-show"})
 	if err != nil {
@@ -282,7 +284,7 @@ func TestGetShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -294,7 +296,7 @@ func TestGetShowHandler_NonApproved_Admin(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending"}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -313,7 +315,7 @@ func TestGetShowHandler_NonApproved_Submitter(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &userID}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	resp, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -332,7 +334,7 @@ func TestGetShowHandler_NonApproved_Denied(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, Status: "pending", SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.GetShowHandler(ctx, &GetShowRequest{ShowID: "1"})
@@ -349,7 +351,7 @@ func TestGetShowsHandler_Success(t *testing.T) {
 			return []*contracts.ShowResponse{{ID: 1}, {ID: 2}}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	if err != nil {
@@ -366,7 +368,7 @@ func TestGetShowsHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	_, err := h.GetShowsHandler(context.Background(), &GetShowsRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -382,7 +384,7 @@ func TestGetShowCitiesHandler_Success(t *testing.T) {
 			return []contracts.ShowCityResponse{{City: "Phoenix", State: "AZ", ShowCount: 5}}, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetShowCitiesHandler(context.Background(), &GetShowCitiesRequest{Timezone: "America/Phoenix"})
 	if err != nil {
@@ -399,7 +401,7 @@ func TestGetShowCitiesHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	_, err := h.GetShowCitiesHandler(context.Background(), &GetShowCitiesRequest{})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -416,7 +418,7 @@ func TestGetUpcomingShowsHandler_Success(t *testing.T) {
 			return []*contracts.ShowResponse{{ID: 1}}, &nextCursor, nil
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	resp, err := h.GetUpcomingShowsHandler(context.Background(), &GetUpcomingShowsRequest{Limit: 50})
 	if err != nil {
@@ -436,7 +438,7 @@ func TestGetUpcomingShowsHandler_ServiceError(t *testing.T) {
 			return nil, nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 
 	_, err := h.GetUpcomingShowsHandler(context.Background(), &GetUpcomingShowsRequest{Limit: 50})
 	testhelpers.AssertHumaError(t, err, 500)
@@ -452,7 +454,7 @@ func TestCreateShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: 100, Title: req.Title, Status: "pending"}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, &testhelpers.MockSavedShowService{}, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil)
+	h := NewShowHandler(showMock, nil, nil, &testhelpers.MockSavedShowService{}, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, EmailVerified: true})
 
 	venueID := uint(1)
@@ -487,7 +489,7 @@ func TestCreateShowHandler_AutoSave(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, savedShowMock, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil)
+	h := NewShowHandler(showMock, nil, nil, savedShowMock, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 7, EmailVerified: true})
 
 	venueID := uint(1)
@@ -517,7 +519,7 @@ func TestCreateShowHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, &testhelpers.MockDiscordService{}, &testhelpers.MockMusicDiscoveryService{}, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, EmailVerified: true})
 
 	venueID := uint(1)
@@ -547,7 +549,7 @@ func TestUpdateShowHandler_OwnerSuccess(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Title: "Updated"}, nil, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	title := "Updated"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -572,7 +574,7 @@ func TestUpdateShowHandler_AdminSuccess(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID}, nil, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 	title := "Admin Update"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -590,7 +592,7 @@ func TestUpdateShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "99"})
@@ -604,7 +606,7 @@ func TestUpdateShowHandler_Unauthorized(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "1"})
@@ -621,7 +623,7 @@ func TestUpdateShowHandler_ServiceError(t *testing.T) {
 			return nil, nil, fmt.Errorf("update failed")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	title := "New"
 	req := &UpdateShowRequest{ShowID: "1"}
@@ -629,6 +631,262 @@ func TestUpdateShowHandler_ServiceError(t *testing.T) {
 
 	_, err := h.UpdateShowHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 422)
+}
+
+// PSY-563: Summary field is accepted on the request body and passed through
+// to RecordRevision. Validation rejects oversized summaries.
+
+func TestUpdateShowHandler_SummaryTooLong(t *testing.T) {
+	userID := uint(1)
+	showMock := &testhelpers.MockShowService{
+		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
+		},
+	}
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	longSummary := make([]byte, 5001)
+	for i := range longSummary {
+		longSummary[i] = 'a'
+	}
+	summary := string(longSummary)
+	req := &UpdateShowRequest{ShowID: "1"}
+	req.Body.Summary = &summary
+
+	_, err := h.UpdateShowHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+// PSY-563: when fields change and revisionService is wired, the handler
+// records a revision row with the diff and the user-supplied Summary.
+func TestUpdateShowHandler_RecordsRevisionOnChange(t *testing.T) {
+	userID := uint(5)
+	oldDescription := "Old description"
+	showMock := &testhelpers.MockShowService{
+		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{
+				ID:          1,
+				SubmittedBy: &userID,
+				Title:       "Original Title",
+				Description: &oldDescription,
+				Status:      "pending",
+			}, nil
+		},
+		UpdateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+			newDescription := "New description"
+			return &contracts.ShowResponse{
+				ID:          showID,
+				Title:       "Updated Title",
+				Description: &newDescription,
+			}, nil, nil
+		},
+	}
+
+	var (
+		mu              sync.Mutex
+		recordedType    string
+		recordedID      uint
+		recordedUserID  uint
+		recordedChanges []adminm.FieldChange
+		recordedSummary string
+	)
+	wg := sync.WaitGroup{}
+	wg.Add(1)
+	revisionMock := &testhelpers.MockRevisionService{
+		RecordRevisionFn: func(entityType string, entityID uint, uID uint, changes []adminm.FieldChange, summary string) error {
+			mu.Lock()
+			recordedType = entityType
+			recordedID = entityID
+			recordedUserID = uID
+			recordedChanges = changes
+			recordedSummary = summary
+			mu.Unlock()
+			wg.Done()
+			return nil
+		},
+	}
+
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, revisionMock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
+	title := "Updated Title"
+	desc := "New description"
+	summary := "Fixed misspelled title"
+	req := &UpdateShowRequest{ShowID: "1"}
+	req.Body.Title = &title
+	req.Body.Description = &desc
+	req.Body.Summary = &summary
+
+	_, err := h.UpdateShowHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	wg.Wait()
+
+	mu.Lock()
+	defer mu.Unlock()
+	if recordedType != "show" {
+		t.Errorf("expected entityType='show', got %q", recordedType)
+	}
+	if recordedID != 1 {
+		t.Errorf("expected entityID=1, got %d", recordedID)
+	}
+	if recordedUserID != 5 {
+		t.Errorf("expected userID=5, got %d", recordedUserID)
+	}
+	if recordedSummary != "Fixed misspelled title" {
+		t.Errorf("expected summary='Fixed misspelled title', got %q", recordedSummary)
+	}
+	if len(recordedChanges) != 2 {
+		t.Fatalf("expected 2 field changes (title, description), got %d", len(recordedChanges))
+	}
+	// Verify the two expected fields are present (order may vary).
+	gotFields := map[string]bool{}
+	for _, c := range recordedChanges {
+		gotFields[c.Field] = true
+	}
+	if !gotFields["title"] {
+		t.Error("expected 'title' in change diff")
+	}
+	if !gotFields["description"] {
+		t.Error("expected 'description' in change diff")
+	}
+}
+
+// PSY-563: when no fields change, RecordRevision is NOT called (the
+// revisionService.RecordRevision short-circuits on len(changes)==0; we
+// short-circuit one level up to avoid the goroutine entirely).
+func TestUpdateShowHandler_SkipsRevisionWhenNoChanges(t *testing.T) {
+	userID := uint(5)
+	showMock := &testhelpers.MockShowService{
+		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
+			return &contracts.ShowResponse{
+				ID:          1,
+				SubmittedBy: &userID,
+				Title:       "Same Title",
+				Status:      "pending",
+			}, nil
+		},
+		UpdateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+			return &contracts.ShowResponse{
+				ID:    showID,
+				Title: "Same Title",
+			}, nil, nil
+		},
+	}
+
+	var called bool
+	revisionMock := &testhelpers.MockRevisionService{
+		RecordRevisionFn: func(_ string, _ uint, _ uint, _ []adminm.FieldChange, _ string) error {
+			called = true
+			return nil
+		},
+	}
+
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, revisionMock)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
+	title := "Same Title"
+	summary := "Pointless save"
+	req := &UpdateShowRequest{ShowID: "1"}
+	req.Body.Title = &title
+	req.Body.Summary = &summary
+
+	_, err := h.UpdateShowHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Give the goroutine a chance — but it should never fire because
+	// computeShowChanges returns []. We sleep briefly to make sure no async
+	// call slips in.
+	time.Sleep(20 * time.Millisecond)
+	if called {
+		t.Error("expected RecordRevision to NOT be called when no fields changed")
+	}
+}
+
+// PSY-563: computeShowChanges returns a non-empty diff for every supported
+// scalar field that differs between old and new. Pure function, no async.
+func TestComputeShowChanges_DiffShape(t *testing.T) {
+	oldCity := "Phoenix"
+	newCity := "Mesa"
+	oldDesc := "old desc"
+	newDesc := "new desc"
+	oldPrice := 10.0
+	newPrice := 15.0
+	oldImage := "https://old.example/flyer.png"
+	newImage := "https://new.example/flyer.png"
+	oldDate := time.Date(2026, 5, 1, 20, 0, 0, 0, time.UTC)
+	newDate := time.Date(2026, 5, 2, 21, 0, 0, 0, time.UTC)
+
+	old := &contracts.ShowResponse{
+		Title:       "Old Title",
+		EventDate:   oldDate,
+		City:        &oldCity,
+		Price:       &oldPrice,
+		Description: &oldDesc,
+		ImageURL:    &oldImage,
+	}
+	updated := &contracts.ShowResponse{
+		Title:       "New Title",
+		EventDate:   newDate,
+		City:        &newCity,
+		Price:       &newPrice,
+		Description: &newDesc,
+		ImageURL:    &newImage,
+	}
+
+	changes := computeShowChanges(old, updated)
+	expected := map[string]bool{
+		"title":       true,
+		"event_date":  true,
+		"city":        true,
+		"price":       true,
+		"description": true,
+		"image_url":   true,
+	}
+	if len(changes) != len(expected) {
+		t.Fatalf("expected %d changes, got %d: %+v", len(expected), len(changes), changes)
+	}
+	for _, c := range changes {
+		if !expected[c.Field] {
+			t.Errorf("unexpected field in diff: %q", c.Field)
+		}
+	}
+}
+
+func TestComputeShowChanges_NoChanges(t *testing.T) {
+	city := "Phoenix"
+	desc := "desc"
+	now := time.Date(2026, 5, 1, 20, 0, 0, 0, time.UTC)
+	old := &contracts.ShowResponse{Title: "T", EventDate: now, City: &city, Description: &desc}
+	updated := &contracts.ShowResponse{Title: "T", EventDate: now, City: &city, Description: &desc}
+
+	changes := computeShowChanges(old, updated)
+	if len(changes) != 0 {
+		t.Errorf("expected no changes, got %d: %+v", len(changes), changes)
+	}
+}
+
+func TestComputeShowChanges_NilToValueAndBack(t *testing.T) {
+	desc := "now has a description"
+	old := &contracts.ShowResponse{Title: "T"}                     // Description nil
+	updated := &contracts.ShowResponse{Title: "T", Description: &desc} // Description set
+
+	changes := computeShowChanges(old, updated)
+	if len(changes) != 1 {
+		t.Fatalf("expected 1 change (description nil -> value), got %d", len(changes))
+	}
+	if changes[0].Field != "description" {
+		t.Errorf("expected description field, got %q", changes[0].Field)
+	}
+	if changes[0].OldValue != "" {
+		t.Errorf("expected old description to be empty string (nil → \"\"), got %v", changes[0].OldValue)
+	}
+	if changes[0].NewValue != desc {
+		t.Errorf("expected new description=%q, got %v", desc, changes[0].NewValue)
+	}
 }
 
 // ============================================================================
@@ -648,7 +906,7 @@ func TestDeleteShowHandler_OwnerSuccess(t *testing.T) {
 			return nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -665,7 +923,7 @@ func TestDeleteShowHandler_AdminSuccess(t *testing.T) {
 		},
 		DeleteShowFn: func(_ uint) error { return nil },
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -680,7 +938,7 @@ func TestDeleteShowHandler_NotFound(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "99"})
@@ -694,7 +952,7 @@ func TestDeleteShowHandler_Unauthorized(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -709,7 +967,7 @@ func TestDeleteShowHandler_ServiceError(t *testing.T) {
 		},
 		DeleteShowFn: func(_ uint) error { return fmt.Errorf("delete failed") },
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "1"})
@@ -726,7 +984,7 @@ func TestUnpublishShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "pending", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -744,7 +1002,7 @@ func TestUnpublishShowHandler_NotFound(t *testing.T) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -757,7 +1015,7 @@ func TestUnpublishShowHandler_Unauthorized(t *testing.T) {
 			return nil, apperrors.ErrShowUnpublishUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.UnpublishShowHandler(ctx, &UnpublishShowRequest{ShowID: "42"})
@@ -774,7 +1032,7 @@ func TestMakePrivateShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "private", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -792,7 +1050,7 @@ func TestMakePrivateShowHandler_NotFound(t *testing.T) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -805,7 +1063,7 @@ func TestMakePrivateShowHandler_Unauthorized(t *testing.T) {
 			return nil, apperrors.ErrShowMakePrivateUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.MakePrivateShowHandler(ctx, &MakePrivateShowRequest{ShowID: "42"})
@@ -822,7 +1080,7 @@ func TestPublishShowHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, Status: "approved", Title: "Test"}, nil
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -840,7 +1098,7 @@ func TestPublishShowHandler_NotFound(t *testing.T) {
 			return nil, apperrors.ErrShowNotFound(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -853,7 +1111,7 @@ func TestPublishShowHandler_Unauthorized(t *testing.T) {
 			return nil, apperrors.ErrShowPublishUnauthorized(42)
 		},
 	}
-	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil)
+	h := NewShowHandler(nil, stateMock, nil, nil, &testhelpers.MockDiscordService{}, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 
 	_, err := h.PublishShowHandler(ctx, &PublishShowRequest{ShowID: "42"})
@@ -876,7 +1134,7 @@ func TestSetShowSoldOutHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, IsSoldOut: value}, nil
 		},
 	}
-	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowSoldOutRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -897,7 +1155,7 @@ func TestSetShowSoldOutHandler_NotOwner(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowSoldOutRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -922,7 +1180,7 @@ func TestSetShowCancelledHandler_Success(t *testing.T) {
 			return &contracts.ShowResponse{ID: showID, IsCancelled: value}, nil
 		},
 	}
-	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, stateMock, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowCancelledRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -943,7 +1201,7 @@ func TestSetShowCancelledHandler_NotOwner(t *testing.T) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser}, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 5})
 	req := &SetShowCancelledRequest{ShowID: "1"}
 	req.Body.Value = true
@@ -962,7 +1220,7 @@ func TestGetMySubmissionsHandler_Success(t *testing.T) {
 			return []contracts.ShowResponse{{ID: 1}, {ID: 2}}, 2, nil
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetMySubmissionsHandler(ctx, &GetMySubmissionsRequest{Limit: 50})
@@ -980,7 +1238,7 @@ func TestGetMySubmissionsHandler_ServiceError(t *testing.T) {
 			return nil, 0, fmt.Errorf("db error")
 		},
 	}
-	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(showMock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	_, err := h.GetMySubmissionsHandler(ctx, &GetMySubmissionsRequest{Limit: 50})
@@ -997,7 +1255,7 @@ func TestAIProcessShowHandler_Success(t *testing.T) {
 			return &contracts.ExtractShowResponse{Success: true}, nil
 		},
 	}
-	h := NewShowHandler(nil, nil, nil, nil, nil, nil, extractMock)
+	h := NewShowHandler(nil, nil, nil, nil, nil, nil, extractMock, nil)
 
 	req := &AIProcessShowRequest{}
 	req.Body.Type = "text"
@@ -1025,7 +1283,7 @@ func TestGetShowHandler_ZeroID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -1036,7 +1294,7 @@ func TestGetShowHandler_VeryLargeID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "4294967295"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -1047,7 +1305,7 @@ func TestGetShowHandler_OverflowID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 	_, err := h.GetShowHandler(context.Background(), &GetShowRequest{ShowID: "99999999999"})
 	testhelpers.AssertHumaError(t, err, 404)
 }
@@ -1058,7 +1316,7 @@ func TestUpdateShowHandler_ZeroID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.UpdateShowHandler(ctx, &UpdateShowRequest{ShowID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -1070,7 +1328,7 @@ func TestDeleteShowHandler_ZeroID(t *testing.T) {
 			return nil, fmt.Errorf("not found")
 		},
 	}
-	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
+	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 	_, err := h.DeleteShowHandler(ctx, &DeleteShowRequest{ShowID: "0"})
 	testhelpers.AssertHumaError(t, err, 404)
@@ -1089,7 +1347,7 @@ func TestAIProcessShowHandler_ServiceError(t *testing.T) {
 			return nil, fmt.Errorf("AI service down")
 		},
 	}
-	h := NewShowHandler(nil, nil, nil, nil, nil, nil, extractMock)
+	h := NewShowHandler(nil, nil, nil, nil, nil, nil, extractMock, nil)
 
 	req := &AIProcessShowRequest{}
 	req.Body.Type = "text"
