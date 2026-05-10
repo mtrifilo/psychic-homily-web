@@ -15,6 +15,7 @@ import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Label } from '@/components/ui/label'
 import { useSuggestEdit } from '../hooks/useSuggestEdit'
+import { useShowEdit } from '../hooks/useShowEdit'
 import type { EditableEntityType, EditableField, FieldChange, EntityEditSuccess } from '../types'
 import { EDITABLE_FIELDS } from '../types'
 
@@ -66,7 +67,12 @@ export function EntityEditDrawer({
   focusField,
 }: EntityEditDrawerProps) {
   const fields = EDITABLE_FIELDS[entityType]
+  // PSY-563: shows route through the direct-save endpoint, not the
+  // suggest-edit pipeline. Both hooks are called unconditionally so the
+  // hook order stays stable; only one is dispatched per drawer instance.
   const suggestEdit = useSuggestEdit()
+  const showEdit = useShowEdit()
+  const editMutation = entityType === 'show' ? showEdit : suggestEdit
 
   // Form state — initialized from entity values
   const [formValues, setFormValues] = useState<Record<string, string>>({})
@@ -91,7 +97,11 @@ export function EntityEditDrawer({
       setFormValues({})
       setSummary('')
       setSubmitted(false)
+      // Reset both — only one is "live" but resetting both is safe
+      // and keeps state clean if the parent ever switches entityType
+      // on this same drawer instance (unlikely but defensible).
       suggestEdit.reset()
+      showEdit.reset()
       pendingFocusField.current = focusField
     } else {
       pendingFocusField.current = undefined
@@ -139,36 +149,50 @@ export function EntityEditDrawer({
   }, [formValues, initialValues, fields])
 
   const hasChanges = changes.length > 0
-  const canSubmit = hasChanges && summary.trim().length > 0 && !suggestEdit.isPending
+  const canSubmit = hasChanges && summary.trim().length > 0 && !editMutation.isPending
 
   const handleSubmit = () => {
     if (!canSubmit) return
 
-    suggestEdit.mutate(
-      {
-        entityType,
-        entityId,
-        changes,
-        summary: summary.trim(),
-      },
-      {
-        onSuccess: (data) => {
-          setSubmitted(true)
-          if (data.applied) {
-            // Direct edit — close after brief success message. The brief
-            // in-drawer flash is intentional: the page-level success banner
-            // (rendered by the parent via `useEntitySaveSuccessBanner`) is
-            // what carries the confirmation forward after the drawer closes.
-            setTimeout(() => {
-              onOpenChange(false)
-              onSuccess?.({ applied: true })
-            }, 1000)
-          } else {
-            onSuccess?.({ applied: false })
-          }
-        },
+    const onMutationSuccess = (data: { applied: boolean }) => {
+      setSubmitted(true)
+      if (data.applied) {
+        // Direct edit — close after brief success message. The brief
+        // in-drawer flash is intentional: the page-level success banner
+        // (rendered by the parent via `useEntitySaveSuccessBanner`) is
+        // what carries the confirmation forward after the drawer closes.
+        setTimeout(() => {
+          onOpenChange(false)
+          onSuccess?.({ applied: true })
+        }, 1000)
+      } else {
+        onSuccess?.({ applied: false })
       }
-    )
+    }
+
+    if (entityType === 'show') {
+      // Show direct-save (PSY-461 / PSY-489 / PSY-563). No `entityType`
+      // in the payload — the endpoint is /shows/{id} not the polymorphic
+      // suggest-edit route.
+      showEdit.mutate(
+        {
+          entityId,
+          changes,
+          summary: summary.trim(),
+        },
+        { onSuccess: onMutationSuccess }
+      )
+    } else {
+      suggestEdit.mutate(
+        {
+          entityType,
+          entityId,
+          changes,
+          summary: summary.trim(),
+        },
+        { onSuccess: onMutationSuccess }
+      )
+    }
   }
 
   const groupedFields = useMemo(() => {
@@ -203,17 +227,17 @@ export function EntityEditDrawer({
         </SheetHeader>
 
         {/* Success state */}
-        {submitted && suggestEdit.isSuccess && (
+        {submitted && editMutation.isSuccess && (
           <div className="mx-4 rounded-md border border-green-800 bg-green-950/50 p-4">
             <div className="flex items-center gap-2 text-green-400">
               <Check className="h-4 w-4" />
               <span className="font-medium">
-                {suggestEdit.data?.applied
+                {editMutation.data?.applied
                   ? 'Changes applied!'
                   : 'Edit submitted for review'}
               </span>
             </div>
-            {!suggestEdit.data?.applied && (
+            {!editMutation.data?.applied && (
               <p className="mt-1 text-sm text-muted-foreground">
                 An admin will review your changes. You can track your pending edits in your profile.
               </p>
@@ -222,10 +246,10 @@ export function EntityEditDrawer({
         )}
 
         {/* Error state */}
-        {suggestEdit.isError && (
+        {editMutation.isError && (
           <div className="mx-4 rounded-md border border-red-800 bg-red-950/50 p-4">
             <p className="text-sm text-red-400">
-              {(suggestEdit.error as Error)?.message || 'Failed to submit edit'}
+              {(editMutation.error as Error)?.message || 'Failed to submit edit'}
             </p>
           </div>
         )}
@@ -338,7 +362,7 @@ export function EntityEditDrawer({
               Cancel
             </Button>
             <Button onClick={handleSubmit} disabled={!canSubmit}>
-              {suggestEdit.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              {editMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               {canEditDirectly ? 'Save Changes' : 'Submit for Review'}
             </Button>
           </SheetFooter>
