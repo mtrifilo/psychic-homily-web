@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
@@ -28,6 +29,10 @@ type ShowHandler struct {
 	discordService        contracts.DiscordServiceInterface
 	musicDiscoveryService contracts.MusicDiscoveryServiceInterface
 	extractionService     contracts.ExtractionServiceInterface
+	// revisionService records field-level edit history on the direct-save
+	// path (PSY-563). May be nil in tests; production wiring lives in
+	// routes/shows.go and admin/shows.go.
+	revisionService contracts.RevisionServiceInterface
 }
 
 // NewShowHandler creates a new show handler
@@ -39,6 +44,7 @@ func NewShowHandler(
 	discordService contracts.DiscordServiceInterface,
 	musicDiscoveryService contracts.MusicDiscoveryServiceInterface,
 	extractionService contracts.ExtractionServiceInterface,
+	revisionService contracts.RevisionServiceInterface,
 ) *ShowHandler {
 	return &ShowHandler{
 		showService:           showService,
@@ -48,6 +54,7 @@ func NewShowHandler(
 		discordService:        discordService,
 		musicDiscoveryService: musicDiscoveryService,
 		extractionService:     extractionService,
+		revisionService:       revisionService,
 	}
 }
 
@@ -298,6 +305,11 @@ type UpdateShowRequest struct {
 		ImageURL       *string    `json:"image_url,omitempty" doc:"Show flyer image URL" required:"false"`
 		Venues         []Venue    `json:"venues,omitempty" doc:"List of venues for the show"`
 		Artists        []Artist   `json:"artists,omitempty" doc:"List of artists for the show"`
+		// Summary describes the reason for the edit; persisted on the
+		// revision row so the History accordion can display it. Mirrors
+		// AdminUpdateArtistRequest.Body.Summary (PSY-563). Empty string =
+		// no reason supplied (revision still recorded if fields changed).
+		Summary *string `json:"summary,omitempty" doc:"Revision summary describing the change" required:"false"`
 	}
 }
 
@@ -834,6 +846,12 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if err := shared.ValidateImageURL(req.Body.ImageURL); err != nil {
 		return nil, err
 	}
+	// PSY-563: Summary length cap mirrors the artist analog (no schema cap;
+	// keep parity with field UX). Empty summaries are allowed — the History
+	// row simply renders without a reason line.
+	if req.Body.Summary != nil && len(*req.Body.Summary) > 5000 {
+		return nil, huma.Error422UnprocessableEntity("Summary must be 5000 characters or fewer")
+	}
 
 	// Build updates map for basic show fields
 	updates := make(map[string]interface{})
@@ -925,10 +943,79 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		"request_id", requestID,
 	)
 
+	// PSY-563: record a revision row for History rendering. Fire-and-forget;
+	// failure is logged but never blocks the user-facing save (mirrors the
+	// artist analog at artist.go:872-888). `existingShow` was already loaded
+	// for the ownership check, so no extra round-trip.
+	if h.revisionService != nil && existingShow != nil {
+		oldShow := existingShow
+		newShow := show
+		summary := shared.Deref(req.Body.Summary)
+		go func() {
+			changes := computeShowChanges(oldShow, newShow)
+			if len(changes) > 0 {
+				if err := h.revisionService.RecordRevision("show", uint(showID), user.ID, changes, summary); err != nil {
+					logger.Default().Error("record_show_revision_failed",
+						"show_id", showID,
+						"error", err.Error(),
+					)
+				}
+			}
+		}()
+	}
+
 	return &UpdateShowResponse{Body: UpdateShowResponseBody{
 		ShowResponse:    *show,
 		OrphanedArtists: orphanedArtists,
 	}}, nil
+}
+
+// computeShowChanges compares old and new show responses and returns
+// field-level diffs for revision history. Tracks the same scalar fields
+// that the EntityEditDrawer surfaces — venue and artist association
+// changes are intentionally excluded (the artist analog at
+// computeArtistChanges follows the same convention; relation diffs would
+// need their own schema). PSY-563.
+func computeShowChanges(old, new *contracts.ShowResponse) []adminm.FieldChange {
+	var changes []adminm.FieldChange
+
+	if old.Title != new.Title {
+		changes = append(changes, adminm.FieldChange{Field: "title", OldValue: old.Title, NewValue: new.Title})
+	}
+	if !old.EventDate.Equal(new.EventDate) {
+		changes = append(changes, adminm.FieldChange{Field: "event_date", OldValue: old.EventDate.Format(time.RFC3339), NewValue: new.EventDate.Format(time.RFC3339)})
+	}
+	if ptrToStr(old.City) != ptrToStr(new.City) {
+		changes = append(changes, adminm.FieldChange{Field: "city", OldValue: ptrToStr(old.City), NewValue: ptrToStr(new.City)})
+	}
+	if ptrToStr(old.State) != ptrToStr(new.State) {
+		changes = append(changes, adminm.FieldChange{Field: "state", OldValue: ptrToStr(old.State), NewValue: ptrToStr(new.State)})
+	}
+	if ptrToFloat(old.Price) != ptrToFloat(new.Price) {
+		changes = append(changes, adminm.FieldChange{Field: "price", OldValue: ptrToFloat(old.Price), NewValue: ptrToFloat(new.Price)})
+	}
+	if ptrToStr(old.AgeRequirement) != ptrToStr(new.AgeRequirement) {
+		changes = append(changes, adminm.FieldChange{Field: "age_requirement", OldValue: ptrToStr(old.AgeRequirement), NewValue: ptrToStr(new.AgeRequirement)})
+	}
+	if ptrToStr(old.Description) != ptrToStr(new.Description) {
+		changes = append(changes, adminm.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
+	}
+	if ptrToStr(old.TicketURL) != ptrToStr(new.TicketURL) {
+		changes = append(changes, adminm.FieldChange{Field: "ticket_url", OldValue: ptrToStr(old.TicketURL), NewValue: ptrToStr(new.TicketURL)})
+	}
+	if ptrToStr(old.ImageURL) != ptrToStr(new.ImageURL) {
+		changes = append(changes, adminm.FieldChange{Field: "image_url", OldValue: ptrToStr(old.ImageURL), NewValue: ptrToStr(new.ImageURL)})
+	}
+
+	return changes
+}
+
+// ptrToFloat safely dereferences a *float64 for diff comparison; nil → 0.
+func ptrToFloat(f *float64) float64 {
+	if f == nil {
+		return 0
+	}
+	return *f
 }
 
 // DeleteShowHandler handles DELETE /shows/{show_id}
