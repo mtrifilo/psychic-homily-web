@@ -90,8 +90,12 @@ vi.mock('@/components/ui/dialog', () => ({
   ),
 }))
 
-// Track the active tab value for selective rendering of TabsContent
+// Track the active tab value for selective rendering of TabsContent. Also
+// expose the parent's `onValueChange` so the mocked TabsTrigger can fire
+// it on click — needed by PSY-586 tests that assert tab clicks push the
+// new `?tab=` to the URL.
 let activeTabValue = 'all'
+let activeOnValueChange: ((v: string) => void) | undefined
 
 vi.mock('@/components/ui/tabs', () => ({
   Tabs: ({ children, value, onValueChange }: {
@@ -100,6 +104,7 @@ vi.mock('@/components/ui/tabs', () => ({
     onValueChange: (v: string) => void
   }) => {
     activeTabValue = value
+    activeOnValueChange = onValueChange
     return (
       <div data-testid="tabs" data-value={value}>
         {children}
@@ -110,7 +115,13 @@ vi.mock('@/components/ui/tabs', () => ({
     <div data-testid="tabs-list">{children}</div>
   ),
   TabsTrigger: ({ children, value }: { children: React.ReactNode; value: string }) => (
-    <button data-testid={`tab-${value}`} role="tab">{children}</button>
+    <button
+      data-testid={`tab-${value}`}
+      role="tab"
+      onClick={() => activeOnValueChange?.(value)}
+    >
+      {children}
+    </button>
   ),
   TabsContent: ({ children, value }: { children: React.ReactNode; value: string }) => {
     // Only render the active tab's content to avoid duplicate elements
@@ -149,6 +160,11 @@ function makeCollection(overrides: Partial<Collection> = {}): Collection {
 describe('CollectionList', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    // PSY-586: clear tab/tag state between tests so the URL-driven
+    // active-tab/tag derivation doesn't leak across cases. (URLSearchParams
+    // is module-scoped and shared.)
+    mockSearchParams.delete('tab')
+    mockSearchParams.delete('tag')
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -565,6 +581,182 @@ describe('CollectionList', () => {
       await user.click(clearBtn)
       expect(mockReplace).toHaveBeenCalled()
       mockSearchParams.delete('tag')
+    })
+  })
+
+  // PSY-586: tab is URL-routable via `?tab=<value>`. Direct nav, bookmarks,
+  // and shared links land on the right tab. Clicking a tab pushes the new
+  // value (so back/forward restores the previous tab). Unknown values
+  // silently fall back to All.
+  describe('URL-driven tab (PSY-586)', () => {
+    it('lands on All when no ?tab= is present', () => {
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', 'all')
+    })
+
+    it('lands on All when ?tab=all is explicit', () => {
+      mockSearchParams.set('tab', 'all')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', 'all')
+    })
+
+    it('lands on Popular when ?tab=popular', () => {
+      mockSearchParams.set('tab', 'popular')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', 'popular')
+    })
+
+    it('lands on Recent when ?tab=recent', () => {
+      mockSearchParams.set('tab', 'recent')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', 'recent')
+    })
+
+    it('lands on Featured when ?tab=featured', () => {
+      mockSearchParams.set('tab', 'featured')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', 'featured')
+    })
+
+    it('lands on Yours when ?tab=yours and user is authenticated', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockSearchParams.set('tab', 'yours')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', 'yours')
+    })
+
+    // Auth-gate edge case: ?tab=yours for a logged-out user. The Yours tab
+    // isn't rendered, so Radix would highlight nothing. Coerce to All.
+    it('falls back to All when ?tab=yours but user is unauthenticated', () => {
+      mockSearchParams.set('tab', 'yours')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', 'all')
+    })
+
+    it('falls back to All silently when ?tab= is an unknown value', () => {
+      mockSearchParams.set('tab', 'garbage')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      // No error, no toast, no console output — just renders All silently.
+      expect(screen.getByTestId('tabs')).toHaveAttribute('data-value', 'all')
+      // And we don't try to "fix" the URL — push/replace must not fire on
+      // mount, only on user interaction. (Library page does a replace-on-
+      // mount cleanup; PSY-586 chose silent fallback to keep behaviour
+      // predictable for shared links.)
+      expect(mockPush).not.toHaveBeenCalled()
+      expect(mockReplace).not.toHaveBeenCalled()
+    })
+
+    it('pushes ?tab=popular to the URL when the Popular tab is clicked', async () => {
+      const user = userEvent.setup()
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      await user.click(screen.getByTestId('tab-popular'))
+      expect(mockPush).toHaveBeenCalledWith(
+        '/collections?tab=popular',
+        expect.objectContaining({ scroll: false })
+      )
+      // Push, not replace, so back/forward restores the previous tab.
+      expect(mockReplace).not.toHaveBeenCalled()
+    })
+
+    it('omits tab=all from the URL when the All tab is clicked from another tab', async () => {
+      const user = userEvent.setup()
+      mockSearchParams.set('tab', 'popular')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      await user.click(screen.getByTestId('tab-all'))
+      // All is the default, so we drop the param entirely instead of
+      // emitting `?tab=all`. Cleaner URLs; back-button still works.
+      expect(mockPush).toHaveBeenCalledWith(
+        '/collections',
+        expect.objectContaining({ scroll: false })
+      )
+    })
+
+    it('preserves unrelated query params (e.g. ?tag=) when pushing tab change', async () => {
+      const user = userEvent.setup()
+      mockSearchParams.set('tag', 'phoenix')
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      await user.click(screen.getByTestId('tab-recent'))
+      // Tag filter (PSY-354) must survive the tab navigation — both are
+      // independent URL state, so the user's filter shouldn't reset just
+      // because they switched tabs.
+      expect(mockPush).toHaveBeenCalledWith(
+        expect.stringMatching(/^\/collections\?/),
+        expect.objectContaining({ scroll: false })
+      )
+      const pushedUrl = mockPush.mock.calls[0]?.[0] as string
+      expect(pushedUrl).toContain('tab=recent')
+      expect(pushedUrl).toContain('tag=phoenix')
     })
   })
 })
