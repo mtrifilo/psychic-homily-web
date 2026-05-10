@@ -103,8 +103,7 @@ export function ReportEntityDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {/* Success state. PSY-575: shared `StatusBanner` primitive carries
-            the green chrome; caller controls inner typography. */}
+        {/* Success state — PSY-575: shared StatusBanner primitive. */}
         {submitted && reportMutation.isSuccess && (
           <StatusBanner variant="success">
             <div>

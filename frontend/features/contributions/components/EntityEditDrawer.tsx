@@ -259,13 +259,9 @@ export function EntityEditDrawer({
           </SheetDescription>
         </SheetHeader>
 
-        {/* Success / pending state. PSY-575: green for direct-save (admin /
-            trusted), amber for "submitted for review" (non-admin) — the
-            shared StatusBanner primitive carries the colour vocabulary. The
-            drawer closes after a brief flash on direct save (success); on
-            pending submission the banner stays until the user closes the
-            drawer. No `dismissAfterMs` either way: drawer-close is the
-            implicit dismiss. */}
+        {/* PSY-575: green StatusBanner for direct-save (admin / trusted),
+            amber for "submitted for review" (non-admin). Drawer-close is the
+            implicit dismiss — no `dismissAfterMs` on either branch. */}
         {submitted && editMutation.isSuccess && (
           editMutation.data?.applied ? (
             <StatusBanner variant="success" className="mx-4">

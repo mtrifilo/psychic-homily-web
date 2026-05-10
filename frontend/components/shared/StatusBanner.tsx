@@ -77,16 +77,14 @@ export function StatusBanner({
 }: StatusBannerProps) {
   const [hidden, setHidden] = useState(false)
 
-  // Reset visibility whenever the timer config changes — supports the
-  // "show, auto-dismiss, show again on a later mutation" cycle without
-  // requiring the caller to remount.
-  useEffect(() => {
-    setHidden(false)
-  }, [dismissAfterMs])
-
+  // Reset visibility on every timer-config change so callers that re-arm
+  // (dismissAfterMs changes from one number to another) get the banner
+  // back; clear the timer on unmount so we never setState on an
+  // unmounted component.
   useEffect(() => {
     if (dismissAfterMs === undefined) return
 
+    setHidden(false)
     const timer = setTimeout(() => {
       setHidden(true)
       onDismiss?.()
