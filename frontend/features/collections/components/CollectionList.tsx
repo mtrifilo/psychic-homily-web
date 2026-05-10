@@ -35,16 +35,24 @@ import {
   getTierInfo,
 } from '@/lib/tiers'
 
-// PSY-586: tab values are URL-routable via `?tab=<value>`. Allowlist is the
-// canonical source of truth — unknown values fall back to `all` silently
-// (no toast, no redirect). The `yours` tab is auth-gated; navigating there
-// while unauthenticated also falls back to `all` since the tab isn't
-// rendered.
+// PSY-586: tab values are URL-routable via `?tab=<value>`. Unknown values
+// fall back to `all` silently (no redirect). The `yours` tab is auth-gated;
+// `?tab=yours` from a logged-out user also coerces to `all` since the tab
+// isn't rendered (Radix would otherwise highlight nothing).
 const BROWSE_TABS = ['all', 'popular', 'recent', 'featured', 'yours'] as const
 type BrowseTab = (typeof BROWSE_TABS)[number]
 
 function isBrowseTab(value: string | null): value is BrowseTab {
   return value !== null && (BROWSE_TABS as readonly string[]).includes(value)
+}
+
+function resolveActiveTab(
+  rawTab: string | null,
+  isAuthenticated: boolean
+): BrowseTab {
+  if (!isBrowseTab(rawTab)) return 'all'
+  if (rawTab === 'yours' && !isAuthenticated) return 'all'
+  return rawTab
 }
 
 export function CollectionList() {
@@ -53,23 +61,13 @@ export function CollectionList() {
   const searchParams = useSearchParams()
   const [createDialogOpen, setCreateDialogOpen] = useState(false)
 
-  // PSY-586: derive active tab from `?tab=` so direct nav / bookmarks /
-  // shared links land on the right tab. Unknown values silently fall back
-  // to `all`. The `yours` tab is auth-gated — when unauthenticated, it's
-  // not in the rendered tab list, so we coerce `?tab=yours` to `all` too
-  // (Radix would otherwise highlight nothing).
-  const rawTab = searchParams.get('tab')
-  const activeTab: BrowseTab = (() => {
-    if (!isBrowseTab(rawTab)) return 'all'
-    if (rawTab === 'yours' && !isAuthenticated) return 'all'
-    return rawTab
-  })()
+  const activeTab = resolveActiveTab(searchParams.get('tab'), isAuthenticated)
 
   const handleTabChange = (next: string) => {
     if (!isBrowseTab(next)) return
     // PSY-586: push (not replace) so back/forward restores the previous
-    // tab, per ticket. Preserve unrelated query params (e.g. PSY-354's
-    // `?tag=<slug>`). Omit `tab=all` from the URL — it's the default.
+    // tab. Preserve unrelated query params (e.g. PSY-354's `?tag=<slug>`).
+    // Omit `tab=all` from the URL since it's the default.
     const params = new URLSearchParams(searchParams.toString())
     if (next === 'all') {
       params.delete('tab')
