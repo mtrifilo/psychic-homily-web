@@ -520,6 +520,127 @@ describe('CollectionList', () => {
     })
   })
 
+  // PSY-585: Cover image URL field on the Create modal — parity with Edit.
+  // The field renders, an empty value submits cleanly (no cover key in the
+  // payload), and a valid URL submits with the cover_image_url key set.
+  describe('cover image URL field on create (PSY-585)', () => {
+    beforeEach(() => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+    })
+
+    it('renders the Cover image URL field with the create-only helper text', () => {
+      render(<CollectionList />)
+
+      // Field is present and has the URL input semantics. The accessible
+      // label includes the trailing "(optional)" hint span, so we match
+      // by data-testid to keep the assertion stable against copy tweaks.
+      const input = screen.getByTestId(
+        'create-cover-image-url-input'
+      ) as HTMLInputElement
+      expect(input).toBeInTheDocument()
+      expect(input.type).toBe('url')
+
+      // Helper copy: matches Edit form sans the "remove the current cover"
+      // half (no current cover to remove on create).
+      expect(
+        screen.getByText('Paste a direct image URL (e.g. Bandcamp art).')
+      ).toBeInTheDocument()
+    })
+
+    it('submits with cover_image_url when a valid URL is entered', async () => {
+      const user = userEvent.setup()
+      render(<CollectionList />)
+
+      const titleInput = screen.getByLabelText('Title') as HTMLInputElement
+      await user.type(titleInput, 'My Picks')
+
+      const coverInput = screen.getByTestId(
+        'create-cover-image-url-input'
+      ) as HTMLInputElement
+      await user.type(coverInput, 'https://example.com/cover.jpg')
+
+      // The form's submit button is the only button labeled "Create" (the
+      // header button reads "Create Collection"). Click it to fire submit.
+      const submitButton = screen.getByRole('button', { name: 'Create' })
+      await user.click(submitButton)
+
+      expect(mockCreateMutate).toHaveBeenCalled()
+      const callArgs = mockCreateMutate.mock.calls[0]
+      const payload = callArgs[0] as Record<string, unknown>
+      expect(payload).toMatchObject({
+        title: 'My Picks',
+        is_public: true,
+        collaborative: false,
+        cover_image_url: 'https://example.com/cover.jpg',
+      })
+    })
+
+    it('omits cover_image_url from the payload when the field is empty', async () => {
+      const user = userEvent.setup()
+      render(<CollectionList />)
+
+      const titleInput = screen.getByLabelText('Title') as HTMLInputElement
+      await user.type(titleInput, 'No Cover')
+
+      // Don't touch the cover field — it stays empty.
+      const submitButton = screen.getByRole('button', { name: 'Create' })
+      await user.click(submitButton)
+
+      expect(mockCreateMutate).toHaveBeenCalled()
+      const payload = mockCreateMutate.mock.calls[0][0] as Record<
+        string,
+        unknown
+      >
+      // JSON.stringify in the hook drops `undefined` keys, so we mirror
+      // that: empty cover URL means the key carries `undefined` here and
+      // never appears in the wire body.
+      expect(payload.cover_image_url).toBeUndefined()
+      expect(payload).toMatchObject({
+        title: 'No Cover',
+        is_public: true,
+        collaborative: false,
+      })
+    })
+
+    it('blocks submit and shows an inline error for an invalid URL', async () => {
+      const user = userEvent.setup()
+      render(<CollectionList />)
+
+      const titleInput = screen.getByLabelText('Title') as HTMLInputElement
+      await user.type(titleInput, 'Bad URL Test')
+
+      const coverInput = screen.getByTestId(
+        'create-cover-image-url-input'
+      ) as HTMLInputElement
+      // `not-a-url` fails the WHATWG URL parser → validateCoverImageUrl
+      // returns the "Enter a valid URL..." message.
+      await user.type(coverInput, 'not-a-url')
+      // Blur to flip `coverImageUrlTouched` so the error renders.
+      coverInput.blur()
+
+      // The Create submit button must be disabled while the URL is invalid.
+      const submitButton = screen.getByRole('button', {
+        name: 'Create',
+      }) as HTMLButtonElement
+      expect(submitButton.disabled).toBe(true)
+
+      // Clicking it should be a no-op (mutate must not fire).
+      await user.click(submitButton)
+      expect(mockCreateMutate).not.toHaveBeenCalled()
+    })
+  })
+
   // PSY-354: tag-filter URL plumbing.
   describe('tag filter (PSY-354)', () => {
     it('does not render the active-filter pill when ?tag is absent', () => {

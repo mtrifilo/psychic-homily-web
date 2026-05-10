@@ -7,7 +7,11 @@ import { useDebounce } from 'use-debounce'
 import { useCollections, useMyCollections, useCreateCollection } from '../hooks'
 import { CollectionCard } from './CollectionCard'
 import { MarkdownEditor } from './MarkdownEditor'
-import { MAX_COLLECTION_MARKDOWN_LENGTH } from '../types'
+import {
+  MAX_COLLECTION_MARKDOWN_LENGTH,
+  MAX_COVER_IMAGE_URL_LENGTH,
+  validateCoverImageUrl,
+} from '../types'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -497,10 +501,26 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
   const [description, setDescription] = useState('')
   const [isPublic, setIsPublic] = useState(true)
   const [collaborative, setCollaborative] = useState(false)
+  // PSY-585: cover image URL on create — mirrors the Edit form's field
+  // shape (validation, preview, clear button) so users can set the cover
+  // in one step instead of create-then-immediately-edit. Empty string is
+  // the "no cover" affordance and is the default; we omit the field from
+  // the request payload entirely when it's empty so the backend stores
+  // null rather than an empty string.
+  const [coverImageUrl, setCoverImageUrl] = useState('')
+  const [coverImageUrlTouched, setCoverImageUrlTouched] = useState(false)
+
+  const trimmedCoverUrl = coverImageUrl.trim()
+  const coverImageUrlError = validateCoverImageUrl(coverImageUrl)
+  const showCoverImageUrlError =
+    coverImageUrlTouched && coverImageUrlError !== null
+  const showCoverImagePreview =
+    trimmedCoverUrl.length > 0 && coverImageUrlError === null
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim()) return
+    if (coverImageUrlError) return
 
     createMutation.mutate(
       {
@@ -508,11 +528,17 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
         description: description.trim() || undefined,
         is_public: isPublic,
         collaborative,
+        // Empty string means "no cover" — omit the field rather than
+        // sending an empty string so the backend column stays null.
+        cover_image_url:
+          trimmedCoverUrl.length === 0 ? undefined : trimmedCoverUrl,
       },
       {
         onSuccess: (data) => {
           setTitle('')
           setDescription('')
+          setCoverImageUrl('')
+          setCoverImageUrlTouched(false)
           onSuccess(data?.slug)
         },
       }
@@ -590,6 +616,85 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
         />
       </div>
 
+      {/* PSY-585: Cover image URL (parity with Edit form). Optional; empty
+          submits cleanly with no cover. Validation, inline preview, and
+          clear-button mirror the Edit form's shape — only the helper text
+          differs (no "remove the current cover" half on create). */}
+      <div>
+        <label
+          htmlFor="create-cover-image-url"
+          className="text-sm font-medium mb-1.5 block"
+        >
+          Cover image URL{' '}
+          <span className="text-xs font-normal text-muted-foreground">
+            (optional)
+          </span>
+        </label>
+        <div className="flex gap-2">
+          <Input
+            id="create-cover-image-url"
+            type="url"
+            inputMode="url"
+            value={coverImageUrl}
+            onChange={e => {
+              setCoverImageUrl(e.target.value)
+              setCoverImageUrlTouched(true)
+            }}
+            onBlur={() => setCoverImageUrlTouched(true)}
+            placeholder="https://example.com/cover.jpg"
+            maxLength={MAX_COVER_IMAGE_URL_LENGTH}
+            aria-invalid={showCoverImageUrlError ? true : undefined}
+            aria-describedby={
+              showCoverImageUrlError
+                ? 'create-cover-image-url-error'
+                : 'create-cover-image-url-help'
+            }
+            data-testid="create-cover-image-url-input"
+          />
+          {trimmedCoverUrl.length > 0 && (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                setCoverImageUrl('')
+                setCoverImageUrlTouched(true)
+              }}
+              data-testid="create-cover-image-url-clear"
+            >
+              <X className="h-4 w-4 mr-1" />
+              Clear
+            </Button>
+          )}
+        </div>
+        {showCoverImageUrlError ? (
+          <p
+            id="create-cover-image-url-error"
+            className="text-xs text-destructive mt-1.5"
+            role="alert"
+          >
+            {coverImageUrlError}
+          </p>
+        ) : (
+          <p
+            id="create-cover-image-url-help"
+            className="text-xs text-muted-foreground mt-1.5"
+          >
+            Paste a direct image URL (e.g. Bandcamp art).
+          </p>
+        )}
+        {showCoverImagePreview && (
+          <div className="mt-2 h-24 w-24 rounded-lg overflow-hidden border border-border/50 bg-muted/50">
+            <img
+              src={trimmedCoverUrl}
+              alt="Cover image preview"
+              className="h-full w-full object-cover"
+              data-testid="create-cover-image-url-preview"
+            />
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-6">
         <label className="flex items-center gap-2 text-sm cursor-pointer">
           <input
@@ -623,7 +728,12 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
       <div className="flex justify-end gap-2">
         <Button
           type="submit"
-          disabled={!title.trim() || createMutation.isPending || atOrOverCap}
+          disabled={
+            !title.trim() ||
+            coverImageUrlError !== null ||
+            createMutation.isPending ||
+            atOrOverCap
+          }
         >
           {createMutation.isPending ? 'Creating...' : 'Create'}
         </Button>
