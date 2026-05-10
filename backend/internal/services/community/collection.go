@@ -142,17 +142,17 @@ func validatePublishGate(itemCount int, description string) error {
 	switch {
 	case itemsBelow && descBelow:
 		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
-			"public collections require at least %d items and a description of at least %d characters (currently %d items, %d-character description)",
+			"Public collections require at least %d items and a description of at least %d characters (currently %d items, %d-character description)",
 			MinPublicCollectionItems, MinPublicCollectionDescriptionChars, itemCount, len(description),
 		))
 	case itemsBelow:
 		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
-			"public collections require at least %d items (currently %d)",
+			"Public collections require at least %d items (currently %d)",
 			MinPublicCollectionItems, itemCount,
 		))
 	default:
 		return apperrors.ErrCollectionInvalidRequest(fmt.Sprintf(
-			"public collections require a description of at least %d characters (currently %d)",
+			"Public collections require a description of at least %d characters (currently %d)",
 			MinPublicCollectionDescriptionChars, len(description),
 		))
 	}
