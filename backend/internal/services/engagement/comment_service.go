@@ -904,19 +904,11 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 		}
 	}
 
-	// Compute verified attendee: user marked "going" before the show date
-	isVerifiedAttendee := false
-	var goingBookmark engagementm.UserBookmark
-	err := s.db.Where(
-		"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
-		userID, engagementm.BookmarkEntityShow, req.ShowID, engagementm.BookmarkActionGoing,
-	).First(&goingBookmark).Error
-	if err == nil {
-		// User has a "going" bookmark — verified if created before the show date
-		if goingBookmark.CreatedAt.Before(show.EventDate) {
-			isVerifiedAttendee = true
-		}
-	}
+	// Verified-attendee is a self-claim captured at post time (PSY-568).
+	// The frontend pre-fills the checkbox from the user's current Going RSVP
+	// but the value sent here is authoritative. Snapshot semantics: toggling
+	// Going after posting does NOT flip an existing field-note's badge.
+	// Posting is NEVER blocked by attendance status — the flag is opt-in.
 
 	// Build structured data
 	structuredData := contracts.FieldNoteStructuredData{
@@ -926,7 +918,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 		CrowdEnergy:        req.CrowdEnergy,
 		NotableMoments:     req.NotableMoments,
 		SetlistSpoiler:     req.SetlistSpoiler,
-		IsVerifiedAttendee: isVerifiedAttendee,
+		IsVerifiedAttendee: req.VerifiedAttendee,
 	}
 	sdJSON, err := json.Marshal(structuredData)
 	if err != nil {

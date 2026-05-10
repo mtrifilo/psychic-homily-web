@@ -33,6 +33,15 @@ interface FieldNoteFormProps {
    * eager-clear-on-submit behaviour discarded the draft on 4xx errors.
    */
   resetSignal?: number
+  /**
+   * PSY-568: pre-checks the "I attended this show" checkbox when the
+   * current user has Going set on this show. The checkbox value sent on
+   * submit is authoritative — the user can uncheck it (e.g. they were
+   * marked Going but couldn't actually make it). Snapshot semantics:
+   * toggling Going after posting does NOT flip the badge on existing
+   * notes.
+   */
+  defaultVerifiedAttendee?: boolean
 }
 
 function StarRating({
@@ -83,6 +92,7 @@ export function FieldNoteForm({
   disabledMessage,
   errorMessage,
   resetSignal,
+  defaultVerifiedAttendee = false,
 }: FieldNoteFormProps) {
   const [body, setBody] = useState('')
   const [soundQuality, setSoundQuality] = useState(0)
@@ -91,9 +101,21 @@ export function FieldNoteForm({
   const [setlistSpoiler, setSetlistSpoiler] = useState(false)
   const [showArtistId, setShowArtistId] = useState<number | undefined>(undefined)
   const [songPosition, setSongPosition] = useState('')
+  // PSY-568: self-claim "I attended this show". Initial state mirrors the
+  // user's current Going RSVP; falls back to false. Re-syncs when the
+  // default changes (e.g. attendance loads after the form mounts).
+  const [verifiedAttendee, setVerifiedAttendee] = useState(defaultVerifiedAttendee)
+  useEffect(() => {
+    setVerifiedAttendee(defaultVerifiedAttendee)
+  }, [defaultVerifiedAttendee])
 
   // PSY-608: parent bumps resetSignal from mutation onSuccess. Mirrors the
   // CommentForm pattern so a 4xx response keeps the user's draft intact.
+  // PSY-568: also resets the verified-attendee checkbox to the current
+  // default. defaultVerifiedAttendee is intentionally OMITTED from the
+  // dep array — its own useEffect above handles re-sync when Going status
+  // changes, and including it here would wipe the user's draft on every
+  // attendance refetch.
   useEffect(() => {
     if (resetSignal === undefined) return
     setBody('')
@@ -103,6 +125,8 @@ export function FieldNoteForm({
     setSetlistSpoiler(false)
     setShowArtistId(undefined)
     setSongPosition('')
+    setVerifiedAttendee(defaultVerifiedAttendee)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetSignal])
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -120,6 +144,9 @@ export function FieldNoteForm({
     if (songPosition && parseInt(songPosition, 10) > 0) {
       input.song_position = parseInt(songPosition, 10)
     }
+    // PSY-568: always send the flag so the backend stores the explicit
+    // user choice (default-false on the server matches an unchecked box).
+    input.verified_attendee = verifiedAttendee
 
     onSubmit(input)
     // PSY-608: reset is parent-driven via resetSignal (mirrors CommentForm).
@@ -168,6 +195,24 @@ export function FieldNoteForm({
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           Optional Details
         </p>
+
+        {/* PSY-568: self-claim "I attended this show". Pre-checked when the
+            user has Going set; user can override (snapshot at post time). */}
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="verified-attendee"
+            checked={verifiedAttendee}
+            onCheckedChange={(checked) => setVerifiedAttendee(checked === true)}
+            disabled={isPending}
+            data-testid="verified-attendee-checkbox"
+          />
+          <Label
+            htmlFor="verified-attendee"
+            className="text-sm text-foreground cursor-pointer"
+          >
+            I attended this show
+          </Label>
+        </div>
 
         {/* Star ratings */}
         <StarRating
