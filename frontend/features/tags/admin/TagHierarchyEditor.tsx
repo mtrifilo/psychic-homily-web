@@ -23,6 +23,7 @@ import {
   DialogFooter,
 } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
+import { InlineErrorBanner } from '@/components/shared'
 import { useSearchTags } from '../hooks'
 import { useGenreHierarchy, useSetTagParent } from './useAdminTags'
 import type { GenreHierarchyNode, GenreHierarchyTag, TagListItem } from '../types'
@@ -182,14 +183,7 @@ function ParentPickerDialog({
         </DialogHeader>
 
         <div className="space-y-4">
-          {error && (
-            <div
-              className="rounded-lg border border-destructive/50 bg-destructive/10 p-3 text-sm text-destructive"
-              role="alert"
-            >
-              {error}
-            </div>
-          )}
+          {error && <InlineErrorBanner>{error}</InlineErrorBanner>}
 
           <div className="relative">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
