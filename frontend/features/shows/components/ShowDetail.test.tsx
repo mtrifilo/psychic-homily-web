@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderWithProviders as render } from '@/test/utils'
 import type { ShowResponse, ArtistResponse } from '../types'
 
 // Mock AuthContext
@@ -54,6 +55,9 @@ vi.mock('@/components/shared', () => ({
   SocialLinks: () => <div data-testid="social-links" />,
   MusicEmbed: () => <div data-testid="music-embed" />,
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
+  RevisionHistory: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
+    <div data-testid="revision-history">History for {entityType} {entityId}</div>
+  ),
   EntityDetailLayout: ({
     header,
     children,
@@ -76,19 +80,9 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 
-vi.mock('@/components/forms', () => ({
-  ShowForm: ({ onSuccess, onCancel }: { onSuccess: () => void; onCancel: () => void }) => (
-    <div data-testid="show-form">
-      <button onClick={onSuccess}>Save Form</button>
-      <button onClick={onCancel}>Cancel Form</button>
-    </div>
-  ),
-}))
-
 // Mock contributions feature so we can drive the success banner from tests
-// without exercising the real auto-dismiss timer. PSY-569 wires the show edit
-// form's onSuccess into `useEntitySaveSuccessBanner.handleSaveSuccess`; we
-// surface a settable visibility flag here to verify the banner renders.
+// without exercising the real auto-dismiss timer. PSY-563 routes show edits
+// through {@link EntityEditDrawer} (replacing the old inline ShowForm).
 const mockSaveBannerHandleSaveSuccess = vi.fn()
 let mockSaveBannerVisible = false
 vi.mock('@/features/contributions', () => ({
@@ -98,6 +92,26 @@ vi.mock('@/features/contributions', () => ({
     isVisible: mockSaveBannerVisible,
     handleSaveSuccess: mockSaveBannerHandleSaveSuccess,
   }),
+  AttributionLine: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
+    <div data-testid="attribution-line">Attribution {entityType} {entityId}</div>
+  ),
+  EntityEditDrawer: ({
+    open,
+    entityType,
+    onSuccess,
+  }: {
+    open: boolean
+    entityType: string
+    onSuccess?: (result: { applied: boolean }) => void
+  }) =>
+    open ? (
+      <div data-testid="entity-edit-drawer">
+        Drawer for {entityType}
+        <button data-testid="drawer-save" onClick={() => onSuccess?.({ applied: true })}>
+          Save Drawer
+        </button>
+      </div>
+    ) : null,
 }))
 
 vi.mock('./DeleteShowDialog', () => ({
@@ -386,37 +400,47 @@ describe('ShowDetail', () => {
       expect(screen.getByRole('button', { name: /Delete/ })).toBeInTheDocument()
     })
 
-    it('toggles edit form on click', async () => {
+    // PSY-563: clicking Edit opens the right-side EntityEditDrawer instead
+    // of expanding the inline form. The toggle button still lives in
+    // ShowActions.
+    it('toggles the edit drawer on click', async () => {
       const user = userEvent.setup()
       render(<ShowDetail showId="1" />)
 
-      expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('entity-edit-drawer')).not.toBeInTheDocument()
 
       await user.click(screen.getByRole('button', { name: /Edit/ }))
-      expect(screen.getByTestId('show-form')).toBeInTheDocument()
-
-      // The admin Cancel button has text "Cancel" with X icon
-      const cancelButtons = screen.getAllByRole('button').filter(b =>
-        b.textContent?.trim() === 'Cancel'
-      )
-      await user.click(cancelButtons[0])
-      expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
+      expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
     })
 
-    // PSY-569: after a successful save the banner hook is told to flash, the
-    // edit form collapses, and the success banner is left visible on the
-    // page. Mirrors the artist/venue/release/label/festival detail pages.
-    it('flashes the save banner and collapses the form after a successful save', async () => {
+    // PSY-563: after a successful save, the drawer's onSuccess fires the
+    // banner-flash hook with `{applied: true}` (shows always direct-save).
+    // Mirrors the artist/venue/release/label/festival detail pages.
+    it('flashes the save banner after a successful drawer save', async () => {
       const user = userEvent.setup()
       render(<ShowDetail showId="1" />)
 
       await user.click(screen.getByRole('button', { name: /Edit/ }))
-      expect(screen.getByTestId('show-form')).toBeInTheDocument()
+      expect(screen.getByTestId('entity-edit-drawer')).toBeInTheDocument()
 
-      await user.click(screen.getByRole('button', { name: 'Save Form' }))
+      await user.click(screen.getByTestId('drawer-save'))
 
       expect(mockSaveBannerHandleSaveSuccess).toHaveBeenCalledWith({ applied: true })
-      expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
+    })
+
+    // PSY-563: revision history accordion mounts at the bottom of the
+    // detail page (mirrors the other 5 detail pages).
+    it('renders RevisionHistory for shows', () => {
+      render(<ShowDetail showId="1" />)
+      expect(screen.getByTestId('revision-history')).toBeInTheDocument()
+    })
+
+    // PSY-563: AttributionLine renders directly in the header slot
+    // (mirrors artist/venue/release/label/festival).
+    it('renders AttributionLine in the header slot', () => {
+      render(<ShowDetail showId="1" />)
+      const header = screen.getByTestId('header-slot')
+      expect(header).toContainElement(screen.getByTestId('attribution-line'))
     })
 
     it('renders the save success banner when the hook reports it visible', () => {
