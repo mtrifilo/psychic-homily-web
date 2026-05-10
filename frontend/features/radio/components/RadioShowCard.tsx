@@ -1,8 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { Mic2, ListMusic } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { EntityCardTitle } from '@/components/shared'
 import type { RadioShowListItem } from '../types'
 
 interface RadioShowCardProps {
@@ -32,14 +32,7 @@ export function RadioShowCard({ show, stationSlug }: RadioShowCardProps) {
 
         {/* Content */}
         <div className="flex-1 min-w-0">
-          <Link href={showUrl} className="block group">
-            <h3
-              className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
-              title={show.name}
-            >
-              {show.name}
-            </h3>
-          </Link>
+          <EntityCardTitle name={show.name} href={showUrl} />
 
           {show.host_name && (
             <p className="text-sm text-muted-foreground mt-0.5">

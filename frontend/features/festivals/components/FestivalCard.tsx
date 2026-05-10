@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Calendar, MapPin, Users } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { EntityCardTitle } from '@/components/shared'
 import {
   getFestivalStatusLabel,
   getFestivalStatusVariant,
@@ -68,14 +69,11 @@ export function FestivalCard({
 
           {/* Text Content */}
           <div className="flex-1 min-w-0">
-            <Link href={festivalUrl} className="block group">
-              <h3
-                className="font-bold text-xl text-foreground group-hover:text-primary transition-colors line-clamp-2"
-                title={festival.name}
-              >
-                {festival.name}
-              </h3>
-            </Link>
+            <EntityCardTitle
+              name={festival.name}
+              href={festivalUrl}
+              density="expanded"
+            />
 
             <div className="flex items-center gap-2 flex-wrap mt-2">
               <Badge
@@ -130,14 +128,11 @@ export function FestivalCard({
 
         {/* Text Content */}
         <div className="flex-1 min-w-0">
-          <Link href={festivalUrl} className="block group">
-            <h3
-              className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
-              title={festival.name}
-            >
-              {festival.name}
-            </h3>
-          </Link>
+          <EntityCardTitle
+            name={festival.name}
+            href={festivalUrl}
+            density="comfortable"
+          />
 
           <div className="flex items-center gap-2 flex-wrap mt-1">
             <Badge

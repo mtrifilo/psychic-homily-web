@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { Disc3 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { EntityCardTitle } from '@/components/shared'
 import { getReleaseTypeLabel } from '../types'
 import type { ReleaseListItem } from '../types'
 
@@ -114,14 +115,11 @@ export function ReleaseCard({
 
           {/* Text Content */}
           <div className="flex-1 min-w-0">
-            <Link href={releaseUrl} className="block group">
-              <h3
-                className="font-bold text-xl text-foreground group-hover:text-primary transition-colors line-clamp-2"
-                title={release.title}
-              >
-                {release.title}
-              </h3>
-            </Link>
+            <EntityCardTitle
+              name={release.title}
+              href={releaseUrl}
+              density="expanded"
+            />
 
             {artistDisplay && (
               <div className="mt-1 text-sm truncate">
@@ -179,14 +177,11 @@ export function ReleaseCard({
 
         {/* Text Content */}
         <div className="flex-1 min-w-0">
-          <Link href={releaseUrl} className="block group">
-            <h3
-              className="font-bold text-base text-foreground group-hover:text-primary transition-colors line-clamp-2"
-              title={release.title}
-            >
-              {release.title}
-            </h3>
-          </Link>
+          <EntityCardTitle
+            name={release.title}
+            href={releaseUrl}
+            density="comfortable"
+          />
 
           {artistDisplay && (
             <div className="text-sm truncate mt-0.5">

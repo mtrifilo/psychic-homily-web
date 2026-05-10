@@ -59,6 +59,19 @@ vi.mock('@/components/shared', () => ({
   DensityToggle: ({ density }: { density: string; onDensityChange: (v: string) => void }) => (
     <div data-testid="density-toggle">{density}</div>
   ),
+  EntityCardTitle: ({
+    name,
+    href,
+    ariaLabel,
+  }: {
+    name: string
+    href: string
+    ariaLabel?: string
+  }) => (
+    <a href={href} aria-label={ariaLabel ?? name}>
+      <h3 title={name}>{name}</h3>
+    </a>
+  ),
 }))
 
 vi.mock('@/features/tags', () => ({
