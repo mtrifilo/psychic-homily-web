@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag, Clock, Pencil, Trash2, History } from 'lucide-react'
+import { MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag, Clock, Pencil, Trash2, History } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
 import { CommentForm } from './CommentForm'
 import { CommentEditHistory } from './CommentEditHistory'
+import { CommentVoteControls } from './CommentVoteControls'
 import { FieldNoteForm } from './FieldNoteForm'
 import { MutationErrorBanner } from './MutationErrorBanner'
 import { ReportEntityDialog } from '@/features/contributions'
@@ -16,10 +17,7 @@ import {
   useReplyToComment,
   useUpdateComment,
   useDeleteComment,
-  useVoteComment,
-  useUnvoteComment,
   useCommentThread,
-  useAutoDismissError,
   formatCommentSubmissionError,
 } from '../hooks'
 import {
@@ -93,12 +91,6 @@ export function FieldNoteCard({
   const replyMutation = useReplyToComment()
   const updateMutation = useUpdateComment()
   const deleteMutation = useDeleteComment()
-  const voteMutation = useVoteComment()
-  const unvoteMutation = useUnvoteComment()
-  // PSY-608: optimistic vote/unvote rollback hides the failure visually.
-  // Show a brief auto-dismissing banner so the user knows the action was
-  // reverted, mirroring SaveButton / FavoriteVenueButton (~3s).
-  const voteError = useAutoDismissError()
 
   const hasInlineReplies = replies.length > 0
   const { data: threadData } = useCommentThread(comment.id, loadedThread && !hasInlineReplies)
@@ -112,21 +104,6 @@ export function FieldNoteCard({
   const artistName = sd?.show_artist_id
     ? artists.find((a) => a.id === sd.show_artist_id)?.name
     : null
-
-  const handleVote = (direction: 1 | -1) => {
-    if (!isAuthenticated) return
-    if (comment.user_vote === direction) {
-      unvoteMutation.mutate(
-        { commentId: comment.id, entityType: 'show', entityId: showId },
-        { onError: (err) => voteError.show(err) }
-      )
-    } else {
-      voteMutation.mutate(
-        { commentId: comment.id, direction, entityType: 'show', entityId: showId },
-        { onError: (err) => voteError.show(err) }
-      )
-    }
-  }
 
   const handleReply = (body: string) => {
     replyMutation.mutate(
@@ -348,20 +325,6 @@ export function FieldNoteCard({
         </div>
       )}
 
-      {/* PSY-608: auto-dismiss banner for vote/unvote failures. The
-          optimistic-rollback restores the cached state silently; without
-          this, the user sees the icon flip back with no explanation. */}
-      {!isEditing && voteError.error !== null && (
-        <MutationErrorBanner
-          testId="vote-error-banner"
-          marginTop="mt-3"
-          message={
-            formatCommentSubmissionError(voteError.error) ??
-            'Vote failed. Please try again.'
-          }
-        />
-      )}
-
       {/* PSY-590: sticky banner for delete failures — mirrors CommentCard
           (the inline edit-form banner is owned by CommentForm via
           errorMessage above). */}
@@ -375,45 +338,18 @@ export function FieldNoteCard({
         />
       )}
 
-      {/* Actions row: votes + reply + edit + delete + report */}
+      {/* Actions row: votes + reply + edit + delete + report. PSY-632: vote
+          chevrons + score + vote-error banner extracted to
+          <CommentVoteControls>. The primitive owns the action-row
+          container; remaining action buttons ride along as `children` so
+          the row layout stays one line. */}
       {!isEditing && (
-        <div className="flex items-center gap-1 mt-3">
-          {/* PSY-593: authors don't see vote buttons on their own field
-              notes (matches HN/Lobsters — authors must not self-promote).
-              Score still renders so the author can see it. */}
-          {!isOwner && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-7 w-7 p-0 ${comment.user_vote === 1 ? 'text-primary' : 'text-muted-foreground'}`}
-              onClick={() => handleVote(1)}
-              disabled={!isAuthenticated}
-              aria-label="Upvote"
-              data-testid="upvote-button"
-            >
-              <ChevronUp className="h-4 w-4" />
-            </Button>
-          )}
-          <span
-            className={`text-xs font-medium min-w-[1.5rem] text-center ${isOwner ? 'text-muted-foreground' : ''}`}
-            data-testid="vote-score"
-          >
-            {comment.ups - comment.downs}
-          </span>
-          {!isOwner && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-7 w-7 p-0 ${comment.user_vote === -1 ? 'text-destructive' : 'text-muted-foreground'}`}
-              onClick={() => handleVote(-1)}
-              disabled={!isAuthenticated}
-              aria-label="Downvote"
-              data-testid="downvote-button"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          )}
-
+        <CommentVoteControls
+          comment={comment}
+          entityType="show"
+          entityId={showId}
+          marginTop="mt-3"
+        >
           {/* Reply button */}
           {isAuthenticated && comment.depth < 2 && comment.reply_permission !== 'author_only' && (
             <Button
@@ -498,7 +434,7 @@ export function FieldNoteCard({
               Report
             </Button>
           )}
-        </div>
+        </CommentVoteControls>
       )}
 
       {/* PSY-590: admin-only edit history trigger. Mirrors CommentCard
