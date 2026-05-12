@@ -860,17 +860,14 @@ func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool
 		return errors.New("only the comment author or an admin can delete this comment")
 	}
 
-	// PSY-567: field-note window applies to AUTHOR self-deletes. An admin
-	// moderating someone else's note bypasses the window (that's the
-	// out-of-window retraction path the AC mentions). The
-	// "isAdmin && comment.UserID == userID" check matches the existing
-	// pattern below where an admin deleting their own row is treated as a
-	// user action.
-	isAuthorAction := comment.UserID == userID
-	if comment.Kind == engagementm.CommentKindFieldNote && isAuthorAction {
-		if !withinFieldNoteEditWindow(comment.CreatedAt) {
-			return errors.New("field note edit window has expired")
-		}
+	// PSY-567: field-note window applies to author self-deletes (incl.
+	// admins acting on their own note — the window is per-author, not
+	// per-role). Admin moderation of someone else's note bypasses it,
+	// which is the out-of-window retraction path the AC mentions.
+	if comment.Kind == engagementm.CommentKindFieldNote &&
+		comment.UserID == userID &&
+		!withinFieldNoteEditWindow(comment.CreatedAt) {
+		return errors.New("field note edit window has expired")
 	}
 
 	visibility := engagementm.CommentVisibilityHiddenByUser

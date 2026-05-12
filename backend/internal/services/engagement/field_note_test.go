@@ -948,7 +948,7 @@ func (suite *FieldNoteIntegrationTestSuite) TestUpdateRegularComment_NoWindowApp
 	// author-edit. Backdate one well past the field-note window and assert
 	// the edit still succeeds.
 	user := suite.createTestUser()
-	artistID := suite.createTestArtistFor("Regular Edit", &authm.User{})
+	artistID := suite.createTestArtist("Regular Edit")
 	original, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
 		EntityType: "artist",
 		EntityID:   artistID,
@@ -999,7 +999,7 @@ func (suite *FieldNoteIntegrationTestSuite) TestDeleteFieldNote_AdminOutOfWindow
 	// Admin moderation bypasses the author window — that's how out-of-
 	// window retraction works (per AC).
 	user := suite.createTestUser()
-	admin := suite.createTestAdminFor()
+	admin := suite.createTestAdmin()
 	showID := suite.createPastShow("Admin Override", 2)
 	note := suite.agedFieldNote(user.ID, showID, "old note", FieldNoteEditWindow+time.Minute)
 
@@ -1011,10 +1011,10 @@ func (suite *FieldNoteIntegrationTestSuite) TestDeleteFieldNote_AdminOutOfWindow
 	suite.Equal(engagementm.CommentVisibilityHiddenByMod, reloaded.Visibility)
 }
 
-// Local test helpers — keep these out of the existing groups so they're
-// adjacent to the PSY-567 suite that consumes them.
-
-func (suite *FieldNoteIntegrationTestSuite) createTestAdminFor() *authm.User {
+// createTestAdmin mirrors the CommentServiceIntegrationTestSuite helper of
+// the same name — separate suite types in the same package can't share
+// methods, so PSY-567's admin-bypass test needs its own.
+func (suite *FieldNoteIntegrationTestSuite) createTestAdmin() *authm.User {
 	user := &authm.User{
 		Email:         stringPtr(fmt.Sprintf("fn-admin-%d@test.com", time.Now().UnixNano())),
 		Username:      stringPtr(fmt.Sprintf("fnadmin%d", time.Now().UnixNano())),
@@ -1028,13 +1028,4 @@ func (suite *FieldNoteIntegrationTestSuite) createTestAdminFor() *authm.User {
 	err := suite.db.Create(user).Error
 	suite.Require().NoError(err)
 	return user
-}
-
-// createTestArtistFor is a thin alias kept here only because the existing
-// createTestArtist helper takes a name; the regression test for regular
-// comments needs an artist row independent of the field-note suite's
-// helpers in the same package. The signature accepts an unused user arg so
-// future expansions can record ownership without another helper.
-func (suite *FieldNoteIntegrationTestSuite) createTestArtistFor(name string, _ *authm.User) uint {
-	return suite.createTestArtist(name)
 }

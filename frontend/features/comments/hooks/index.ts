@@ -275,7 +275,7 @@ export function useUpdateComment() {
       apiRequest<Comment>(commentEndpoints.UPDATE(commentId), {
         method: 'PUT',
         body: JSON.stringify(
-          structuredData !== undefined && structuredData !== null
+          structuredData != null
             ? { body, structured_data: structuredData }
             : { body }
         ),
