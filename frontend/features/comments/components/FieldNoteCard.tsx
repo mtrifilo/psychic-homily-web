@@ -348,8 +348,7 @@ export function FieldNoteCard({
           comment={comment}
           entityType="show"
           entityId={showId}
-          actionRowMarginTop="mt-3"
-          bannerMarginTop="mt-3"
+          marginTop="mt-3"
         >
           {/* Reply button */}
           {isAuthenticated && comment.depth < 2 && comment.reply_permission !== 'author_only' && (

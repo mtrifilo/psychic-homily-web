@@ -27,13 +27,10 @@ interface CommentVoteControlsProps {
    *  same flex row. Cards pass their Reply / Edit / Delete / Report
    *  buttons here so the row layout is preserved. */
   children?: ReactNode
-  /** Margin-top for the action row. CommentCard uses the default `mt-2`;
-   *  FieldNoteCard uses `mt-3` to match its pre-extraction visual rhythm. */
-  actionRowMarginTop?: 'mt-2' | 'mt-3'
-  /** Margin-top for the inline auto-dismiss error banner. CommentCard
-   *  uses the default `mt-2`; FieldNoteCard uses `mt-3` to match its
-   *  pre-extraction visual rhythm. */
-  bannerMarginTop?: 'mt-2' | 'mt-3'
+  /** Margin-top for both the action row and the inline error banner.
+   *  CommentCard uses the default `mt-2`; FieldNoteCard uses `mt-3` to
+   *  match its pre-extraction visual rhythm. */
+  marginTop?: 'mt-2' | 'mt-3'
 }
 
 /**
@@ -63,8 +60,7 @@ export function CommentVoteControls({
   entityType,
   entityId,
   children,
-  actionRowMarginTop = 'mt-2',
-  bannerMarginTop = 'mt-2',
+  marginTop = 'mt-2',
 }: CommentVoteControlsProps) {
   const { user, isAuthenticated } = useAuthContext()
   const currentUserId = user?.id ? Number(user.id) : null
@@ -80,7 +76,6 @@ export function CommentVoteControls({
   const handleVote = (direction: 1 | -1) => {
     if (!isAuthenticated) return
     if (comment.user_vote === direction) {
-      // Toggle off
       unvoteMutation.mutate(
         { commentId: comment.id, entityType, entityId },
         { onError: (err) => voteError.show(err) }
@@ -95,7 +90,7 @@ export function CommentVoteControls({
 
   return (
     <>
-      <div className={`flex items-center gap-1 ${actionRowMarginTop}`}>
+      <div className={`flex items-center gap-1 ${marginTop}`}>
         {/* PSY-593: authors don't see vote buttons on their own rows
             (matches HN/Lobsters — authors must not self-promote). Score
             still renders so the author can see it. */}
@@ -140,7 +135,7 @@ export function CommentVoteControls({
       {voteError.error !== null && (
         <MutationErrorBanner
           testId="vote-error-banner"
-          marginTop={bannerMarginTop}
+          marginTop={marginTop}
           message={
             formatCommentSubmissionError(voteError.error) ??
             'Vote failed. Please try again.'
