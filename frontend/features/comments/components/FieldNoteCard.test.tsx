@@ -463,6 +463,46 @@ describe('FieldNoteCard', () => {
     })
   })
 
+  // PSY-593: authors cannot vote on their own field notes. The frontend
+  // hides the up/down buttons; the score remains visible as a plain span.
+  describe('self-vote button hiding (PSY-593)', () => {
+    it('hides Upvote and Downvote buttons on own field note', () => {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '2', email: 'owner@example.com' },
+      })
+
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ user_id: 2, ups: 5, downs: 1 })}
+          showId={10}
+        />
+      )
+
+      expect(screen.queryByTestId('upvote-button')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('downvote-button')).not.toBeInTheDocument()
+      // Score still visible — authors can see their own score.
+      expect(screen.getByTestId('vote-score')).toHaveTextContent('4')
+    })
+
+    it('renders Upvote and Downvote buttons on another user\'s field note', () => {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '99', email: 'other@user.com' },
+      })
+
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ user_id: 2 })}
+          showId={10}
+        />
+      )
+
+      expect(screen.getByTestId('upvote-button')).toBeInTheDocument()
+      expect(screen.getByTestId('downvote-button')).toBeInTheDocument()
+    })
+  })
+
   // PSY-590: Edit + Delete affordances on the author's own field note. Mirrors
   // the CommentCard surface (Pencil + Trash2 + inline Yes/No confirm + admin-
   // only edit history trigger). The makeFieldNote helper fixes user_id=2, so

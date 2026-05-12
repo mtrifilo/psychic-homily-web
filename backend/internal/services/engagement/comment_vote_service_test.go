@@ -81,15 +81,18 @@ func (suite *CommentVoteServiceIntegrationTestSuite) createTestComment(userID ui
 // VOTE TESTS
 // =============================================================================
 
+// PSY-593: self-votes are blocked, so vote tests need a distinct
+// `author` (who owns the comment) and `voter` (who casts the vote).
 func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteUp() {
-	user := suite.createTestUser()
-	comment := suite.createTestComment(user.ID)
+	author := suite.createTestUser()
+	voter := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
 
-	err := suite.service.Vote(user.ID, comment.ID, 1)
+	err := suite.service.Vote(voter.ID, comment.ID, 1)
 	suite.NoError(err)
 
 	// Verify vote was created
-	vote, err := suite.service.GetUserVote(user.ID, comment.ID)
+	vote, err := suite.service.GetUserVote(voter.ID, comment.ID)
 	suite.NoError(err)
 	suite.NotNil(vote)
 	suite.Equal(1, *vote)
@@ -103,13 +106,14 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteUp() {
 }
 
 func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteDown() {
-	user := suite.createTestUser()
-	comment := suite.createTestComment(user.ID)
+	author := suite.createTestUser()
+	voter := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
 
-	err := suite.service.Vote(user.ID, comment.ID, -1)
+	err := suite.service.Vote(voter.ID, comment.ID, -1)
 	suite.NoError(err)
 
-	vote, err := suite.service.GetUserVote(user.ID, comment.ID)
+	vote, err := suite.service.GetUserVote(voter.ID, comment.ID)
 	suite.NoError(err)
 	suite.NotNil(vote)
 	suite.Equal(-1, *vote)
@@ -123,11 +127,12 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteDown() {
 }
 
 func (suite *CommentVoteServiceIntegrationTestSuite) TestChangeVoteDirection() {
-	user := suite.createTestUser()
-	comment := suite.createTestComment(user.ID)
+	author := suite.createTestUser()
+	voter := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
 
 	// Vote up first
-	err := suite.service.Vote(user.ID, comment.ID, 1)
+	err := suite.service.Vote(voter.ID, comment.ID, 1)
 	suite.NoError(err)
 
 	var afterUp engagementm.Comment
@@ -136,10 +141,10 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestChangeVoteDirection() {
 	suite.Equal(0, afterUp.Downs)
 
 	// Change to down
-	err = suite.service.Vote(user.ID, comment.ID, -1)
+	err = suite.service.Vote(voter.ID, comment.ID, -1)
 	suite.NoError(err)
 
-	vote, err := suite.service.GetUserVote(user.ID, comment.ID)
+	vote, err := suite.service.GetUserVote(voter.ID, comment.ID)
 	suite.NoError(err)
 	suite.NotNil(vote)
 	suite.Equal(-1, *vote)
@@ -151,13 +156,14 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestChangeVoteDirection() {
 }
 
 func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteSameDirectionIdempotent() {
-	user := suite.createTestUser()
-	comment := suite.createTestComment(user.ID)
+	author := suite.createTestUser()
+	voter := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
 
 	// Vote up twice
-	err := suite.service.Vote(user.ID, comment.ID, 1)
+	err := suite.service.Vote(voter.ID, comment.ID, 1)
 	suite.NoError(err)
-	err = suite.service.Vote(user.ID, comment.ID, 1)
+	err = suite.service.Vote(voter.ID, comment.ID, 1)
 	suite.NoError(err)
 
 	var updated engagementm.Comment
@@ -167,10 +173,11 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteSameDirectionIdempo
 }
 
 func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteInvalidDirection() {
-	user := suite.createTestUser()
-	comment := suite.createTestComment(user.ID)
+	author := suite.createTestUser()
+	voter := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
 
-	err := suite.service.Vote(user.ID, comment.ID, 2)
+	err := suite.service.Vote(voter.ID, comment.ID, 2)
 	suite.Error(err)
 	suite.Contains(err.Error(), "invalid vote direction")
 }
@@ -183,16 +190,69 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteNonexistentComment(
 	suite.Contains(err.Error(), "comment not found")
 }
 
+// PSY-593: authors cannot vote on their own comments. Block both up and down.
+func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteOnOwnCommentUpBlocked() {
+	author := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
+
+	err := suite.service.Vote(author.ID, comment.ID, 1)
+	suite.Error(err)
+	suite.Contains(err.Error(), "cannot vote on your own comment")
+
+	// Aggregates must not move.
+	var updated engagementm.Comment
+	suite.db.First(&updated, comment.ID)
+	suite.Equal(0, updated.Ups)
+	suite.Equal(0, updated.Downs)
+
+	// No vote row was persisted.
+	vote, err := suite.service.GetUserVote(author.ID, comment.ID)
+	suite.NoError(err)
+	suite.Nil(vote)
+}
+
+func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteOnOwnCommentDownBlocked() {
+	author := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
+
+	err := suite.service.Vote(author.ID, comment.ID, -1)
+	suite.Error(err)
+	suite.Contains(err.Error(), "cannot vote on your own comment")
+
+	var updated engagementm.Comment
+	suite.db.First(&updated, comment.ID)
+	suite.Equal(0, updated.Ups)
+	suite.Equal(0, updated.Downs)
+
+	vote, err := suite.service.GetUserVote(author.ID, comment.ID)
+	suite.NoError(err)
+	suite.Nil(vote)
+}
+
+func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteOnOthersCommentAllowed() {
+	author := suite.createTestUser()
+	voter := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
+
+	err := suite.service.Vote(voter.ID, comment.ID, 1)
+	suite.NoError(err)
+
+	var updated engagementm.Comment
+	suite.db.First(&updated, comment.ID)
+	suite.Equal(1, updated.Ups)
+}
+
 // =============================================================================
 // UNVOTE TESTS
 // =============================================================================
 
 func (suite *CommentVoteServiceIntegrationTestSuite) TestUnvote() {
-	user := suite.createTestUser()
-	comment := suite.createTestComment(user.ID)
+	author := suite.createTestUser()
+	voter := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
 
 	// Vote first
-	err := suite.service.Vote(user.ID, comment.ID, 1)
+	err := suite.service.Vote(voter.ID, comment.ID, 1)
 	suite.NoError(err)
 
 	// Verify aggregates
@@ -201,11 +261,11 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestUnvote() {
 	suite.Equal(1, afterVote.Ups)
 
 	// Unvote
-	err = suite.service.Unvote(user.ID, comment.ID)
+	err = suite.service.Unvote(voter.ID, comment.ID)
 	suite.NoError(err)
 
 	// Vote should be nil
-	vote, err := suite.service.GetUserVote(user.ID, comment.ID)
+	vote, err := suite.service.GetUserVote(voter.ID, comment.ID)
 	suite.NoError(err)
 	suite.Nil(vote)
 
@@ -252,16 +312,17 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestGetUserVoteNoVote() {
 // =============================================================================
 
 func (suite *CommentVoteServiceIntegrationTestSuite) TestGetUserVotesForComments() {
-	user := suite.createTestUser()
-	c1 := suite.createTestComment(user.ID)
-	c2 := suite.createTestComment(user.ID)
-	c3 := suite.createTestComment(user.ID)
+	author := suite.createTestUser()
+	voter := suite.createTestUser()
+	c1 := suite.createTestComment(author.ID)
+	c2 := suite.createTestComment(author.ID)
+	c3 := suite.createTestComment(author.ID)
 
 	// Vote on c1 (up) and c2 (down), skip c3
-	suite.NoError(suite.service.Vote(user.ID, c1.ID, 1))
-	suite.NoError(suite.service.Vote(user.ID, c2.ID, -1))
+	suite.NoError(suite.service.Vote(voter.ID, c1.ID, 1))
+	suite.NoError(suite.service.Vote(voter.ID, c2.ID, -1))
 
-	votes, err := suite.service.GetUserVotesForComments(user.ID, []uint{c1.ID, c2.ID, c3.ID})
+	votes, err := suite.service.GetUserVotesForComments(voter.ID, []uint{c1.ID, c2.ID, c3.ID})
 	suite.NoError(err)
 	suite.Equal(1, votes[c1.ID])
 	suite.Equal(-1, votes[c2.ID])
@@ -283,13 +344,14 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestGetUserVotesForComments
 // =============================================================================
 
 func (suite *CommentVoteServiceIntegrationTestSuite) TestGetCommentVoteCounts() {
-	user1 := suite.createTestUser()
-	user2 := suite.createTestUser()
-	comment := suite.createTestComment(user1.ID)
+	author := suite.createTestUser()
+	voter1 := suite.createTestUser()
+	voter2 := suite.createTestUser()
+	comment := suite.createTestComment(author.ID)
 
 	// Two upvotes
-	suite.NoError(suite.service.Vote(user1.ID, comment.ID, 1))
-	suite.NoError(suite.service.Vote(user2.ID, comment.ID, 1))
+	suite.NoError(suite.service.Vote(voter1.ID, comment.ID, 1))
+	suite.NoError(suite.service.Vote(voter2.ID, comment.ID, 1))
 
 	ups, downs, score, err := suite.service.GetCommentVoteCounts(comment.ID)
 	suite.NoError(err)
