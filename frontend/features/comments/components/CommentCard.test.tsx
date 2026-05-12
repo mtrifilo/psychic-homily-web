@@ -500,7 +500,13 @@ describe('CommentCard — mutation error surfacing (PSY-608)', () => {
   })
 
   it('renders the auto-dismiss vote-error banner when useVoteComment rejects via onError', () => {
-    ownerAuth()
+    // PSY-593: vote buttons are hidden on own comments, so the vote-error
+    // banner is now reachable only on others' comments. Sign in as a
+    // non-author so the buttons render.
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '7', email: 'other@user.com' },
+    })
     // Mock vote mutation that fires onError synchronously when mutate() is
     // called — emulates the rollback path. The auto-dismiss banner reads
     // from useAutoDismissError state, so a synchronous onError populates it
@@ -535,7 +541,11 @@ describe('CommentCard — mutation error surfacing (PSY-608)', () => {
   })
 
   it('renders the auto-dismiss vote-error banner when useUnvoteComment rejects via onError', () => {
-    ownerAuth()
+    // PSY-593: see sibling test above — non-author viewer required.
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '7', email: 'other@user.com' },
+    })
     const voteError = Object.assign(new Error('vote failed'), { status: 500 })
     const mutateImpl = vi.fn(
       (_args: unknown, opts?: { onError?: (err: unknown) => void }) => {
@@ -560,5 +570,76 @@ describe('CommentCard — mutation error surfacing (PSY-608)', () => {
     const banner = screen.getByTestId('vote-error-banner')
     expect(banner).toBeInTheDocument()
     expect(banner).toHaveTextContent('Vote failed')
+  })
+})
+
+// PSY-593: authors cannot vote on their own comments. The frontend hides the
+// up/down buttons; the score remains visible as a plain span.
+describe('CommentCard — self-vote button hiding (PSY-593)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    resetAllMutationMocks()
+  })
+
+  const defaultProps = {
+    entityType: 'artist',
+    entityId: 10,
+  }
+
+  it('hides Upvote and Downvote buttons on own comments', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '99', email: 'me@me.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ user_id: 99, ups: 3, downs: 1 })}
+      />
+    )
+
+    expect(screen.queryByTestId('upvote-button')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('downvote-button')).not.toBeInTheDocument()
+    // Score stays visible — authors can still see their score.
+    expect(screen.getByTestId('vote-score')).toHaveTextContent('2')
+  })
+
+  it('renders Upvote and Downvote buttons on another user\'s comment', () => {
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '7', email: 'other@user.com' },
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ user_id: 99, ups: 3, downs: 1 })}
+      />
+    )
+
+    expect(screen.getByTestId('upvote-button')).toBeInTheDocument()
+    expect(screen.getByTestId('downvote-button')).toBeInTheDocument()
+    expect(screen.getByTestId('vote-score')).toHaveTextContent('2')
+  })
+
+  it('hides vote buttons on own comment for anonymous viewer of own posts (defensive)', () => {
+    // Anonymous viewers can't be the author (no user.id), so the buttons
+    // should render (disabled by isAuthenticated). This guards against
+    // accidentally hiding the affordance for everyone.
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: false,
+      user: null,
+    })
+
+    render(
+      <CommentCard
+        {...defaultProps}
+        comment={makeComment({ user_id: 99 })}
+      />
+    )
+
+    expect(screen.getByTestId('upvote-button')).toBeInTheDocument()
+    expect(screen.getByTestId('downvote-button')).toBeInTheDocument()
   })
 })

@@ -46,6 +46,14 @@ func (s *CommentVoteService) Vote(userID uint, commentID uint, direction int) er
 		return fmt.Errorf("failed to get comment: %w", err)
 	}
 
+	// PSY-593: reject self-votes (both up and down) — matches HN/Lobsters
+	// convention. The frontend hides the vote buttons on own comments, so
+	// this is defensive insurance against a stale UI or a direct API call.
+	// Existing self-votes in the DB are left as-is — no migration cleanup.
+	if comment.UserID == userID {
+		return fmt.Errorf("cannot vote on your own comment")
+	}
+
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Upsert the vote
 		var existingVote engagementm.CommentVote

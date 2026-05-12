@@ -312,32 +312,45 @@ export function FieldNoteCard({
       {/* Actions row: votes + reply + edit + delete + report */}
       {!isEditing && (
         <div className="flex items-center gap-1 mt-3">
-          {/* Vote buttons */}
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`h-7 w-7 p-0 ${comment.user_vote === 1 ? 'text-primary' : 'text-muted-foreground'}`}
-            onClick={() => handleVote(1)}
-            disabled={!isAuthenticated}
-            aria-label="Upvote"
-            data-testid="upvote-button"
-          >
-            <ChevronUp className="h-4 w-4" />
-          </Button>
-          <span className="text-xs font-medium min-w-[1.5rem] text-center" data-testid="vote-score">
-            {comment.ups - comment.downs}
-          </span>
-          <Button
-            variant="ghost"
-            size="sm"
-            className={`h-7 w-7 p-0 ${comment.user_vote === -1 ? 'text-destructive' : 'text-muted-foreground'}`}
-            onClick={() => handleVote(-1)}
-            disabled={!isAuthenticated}
-            aria-label="Downvote"
-            data-testid="downvote-button"
-          >
-            <ChevronDown className="h-4 w-4" />
-          </Button>
+          {/* Vote buttons. PSY-593: authors cannot vote on their own field
+              notes (matches HN/Lobsters / CommentCard). Hide the up/down
+              buttons on own comments and render the score as a plain span. */}
+          {!isOwner ? (
+            <>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-7 w-7 p-0 ${comment.user_vote === 1 ? 'text-primary' : 'text-muted-foreground'}`}
+                onClick={() => handleVote(1)}
+                disabled={!isAuthenticated}
+                aria-label="Upvote"
+                data-testid="upvote-button"
+              >
+                <ChevronUp className="h-4 w-4" />
+              </Button>
+              <span className="text-xs font-medium min-w-[1.5rem] text-center" data-testid="vote-score">
+                {comment.ups - comment.downs}
+              </span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className={`h-7 w-7 p-0 ${comment.user_vote === -1 ? 'text-destructive' : 'text-muted-foreground'}`}
+                onClick={() => handleVote(-1)}
+                disabled={!isAuthenticated}
+                aria-label="Downvote"
+                data-testid="downvote-button"
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </>
+          ) : (
+            <span
+              className="text-xs font-medium min-w-[1.5rem] text-center text-muted-foreground"
+              data-testid="vote-score"
+            >
+              {comment.ups - comment.downs}
+            </span>
+          )}
 
           {/* Reply button */}
           {isAuthenticated && comment.depth < 2 && comment.reply_permission !== 'author_only' && (

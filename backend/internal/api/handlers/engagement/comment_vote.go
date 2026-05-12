@@ -63,6 +63,12 @@ func (h *CommentVoteHandler) VoteCommentHandler(ctx context.Context, req *VoteCo
 		if err.Error() == "comment not found" {
 			return nil, huma.Error404NotFound("Comment not found")
 		}
+		// PSY-593: self-votes are rejected with 403. The frontend hides the
+		// vote buttons on own comments, so this path is defensive insurance
+		// against a stale UI or a direct API call.
+		if err.Error() == "cannot vote on your own comment" {
+			return nil, huma.Error403Forbidden("Cannot vote on your own comment")
+		}
 		return nil, huma.Error500InternalServerError(fmt.Sprintf("Failed to vote: %v", err))
 	}
 
