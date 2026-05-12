@@ -125,6 +125,38 @@ func TestVoteComment_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
+// PSY-593: self-vote rejection surfaces as 403 from the handler. Covers both
+// up and down so the guard cannot regress on one direction.
+func TestVoteComment_SelfVoteUpForbidden(t *testing.T) {
+	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
+		VoteFn: func(userID uint, commentID uint, direction int) error {
+			return fmt.Errorf("cannot vote on your own comment")
+		},
+	})
+
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &VoteCommentRequest{CommentID: "42"}
+	req.Body.Direction = 1
+
+	_, err := h.VoteCommentHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 403)
+}
+
+func TestVoteComment_SelfVoteDownForbidden(t *testing.T) {
+	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
+		VoteFn: func(userID uint, commentID uint, direction int) error {
+			return fmt.Errorf("cannot vote on your own comment")
+		},
+	})
+
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &VoteCommentRequest{CommentID: "42"}
+	req.Body.Direction = -1
+
+	_, err := h.VoteCommentHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 403)
+}
+
 // ============================================================================
 // UnvoteCommentHandler Tests
 // ============================================================================

@@ -46,6 +46,13 @@ func (s *CommentVoteService) Vote(userID uint, commentID uint, direction int) er
 		return fmt.Errorf("failed to get comment: %w", err)
 	}
 
+	// PSY-593: authors cannot vote on their own comments (HN/Lobsters
+	// convention). The frontend hides the buttons; this guard is defensive
+	// insurance against a stale UI or a direct API call.
+	if comment.UserID == userID {
+		return fmt.Errorf("cannot vote on your own comment")
+	}
+
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// Upsert the vote
 		var existingVote engagementm.CommentVote
