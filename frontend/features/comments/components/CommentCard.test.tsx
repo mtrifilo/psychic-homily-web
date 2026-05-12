@@ -623,10 +623,10 @@ describe('CommentCard — self-vote button hiding (PSY-593)', () => {
     expect(screen.getByTestId('vote-score')).toHaveTextContent('2')
   })
 
-  it('hides vote buttons on own comment for anonymous viewer of own posts (defensive)', () => {
-    // Anonymous viewers can't be the author (no user.id), so the buttons
-    // should render (disabled by isAuthenticated). This guards against
-    // accidentally hiding the affordance for everyone.
+  it('renders vote buttons for anonymous viewers (no author match possible)', () => {
+    // Guards against accidentally hiding the affordance when user.id is
+    // absent — anonymous viewers can't be the author by definition, and
+    // the buttons are still disabled by isAuthenticated.
     mockAuthContext.mockReturnValue({
       isAuthenticated: false,
       user: null,

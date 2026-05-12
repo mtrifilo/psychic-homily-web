@@ -81,9 +81,8 @@ func (suite *CommentVoteServiceIntegrationTestSuite) createTestComment(userID ui
 // VOTE TESTS
 // =============================================================================
 
-// PSY-593: vote tests now use distinct author / voter users since
-// self-votes are blocked. Helpers below create a comment owned by `author`
-// and a separate `voter` user who casts votes against it.
+// PSY-593: self-votes are blocked, so vote tests need a distinct
+// `author` (who owns the comment) and `voter` (who casts the vote).
 func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteUp() {
 	author := suite.createTestUser()
 	voter := suite.createTestUser()
@@ -230,7 +229,6 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteOnOwnCommentDownBlo
 	suite.Nil(vote)
 }
 
-// PSY-593: a different user can still vote — the guard is scoped to the author.
 func (suite *CommentVoteServiceIntegrationTestSuite) TestVoteOnOthersCommentAllowed() {
 	author := suite.createTestUser()
 	voter := suite.createTestUser()
@@ -346,8 +344,6 @@ func (suite *CommentVoteServiceIntegrationTestSuite) TestGetUserVotesForComments
 // =============================================================================
 
 func (suite *CommentVoteServiceIntegrationTestSuite) TestGetCommentVoteCounts() {
-	// PSY-593: self-vote blocked, so the comment author is now a distinct
-	// user from the two voters.
 	author := suite.createTestUser()
 	voter1 := suite.createTestUser()
 	voter2 := suite.createTestUser()
