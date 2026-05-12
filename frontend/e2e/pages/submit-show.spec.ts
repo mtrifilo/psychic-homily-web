@@ -15,7 +15,7 @@ test.describe('Submit a show', () => {
   test('displays submission form for verified user', async ({
     authenticatedPage,
   }) => {
-    await authenticatedPage.goto('/submissions')
+    await authenticatedPage.goto('/shows/submit')
 
     // Page heading
     await expect(
@@ -49,7 +49,7 @@ test.describe('Submit a show', () => {
     authenticatedPage,
     cleanBetweenRetries: _cleanup,
   }) => {
-    await authenticatedPage.goto('/submissions')
+    await authenticatedPage.goto('/shows/submit')
 
     await expect(
       authenticatedPage.getByRole('heading', { name: 'Submit a Show' })

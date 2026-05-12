@@ -26,13 +26,15 @@ test.describe('Email Verification', () => {
     // Navigate to the verify-email page with the token
     await page.goto(`/verify-email?token=${token}`)
 
-    // Assert success state
+    // Assert success state. Scope CTA assertions to <main> so the sidebar's
+    // "Submit a Show" nav link (PSY-600) doesn't trip strict-mode resolution.
     await expect(page.getByText('Email Verified!')).toBeVisible({
       timeout: 15_000,
     })
-    await expect(page.getByRole('link', { name: 'Submit a Show' })).toBeVisible()
+    const main = page.getByRole('main')
+    await expect(main.getByRole('link', { name: 'Submit a Show' })).toBeVisible()
     await expect(
-      page.getByRole('link', { name: 'Go to My Library' })
+      main.getByRole('link', { name: 'Go to My Library' })
     ).toBeVisible()
   })
 
