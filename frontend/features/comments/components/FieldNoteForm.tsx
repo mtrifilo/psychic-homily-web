@@ -42,6 +42,34 @@ interface FieldNoteFormProps {
    * notes.
    */
   defaultVerifiedAttendee?: boolean
+  /**
+   * PSY-567: optional initial values for edit mode. When supplied, all
+   * fields pre-populate from the existing note. resetSignal still works
+   * but resets back to these initial values (not blank). Mode visibility
+   * stays identical to create — the same structured-data fields are
+   * shown, satisfying the "edit as a unit, not body-only" AC.
+   */
+  initialValues?: {
+    body: string
+    sound_quality?: number | null
+    crowd_energy?: number | null
+    notable_moments?: string | null
+    setlist_spoiler?: boolean
+    show_artist_id?: number | null
+    song_position?: number | null
+    verified_attendee?: boolean
+  }
+  /**
+   * PSY-567: submit-button label override. Defaults to "Post Field Note"
+   * for the create path; edit mode uses "Save".
+   */
+  submitLabel?: string
+  /**
+   * PSY-567: optional Cancel callback. When supplied, a secondary
+   * "Cancel" button renders alongside Submit so the user can abort an
+   * in-progress edit without losing the rendered note.
+   */
+  onCancel?: () => void
 }
 
 function StarRating({
@@ -93,21 +121,41 @@ export function FieldNoteForm({
   errorMessage,
   resetSignal,
   defaultVerifiedAttendee = false,
+  initialValues,
+  submitLabel,
+  onCancel,
 }: FieldNoteFormProps) {
-  const [body, setBody] = useState('')
-  const [soundQuality, setSoundQuality] = useState(0)
-  const [crowdEnergy, setCrowdEnergy] = useState(0)
-  const [notableMoments, setNotableMoments] = useState('')
-  const [setlistSpoiler, setSetlistSpoiler] = useState(false)
-  const [showArtistId, setShowArtistId] = useState<number | undefined>(undefined)
-  const [songPosition, setSongPosition] = useState('')
+  // PSY-567: in edit mode (initialValues supplied) hydrate from the
+  // existing note. Otherwise default to empty/zero (create path, unchanged).
+  const [body, setBody] = useState(initialValues?.body ?? '')
+  const [soundQuality, setSoundQuality] = useState(initialValues?.sound_quality ?? 0)
+  const [crowdEnergy, setCrowdEnergy] = useState(initialValues?.crowd_energy ?? 0)
+  const [notableMoments, setNotableMoments] = useState(initialValues?.notable_moments ?? '')
+  const [setlistSpoiler, setSetlistSpoiler] = useState(
+    initialValues?.setlist_spoiler ?? false
+  )
+  const [showArtistId, setShowArtistId] = useState<number | undefined>(
+    initialValues?.show_artist_id ?? undefined
+  )
+  const [songPosition, setSongPosition] = useState(
+    initialValues?.song_position != null ? String(initialValues.song_position) : ''
+  )
   // PSY-568: self-claim "I attended this show". Initial state mirrors the
   // user's current Going RSVP; falls back to false. Re-syncs when the
   // default changes (e.g. attendance loads after the form mounts).
-  const [verifiedAttendee, setVerifiedAttendee] = useState(defaultVerifiedAttendee)
+  // PSY-567: in edit mode, the stored value takes precedence over the
+  // Going-RSVP default — the user's prior self-claim is what they're
+  // editing.
+  const [verifiedAttendee, setVerifiedAttendee] = useState(
+    initialValues?.verified_attendee ?? defaultVerifiedAttendee
+  )
   useEffect(() => {
+    // PSY-567: only re-sync from Going status on the CREATE path. Editing
+    // an existing note must not silently overwrite the prior self-claim
+    // when attendance data loads after the form mounts.
+    if (initialValues) return
     setVerifiedAttendee(defaultVerifiedAttendee)
-  }, [defaultVerifiedAttendee])
+  }, [defaultVerifiedAttendee, initialValues])
 
   // PSY-608: parent bumps resetSignal from mutation onSuccess. Mirrors the
   // CommentForm pattern so a 4xx response keeps the user's draft intact.
@@ -116,8 +164,25 @@ export function FieldNoteForm({
   // dep array — its own useEffect above handles re-sync when Going status
   // changes, and including it here would wipe the user's draft on every
   // attendance refetch.
+  // PSY-567: in edit mode, reset returns to initialValues (not blank) so
+  // a save-then-reopen cycle shows the freshly-saved state.
   useEffect(() => {
     if (resetSignal === undefined) return
+    if (initialValues) {
+      setBody(initialValues.body)
+      setSoundQuality(initialValues.sound_quality ?? 0)
+      setCrowdEnergy(initialValues.crowd_energy ?? 0)
+      setNotableMoments(initialValues.notable_moments ?? '')
+      setSetlistSpoiler(initialValues.setlist_spoiler ?? false)
+      setShowArtistId(initialValues.show_artist_id ?? undefined)
+      setSongPosition(
+        initialValues.song_position != null
+          ? String(initialValues.song_position)
+          : ''
+      )
+      setVerifiedAttendee(initialValues.verified_attendee ?? false)
+      return
+    }
     setBody('')
     setSoundQuality(0)
     setCrowdEnergy(0)
@@ -308,8 +373,20 @@ export function FieldNoteForm({
           data-testid="field-note-submit"
         >
           {isPending && <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />}
-          Post Field Note
+          {submitLabel ?? 'Post Field Note'}
         </Button>
+        {onCancel && (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            onClick={onCancel}
+            disabled={isPending}
+            data-testid="field-note-cancel"
+          >
+            Cancel
+          </Button>
+        )}
       </div>
     </form>
   )

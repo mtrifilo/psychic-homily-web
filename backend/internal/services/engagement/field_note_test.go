@@ -832,3 +832,200 @@ func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_AutoSubscribes()
 	suite.Require().NoError(err)
 	suite.Equal(user.ID, sub.UserID)
 }
+
+// =============================================================================
+// Group 7: Author Edit/Delete Window (PSY-567)
+// =============================================================================
+// Field notes are immutable to the author after FieldNoteEditWindow (30 min).
+// Admins can still moderate (hide/restore via the admin handlers). The same
+// rule applies to author self-delete. Regular comments are unchanged.
+
+// agedFieldNote inserts a field note and back-dates its created_at to make
+// the row appear `age` old without sleeping in tests.
+func (suite *FieldNoteIntegrationTestSuite) agedFieldNote(userID, showID uint, body string, age time.Duration) *engagementm.Comment {
+	note := suite.insertFieldNote(userID, showID, body, nil)
+	backdated := time.Now().Add(-age)
+	suite.Require().NoError(
+		suite.db.Model(note).Update("created_at", backdated).Error,
+	)
+	note.CreatedAt = backdated
+	return note
+}
+
+func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_WithinWindow_Succeeds() {
+	user := suite.createTestUser()
+	showID := suite.createPastShow("Edit Window OK", 2)
+	note := suite.agedFieldNote(user.ID, showID, "original body", 5*time.Minute)
+
+	updated, err := suite.commentService.UpdateComment(user.ID, note.ID, &contracts.UpdateCommentRequest{
+		Body: "edited body within window",
+	})
+	suite.Require().NoError(err)
+	suite.Equal("edited body within window", updated.Body)
+	suite.True(updated.IsEdited)
+	suite.Equal(1, updated.EditCount)
+}
+
+func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_OutOfWindow_403() {
+	user := suite.createTestUser()
+	showID := suite.createPastShow("Edit Window Expired", 2)
+	note := suite.agedFieldNote(user.ID, showID, "old body", FieldNoteEditWindow+time.Minute)
+
+	_, err := suite.commentService.UpdateComment(user.ID, note.ID, &contracts.UpdateCommentRequest{
+		Body: "attempted edit after window",
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "field note edit window has expired")
+
+	// Body must be unchanged
+	var reloaded engagementm.Comment
+	suite.Require().NoError(suite.db.First(&reloaded, note.ID).Error)
+	suite.Equal("old body", reloaded.Body)
+	suite.Equal(0, reloaded.EditCount)
+}
+
+func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_StructuredDataReplaced() {
+	// PSY-567 AC: edit must allow updating structured fields (ratings,
+	// verified-attendee, spoiler) as a unit, not body-only.
+	user := suite.createTestUser()
+	showID := suite.createPastShow("SD Edit", 2)
+	sq := 3
+	ce := 3
+	note := suite.insertFieldNote(user.ID, showID, "first take", &contracts.FieldNoteStructuredData{
+		SoundQuality:       &sq,
+		CrowdEnergy:        &ce,
+		SetlistSpoiler:     false,
+		IsVerifiedAttendee: false,
+	})
+
+	newSQ := 5
+	newCE := 4
+	updated, err := suite.commentService.UpdateComment(user.ID, note.ID, &contracts.UpdateCommentRequest{
+		Body: "revised take",
+		StructuredData: &contracts.FieldNoteStructuredData{
+			SoundQuality:       &newSQ,
+			CrowdEnergy:        &newCE,
+			SetlistSpoiler:     true,
+			IsVerifiedAttendee: true,
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Equal("revised take", updated.Body)
+	suite.Require().NotNil(updated.StructuredData)
+
+	var sd contracts.FieldNoteStructuredData
+	suite.Require().NoError(json.Unmarshal(*updated.StructuredData, &sd))
+	suite.Equal(&newSQ, sd.SoundQuality)
+	suite.Equal(&newCE, sd.CrowdEnergy)
+	suite.True(sd.SetlistSpoiler)
+	suite.True(sd.IsVerifiedAttendee)
+}
+
+func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_StructuredDataInvalidRange() {
+	user := suite.createTestUser()
+	showID := suite.createPastShow("SD Invalid Edit", 2)
+	note := suite.insertFieldNote(user.ID, showID, "valid body", nil)
+
+	bad := 7
+	_, err := suite.commentService.UpdateComment(user.ID, note.ID, &contracts.UpdateCommentRequest{
+		Body: "still valid body",
+		StructuredData: &contracts.FieldNoteStructuredData{
+			SoundQuality: &bad,
+		},
+	})
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "sound_quality must be between 1 and 5")
+
+	// Row should be untouched (validation runs before the transaction).
+	var reloaded engagementm.Comment
+	suite.Require().NoError(suite.db.First(&reloaded, note.ID).Error)
+	suite.Equal("valid body", reloaded.Body)
+	suite.Equal(0, reloaded.EditCount)
+}
+
+func (suite *FieldNoteIntegrationTestSuite) TestUpdateRegularComment_NoWindowApplied() {
+	// PSY-567 must NOT regress regular comments — they retain unbounded
+	// author-edit. Backdate one well past the field-note window and assert
+	// the edit still succeeds.
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Regular Edit")
+	original, err := suite.commentService.CreateComment(user.ID, &contracts.CreateCommentRequest{
+		EntityType: "artist",
+		EntityID:   artistID,
+		Body:       "original regular comment",
+	})
+	suite.Require().NoError(err)
+	suite.Require().NoError(
+		suite.db.Model(&engagementm.Comment{}).Where("id = ?", original.ID).
+			Update("created_at", time.Now().Add(-2*FieldNoteEditWindow)).Error,
+	)
+
+	updated, err := suite.commentService.UpdateComment(user.ID, original.ID, &contracts.UpdateCommentRequest{
+		Body: "edited 1h+ later",
+	})
+	suite.Require().NoError(err)
+	suite.Equal("edited 1h+ later", updated.Body)
+}
+
+func (suite *FieldNoteIntegrationTestSuite) TestDeleteFieldNote_WithinWindow_Succeeds() {
+	user := suite.createTestUser()
+	showID := suite.createPastShow("Delete Window OK", 2)
+	note := suite.agedFieldNote(user.ID, showID, "delete me", 5*time.Minute)
+
+	err := suite.commentService.DeleteComment(user.ID, note.ID, false)
+	suite.Require().NoError(err)
+
+	var reloaded engagementm.Comment
+	suite.Require().NoError(suite.db.First(&reloaded, note.ID).Error)
+	suite.Equal(engagementm.CommentVisibilityHiddenByUser, reloaded.Visibility)
+}
+
+func (suite *FieldNoteIntegrationTestSuite) TestDeleteFieldNote_OutOfWindow_403() {
+	user := suite.createTestUser()
+	showID := suite.createPastShow("Delete Window Expired", 2)
+	note := suite.agedFieldNote(user.ID, showID, "stale note", FieldNoteEditWindow+time.Minute)
+
+	err := suite.commentService.DeleteComment(user.ID, note.ID, false)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "field note edit window has expired")
+
+	// Visibility unchanged
+	var reloaded engagementm.Comment
+	suite.Require().NoError(suite.db.First(&reloaded, note.ID).Error)
+	suite.Equal(engagementm.CommentVisibilityVisible, reloaded.Visibility)
+}
+
+func (suite *FieldNoteIntegrationTestSuite) TestDeleteFieldNote_AdminOutOfWindow_Succeeds() {
+	// Admin moderation bypasses the author window — that's how out-of-
+	// window retraction works (per AC).
+	user := suite.createTestUser()
+	admin := suite.createTestAdmin()
+	showID := suite.createPastShow("Admin Override", 2)
+	note := suite.agedFieldNote(user.ID, showID, "old note", FieldNoteEditWindow+time.Minute)
+
+	err := suite.commentService.DeleteComment(admin.ID, note.ID, true)
+	suite.Require().NoError(err)
+
+	var reloaded engagementm.Comment
+	suite.Require().NoError(suite.db.First(&reloaded, note.ID).Error)
+	suite.Equal(engagementm.CommentVisibilityHiddenByMod, reloaded.Visibility)
+}
+
+// createTestAdmin mirrors the CommentServiceIntegrationTestSuite helper of
+// the same name — separate suite types in the same package can't share
+// methods, so PSY-567's admin-bypass test needs its own.
+func (suite *FieldNoteIntegrationTestSuite) createTestAdmin() *authm.User {
+	user := &authm.User{
+		Email:         stringPtr(fmt.Sprintf("fn-admin-%d@test.com", time.Now().UnixNano())),
+		Username:      stringPtr(fmt.Sprintf("fnadmin%d", time.Now().UnixNano())),
+		FirstName:     stringPtr("Admin"),
+		LastName:      stringPtr("User"),
+		IsActive:      true,
+		EmailVerified: true,
+		UserTier:      "admin",
+		IsAdmin:       true,
+	}
+	err := suite.db.Create(user).Error
+	suite.Require().NoError(err)
+	return user
+}
