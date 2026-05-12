@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
 import { CommentForm } from './CommentForm'
 import { CommentEditHistory } from './CommentEditHistory'
+import { FieldNoteForm } from './FieldNoteForm'
 import { MutationErrorBanner } from './MutationErrorBanner'
 import { ReportEntityDialog } from '@/features/contributions'
 import {
@@ -21,7 +22,12 @@ import {
   useAutoDismissError,
   formatCommentSubmissionError,
 } from '../hooks'
-import type { Comment } from '../types'
+import {
+  isWithinFieldNoteEditWindow,
+  type Comment,
+  type CreateFieldNoteInput,
+  type FieldNoteStructuredData,
+} from '../types'
 
 interface ShowArtist {
   id: number
@@ -62,6 +68,16 @@ export function FieldNoteCard({
   const currentUserId = user?.id ? Number(user.id) : null
   const isOwner = currentUserId === comment.user_id
   const isAdmin = Boolean(user?.is_admin)
+  // PSY-567: 30-min author-edit window. Computed on each render — no
+  // ticking interval; buttons disappear naturally as the note ages out
+  // during the user's session (and the backend rejects out-of-window
+  // edits with 403 as a safety net for any stale render). Replies that
+  // are regular comments (depth > 0) are intentionally NOT bounded by
+  // this — the field-note window applies only to the `kind: field_note`
+  // root row.
+  const isFieldNote = comment.kind === 'field_note'
+  const isEditable =
+    isOwner && (!isFieldNote || isWithinFieldNoteEditWindow(comment.created_at))
 
   const [isReplying, setIsReplying] = useState(false)
   const [isEditing, setIsEditing] = useState(false)
@@ -123,10 +139,36 @@ export function FieldNoteCard({
   // PUT/DELETE /comments/{id} endpoints operate on the row regardless of
   // kind, so field-note edits go through the same useUpdateComment hook
   // and inherit the comment_edits history (admin-visible via PSY-297).
-  // Structured fields (sound/crowd/notable/etc.) are intentionally NOT
-  // editable here — only the body, matching the existing comment-edit
-  // surface and the "mirror comment behavior" decision on this ticket.
-  const handleEdit = (body: string) => {
+  // PSY-567: structured fields (ratings, verified-attendee, spoiler,
+  // notable moments, artist set, song position) are now editable as a
+  // unit — the FieldNoteForm carries the same fields as creation and
+  // the backend replaces structured_data atomically with the body.
+  const handleEdit = (input: CreateFieldNoteInput) => {
+    const structuredData: FieldNoteStructuredData = {
+      show_artist_id: input.show_artist_id ?? null,
+      song_position: input.song_position ?? null,
+      sound_quality: input.sound_quality ?? null,
+      crowd_energy: input.crowd_energy ?? null,
+      notable_moments: input.notable_moments ?? null,
+      setlist_spoiler: input.setlist_spoiler ?? false,
+      is_verified_attendee: input.verified_attendee ?? false,
+    }
+    updateMutation.mutate(
+      {
+        commentId: comment.id,
+        body: input.body,
+        entityType: 'show',
+        entityId: showId,
+        structuredData,
+      },
+      { onSuccess: () => setIsEditing(false) }
+    )
+  }
+
+  // PSY-590: comment replies under a field note are regular comments and
+  // edit body-only via CommentForm (mirrors CommentCard). This handler is
+  // used only on the reply rows below.
+  const handleEditReplyBody = (body: string) => {
     updateMutation.mutate(
       { commentId: comment.id, body, entityType: 'show', entityId: showId },
       { onSuccess: () => setIsEditing(false) }
@@ -225,13 +267,37 @@ export function FieldNoteCard({
       )}
 
       {/* Body — with spoiler handling. PSY-590: edit mode replaces the
-          rendered body with a CommentForm; only the body field is editable
-          (mirrors comment-edit). Structured fields (sound/crowd/notable/etc.)
-          remain saved as-is on the row. */}
-      {isEditing ? (
+          rendered body with an edit form.
+          PSY-567: the ROOT field-note edits via FieldNoteForm so structured
+          fields (sound / crowd / notable / artist / position / spoiler /
+          verified-attendee) are editable as a unit. Replies under a field
+          note are regular comments (kind="comment", no structured data) and
+          continue to edit body-only via CommentForm. */}
+      {isEditing && isFieldNote ? (
+        <div className="mt-2">
+          <FieldNoteForm
+            onSubmit={handleEdit}
+            artists={artists}
+            isPending={updateMutation.isPending}
+            errorMessage={formatCommentSubmissionError(updateMutation.error)}
+            onCancel={() => setIsEditing(false)}
+            submitLabel="Save"
+            initialValues={{
+              body: comment.body,
+              sound_quality: sd?.sound_quality ?? null,
+              crowd_energy: sd?.crowd_energy ?? null,
+              notable_moments: sd?.notable_moments ?? null,
+              setlist_spoiler: sd?.setlist_spoiler ?? false,
+              show_artist_id: sd?.show_artist_id ?? null,
+              song_position: sd?.song_position ?? null,
+              verified_attendee: sd?.is_verified_attendee ?? false,
+            }}
+          />
+        </div>
+      ) : isEditing ? (
         <div className="mt-2">
           <CommentForm
-            onSubmit={handleEdit}
+            onSubmit={handleEditReplyBody}
             initialBody={comment.body}
             submitLabel="Save"
             onCancel={() => setIsEditing(false)}
@@ -352,8 +418,11 @@ export function FieldNoteCard({
             </Button>
           )}
 
-          {/* PSY-590: Edit button (own field notes). Mirrors CommentCard. */}
-          {isOwner && (
+          {/* PSY-590: Edit button (own field notes). Mirrors CommentCard.
+              PSY-567: gated on the 30-min author-edit window for field
+              notes; after the window, Report is the only retraction path.
+              The empty action row IS the affordance — no tooltip, per AC. */}
+          {isEditable && (
             <Button
               variant="ghost"
               size="sm"
@@ -367,8 +436,9 @@ export function FieldNoteCard({
           )}
 
           {/* PSY-590: Delete button (own field notes) with inline Yes/No
-              confirmation, mirroring CommentCard. */}
-          {isOwner && !isDeleteConfirm && (
+              confirmation, mirroring CommentCard.
+              PSY-567: same 30-min author window as Edit. */}
+          {isEditable && !isDeleteConfirm && (
             <Button
               variant="ghost"
               size="sm"

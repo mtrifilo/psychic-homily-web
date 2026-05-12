@@ -117,6 +117,22 @@ func wilsonScore(ups, downs int) float64 {
 	return (phat + z*z/(2*n) - z*math.Sqrt((phat*(1-phat)+z*z/(4*n))/n)) / (1 + z*z/n)
 }
 
+// FieldNoteEditWindow is the time-bounded window during which a field note's
+// author can Edit or Delete their own note (PSY-567). After the window
+// elapses, the row becomes immutable to the author — only admin moderation
+// and the user-facing Report flow remain. The constant lives here (rather
+// than `models/engagement`) because it's a service-layer policy, not a
+// schema invariant; if a future ticket wants to make this per-user or
+// configurable, this is the right seam.
+const FieldNoteEditWindow = 30 * time.Minute
+
+// withinFieldNoteEditWindow reports whether the given creation timestamp is
+// still within the field-note author-edit grace window. Centralized so the
+// edit + delete paths can't drift apart.
+func withinFieldNoteEditWindow(createdAt time.Time) bool {
+	return time.Since(createdAt) < FieldNoteEditWindow
+}
+
 // validateCommentEntityType checks if the entity type is supported.
 func validateCommentEntityType(entityType string) (engagementm.CommentEntityType, error) {
 	ct := engagementm.CommentEntityType(entityType)
@@ -602,6 +618,12 @@ func (s *CommentService) GetThread(rootID uint) ([]*contracts.CommentResponse, e
 // UpdateComment updates a comment's body. Only the author can update their own comment.
 // Writes the prior body to comment_edits (with the editor's user ID) and bumps the
 // edit counter — all in a single transaction so the edit log and body update are atomic.
+//
+// Field notes (PSY-567) carry an additional time-bounded gate: the author can
+// edit only within FieldNoteEditWindow of created_at, and may supply a
+// `structured_data` payload to atomically replace ratings / verified-attendee
+// / spoiler flag alongside the body change. Out-of-window edits return an
+// "edit window expired" error mapped to 403 at the handler.
 func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 	if s.db == nil {
 		return nil, errors.New("database not initialized")
@@ -629,6 +651,37 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 		return nil, errors.New("only the comment author can edit this comment")
 	}
 
+	// PSY-567: field notes have a 30-minute author-edit window. Regular
+	// comments retain their unbounded author-edit behaviour (unchanged).
+	// The window protects historical-record integrity once the note has
+	// had a chance to be read / referenced; admin moderation remains the
+	// out-of-window retraction path.
+	isFieldNote := comment.Kind == engagementm.CommentKindFieldNote
+	if isFieldNote && !withinFieldNoteEditWindow(comment.CreatedAt) {
+		return nil, errors.New("field note edit window has expired")
+	}
+
+	// Validate + serialise structured-data update (field notes only). On
+	// regular comments any supplied structured_data is silently ignored —
+	// the field is field-note-specific and giving a 400 here would
+	// complicate callers that share the UpdateComment hook for both kinds.
+	var newStructuredData *json.RawMessage
+	if isFieldNote && req.StructuredData != nil {
+		sd := req.StructuredData
+		if sd.SoundQuality != nil && (*sd.SoundQuality < 1 || *sd.SoundQuality > 5) {
+			return nil, errors.New("sound_quality must be between 1 and 5")
+		}
+		if sd.CrowdEnergy != nil && (*sd.CrowdEnergy < 1 || *sd.CrowdEnergy > 5) {
+			return nil, errors.New("crowd_energy must be between 1 and 5")
+		}
+		sdJSON, err := json.Marshal(sd)
+		if err != nil {
+			return nil, fmt.Errorf("failed to marshal structured data: %w", err)
+		}
+		raw := json.RawMessage(sdJSON)
+		newStructuredData = &raw
+	}
+
 	bodyHTML := s.renderMarkdown(body)
 	now := time.Now()
 
@@ -647,13 +700,19 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 			return fmt.Errorf("failed to save edit history: %w", err)
 		}
 
-		// Update the comment body and bump edit_count/updated_at.
-		if err := tx.Model(&comment).Updates(map[string]interface{}{
+		// Update the comment body and bump edit_count/updated_at. Structured
+		// data ride-alongs (field notes, PSY-567) replace the JSONB column
+		// in-place as a unit — never merged, matching the "as a unit" AC.
+		updates := map[string]interface{}{
 			"body":       body,
 			"body_html":  bodyHTML,
 			"edit_count": gorm.Expr("edit_count + 1"),
 			"updated_at": now,
-		}).Error; err != nil {
+		}
+		if newStructuredData != nil {
+			updates["structured_data"] = newStructuredData
+		}
+		if err := tx.Model(&comment).Updates(updates).Error; err != nil {
 			return fmt.Errorf("failed to update comment: %w", err)
 		}
 		return nil
@@ -774,6 +833,15 @@ func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint)
 
 // DeleteComment performs a soft delete by setting visibility.
 // Authors set hidden_by_user; admins set hidden_by_mod.
+//
+// For field notes (PSY-567), the author-delete path additionally enforces the
+// FieldNoteEditWindow grace period — out-of-window author deletes return an
+// "edit window expired" error mapped to 403 at the handler. Admin
+// moderation (`isAdmin=true`) bypasses the window so moderation queues
+// remain functional regardless of note age. An admin deleting their OWN
+// field note is treated as a user action and is also bounded by the window
+// (admins authoring field notes don't get a special-case bypass — the
+// window guarantee is per-author, not per-role).
 func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool) error {
 	if s.db == nil {
 		return errors.New("database not initialized")
@@ -790,6 +858,19 @@ func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool
 	// Non-admin users can only delete their own comments
 	if !isAdmin && comment.UserID != userID {
 		return errors.New("only the comment author or an admin can delete this comment")
+	}
+
+	// PSY-567: field-note window applies to AUTHOR self-deletes. An admin
+	// moderating someone else's note bypasses the window (that's the
+	// out-of-window retraction path the AC mentions). The
+	// "isAdmin && comment.UserID == userID" check matches the existing
+	// pattern below where an admin deleting their own row is treated as a
+	// user action.
+	isAuthorAction := comment.UserID == userID
+	if comment.Kind == engagementm.CommentKindFieldNote && isAuthorAction {
+		if !withinFieldNoteEditWindow(comment.CreatedAt) {
+			return errors.New("field note edit window has expired")
+		}
 	}
 
 	visibility := engagementm.CommentVisibilityHiddenByUser

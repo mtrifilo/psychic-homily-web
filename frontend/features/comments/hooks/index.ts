@@ -16,6 +16,7 @@ import type {
   CommentListResponse,
   CommentThreadResponse,
   CreateFieldNoteInput,
+  FieldNoteStructuredData,
   ReplyPermission,
 } from '../types'
 
@@ -259,15 +260,25 @@ export function useUpdateComment() {
     mutationFn: ({
       commentId,
       body,
+      structuredData,
     }: {
       commentId: number
       body: string
       entityType: string
       entityId: number
+      // PSY-567: field-note edits send the full structured-data block so
+      // ratings / verified-attendee / spoiler are replaced atomically with
+      // the body. Backend ignores this for non-field-note comments, so the
+      // same hook stays usable from CommentCard. Undefined => body-only edit.
+      structuredData?: FieldNoteStructuredData | null
     }) =>
       apiRequest<Comment>(commentEndpoints.UPDATE(commentId), {
         method: 'PUT',
-        body: JSON.stringify({ body }),
+        body: JSON.stringify(
+          structuredData !== undefined && structuredData !== null
+            ? { body, structured_data: structuredData }
+            : { body }
+        ),
       }),
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
