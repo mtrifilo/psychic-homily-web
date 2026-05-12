@@ -24,6 +24,13 @@ export interface Comment {
   id: number
   entity_type: string
   entity_id: number
+  // PSY-567: "comment" | "field_note". Reusing the unified Comment shape
+  // for both kinds means field-note-only UI (e.g. the 30-min author-edit
+  // window) needs to discriminate on this field at render time. Backend
+  // emits it on every `CommentResponse`. Optional in the TS type because
+  // pre-existing test fixtures + cache-write paths predate this field;
+  // treat absence as "comment" at use sites.
+  kind?: string
   user_id: number
   author_name: string
   /**
@@ -93,4 +100,23 @@ export interface CreateFieldNoteInput {
   // badge on existing notes. Frontend pre-fills the checkbox from the
   // user's current Going RSVP but the value sent here is authoritative.
   verified_attendee?: boolean
+}
+
+// PSY-567: time-bounded edit / delete window for a field note's author.
+// Matches the backend `FieldNoteEditWindow` constant. Author Edit + Delete
+// affordances are gated on `now - created_at < this`; after expiry, the
+// only retraction path is Report (moderator action).
+//
+// Implemented as a derived boolean evaluated on each render. We deliberately
+// do NOT install a ticking interval — the buttons disappear naturally as the
+// note ages out during the user's session, which is acceptable UX (the user
+// either gets a stale visible button that fails with a 403 on click, or the
+// component re-renders for an unrelated reason and the buttons disappear).
+// The backend window check is authoritative; the frontend gate is a UX hint.
+export const FIELD_NOTE_EDIT_WINDOW_MS = 30 * 60 * 1000
+
+export function isWithinFieldNoteEditWindow(createdAt: string): boolean {
+  const created = new Date(createdAt).getTime()
+  if (!Number.isFinite(created)) return false
+  return Date.now() - created < FIELD_NOTE_EDIT_WINDOW_MS
 }

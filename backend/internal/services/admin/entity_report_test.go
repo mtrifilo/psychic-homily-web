@@ -279,6 +279,43 @@ func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_NoUsern
 	s.Nil(resp.ReporterUsername, "username should be nil when not set on the user")
 }
 
+// TestCreateEntityReport_EmailOnlyReporter_NoEmailLeak locks in the PSY-607
+// invariant: when a reporter has only an email (no username, no first/last
+// name), the byline must render the email PREFIX (local-part before "@")
+// — never the full email address.
+//
+// Pre-PSY-612 regression: the entity_report service had its own `displayName`
+// helper whose terminal branch returned `*u.Email` verbatim, which leaked
+// `asdf@admin.com` into the admin moderation queue (dogfood ISSUE-009 —
+// `dogfood-output/pending-edits/screenshots/reject-step-4-result.png`).
+// PSY-612 swapped to `shared.ResolveUserName`, which falls through to the
+// email-prefix step instead. This test asserts that contract at the service
+// boundary so a future regression can't reintroduce the full-email leak.
+func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_EmailOnlyReporter_NoEmailLeak() {
+	emailLocalPart := fmt.Sprintf("er-emailonly-%d", time.Now().UnixNano())
+	emailFull := emailLocalPart + "@admin.com"
+	user := &authm.User{
+		Email:         &emailFull,
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	s.Require().NoError(s.db.Create(user).Error)
+	artist := s.createTestArtist("Test Artist")
+
+	resp, err := s.svc.CreateEntityReport(&contracts.CreateEntityReportRequest{
+		EntityType: "artist",
+		EntityID:   artist.ID,
+		UserID:     user.ID,
+		ReportType: "inaccurate",
+	})
+
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.Equal(emailLocalPart, resp.ReporterName, "must render email prefix, not full email")
+	s.NotContains(resp.ReporterName, "@", "byline must never contain '@' for email-only users")
+	s.Nil(resp.ReporterUsername, "username should be nil when not set on the user")
+}
+
 func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_VenueSuccess() {
 	user := s.createTestUser()
 	venue := s.createTestVenue("Test Venue")
@@ -551,6 +588,55 @@ func (s *EntityReportServiceIntegrationTestSuite) TestListEntityReports_Paginati
 	s.NoError(err)
 	s.Equal(int64(3), total)
 	s.Len(reports, 1)
+}
+
+// TestListEntityReports_MixedReporterAccounts_NoEmailLeak locks in the
+// PSY-607 invariant for the LIST path — the admin moderation queue's hot
+// path. Reports from a username-set reporter and an email-only reporter
+// must render with consistent attribution formatting: username for the
+// first, email-PREFIX (never the full email) for the second.
+//
+// Repro evidence: dogfood ISSUE-009 showed two adjacent Van Buren report
+// rows with mismatched byline format (one `by testuser2`, one
+// `by asdf@admin.com`) — the email-leak side of that mismatch is what this
+// test pins.
+func (s *EntityReportServiceIntegrationTestSuite) TestListEntityReports_MixedReporterAccounts_NoEmailLeak() {
+	withUsername := s.createTestUser()
+
+	emailLocalPart := fmt.Sprintf("er-mixed-emailonly-%d", time.Now().UnixNano())
+	emailFull := emailLocalPart + "@admin.com"
+	emailOnly := &authm.User{
+		Email:         &emailFull,
+		IsActive:      true,
+		EmailVerified: true,
+	}
+	s.Require().NoError(s.db.Create(emailOnly).Error)
+
+	venue := s.createTestVenue("Mixed Reporters Venue")
+	s.createReport("venue", venue.ID, withUsername.ID, "closed_permanently")
+	s.createReport("venue", venue.ID, emailOnly.ID, "inaccurate")
+
+	reports, _, err := s.svc.ListEntityReports(&contracts.EntityReportFilters{
+		Status:     "pending",
+		EntityType: "venue",
+	})
+	s.NoError(err)
+	s.Require().Len(reports, 2)
+
+	// The username-set reporter renders their username; the email-only
+	// reporter renders their email PREFIX. Neither byline contains "@" —
+	// that's the no-email-leak invariant. Keyed by report_type so the
+	// assertion is robust to listing order changes.
+	resolvedNames := make(map[string]string, len(reports))
+	for _, r := range reports {
+		s.NotContains(
+			r.ReporterName, "@",
+			"reporter byline must never contain '@' — that's an email leak (PSY-607)",
+		)
+		resolvedNames[r.ReportType] = r.ReporterName
+	}
+	s.Equal(*withUsername.Username, resolvedNames["closed_permanently"])
+	s.Equal(emailLocalPart, resolvedNames["inaccurate"])
 }
 
 // =============================================================================

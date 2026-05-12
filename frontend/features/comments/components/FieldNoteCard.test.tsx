@@ -54,11 +54,17 @@ vi.mock('./CommentEditHistory', () => ({
   CommentEditHistory: () => <div data-testid="stub-edit-history-dialog" />,
 }))
 
+// PSY-567: default created_at is "now" so the field-note's author still has
+// access to the Edit/Delete buttons in the existing PSY-590 test cases. Tests
+// that exercise the OUT-OF-window behaviour override `created_at` with a
+// timestamp older than 30 minutes.
 function makeFieldNote(overrides: Partial<Comment> = {}): Comment {
+  const nowIso = new Date().toISOString()
   return {
     id: 1,
     entity_type: 'show',
     entity_id: 10,
+    kind: 'field_note',
     user_id: 2,
     author_name: 'TestUser',
     body: 'Amazing show!',
@@ -73,8 +79,8 @@ function makeFieldNote(overrides: Partial<Comment> = {}): Comment {
     reply_permission: 'anyone',
     edit_count: 0,
     is_edited: false,
-    created_at: '2026-04-01T00:00:00Z',
-    updated_at: '2026-04-01T00:00:00Z',
+    created_at: nowIso,
+    updated_at: nowIso,
     structured_data: {
       sound_quality: 4,
       crowd_energy: 5,
@@ -463,6 +469,46 @@ describe('FieldNoteCard', () => {
     })
   })
 
+  // PSY-593: authors cannot vote on their own field notes. The frontend
+  // hides the up/down buttons; the score remains visible as a plain span.
+  describe('self-vote button hiding (PSY-593)', () => {
+    it('hides Upvote and Downvote buttons on own field note', () => {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '2', email: 'owner@example.com' },
+      })
+
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ user_id: 2, ups: 5, downs: 1 })}
+          showId={10}
+        />
+      )
+
+      expect(screen.queryByTestId('upvote-button')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('downvote-button')).not.toBeInTheDocument()
+      // Score still visible — authors can see their own score.
+      expect(screen.getByTestId('vote-score')).toHaveTextContent('4')
+    })
+
+    it('renders Upvote and Downvote buttons on another user\'s field note', () => {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '99', email: 'other@user.com' },
+      })
+
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ user_id: 2 })}
+          showId={10}
+        />
+      )
+
+      expect(screen.getByTestId('upvote-button')).toBeInTheDocument()
+      expect(screen.getByTestId('downvote-button')).toBeInTheDocument()
+    })
+  })
+
   // PSY-590: Edit + Delete affordances on the author's own field note. Mirrors
   // the CommentCard surface (Pencil + Trash2 + inline Yes/No confirm + admin-
   // only edit history trigger). The makeFieldNote helper fixes user_id=2, so
@@ -521,6 +567,8 @@ describe('FieldNoteCard', () => {
     })
 
     it('opens an inline edit form populated with the existing body when Edit is clicked', () => {
+      // PSY-567: root field-note edit now opens the FieldNoteForm (with
+      // structured-data fields) instead of the body-only CommentForm.
       ownerAuth()
       render(
         <FieldNoteCard
@@ -532,14 +580,24 @@ describe('FieldNoteCard', () => {
       fireEvent.click(screen.getByTestId('edit-field-note-button'))
 
       const textarea = screen.getByTestId(
-        'comment-textarea'
+        'field-note-textarea'
       ) as HTMLTextAreaElement
       expect(textarea.value).toBe('My original take')
       // The read-only body view is replaced while editing.
       expect(screen.queryByTestId('field-note-body')).not.toBeInTheDocument()
+      // PSY-567: structured-data inputs are present so ratings / verified-
+      // attendee / spoiler can be edited as a unit.
+      expect(screen.getByTestId('sound-quality-rating')).toBeInTheDocument()
+      expect(screen.getByTestId('crowd-energy-rating')).toBeInTheDocument()
+      expect(
+        screen.getByTestId('verified-attendee-checkbox')
+      ).toBeInTheDocument()
+      expect(
+        screen.getByTestId('setlist-spoiler-checkbox')
+      ).toBeInTheDocument()
     })
 
-    it('calls useUpdateComment with the edited body on Save', () => {
+    it('calls useUpdateComment with the edited body + structured data on Save', () => {
       ownerAuth()
       const mutate = vi.fn()
       mockUseUpdateComment.mockReturnValue({
@@ -554,17 +612,26 @@ describe('FieldNoteCard', () => {
       )
 
       fireEvent.click(screen.getByTestId('edit-field-note-button'))
-      const textarea = screen.getByTestId('comment-textarea')
+      const textarea = screen.getByTestId('field-note-textarea')
       fireEvent.change(textarea, { target: { value: 'after' } })
       fireEvent.click(screen.getByText('Save'))
 
       expect(mutate).toHaveBeenCalledTimes(1)
       const [args] = mutate.mock.calls[0]
+      // PSY-567: edit submits body + structured_data as a unit. The
+      // fixture's existing ratings carry through unchanged.
       expect(args).toMatchObject({
         commentId: 1,
         body: 'after',
         entityType: 'show',
         entityId: 10,
+        structuredData: {
+          sound_quality: 4,
+          crowd_energy: 5,
+          notable_moments: 'Played 3 new songs',
+          setlist_spoiler: false,
+          is_verified_attendee: true,
+        },
       })
     })
 
@@ -578,7 +645,8 @@ describe('FieldNoteCard', () => {
       render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
       fireEvent.click(screen.getByTestId('edit-field-note-button'))
 
-      const banner = screen.getByTestId('comment-form-error')
+      // PSY-567: the field-note edit form has its own error banner testid.
+      const banner = screen.getByTestId('field-note-form-error')
       expect(banner).toBeInTheDocument()
       expect(banner).toHaveTextContent('Comment is too long')
     })
@@ -683,6 +751,97 @@ describe('FieldNoteCard', () => {
       expect(
         screen.queryByTestId('admin-edit-history-button')
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // PSY-567: Reddit-style 30-minute author-edit window. Buttons are
+  // rendered for the author within the window and HIDDEN after. After
+  // expiry, the only retraction path is the Report button (handled by
+  // the existing non-owner branch when the user is not the author).
+  describe('30-minute author-edit window (PSY-567)', () => {
+    function ownerAuth() {
+      mockAuthContext.mockReturnValue({
+        isAuthenticated: true,
+        user: { id: '2', email: 'owner@example.com', is_admin: false },
+      })
+    }
+
+    it('renders Edit + Delete for the author within the 30-min window', () => {
+      ownerAuth()
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ created_at: fiveMinutesAgo })}
+          showId={10}
+        />
+      )
+      expect(screen.getByTestId('edit-field-note-button')).toBeInTheDocument()
+      expect(
+        screen.getByTestId('delete-field-note-button')
+      ).toBeInTheDocument()
+    })
+
+    it('HIDES Edit + Delete for the author once the 30-min window has elapsed', () => {
+      ownerAuth()
+      const thirtyOneMinutesAgo = new Date(
+        Date.now() - 31 * 60 * 1000
+      ).toISOString()
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ created_at: thirtyOneMinutesAgo })}
+          showId={10}
+        />
+      )
+      expect(
+        screen.queryByTestId('edit-field-note-button')
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByTestId('delete-field-note-button')
+      ).not.toBeInTheDocument()
+    })
+
+    it('keeps Edit + Delete visible at exactly 29:59 (boundary, in window)', () => {
+      // Boundary check just before expiry. 29 minutes + 59 seconds is still
+      // < 30 minutes so the buttons must render.
+      ownerAuth()
+      const justInsideWindow = new Date(
+        Date.now() - (29 * 60 * 1000 + 59 * 1000)
+      ).toISOString()
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({ created_at: justInsideWindow })}
+          showId={10}
+        />
+      )
+      expect(screen.getByTestId('edit-field-note-button')).toBeInTheDocument()
+      expect(
+        screen.getByTestId('delete-field-note-button')
+      ).toBeInTheDocument()
+    })
+
+    it('does NOT show Edit/Delete for a regular comment kind on the same row, even within 30min', () => {
+      // Defence in depth: a comment that somehow ends up rendered by
+      // FieldNoteCard with kind="comment" (e.g. nested reply rendering)
+      // does NOT pick up the 30-min window — the field-note rule must
+      // not change the existing comment-edit semantics.
+      ownerAuth()
+      const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString()
+      render(
+        <FieldNoteCard
+          comment={makeFieldNote({
+            kind: 'comment',
+            depth: 1,
+            created_at: fiveMinutesAgo,
+          })}
+          showId={10}
+        />
+      )
+      // Replies edit through the normal Edit/Delete path — they still
+      // render (the window logic short-circuits for non-field-note kinds).
+      expect(screen.getByTestId('edit-field-note-button')).toBeInTheDocument()
+      expect(
+        screen.getByTestId('delete-field-note-button')
+      ).toBeInTheDocument()
     })
   })
 })

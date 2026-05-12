@@ -20,8 +20,17 @@ type CreateCommentRequest struct {
 }
 
 // UpdateCommentRequest contains the fields that can be updated on a comment.
+//
+// `StructuredData` is optional and only meaningful when the target comment is
+// a field note (PSY-567). When supplied AND the target is a field note, it
+// REPLACES the existing structured_data row atomically with the body update —
+// ratings, verified-attendee, spoiler are edited as a single unit, never
+// merged with stored values. On a regular comment the field is ignored.
+// On a field-note edit it is optional: nil leaves the existing structured_data
+// untouched (body-only edit still works).
 type UpdateCommentRequest struct {
-	Body string `json:"body"`
+	Body           string                   `json:"body"`
+	StructuredData *FieldNoteStructuredData `json:"structured_data,omitempty"`
 }
 
 // CreateFieldNoteRequest contains the fields needed to create a field note on a show.

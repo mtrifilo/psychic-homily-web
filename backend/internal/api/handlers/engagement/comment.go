@@ -426,10 +426,16 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 // ============================================================================
 
 // UpdateCommentRequest represents the request for updating a comment.
+//
+// `StructuredData` is field-note-only (PSY-567): when supplied AND the target
+// is a field note, ratings + verified-attendee + spoiler flag are atomically
+// replaced as a unit alongside the body. Regular comments ignore it. Omit
+// the field for a body-only edit.
 type UpdateCommentRequest struct {
 	CommentID string `path:"comment_id" doc:"Comment ID" example:"1"`
 	Body      struct {
-		Body string `json:"body" doc:"Updated comment body (Markdown)" example:"Updated: Great show last night!"`
+		Body           string                             `json:"body" doc:"Updated comment body (Markdown)" example:"Updated: Great show last night!"`
+		StructuredData *contracts.FieldNoteStructuredData `json:"structured_data,omitempty" required:"false" doc:"Field-note-only: replaces ratings / verified-attendee / spoiler as a unit"`
 	}
 }
 
@@ -455,7 +461,8 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 	}
 
 	serviceReq := &contracts.UpdateCommentRequest{
-		Body: req.Body.Body,
+		Body:           req.Body.Body,
+		StructuredData: req.Body.StructuredData,
 	}
 
 	comment, err := h.writer.UpdateComment(user.ID, uint(commentID), serviceReq)
@@ -466,7 +473,16 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 		if strings.Contains(err.Error(), "only the comment author") {
 			return nil, huma.Error403Forbidden("You can only edit your own comments")
 		}
+		// PSY-567: field-note 30-min edit window. 403 lets the frontend
+		// reflect "no longer editable" without needing a separate state
+		// flag — the same status it already handles for not-author edits.
+		if strings.Contains(err.Error(), "field note edit window has expired") {
+			return nil, huma.Error403Forbidden(err.Error())
+		}
 		if strings.Contains(err.Error(), "body is required") || strings.Contains(err.Error(), "exceeds maximum length") {
+			return nil, huma.Error400BadRequest(err.Error())
+		}
+		if strings.Contains(err.Error(), "sound_quality must be") || strings.Contains(err.Error(), "crowd_energy must be") {
 			return nil, huma.Error400BadRequest(err.Error())
 		}
 		requestID := logger.GetRequestID(ctx)
@@ -581,6 +597,12 @@ func (h *CommentHandler) DeleteCommentHandler(ctx context.Context, req *DeleteCo
 		}
 		if strings.Contains(err.Error(), "only the comment author or an admin") {
 			return nil, huma.Error403Forbidden("You can only delete your own comments")
+		}
+		// PSY-567: 30-min field-note self-delete window. After expiry the
+		// row is immutable to the author; admin moderation (and the
+		// Report flow) are the out-of-window retraction paths.
+		if strings.Contains(err.Error(), "field note edit window has expired") {
+			return nil, huma.Error403Forbidden(err.Error())
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

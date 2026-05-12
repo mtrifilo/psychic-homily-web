@@ -63,6 +63,9 @@ func (h *CommentVoteHandler) VoteCommentHandler(ctx context.Context, req *VoteCo
 		if err.Error() == "comment not found" {
 			return nil, huma.Error404NotFound("Comment not found")
 		}
+		if err.Error() == "cannot vote on your own comment" {
+			return nil, huma.Error403Forbidden("Cannot vote on your own comment")
+		}
 		return nil, huma.Error500InternalServerError(fmt.Sprintf("Failed to vote: %v", err))
 	}
 
