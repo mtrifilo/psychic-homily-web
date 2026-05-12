@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { useTheme } from 'next-themes'
 import {
   Menu, LogOut, Loader2, Shield, Settings, Moon, Sun, Search,
-  Library, ExternalLink,
+  Library, ExternalLink, Bell,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -20,6 +20,7 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { getUserInitials, getUserDisplayName } from '@/app/nav-utils'
 import { sidebarGroups } from './Sidebar'
+import { NotificationBell } from '@/features/notifications'
 
 interface TopBarProps {
   mobileOpen: boolean
@@ -108,6 +109,19 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
                 ) : isAuthenticated && user ? (
                   <>
                     <div className="mx-3 mb-2 border-t border-border/30" />
+                    <Link
+                      href="/notifications"
+                      onClick={() => onMobileOpenChange(false)}
+                      className={cn(
+                        'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
+                        isActive('/notifications')
+                          ? 'bg-accent text-accent-foreground'
+                          : 'text-foreground/70 hover:bg-accent/50 hover:text-accent-foreground'
+                      )}
+                    >
+                      <Bell className="h-4 w-4" />
+                      Notifications
+                    </Link>
                     <Link
                       href="/library"
                       onClick={() => onMobileOpenChange(false)}
@@ -237,7 +251,8 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
           {isLoading ? (
             <Loader2 className="hidden h-4 w-4 animate-spin text-muted-foreground sm:block" />
           ) : isAuthenticated && user ? (
-            <div className="hidden sm:block">
+            <div className="hidden items-center gap-1 sm:flex">
+              <NotificationBell />
               <DropdownMenu>
                 <DropdownMenuTrigger asChild>
                   <Button
@@ -262,6 +277,12 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
                   </DropdownMenuLabel>
                   <DropdownMenuSeparator />
                   <DropdownMenuGroup>
+                    <DropdownMenuItem asChild>
+                      <Link href="/notifications">
+                        <Bell className="mr-2 h-4 w-4" />
+                        Notifications
+                      </Link>
+                    </DropdownMenuItem>
                     <DropdownMenuItem asChild>
                       <Link href="/library">
                         <Library className="mr-2 h-4 w-4" />

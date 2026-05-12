@@ -7,12 +7,18 @@ export type {
   UpdateFilterInput,
   NotifyEntityType,
   FilterCity,
+  NotificationLogEntry,
+  NotificationListResponse,
+  MarkReadResponse,
 } from './types'
 
 export {
   NOTIFY_ENTITY_TYPES,
+  NOTIFICATION_ENTITY_COMMENT_REPLY,
+  NOTIFICATION_ENTITY_COMMENT_MENTION,
   formatTimeAgo,
   getFilterSummary,
+  isCommentNotification,
 } from './types'
 
 export {
@@ -22,6 +28,8 @@ export {
   useUpdateFilter,
   useDeleteFilter,
   useQuickCreateFilter,
+  useUserNotifications,
+  useMarkNotificationsRead,
 } from './hooks'
 
 export {
@@ -29,4 +37,6 @@ export {
   FilterCard,
   FilterForm,
   NotifyMeButton,
+  NotificationBell,
+  NotificationList,
 } from './components'

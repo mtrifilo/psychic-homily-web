@@ -161,10 +161,17 @@ const routes: RouteItem[] = [
     requireAuth: true,
   },
   {
-    label: 'Notification Filters',
-    href: '/settings/notifications',
+    label: 'Notifications',
+    href: '/notifications',
     icon: Bell,
-    keywords: ['notifications', 'notify', 'filters', 'alerts', 'bell', 'subscribe'],
+    keywords: ['notifications', 'inbox', 'bell', 'replies', 'mentions', 'unread'],
+    requireAuth: true,
+  },
+  {
+    label: 'Notification Filters',
+    href: '/settings/notification-filters',
+    icon: Bell,
+    keywords: ['notification filters', 'notify', 'filters', 'alerts', 'subscribe', 'show alerts'],
     requireAuth: true,
   },
   {

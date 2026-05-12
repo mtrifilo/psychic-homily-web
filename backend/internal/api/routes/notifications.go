@@ -20,6 +20,7 @@ func setupNotificationFilterRoutes(rc RouteContext) {
 
 	// Protected: notification log
 	huma.Get(rc.Protected, "/me/notifications", filterHandler.GetNotificationsHandler)
+	huma.Post(rc.Protected, "/me/notifications/mark-read", filterHandler.MarkNotificationsReadHandler)
 
 	// Public: HMAC-signed unsubscribe
 	huma.Post(rc.API, "/unsubscribe/filter/{id}", filterHandler.UnsubscribeFilterHandler)

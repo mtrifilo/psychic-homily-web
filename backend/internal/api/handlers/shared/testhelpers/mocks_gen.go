@@ -2057,6 +2057,8 @@ type MockNotificationFilterService struct {
 	MatchAndNotifyBatchFn func([]catalogm.Show) (error)
 	GetUserNotificationsFn func(uint, int, int) ([]contracts.NotificationLogEntry, error)
 	GetUnreadCountFn func(uint) (int64, error)
+	MarkNotificationsReadFn func(uint, []uint) (int64, error)
+	MarkAllNotificationsReadFn func(uint) (int64, error)
 	PauseFilterFn func(uint) (error)
 }
 
@@ -2117,6 +2119,18 @@ func (m *MockNotificationFilterService) GetUserNotifications(userID uint, limit 
 func (m *MockNotificationFilterService) GetUnreadCount(userID uint) (int64, error) {
 	if m.GetUnreadCountFn != nil {
 		return m.GetUnreadCountFn(userID)
+	}
+	return 0, nil
+}
+func (m *MockNotificationFilterService) MarkNotificationsRead(userID uint, ids []uint) (int64, error) {
+	if m.MarkNotificationsReadFn != nil {
+		return m.MarkNotificationsReadFn(userID, ids)
+	}
+	return 0, nil
+}
+func (m *MockNotificationFilterService) MarkAllNotificationsRead(userID uint) (int64, error) {
+	if m.MarkAllNotificationsReadFn != nil {
+		return m.MarkAllNotificationsReadFn(userID)
 	}
 	return 0, nil
 }

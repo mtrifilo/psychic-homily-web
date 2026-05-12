@@ -6,6 +6,65 @@ export interface FilterCity {
   state: string
 }
 
+/**
+ * NotificationLogEntry mirrors backend contracts/notification_filter.go
+ * `NotificationLogEntry`. Two row shapes share this contract:
+ *
+ *  - Show-filter rows: entity_type="show", channel="email", filter_name set.
+ *  - Comment-driven rows (PSY-595): entity_type="comment_reply" |
+ *    "comment_mention", channel="in_app". The backend enriches each
+ *    comment-driven row with commenter_*, comment_excerpt, comment_url, and
+ *    comment_entity_* so the bell + inbox UI can render a clickable line.
+ *
+ * Comment-enrichment fields are optional; show rows leave them undefined.
+ */
+export interface NotificationLogEntry {
+  id: number
+  filter_id?: number | null
+  filter_name?: string
+  entity_type: string
+  entity_id: number
+  channel: string
+  sent_at: string
+  read_at?: string | null
+  // Comment-driven enrichment (PSY-595)
+  commenter_name?: string
+  commenter_username?: string
+  comment_excerpt?: string
+  comment_url?: string
+  comment_entity_type?: string
+  comment_entity_id?: number
+  comment_entity_name?: string
+}
+
+/** GET /me/notifications response shape */
+export interface NotificationListResponse {
+  notifications: NotificationLogEntry[]
+  unread_count: number
+}
+
+/** POST /me/notifications/mark-read response shape */
+export interface MarkReadResponse {
+  updated_count: number
+  unread_count: number
+}
+
+/**
+ * Backend notification_log entity_type values for PSY-595 in-app rows. Must
+ * stay in sync with the engagement.NotificationEntity* constants on the Go
+ * side — both surfaces query / render the same rows.
+ */
+export const NOTIFICATION_ENTITY_COMMENT_REPLY = 'comment_reply' as const
+export const NOTIFICATION_ENTITY_COMMENT_MENTION = 'comment_mention' as const
+
+/** isCommentNotification returns true for the PSY-595 comment row types. */
+export function isCommentNotification(entry: NotificationLogEntry): boolean {
+  return (
+    entry.entity_type === NOTIFICATION_ENTITY_COMMENT_REPLY ||
+    entry.entity_type === NOTIFICATION_ENTITY_COMMENT_MENTION
+  )
+}
+
 /** Notification filter response from the API */
 export interface NotificationFilter {
   id: number

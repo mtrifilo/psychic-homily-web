@@ -15,10 +15,34 @@ import (
 
 	"github.com/getsentry/sentry-go"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
+)
+
+// In-app notification channel + entity type constants for comment-driven
+// rows in `notification_log`. These let the inbox / bell surface render
+// comment reply + mention notifications alongside the existing show-filter
+// rows (channel="email") with no schema change. PSY-595.
+const (
+	// NotificationChannelInApp is the channel value written for in-app
+	// notification_log rows (vs the existing "email" channel used by the
+	// show-filter matcher).
+	NotificationChannelInApp = "in_app"
+
+	// NotificationEntityCommentReply marks a notification_log row created
+	// when a subscriber receives a new comment on an entity they're
+	// subscribed to. entity_id holds the comment_id; the comment's parent
+	// entity (artist/show/etc.) is resolved at read time via JOIN.
+	NotificationEntityCommentReply = "comment_reply"
+
+	// NotificationEntityCommentMention marks a notification_log row created
+	// when a user is @-mentioned in a comment. entity_id holds the
+	// comment_id; mentions are not gated by subscription.
+	NotificationEntityCommentMention = "comment_mention"
 )
 
 // CommentNotificationService sends emails to subscribers and @-mentioned users on
@@ -145,10 +169,11 @@ func isWordChar(b byte) bool {
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
-// stripMarkdownToPlain does a best-effort conversion of markdown body to
-// plain text suitable for an email excerpt. This is intentionally simple —
-// we only need "readable preview", not perfect rendering.
-func stripMarkdownToPlain(body string) string {
+// StripMarkdownToPlain does a best-effort conversion of markdown body to
+// plain text suitable for an email or inbox excerpt. Intentionally simple —
+// we only need "readable preview", not perfect rendering. Exported so the
+// notification (in-app inbox) service can share the same excerpt shape.
+func StripMarkdownToPlain(body string) string {
 	// Remove code fences.
 	body = regexp.MustCompile("```[\\s\\S]*?```").ReplaceAllString(body, " ")
 	// Remove inline code.
@@ -162,14 +187,33 @@ func stripMarkdownToPlain(body string) string {
 	return strings.TrimSpace(body)
 }
 
-// buildExcerpt returns a plain-text preview capped at commentExcerptMaxChars.
-func buildExcerpt(body string) string {
-	plain := stripMarkdownToPlain(body)
+// BuildExcerpt returns a plain-text preview of body capped at maxRunes.
+// When maxRunes <= 0 the package default (commentExcerptMaxChars) is used.
+// Exported so the notification service can render bell/inbox excerpts
+// without rolling its own markdown stripper. PSY-595.
+func BuildExcerpt(body string, maxRunes int) string {
+	if maxRunes <= 0 {
+		maxRunes = commentExcerptMaxChars
+	}
+	plain := StripMarkdownToPlain(body)
 	runes := []rune(plain)
-	if len(runes) <= commentExcerptMaxChars {
+	if len(runes) <= maxRunes {
 		return plain
 	}
-	return string(runes[:commentExcerptMaxChars]) + "…"
+	return string(runes[:maxRunes]) + "…"
+}
+
+// buildExcerpt is the legacy in-package call site; defers to BuildExcerpt
+// at the package default length so the email path stays unchanged.
+func buildExcerpt(body string) string {
+	return BuildExcerpt(body, commentExcerptMaxChars)
+}
+
+// stripMarkdownToPlain is a private alias kept so the existing
+// comment_notification_test.go can keep asserting on the package-local
+// helper without becoming sensitive to the export.
+func stripMarkdownToPlain(body string) string {
+	return StripMarkdownToPlain(body)
 }
 
 // buildEntityURL returns the frontend URL for the parent entity, or a
@@ -236,10 +280,22 @@ func (s *CommentNotificationService) buildCommentURL(entityType engagementm.Comm
 // NotifySubscribers
 // ─────────────────────────────────────────────────────────────
 
-// NotifySubscribers fans out emails to all users subscribed to the parent
-// entity, skipping the comment author and subscribers whose
-// `last_notified_at` is within the dedup window. Updates `last_notified_at`
-// on each subscription row after a successful send.
+// NotifySubscribers fans out notifications to all users subscribed to the
+// parent entity, skipping the comment author.
+//
+// Two delivery channels in one pass, each with independent dedup semantics:
+//   - In-app row in `notification_log` (channel=in_app, entity_type=
+//     comment_reply, entity_id=comment.id) for EVERY subscriber — no email
+//     dedup window, idempotent via the UNIQUE constraint on the row key.
+//     This is what backs the bell + inbox UI.
+//   - Email send for subscribers whose `last_notified_at` is OLDER than the
+//     subscriber dedup window AND who have `notify_on_comment_subscription`
+//     opted-in. Updates `last_notified_at` on the subscription row after a
+//     successful send.
+//
+// Both channels skip the comment author. The in-app fan-out does NOT respect
+// the email dedup window — readers should still see new replies in the inbox
+// even if email was throttled.
 //
 // Callers MUST invoke this in a goroutine — errors are logged only.
 func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
@@ -256,22 +312,22 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 		return fmt.Errorf("failed to load comment: %w", err)
 	}
 
-	// 2. Query subscribers via joined preferences. Skip:
-	//    - comment author (no self-notify)
-	//    - users with notify_on_comment_subscription = false
-	//    - subscribers whose last_notified_at is within the dedup window
-	cutoff := time.Now().UTC().Add(-subscriberDedupWindow)
-
+	// 2. Query ALL subscribers (no email-dedup filter — that's applied
+	//    per-row below for the email channel only). Excludes:
+	//    - the comment author (no self-notify)
+	//    - inactive / deleted users
 	type row struct {
 		UserID                      uint
 		Email                       *string
 		Username                    *string
 		FirstName                   *string
 		NotifyOnCommentSubscription bool
+		LastNotifiedAt              *time.Time
 	}
 	var rows []row
 	err := s.db.Table("comment_subscriptions cs").
 		Select(`cs.user_id,
+			cs.last_notified_at,
 			u.email,
 			u.username,
 			u.first_name,
@@ -280,7 +336,6 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 		Joins("LEFT JOIN user_preferences up ON up.user_id = cs.user_id").
 		Where("cs.entity_type = ? AND cs.entity_id = ?", string(comment.EntityType), comment.EntityID).
 		Where("cs.user_id <> ?", comment.UserID).
-		Where("cs.last_notified_at IS NULL OR cs.last_notified_at < ?", cutoff).
 		Where("u.is_active = TRUE").
 		Where("u.deleted_at IS NULL").
 		Scan(&rows).Error
@@ -302,9 +357,23 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 	excerpt := buildExcerpt(comment.Body)
 	commenterName := shared.ResolveUserName(&comment.User)
 	now := time.Now().UTC()
+	emailCutoff := now.Add(-subscriberDedupWindow)
 
 	for _, r := range rows {
+		// In-app fan-out is independent of email gating — every subscriber
+		// gets a bell/inbox entry. Idempotent via the row UNIQUE constraint.
+		// Respects notify_on_comment_subscription as a shared "this user wants
+		// to hear about replies on this entity" toggle.
+		if r.NotifyOnCommentSubscription {
+			s.writeInAppNotification(r.UserID, NotificationEntityCommentReply, comment.ID, now)
+		}
+
+		// Email channel: gated by preference + dedup window + email
+		// configured.
 		if !r.NotifyOnCommentSubscription {
+			continue
+		}
+		if r.LastNotifiedAt != nil && r.LastNotifiedAt.After(emailCutoff) {
 			continue
 		}
 		if r.Email == nil || *r.Email == "" {
@@ -347,6 +416,27 @@ func (s *CommentNotificationService) NotifySubscribers(commentID uint) error {
 	}
 
 	return nil
+}
+
+// writeInAppNotification inserts an idempotent in-app notification_log row.
+// Errors are logged but never bubbled — the bell/inbox surface is
+// fire-and-forget alongside the email channel.
+func (s *CommentNotificationService) writeInAppNotification(userID uint, entityType string, entityID uint, sentAt time.Time) {
+	entry := notificationm.NotificationLog{
+		UserID:     userID,
+		EntityType: entityType,
+		EntityID:   entityID,
+		Channel:    NotificationChannelInApp,
+		SentAt:     sentAt,
+	}
+	// ON CONFLICT DO NOTHING — UNIQUE(user_id, filter_id, entity_type,
+	// entity_id, channel) makes the write naturally idempotent. NULL filter_id
+	// is treated as distinct in PG, so re-firing for the same (user, comment)
+	// is still no-op via the surrounding caller (NotifySubscribers /
+	// NotifyMentioned each call this at most once per user per comment).
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&entry).Error; err != nil {
+		log.Printf("warning: failed to write in-app notification row for user %d, %s/%d: %v", userID, entityType, entityID, err)
+	}
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -416,6 +506,7 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 	excerpt := buildExcerpt(comment.Body)
 	mentionerName := shared.ResolveUserName(&comment.User)
 
+	now := time.Now().UTC()
 	for _, r := range rows {
 		if r.UserID == comment.UserID {
 			continue // self-mention
@@ -426,6 +517,12 @@ func (s *CommentNotificationService) NotifyMentioned(commentID uint) error {
 		if !r.NotifyOnMention {
 			continue
 		}
+
+		// In-app fan-out: idempotent row per (user, comment_id). Independent
+		// of email gating; if a mention email failed or is disabled, the
+		// user still sees the mention in their bell/inbox.
+		s.writeInAppNotification(r.UserID, NotificationEntityCommentMention, comment.ID, now)
+
 		if r.Email == nil || *r.Email == "" {
 			continue
 		}

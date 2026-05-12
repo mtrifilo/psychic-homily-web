@@ -18,6 +18,8 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // NotificationFilterService handles notification filter CRUD, matching, and delivery.
@@ -609,6 +611,10 @@ func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL 
 // ──────────────────────────────────────────────
 
 // GetUserNotifications returns the notification log for a user, paginated.
+// Show-filter rows are returned as-is. Comment-driven rows (entity_type =
+// comment_reply or comment_mention) are enriched in a single follow-up join
+// against the comments + users tables so the bell/inbox UI can render
+// "<commenter> replied: <excerpt>" with a working link target. PSY-595.
 func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, offset int) ([]contracts.NotificationLogEntry, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -644,7 +650,230 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 			ReadAt:     l.ReadAt,
 		}
 	}
+
+	// Enrich comment-driven rows in a single batched pass.
+	s.enrichCommentNotifications(entries)
 	return entries, nil
+}
+
+// commentInboxExcerptMaxRunes is the rune cap for the bell/inbox excerpt.
+// Tighter than the email excerpt (engagement.commentExcerptMaxChars=200)
+// since the popover row is two visual lines max.
+const commentInboxExcerptMaxRunes = 140
+
+// commentEntityPathAndTable maps the CommentEntityType strings owned by
+// the engagement package onto the frontend path segment + DB table name
+// the inbox enrichment query needs. Show is the only entity whose name
+// column is "title" rather than "name".
+//
+// The list and the entity-type-string values are validated by the
+// engagementm.ValidCommentEntityTypes map at row-write time, so any
+// entity_type that arrives here is guaranteed to be one of these seven.
+func commentEntityPathAndTable(entityType string) (path, table, nameCol string, ok bool) {
+	switch entityType {
+	case "artist":
+		return "artists", "artists", "name", true
+	case "venue":
+		return "venues", "venues", "name", true
+	case "show":
+		return "shows", "shows", "title", true
+	case "release":
+		return "releases", "releases", "name", true
+	case "label":
+		return "labels", "labels", "name", true
+	case "festival":
+		return "festivals", "festivals", "name", true
+	case "collection":
+		return "collections", "collections", "name", true
+	default:
+		return "", "", "", false
+	}
+}
+
+// commentNotificationEntityTypes is the set of notification_log.entity_type
+// values whose entity_id points at a row in the `comments` table.
+var commentNotificationEntityTypes = map[string]bool{
+	engagement.NotificationEntityCommentReply:   true,
+	engagement.NotificationEntityCommentMention: true,
+}
+
+// commentRow is the slim projection used by the enrichment query.
+type commentRow struct {
+	ID         uint
+	EntityType string
+	EntityID   uint
+	Body       string
+	UserID     uint
+}
+
+// entityNameRow projects the (id, name|title, slug) tuple from a parent
+// entity table during the per-table batch lookup.
+type entityNameRow struct {
+	ID   uint
+	Name string
+	Slug string
+}
+
+// enrichCommentNotifications walks entries, finds the comment-driven rows,
+// then batch-loads (in order): the referenced comments, the commenters'
+// display names + usernames, and the parent entities' (name, slug) tuples
+// — grouped by table so each table is hit at most once. Missing comments
+// (deleted after the row was minted) leave the entry's enrichment fields
+// empty; the UI degrades to a plain "new comment" line.
+func (s *NotificationFilterService) enrichCommentNotifications(entries []contracts.NotificationLogEntry) {
+	if len(entries) == 0 {
+		return
+	}
+
+	commentIDs := uniqueCommentIDs(entries)
+	if len(commentIDs) == 0 {
+		return
+	}
+
+	commentsByID, ok := s.loadCommentRows(commentIDs)
+	if !ok {
+		return
+	}
+
+	userIDs := make([]uint, 0, len(commentsByID))
+	for _, c := range commentsByID {
+		userIDs = append(userIDs, c.UserID)
+	}
+	names, _ := shared.BatchResolveUserNames(s.db, userIDs)
+	usernames, _ := shared.BatchResolveUserUsernames(s.db, userIDs)
+
+	entitiesByTypeID := s.loadParentEntitiesByType(commentsByID)
+
+	for i := range entries {
+		e := &entries[i]
+		if !commentNotificationEntityTypes[e.EntityType] {
+			continue
+		}
+		c, found := commentsByID[e.EntityID]
+		if !found {
+			continue
+		}
+		e.CommenterName = names[c.UserID]
+		if u, hasUsername := usernames[c.UserID]; hasUsername && u != nil {
+			e.CommenterUsername = *u
+		}
+		e.CommentExcerpt = engagement.BuildExcerpt(c.Body, commentInboxExcerptMaxRunes)
+		e.CommentEntityType = c.EntityType
+		e.CommentEntityID = c.EntityID
+		entityURL, entityName := s.formatEntityURL(c.EntityType, c.EntityID, entitiesByTypeID)
+		e.CommentEntityName = entityName
+		if entityURL != "" {
+			e.CommentURL = fmt.Sprintf("%s#comment-%d", entityURL, c.ID)
+		}
+	}
+}
+
+// uniqueCommentIDs collects the deduplicated set of comment IDs referenced
+// by the comment-driven entries.
+func uniqueCommentIDs(entries []contracts.NotificationLogEntry) []uint {
+	ids := make([]uint, 0, len(entries))
+	seen := make(map[uint]struct{}, len(entries))
+	for _, e := range entries {
+		if !commentNotificationEntityTypes[e.EntityType] {
+			continue
+		}
+		if _, dup := seen[e.EntityID]; dup {
+			continue
+		}
+		seen[e.EntityID] = struct{}{}
+		ids = append(ids, e.EntityID)
+	}
+	return ids
+}
+
+// loadCommentRows batch-fetches the comments referenced by the inbox
+// enrichment pass. Returns ok=false on DB error so the caller can skip
+// enrichment without crashing the request.
+func (s *NotificationFilterService) loadCommentRows(commentIDs []uint) (map[uint]commentRow, bool) {
+	var rows []commentRow
+	err := s.db.Table("comments").
+		Select("id, entity_type, entity_id, body, user_id").
+		Where("id IN ?", commentIDs).
+		Scan(&rows).Error
+	if err != nil {
+		log.Printf("warning: failed to load comments for inbox enrichment: %v", err)
+		return nil, false
+	}
+	byID := make(map[uint]commentRow, len(rows))
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+	return byID, true
+}
+
+// loadParentEntitiesByType groups (entityType, entityID) pairs from the
+// loaded comments by table and fires one batch SELECT per table — so the
+// inbox enrichment runs in O(distinct-entity-tables) DB roundtrips, not
+// O(rows). Returns nested map[entityType]map[entityID]entityNameRow.
+func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]commentRow) map[string]map[uint]entityNameRow {
+	idsByType := make(map[string]map[uint]struct{})
+	for _, c := range comments {
+		if _, _, _, ok := commentEntityPathAndTable(c.EntityType); !ok {
+			continue
+		}
+		set, exists := idsByType[c.EntityType]
+		if !exists {
+			set = make(map[uint]struct{})
+			idsByType[c.EntityType] = set
+		}
+		set[c.EntityID] = struct{}{}
+	}
+
+	out := make(map[string]map[uint]entityNameRow, len(idsByType))
+	for entityType, idSet := range idsByType {
+		_, table, nameCol, _ := commentEntityPathAndTable(entityType)
+		ids := make([]uint, 0, len(idSet))
+		for id := range idSet {
+			ids = append(ids, id)
+		}
+		var rows []entityNameRow
+		// Aliased SELECT so shows (column "title") and the rest (column
+		// "name") scan into the same struct field.
+		err := s.db.Table(table).
+			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
+			Where("id IN ?", ids).
+			Scan(&rows).Error
+		if err != nil {
+			log.Printf("warning: failed to load parent entities for table %s: %v", table, err)
+			continue
+		}
+		byID := make(map[uint]entityNameRow, len(rows))
+		for _, r := range rows {
+			byID[r.ID] = r
+		}
+		out[entityType] = byID
+	}
+	return out
+}
+
+// formatEntityURL builds the (URL, display-name) pair for a comment's
+// parent entity from the pre-loaded per-type map. Falls back to "<type>
+// #<id>" + slug-less URL when the entity row wasn't pre-loaded (deleted
+// since notification minted, or unknown entity_type).
+func (s *NotificationFilterService) formatEntityURL(entityType string, entityID uint, entitiesByTypeID map[string]map[uint]entityNameRow) (url, name string) {
+	pathSegment, _, _, ok := commentEntityPathAndTable(entityType)
+	if !ok {
+		return "", ""
+	}
+	byID, hasType := entitiesByTypeID[entityType]
+	row, hasRow := byID[entityID]
+	switch {
+	case hasType && hasRow && row.Slug != "":
+		url = fmt.Sprintf("%s/%s/%s", s.frontendURL, pathSegment, row.Slug)
+	default:
+		url = fmt.Sprintf("%s/%s/%d", s.frontendURL, pathSegment, entityID)
+	}
+	if hasRow && row.Name != "" {
+		name = row.Name
+	} else {
+		name = fmt.Sprintf("%s #%d", entityType, entityID)
+	}
+	return url, name
 }
 
 // GetUnreadCount returns the number of unread notifications for a user.
@@ -658,6 +887,42 @@ func (s *NotificationFilterService) GetUnreadCount(userID uint) (int64, error) {
 		Where("user_id = ? AND read_at IS NULL", userID).
 		Count(&count).Error
 	return count, err
+}
+
+// MarkNotificationsRead flips read_at on the given IDs for the user.
+// Bound by user_id so a user can't mark another user's notifications read.
+// Returns the count actually updated.
+func (s *NotificationFilterService) MarkNotificationsRead(userID uint, ids []uint) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	now := time.Now().UTC()
+	result := s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND id IN ? AND read_at IS NULL", userID, ids).
+		Update("read_at", now)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to mark notifications read: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
+// MarkAllNotificationsRead flips read_at on every unread notification for
+// the user. Returns the count updated.
+func (s *NotificationFilterService) MarkAllNotificationsRead(userID uint) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	now := time.Now().UTC()
+	result := s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND read_at IS NULL", userID).
+		Update("read_at", now)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to mark all notifications read: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }
 
 // ──────────────────────────────────────────────

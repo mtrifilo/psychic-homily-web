@@ -136,7 +136,7 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
               <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
               <div className="space-y-0.5">
                 {renderItem({ href: '/library', label: 'Library', icon: Library })}
-                {renderItem({ href: '/settings/notifications', label: 'Notifications', icon: Bell })}
+                {renderItem({ href: '/settings/notification-filters', label: 'Notification Filters', icon: Bell })}
                 {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}
                 {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
               </div>
