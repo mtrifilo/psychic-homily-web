@@ -592,7 +592,10 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			return fmt.Errorf("failed to create show: %w", err)
 		}
 
-		// Link venues
+		// Link venues. Track the lowest venue.ID for the denormalized
+		// show_artists.venue_id below — matches the 20260512023704
+		// backfill migration's LATERAL tiebreaker (PSY-576).
+		var primaryVenueID *uint
 		for _, exportedVenue := range show.Venues {
 			var venue catalogm.Venue
 			err := tx.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)",
@@ -638,9 +641,18 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			if err := tx.Create(&showVenue).Error; err != nil {
 				return fmt.Errorf("failed to link venue: %w", err)
 			}
+
+			if primaryVenueID == nil || venue.ID < *primaryVenueID {
+				vid := venue.ID
+				primaryVenueID = &vid
+			}
 		}
 
-		// Link artists
+		// Link artists. EventDate + VenueID denormalize the show dedup
+		// key so the partial unique index
+		// `shows_artist_venue_eventdate_uniq` covers data-synced rows
+		// (PSY-576).
+		syncEventDate := newShow.EventDate
 		for _, exportedArtist := range show.Artists {
 			var artist catalogm.Artist
 			err := tx.Where("LOWER(name) = LOWER(?)", exportedArtist.Name).First(&artist).Error
@@ -674,10 +686,12 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 
 			// Create show-artist association
 			showArtist := catalogm.ShowArtist{
-				ShowID:   newShow.ID,
-				ArtistID: artist.ID,
-				Position: exportedArtist.Position,
-				SetType:  exportedArtist.SetType,
+				ShowID:    newShow.ID,
+				ArtistID:  artist.ID,
+				Position:  exportedArtist.Position,
+				SetType:   exportedArtist.SetType,
+				EventDate: &syncEventDate,
+				VenueID:   primaryVenueID,
 			}
 			if err := tx.Create(&showArtist).Error; err != nil {
 				return fmt.Errorf("failed to link artist: %w", err)

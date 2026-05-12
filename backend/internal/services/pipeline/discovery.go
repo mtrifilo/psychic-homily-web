@@ -469,12 +469,21 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 				}
 			}
 
-			// Create show-artist association
+			// Create show-artist association. EventDate + VenueID
+			// denormalize the show dedup key so the partial unique index
+			// `shows_artist_venue_eventdate_uniq` covers discovery-imported
+			// rows (PSY-576). Discovery imports a single venue per scrape
+			// (see venueConfig above), so primary-venue resolution is
+			// unambiguous.
+			discoveryEventDate := show.EventDate
+			discoveryVenueID := venue.ID
 			showArtist := catalogm.ShowArtist{
-				ShowID:   show.ID,
-				ArtistID: artist.ID,
-				Position: position,
-				SetType:  setType,
+				ShowID:    show.ID,
+				ArtistID:  artist.ID,
+				Position:  position,
+				SetType:   setType,
+				EventDate: &discoveryEventDate,
+				VenueID:   &discoveryVenueID,
 			}
 			if err := tx.Create(&showArtist).Error; err != nil {
 				return fmt.Errorf("failed to create show-artist association: %w", err)
