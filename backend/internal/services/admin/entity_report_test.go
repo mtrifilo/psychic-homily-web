@@ -312,7 +312,6 @@ func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_EmailOn
 	s.NoError(err)
 	s.Require().NotNil(resp)
 	s.Equal(emailLocalPart, resp.ReporterName, "must render email prefix, not full email")
-	s.NotEqual(emailFull, resp.ReporterName, "full email must never leak into the byline")
 	s.NotContains(resp.ReporterName, "@", "byline must never contain '@' for email-only users")
 	s.Nil(resp.ReporterUsername, "username should be nil when not set on the user")
 }
@@ -624,20 +623,16 @@ func (s *EntityReportServiceIntegrationTestSuite) TestListEntityReports_MixedRep
 	s.NoError(err)
 	s.Require().Len(reports, 2)
 
+	// The username-set reporter renders their username; the email-only
+	// reporter renders their email PREFIX. Neither byline contains "@" —
+	// that's the no-email-leak invariant. Keyed by report_type so the
+	// assertion is robust to listing order changes.
+	resolvedNames := make(map[string]string, len(reports))
 	for _, r := range reports {
-		s.NotEmpty(r.ReporterName, "every reporter must render through the resolver chain")
 		s.NotContains(
 			r.ReporterName, "@",
 			"reporter byline must never contain '@' — that's an email leak (PSY-607)",
 		)
-		s.NotEqual(emailFull, r.ReporterName, "full email must never appear in byline")
-	}
-
-	// Sanity-check the per-reporter resolution is what we expect: the
-	// username-set reporter renders their username; the email-only reporter
-	// renders their email PREFIX.
-	resolvedNames := make(map[string]string, len(reports))
-	for _, r := range reports {
 		resolvedNames[r.ReportType] = r.ReporterName
 	}
 	s.Equal(*withUsername.Username, resolvedNames["closed_permanently"])
