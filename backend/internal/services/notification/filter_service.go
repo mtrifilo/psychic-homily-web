@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"regexp"
 	"strings"
 	"time"
 
@@ -18,6 +19,16 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
+)
+
+// Markdown-stripping regexes for inbox/bell excerpts. Compiled once at
+// package init so each enrichment pass is a no-allocation match.
+var (
+	mdFenceRe      = regexp.MustCompile("```[\\s\\S]*?```")
+	mdInlineCodeRe = regexp.MustCompile("`[^`]*`")
+	mdLinkRe       = regexp.MustCompile(`\[([^\]]+)\]\([^\)]+\)`)
+	mdLineMarkerRe = regexp.MustCompile(`(?m)^\s*(#{1,6}|[>*\-+])\s+`)
+	mdWsRe         = regexp.MustCompile(`\s+`)
 )
 
 // NotificationFilterService handles notification filter CRUD, matching, and delivery.
@@ -609,6 +620,10 @@ func (s *NotificationFilterService) sendEmail(to, subject, html, unsubscribeURL 
 // ──────────────────────────────────────────────
 
 // GetUserNotifications returns the notification log for a user, paginated.
+// Show-filter rows are returned as-is. Comment-driven rows (entity_type =
+// comment_reply or comment_mention) are enriched in a single follow-up join
+// against the comments + users tables so the bell/inbox UI can render
+// "<commenter> replied: <excerpt>" with a working link target. PSY-595.
 func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, offset int) ([]contracts.NotificationLogEntry, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
@@ -644,7 +659,233 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 			ReadAt:     l.ReadAt,
 		}
 	}
+
+	// Enrich comment-driven rows in a single batched pass.
+	s.enrichCommentNotifications(entries)
 	return entries, nil
+}
+
+// commentNotificationEntityTypes is the set of notification_log.entity_type
+// values that resolve to a row in the `comments` table via entity_id.
+// Kept here to avoid an import cycle with the engagement package (the
+// engagement package owns the comment lifecycle; this service only reads
+// the table).
+var commentNotificationEntityTypes = map[string]bool{
+	"comment_reply":   true,
+	"comment_mention": true,
+}
+
+// commentRow is the projection of a comment + author needed to enrich a
+// notification_log entry into something the frontend can render. Only the
+// columns required to build the popover line + link target are selected.
+type commentRow struct {
+	ID         uint
+	EntityType string
+	EntityID   uint
+	Body       string
+	UserID     uint
+	Username   *string
+	FirstName  *string
+	LastName   *string
+	Email      string
+}
+
+// enrichCommentNotifications walks the entries slice, finds all comment-
+// driven rows (entity_type in commentNotificationEntityTypes), batch-loads
+// the referenced comments + their authors, then writes the rendering fields
+// back into each entry. Show-filter rows are left untouched. Missing rows
+// (e.g. comment was deleted after the notification was minted) are left
+// with empty enrichment fields — the UI degrades to a generic "new comment"
+// line rather than crashing.
+func (s *NotificationFilterService) enrichCommentNotifications(entries []contracts.NotificationLogEntry) {
+	if len(entries) == 0 {
+		return
+	}
+
+	// Collect comment IDs to fetch.
+	commentIDs := make([]uint, 0, len(entries))
+	seen := make(map[uint]struct{}, len(entries))
+	for _, e := range entries {
+		if !commentNotificationEntityTypes[e.EntityType] {
+			continue
+		}
+		if _, dup := seen[e.EntityID]; dup {
+			continue
+		}
+		seen[e.EntityID] = struct{}{}
+		commentIDs = append(commentIDs, e.EntityID)
+	}
+	if len(commentIDs) == 0 {
+		return
+	}
+
+	var rows []commentRow
+	err := s.db.Table("comments c").
+		Select(`c.id,
+			c.entity_type,
+			c.entity_id,
+			c.body,
+			c.user_id,
+			u.username,
+			u.first_name,
+			u.last_name,
+			u.email`).
+		Joins("LEFT JOIN users u ON u.id = c.user_id").
+		Where("c.id IN ?", commentIDs).
+		Scan(&rows).Error
+	if err != nil {
+		// Non-fatal — the bell/inbox just won't render rich data for these
+		// rows. Logged so an unexpected DB failure stays visible.
+		log.Printf("warning: failed to enrich comment notifications: %v", err)
+		return
+	}
+
+	byID := make(map[uint]commentRow, len(rows))
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+
+	// Per-row entity-name + entity-URL resolution. We batch by table to
+	// avoid an O(n) seek loop — for small inbox pages the simple per-row
+	// pluck is fine.
+	for i := range entries {
+		e := &entries[i]
+		if !commentNotificationEntityTypes[e.EntityType] {
+			continue
+		}
+		c, ok := byID[e.EntityID]
+		if !ok {
+			continue
+		}
+		e.CommenterName = resolveCommenterDisplay(c)
+		if c.Username != nil {
+			e.CommenterUsername = *c.Username
+		}
+		e.CommentExcerpt = buildPlainExcerpt(c.Body, 140)
+		e.CommentEntityType = c.EntityType
+		e.CommentEntityID = c.EntityID
+		entityURL, entityName := s.resolveEntityURLAndName(c.EntityType, c.EntityID)
+		e.CommentEntityName = entityName
+		// Deep-link straight to the comment anchor on the parent entity page.
+		if entityURL != "" {
+			e.CommentURL = fmt.Sprintf("%s#comment-%d", entityURL, c.ID)
+		}
+	}
+}
+
+// resolveCommenterDisplay mirrors the public ResolveUserName helper without
+// the *authm.User dep — keeps this package independent of the auth model.
+func resolveCommenterDisplay(c commentRow) string {
+	if c.Username != nil && *c.Username != "" {
+		return *c.Username
+	}
+	first := ""
+	if c.FirstName != nil {
+		first = strings.TrimSpace(*c.FirstName)
+	}
+	last := ""
+	if c.LastName != nil {
+		last = strings.TrimSpace(*c.LastName)
+	}
+	if first != "" && last != "" {
+		return first + " " + last
+	}
+	if first != "" {
+		return first
+	}
+	if last != "" {
+		return last
+	}
+	if c.Email != "" {
+		if at := strings.IndexByte(c.Email, '@'); at > 0 {
+			return c.Email[:at]
+		}
+	}
+	return "Anonymous"
+}
+
+// buildPlainExcerpt strips obvious markdown noise and caps the body to the
+// given rune length. Mirrors the email-side excerpt helper (engagement
+// package) but kept private here to avoid an import cycle.
+func buildPlainExcerpt(body string, maxRunes int) string {
+	plain := stripMarkdownLite(body)
+	runes := []rune(plain)
+	if len(runes) <= maxRunes {
+		return plain
+	}
+	return string(runes[:maxRunes]) + "…" // …
+}
+
+// stripMarkdownLite is a minimal "good enough" markdown→plain converter
+// used only for inbox/bell excerpts (NOT for any rendered HTML surface).
+// Keeps the dependency footprint of this service zero.
+func stripMarkdownLite(body string) string {
+	// Drop fenced code blocks.
+	body = mdFenceRe.ReplaceAllString(body, " ")
+	// Inline code.
+	body = mdInlineCodeRe.ReplaceAllString(body, " ")
+	// Markdown links → keep text.
+	body = mdLinkRe.ReplaceAllString(body, "$1")
+	// Strip line-start markers (#, >, *, -, +).
+	body = mdLineMarkerRe.ReplaceAllString(body, "")
+	// Collapse whitespace.
+	body = mdWsRe.ReplaceAllString(body, " ")
+	return strings.TrimSpace(body)
+}
+
+// resolveEntityURLAndName returns the frontend URL + display name for the
+// comment's parent entity, falling back to empty strings on failure. Mirrors
+// the email-side helpers in engagement/comment_notification.go but lives
+// here to avoid an import cycle (engagement already imports contracts and
+// shared, and this service shouldn't pull engagement in).
+func (s *NotificationFilterService) resolveEntityURLAndName(entityType string, entityID uint) (url, name string) {
+	pathSegment, tableName, ok := commentEntityPathAndTable(entityType)
+	if !ok {
+		return "", ""
+	}
+	column := "name"
+	if entityType == "show" {
+		column = "title"
+	}
+	var resolvedName string
+	_ = s.db.Table(tableName).Where("id = ?", entityID).Pluck(column, &resolvedName).Error
+	var slug string
+	_ = s.db.Table(tableName).Where("id = ?", entityID).Pluck("slug", &slug).Error
+	if slug != "" {
+		url = fmt.Sprintf("%s/%s/%s", s.frontendURL, pathSegment, slug)
+	} else {
+		url = fmt.Sprintf("%s/%s/%d", s.frontendURL, pathSegment, entityID)
+	}
+	if resolvedName != "" {
+		name = resolvedName
+	} else {
+		name = fmt.Sprintf("%s #%d", entityType, entityID)
+	}
+	return url, name
+}
+
+// commentEntityPathAndTable maps a CommentEntityType string to the frontend
+// path segment + DB table name. Keeps the mapping out of the iteration loop
+// so it's a static lookup rather than a switch on every row.
+func commentEntityPathAndTable(entityType string) (path, table string, ok bool) {
+	switch entityType {
+	case "artist":
+		return "artists", "artists", true
+	case "venue":
+		return "venues", "venues", true
+	case "show":
+		return "shows", "shows", true
+	case "release":
+		return "releases", "releases", true
+	case "label":
+		return "labels", "labels", true
+	case "festival":
+		return "festivals", "festivals", true
+	case "collection":
+		return "collections", "collections", true
+	default:
+		return "", "", false
+	}
 }
 
 // GetUnreadCount returns the number of unread notifications for a user.
@@ -658,6 +899,42 @@ func (s *NotificationFilterService) GetUnreadCount(userID uint) (int64, error) {
 		Where("user_id = ? AND read_at IS NULL", userID).
 		Count(&count).Error
 	return count, err
+}
+
+// MarkNotificationsRead flips read_at on the given IDs for the user.
+// Bound by user_id so a user can't mark another user's notifications read.
+// Returns the count actually updated.
+func (s *NotificationFilterService) MarkNotificationsRead(userID uint, ids []uint) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	if len(ids) == 0 {
+		return 0, nil
+	}
+	now := time.Now().UTC()
+	result := s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND id IN ? AND read_at IS NULL", userID, ids).
+		Update("read_at", now)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to mark notifications read: %w", result.Error)
+	}
+	return result.RowsAffected, nil
+}
+
+// MarkAllNotificationsRead flips read_at on every unread notification for
+// the user. Returns the count updated.
+func (s *NotificationFilterService) MarkAllNotificationsRead(userID uint) (int64, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	now := time.Now().UTC()
+	result := s.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND read_at IS NULL", userID).
+		Update("read_at", now)
+	if result.Error != nil {
+		return 0, fmt.Errorf("failed to mark all notifications read: %w", result.Error)
+	}
+	return result.RowsAffected, nil
 }
 
 // ──────────────────────────────────────────────

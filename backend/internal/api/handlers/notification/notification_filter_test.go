@@ -352,6 +352,84 @@ func TestUnsubscribeFilterHandler_Success(t *testing.T) {
 	}
 }
 
+// --- MarkNotificationsReadHandler (PSY-595) ---
+
+func TestMarkNotificationsReadHandler_NoAuth(t *testing.T) {
+	h := testNotificationFilterHandler()
+	_, err := h.MarkNotificationsReadHandler(context.Background(), &MarkNotificationsReadRequest{})
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestMarkNotificationsReadHandler_MarkAll(t *testing.T) {
+	var capturedUserID uint
+	mock := &testhelpers.MockNotificationFilterService{
+		MarkAllNotificationsReadFn: func(userID uint) (int64, error) {
+			capturedUserID = userID
+			return 5, nil
+		},
+		GetUnreadCountFn: func(_ uint) (int64, error) { return 0, nil },
+	}
+	h := NewNotificationFilterHandler(mock, "test-secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 99})
+
+	req := &MarkNotificationsReadRequest{}
+	resp, err := h.MarkNotificationsReadHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if capturedUserID != 99 {
+		t.Errorf("expected user 99, got %d", capturedUserID)
+	}
+	if resp.Body.UpdatedCount != 5 {
+		t.Errorf("expected updated 5, got %d", resp.Body.UpdatedCount)
+	}
+	if resp.Body.UnreadCount != 0 {
+		t.Errorf("expected unread 0, got %d", resp.Body.UnreadCount)
+	}
+}
+
+func TestMarkNotificationsReadHandler_MarkSpecific(t *testing.T) {
+	var capturedIDs []uint
+	mock := &testhelpers.MockNotificationFilterService{
+		MarkNotificationsReadFn: func(_ uint, ids []uint) (int64, error) {
+			capturedIDs = ids
+			return int64(len(ids)), nil
+		},
+		GetUnreadCountFn: func(_ uint) (int64, error) { return 2, nil },
+	}
+	h := NewNotificationFilterHandler(mock, "test-secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	req := &MarkNotificationsReadRequest{}
+	req.Body.IDs = []uint{10, 20, 30}
+	resp, err := h.MarkNotificationsReadHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(capturedIDs) != 3 {
+		t.Errorf("expected 3 IDs, got %d", len(capturedIDs))
+	}
+	if resp.Body.UpdatedCount != 3 {
+		t.Errorf("expected updated 3, got %d", resp.Body.UpdatedCount)
+	}
+	if resp.Body.UnreadCount != 2 {
+		t.Errorf("expected unread 2, got %d", resp.Body.UnreadCount)
+	}
+}
+
+func TestMarkNotificationsReadHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockNotificationFilterService{
+		MarkAllNotificationsReadFn: func(_ uint) (int64, error) {
+			return 0, fmt.Errorf("db down")
+		},
+	}
+	h := NewNotificationFilterHandler(mock, "test-secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.MarkNotificationsReadHandler(ctx, &MarkNotificationsReadRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
 // --- filterToResponse helper ---
 
 func TestFilterToResponse(t *testing.T) {

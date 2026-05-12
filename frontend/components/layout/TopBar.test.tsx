@@ -32,6 +32,14 @@ vi.mock('next-themes', () => ({
   useTheme: () => ({ theme: mockTheme, setTheme: mockSetTheme }),
 }))
 
+// Mock NotificationBell to a stub — it uses TanStack Query and is covered
+// by its own unit test (PSY-595). The TopBar test only cares that the bell
+// renders for authenticated users; the bell's internal behaviour is out of
+// scope here.
+vi.mock('@/features/notifications', () => ({
+  NotificationBell: () => <button data-testid="notification-bell">Bell</button>,
+}))
+
 describe('TopBar', () => {
   const onMobileOpenChange = vi.fn()
   const onSearchClick = vi.fn()

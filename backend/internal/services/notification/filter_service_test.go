@@ -76,6 +76,75 @@ func TestGenerateFilterUnsubscribeURL(t *testing.T) {
 	assert.Contains(t, url, "sig=")
 }
 
+// PSY-595: comment-driven notification helpers (pure-go, no DB needed)
+
+func TestCommentEntityPathAndTable(t *testing.T) {
+	cases := []struct {
+		in        string
+		wantPath  string
+		wantTable string
+		wantOK    bool
+	}{
+		{"artist", "artists", "artists", true},
+		{"venue", "venues", "venues", true},
+		{"show", "shows", "shows", true},
+		{"release", "releases", "releases", true},
+		{"label", "labels", "labels", true},
+		{"festival", "festivals", "festivals", true},
+		{"collection", "collections", "collections", true},
+		{"", "", "", false},
+		{"bogus_type", "", "", false},
+	}
+	for _, c := range cases {
+		t.Run(c.in, func(t *testing.T) {
+			p, table, ok := commentEntityPathAndTable(c.in)
+			assert.Equal(t, c.wantOK, ok)
+			assert.Equal(t, c.wantPath, p)
+			assert.Equal(t, c.wantTable, table)
+		})
+	}
+}
+
+func TestResolveCommenterDisplay(t *testing.T) {
+	uname := "alice"
+	first := "Alice"
+	last := "Doe"
+
+	// Username present → wins
+	assert.Equal(t, "alice", resolveCommenterDisplay(commentRow{Username: &uname}))
+
+	// No username, first + last
+	assert.Equal(t, "Alice Doe", resolveCommenterDisplay(commentRow{FirstName: &first, LastName: &last}))
+
+	// First only
+	assert.Equal(t, "Alice", resolveCommenterDisplay(commentRow{FirstName: &first}))
+
+	// Email fallback
+	assert.Equal(t, "user", resolveCommenterDisplay(commentRow{Email: "user@example.com"}))
+
+	// All empty → Anonymous
+	assert.Equal(t, "Anonymous", resolveCommenterDisplay(commentRow{}))
+}
+
+func TestBuildPlainExcerpt(t *testing.T) {
+	// Trivial passthrough
+	assert.Equal(t, "hello world", buildPlainExcerpt("hello world", 140))
+
+	// Markdown link → text only
+	assert.Equal(t, "see this", buildPlainExcerpt("see [this](https://example.com)", 140))
+
+	// Truncation
+	long := "abcdefghij abcdefghij abcdefghij abcdefghij"
+	excerpt := buildPlainExcerpt(long, 10)
+	assert.Equal(t, "abcdefghij…", excerpt)
+
+	// Fenced code blocks dropped
+	assert.Equal(t, "before after", buildPlainExcerpt("before\n```\nfn body\n```\nafter", 140))
+
+	// Leading list markers stripped
+	assert.Equal(t, "first item second item", buildPlainExcerpt("- first item\n- second item", 140))
+}
+
 func TestBuildFilterEmailHTML(t *testing.T) {
 	html := buildFilterEmailHTML("PHX punk shows", "Deafheaven at Rebel Lounge", "Monday, March 15, 2026", "The Rebel Lounge", "Deafheaven, Touche Amore", "$25", "https://example.com/shows/1", "https://example.com/unsubscribe/filter/1")
 	assert.Contains(t, html, "PHX punk shows")
@@ -715,6 +784,71 @@ func (s *NotificationFilterSuite) TestGetUnreadCount() {
 	count, err := s.svc.GetUnreadCount(userID)
 	s.Require().NoError(err)
 	s.Assert().Equal(int64(2), count)
+}
+
+// --- MarkNotificationsRead (PSY-595) ---
+
+func (s *NotificationFilterSuite) TestMarkNotificationsRead_All() {
+	userID := s.createTestUser()
+	now := time.Now().UTC()
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now})
+	s.db.Create(&notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: now, ReadAt: &now})
+
+	updated, err := s.svc.MarkAllNotificationsRead(userID)
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(2), updated, "only 2 unread should flip")
+
+	count, err := s.svc.GetUnreadCount(userID)
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(0), count, "no unread should remain")
+}
+
+func (s *NotificationFilterSuite) TestMarkNotificationsRead_Specific() {
+	userID := s.createTestUser()
+	now := time.Now().UTC()
+	row1 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now}
+	row2 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now}
+	row3 := notificationm.NotificationLog{UserID: userID, EntityType: "show", EntityID: 3, Channel: "email", SentAt: now}
+	s.db.Create(&row1)
+	s.db.Create(&row2)
+	s.db.Create(&row3)
+
+	updated, err := s.svc.MarkNotificationsRead(userID, []uint{row1.ID, row2.ID})
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(2), updated)
+
+	count, err := s.svc.GetUnreadCount(userID)
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1), count, "third row should still be unread")
+}
+
+func (s *NotificationFilterSuite) TestMarkNotificationsRead_Empty() {
+	userID := s.createTestUser()
+	updated, err := s.svc.MarkNotificationsRead(userID, nil)
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(0), updated)
+}
+
+func (s *NotificationFilterSuite) TestMarkNotificationsRead_OtherUserSkipped() {
+	a := s.createTestUser()
+	b := s.createTestUser()
+	now := time.Now().UTC()
+
+	rowA := notificationm.NotificationLog{UserID: a, EntityType: "show", EntityID: 1, Channel: "email", SentAt: now}
+	rowB := notificationm.NotificationLog{UserID: b, EntityType: "show", EntityID: 2, Channel: "email", SentAt: now}
+	s.db.Create(&rowA)
+	s.db.Create(&rowB)
+
+	// Try to mark B's row from A's user context — must be a no-op.
+	updated, err := s.svc.MarkNotificationsRead(a, []uint{rowB.ID})
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(0), updated)
+
+	// B's unread count untouched.
+	count, err := s.svc.GetUnreadCount(b)
+	s.Require().NoError(err)
+	s.Assert().Equal(int64(1), count)
 }
 
 // --- PauseFilter ---

@@ -15,6 +15,8 @@ import type {
   CreateFilterInput,
   UpdateFilterInput,
   NotifyEntityType,
+  NotificationListResponse,
+  MarkReadResponse,
 } from '../types'
 
 // ──────────────────────────────────────────────
@@ -27,6 +29,11 @@ const FILTER_ENDPOINTS = {
   UPDATE: (id: number) => `${API_BASE_URL}/me/notification-filters/${id}`,
   DELETE: (id: number) => `${API_BASE_URL}/me/notification-filters/${id}`,
   QUICK: `${API_BASE_URL}/me/notification-filters/quick`,
+}
+
+const NOTIFICATION_ENDPOINTS = {
+  LIST: `${API_BASE_URL}/me/notifications`,
+  MARK_READ: `${API_BASE_URL}/me/notifications/mark-read`,
 }
 
 // ──────────────────────────────────────────────
@@ -162,6 +169,64 @@ export function useQuickCreateFilter() {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.notificationFilters.all,
+      })
+    },
+  })
+}
+
+// ──────────────────────────────────────────────
+// Inbox: notification log query + mark-read mutation (PSY-595)
+// ──────────────────────────────────────────────
+
+/** Query key for the user's notification log (bell + inbox surfaces). */
+const NOTIFICATION_LOG_KEY = ['notifications', 'log'] as const
+
+/**
+ * Fetch the current user's notification log (bell + inbox).
+ *
+ * Gated on `isAuthenticated` so anonymous visitors don't fire a 401.
+ * Polled every 60s while the page is in focus so the bell badge can pick
+ * up new comment replies / mentions without a manual refresh. Stale time
+ * matches the poll interval so a TopBar mount inside the window reuses
+ * the cached payload.
+ */
+export function useUserNotifications(params?: { limit?: number; offset?: number }) {
+  const { isAuthenticated } = useAuthContext()
+  const limit = params?.limit ?? 20
+  const offset = params?.offset ?? 0
+  const url = `${NOTIFICATION_ENDPOINTS.LIST}?limit=${limit}&offset=${offset}`
+
+  return useQuery({
+    queryKey: [...NOTIFICATION_LOG_KEY, { limit, offset }] as const,
+    queryFn: () => apiRequest<NotificationListResponse>(url),
+    enabled: isAuthenticated,
+    staleTime: 60 * 1000,
+    refetchInterval: 60 * 1000,
+    refetchOnWindowFocus: true,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/**
+ * Mark notifications read.
+ *
+ *   - With no `ids` (or empty array), marks ALL of the user's unread.
+ *   - Otherwise marks only the listed rows (server-side guarded by user_id).
+ *
+ * Invalidates every `notifications/log` cache entry on success so the bell
+ * popover + inbox page both update without a manual refetch.
+ */
+export function useMarkNotificationsRead() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: (ids?: number[]) =>
+      apiRequest<MarkReadResponse>(NOTIFICATION_ENDPOINTS.MARK_READ, {
+        method: 'POST',
+        body: JSON.stringify({ ids: ids ?? [] }),
+      }),
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: NOTIFICATION_LOG_KEY,
       })
     },
   })

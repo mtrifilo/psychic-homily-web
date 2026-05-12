@@ -6,6 +6,61 @@ export interface FilterCity {
   state: string
 }
 
+/**
+ * NotificationLogEntry mirrors backend contracts/notification_filter.go
+ * `NotificationLogEntry`. Two row shapes share this contract:
+ *
+ *  - Show-filter rows: entity_type="show", channel="email", filter_name set.
+ *  - Comment-driven rows (PSY-595): entity_type="comment_reply" |
+ *    "comment_mention", channel="in_app". The backend enriches each
+ *    comment-driven row with commenter_*, comment_excerpt, comment_url, and
+ *    comment_entity_* so the bell + inbox UI can render a clickable line.
+ *
+ * Comment-enrichment fields are optional; show rows leave them undefined.
+ */
+export interface NotificationLogEntry {
+  id: number
+  filter_id?: number | null
+  filter_name?: string
+  entity_type: string
+  entity_id: number
+  channel: string
+  sent_at: string
+  read_at?: string | null
+  // Comment-driven enrichment (PSY-595)
+  commenter_name?: string
+  commenter_username?: string
+  comment_excerpt?: string
+  comment_url?: string
+  comment_entity_type?: string
+  comment_entity_id?: number
+  comment_entity_name?: string
+}
+
+/** GET /me/notifications response shape */
+export interface NotificationListResponse {
+  notifications: NotificationLogEntry[]
+  unread_count: number
+}
+
+/** POST /me/notifications/mark-read response shape */
+export interface MarkReadResponse {
+  updated_count: number
+  unread_count: number
+}
+
+/**
+ * isCommentNotification returns true for the PSY-595 in-app comment row
+ * types. Centralised so the bell + inbox + tests share the same check —
+ * adding a new comment-driven entity_type only updates this one helper.
+ */
+export function isCommentNotification(entry: NotificationLogEntry): boolean {
+  return (
+    entry.entity_type === 'comment_reply' ||
+    entry.entity_type === 'comment_mention'
+  )
+}
+
 /** Notification filter response from the API */
 export interface NotificationFilter {
   id: number

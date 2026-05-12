@@ -62,6 +62,21 @@ type NotificationFilterResponse struct {
 }
 
 // NotificationLogEntry represents a notification log entry in API responses.
+//
+// For show-filter rows (entity_type="show", channel="email"), the FilterName,
+// EntityType, and EntityID are the only identifying fields the frontend
+// needs.
+//
+// For comment-driven in-app rows (entity_type="comment_reply" or
+// "comment_mention", channel="in_app"), entity_id holds the comment_id. The
+// service layer enriches each row with the comment's source entity
+// (CommentEntityType / CommentEntityID / CommentEntityName / CommentEntityURL),
+// the commenter's display name (CommenterName), and a plain-text excerpt
+// (CommentExcerpt). The frontend uses these to render a readable popover /
+// inbox row + link target (CommentURL).
+//
+// Enriched fields are JSON-omitempty so legacy clients receiving show-filter
+// rows see the same shape as before.
 type NotificationLogEntry struct {
 	ID         uint       `json:"id"`
 	FilterID   *uint      `json:"filter_id,omitempty"`
@@ -71,6 +86,16 @@ type NotificationLogEntry struct {
 	Channel    string     `json:"channel"`
 	SentAt     time.Time  `json:"sent_at"`
 	ReadAt     *time.Time `json:"read_at,omitempty"`
+
+	// Comment-driven enrichment fields (populated only for comment_reply /
+	// comment_mention rows). PSY-595.
+	CommenterName     string `json:"commenter_name,omitempty"`
+	CommenterUsername string `json:"commenter_username,omitempty"`
+	CommentExcerpt    string `json:"comment_excerpt,omitempty"`
+	CommentURL        string `json:"comment_url,omitempty"`
+	CommentEntityType string `json:"comment_entity_type,omitempty"`
+	CommentEntityID   uint   `json:"comment_entity_id,omitempty"`
+	CommentEntityName string `json:"comment_entity_name,omitempty"`
 }
 
 // NotificationFilterServiceInterface defines the contract for notification filter operations.
@@ -92,6 +117,13 @@ type NotificationFilterServiceInterface interface {
 	// Notification log
 	GetUserNotifications(userID uint, limit, offset int) ([]NotificationLogEntry, error)
 	GetUnreadCount(userID uint) (int64, error)
+	// MarkNotificationsRead flips read_at on the given IDs that belong to the
+	// user. Returns the count actually updated (already-read or
+	// not-owned-by-user IDs are skipped silently). PSY-595.
+	MarkNotificationsRead(userID uint, ids []uint) (int64, error)
+	// MarkAllNotificationsRead flips read_at on every unread notification
+	// for the user. Returns the count updated. PSY-595.
+	MarkAllNotificationsRead(userID uint) (int64, error)
 
 	// Unsubscribe
 	PauseFilter(filterID uint) error

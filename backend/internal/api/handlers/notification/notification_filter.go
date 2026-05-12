@@ -131,6 +131,24 @@ type GetNotificationsResponse struct {
 	}
 }
 
+// MarkNotificationsReadRequest is the request for POST
+// /me/notifications/mark-read. When IDs is empty, marks ALL unread.
+type MarkNotificationsReadRequest struct {
+	Body struct {
+		IDs []uint `json:"ids,omitempty" doc:"Notification IDs to mark read. Empty array = mark all unread."`
+	}
+}
+
+// MarkNotificationsReadResponse is the response for POST
+// /me/notifications/mark-read. UpdatedCount reports how many rows actually
+// transitioned to read (skipped: already-read or not-owned-by-user).
+type MarkNotificationsReadResponse struct {
+	Body struct {
+		UpdatedCount int64 `json:"updated_count"`
+		UnreadCount  int64 `json:"unread_count"`
+	}
+}
+
 // UnsubscribeFilterRequest is the request for POST /unsubscribe/filter/{id}
 type UnsubscribeFilterRequest struct {
 	ID   string `path:"id" doc:"Filter ID"`
@@ -399,6 +417,43 @@ func (h *NotificationFilterHandler) GetNotificationsHandler(ctx context.Context,
 	resp := &GetNotificationsResponse{}
 	resp.Body.Notifications = notifications
 	resp.Body.UnreadCount = unreadCount
+	return resp, nil
+}
+
+// MarkNotificationsReadHandler handles POST /me/notifications/mark-read.
+// If req.Body.IDs is empty, marks all of the user's unread notifications
+// read. Otherwise only the listed IDs (bound to the user_id) are marked.
+// Returns the count actually updated + the user's new unread count.
+func (h *NotificationFilterHandler) MarkNotificationsReadHandler(ctx context.Context, req *MarkNotificationsReadRequest) (*MarkNotificationsReadResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	var updated int64
+	var err error
+	if len(req.Body.IDs) == 0 {
+		updated, err = h.filterService.MarkAllNotificationsRead(user.ID)
+	} else {
+		updated, err = h.filterService.MarkNotificationsRead(user.ID, req.Body.IDs)
+	}
+	if err != nil {
+		requestID := logger.GetRequestID(ctx)
+		logger.FromContext(ctx).Error("mark_notifications_read_failed",
+			"user_id", user.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to mark notifications read (request_id: %s)", requestID),
+		)
+	}
+
+	unread, _ := h.filterService.GetUnreadCount(user.ID)
+
+	resp := &MarkNotificationsReadResponse{}
+	resp.Body.UpdatedCount = updated
+	resp.Body.UnreadCount = unread
 	return resp, nil
 }
 
