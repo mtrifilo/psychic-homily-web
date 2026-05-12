@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ChevronUp, ChevronDown, MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock, Clock } from 'lucide-react'
+import { MessageSquare, Pencil, Trash2, ChevronRight, Flag, History, Lock, Clock } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge'
 import { UserAttribution } from '@/components/shared'
 import { CommentForm } from './CommentForm'
 import { CommentEditHistory } from './CommentEditHistory'
+import { CommentVoteControls } from './CommentVoteControls'
 import { MutationErrorBanner } from './MutationErrorBanner'
 import { ReplyPermissionSelect } from './ReplyPermissionSelect'
 import { ReportEntityDialog } from '@/features/contributions'
@@ -17,10 +18,7 @@ import {
   useUpdateComment,
   useUpdateReplyPermission,
   useDeleteComment,
-  useVoteComment,
-  useUnvoteComment,
   useCommentThread,
-  useAutoDismissError,
   formatCommentSubmissionError,
 } from '../hooks'
 import {
@@ -62,12 +60,6 @@ export function CommentCard({
   const updateMutation = useUpdateComment()
   const updateReplyPermissionMutation = useUpdateReplyPermission()
   const deleteMutation = useDeleteComment()
-  const voteMutation = useVoteComment()
-  const unvoteMutation = useUnvoteComment()
-  // PSY-608: optimistic vote/unvote rollback hides the failure visually.
-  // Show a brief auto-dismissing banner so the user knows the action was
-  // reverted, mirroring SaveButton / FavoriteVenueButton (~3s).
-  const voteError = useAutoDismissError()
 
   // Load thread on demand if no inline replies were provided
   const hasInlineReplies = replies.length > 0
@@ -75,22 +67,6 @@ export function CommentCard({
   const threadReplies = hasInlineReplies ? replies : (threadData?.replies ?? [])
 
   const isDeleted = comment.visibility === 'hidden_by_user' || comment.visibility === 'hidden_by_mod'
-
-  const handleVote = (direction: 1 | -1) => {
-    if (!isAuthenticated) return
-    if (comment.user_vote === direction) {
-      // Toggle off
-      unvoteMutation.mutate(
-        { commentId: comment.id, entityType, entityId },
-        { onError: (err) => voteError.show(err) }
-      )
-    } else {
-      voteMutation.mutate(
-        { commentId: comment.id, direction, entityType, entityId },
-        { onError: (err) => voteError.show(err) }
-      )
-    }
-  }
 
   const handleReply = (body: string, replyPermission?: ReplyPermission) => {
     replyMutation.mutate(
@@ -211,45 +187,16 @@ export function CommentCard({
         />
       )}
 
-      {/* Actions row: votes + reply + edit + delete */}
+      {/* Actions row: votes + reply + edit + delete. PSY-632: vote chevrons
+          + score + vote-error banner extracted to <CommentVoteControls>. The
+          primitive owns the action-row container; remaining action buttons
+          ride along as `children` so the row layout stays one line. */}
       {!isEditing && (
-        <div className="flex items-center gap-1 mt-2">
-          {/* PSY-593: authors don't see vote buttons on their own comments
-              (matches HN/Lobsters — authors must not self-promote). Score
-              still renders so the author can see it. */}
-          {!isOwner && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-7 w-7 p-0 ${comment.user_vote === 1 ? 'text-primary' : 'text-muted-foreground'}`}
-              onClick={() => handleVote(1)}
-              disabled={!isAuthenticated}
-              aria-label="Upvote"
-              data-testid="upvote-button"
-            >
-              <ChevronUp className="h-4 w-4" />
-            </Button>
-          )}
-          <span
-            className={`text-xs font-medium min-w-[1.5rem] text-center ${isOwner ? 'text-muted-foreground' : ''}`}
-            data-testid="vote-score"
-          >
-            {comment.ups - comment.downs}
-          </span>
-          {!isOwner && (
-            <Button
-              variant="ghost"
-              size="sm"
-              className={`h-7 w-7 p-0 ${comment.user_vote === -1 ? 'text-destructive' : 'text-muted-foreground'}`}
-              onClick={() => handleVote(-1)}
-              disabled={!isAuthenticated}
-              aria-label="Downvote"
-              data-testid="downvote-button"
-            >
-              <ChevronDown className="h-4 w-4" />
-            </Button>
-          )}
-
+        <CommentVoteControls
+          comment={comment}
+          entityType={entityType}
+          entityId={entityId}
+        >
           {/* Reply button (hidden at depth >= 2). PSY-296: for
               author_only we hide the button for non-authors; for followers
               we show the button and let the server reject with 403 (the
@@ -344,12 +291,12 @@ export function CommentCard({
             </label>
           )}
           {/* PSY-296 end */}
-        </div>
+        </CommentVoteControls>
       )}
 
       {/* PSY-608: sticky banners for non-optimistic owner mutations
-          (delete, change reply-permission); auto-dismiss for the
-          optimistic vote/unvote rollback path. */}
+          (delete, change reply-permission). The optimistic vote/unvote
+          banner is now owned by <CommentVoteControls> (PSY-632). */}
       {!isEditing && deleteMutation.isError && (
         <MutationErrorBanner
           testId="delete-error-banner"
@@ -365,15 +312,6 @@ export function CommentCard({
           message={
             formatCommentSubmissionError(updateReplyPermissionMutation.error) ??
             'Failed to update reply permission. Please try again.'
-          }
-        />
-      )}
-      {!isEditing && voteError.error !== null && (
-        <MutationErrorBanner
-          testId="vote-error-banner"
-          message={
-            formatCommentSubmissionError(voteError.error) ??
-            'Vote failed. Please try again.'
           }
         />
       )}
