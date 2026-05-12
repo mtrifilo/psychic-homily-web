@@ -31,10 +31,11 @@ test.describe('Email Verification', () => {
     await expect(page.getByText('Email Verified!')).toBeVisible({
       timeout: 15_000,
     })
-    const main = page.getByRole('main')
-    await expect(main.getByRole('link', { name: 'Submit a Show' })).toBeVisible()
     await expect(
-      main.getByRole('link', { name: 'Go to My Library' })
+      page.getByRole('main').getByRole('link', { name: 'Submit a Show' })
+    ).toBeVisible()
+    await expect(
+      page.getByRole('main').getByRole('link', { name: 'Go to My Library' })
     ).toBeVisible()
   })
 

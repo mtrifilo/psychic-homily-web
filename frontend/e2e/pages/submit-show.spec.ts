@@ -123,7 +123,7 @@ unauthTest.describe('Submit show — unauthenticated', () => {
   unauthTest(
     'redirects unauthenticated user to login',
     async ({ page }) => {
-      await page.goto('/submissions')
+      await page.goto('/shows/submit')
 
       // Should redirect to auth page
       await page.waitForURL(/\/auth/, { timeout: 10_000 })
