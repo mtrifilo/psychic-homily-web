@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"regexp"
 	"strings"
 	"time"
 
@@ -19,16 +18,8 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
-)
-
-// Markdown-stripping regexes for inbox/bell excerpts. Compiled once at
-// package init so each enrichment pass is a no-allocation match.
-var (
-	mdFenceRe      = regexp.MustCompile("```[\\s\\S]*?```")
-	mdInlineCodeRe = regexp.MustCompile("`[^`]*`")
-	mdLinkRe       = regexp.MustCompile(`\[([^\]]+)\]\([^\)]+\)`)
-	mdLineMarkerRe = regexp.MustCompile(`(?m)^\s*(#{1,6}|[>*\-+])\s+`)
-	mdWsRe         = regexp.MustCompile(`\s+`)
+	"psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // NotificationFilterService handles notification filter CRUD, matching, and delivery.
@@ -665,45 +656,122 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 	return entries, nil
 }
 
-// commentNotificationEntityTypes is the set of notification_log.entity_type
-// values that resolve to a row in the `comments` table via entity_id.
-// Kept here to avoid an import cycle with the engagement package (the
-// engagement package owns the comment lifecycle; this service only reads
-// the table).
-var commentNotificationEntityTypes = map[string]bool{
-	"comment_reply":   true,
-	"comment_mention": true,
+// commentInboxExcerptMaxRunes is the rune cap for the bell/inbox excerpt.
+// Tighter than the email excerpt (engagement.commentExcerptMaxChars=200)
+// since the popover row is two visual lines max.
+const commentInboxExcerptMaxRunes = 140
+
+// commentEntityPathAndTable maps the CommentEntityType strings owned by
+// the engagement package onto the frontend path segment + DB table name
+// the inbox enrichment query needs. Show is the only entity whose name
+// column is "title" rather than "name".
+//
+// The list and the entity-type-string values are validated by the
+// engagementm.ValidCommentEntityTypes map at row-write time, so any
+// entity_type that arrives here is guaranteed to be one of these seven.
+func commentEntityPathAndTable(entityType string) (path, table, nameCol string, ok bool) {
+	switch entityType {
+	case "artist":
+		return "artists", "artists", "name", true
+	case "venue":
+		return "venues", "venues", "name", true
+	case "show":
+		return "shows", "shows", "title", true
+	case "release":
+		return "releases", "releases", "name", true
+	case "label":
+		return "labels", "labels", "name", true
+	case "festival":
+		return "festivals", "festivals", "name", true
+	case "collection":
+		return "collections", "collections", "name", true
+	default:
+		return "", "", "", false
+	}
 }
 
-// commentRow is the projection of a comment + author needed to enrich a
-// notification_log entry into something the frontend can render. Only the
-// columns required to build the popover line + link target are selected.
+// commentNotificationEntityTypes is the set of notification_log.entity_type
+// values whose entity_id points at a row in the `comments` table.
+var commentNotificationEntityTypes = map[string]bool{
+	engagement.NotificationEntityCommentReply:   true,
+	engagement.NotificationEntityCommentMention: true,
+}
+
+// commentRow is the slim projection used by the enrichment query.
 type commentRow struct {
 	ID         uint
 	EntityType string
 	EntityID   uint
 	Body       string
 	UserID     uint
-	Username   *string
-	FirstName  *string
-	LastName   *string
-	Email      string
 }
 
-// enrichCommentNotifications walks the entries slice, finds all comment-
-// driven rows (entity_type in commentNotificationEntityTypes), batch-loads
-// the referenced comments + their authors, then writes the rendering fields
-// back into each entry. Show-filter rows are left untouched. Missing rows
-// (e.g. comment was deleted after the notification was minted) are left
-// with empty enrichment fields — the UI degrades to a generic "new comment"
-// line rather than crashing.
+// entityNameRow projects the (id, name|title, slug) tuple from a parent
+// entity table during the per-table batch lookup.
+type entityNameRow struct {
+	ID   uint
+	Name string
+	Slug string
+}
+
+// enrichCommentNotifications walks entries, finds the comment-driven rows,
+// then batch-loads (in order): the referenced comments, the commenters'
+// display names + usernames, and the parent entities' (name, slug) tuples
+// — grouped by table so each table is hit at most once. Missing comments
+// (deleted after the row was minted) leave the entry's enrichment fields
+// empty; the UI degrades to a plain "new comment" line.
 func (s *NotificationFilterService) enrichCommentNotifications(entries []contracts.NotificationLogEntry) {
 	if len(entries) == 0 {
 		return
 	}
 
-	// Collect comment IDs to fetch.
-	commentIDs := make([]uint, 0, len(entries))
+	commentIDs := uniqueCommentIDs(entries)
+	if len(commentIDs) == 0 {
+		return
+	}
+
+	commentsByID, ok := s.loadCommentRows(commentIDs)
+	if !ok {
+		return
+	}
+
+	userIDs := make([]uint, 0, len(commentsByID))
+	for _, c := range commentsByID {
+		userIDs = append(userIDs, c.UserID)
+	}
+	names, _ := shared.BatchResolveUserNames(s.db, userIDs)
+	usernames, _ := shared.BatchResolveUserUsernames(s.db, userIDs)
+
+	entitiesByTypeID := s.loadParentEntitiesByType(commentsByID)
+
+	for i := range entries {
+		e := &entries[i]
+		if !commentNotificationEntityTypes[e.EntityType] {
+			continue
+		}
+		c, found := commentsByID[e.EntityID]
+		if !found {
+			continue
+		}
+		e.CommenterName = names[c.UserID]
+		if u, hasUsername := usernames[c.UserID]; hasUsername && u != nil {
+			e.CommenterUsername = *u
+		}
+		e.CommentExcerpt = engagement.BuildExcerpt(c.Body, commentInboxExcerptMaxRunes)
+		e.CommentEntityType = c.EntityType
+		e.CommentEntityID = c.EntityID
+		entityURL, entityName := s.formatEntityURL(c.EntityType, c.EntityID, entitiesByTypeID)
+		e.CommentEntityName = entityName
+		if entityURL != "" {
+			e.CommentURL = fmt.Sprintf("%s#comment-%d", entityURL, c.ID)
+		}
+	}
+}
+
+// uniqueCommentIDs collects the deduplicated set of comment IDs referenced
+// by the comment-driven entries.
+func uniqueCommentIDs(entries []contracts.NotificationLogEntry) []uint {
+	ids := make([]uint, 0, len(entries))
 	seen := make(map[uint]struct{}, len(entries))
 	for _, e := range entries {
 		if !commentNotificationEntityTypes[e.EntityType] {
@@ -713,179 +781,99 @@ func (s *NotificationFilterService) enrichCommentNotifications(entries []contrac
 			continue
 		}
 		seen[e.EntityID] = struct{}{}
-		commentIDs = append(commentIDs, e.EntityID)
+		ids = append(ids, e.EntityID)
 	}
-	if len(commentIDs) == 0 {
-		return
-	}
+	return ids
+}
 
+// loadCommentRows batch-fetches the comments referenced by the inbox
+// enrichment pass. Returns ok=false on DB error so the caller can skip
+// enrichment without crashing the request.
+func (s *NotificationFilterService) loadCommentRows(commentIDs []uint) (map[uint]commentRow, bool) {
 	var rows []commentRow
-	err := s.db.Table("comments c").
-		Select(`c.id,
-			c.entity_type,
-			c.entity_id,
-			c.body,
-			c.user_id,
-			u.username,
-			u.first_name,
-			u.last_name,
-			u.email`).
-		Joins("LEFT JOIN users u ON u.id = c.user_id").
-		Where("c.id IN ?", commentIDs).
+	err := s.db.Table("comments").
+		Select("id, entity_type, entity_id, body, user_id").
+		Where("id IN ?", commentIDs).
 		Scan(&rows).Error
 	if err != nil {
-		// Non-fatal — the bell/inbox just won't render rich data for these
-		// rows. Logged so an unexpected DB failure stays visible.
-		log.Printf("warning: failed to enrich comment notifications: %v", err)
-		return
+		log.Printf("warning: failed to load comments for inbox enrichment: %v", err)
+		return nil, false
 	}
-
 	byID := make(map[uint]commentRow, len(rows))
 	for _, r := range rows {
 		byID[r.ID] = r
 	}
+	return byID, true
+}
 
-	// Per-row entity-name + entity-URL resolution. We batch by table to
-	// avoid an O(n) seek loop — for small inbox pages the simple per-row
-	// pluck is fine.
-	for i := range entries {
-		e := &entries[i]
-		if !commentNotificationEntityTypes[e.EntityType] {
+// loadParentEntitiesByType groups (entityType, entityID) pairs from the
+// loaded comments by table and fires one batch SELECT per table — so the
+// inbox enrichment runs in O(distinct-entity-tables) DB roundtrips, not
+// O(rows). Returns nested map[entityType]map[entityID]entityNameRow.
+func (s *NotificationFilterService) loadParentEntitiesByType(comments map[uint]commentRow) map[string]map[uint]entityNameRow {
+	idsByType := make(map[string]map[uint]struct{})
+	for _, c := range comments {
+		if _, _, _, ok := commentEntityPathAndTable(c.EntityType); !ok {
 			continue
 		}
-		c, ok := byID[e.EntityID]
-		if !ok {
+		set, exists := idsByType[c.EntityType]
+		if !exists {
+			set = make(map[uint]struct{})
+			idsByType[c.EntityType] = set
+		}
+		set[c.EntityID] = struct{}{}
+	}
+
+	out := make(map[string]map[uint]entityNameRow, len(idsByType))
+	for entityType, idSet := range idsByType {
+		_, table, nameCol, _ := commentEntityPathAndTable(entityType)
+		ids := make([]uint, 0, len(idSet))
+		for id := range idSet {
+			ids = append(ids, id)
+		}
+		var rows []entityNameRow
+		// Aliased SELECT so shows (column "title") and the rest (column
+		// "name") scan into the same struct field.
+		err := s.db.Table(table).
+			Select(fmt.Sprintf("id, %s AS name, slug", nameCol)).
+			Where("id IN ?", ids).
+			Scan(&rows).Error
+		if err != nil {
+			log.Printf("warning: failed to load parent entities for table %s: %v", table, err)
 			continue
 		}
-		e.CommenterName = resolveCommenterDisplay(c)
-		if c.Username != nil {
-			e.CommenterUsername = *c.Username
+		byID := make(map[uint]entityNameRow, len(rows))
+		for _, r := range rows {
+			byID[r.ID] = r
 		}
-		e.CommentExcerpt = buildPlainExcerpt(c.Body, 140)
-		e.CommentEntityType = c.EntityType
-		e.CommentEntityID = c.EntityID
-		entityURL, entityName := s.resolveEntityURLAndName(c.EntityType, c.EntityID)
-		e.CommentEntityName = entityName
-		// Deep-link straight to the comment anchor on the parent entity page.
-		if entityURL != "" {
-			e.CommentURL = fmt.Sprintf("%s#comment-%d", entityURL, c.ID)
-		}
+		out[entityType] = byID
 	}
+	return out
 }
 
-// resolveCommenterDisplay mirrors the public ResolveUserName helper without
-// the *authm.User dep — keeps this package independent of the auth model.
-func resolveCommenterDisplay(c commentRow) string {
-	if c.Username != nil && *c.Username != "" {
-		return *c.Username
-	}
-	first := ""
-	if c.FirstName != nil {
-		first = strings.TrimSpace(*c.FirstName)
-	}
-	last := ""
-	if c.LastName != nil {
-		last = strings.TrimSpace(*c.LastName)
-	}
-	if first != "" && last != "" {
-		return first + " " + last
-	}
-	if first != "" {
-		return first
-	}
-	if last != "" {
-		return last
-	}
-	if c.Email != "" {
-		if at := strings.IndexByte(c.Email, '@'); at > 0 {
-			return c.Email[:at]
-		}
-	}
-	return "Anonymous"
-}
-
-// buildPlainExcerpt strips obvious markdown noise and caps the body to the
-// given rune length. Mirrors the email-side excerpt helper (engagement
-// package) but kept private here to avoid an import cycle.
-func buildPlainExcerpt(body string, maxRunes int) string {
-	plain := stripMarkdownLite(body)
-	runes := []rune(plain)
-	if len(runes) <= maxRunes {
-		return plain
-	}
-	return string(runes[:maxRunes]) + "…" // …
-}
-
-// stripMarkdownLite is a minimal "good enough" markdown→plain converter
-// used only for inbox/bell excerpts (NOT for any rendered HTML surface).
-// Keeps the dependency footprint of this service zero.
-func stripMarkdownLite(body string) string {
-	// Drop fenced code blocks.
-	body = mdFenceRe.ReplaceAllString(body, " ")
-	// Inline code.
-	body = mdInlineCodeRe.ReplaceAllString(body, " ")
-	// Markdown links → keep text.
-	body = mdLinkRe.ReplaceAllString(body, "$1")
-	// Strip line-start markers (#, >, *, -, +).
-	body = mdLineMarkerRe.ReplaceAllString(body, "")
-	// Collapse whitespace.
-	body = mdWsRe.ReplaceAllString(body, " ")
-	return strings.TrimSpace(body)
-}
-
-// resolveEntityURLAndName returns the frontend URL + display name for the
-// comment's parent entity, falling back to empty strings on failure. Mirrors
-// the email-side helpers in engagement/comment_notification.go but lives
-// here to avoid an import cycle (engagement already imports contracts and
-// shared, and this service shouldn't pull engagement in).
-func (s *NotificationFilterService) resolveEntityURLAndName(entityType string, entityID uint) (url, name string) {
-	pathSegment, tableName, ok := commentEntityPathAndTable(entityType)
+// formatEntityURL builds the (URL, display-name) pair for a comment's
+// parent entity from the pre-loaded per-type map. Falls back to "<type>
+// #<id>" + slug-less URL when the entity row wasn't pre-loaded (deleted
+// since notification minted, or unknown entity_type).
+func (s *NotificationFilterService) formatEntityURL(entityType string, entityID uint, entitiesByTypeID map[string]map[uint]entityNameRow) (url, name string) {
+	pathSegment, _, _, ok := commentEntityPathAndTable(entityType)
 	if !ok {
 		return "", ""
 	}
-	column := "name"
-	if entityType == "show" {
-		column = "title"
-	}
-	var resolvedName string
-	_ = s.db.Table(tableName).Where("id = ?", entityID).Pluck(column, &resolvedName).Error
-	var slug string
-	_ = s.db.Table(tableName).Where("id = ?", entityID).Pluck("slug", &slug).Error
-	if slug != "" {
-		url = fmt.Sprintf("%s/%s/%s", s.frontendURL, pathSegment, slug)
-	} else {
+	byID, hasType := entitiesByTypeID[entityType]
+	row, hasRow := byID[entityID]
+	switch {
+	case hasType && hasRow && row.Slug != "":
+		url = fmt.Sprintf("%s/%s/%s", s.frontendURL, pathSegment, row.Slug)
+	default:
 		url = fmt.Sprintf("%s/%s/%d", s.frontendURL, pathSegment, entityID)
 	}
-	if resolvedName != "" {
-		name = resolvedName
+	if hasRow && row.Name != "" {
+		name = row.Name
 	} else {
 		name = fmt.Sprintf("%s #%d", entityType, entityID)
 	}
 	return url, name
-}
-
-// commentEntityPathAndTable maps a CommentEntityType string to the frontend
-// path segment + DB table name. Keeps the mapping out of the iteration loop
-// so it's a static lookup rather than a switch on every row.
-func commentEntityPathAndTable(entityType string) (path, table string, ok bool) {
-	switch entityType {
-	case "artist":
-		return "artists", "artists", true
-	case "venue":
-		return "venues", "venues", true
-	case "show":
-		return "shows", "shows", true
-	case "release":
-		return "releases", "releases", true
-	case "label":
-		return "labels", "labels", true
-	case "festival":
-		return "festivals", "festivals", true
-	case "collection":
-		return "collections", "collections", true
-	default:
-		return "", "", false
-	}
 }
 
 // GetUnreadCount returns the number of unread notifications for a user.

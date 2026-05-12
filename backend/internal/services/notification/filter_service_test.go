@@ -80,69 +80,43 @@ func TestGenerateFilterUnsubscribeURL(t *testing.T) {
 
 func TestCommentEntityPathAndTable(t *testing.T) {
 	cases := []struct {
-		in        string
-		wantPath  string
-		wantTable string
-		wantOK    bool
+		in         string
+		wantPath   string
+		wantTable  string
+		wantNameCol string
+		wantOK     bool
 	}{
-		{"artist", "artists", "artists", true},
-		{"venue", "venues", "venues", true},
-		{"show", "shows", "shows", true},
-		{"release", "releases", "releases", true},
-		{"label", "labels", "labels", true},
-		{"festival", "festivals", "festivals", true},
-		{"collection", "collections", "collections", true},
-		{"", "", "", false},
-		{"bogus_type", "", "", false},
+		{"artist", "artists", "artists", "name", true},
+		{"venue", "venues", "venues", "name", true},
+		{"show", "shows", "shows", "title", true},
+		{"release", "releases", "releases", "name", true},
+		{"label", "labels", "labels", "name", true},
+		{"festival", "festivals", "festivals", "name", true},
+		{"collection", "collections", "collections", "name", true},
+		{"", "", "", "", false},
+		{"bogus_type", "", "", "", false},
 	}
 	for _, c := range cases {
 		t.Run(c.in, func(t *testing.T) {
-			p, table, ok := commentEntityPathAndTable(c.in)
+			p, table, col, ok := commentEntityPathAndTable(c.in)
 			assert.Equal(t, c.wantOK, ok)
 			assert.Equal(t, c.wantPath, p)
 			assert.Equal(t, c.wantTable, table)
+			assert.Equal(t, c.wantNameCol, col)
 		})
 	}
 }
 
-func TestResolveCommenterDisplay(t *testing.T) {
-	uname := "alice"
-	first := "Alice"
-	last := "Doe"
-
-	// Username present → wins
-	assert.Equal(t, "alice", resolveCommenterDisplay(commentRow{Username: &uname}))
-
-	// No username, first + last
-	assert.Equal(t, "Alice Doe", resolveCommenterDisplay(commentRow{FirstName: &first, LastName: &last}))
-
-	// First only
-	assert.Equal(t, "Alice", resolveCommenterDisplay(commentRow{FirstName: &first}))
-
-	// Email fallback
-	assert.Equal(t, "user", resolveCommenterDisplay(commentRow{Email: "user@example.com"}))
-
-	// All empty → Anonymous
-	assert.Equal(t, "Anonymous", resolveCommenterDisplay(commentRow{}))
-}
-
-func TestBuildPlainExcerpt(t *testing.T) {
-	// Trivial passthrough
-	assert.Equal(t, "hello world", buildPlainExcerpt("hello world", 140))
-
-	// Markdown link → text only
-	assert.Equal(t, "see this", buildPlainExcerpt("see [this](https://example.com)", 140))
-
-	// Truncation
-	long := "abcdefghij abcdefghij abcdefghij abcdefghij"
-	excerpt := buildPlainExcerpt(long, 10)
-	assert.Equal(t, "abcdefghij…", excerpt)
-
-	// Fenced code blocks dropped
-	assert.Equal(t, "before after", buildPlainExcerpt("before\n```\nfn body\n```\nafter", 140))
-
-	// Leading list markers stripped
-	assert.Equal(t, "first item second item", buildPlainExcerpt("- first item\n- second item", 140))
+func TestUniqueCommentIDs(t *testing.T) {
+	entries := []contracts.NotificationLogEntry{
+		{EntityType: "comment_reply", EntityID: 1},
+		{EntityType: "comment_mention", EntityID: 2},
+		{EntityType: "comment_reply", EntityID: 1}, // dup
+		{EntityType: "show", EntityID: 999},        // non-comment
+		{EntityType: "comment_reply", EntityID: 3},
+	}
+	ids := uniqueCommentIDs(entries)
+	assert.ElementsMatch(t, []uint{1, 2, 3}, ids)
 }
 
 func TestBuildFilterEmailHTML(t *testing.T) {

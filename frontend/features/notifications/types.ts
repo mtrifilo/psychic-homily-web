@@ -50,14 +50,18 @@ export interface MarkReadResponse {
 }
 
 /**
- * isCommentNotification returns true for the PSY-595 in-app comment row
- * types. Centralised so the bell + inbox + tests share the same check —
- * adding a new comment-driven entity_type only updates this one helper.
+ * Backend notification_log entity_type values for PSY-595 in-app rows. Must
+ * stay in sync with the engagement.NotificationEntity* constants on the Go
+ * side — both surfaces query / render the same rows.
  */
+export const NOTIFICATION_ENTITY_COMMENT_REPLY = 'comment_reply' as const
+export const NOTIFICATION_ENTITY_COMMENT_MENTION = 'comment_mention' as const
+
+/** isCommentNotification returns true for the PSY-595 comment row types. */
 export function isCommentNotification(entry: NotificationLogEntry): boolean {
   return (
-    entry.entity_type === 'comment_reply' ||
-    entry.entity_type === 'comment_mention'
+    entry.entity_type === NOTIFICATION_ENTITY_COMMENT_REPLY ||
+    entry.entity_type === NOTIFICATION_ENTITY_COMMENT_MENTION
   )
 }
 

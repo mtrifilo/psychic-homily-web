@@ -1,24 +1,10 @@
 'use client'
 
 /**
- * NotificationBell — header bell icon with unread-count badge + popover.
- * Lives in the desktop TopBar between the search input and the user-menu
- * avatar. PSY-595.
- *
- * Behaviour:
- *   - Only renders when the user is authenticated.
- *   - Polls /me/notifications every 60s via useUserNotifications.
- *   - Badge shows unread_count, capped at "9+".
- *   - Clicking the bell opens a Radix popover with the most recent rows.
- *   - The popover marks all unread notifications read when it opens (after
- *     a small delay so the user has a moment to register the count) so
- *     the badge clears.
- *   - Each row navigates to its deep link; the popover closes via the
- *     PopoverPrimitive close-on-outside-click behavior.
- *
- * Mark-read policy: matches the inbox page — view-clears-count. A future
- * ticket could move to "click marks that row" if surfacing "still unread"
- * after popover dismiss proves useful.
+ * Header bell + popover for the in-app notification surface (PSY-595).
+ * Mark-read policy matches /notifications: view-clears-count. Opening the
+ * popover fires mark-all-read after a 500ms delay so the user has time to
+ * register the badge before it clears.
  */
 
 import { useEffect, useState } from 'react'

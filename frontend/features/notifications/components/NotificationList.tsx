@@ -1,31 +1,19 @@
 'use client'
 
 /**
- * NotificationList renders a vertical list of NotificationLogEntry rows.
- * Used by both the header bell popover (`variant="popover"`, compact) and
- * the `/notifications` inbox page (`variant="page"`, roomier). PSY-595.
- *
- * Rendering modes:
- *
- *  - Comment-driven rows (entity_type = comment_reply | comment_mention)
- *    show "<commenter> <verb> on <entity>" + a one-line excerpt, deep-
- *    linked to `comment_url` (anchors to #comment-<id>). The popover row
- *    auto-fires onItemClick on click so the parent can mark-as-read and
- *    close the popover.
- *  - Show-filter rows (entity_type = show, channel = email) show the
- *    filter name + an "Open show" link. Kept lightweight — the original
- *    inbox endpoint already supported these.
- *
- * Mark-read concern is OWNED BY THE PARENT (Bell / inbox page) via
- * onItemClick + the optional `markRead` callback. This component stays
- * presentational so the popover can mark-on-mount while the inbox page
- * can mark-on-click.
+ * Notification rows for both the bell popover (`variant="popover"`) and
+ * the /notifications inbox page (`variant="page"`). Purely presentational
+ * — mark-read is owned by the parent surface via `onItemClick`. PSY-595.
  */
 
 import Link from 'next/link'
 import { MessageCircle, AtSign, Calendar, BellRing, ExternalLink } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { formatTimeAgo } from '../types'
+import {
+  formatTimeAgo,
+  isCommentNotification,
+  NOTIFICATION_ENTITY_COMMENT_MENTION,
+} from '../types'
 import type { NotificationLogEntry } from '../types'
 
 type Variant = 'popover' | 'page'
@@ -78,23 +66,16 @@ interface RowProps {
 }
 
 function NotificationRow({ entry, variant, onItemClick }: RowProps) {
-  const isComment =
-    entry.entity_type === 'comment_reply' ||
-    entry.entity_type === 'comment_mention'
   const unread = entry.read_at == null
-
   const padding = variant === 'popover' ? 'px-3 py-2.5' : 'px-4 py-3'
 
-  // Comment row — either comment_reply or comment_mention
-  if (isComment) {
+  if (isCommentNotification(entry)) {
+    const isMention = entry.entity_type === NOTIFICATION_ENTITY_COMMENT_MENTION
     const href = entry.comment_url ?? '#'
-    const verb =
-      entry.entity_type === 'comment_mention'
-        ? 'mentioned you'
-        : 'replied'
+    const verb = isMention ? 'mentioned you' : 'replied'
     const commenter = entry.commenter_name || 'Someone'
     const entityName = entry.comment_entity_name || 'a conversation'
-    const Icon = entry.entity_type === 'comment_mention' ? AtSign : MessageCircle
+    const Icon = isMention ? AtSign : MessageCircle
     return (
       <li>
         <Link
@@ -109,7 +90,7 @@ function NotificationRow({ entry, variant, onItemClick }: RowProps) {
           <div
             className={cn(
               'mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full',
-              entry.entity_type === 'comment_mention'
+              isMention
                 ? 'bg-primary/15 text-primary'
                 : 'bg-muted text-muted-foreground'
             )}

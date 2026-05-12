@@ -169,10 +169,11 @@ func isWordChar(b byte) bool {
 // Helpers
 // ─────────────────────────────────────────────────────────────
 
-// stripMarkdownToPlain does a best-effort conversion of markdown body to
-// plain text suitable for an email excerpt. This is intentionally simple —
-// we only need "readable preview", not perfect rendering.
-func stripMarkdownToPlain(body string) string {
+// StripMarkdownToPlain does a best-effort conversion of markdown body to
+// plain text suitable for an email or inbox excerpt. Intentionally simple —
+// we only need "readable preview", not perfect rendering. Exported so the
+// notification (in-app inbox) service can share the same excerpt shape.
+func StripMarkdownToPlain(body string) string {
 	// Remove code fences.
 	body = regexp.MustCompile("```[\\s\\S]*?```").ReplaceAllString(body, " ")
 	// Remove inline code.
@@ -186,14 +187,33 @@ func stripMarkdownToPlain(body string) string {
 	return strings.TrimSpace(body)
 }
 
-// buildExcerpt returns a plain-text preview capped at commentExcerptMaxChars.
-func buildExcerpt(body string) string {
-	plain := stripMarkdownToPlain(body)
+// BuildExcerpt returns a plain-text preview of body capped at maxRunes.
+// When maxRunes <= 0 the package default (commentExcerptMaxChars) is used.
+// Exported so the notification service can render bell/inbox excerpts
+// without rolling its own markdown stripper. PSY-595.
+func BuildExcerpt(body string, maxRunes int) string {
+	if maxRunes <= 0 {
+		maxRunes = commentExcerptMaxChars
+	}
+	plain := StripMarkdownToPlain(body)
 	runes := []rune(plain)
-	if len(runes) <= commentExcerptMaxChars {
+	if len(runes) <= maxRunes {
 		return plain
 	}
-	return string(runes[:commentExcerptMaxChars]) + "…"
+	return string(runes[:maxRunes]) + "…"
+}
+
+// buildExcerpt is the legacy in-package call site; defers to BuildExcerpt
+// at the package default length so the email path stays unchanged.
+func buildExcerpt(body string) string {
+	return BuildExcerpt(body, commentExcerptMaxChars)
+}
+
+// stripMarkdownToPlain is a private alias kept so the existing
+// comment_notification_test.go can keep asserting on the package-local
+// helper without becoming sensitive to the export.
+func stripMarkdownToPlain(body string) string {
+	return StripMarkdownToPlain(body)
 }
 
 // buildEntityURL returns the frontend URL for the parent entity, or a

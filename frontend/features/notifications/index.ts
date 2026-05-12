@@ -14,6 +14,8 @@ export type {
 
 export {
   NOTIFY_ENTITY_TYPES,
+  NOTIFICATION_ENTITY_COMMENT_REPLY,
+  NOTIFICATION_ENTITY_COMMENT_MENTION,
   formatTimeAgo,
   getFilterSummary,
   isCommentNotification,
