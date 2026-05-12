@@ -194,10 +194,9 @@ wait_for_url "$STACK_BACKEND_URL/health" 90
 # PSY-633: write .env BEFORE the frontend health check. If the wait times out
 # (set -e exits the script), stack-down.sh still reads STACK_MODE=isolated +
 # STACK_COMPOSE_PROJECT and runs `docker compose down -v` to reap postgres.
-# All values below are known at this point: ports were allocated upfront and
-# the backend just passed its health check. Frontend URL + port reflect the
-# port we already bound (or will attempt to bind) — they're stable even if
-# the dev server never reaches `wait_for_url`.
+# All values are stable at this point: ports were allocated upfront and the
+# backend just passed its health check — the frontend port is identifier
+# only, the dev server doesn't need to come up for stack-down to use it.
 cat > "$STACK_DIR/.env" <<EOF
 STACK_MODE=isolated
 STACK_WORKTREE_ID=$WORKTREE_ID
