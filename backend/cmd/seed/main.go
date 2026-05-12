@@ -312,7 +312,10 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 			return fmt.Errorf("failed to create show: %v", err)
 		}
 
-		// Associate venues
+		// Associate venues. Track the lowest venue.ID for the
+		// denormalized show_artists.venue_id below — matches the
+		// 20260512023704 backfill migration's LATERAL tiebreaker (PSY-576).
+		var primaryVenueID *uint
 		for _, venueSlug := range showData.Venues {
 			var venue catalogm.Venue
 			// Try to find venue by name (normalized)
@@ -337,9 +340,15 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 			if err := tx.Create(&showVenue).Error; err != nil {
 				return fmt.Errorf("failed to create show-venue association: %v", err)
 			}
+
+			if primaryVenueID == nil || venue.ID < *primaryVenueID {
+				vid := venue.ID
+				primaryVenueID = &vid
+			}
 		}
 
 		// Associate artists in order
+		showEventDate := show.EventDate
 		for position, artistSlug := range showData.Bands {
 			var artist catalogm.Artist
 			// Try to find artist by name (normalized)
@@ -362,12 +371,17 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 				setType = "headliner"
 			}
 
-			// Create show-artist association with position
+			// Create show-artist association with position. EventDate +
+			// VenueID denormalize the show dedup key so the partial unique
+			// index `shows_artist_venue_eventdate_uniq` covers seeded rows
+			// (PSY-576).
 			showArtist := catalogm.ShowArtist{
-				ShowID:   show.ID,
-				ArtistID: artist.ID,
-				Position: position,
-				SetType:  setType,
+				ShowID:    show.ID,
+				ArtistID:  artist.ID,
+				Position:  position,
+				SetType:   setType,
+				EventDate: &showEventDate,
+				VenueID:   primaryVenueID,
 			}
 			if err := tx.Create(&showArtist).Error; err != nil {
 				return fmt.Errorf("failed to create show-artist association: %v", err)

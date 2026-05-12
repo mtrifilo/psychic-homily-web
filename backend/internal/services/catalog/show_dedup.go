@@ -208,6 +208,15 @@ func MergeDuplicateShow(tx *gorm.DB, winnerID, loserID uint, summary *ShowDedupS
 	summary.ShowArtistsMoved += moved
 	summary.ShowArtistsSkipped += skipped
 
+	// Re-stamp denormalized (event_date, venue_id) on the winner's
+	// show_artists rows after the merge. Moved rows carried the loser's
+	// denorm; the winner may have an extra venue or a different primary
+	// venue, so refresh from the canonical sources to keep the partial
+	// unique index `shows_artist_venue_eventdate_uniq` aligned (PSY-576).
+	if err := syncShowArtistDedupColumns(tx, winnerID); err != nil {
+		return fmt.Errorf("show_artists dedup-column resync: %w", err)
+	}
+
 	// Plain FK repoints — no unique constraint to worry about.
 	for _, op := range []struct {
 		name string

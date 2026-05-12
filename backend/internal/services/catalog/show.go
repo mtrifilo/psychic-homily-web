@@ -97,6 +97,13 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			return fmt.Errorf("failed to associate artists: %w", err)
 		}
 
+		// Stamp the denormalized (event_date, venue_id) columns on the
+		// just-created show_artists rows so the partial unique index
+		// `shows_artist_venue_eventdate_uniq` covers them (PSY-576).
+		if err := syncShowArtistDedupColumns(tx, show.ID); err != nil {
+			return fmt.Errorf("failed to sync show_artists dedup columns: %w", err)
+		}
+
 		// Generate slug after artists and venues are associated
 		headlinerName := "unknown"
 		venueName := "unknown"
@@ -382,9 +389,23 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 		updates["event_date"] = eventDate.UTC()
 	}
 
-	err := s.db.Model(&catalogm.Show{}).Where("id = ?", showID).Updates(updates).Error
+	_, eventDateChanged := updates["event_date"]
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&catalogm.Show{}).Where("id = ?", showID).Updates(updates).Error; err != nil {
+			return fmt.Errorf("failed to update show: %w", err)
+		}
+		// If the event_date moved, cascade onto the denormalized
+		// show_artists.event_date so the partial unique index stays in
+		// sync (PSY-576).
+		if eventDateChanged {
+			if err := syncShowArtistDedupColumns(tx, showID); err != nil {
+				return fmt.Errorf("failed to sync show_artists dedup columns: %w", err)
+			}
+		}
+		return nil
+	})
 	if err != nil {
-		return nil, fmt.Errorf("failed to update show: %w", err)
+		return nil, err
 	}
 
 	return s.GetShow(showID)
@@ -510,6 +531,18 @@ func (s *ShowService) UpdateShowWithRelations(
 			}
 		}
 
+		// Re-stamp denormalized (event_date, venue_id) on show_artists
+		// whenever the show's event_date, venue set, or artist set may
+		// have changed. Idempotent — safe to call when nothing changed.
+		// Keeps the partial unique index `shows_artist_venue_eventdate_uniq`
+		// in sync with the parent rows (PSY-576).
+		_, eventDateChanged := updates["event_date"]
+		if venues != nil || artists != nil || eventDateChanged {
+			if err := syncShowArtistDedupColumns(tx, showID); err != nil {
+				return fmt.Errorf("failed to sync show_artists dedup columns: %w", err)
+			}
+		}
+
 		// Build response - need to fetch associations if not updated
 		if venues == nil {
 			// Fetch existing venues in batch
@@ -627,6 +660,42 @@ func (s *ShowService) UpdateShowWithRelations(
 	}
 
 	return response, orphanedArtists, nil
+}
+
+// syncShowArtistDedupColumns stamps the denormalized event_date + venue_id
+// on every show_artists row for a show so the partial unique index
+// `shows_artist_venue_eventdate_uniq` covers them. Mirrors the
+// 20260512023704 backfill migration: picks the lowest venue_id when a
+// show has multiple show_venues rows (deterministic, matches the
+// migration's LATERAL subquery tiebreaker). Idempotent — safe to call
+// after Create as well as after any Update that touches the show's
+// event_date or venue associations.
+//
+// The partial unique index is on (artist_id, venue_id, event_date)
+// WHERE event_date IS NOT NULL AND venue_id IS NOT NULL, so a row left
+// with NULL denorm columns inserts but is not covered by the
+// constraint. The application advisory-lock pre-check in
+// checkDuplicateHeadlinerConflicts continues to provide a user-friendly
+// duplicate error before the index ever fires (PSY-576).
+//
+// Package-level so the show-dedup merge path (show_dedup.go) can call
+// it too after re-pointing show_artists rows between merged shows.
+func syncShowArtistDedupColumns(tx *gorm.DB, showID uint) error {
+	return tx.Exec(`
+		UPDATE show_artists sa
+		SET event_date = s.event_date,
+		    venue_id   = pv.venue_id
+		FROM shows s
+		JOIN LATERAL (
+		    SELECT venue_id
+		    FROM show_venues
+		    WHERE show_id = s.id
+		    ORDER BY venue_id
+		    LIMIT 1
+		) pv ON TRUE
+		WHERE sa.show_id = s.id
+		  AND s.id = ?
+	`, showID).Error
 }
 
 // encodeCursor creates a cursor from event_date and show ID

@@ -92,12 +92,22 @@ func (Show) TableName() string {
 	return "shows"
 }
 
-// ShowArtist represents the junction table with ordering information
+// ShowArtist represents the junction table with ordering information.
+//
+// EventDate + VenueID are denormalized from the parent show + show_venues
+// rows so a partial unique index can structurally enforce the
+// (artist_id, venue_id, event_date) show dedup key (PSY-576). Both
+// columns are nullable to keep the bulk-insert path graceful — the
+// partial unique index excludes NULL, so an unpopulated row inserts but
+// is not covered by the constraint. ShowService.CreateShow and
+// UpdateShow populate and cascade-update these.
 type ShowArtist struct {
-	ShowID   uint   `gorm:"primaryKey;column:show_id"`
-	ArtistID uint   `gorm:"primaryKey;column:artist_id"`
-	Position int    `gorm:"not null;default:0"`
-	SetType  string `gorm:"default:performer"`
+	ShowID    uint       `gorm:"primaryKey;column:show_id"`
+	ArtistID  uint       `gorm:"primaryKey;column:artist_id"`
+	Position  int        `gorm:"not null;default:0"`
+	SetType   string     `gorm:"default:performer"`
+	EventDate *time.Time `gorm:"column:event_date"`
+	VenueID   *uint      `gorm:"column:venue_id"`
 }
 
 // TableName specifies the table name for ShowArtist
