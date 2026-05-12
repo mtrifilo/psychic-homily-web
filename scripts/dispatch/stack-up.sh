@@ -109,9 +109,10 @@ if [ "$MODE" = "shared" ]; then
     echo $! > "$STACK_DIR/frontend.pid"
     disown 2>/dev/null || true
 
-    log "Waiting for frontend at http://localhost:$FRONTEND_PORT..."
-    wait_for_url "http://localhost:$FRONTEND_PORT" 60
-
+    # PSY-633: write .env BEFORE the frontend health check. If the wait times
+    # out (set -e exits the script), stack-down.sh still has the identifiers
+    # it needs to clean up. Shared mode doesn't run docker compose, but the
+    # PID files plus a present .env keep cleanup paths consistent.
     cat > "$STACK_DIR/.env" <<EOF
 STACK_MODE=shared
 STACK_WORKTREE_ID=$WORKTREE_ID
@@ -120,6 +121,10 @@ STACK_FRONTEND_PORT=$FRONTEND_PORT
 STACK_FRONTEND_URL=http://localhost:$FRONTEND_PORT
 BACKEND_URL=http://localhost:8080
 EOF
+
+    log "Waiting for frontend at http://localhost:$FRONTEND_PORT..."
+    wait_for_url "http://localhost:$FRONTEND_PORT" 60
+
     cat "$STACK_DIR/.env"
     log "Stack up (mode=shared): http://localhost:$FRONTEND_PORT -> http://localhost:8080"
     exit 0
@@ -186,6 +191,27 @@ disown 2>/dev/null || true
 log "Waiting for backend at $STACK_BACKEND_URL/health..."
 wait_for_url "$STACK_BACKEND_URL/health" 90
 
+# PSY-633: write .env BEFORE the frontend health check. If the wait times out
+# (set -e exits the script), stack-down.sh still reads STACK_MODE=isolated +
+# STACK_COMPOSE_PROJECT and runs `docker compose down -v` to reap postgres.
+# All values below are known at this point: ports were allocated upfront and
+# the backend just passed its health check. Frontend URL + port reflect the
+# port we already bound (or will attempt to bind) — they're stable even if
+# the dev server never reaches `wait_for_url`.
+cat > "$STACK_DIR/.env" <<EOF
+STACK_MODE=isolated
+STACK_WORKTREE_ID=$WORKTREE_ID
+STACK_COMPOSE_PROJECT=$COMPOSE_PROJECT
+STACK_POSTGRES_URL=$STACK_POSTGRES_URL
+STACK_POSTGRES_PORT=$POSTGRES_PORT
+STACK_BACKEND_URL=$STACK_BACKEND_URL
+STACK_BACKEND_PORT=$BACKEND_PORT
+STACK_FRONTEND_URL=$STACK_FRONTEND_URL
+STACK_FRONTEND_PORT=$FRONTEND_PORT
+BACKEND_URL=$STACK_BACKEND_URL
+NEXT_PUBLIC_API_URL=$STACK_FRONTEND_URL/api
+EOF
+
 log "Starting frontend on :$FRONTEND_PORT..."
 cd "$WORKTREE_PATH/frontend"
 # See the file header for the routing convention. NEXT_PUBLIC_API_URL points
@@ -203,18 +229,5 @@ disown 2>/dev/null || true
 log "Waiting for frontend at $STACK_FRONTEND_URL..."
 wait_for_url "$STACK_FRONTEND_URL" 60
 
-cat > "$STACK_DIR/.env" <<EOF
-STACK_MODE=isolated
-STACK_WORKTREE_ID=$WORKTREE_ID
-STACK_COMPOSE_PROJECT=$COMPOSE_PROJECT
-STACK_POSTGRES_URL=$STACK_POSTGRES_URL
-STACK_POSTGRES_PORT=$POSTGRES_PORT
-STACK_BACKEND_URL=$STACK_BACKEND_URL
-STACK_BACKEND_PORT=$BACKEND_PORT
-STACK_FRONTEND_URL=$STACK_FRONTEND_URL
-STACK_FRONTEND_PORT=$FRONTEND_PORT
-BACKEND_URL=$STACK_BACKEND_URL
-NEXT_PUBLIC_API_URL=$STACK_FRONTEND_URL/api
-EOF
 cat "$STACK_DIR/.env"
 log "Stack up (mode=isolated): $STACK_FRONTEND_URL -> $STACK_BACKEND_URL -> postgres :$POSTGRES_PORT"
