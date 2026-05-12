@@ -1004,6 +1004,176 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_NoHeadliner_SameFir
 }
 
 // =============================================================================
+// Group 4b: Denormalised dedup columns + partial unique index (PSY-576)
+// =============================================================================
+
+// TestCreateShow_PopulatesShowArtistDedupColumns verifies that
+// CreateShow stamps the denormalized (event_date, venue_id) columns on
+// every show_artists row it inserts so the partial unique index
+// `shows_artist_venue_eventdate_uniq` covers the new rows.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_PopulatesShowArtistDedupColumns() {
+	user := suite.createTestUser()
+	eventDate := time.Date(2027, 1, 15, 21, 0, 0, 0, time.UTC)
+
+	req := &contracts.CreateShowRequest{
+		Title:     "Denorm Cols Show",
+		EventDate: eventDate,
+		City:      "Phoenix",
+		State:     "AZ",
+		Venues:    []contracts.CreateShowVenue{{Name: "Denorm Venue", City: "Phoenix", State: "AZ"}},
+		Artists: []contracts.CreateShowArtist{
+			{Name: "Denorm Headliner", IsHeadliner: boolPtr(true)},
+			{Name: "Denorm Opener", IsHeadliner: boolPtr(false)},
+		},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	resp, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Venues, 1)
+
+	expectedVenueID := resp.Venues[0].ID
+
+	var rows []catalogm.ShowArtist
+	err = suite.db.Where("show_id = ?", resp.ID).Order("position ASC").Find(&rows).Error
+	suite.Require().NoError(err)
+	suite.Require().Len(rows, 2, "expected 2 show_artists rows")
+
+	for _, row := range rows {
+		suite.Require().NotNilf(row.EventDate, "show_artists row %d should have event_date populated", row.ArtistID)
+		suite.Require().NotNilf(row.VenueID, "show_artists row %d should have venue_id populated", row.ArtistID)
+		suite.True(row.EventDate.UTC().Equal(eventDate.UTC()),
+			"event_date should match show.event_date (got %v, want %v)", row.EventDate.UTC(), eventDate.UTC())
+		suite.Equal(expectedVenueID, *row.VenueID, "venue_id should match the show's primary venue")
+	}
+}
+
+// TestUpdateShow_CascadesEventDateToShowArtists verifies that updating
+// shows.event_date cascades through to show_artists.event_date so the
+// partial unique index stays aligned with the canonical truth.
+func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_CascadesEventDateToShowArtists() {
+	user := suite.createTestUser()
+	originalDate := time.Date(2027, 2, 1, 20, 0, 0, 0, time.UTC)
+	newDate := time.Date(2027, 2, 8, 20, 0, 0, 0, time.UTC)
+
+	req := &contracts.CreateShowRequest{
+		Title:             "Cascade Date Show",
+		EventDate:         originalDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Cascade Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Cascade Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	resp, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	_, err = suite.showService.UpdateShow(resp.ID, map[string]interface{}{
+		"event_date": newDate,
+	})
+	suite.Require().NoError(err)
+
+	var row catalogm.ShowArtist
+	err = suite.db.Where("show_id = ?", resp.ID).First(&row).Error
+	suite.Require().NoError(err)
+	suite.Require().NotNil(row.EventDate)
+	suite.True(row.EventDate.UTC().Equal(newDate.UTC()),
+		"show_artists.event_date should follow shows.event_date after UpdateShow (got %v, want %v)",
+		row.EventDate.UTC(), newDate.UTC())
+}
+
+// TestCreateShow_DuplicateHeadliner_SurfacesAsCleanError verifies that
+// the second of two identical-dedup-key shows is rejected with the
+// human-readable "already performing" error (from the advisory-lock
+// pre-check) rather than a raw Postgres unique-violation. The new
+// partial index is a backstop, but users should never see the raw DB
+// error string.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateDedupKey_SurfacesAsCleanError() {
+	user := suite.createTestUser()
+	eventDate := time.Date(2027, 3, 1, 20, 0, 0, 0, time.UTC)
+
+	req := &contracts.CreateShowRequest{
+		Title:             "Clean Error 1",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Clean Error Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Clean Error Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+
+	req2 := &contracts.CreateShowRequest{
+		Title:             "Clean Error 2",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Clean Error Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Clean Error Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	_, err = suite.showService.CreateShow(req2)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "already performing",
+		"duplicate insert should be caught by the advisory-lock pre-check, not the partial unique index (raw pg error)")
+	suite.NotContains(strings.ToLower(err.Error()), "duplicate key",
+		"user-facing error should not leak the raw Postgres unique-violation string")
+}
+
+// TestCreateShow_DirectInsertHitsPartialUniqueIndex verifies the
+// partial unique index `shows_artist_venue_eventdate_uniq` actually
+// fires when the application-layer pre-check is bypassed (e.g. a bulk
+// import script writing directly to show_artists). This is the
+// structural backstop the ticket adds.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DirectInsertHitsPartialUniqueIndex() {
+	user := suite.createTestUser()
+	eventDate := time.Date(2027, 4, 1, 20, 0, 0, 0, time.UTC)
+
+	req := &contracts.CreateShowRequest{
+		Title:             "Index Backstop Show",
+		EventDate:         eventDate,
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Index Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Index Artist", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	resp, err := suite.showService.CreateShow(req)
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Venues, 1)
+	suite.Require().Len(resp.Artists, 1)
+
+	// Create a sibling show (different show ID, same dedup key) so we
+	// have a second row to attempt the conflicting insert from.
+	siblingShow := &catalogm.Show{
+		Title:     "Index Backstop Sibling",
+		EventDate: eventDate.UTC(),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	err = suite.db.Create(siblingShow).Error
+	suite.Require().NoError(err)
+
+	venueID := resp.Venues[0].ID
+	artistID := resp.Artists[0].ID
+	conflicting := catalogm.ShowArtist{
+		ShowID:    siblingShow.ID,
+		ArtistID:  artistID,
+		Position:  0,
+		SetType:   "headliner",
+		EventDate: &eventDate,
+		VenueID:   &venueID,
+	}
+	err = suite.db.Create(&conflicting).Error
+	suite.Require().Error(err, "direct insert with duplicate (artist_id, venue_id, event_date) should be blocked by the partial unique index")
+}
+
+// =============================================================================
 // Group 5: Listing & Filtering
 // =============================================================================
 
