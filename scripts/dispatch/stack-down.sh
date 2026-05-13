@@ -23,24 +23,33 @@ if [ ! -d "$STACK_DIR" ]; then
   exit 0
 fi
 
-# Read mode from .env if available (best-effort).
+# Read mode + ports from .env if available (best-effort).
 STACK_MODE=""
+STACK_BACKEND_PORT=""
+STACK_FRONTEND_PORT=""
 if [ -f "$STACK_DIR/.env" ]; then
   STACK_MODE="$(grep '^STACK_MODE=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- || true)"
+  STACK_BACKEND_PORT="$(grep '^STACK_BACKEND_PORT=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- || true)"
+  STACK_FRONTEND_PORT="$(grep '^STACK_FRONTEND_PORT=' "$STACK_DIR/.env" 2>/dev/null | cut -d= -f2- || true)"
 fi
 log "Mode: ${STACK_MODE:-unknown}"
 
 # Kill native processes by PID file.
+#
+# PSY-635: the backend.pid points at `go run ./cmd/server`, which spawns a
+# compiled `server` child. Killing the parent leaves the child reparented to
+# init and still listening on the backend port. `nohup` does NOT make the
+# parent a session leader, so the historical `kill -- -PID` (negative PID to
+# signal the whole process group) misses the child. We do the PID kill first
+# (terminates the go-run wrapper so it can't respawn), then below sweep the
+# stack's allocated ports for any survivor — defensive against this exact
+# parent/child split, plus any equivalent shape from bun's frontend tree.
 for pidfile in "$STACK_DIR/backend.pid" "$STACK_DIR/frontend.pid"; do
   if [ -f "$pidfile" ]; then
     pid="$(cat "$pidfile" 2>/dev/null || true)"
     proc="$(basename "$pidfile" .pid)"
     if [ -n "$pid" ] && kill -0 "$pid" 2>/dev/null; then
       log "Killing $proc (PID $pid)..."
-      # SIGTERM to the process group so go run / bun run children also exit.
-      # Negative PID = signal to process group leader's group (requires the
-      # process to have been a session leader, which `nohup` doesn't guarantee
-      # but is best-effort).
       kill -- -"$pid" 2>/dev/null || kill "$pid" 2>/dev/null || true
       sleep 1
       if kill -0 "$pid" 2>/dev/null; then
@@ -51,6 +60,28 @@ for pidfile in "$STACK_DIR/backend.pid" "$STACK_DIR/frontend.pid"; do
     rm -f "$pidfile"
   fi
 done
+
+# PSY-635: reap port-bound survivors (e.g. the `server` child of `go run`).
+# Ports were allocated free per-worktree, so anything still listening on
+# STACK_BACKEND_PORT / STACK_FRONTEND_PORT after the PID kill is ours.
+reap_port() {
+  local label="$1" port="$2"
+  [ -z "$port" ] && return 0
+  command -v lsof >/dev/null 2>&1 || { log "lsof not found; skipping port sweep for $label."; return 0; }
+  local survivors
+  survivors="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  [ -z "$survivors" ] && return 0
+  log "Reaping $label survivors on :$port (PIDs: $(echo "$survivors" | tr '\n' ' '))..."
+  echo "$survivors" | xargs kill 2>/dev/null || true
+  sleep 1
+  survivors="$(lsof -ti tcp:"$port" 2>/dev/null || true)"
+  [ -z "$survivors" ] && return 0
+  log "  still alive on :$port, sending SIGKILL (PIDs: $(echo "$survivors" | tr '\n' ' '))"
+  echo "$survivors" | xargs kill -9 2>/dev/null || true
+}
+
+reap_port backend "$STACK_BACKEND_PORT"
+reap_port frontend "$STACK_FRONTEND_PORT"
 
 # Tear down docker compose project if isolated.
 if [ "$STACK_MODE" = "isolated" ]; then
