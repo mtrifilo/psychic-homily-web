@@ -27,7 +27,17 @@ case "${1:-}" in
 esac
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+# Resolve to the MAIN repo root, even when this script lives inside a linked
+# worktree (e.g. .claude/worktrees/agent-XXX/scripts/dispatch). `git rev-parse
+# --git-common-dir` returns the main repo's `.git` from any linked worktree;
+# its parent is the main repo root. Falls back to SCRIPT_DIR/../.. if git is
+# unavailable or the script lives outside any repo.
+GIT_COMMON_DIR="$(git -C "$SCRIPT_DIR" rev-parse --git-common-dir 2>/dev/null || true)"
+if [ -n "$GIT_COMMON_DIR" ] && [ -d "$GIT_COMMON_DIR" ]; then
+  REPO_ROOT="$(cd "$GIT_COMMON_DIR/.." && pwd)"
+else
+  REPO_ROOT="$(cd "$SCRIPT_DIR/../.." && pwd)"
+fi
 
 log() { echo "[stack-cleanup] $*"; }
 DO() {
