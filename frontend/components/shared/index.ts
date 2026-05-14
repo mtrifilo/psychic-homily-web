@@ -32,3 +32,9 @@ export { BracketLink } from './BracketLink'
 export type { BracketLinkProps } from './BracketLink'
 export { SectionHeader } from './SectionHeader'
 export type { SectionHeaderProps } from './SectionHeader'
+export { DenseTable, DenseTableGroupHeader } from './DenseTable'
+export type {
+  DenseTableProps,
+  DenseTableVariant,
+  DenseTableGroupHeaderProps,
+} from './DenseTable'
