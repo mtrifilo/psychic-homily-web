@@ -28,3 +28,7 @@ export type {
 } from './EntityCardTitle'
 export { StatusBanner } from './StatusBanner'
 export type { StatusBannerProps, StatusBannerVariant } from './StatusBanner'
+export { BracketLink } from './BracketLink'
+export type { BracketLinkProps } from './BracketLink'
+export { SectionHeader } from './SectionHeader'
+export type { SectionHeaderProps } from './SectionHeader'
