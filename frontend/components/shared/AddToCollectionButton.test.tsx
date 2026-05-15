@@ -376,3 +376,43 @@ describe('AddToCollectionButton', () => {
     errorSpy.mockRestore()
   })
 })
+
+describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAuthContext.mockReturnValue({
+      user: { id: '1' },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+  })
+
+  it('renders [Add to collection] as a bracket link in bracket variant', () => {
+    render(
+      <AddToCollectionButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="bracket"
+      />
+    )
+    const trigger = screen.getByRole('button', { name: /add to collection/i })
+    expect(trigger).toBeInTheDocument()
+    expect(trigger).toHaveTextContent('[Add to collection]')
+  })
+
+  it('bracket trigger opens the collections popover when clicked', async () => {
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="bracket"
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+    expect(await screen.findByText('My Favorites')).toBeInTheDocument()
+  })
+})

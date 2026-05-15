@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Library, Check, Plus, Loader2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BracketLink } from './BracketLink'
 import { Checkbox } from '@/components/ui/checkbox'
 import {
   Popover,
@@ -22,7 +23,12 @@ interface AddToCollectionButtonProps {
   entityType: CollectionEntityType
   entityId: number
   entityName: string
-  variant?: 'default' | 'ghost' | 'outline'
+  /**
+   * Trigger style. `default`/`ghost`/`outline` render a shadcn Button.
+   * `bracket` renders a `<BracketLink>` for dense entity-page header
+   * linkboxes (PSY-641) — `[Add to collection]`.
+   */
+  variant?: 'default' | 'ghost' | 'outline' | 'bracket'
   size?: 'sm' | 'default' | 'icon'
 }
 
@@ -176,16 +182,24 @@ export function AddToCollectionButton({
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button
-          variant={variant}
-          size={size}
-          className={size === 'icon' ? 'h-8 w-8 p-0' : ''}
-          title={`Add "${entityName}" to a collection`}
-          aria-label="Add to Collection"
-        >
-          <Library className="h-4 w-4" />
-          {size !== 'icon' && <span className="ml-1.5">Collect</span>}
-        </Button>
+        {variant === 'bracket' ? (
+          <BracketLink
+            label="Add to collection"
+            title={`Add "${entityName}" to a collection`}
+            aria-label="Add to Collection"
+          />
+        ) : (
+          <Button
+            variant={variant}
+            size={size}
+            className={size === 'icon' ? 'h-8 w-8 p-0' : ''}
+            title={`Add "${entityName}" to a collection`}
+            aria-label="Add to Collection"
+          >
+            <Library className="h-4 w-4" />
+            {size !== 'icon' && <span className="ml-1.5">Collect</span>}
+          </Button>
+        )}
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="end">
         <div className="p-3 border-b border-border">

@@ -11,14 +11,12 @@ import {
   X,
   Check,
   AlertCircle,
-  Edit2,
   Disc3,
-  Tag,
-  Flag,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '../hooks/useArtists'
-import { getArtistLocation } from '../types'
+import { getArtistLocation, hasAnySocialLink } from '../types'
+import type { Artist } from '../types'
 import { useArtistReleases } from '@/features/releases/hooks/useReleases'
 import { useArtistAliases } from '@/lib/hooks/admin/useAdminArtists'
 import { useArtistLabels, useLabelRoster } from '@/features/labels/hooks/useLabels'
@@ -33,10 +31,21 @@ import {
   useArtistUpdate,
   type MusicPlatform,
 } from '@/lib/hooks/admin/useAdminArtists'
-import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityHeader, RevisionHistory, FollowButton, EntityDescription, AddToCollectionButton } from '@/components/shared'
+import {
+  SocialLinks,
+  MusicEmbed,
+  EntityDetailLayout,
+  EntityHeader,
+  RevisionHistory,
+  FollowButton,
+  EntityDescription,
+  AddToCollectionButton,
+  BracketLink,
+  SectionHeader,
+  StatsList,
+} from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
-import { ArtistEditForm } from '@/components/forms/ArtistEditForm'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
@@ -48,7 +57,6 @@ import { BillComposition } from './BillComposition'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { getReleaseTypeLabel } from '@/features/releases/types'
 import type { ArtistReleaseListItem } from '@/features/releases/types'
@@ -170,62 +178,6 @@ function DiscographyTab({ artistIdOrSlug }: { artistIdOrSlug: string | number })
   )
 }
 
-// --- Labels Tab ---
-
-function LabelsTab({ artistIdOrSlug }: { artistIdOrSlug: string | number }) {
-  const { data, isLoading, error } = useArtistLabels({ artistIdOrSlug })
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="py-8 text-center text-sm text-destructive">
-        Failed to load labels
-      </div>
-    )
-  }
-
-  if (!data?.labels || data.labels.length === 0) {
-    return (
-      <div className="py-8 text-center text-sm text-muted-foreground">
-        No label affiliations yet
-      </div>
-    )
-  }
-
-  return (
-    <div className="space-y-3">
-      {data.labels.map(label => (
-        <Link
-          key={label.id}
-          href={`/labels/${label.slug}`}
-          className="flex items-center gap-3 p-3 rounded-md border border-border/50 hover:bg-muted/50 transition-colors group"
-        >
-          <div className="w-10 h-10 bg-muted rounded flex-shrink-0 flex items-center justify-center">
-            <Tag className="h-5 w-5 text-muted-foreground" />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium group-hover:text-foreground">
-              {label.name}
-            </p>
-            {(label.city || label.state) && (
-              <p className="text-xs text-muted-foreground">
-                {[label.city, label.state].filter(Boolean).join(', ')}
-              </p>
-            )}
-          </div>
-        </Link>
-      ))}
-    </div>
-  )
-}
-
 // --- Also on this label sidebar section ---
 
 function AlsoOnThisLabel({
@@ -301,54 +253,70 @@ function ArtistSidebar({
   artist,
   labels,
   labelsLoading,
+  isAuthenticated,
 }: {
-  artist: {
-    id: number
-    name: string
-    slug: string
-    city: string | null
-    state: string | null
-    country?: string | null
-    bandcamp_embed_url: string | null
-    social: {
-      instagram: string | null
-      facebook: string | null
-      twitter: string | null
-      youtube: string | null
-      spotify: string | null
-      soundcloud: string | null
-      bandcamp: string | null
-      website: string | null
-    }
-  }
+  artist: Artist
   labels: ArtistLabel[]
   labelsLoading: boolean
+  isAuthenticated: boolean
 }) {
-  const hasLocation = artist.city || artist.state || artist.country
   const { data: aliasesData } = useArtistAliases(artist.id)
   const aliases = aliasesData?.aliases ?? []
 
+  const statsItems = artist.stats
+    ? [
+        { label: 'Releases', value: artist.stats.releases },
+        { label: 'Labels', value: artist.stats.labels },
+        { label: 'Shows tracked', value: artist.stats.shows_tracked },
+        { label: 'Similar artists', value: artist.stats.similar_artists },
+        {
+          label: 'Festival appearances',
+          value: artist.stats.festival_appearances,
+        },
+      ]
+    : []
+
+  const hasSocialLinks = !!artist.social && hasAnySocialLink(artist.social)
+  const hasMusicLink = Boolean(
+    artist.social?.spotify ||
+      artist.bandcamp_embed_url ||
+      artist.social?.bandcamp
+  )
+
   return (
     <div className="space-y-6">
-      {/* Location */}
-      {hasLocation && (
-        <div>
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Location
-          </h3>
-          <div className="flex items-center gap-1.5 text-sm">
-            <MapPin className="h-4 w-4 text-muted-foreground" />
-            <span>{getArtistLocation(artist)}</span>
-          </div>
-        </div>
+      {/* Photo */}
+      {artist.image_url && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={artist.image_url}
+          alt={artist.name}
+          className="w-full rounded-md border border-border/50"
+        />
       )}
+
+      {/* Statistics */}
+      {statsItems.length > 0 && (
+        <section>
+          <SectionHeader title="Statistics" />
+          <StatsList items={statsItems} />
+        </section>
+      )}
+
+      {/* Tags — EntityTagList renders its own header + empty state. Not
+          wrapped in SectionHeader (it owns its header); its "No tags yet"
+          empty state is left for PSY-643 (empty-state audit), since fixing
+          it means touching a component shared by 4 other entity pages. */}
+      <EntityTagList
+        entityType="artist"
+        entityId={artist.id}
+        isAuthenticated={isAuthenticated}
+      />
 
       {/* Aliases */}
       {aliases.length > 0 && (
-        <div>
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Also known as
-          </h3>
+        <section>
+          <SectionHeader title="Also known as" />
           <div className="space-y-1">
             {aliases.map(alias => (
               <p key={alias.id} className="text-sm text-muted-foreground">
@@ -356,25 +324,13 @@ function ArtistSidebar({
               </p>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Social Links */}
-      {artist.social && (
-        <div>
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Links
-          </h3>
-          <SocialLinks social={artist.social} />
-        </div>
-      )}
-
-      {/* Label Affiliations */}
+      {/* Labels (inline list) */}
       {!labelsLoading && labels.length > 0 && (
-        <div>
-          <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Labels
-          </h3>
+        <section>
+          <SectionHeader title="Labels" />
           <div className="space-y-1">
             {labels.map(label => (
               <Link
@@ -386,29 +342,40 @@ function ArtistSidebar({
               </Link>
             ))}
           </div>
-        </div>
+        </section>
       )}
 
-      {/* Festival Trajectory */}
-      <ArtistTrajectoryChart artistIdOrSlug={artist.id} />
+      {/* Links */}
+      {hasSocialLinks && (
+        <section>
+          <SectionHeader title="Links" />
+          <SocialLinks social={artist.social} />
+        </section>
+      )}
 
-      {/* Music Embed */}
-      <MusicEmbed
-        bandcampAlbumUrl={artist.bandcamp_embed_url}
-        bandcampProfileUrl={artist.social?.bandcamp}
-        spotifyUrl={artist.social?.spotify}
-        artistName={artist.name}
-      />
+      {/* Top tracks — compact embed, rendered only when a music link exists */}
+      {hasMusicLink && (
+        <section>
+          <SectionHeader title="Top tracks" />
+          <MusicEmbed
+            bandcampAlbumUrl={artist.bandcamp_embed_url}
+            bandcampProfileUrl={artist.social?.bandcamp}
+            spotifyUrl={artist.social?.spotify}
+            artistName={artist.name}
+            compact
+          />
+        </section>
+      )}
 
       {/* Also on this label */}
       {!labelsLoading && labels.length > 0 && (
         <AlsoOnThisLabel labels={labels} currentArtistId={artist.id} />
       )}
 
-      {/* As Heard On (radio) */}
+      {/* As heard on (radio) — self-hides when empty */}
       <AsHeardOn entityType="artist" entitySlug={artist.slug} />
 
-      {/* In Collections */}
+      {/* In collections — self-hides when empty */}
       <EntityCollections entityType="artist" entityId={artist.id} />
     </div>
   )
@@ -846,7 +813,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const canEditDirectly = isAdmin || user?.user_tier === 'trusted_contributor' || user?.user_tier === 'local_ambassador'
   const updateArtist = useArtistUpdate()
 
-  const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
@@ -915,13 +881,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
   const labels = labelsData?.labels ?? []
 
-  // Build tabs - only show tabs that have content or always show
-  const tabs = [
-    { value: 'overview', label: 'Overview' },
-    { value: 'discography', label: 'Discography' },
-    { value: 'labels', label: 'Labels' },
-  ]
-
   const headerSubtitle = (artist.city || artist.state || artist.country) ? (
     <>
       <MapPin className="h-4 w-4" />
@@ -929,32 +888,37 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
     </>
   ) : undefined
 
+  // Gazelle-style bracketed action linkbox — no icon buttons. The stateful
+  // trio (Follow / Notify / Add to collection) render their own bracket
+  // variant; they each handle the unauthenticated → /auth redirect internally.
   const headerActions = (
-    <div className="flex items-center gap-2">
-      <NotifyMeButton entityType="artist" entityId={artist.id} entityName={artist.name} />
-      <FollowButton entityType="artists" entityId={artist.id} />
-      <AddToCollectionButton entityType="artist" entityId={artist.id} entityName={artist.name} />
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+      <FollowButton entityType="artists" entityId={artist.id} variant="bracket" />
+      <NotifyMeButton
+        entityType="artist"
+        entityId={artist.id}
+        entityName={artist.name}
+        variant="bracket"
+      />
+      <AddToCollectionButton
+        entityType="artist"
+        entityId={artist.id}
+        entityName={artist.name}
+        variant="bracket"
+      />
       {isAuthenticated && (
-        <Button
-          variant="ghost"
-          size="sm"
+        <BracketLink
+          label={canEditDirectly ? 'Edit' : 'Suggest edit'}
           onClick={() => setIsEditing(true)}
-          className="text-muted-foreground hover:text-foreground"
-          title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
-        >
-          <Edit2 className="h-4 w-4" />
-        </Button>
+        />
       )}
+      <BracketLink label="Graph" href="#graph" />
       {isAuthenticated && (
-        <Button
-          variant="ghost"
-          size="sm"
-          onClick={() => setIsReportOpen(true)}
-          className="text-muted-foreground hover:text-foreground"
+        <BracketLink
+          label="Report"
           title="Report an issue"
-        >
-          <Flag className="h-4 w-4" />
-        </Button>
+          onClick={() => setIsReportOpen(true)}
+        />
       )}
     </div>
   )
@@ -973,11 +937,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             />
             <EntitySaveSuccessBanner visible={saveBanner.isVisible} />
             <AttributionLine entityType="artist" entityId={artist.id} />
-            <EntityTagList
-              entityType="artist"
-              entityId={artist.id}
-              isAuthenticated={isAuthenticated}
-            />
             <ContributionPrompt
               entityType="artist"
               entityId={artist.id}
@@ -990,20 +949,28 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             />
           </>
         }
-        tabs={tabs}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
         sidebar={
           <ArtistSidebar
             artist={artist}
             labels={labels}
             labelsLoading={labelsLoading}
+            isAuthenticated={!!isAuthenticated}
           />
         }
       >
-        {/* Overview Tab */}
-        <TabsContent value="overview">
-          {/* Description */}
+        {/* Single-scroll main column — no tabs. Order follows the spec:
+            shows → discography → bills → festival trajectory → bio →
+            admin music controls → revision history → discussion.
+            (docs/features/artist-page-redesign.md) */}
+        <div className="space-y-8">
+          <ArtistShowsList artistId={artist.id} />
+
+          <DiscographyTab artistIdOrSlug={artistId} />
+
+          <BillComposition artistId={artist.id} />
+
+          <ArtistTrajectoryChart artistIdOrSlug={artist.id} />
+
           <EntityDescription
             description={artist.description}
             canEdit={!!isAdmin}
@@ -1025,45 +992,24 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             }}
           />
 
-          {/* Admin music embed controls */}
           {isAdmin && (
             <AdminMusicControls artist={artist} artistId={artistId} />
           )}
 
-          {/* Shows List */}
-          <ArtistShowsList artistId={artist.id} />
-        </TabsContent>
+          <RevisionHistory
+            entityType="artist"
+            entityId={artist.id}
+            isAdmin={!!isAdmin}
+          />
 
-        {/* Discography Tab */}
-        <TabsContent value="discography">
-          <DiscographyTab artistIdOrSlug={artistId} />
-        </TabsContent>
-
-        {/* Labels Tab */}
-        <TabsContent value="labels">
-          <LabelsTab artistIdOrSlug={artistId} />
-        </TabsContent>
+          <CommentThread entityType="artist" entityId={artist.id} />
+        </div>
       </EntityDetailLayout>
 
-      {/* Bill Composition (PSY-364) */}
-      <BillComposition artistId={artist.id} />
-
-      {/* Related Artists */}
+      {/* Related Artists — stays full-width below the layout for slice A;
+          moves into the sidebar as a dense list + graph-thumbnail modal in
+          PSY-645. The [Graph] header link targets this section's #graph hash. */}
       <RelatedArtists artistId={artist.id} artistSlug={artist.slug} />
-
-      {/* Revision History */}
-      <div className="mt-0">
-        <RevisionHistory
-          entityType="artist"
-          entityId={artist.id}
-          isAdmin={!!isAdmin}
-        />
-      </div>
-
-      {/* Discussion */}
-      <div className="mt-0 px-4 md:px-0">
-        <CommentThread entityType="artist" entityId={artist.id} />
-      </div>
 
       {/* Edit Drawer (all authenticated users) */}
       {isAuthenticated && (

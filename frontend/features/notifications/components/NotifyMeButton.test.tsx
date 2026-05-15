@@ -214,3 +214,86 @@ describe('NotifyMeButton', () => {
     expect(screen.queryByRole('alert')).not.toBeInTheDocument()
   })
 })
+
+describe('NotifyMeButton — bracket variant (PSY-641)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockAuthContext.mockReturnValue({
+      isAuthenticated: true,
+      user: { id: '1' },
+    })
+    mockFilterCheck.mockReturnValue({
+      data: undefined,
+      hasFilter: false,
+      isLoading: false,
+      isSuccess: true,
+    })
+    mockQuickCreate.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    })
+    mockDeleteFilter.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: false,
+      isError: false,
+      error: null,
+    })
+  })
+
+  it('renders [Notify me] as a bracket link when no filter exists', () => {
+    render(
+      <NotifyMeButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="bracket"
+      />
+    )
+    const btn = screen.getByRole('button', { name: 'Notify me' })
+    expect(btn).toBeInTheDocument()
+    expect(btn).not.toHaveAttribute('aria-pressed')
+  })
+
+  it('renders [Notifications on] with aria-pressed when a filter exists', () => {
+    mockFilterCheck.mockReturnValue({
+      data: { id: 7 },
+      hasFilter: true,
+      isLoading: false,
+      isSuccess: true,
+    })
+    render(
+      <NotifyMeButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="bracket"
+      />
+    )
+    expect(
+      screen.getByRole('button', { name: 'Notifications on' })
+    ).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('creates a filter when the bracket link is clicked', async () => {
+    const mutate = vi.fn()
+    mockQuickCreate.mockReturnValue({
+      mutate,
+      isPending: false,
+      isError: false,
+      error: null,
+    })
+    const user = userEvent.setup()
+    render(
+      <NotifyMeButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+        variant="bracket"
+      />
+    )
+    await user.click(screen.getByRole('button', { name: 'Notify me' }))
+    expect(mutate).toHaveBeenCalledWith({ entityType: 'artist', entityId: 1 })
+  })
+})

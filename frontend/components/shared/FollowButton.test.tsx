@@ -164,3 +164,51 @@ describe('FollowButton', () => {
     expect(screen.getByText('5')).toBeInTheDocument()
   })
 })
+
+describe('FollowButton — bracket variant (PSY-641)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockIsAuthenticated = true
+    mockFollowStatusData = { follower_count: 10, is_following: false }
+    mockStatusLoading = false
+  })
+
+  it('renders [Follow] as a bracket link when not following', () => {
+    render(
+      <FollowButton entityType="artists" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+    const btn = screen.getByRole('button', { name: 'Follow' })
+    expect(btn).toBeInTheDocument()
+    expect(btn).not.toHaveAttribute('aria-pressed')
+  })
+
+  it('renders [Following] with aria-pressed when following', () => {
+    mockFollowStatusData = { follower_count: 10, is_following: true }
+    render(
+      <FollowButton entityType="artists" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+    const btn = screen.getByRole('button', { name: 'Following' })
+    expect(btn).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  it('calls follow mutation when the bracket link is clicked', () => {
+    render(
+      <FollowButton entityType="artists" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Follow' }))
+    expect(mockFollowMutate).toHaveBeenCalledWith({ entityType: 'artists', entityId: 1 })
+  })
+
+  it('renders a disabled [Follow] while follow status is loading', () => {
+    mockStatusLoading = true
+    mockFollowStatusData = undefined
+    render(
+      <FollowButton entityType="artists" entityId={1} variant="bracket" />,
+      { wrapper: createWrapper() }
+    )
+    expect(screen.getByRole('button', { name: 'Follow' })).toBeDisabled()
+  })
+})

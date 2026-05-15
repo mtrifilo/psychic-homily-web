@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { AlertCircle, Bell, BellRing, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BracketLink } from '@/components/shared/BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   useNotificationFilterCheck,
@@ -19,6 +20,12 @@ interface NotifyMeButtonProps {
   entityName: string
   /** Compact mode for tighter layouts */
   compact?: boolean
+  /**
+   * Rendering style. `button` (default) is the shadcn Button. `bracket`
+   * renders a `<BracketLink>` for dense entity-page header linkboxes
+   * (PSY-641) — `[Notify me]` toggling to `[Notifications on]`.
+   */
+  variant?: 'button' | 'bracket'
 }
 
 const entityLabels: Record<NotifyEntityType, string> = {
@@ -33,6 +40,7 @@ export function NotifyMeButton({
   entityId,
   entityName,
   compact = false,
+  variant = 'button',
 }: NotifyMeButtonProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -63,6 +71,22 @@ export function NotifyMeButton({
     } else {
       quickCreate.mutate({ entityType, entityId })
     }
+  }
+
+  // Bracket variant — dense header linkbox. handleClick already handles the
+  // unauthenticated → /auth redirect, so a single BracketLink covers all states.
+  if (variant === 'bracket') {
+    if (isAuthenticated && checkLoading) {
+      return <BracketLink label="Notify me" disabled />
+    }
+    return (
+      <BracketLink
+        label={hasFilter ? 'Notifications on' : 'Notify me'}
+        active={hasFilter}
+        onClick={handleClick}
+        disabled={isMutating}
+      />
+    )
   }
 
   // Don't render for unauthenticated users in loading state
