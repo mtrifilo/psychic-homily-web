@@ -38,3 +38,9 @@ export type {
   DenseTableVariant,
   DenseTableGroupHeaderProps,
 } from './DenseTable'
+export { StatsList } from './StatsList'
+export type {
+  StatsListProps,
+  StatsListItem,
+  StatsListVariant,
+} from './StatsList'

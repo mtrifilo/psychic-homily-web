@@ -418,18 +418,33 @@ type CreateArtistRequest struct {
 
 // ArtistDetailResponse represents the artist data returned to clients
 type ArtistDetailResponse struct {
-	ID               uint           `json:"id"`
-	Slug             string         `json:"slug"`
-	Name             string         `json:"name"`
-	State            *string        `json:"state"`
-	City             *string        `json:"city"`
-	Country          *string        `json:"country,omitempty"` // PSY-558: optional country (Australia, UK, etc.)
-	BandcampEmbedURL *string        `json:"bandcamp_embed_url"`
-	Description      *string        `json:"description,omitempty"`
-	ImageURL         *string        `json:"image_url"` // Optional artist photo (PSY-521)
-	Social           SocialResponse `json:"social"`
-	CreatedAt        time.Time      `json:"created_at"`
-	UpdatedAt        time.Time      `json:"updated_at"`
+	ID               uint                 `json:"id"`
+	Slug             string               `json:"slug"`
+	Name             string               `json:"name"`
+	State            *string              `json:"state"`
+	City             *string              `json:"city"`
+	Country          *string              `json:"country,omitempty"` // PSY-558: optional country (Australia, UK, etc.)
+	BandcampEmbedURL *string              `json:"bandcamp_embed_url"`
+	Description      *string              `json:"description,omitempty"`
+	ImageURL         *string              `json:"image_url"` // Optional artist photo (PSY-521)
+	Social           SocialResponse       `json:"social"`
+	CreatedAt        time.Time            `json:"created_at"`
+	UpdatedAt        time.Time            `json:"updated_at"`
+	// Stats is populated only by detail-page lookups (GetArtist /
+	// GetArtistBySlug — PSY-639). List, search, and mutation responses leave
+	// it nil so the omitempty tag drops it from the wire.
+	Stats *ArtistStatsResponse `json:"stats,omitempty"`
+}
+
+// ArtistStatsResponse carries the at-a-glance counts surfaced on the artist
+// detail page sidebar (PSY-639). Folded into ArtistDetailResponse on the
+// detail-page lookups; nil on list / search / mutation responses.
+type ArtistStatsResponse struct {
+	Releases            int `json:"releases"`
+	Labels              int `json:"labels"`
+	ShowsTracked        int `json:"shows_tracked"` // past + future
+	SimilarArtists      int `json:"similar_artists"`
+	FestivalAppearances int `json:"festival_appearances"`
 }
 
 // SocialResponse represents social media links
