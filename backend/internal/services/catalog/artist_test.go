@@ -1355,3 +1355,112 @@ func (suite *ArtistServiceIntegrationTestSuite) TestMergeArtists_NotificationFil
 	suite.Contains(artistIDs, fmt.Sprintf("%d", canonical.ID))
 	suite.NotContains(artistIDs, fmt.Sprintf("%d", mergeFrom.ID))
 }
+
+// =============================================================================
+// PSY-639: GetArtist with stats
+// =============================================================================
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtist_Stats_SparseArtist() {
+	artist, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Sparse Stats Artist"})
+	suite.Require().NoError(err)
+
+	resp, err := suite.artistService.GetArtist(artist.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Stats, "Stats must be populated on GetArtist responses")
+	suite.Equal(0, resp.Stats.Releases)
+	suite.Equal(0, resp.Stats.Labels)
+	suite.Equal(0, resp.Stats.ShowsTracked)
+	suite.Equal(0, resp.Stats.SimilarArtists)
+	suite.Equal(0, resp.Stats.FestivalAppearances)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtist_Stats_Populated() {
+	artist, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Populated Stats Artist"})
+	suite.Require().NoError(err)
+	user := suite.createTestUser()
+	venue := suite.createTestVenue("Stats Venue", "Phoenix", "AZ")
+
+	// 1 release, 2 roles on it (main + producer) — DISTINCT release_id => 1.
+	release := &catalogm.Release{Title: "Stats LP", ReleaseType: catalogm.ReleaseTypeLP}
+	suite.Require().NoError(suite.db.Create(release).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelease{ArtistID: artist.ID, ReleaseID: release.ID, Role: catalogm.ArtistReleaseRoleMain}).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelease{ArtistID: artist.ID, ReleaseID: release.ID, Role: catalogm.ArtistReleaseRoleProducer}).Error)
+
+	// 2 labels
+	labelA := &catalogm.Label{Name: "Label Alpha"}
+	labelB := &catalogm.Label{Name: "Label Beta"}
+	suite.Require().NoError(suite.db.Create(labelA).Error)
+	suite.Require().NoError(suite.db.Create(labelB).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistLabel{ArtistID: artist.ID, LabelID: labelA.ID}).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistLabel{ArtistID: artist.ID, LabelID: labelB.ID}).Error)
+
+	// 2 shows (past + future, both counted)
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().AddDate(0, -1, 0))
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().AddDate(0, 1, 0))
+
+	// Similar artists: this artist is both source (vs higher ID) and target
+	// (vs lower ID) due to the source<target CHECK constraint. 3 distinct
+	// related artists, one of them via TWO relationship_types (verify DISTINCT).
+	other1, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Similar Alpha"})
+	other2, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Similar Beta"})
+	other3, _ := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Similar Gamma"})
+	sourceID := func(a, b uint) uint {
+		if a < b {
+			return a
+		}
+		return b
+	}
+	targetID := func(a, b uint) uint {
+		if a < b {
+			return b
+		}
+		return a
+	}
+	for _, other := range []uint{other1.ID, other2.ID, other3.ID} {
+		suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelationship{
+			SourceArtistID:   sourceID(artist.ID, other),
+			TargetArtistID:   targetID(artist.ID, other),
+			RelationshipType: "similar",
+		}).Error)
+	}
+	// Duplicate other1 with a second relationship_type — should NOT double-count.
+	suite.Require().NoError(suite.db.Create(&catalogm.ArtistRelationship{
+		SourceArtistID:   sourceID(artist.ID, other1.ID),
+		TargetArtistID:   targetID(artist.ID, other1.ID),
+		RelationshipType: "influence",
+	}).Error)
+
+	// 2 festivals (festival_artists has a UNIQUE (festival_id, artist_id)
+	// constraint — an artist can't appear twice on the same festival).
+	festivalA := &catalogm.Festival{Name: "Stats Fest A", Slug: "stats-fest-a-2026", SeriesSlug: "stats-fest-a", EditionYear: 2026, StartDate: "2026-06-01", EndDate: "2026-06-02"}
+	festivalB := &catalogm.Festival{Name: "Stats Fest B", Slug: "stats-fest-b-2026", SeriesSlug: "stats-fest-b", EditionYear: 2026, StartDate: "2026-07-01", EndDate: "2026-07-02"}
+	suite.Require().NoError(suite.db.Create(festivalA).Error)
+	suite.Require().NoError(suite.db.Create(festivalB).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.FestivalArtist{FestivalID: festivalA.ID, ArtistID: artist.ID}).Error)
+	suite.Require().NoError(suite.db.Create(&catalogm.FestivalArtist{FestivalID: festivalB.ID, ArtistID: artist.ID}).Error)
+
+	resp, err := suite.artistService.GetArtist(artist.ID)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Stats)
+	suite.Equal(1, resp.Stats.Releases, "DISTINCT release_id should collapse multi-role rows")
+	suite.Equal(2, resp.Stats.Labels)
+	suite.Equal(2, resp.Stats.ShowsTracked, "ShowsTracked counts past + future")
+	suite.Equal(3, resp.Stats.SimilarArtists, "DISTINCT related-artist count should collapse multi-relationship-type duplicates")
+	suite.Equal(2, resp.Stats.FestivalAppearances)
+}
+
+func (suite *ArtistServiceIntegrationTestSuite) TestGetArtistBySlug_PopulatesStats() {
+	artist, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Slug Stats Artist"})
+	suite.Require().NoError(err)
+	user := suite.createTestUser()
+	venue := suite.createTestVenue("Slug Stats Venue", "Phoenix", "AZ")
+	suite.createApprovedShowWithArtist(artist.ID, venue.ID, user.ID, time.Now().AddDate(0, 1, 0))
+
+	resp, err := suite.artistService.GetArtistBySlug(artist.Slug)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Stats, "Stats must be populated on GetArtistBySlug responses too")
+	suite.Equal(1, resp.Stats.ShowsTracked)
+}

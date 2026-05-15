@@ -16,6 +16,22 @@ export interface ArtistSocial {
   website: string | null
 }
 
+/**
+ * Five at-a-glance counts surfaced in the artist detail page sidebar (PSY-639).
+ * Populated only on single-artist detail responses (GetArtist /
+ * GetArtistBySlug); undefined on list / search / mutation responses.
+ *
+ * `shows_tracked` counts past + future shows. `active_since` was considered
+ * and dropped — most artists lack the signals to derive it accurately.
+ */
+export interface ArtistStats {
+  releases: number
+  labels: number
+  shows_tracked: number
+  similar_artists: number
+  festival_appearances: number
+}
+
 export interface Artist {
   id: number
   slug: string
@@ -34,6 +50,8 @@ export interface Artist {
   social: ArtistSocial
   created_at: string
   updated_at: string
+  /** Populated by detail-page lookups (PSY-639). Undefined on list rows. */
+  stats?: ArtistStats
 }
 
 export interface ArtistEditRequest {

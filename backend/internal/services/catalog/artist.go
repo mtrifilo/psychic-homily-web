@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -94,7 +95,9 @@ func (s *ArtistService) GetArtist(artistID uint) (*contracts.ArtistDetailRespons
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	return s.buildArtistResponse(&artist), nil
+	resp := s.buildArtistResponse(&artist)
+	resp.Stats = s.buildArtistStats(artist.ID)
+	return resp, nil
 }
 
 // GetArtistByName retrieves an artist by name (case-insensitive)
@@ -130,7 +133,9 @@ func (s *ArtistService) GetArtistBySlug(slug string) (*contracts.ArtistDetailRes
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	return s.buildArtistResponse(&artist), nil
+	resp := s.buildArtistResponse(&artist)
+	resp.Stats = s.buildArtistStats(artist.ID)
+	return resp, nil
 }
 
 // GetArtists retrieves artists with optional filtering
@@ -474,6 +479,48 @@ func (s *ArtistService) GetArtistCities() ([]*contracts.ArtistCityResponse, erro
 	}
 
 	return responses, nil
+}
+
+// buildArtistStats populates the at-a-glance stats block on the artist
+// detail page (PSY-639) in a single round-trip — five scalar subqueries,
+// each hitting an indexed artist_id FK. Stats are sidebar polish: on query
+// failure we log and return zeroed counts rather than failing the whole
+// artist response.
+//
+// Subquery notes:
+//   - releases: DISTINCT release_id — the (artist_id, release_id, role) PK
+//     lets one artist have multiple rows per release (composer + performer).
+//   - shows_tracked: plain COUNT — (show_id, artist_id) PK is one row per
+//     show; includes past + future.
+//   - similar_artists: artist_relationships has a CHECK source_artist_id <
+//     target_artist_id, so this artist is the source in some rows and the
+//     target in others; DISTINCT on the *other* side collapses multiple
+//     relationship_type rows between the same pair.
+//   - festival_appearances: plain COUNT — festival_artists has a UNIQUE
+//     (festival_id, artist_id) constraint, so COUNT(*) == COUNT(DISTINCT).
+func (s *ArtistService) buildArtistStats(artistID uint) *contracts.ArtistStatsResponse {
+	stats := &contracts.ArtistStatsResponse{}
+	if s.db == nil {
+		return stats
+	}
+
+	err := s.db.Raw(`
+		SELECT
+			(SELECT COUNT(DISTINCT release_id) FROM artist_releases WHERE artist_id = @id) AS releases,
+			(SELECT COUNT(*) FROM artist_labels WHERE artist_id = @id) AS labels,
+			(SELECT COUNT(*) FROM show_artists WHERE artist_id = @id) AS shows_tracked,
+			(SELECT COUNT(DISTINCT CASE
+				WHEN source_artist_id = @id THEN target_artist_id
+				ELSE source_artist_id
+			END) FROM artist_relationships
+			WHERE source_artist_id = @id OR target_artist_id = @id) AS similar_artists,
+			(SELECT COUNT(*) FROM festival_artists WHERE artist_id = @id) AS festival_appearances
+	`, map[string]interface{}{"id": artistID}).Scan(stats).Error
+	if err != nil {
+		log.Printf("WARN buildArtistStats: failed to count stats for artist_id=%d: %v", artistID, err)
+	}
+
+	return stats
 }
 
 // buildArtistResponse converts an Artist model to contracts.ArtistDetailResponse
