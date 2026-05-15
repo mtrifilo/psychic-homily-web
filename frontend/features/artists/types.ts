@@ -17,6 +17,18 @@ export interface ArtistSocial {
 }
 
 /**
+ * True when the artist has at least one non-empty social / streaming link.
+ * Used to hide the sidebar "Links" section entirely when there's nothing to
+ * show (PSY-641). `LabelDetail` carries a near-identical predicate — worth
+ * converging on a shared helper when the cross-entity header rollout lands.
+ */
+export function hasAnySocialLink(social: ArtistSocial): boolean {
+  return Object.values(social).some(
+    value => typeof value === 'string' && value.trim().length > 0
+  )
+}
+
+/**
  * Five at-a-glance counts surfaced in the artist detail page sidebar (PSY-639).
  * Populated only on single-artist detail responses (GetArtist /
  * GetArtistBySlug); undefined on list / search / mutation responses.

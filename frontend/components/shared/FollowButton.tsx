@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { UserPlus, UserCheck, UserMinus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { BracketLink } from './BracketLink'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   useFollowStatus,
@@ -20,6 +21,12 @@ interface FollowButtonProps {
   compact?: boolean
   /** Pre-fetched data from batch endpoint, avoids extra request */
   followData?: { follower_count: number; is_following: boolean }
+  /**
+   * Rendering style. `button` (default) is the shadcn Button used everywhere
+   * today. `bracket` renders a `<BracketLink>` for dense entity-page header
+   * linkboxes (PSY-641) — `[Follow]` toggling to `[Following]`.
+   */
+  variant?: 'button' | 'bracket'
 }
 
 export function FollowButton({
@@ -27,6 +34,7 @@ export function FollowButton({
   entityId,
   compact = false,
   followData,
+  variant = 'button',
 }: FollowButtonProps) {
   const router = useRouter()
   const pathname = usePathname()
@@ -64,6 +72,22 @@ export function FollowButton({
     } else {
       follow.mutate({ entityType, entityId })
     }
+  }
+
+  // Bracket variant — dense header linkbox. Toggles [Follow] ↔ [Following];
+  // ignores `compact` (brackets are already maximally compact).
+  if (variant === 'bracket') {
+    if (!followData && statusLoading) {
+      return <BracketLink label="Follow" disabled />
+    }
+    return (
+      <BracketLink
+        label={isFollowing ? 'Following' : 'Follow'}
+        active={isFollowing}
+        onClick={handleClick}
+        disabled={isMutating}
+      />
+    )
   }
 
   // Don't show loading spinner for pre-fetched data

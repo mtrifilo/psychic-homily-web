@@ -20,11 +20,6 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-// NOTE: `@/components/ui/tabs` is intentionally NOT mocked. The new tab-switch test at
-// the bottom of this file (see "ArtistShowsList tabs (real Radix)") relies on real Radix
-// behavior (aria-selected). The `EntityDetailLayout` mock below wraps children in a real
-// <Tabs> root so the <TabsContent> panels rendered by ArtistDetail still have a provider.
-
 // Mock hooks
 const mockUseArtist = vi.fn()
 vi.mock('../hooks/useArtists', () => ({
@@ -87,17 +82,6 @@ vi.mock('@/features/contributions', () => ({
   ContributionPrompt: () => null,
 }))
 
-vi.mock('@/components/forms/ArtistEditForm', () => ({
-  ArtistEditForm: ({
-    open,
-  }: {
-    open: boolean
-    artist: unknown
-    onOpenChange: (v: boolean) => void
-    onSuccess: () => void
-  }) => (open ? <div data-testid="edit-form">Edit Form</div> : null),
-}))
-
 // Mock comments feature
 vi.mock('@/features/comments', () => ({
   CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
@@ -113,92 +97,102 @@ vi.mock('next/navigation', () => ({
 
 // Mock NotifyMeButton to avoid deep notification hooks dependency
 vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({ entityName }: { entityType: string; entityId: number; entityName: string }) => (
+  NotifyMeButton: ({ entityName }: { entityType: string; entityId: number; entityName: string; variant?: string }) => (
     <button data-testid="notify-me-button">Notify {entityName}</button>
   ),
 }))
 
-// PSY-364: ArtistDetail now mounts <BillComposition>, which fires its own fetch.
-// Stub it out so this suite doesn't need to set up bill-composition fixtures.
+// PSY-364: ArtistDetail mounts <BillComposition>, which fires its own fetch.
+// Stub it out so this suite doesn't need bill-composition fixtures.
 vi.mock('./BillComposition', () => ({
   BillComposition: () => null,
 }))
 
-vi.mock('@/components/shared', async () => {
-  // Import the real Tabs so that the TabsContent children passed to
-  // EntityDetailLayout have a provider in scope.
-  const { Tabs } = await vi.importActual<typeof import('@/components/ui/tabs')>(
-    '@/components/ui/tabs'
-  )
-  return {
-    SocialLinks: () => <div data-testid="social-links">Social Links</div>,
-    MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
-    EntityDetailLayout: ({
-      children,
-      sidebar,
-      header,
-      tabs,
-      activeTab,
-      onTabChange,
-      fallback,
-      entityName,
-    }: {
-      children: React.ReactNode
-      sidebar: React.ReactNode
-      header: React.ReactNode
-      tabs: { value: string; label: string }[]
-      activeTab: string
-      onTabChange: (tab: string) => void
-      fallback: { href: string; label: string }
-      entityName: string
-    }) => (
-      <div data-testid="entity-layout">
-        <a href={fallback.href}>{fallback.label}</a>
-        <span data-testid="entity-name">{entityName}</span>
-        <div data-testid="header-slot">{header}</div>
-        <Tabs value={activeTab} onValueChange={onTabChange}>
-          <div data-testid="tabs">
-            {tabs.map(tab => (
-              <button
-                key={tab.value}
-                data-testid={`tab-${tab.value}`}
-                onClick={() => onTabChange(tab.value)}
-                data-active={tab.value === activeTab}
-              >
-                {tab.label}
-              </button>
-            ))}
-          </div>
-          <div data-testid="sidebar-slot">{sidebar}</div>
-          <div data-testid="content-slot">{children}</div>
-        </Tabs>
-      </div>
+// PSY-641: ArtistDetail is now a flat two-column layout — no page-level tabs.
+// The mock renders header / sidebar / children slots directly. The new
+// density primitives (BracketLink, SectionHeader, StatsList) get lightweight
+// mocks so their props are inspectable.
+vi.mock('@/components/shared', () => ({
+  SocialLinks: () => <div data-testid="social-links">Social Links</div>,
+  MusicEmbed: () => <div data-testid="music-embed">Music Embed</div>,
+  EntityDetailLayout: ({
+    children,
+    sidebar,
+    header,
+    fallback,
+    entityName,
+  }: {
+    children: React.ReactNode
+    sidebar: React.ReactNode
+    header: React.ReactNode
+    fallback: { href: string; label: string }
+    entityName: string
+  }) => (
+    <div data-testid="entity-layout">
+      <a href={fallback.href}>{fallback.label}</a>
+      <span data-testid="entity-name">{entityName}</span>
+      <div data-testid="header-slot">{header}</div>
+      <div data-testid="sidebar-slot">{sidebar}</div>
+      <div data-testid="content-slot">{children}</div>
+    </div>
+  ),
+  EntityHeader: ({
+    title,
+    subtitle,
+    actions,
+  }: {
+    title: string
+    subtitle?: React.ReactNode
+    actions?: React.ReactNode
+  }) => (
+    <div data-testid="entity-header">
+      <h1>{title}</h1>
+      {subtitle && <div data-testid="subtitle">{subtitle}</div>}
+      {actions && <div data-testid="header-actions">{actions}</div>}
+    </div>
+  ),
+  RevisionHistory: () => <div data-testid="revision-history">Revision History</div>,
+  FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number; variant?: string }) => (
+    <button data-testid="follow-button">Follow {entityType} {entityId}</button>
+  ),
+  EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
+    <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
+  ),
+  AddToCollectionButton: () => (
+    <button data-testid="add-to-collection">[Add to collection]</button>
+  ),
+  BracketLink: ({
+    label,
+    href,
+    onClick,
+    title,
+  }: {
+    label: string
+    href?: string
+    onClick?: () => void
+    title?: string
+  }) =>
+    href ? (
+      <a href={href} title={title} data-testid={`bracket-${label}`}>
+        [{label}]
+      </a>
+    ) : (
+      <button onClick={onClick} title={title} data-testid={`bracket-${label}`}>
+        [{label}]
+      </button>
     ),
-    EntityHeader: ({
-      title,
-      subtitle,
-      actions,
-    }: {
-      title: string
-      subtitle?: React.ReactNode
-      actions?: React.ReactNode
-    }) => (
-      <div data-testid="entity-header">
-        <h1>{title}</h1>
-        {subtitle && <div data-testid="subtitle">{subtitle}</div>}
-        {actions && <div data-testid="header-actions">{actions}</div>}
-      </div>
-    ),
-    RevisionHistory: () => <div data-testid="revision-history">Revision History</div>,
-    FollowButton: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
-      <button data-testid="follow-button">Follow {entityType} {entityId}</button>
-    ),
-    EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
-      <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
-    ),
-    AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
-  }
-})
+  SectionHeader: ({ title }: { title: string }) => <h3>{title}</h3>,
+  StatsList: ({ items }: { items: { label: string; value: React.ReactNode }[] }) => (
+    <dl data-testid="stats-list">
+      {items.map(i => (
+        <div key={i.label}>
+          <dt>{i.label}</dt>
+          <dd>{i.value}</dd>
+        </div>
+      ))}
+    </dl>
+  ),
+}))
 
 import { ArtistDetail } from './ArtistDetail'
 
@@ -331,14 +325,28 @@ describe('ArtistDetail', () => {
       expect(screen.getByTestId('entity-name')).toHaveTextContent('Test Artist')
     })
 
-    it('renders tabs for overview, discography, and labels', () => {
+    it('renders a flat single-scroll main column with no page-level tabs', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      expect(screen.getByTestId('tab-overview')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-discography')).toBeInTheDocument()
-      expect(screen.getByTestId('tab-labels')).toBeInTheDocument()
+      // The Discography / Labels page-level tabs were removed in PSY-641.
+      expect(screen.queryByTestId('tab-discography')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('tab-labels')).not.toBeInTheDocument()
+      // Main-column content renders directly.
+      expect(screen.getByTestId('artist-shows-list')).toBeInTheDocument()
+      expect(screen.getByTestId('comment-thread')).toBeInTheDocument()
+      expect(screen.getByTestId('revision-history')).toBeInTheDocument()
     })
 
-    it('shows report button in header actions for authenticated users', () => {
+    it('renders the header action linkbox as bracket links', () => {
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const headerActions = screen.getByTestId('header-actions')
+      // Stateful trio + the always-on [Graph] link.
+      expect(headerActions).toHaveTextContent('Follow')
+      expect(headerActions).toHaveTextContent('Notify')
+      expect(headerActions).toHaveTextContent('Add to collection')
+      expect(screen.getByTestId('bracket-Graph')).toHaveAttribute('href', '#graph')
+    })
+
+    it('shows the report bracket link for authenticated users', () => {
       mockUseIsAuthenticated.mockReturnValue({
         user: { is_admin: false },
         isAuthenticated: true,
@@ -348,9 +356,29 @@ describe('ArtistDetail', () => {
       expect(screen.getByTitle('Report an issue')).toBeInTheDocument()
     })
 
-    it('does not show report button for unauthenticated users', () => {
+    it('does not show the report bracket link for unauthenticated users', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.queryByTitle('Report an issue')).not.toBeInTheDocument()
+    })
+
+    it('shows a Suggest edit link for authenticated non-trusted users', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('bracket-Suggest edit')).toBeInTheDocument()
+    })
+
+    it('shows an Edit link for trusted-tier users', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false, user_tier: 'trusted_contributor' },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('bracket-Edit')).toBeInTheDocument()
     })
 
     it('renders artist shows list', () => {
@@ -359,35 +387,88 @@ describe('ArtistDetail', () => {
       expect(screen.getByText('Shows for 42')).toBeInTheDocument()
     })
 
-    it('renders social links in sidebar', () => {
-      renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      expect(screen.getByTestId('social-links')).toBeInTheDocument()
-    })
-
-    it('renders music embed in sidebar', () => {
-      renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      expect(screen.getByTestId('music-embed')).toBeInTheDocument()
-    })
-
-    it('shows location in sidebar when available', () => {
-      renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      // Location appears in both header subtitle and sidebar;
-      // verify sidebar has "Location" heading
-      const sidebarSlot = screen.getByTestId('sidebar-slot')
-      expect(sidebarSlot).toHaveTextContent('Location')
-      expect(sidebarSlot).toHaveTextContent('Phoenix, AZ')
-    })
-
-    it('hides location in sidebar when not available', () => {
+    it('renders the statistics block in the sidebar when stats are present', () => {
       mockUseArtist.mockReturnValue({
-        data: makeArtist({ city: null, state: null }),
+        data: makeArtist({
+          stats: {
+            releases: 4,
+            labels: 2,
+            shows_tracked: 13,
+            similar_artists: 8,
+            festival_appearances: 3,
+          },
+        }),
         isLoading: false,
         error: null,
       })
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       const sidebarSlot = screen.getByTestId('sidebar-slot')
-      expect(sidebarSlot).not.toHaveTextContent('Location')
+      expect(sidebarSlot).toHaveTextContent('Statistics')
+      expect(sidebarSlot).toHaveTextContent('Releases')
+      expect(sidebarSlot).toHaveTextContent('13')
+    })
+
+    it('omits the statistics block when stats are absent', () => {
+      // Default makeArtist() has no `stats` field.
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTestId('stats-list')).not.toBeInTheDocument()
+    })
+
+    it('renders social links in the sidebar when the artist has any', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          social: {
+            instagram: 'https://instagram.com/test',
+            facebook: null,
+            twitter: null,
+            youtube: null,
+            spotify: null,
+            soundcloud: null,
+            bandcamp: null,
+            website: null,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('social-links')).toBeInTheDocument()
+    })
+
+    it('hides the links section when the artist has no social links', () => {
+      // Default makeArtist() has all-null social fields.
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTestId('social-links')).not.toBeInTheDocument()
+    })
+
+    it('renders the music embed in the sidebar when a music link exists', () => {
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          social: {
+            instagram: null,
+            facebook: null,
+            twitter: null,
+            youtube: null,
+            spotify: 'https://open.spotify.com/artist/123',
+            soundcloud: null,
+            bandcamp: null,
+            website: null,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('music-embed')).toBeInTheDocument()
+    })
+
+    it('hides the music embed when the artist has no music link', () => {
+      // Default makeArtist() has no bandcamp_embed_url and all-null social.
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
     })
 
     it('shows label links in sidebar when labels exist', () => {
@@ -413,8 +494,6 @@ describe('ArtistDetail', () => {
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       const sidebarSlot = screen.getByTestId('sidebar-slot')
-      // Sidebar should NOT contain the "Labels" heading when there are no labels
-      // Note: The tab labeled "Labels" exists in a different part of the DOM
       const sidebarHeadings = sidebarSlot.querySelectorAll('h3')
       const labelsHeading = Array.from(sidebarHeadings).find(
         h => h.textContent === 'Labels'
@@ -432,7 +511,7 @@ describe('ArtistDetail', () => {
       })
     })
 
-    it('does not show edit button for non-admin users', () => {
+    it('does not show edit drawer for non-admin users by default', () => {
       mockUseIsAuthenticated.mockReturnValue({
         user: { is_admin: false },
         isAuthenticated: true,
@@ -440,8 +519,7 @@ describe('ArtistDetail', () => {
       })
 
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
-      // The Edit2 icon button should not be present; check that edit form isn't rendered
-      expect(screen.queryByTestId('edit-form')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('edit-drawer')).not.toBeInTheDocument()
     })
 
     it('does not show admin music controls for non-admin users', () => {
@@ -598,9 +676,9 @@ describe('ArtistDetail', () => {
 
 // Replaces e2e: pages/artist-detail.spec.ts "shows tabs switch between upcoming and past"
 // (moved to a component test per PSY-472, audit doc docs/research/e2e-layer-5-audit.md item #2).
-// Renders the real ArtistShowsList (which owns the Upcoming/Past tabs) against real Radix Tabs
-// — the blanket ./ArtistShowsList mock above is bypassed via vi.importActual so the rest of the
-// ArtistDetail suite stays on the fast mocked path.
+// ArtistShowsList still owns its own Upcoming/Past tabs (unchanged by PSY-641 — the
+// page-level tabs were what got removed). Renders the real ArtistShowsList against real
+// Radix Tabs; the blanket ./ArtistShowsList mock above is bypassed via vi.importActual.
 describe('ArtistShowsList tabs (real Radix)', () => {
   it('switches aria-selected between upcoming and past tabs on click', async () => {
     const user = userEvent.setup()
