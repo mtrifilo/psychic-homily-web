@@ -54,9 +54,11 @@ test.describe('Follow and attendance', () => {
       })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Follow button initial state: "Follow" (count=0 on a fresh reserved row,
-    // so the count span is not rendered and the accessible name is exactly
-    // "Follow").
+    // FollowButton on the artist detail page renders as a BracketLink
+    // (variant="bracket" since PSY-641). The bracket variant uses the
+    // label string for the accessible name and deliberately omits the
+    // follower count for dense linkbox chrome — initial state "Follow",
+    // post-click "Following" (with aria-pressed="true"), no count span.
     const followButton = authenticatedPage.getByRole('button', {
       name: 'Follow',
       exact: true,
@@ -76,13 +78,13 @@ test.describe('Follow and attendance', () => {
       followButton.click(),
     ])
 
-    // Button should flip to a following state. The accessible name depends
-    // on hover (FollowButton renders "Following" or "Unfollow"), so we
-    // match either — the point is the button is in the is-following state
-    // (count=1 appears as a trailing span in both variants).
+    // Button flips to "Following". Bracket variant has no hover-to-Unfollow
+    // state, so we just assert the followed-state label — the round-trip
+    // assertion is "is the artist now in the user's library?" below.
     await expect(
       authenticatedPage.getByRole('button', {
-        name: /^(Following|Unfollow)\s*1$/,
+        name: 'Following',
+        exact: true,
       })
     ).toBeVisible({ timeout: 5_000 })
 
@@ -105,10 +107,9 @@ test.describe('Follow and attendance', () => {
       })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Clicking the button while isFollowing=true triggers unfollow
-    // regardless of hover state. Playwright's click moves the mouse to
-    // the element first, which flips the label "Following" → "Unfollow"
-    // mid-action, so we match either name variant.
+    // Clicking the [Following] bracket link while isFollowing=true triggers
+    // unfollow. Bracket variant has no hover-to-Unfollow state, so the
+    // accessible name stays "Following" until the click resolves.
     await Promise.all([
       authenticatedPage.waitForResponse(
         (resp) =>
@@ -117,7 +118,7 @@ test.describe('Follow and attendance', () => {
         { timeout: 10_000 }
       ),
       authenticatedPage
-        .getByRole('button', { name: /^(Following|Unfollow)\s*1$/ })
+        .getByRole('button', { name: 'Following', exact: true })
         .click(),
     ])
 
