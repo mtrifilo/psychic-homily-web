@@ -1,17 +1,21 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Calendar, History, Plus } from 'lucide-react'
-import { useVenueShows, type TimeFilter } from '../hooks/useVenues'
-import { useAuthContext } from '@/lib/context/AuthContext'
-import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import Link from 'next/link'
+import { Loader2, Plus } from 'lucide-react'
+import {
+  BracketLink,
+  SectionHeader,
+  DenseTable,
+} from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { ShowForm } from '@/components/forms/ShowForm'
-import {
-  CompactShowRow,
-  SHOW_LIST_FEATURE_POLICY,
-  dedupVenueShows,
-} from '@/features/shows'
+import { useAuthContext } from '@/lib/context/AuthContext'
+import { NotifyMeButton } from '@/features/notifications'
+import { dedupVenueShows } from '@/features/shows'
+import { formatShowDate, formatShowTime } from '@/lib/utils/formatters'
+import { useVenueShows } from '../hooks/useVenues'
+import type { VenueShow } from '../types'
 
 interface VenueShowsListProps {
   venueId: number
@@ -25,72 +29,98 @@ interface VenueShowsListProps {
   onShowAdded?: () => void
 }
 
-interface ShowsTabContentProps {
-  venueId: number
-  venueState: string
-  timeFilter: TimeFilter
-  enabled: boolean
-}
+const TIMEZONE = Intl.DateTimeFormat().resolvedOptions().timeZone
 
-function ShowsTabContent({
-  venueId,
-  venueState,
-  timeFilter,
-  enabled,
-}: ShowsTabContentProps) {
-  const { data, isLoading, error } = useVenueShows({
-    venueId,
-    timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
-    timeFilter,
-    enabled,
-    limit: 50,
-  })
-
-  if (isLoading) {
-    return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (error) {
-    return (
-      <div className="py-8 text-center text-sm text-destructive">
-        Failed to load shows
-      </div>
-    )
-  }
-
-  if (!data?.shows || data.shows.length === 0) {
-    return (
-      <div className="py-8 text-center text-sm text-muted-foreground">
-        {timeFilter === 'past' ? 'No past shows' : 'No upcoming shows'}
-      </div>
-    )
-  }
-
-  // PSY-559: Render-time dedup so duplicate shows sharing
-  // (artist_id, venue_id, event_date+time) collapse to one row even
-  // before the backend dedup cmd runs against this DB.
-  const visibleShows = dedupVenueShows(data.shows)
-  const isPastShow = timeFilter === 'past'
-
+function ShowsLoader() {
   return (
-    <div>
-      {visibleShows.map(show => (
-        <CompactShowRow
-          key={show.id}
-          show={show}
-          state={venueState}
-          isPastShow={isPastShow}
-          showDetailsLink={SHOW_LIST_FEATURE_POLICY.context.showDetailsLink}
-        />
-      ))}
+    <div className="flex justify-center py-6">
+      <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
     </div>
   )
 }
 
+function ShowRow({ show, venueState }: { show: VenueShow; venueState: string }) {
+  // Per-show `state` falls back to the venue's state for date/time
+  // formatting when the show row didn't carry one.
+  const state = show.state ?? venueState
+  const detailsHref = `/shows/${show.slug || show.id}`
+  return (
+    <tr>
+      <td className="whitespace-nowrap">
+        <Link
+          href={detailsHref}
+          className="hover:text-primary hover:underline underline-offset-2"
+        >
+          {formatShowDate(show.event_date, state)}
+        </Link>
+      </td>
+      <td className="text-muted-foreground">
+        {show.artists.length > 0 ? (
+          show.artists.map((a, i) => (
+            <span key={a.id}>
+              {i > 0 && ', '}
+              <Link
+                href={`/artists/${a.slug}`}
+                className="hover:text-foreground hover:underline"
+              >
+                {a.name}
+              </Link>
+            </span>
+          ))
+        ) : (
+          '—'
+        )}
+      </td>
+      <td className="text-right whitespace-nowrap text-muted-foreground">
+        {formatShowTime(show.event_date, state)}
+      </td>
+    </tr>
+  )
+}
+
+function ShowsTable({
+  shows,
+  total,
+  venueState,
+  isPast,
+}: {
+  shows: VenueShow[]
+  total: number
+  venueState: string
+  isPast: boolean
+}) {
+  return (
+    <>
+      <DenseTable
+        variant="alternating"
+        aria-label={isPast ? 'Past shows' : 'Upcoming shows'}
+      >
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Bill</th>
+            <th className="text-right">Time</th>
+          </tr>
+        </thead>
+        <tbody>
+          {shows.map(show => (
+            <ShowRow key={show.id} show={show} venueState={venueState} />
+          ))}
+        </tbody>
+      </DenseTable>
+      {total > shows.length && (
+        <p className="text-xs text-muted-foreground mt-2">
+          Showing {shows.length} of {total} shows
+        </p>
+      )}
+    </>
+  )
+}
+
+/**
+ * Both fetches fire eagerly so the past-shows-when-zero branch can hide
+ * the whole section without an expand round-trip.
+ */
 export function VenueShowsList({
   venueId,
   venueSlug,
@@ -102,47 +132,82 @@ export function VenueShowsList({
   className,
   onShowAdded,
 }: VenueShowsListProps) {
-  const [activeTab, setActiveTab] = useState<TimeFilter>('upcoming')
+  const [pastOpen, setPastOpen] = useState(false)
   const [isAddingShow, setIsAddingShow] = useState(false)
   const { isAuthenticated } = useAuthContext()
 
+  const upcoming = useVenueShows({
+    venueId,
+    timezone: TIMEZONE,
+    timeFilter: 'upcoming',
+    enabled: true,
+    limit: 50,
+  })
+  const past = useVenueShows({
+    venueId,
+    timezone: TIMEZONE,
+    timeFilter: 'past',
+    enabled: true,
+    limit: 50,
+  })
+
+  const upcomingShows = upcoming.data?.shows
+    ? dedupVenueShows(upcoming.data.shows)
+    : []
+  const pastShows = past.data?.shows ? dedupVenueShows(past.data.shows) : []
+
   return (
     <div className={className}>
-      <Tabs
-        value={activeTab}
-        onValueChange={value => setActiveTab(value as TimeFilter)}
-      >
-        <TabsList>
-          <TabsTrigger value="upcoming" className="gap-2">
-            <Calendar className="h-4 w-4" />
-            Upcoming
-          </TabsTrigger>
-          <TabsTrigger value="past" className="gap-2">
-            <History className="h-4 w-4" />
-            Past Shows
-          </TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="upcoming" className="mt-4">
-          <ShowsTabContent
-            venueId={venueId}
+      <section>
+        <SectionHeader title="Upcoming shows" as="h2" size="md" />
+        {upcoming.isLoading ? (
+          <ShowsLoader />
+        ) : upcoming.error ? (
+          <p className="py-3 text-sm text-destructive">Failed to load shows</p>
+        ) : upcomingShows.length === 0 ? (
+          <div className="flex items-baseline gap-3 py-2 text-sm text-muted-foreground">
+            <span>No upcoming shows yet.</span>
+            <NotifyMeButton
+              entityType="venue"
+              entityId={venueId}
+              entityName={venueName}
+              variant="bracket"
+            />
+          </div>
+        ) : (
+          <ShowsTable
+            shows={upcomingShows}
+            total={upcoming.data?.total ?? upcomingShows.length}
             venueState={venueState}
-            timeFilter="upcoming"
-            enabled={activeTab === 'upcoming'}
+            isPast={false}
           />
-        </TabsContent>
+        )}
+      </section>
 
-        <TabsContent value="past" className="mt-4">
-          <ShowsTabContent
-            venueId={venueId}
-            venueState={venueState}
-            timeFilter="past"
-            enabled={activeTab === 'past'}
+      {pastShows.length > 0 && (
+        <section className="mt-8">
+          <SectionHeader
+            title="Past shows"
+            as="h2"
+            size="md"
+            action={
+              <BracketLink
+                label={pastOpen ? 'Hide' : 'Show'}
+                onClick={() => setPastOpen(!pastOpen)}
+              />
+            }
           />
-        </TabsContent>
-      </Tabs>
+          {pastOpen && (
+            <ShowsTable
+              shows={pastShows}
+              total={past.data?.total ?? pastShows.length}
+              venueState={venueState}
+              isPast={true}
+            />
+          )}
+        </section>
+      )}
 
-      {/* Add Show Section */}
       {isAuthenticated && (
         <div className="mt-6 pt-4 border-t border-border/50">
           {isAddingShow ? (
