@@ -47,6 +47,7 @@ export {
 
 export {
   EntityTagList,
+  AddTagDialog,
   TagBrowse,
   TagDetail,
   TagOfficialIndicator,
@@ -57,6 +58,7 @@ export {
 } from './components'
 
 export type {
+  AddTagDialogProps,
   TagFacetPanelProps,
   TagFacetSheetProps,
 } from './components'

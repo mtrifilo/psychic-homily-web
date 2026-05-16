@@ -385,6 +385,21 @@ describe('ArtistDetail', () => {
       expect(screen.getByTestId('bracket-Edit')).toBeInTheDocument()
     })
 
+    it('shows the [Add tag] bracket link for authenticated users (PSY-654)', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.getByTestId('bracket-Add tag')).toBeInTheDocument()
+    })
+
+    it('does not show the [Add tag] bracket link for unauthenticated users', () => {
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      expect(screen.queryByTestId('bracket-Add tag')).not.toBeInTheDocument()
+    })
+
     it('renders artist shows list', () => {
       renderWithProviders(<ArtistDetail artistId="test-artist" />)
       expect(screen.getByTestId('artist-shows-list')).toBeInTheDocument()
