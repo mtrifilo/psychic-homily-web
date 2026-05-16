@@ -674,35 +674,8 @@ describe('ArtistDetail', () => {
   })
 })
 
-// Replaces e2e: pages/artist-detail.spec.ts "shows tabs switch between upcoming and past"
-// (moved to a component test per PSY-472, audit doc docs/research/e2e-layer-5-audit.md item #2).
-// ArtistShowsList still owns its own Upcoming/Past tabs (unchanged by PSY-641 — the
-// page-level tabs were what got removed). Renders the real ArtistShowsList against real
-// Radix Tabs; the blanket ./ArtistShowsList mock above is bypassed via vi.importActual.
-describe('ArtistShowsList tabs (real Radix)', () => {
-  it('switches aria-selected between upcoming and past tabs on click', async () => {
-    const user = userEvent.setup()
-    const { ArtistShowsList: RealArtistShowsList } = await vi.importActual<
-      typeof import('./ArtistShowsList')
-    >('./ArtistShowsList')
-
-    renderWithProviders(<RealArtistShowsList artistId={42} />)
-
-    const upcomingTab = screen.getByRole('tab', { name: /upcoming/i })
-    const pastTab = screen.getByRole('tab', { name: /past shows/i })
-
-    // Upcoming tab is selected by default
-    expect(upcomingTab).toHaveAttribute('aria-selected', 'true')
-    expect(pastTab).toHaveAttribute('aria-selected', 'false')
-
-    // Click Past Shows → it becomes selected
-    await user.click(pastTab)
-    expect(pastTab).toHaveAttribute('aria-selected', 'true')
-    expect(upcomingTab).toHaveAttribute('aria-selected', 'false')
-
-    // Click back to Upcoming
-    await user.click(upcomingTab)
-    expect(upcomingTab).toHaveAttribute('aria-selected', 'true')
-    expect(pastTab).toHaveAttribute('aria-selected', 'false')
-  })
-})
+// PSY-644 removed ArtistShowsList's internal Upcoming/Past Radix tabs; the
+// pre-PSY-644 "switches aria-selected between upcoming and past tabs" test
+// has been retired. The new two-section structure (upcoming always visible,
+// past collapsed via `[Show]`/`[Hide]`) is covered in
+// features/artists/components/ArtistShowsList.test.tsx.

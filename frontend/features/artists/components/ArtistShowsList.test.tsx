@@ -2,53 +2,75 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { ArtistShow } from '../types'
+import type { ArtistShow, ArtistTimeFilter } from '../types'
 
-// Mock the artist shows hook
-const mockUseArtistShows = vi.fn()
+// Routes useArtistShows fetches by `timeFilter` so the test fixtures for
+// upcoming vs past can be set independently.
+const upcomingResult = {
+  data: undefined as { shows: ArtistShow[]; total: number } | undefined,
+  isLoading: false,
+  error: null as Error | null,
+}
+const pastResult = {
+  data: undefined as { shows: ArtistShow[]; total: number } | undefined,
+  isLoading: false,
+  error: null as Error | null,
+}
+
 vi.mock('../hooks/useArtists', () => ({
-  useArtistShows: (opts: unknown) => mockUseArtistShows(opts),
+  useArtistShows: ({ timeFilter }: { timeFilter: ArtistTimeFilter }) =>
+    timeFilter === 'past' ? pastResult : upcomingResult,
 }))
 
-// Mock CompactShowRow to avoid pulling in its dependencies
+// Identity passthrough — dedup behavior is exercised in features/shows/utils.test.ts.
 vi.mock('@/features/shows', () => ({
-  CompactShowRow: ({
-    show,
-  }: {
-    show: { id: number; title: string }
-  }) => (
-    <div data-testid={`show-row-${show.id}`}>{show.title}</div>
-  ),
-  SHOW_LIST_FEATURE_POLICY: {
-    discovery: {
-      showDetailsLink: true,
-      showSaveButton: true,
-      showExpandMusic: true,
-      showAdminActions: true,
-      showOwnerActions: true,
-      useCompactLayout: false,
-    },
-    ownership: {
-      showDetailsLink: true,
-      showSaveButton: true,
-      showExpandMusic: false,
-      showAdminActions: true,
-      showOwnerActions: true,
-      useCompactLayout: false,
-    },
-    context: {
-      showDetailsLink: true,
-      showSaveButton: false,
-      showExpandMusic: false,
-      showAdminActions: false,
-      showOwnerActions: false,
-      useCompactLayout: true,
-    },
-  },
-  // PSY-559: render-time dedup helper. Identity passthrough in tests
-  // keeps fixtures deterministic — dedup behaviour is exercised in
-  // features/shows/utils.test.ts.
   dedupArtistShows: <T,>(shows: T[]) => shows,
+}))
+
+// Lightweight shared primitive mocks — render plain elements with the props
+// the tests care about. Real implementations are unit-tested in their own
+// files; we just need inspectable wrappers here.
+vi.mock('@/components/shared', () => ({
+  BracketLink: ({
+    label,
+    onClick,
+  }: {
+    label: string
+    onClick?: () => void
+  }) => (
+    <button data-testid={`bracket-${label}`} onClick={onClick}>
+      [{label}]
+    </button>
+  ),
+  SectionHeader: ({
+    title,
+    action,
+  }: {
+    title: string
+    action?: React.ReactNode
+  }) => (
+    <div data-testid={`section-header-${title}`}>
+      <h2>{title}</h2>
+      {action}
+    </div>
+  ),
+  DenseTable: ({
+    children,
+    'aria-label': ariaLabel,
+  }: {
+    children: React.ReactNode
+    'aria-label'?: string
+  }) => (
+    <table data-testid={`densetable-${ariaLabel ?? 'unlabeled'}`} aria-label={ariaLabel}>
+      {children}
+    </table>
+  ),
+}))
+
+vi.mock('@/features/notifications', () => ({
+  NotifyMeButton: ({ entityName }: { entityName: string }) => (
+    <button data-testid="notify-me-button">Notify me about {entityName}</button>
+  ),
 }))
 
 import { ArtistShowsList } from './ArtistShowsList'
@@ -76,155 +98,111 @@ function makeShow(overrides: Partial<ArtistShow> = {}): ArtistShow {
   }
 }
 
-describe('ArtistShowsList', () => {
+function setUpcoming(data: { shows: ArtistShow[]; total?: number } | null, opts?: { isLoading?: boolean; error?: Error | null }) {
+  upcomingResult.data = data ? { shows: data.shows, total: data.total ?? data.shows.length } : undefined
+  upcomingResult.isLoading = opts?.isLoading ?? false
+  upcomingResult.error = opts?.error ?? null
+}
+
+function setPast(data: { shows: ArtistShow[]; total?: number } | null, opts?: { isLoading?: boolean; error?: Error | null }) {
+  pastResult.data = data ? { shows: data.shows, total: data.total ?? data.shows.length } : undefined
+  pastResult.isLoading = opts?.isLoading ?? false
+  pastResult.error = opts?.error ?? null
+}
+
+describe('ArtistShowsList — upcoming section', () => {
   beforeEach(() => {
-    vi.clearAllMocks()
-    mockUseArtistShows.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      error: null,
-    })
+    setUpcoming(null)
+    setPast(null)
   })
 
-  it('renders upcoming and past tabs', () => {
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    expect(screen.getByText('Upcoming')).toBeInTheDocument()
-    expect(screen.getByText('Past Shows')).toBeInTheDocument()
+  it('renders the Upcoming shows section header always', () => {
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    expect(screen.getByTestId('section-header-Upcoming shows')).toBeInTheDocument()
   })
 
-  it('defaults to the upcoming tab', () => {
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    // Upcoming tab should be active - the hook should be called with upcoming enabled
-    expect(mockUseArtistShows).toHaveBeenCalledWith(
-      expect.objectContaining({
-        timeFilter: 'upcoming',
-        enabled: true,
-      })
-    )
+  it('shows a loader while upcoming shows are loading', () => {
+    setUpcoming(null, { isLoading: true })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
-  it('shows loading spinner when loading', () => {
-    mockUseArtistShows.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      error: null,
-    })
-
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    // The loading spinner should be present (a Loader2 with animate-spin)
-    const spinner = document.querySelector('.animate-spin')
-    expect(spinner).toBeInTheDocument()
+  it('shows an error message when the upcoming fetch fails', () => {
+    setUpcoming(null, { error: new Error('boom') })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    expect(screen.getByText(/Failed to load shows/i)).toBeInTheDocument()
   })
 
-  it('shows error message on error', () => {
-    mockUseArtistShows.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      error: new Error('Failed'),
-    })
-
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    expect(screen.getByText('Failed to load shows')).toBeInTheDocument()
+  it('renders an inline [Notify me] affordance when there are no upcoming shows', () => {
+    setUpcoming({ shows: [] })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Just Mustard" />)
+    expect(screen.getByText(/No upcoming shows yet/i)).toBeInTheDocument()
+    expect(screen.getByTestId('notify-me-button')).toHaveTextContent('Just Mustard')
   })
 
-  it('shows empty state for no upcoming shows', () => {
-    mockUseArtistShows.mockReturnValue({
-      data: { shows: [], total: 0, artist_id: 42 },
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    expect(screen.getByText('No upcoming shows')).toBeInTheDocument()
+  it('renders upcoming shows as a DenseTable when data is present', () => {
+    setUpcoming({ shows: [makeShow()] })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    expect(screen.getByTestId('densetable-Upcoming shows')).toBeInTheDocument()
+    expect(screen.getByText('Test Venue')).toBeInTheDocument()
   })
 
-  it('renders shows when data available', () => {
-    const shows = [
-      makeShow({ id: 1, title: 'Show One' }),
-      makeShow({ id: 2, title: 'Show Two' }),
-    ]
-    mockUseArtistShows.mockReturnValue({
-      data: { shows, total: 2, artist_id: 42 },
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    expect(screen.getByTestId('show-row-1')).toBeInTheDocument()
-    expect(screen.getByTestId('show-row-2')).toBeInTheDocument()
+  it('shows the "Showing N of M" hint when results are truncated', () => {
+    setUpcoming({ shows: [makeShow()], total: 30 })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    expect(screen.getByText(/Showing 1 of 30 shows/)).toBeInTheDocument()
   })
 
-  it('switches to past tab on click', async () => {
+  it('filters the current artist out of the Bill column', () => {
+    setUpcoming({ shows: [makeShow()] })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Main Artist" />)
+    // Bill cell should mention The Opener but NOT Main Artist (artistId=42).
+    expect(screen.getByText('The Opener')).toBeInTheDocument()
+    expect(screen.queryByRole('link', { name: 'Main Artist' })).not.toBeInTheDocument()
+  })
+})
+
+describe('ArtistShowsList — past section', () => {
+  beforeEach(() => {
+    setUpcoming(null)
+    setPast(null)
+  })
+
+  it('omits the Past shows section entirely when there are 0 past shows', () => {
+    setPast({ shows: [] })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    expect(screen.queryByTestId('section-header-Past shows')).not.toBeInTheDocument()
+  })
+
+  it('renders the Past shows section header with a [Show] toggle when past shows exist', () => {
+    setPast({ shows: [makeShow({ id: 5, title: 'Past Show' })] })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    expect(screen.getByTestId('section-header-Past shows')).toBeInTheDocument()
+    expect(screen.getByTestId('bracket-Show')).toBeInTheDocument()
+  })
+
+  it('past shows body is collapsed by default', () => {
+    setPast({ shows: [makeShow({ id: 5, title: 'Past Show' })] })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    expect(screen.queryByTestId('densetable-Past shows')).not.toBeInTheDocument()
+  })
+
+  it('expands the past shows body when [Show] is clicked', async () => {
     const user = userEvent.setup()
-    // Return empty for both upcoming and past
-    mockUseArtistShows.mockReturnValue({
-      data: { shows: [], total: 0, artist_id: 42 },
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-
-    await user.click(screen.getByText('Past Shows'))
-
-    // After click, past tab hook should be called with enabled=true and upcoming with enabled=false
-    const calls = mockUseArtistShows.mock.calls
-    const lastCalls = calls.slice(-2)
-    const pastCall = lastCalls.find(
-      (c: unknown[]) => (c[0] as { timeFilter: string }).timeFilter === 'past'
-    )
-    expect(pastCall).toBeTruthy()
-    expect((pastCall![0] as { enabled: boolean }).enabled).toBe(true)
+    setPast({ shows: [makeShow({ id: 5, title: 'Past Show' })] })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    await user.click(screen.getByTestId('bracket-Show'))
+    expect(screen.getByTestId('densetable-Past shows')).toBeInTheDocument()
+    // Toggle label flips to [Hide].
+    expect(screen.getByTestId('bracket-Hide')).toBeInTheDocument()
   })
 
-  it('shows count indicator when there are more shows than displayed', () => {
-    const shows = [makeShow({ id: 1, title: 'Show One' })]
-    mockUseArtistShows.mockReturnValue({
-      data: { shows, total: 25, artist_id: 42 },
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    expect(screen.getByText('Showing 1 of 25 shows')).toBeInTheDocument()
-  })
-
-  it('does not show count indicator when all shows displayed', () => {
-    const shows = [makeShow({ id: 1, title: 'Show One' })]
-    mockUseArtistShows.mockReturnValue({
-      data: { shows, total: 1, artist_id: 42 },
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    expect(screen.queryByText(/Showing/)).not.toBeInTheDocument()
-  })
-
-  it('shows "No past shows" empty state on past tab', async () => {
+  it('collapses again when [Hide] is clicked', async () => {
     const user = userEvent.setup()
-    mockUseArtistShows.mockReturnValue({
-      data: { shows: [], total: 0, artist_id: 42 },
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<ArtistShowsList artistId={42} />)
-    await user.click(screen.getByText('Past Shows'))
-
-    expect(screen.getByText('No past shows')).toBeInTheDocument()
-  })
-
-  it('applies custom className', () => {
-    mockUseArtistShows.mockReturnValue({
-      data: { shows: [], total: 0, artist_id: 42 },
-      isLoading: false,
-      error: null,
-    })
-
-    const { container } = renderWithProviders(
-      <ArtistShowsList artistId={42} className="custom-class" />
-    )
-    expect(container.firstChild).toHaveClass('custom-class')
+    setPast({ shows: [makeShow({ id: 5, title: 'Past Show' })] })
+    renderWithProviders(<ArtistShowsList artistId={42} artistName="Test Artist" />)
+    await user.click(screen.getByTestId('bracket-Show'))
+    await user.click(screen.getByTestId('bracket-Hide'))
+    expect(screen.queryByTestId('densetable-Past shows')).not.toBeInTheDocument()
   })
 })

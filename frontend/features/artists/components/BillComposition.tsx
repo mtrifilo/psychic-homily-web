@@ -17,18 +17,28 @@ import Link from 'next/link'
 import { Network } from 'lucide-react'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Button } from '@/components/ui/button'
+import { BracketLink } from '@/components/shared/BracketLink'
 import { useArtistBillComposition } from '../hooks/useArtistBillComposition'
 import { ArtistGraphVisualization } from './ArtistGraph'
 import type { BillCoArtist } from '../types'
 
 interface BillCompositionProps {
   artistId: number
+  /**
+   * Start collapsed (PSY-644 dense main column). Renders only the
+   * `<h2>Bill composition</h2>` header with a `[Show]`/`[Hide]` toggle until
+   * expanded. The data fetch stays eager so the existing
+   * "hide-when-below-threshold" behavior still applies — collapsed-but-empty
+   * artists still disappear entirely.
+   */
+  defaultCollapsed?: boolean
 }
 
 const GRAPH_BREAKPOINT_PX = 640
 const MIN_GRAPH_NODES = 3
 
-export function BillComposition({ artistId }: BillCompositionProps) {
+export function BillComposition({ artistId, defaultCollapsed = false }: BillCompositionProps) {
+  const [open, setOpen] = useState(!defaultCollapsed)
   const [months, setMonths] = useState<0 | 12>(0)
   const { data, isLoading } = useArtistBillComposition({ artistId, months, enabled: artistId > 0 })
   const [showGraph, setShowGraph] = useState(false)
@@ -64,68 +74,82 @@ export function BillComposition({ artistId }: BillCompositionProps) {
   return (
     <div ref={containerRefCallback} className="mt-8 px-4 md:px-0">
       <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
-        <h2 className="text-lg font-semibold">Bill composition</h2>
-        <div className="flex items-center gap-2">
-          <Tabs
-            value={months === 0 ? 'all' : '12m'}
-            onValueChange={value => setMonths(value === 'all' ? 0 : 12)}
-          >
-            <TabsList>
-              <TabsTrigger value="all">All time</TabsTrigger>
-              <TabsTrigger value="12m">Last 12 months</TabsTrigger>
-            </TabsList>
-          </Tabs>
-          {graphAvailable && (
-            <Button
-              variant={showGraph ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShowGraph(!showGraph)}
-            >
-              <Network className="h-4 w-4 mr-1.5" />
-              {showGraph ? 'Hide graph' : 'Explore graph'}
-            </Button>
+        <div className="flex items-baseline gap-3">
+          <h2 className="text-lg font-semibold">Bill composition</h2>
+          {defaultCollapsed && (
+            <BracketLink
+              label={open ? 'Hide' : 'Show'}
+              onClick={() => setOpen(!open)}
+            />
           )}
         </div>
+        {open && (
+          <div className="flex items-center gap-2">
+            <Tabs
+              value={months === 0 ? 'all' : '12m'}
+              onValueChange={value => setMonths(value === 'all' ? 0 : 12)}
+            >
+              <TabsList>
+                <TabsTrigger value="all">All time</TabsTrigger>
+                <TabsTrigger value="12m">Last 12 months</TabsTrigger>
+              </TabsList>
+            </Tabs>
+            {graphAvailable && (
+              <Button
+                variant={showGraph ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => setShowGraph(!showGraph)}
+              >
+                <Network className="h-4 w-4 mr-1.5" />
+                {showGraph ? 'Hide graph' : 'Explore graph'}
+              </Button>
+            )}
+          </div>
+        )}
       </div>
 
-      <p className="text-sm text-muted-foreground mb-4">
-        {data.stats.total_shows} {data.stats.total_shows === 1 ? 'show' : 'shows'}
-        {' · '}
-        {data.stats.headliner_count} as headliner
-        {' · '}
-        {data.stats.opener_count} as opener
-      </p>
+      {open && (
+        <>
+          <p className="text-sm text-muted-foreground mb-4">
+            {data.stats.total_shows} {data.stats.total_shows === 1 ? 'show' : 'shows'}
+            {' · '}
+            {data.stats.headliner_count} as headliner
+            {' · '}
+            {data.stats.opener_count} as opener
+          </p>
 
-      {showGraph && graphAvailable && (
-        <div className="mb-6">
-          <ArtistGraphVisualization
-            data={data.graph}
-            activeTypes={new Set(['shared_bills'])}
-            containerWidth={containerWidth!}
-          />
-        </div>
+          {showGraph && graphAvailable && (
+            <div className="mb-6">
+              <ArtistGraphVisualization
+                data={data.graph}
+                activeTypes={new Set(['shared_bills'])}
+                containerWidth={containerWidth!}
+              />
+            </div>
+          )}
+
+          <div className="grid md:grid-cols-2 gap-6">
+            <BillCoArtistTable
+              title="Opens with"
+              rows={data.opens_with}
+              emptyText={
+                months === 12
+                  ? 'No opening acts in the last 12 months.'
+                  : "Hasn't shared a bill with an opening act yet."
+              }
+            />
+            <BillCoArtistTable
+              title="Closes with"
+              rows={data.closes_with}
+              emptyText={
+                months === 12
+                  ? "Hasn't opened for anyone in the last 12 months."
+                  : "Hasn't opened for anyone yet."
+              }
+            />
+          </div>
+        </>
       )}
-
-      <div className="grid md:grid-cols-2 gap-6">
-        <BillCoArtistTable
-          title="Opens with"
-          rows={data.opens_with}
-          emptyText={
-            months === 12
-              ? 'No opening acts in the last 12 months.'
-              : "Hasn't shared a bill with an opening act yet."
-          }
-        />
-        <BillCoArtistTable
-          title="Closes with"
-          rows={data.closes_with}
-          emptyText={
-            months === 12
-              ? "Hasn't opened for anyone in the last 12 months."
-              : "Hasn't opened for anyone yet."
-          }
-        />
-      </div>
     </div>
   )
 }

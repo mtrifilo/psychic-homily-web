@@ -204,3 +204,45 @@ describe('BillComposition', () => {
     expect(screen.getByText("Hasn't opened for anyone yet.")).toBeInTheDocument()
   })
 })
+
+describe('BillComposition — defaultCollapsed (PSY-644)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const originalResizeObserver = (window as any).ResizeObserver
+
+  beforeEach(() => {
+    setMockContainerWidth(1024)
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).ResizeObserver = ImmediateResizeObserver
+  })
+
+  afterEach(() => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).ResizeObserver = originalResizeObserver
+  })
+
+  it('renders only the header with a [Show] toggle when defaultCollapsed', () => {
+    renderWithProviders(<BillComposition artistId={1} defaultCollapsed />)
+    expect(screen.getByRole('heading', { name: 'Bill composition' })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument()
+    // Stats line + opens-with rows hidden while collapsed.
+    expect(screen.queryByText(/as headliner/)).not.toBeInTheDocument()
+    expect(screen.queryByText('Frozen Soul')).not.toBeInTheDocument()
+  })
+
+  it('reveals the body when the [Show] toggle is clicked', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<BillComposition artistId={1} defaultCollapsed />)
+    await user.click(screen.getByRole('button', { name: 'Show' }))
+    expect(screen.getByText(/as headliner/)).toBeInTheDocument()
+    expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
+    // Toggle label flips to [Hide].
+    expect(screen.getByRole('button', { name: 'Hide' })).toBeInTheDocument()
+  })
+
+  it('without defaultCollapsed, renders body eagerly (pre-PSY-644 behavior)', () => {
+    renderWithProviders(<BillComposition artistId={1} />)
+    expect(screen.getByText(/as headliner/)).toBeInTheDocument()
+    expect(screen.getByText('Frozen Soul')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Show' })).not.toBeInTheDocument()
+  })
+})
