@@ -46,7 +46,7 @@ import {
   DenseTableGroupHeader,
 } from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
-import { EntityTagList } from '@/features/tags'
+import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
@@ -316,10 +316,9 @@ function ArtistSidebar({
         onOpenGraph={onOpenGraph}
       />
 
-      {/* Tags — EntityTagList renders its own header + empty state. Not
-          wrapped in SectionHeader (it owns its header); its "No tags yet"
-          empty state is left for PSY-643 (empty-state audit), since fixing
-          it means touching a component shared by 4 other entity pages. */}
+      {/* Tags — EntityTagList renders its own header. PSY-654 hides the
+          whole component when no tags exist; the [Add tag] linkbox entry
+          below owns the affordance for tagless artists. */}
       <EntityTagList
         entityType="artist"
         entityId={artist.id}
@@ -829,6 +828,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
+  const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
   // Graph Dialog open state — reactive to the `#graph` URL hash (PSY-361
   // shareable graph URLs still work) AND user toggles (header [Graph] link,
   // sidebar [Explore graph], close button). User intent sticks once set.
@@ -941,6 +941,12 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         <BracketLink
           label={canEditDirectly ? 'Edit' : 'Suggest edit'}
           onClick={() => setIsEditing(true)}
+        />
+      )}
+      {isAuthenticated && (
+        <BracketLink
+          label="Add tag"
+          onClick={() => setAddTagDialogOpen(true)}
         />
       )}
       <BracketLink label="Graph" onClick={openGraphDialog} />
@@ -1076,6 +1082,15 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           entityType="artist"
           entityId={artist.id}
           entityName={artist.name}
+        />
+      )}
+
+      {isAuthenticated && (
+        <AddTagDialog
+          entityType="artist"
+          entityId={artist.id}
+          open={addTagDialogOpen}
+          onOpenChange={setAddTagDialogOpen}
         />
       )}
     </>

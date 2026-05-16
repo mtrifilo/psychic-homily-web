@@ -1,4 +1,5 @@
-export { EntityTagList } from './EntityTagList'
+export { EntityTagList, AddTagDialog } from './EntityTagList'
+export type { AddTagDialogProps } from './EntityTagList'
 export { TagBrowse } from './TagBrowse'
 export { TagDetail } from './TagDetail'
 export { TagOfficialIndicator } from './TagOfficialIndicator'

@@ -139,7 +139,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
   }),
 }))
 
-import { EntityTagList } from './EntityTagList'
+import { EntityTagList, AddTagDialog } from './EntityTagList'
 
 describe('EntityTagList add-tag dialog accessibility', () => {
   beforeEach(() => {
@@ -1180,12 +1180,12 @@ describe('EntityTagList mobile collapsible Sheet', () => {
   })
 })
 
-// PSY-481: zero-tag entities used to render nothing (early-return), which
-// hid the entire TAGS section + add CTA on every untagged entity. The
-// wrapper now always renders so logged-out users see a muted empty-state
-// line and logged-in users get a "+ Add the first tag" CTA — the cheapest
-// possible widening of the contributor funnel on sparse entities.
-describe('EntityTagList zero-tag empty state (PSY-481)', () => {
+// PSY-654: hide-when-empty supersedes the PSY-481 muted empty-state.
+// The audit found the always-on TAGS heading + empty CTA was the highest-
+// volume empty-state surface — visible on every untagged entity across 5
+// pages. Policy is now: render nothing when tags.length === 0; the
+// per-page bracket linkbox owns the [Add tag] affordance.
+describe('EntityTagList zero-tag hide-when-empty (PSY-654)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     currentMockTags = { tags: [] }
@@ -1194,83 +1194,47 @@ describe('EntityTagList zero-tag empty state (PSY-481)', () => {
     mockAddMutationError = null
   })
 
-  it('renders the TAGS heading + muted empty state for logged-out users (no CTA)', () => {
-    renderWithProviders(
+  it('renders nothing for logged-out users on a zero-tag entity', () => {
+    const { container } = renderWithProviders(
       <EntityTagList entityType="venue" entityId={1} isAuthenticated={false} />
     )
 
-    // The heading is now always rendered — confirms the wrapper no longer
-    // disappears on (zero tags + logged-out).
+    expect(container).toBeEmptyDOMElement()
     expect(
-      screen.getByRole('heading', { level: 3, name: /tags/i })
-    ).toBeInTheDocument()
-
-    // Muted empty-state line is visible.
-    const empty = screen.getByTestId('entity-tag-list-empty')
-    expect(empty).toHaveTextContent('No tags yet.')
-
-    // No add affordance for anonymous visitors — neither the heading-row
-    // chip nor the empty-state CTA.
-    expect(
-      screen.queryByRole('button', { name: 'Add tag' })
+      screen.queryByRole('heading', { level: 3, name: /tags/i })
     ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('entity-tag-list-empty')
+    ).not.toBeInTheDocument()
+  })
+
+  it('renders nothing for logged-in users on a zero-tag entity', () => {
+    const { container } = renderWithProviders(
+      <EntityTagList entityType="venue" entityId={1} isAuthenticated />
+    )
+
+    // The per-page bracket linkbox owns the [Add tag] affordance —
+    // EntityTagList no longer renders its own empty-state CTA.
+    expect(container).toBeEmptyDOMElement()
     expect(
       screen.queryByTestId('entity-tag-list-empty-add-cta')
     ).not.toBeInTheDocument()
-  })
-
-  it('renders the "+ Add the first tag" CTA for logged-in users on a zero-tag entity', () => {
-    renderWithProviders(
-      <EntityTagList entityType="venue" entityId={1} isAuthenticated />
-    )
-
-    // Heading + muted line still render.
     expect(
-      screen.getByRole('heading', { level: 3, name: /tags/i })
-    ).toBeInTheDocument()
-    expect(screen.getByTestId('entity-tag-list-empty')).toHaveTextContent(
-      'No tags yet.'
-    )
-
-    // The CTA is visible with both the testid and an accessible aria-label
-    // so the funnel-widening signal can be analytics-tracked separately
-    // from the always-on heading-row "Add" chip.
-    const cta = screen.getByTestId('entity-tag-list-empty-add-cta')
-    expect(cta).toBeInTheDocument()
-    expect(cta).toHaveAttribute('aria-label', 'Add the first tag')
-    expect(cta).toHaveTextContent(/Add the first tag/i)
+      screen.queryByRole('button', { name: /add the first tag/i })
+    ).not.toBeInTheDocument()
   })
 
-  it('opens the add-tag dialog when the "+ Add the first tag" CTA is clicked', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(
-      <EntityTagList entityType="venue" entityId={1} isAuthenticated />
-    )
-
-    await user.click(screen.getByTestId('entity-tag-list-empty-add-cta'))
-
-    // The same Add Tag dialog instance opens — proves the empty-state CTA
-    // shares the existing portal/state and doesn't fork the dialog tree.
-    await waitFor(() => {
-      expect(screen.getByRole('dialog')).toBeInTheDocument()
-    })
-    expect(screen.getByText('Add Tag')).toBeInTheDocument()
-  })
-
-  it('does not render the empty-state pill row when at least one tag exists', () => {
+  it('renders the section when at least one tag exists', () => {
     currentMockTags = mockEntityTags // 2 tags
     renderWithProviders(
       <EntityTagList entityType="artist" entityId={1} isAuthenticated />
     )
 
-    // Empty-state container is suppressed once any tag is applied — keeps
-    // the rich-tag layout untouched on entities like festival viva-phx-2026
-    // and artist faetooth.
+    expect(
+      screen.getByRole('heading', { level: 3, name: /tags/i })
+    ).toBeInTheDocument()
     expect(
       screen.queryByTestId('entity-tag-list-empty')
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByTestId('entity-tag-list-empty-add-cta')
     ).not.toBeInTheDocument()
   })
 })
@@ -1529,5 +1493,91 @@ describe('EntityTagList tag pill two-tap on touch devices (PSY-498)', () => {
     } finally {
       document.removeEventListener('click', docListener)
     }
+  })
+})
+
+// PSY-654: AddTagDialog is the standalone Dialog wrapper consumed by per-page
+// bracket linkboxes (ArtistDetail [Add tag], and later PSY-655–658). It mirrors
+// the dialog EntityTagList opens via its internal "+ Add" chip, but is
+// controllable from outside so a tagless entity can still expose the
+// affordance after EntityTagList itself hides.
+describe('AddTagDialog standalone (PSY-654)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    currentMockTags = { tags: [] }
+    currentMockSearchTags = defaultMockSearchTags
+    mockAuthUser = { user_tier: 'contributor' }
+    mockAddMutationError = null
+  })
+
+  it('renders nothing when open is false', () => {
+    renderWithProviders(
+      <AddTagDialog
+        entityType="artist"
+        entityId={1}
+        open={false}
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    expect(screen.queryByText('Add Tag')).not.toBeInTheDocument()
+  })
+
+  it('renders the Add Tag dialog when open', () => {
+    renderWithProviders(
+      <AddTagDialog
+        entityType="artist"
+        entityId={1}
+        open={true}
+        onOpenChange={vi.fn()}
+      />
+    )
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(screen.getByText('Add Tag')).toBeInTheDocument()
+  })
+
+  it('calls onOpenChange(false) after a successful add', async () => {
+    const onOpenChange = vi.fn()
+    const user = userEvent.setup()
+    // The default mock returns 'punk' for any search; override to empty so
+    // the form surfaces the Create button instead of an existing match.
+    currentMockSearchTags = { tags: [] }
+    // Make the mutation invoke the onSuccess callback so AddTagDialog can
+    // close itself the same way EntityTagList's internal dialog does.
+    mockAddMutate.mockImplementation(
+      (
+        _vars: unknown,
+        opts?: { onSuccess?: () => void }
+      ) => {
+        opts?.onSuccess?.()
+      }
+    )
+
+    renderWithProviders(
+      <AddTagDialog
+        entityType="artist"
+        entityId={1}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    // Type a tag name + click Create using the form the dialog renders.
+    const input = screen.getByPlaceholderText('Search tags or type a new one...')
+    await user.type(input, 'doom')
+
+    await waitFor(() => {
+      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
+    })
+
+    await user.click(
+      screen.getByRole('button', { name: /Create "doom"/ })
+    )
+
+    await waitFor(() => {
+      expect(onOpenChange).toHaveBeenCalledWith(false)
+    })
   })
 })

@@ -44,6 +44,45 @@ interface EntityTagListProps {
   isAuthenticated?: boolean
 }
 
+/**
+ * Controlled add-tag Dialog. Pages can mount this at page level so a header
+ * `[Add tag]` BracketLink (or any other affordance) can trigger the add flow
+ * even when `EntityTagList` is hidden (PSY-654 hides the list on tagless
+ * entities). Fetches existing tag IDs via `useEntityTags` — same query key as
+ * the list, so it cache-hits when both are mounted.
+ */
+export interface AddTagDialogProps {
+  entityType: string
+  entityId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function AddTagDialog({
+  entityType,
+  entityId,
+  open,
+  onOpenChange,
+}: AddTagDialogProps) {
+  const { data } = useEntityTags(entityType, entityId)
+  const existingTagIds = (data?.tags ?? []).map(t => t.tag_id)
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>Add Tag</DialogTitle>
+        </DialogHeader>
+        <AddTagForm
+          entityType={entityType}
+          entityId={entityId}
+          existingTagIds={existingTagIds}
+          onSuccess={() => onOpenChange(false)}
+        />
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 // Desktop collapses after 5 pills (preserves pre-PSY-460 behavior). Mobile
 // collapses much earlier and defers the rest to a Sheet — 3 pills is the
 // sweet spot at 320-414px where a typical pill (~60-120px wide including
@@ -84,16 +123,10 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
     )
   }
 
-  // PSY-481: previously this returned null for the (zero tags + logged-out)
-  // case, which hid the entire TAGS section on every untagged entity. The
-  // wrapper now always renders so:
-  //   • logged-out users see a muted "No tags yet." one-liner — they get a
-  //     visible signal that tagging is supported on this entity, and the
-  //     detail-page layout no longer collapses on sparse entities.
-  //   • logged-in users see the same empty-state line plus a
-  //     "+ Add the first tag" CTA that opens the existing add-tag dialog
-  //     (the existing-tag application path works for every tier; only
-  //     creating brand-new tag terms is gated — PSY-483).
+  // Hide the section on tagless entities; the per-page header linkbox owns
+  // the [Add tag] affordance via the exported `<AddTagDialog>`.
+  if (tags.length === 0) return null
+
   const handleVote = (tag: EntityTag, isUpvote: boolean) => {
     if (!isAuthenticated) return
     const currentVote = tag.user_vote ?? 0
@@ -150,93 +183,66 @@ export function EntityTagList({ entityType, entityId, isAuthenticated }: EntityT
 
       {addTagDialog}
 
-      {tags.length === 0 ? (
-        // PSY-481 — render an empty-state row that reads as a muted one-liner
-        // for logged-out users and adds a visible "+ Add the first tag" CTA
-        // for logged-in users. The CTA reuses the same Dialog instance as the
-        // chip next to the heading, so there's only ever one Radix portal.
-        <div
-          className="flex flex-wrap items-center gap-2"
-          data-testid="entity-tag-list-empty"
-        >
-          <p className="text-sm text-muted-foreground">No tags yet.</p>
-          {isAuthenticated && (
-            <button
-              onClick={() => setAddDialogOpen(true)}
-              data-testid="entity-tag-list-empty-add-cta"
-              className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              aria-label="Add the first tag"
-            >
-              <Plus className="h-3 w-3" />
-              Add the first tag
-            </button>
-          )}
-        </div>
-      ) : (
-        <>
-          {/* Mobile: first N pills + "Show all" chip that opens a Sheet.
-              Hidden at >=sm where the desktop top-5 cap takes over. */}
-          <div
-            className="flex flex-wrap gap-2 items-center sm:hidden"
-            data-testid="entity-tag-list-mobile-row"
+      {/* Mobile: first N pills + "Show all" chip that opens a Sheet.
+          Hidden at >=sm where the desktop top-5 cap takes over. */}
+      <div
+        className="flex flex-wrap gap-2 items-center sm:hidden"
+        data-testid="entity-tag-list-mobile-row"
+      >
+        {mobileVisibleTags.map(tag => (
+          <TagWithVotes
+            key={tag.tag_id}
+            tag={tag}
+            isAuthenticated={isAuthenticated}
+            onVote={handleVote}
+          />
+        ))}
+        {hasMoreMobile && (
+          <button
+            onClick={() => setSheetOpen(true)}
+            data-testid="entity-tag-list-mobile-show-all"
+            className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
+            aria-label={`Show all ${sortedTags.length} tags`}
           >
-            {mobileVisibleTags.map(tag => (
-              <TagWithVotes
-                key={tag.tag_id}
-                tag={tag}
-                isAuthenticated={isAuthenticated}
-                onVote={handleVote}
-              />
-            ))}
-            {hasMoreMobile && (
-              <button
-                onClick={() => setSheetOpen(true)}
-                data-testid="entity-tag-list-mobile-show-all"
-                className="inline-flex items-center gap-1 rounded-full border border-dashed border-border px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-                aria-label={`Show all ${sortedTags.length} tags`}
-              >
-                <MoreHorizontal className="h-3 w-3" />
-                Show all tags ({hiddenMobileCount} more)
-              </button>
-            )}
-          </div>
+            <MoreHorizontal className="h-3 w-3" />
+            Show all tags ({hiddenMobileCount} more)
+          </button>
+        )}
+      </div>
 
-          {/* Desktop: unchanged from pre-PSY-460 — top 5 with inline
-              expand/collapse. Hidden on narrow viewports where the Sheet
-              flow takes over. */}
-          <div
-            className="hidden sm:flex flex-wrap gap-2 items-center"
-            data-testid="entity-tag-list-desktop-row"
+      {/* Desktop: top 5 with inline expand/collapse. Hidden on narrow
+          viewports where the Sheet flow takes over. */}
+      <div
+        className="hidden sm:flex flex-wrap gap-2 items-center"
+        data-testid="entity-tag-list-desktop-row"
+      >
+        {desktopVisibleTags.map(tag => (
+          <TagWithVotes
+            key={tag.tag_id}
+            tag={tag}
+            isAuthenticated={isAuthenticated}
+            onVote={handleVote}
+          />
+        ))}
+        {hasMoreDesktop && (
+          <button
+            onClick={() => setExpanded(!expanded)}
+            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
           >
-            {desktopVisibleTags.map(tag => (
-              <TagWithVotes
-                key={tag.tag_id}
-                tag={tag}
-                isAuthenticated={isAuthenticated}
-                onVote={handleVote}
-              />
-            ))}
-            {hasMoreDesktop && (
-              <button
-                onClick={() => setExpanded(!expanded)}
-                className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs text-muted-foreground hover:text-foreground hover:bg-muted transition-colors"
-              >
-                {expanded ? (
-                  <>
-                    <ChevronUp className="h-3 w-3" />
-                    Show less
-                  </>
-                ) : (
-                  <>
-                    <ChevronDown className="h-3 w-3" />
-                    Show {hiddenDesktopCount} more
-                  </>
-                )}
-              </button>
+            {expanded ? (
+              <>
+                <ChevronUp className="h-3 w-3" />
+                Show less
+              </>
+            ) : (
+              <>
+                <ChevronDown className="h-3 w-3" />
+                Show {hiddenDesktopCount} more
+              </>
             )}
-          </div>
-        </>
-      )}
+          </button>
+        )}
+      </div>
 
       <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
         <SheetContent
