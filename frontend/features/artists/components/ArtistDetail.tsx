@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import {
   ArrowLeft,
   Loader2,
@@ -11,7 +11,6 @@ import {
   X,
   Check,
   AlertCircle,
-  Disc3,
 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
 import { useArtist } from '../hooks/useArtists'
@@ -43,6 +42,8 @@ import {
   BracketLink,
   SectionHeader,
   StatsList,
+  DenseTable,
+  DenseTableGroupHeader,
 } from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList } from '@/features/tags'
@@ -57,7 +58,6 @@ import { BillComposition } from './BillComposition'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { Badge } from '@/components/ui/badge'
 import { getReleaseTypeLabel } from '@/features/releases/types'
 import type { ArtistReleaseListItem } from '@/features/releases/types'
 import type { ArtistLabel } from '@/features/labels/types'
@@ -66,56 +66,30 @@ interface ArtistDetailProps {
   artistId: string | number
 }
 
-// --- Discography Tab ---
+// --- Discography ---
 
-interface DiscographySectionProps {
-  title: string
-  releases: ArtistReleaseListItem[]
-}
-
-function DiscographySection({ title, releases }: DiscographySectionProps) {
-  if (releases.length === 0) return null
-
-  return (
-    <div className="mb-6">
-      <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-        {title}
-      </h3>
-      <div className="space-y-2">
-        {releases.map(release => (
-          <Link
-            key={release.id}
-            href={`/releases/${release.slug}`}
-            className="flex items-center gap-3 p-2 rounded-md hover:bg-muted/50 transition-colors group"
-          >
-            <div className="w-10 h-10 bg-muted rounded flex-shrink-0 flex items-center justify-center">
-              {release.cover_art_url ? (
-                <img
-                  src={release.cover_art_url}
-                  alt={release.title}
-                  className="w-10 h-10 rounded object-cover"
-                />
-              ) : (
-                <Disc3 className="h-5 w-5 text-muted-foreground" />
-              )}
-            </div>
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium group-hover:text-foreground truncate">
-                {release.title}
-              </p>
-              <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
-                  {getReleaseTypeLabel(release.release_type)}
-                </Badge>
-                {release.release_year && <span>{release.release_year}</span>}
-              </div>
-            </div>
-          </Link>
-        ))}
-      </div>
-    </div>
-  )
-}
+// Gazelle-style ~10 buckets, mapped to PH's release_type + ArtistRelease.role
+// enums. "Soundtracks" from the spec's option list is dropped (no PH
+// release_type) and an "Other Releases" catch-all handles main-role rows
+// that aren't lp/ep/single/compilation (e.g. live, demo). Empty buckets
+// don't render; the whole section hides when 0 releases.
+const MAIN_NAMED_TYPES = new Set(['lp', 'ep', 'single', 'compilation'])
+const DISCOGRAPHY_BUCKETS: ReadonlyArray<{
+  key: string
+  label: string
+  match: (r: ArtistReleaseListItem) => boolean
+}> = [
+  { key: 'albums', label: 'Albums', match: r => r.role === 'main' && r.release_type === 'lp' },
+  { key: 'eps', label: 'EPs', match: r => r.role === 'main' && r.release_type === 'ep' },
+  { key: 'singles', label: 'Singles', match: r => r.role === 'main' && r.release_type === 'single' },
+  { key: 'compilations', label: 'Compilations', match: r => r.role === 'main' && r.release_type === 'compilation' },
+  { key: 'other_main', label: 'Other Releases', match: r => r.role === 'main' && !MAIN_NAMED_TYPES.has(r.release_type) },
+  { key: 'guest', label: 'Guest Appearances', match: r => r.role === 'featured' },
+  { key: 'remixes', label: 'Remixes', match: r => r.role === 'remixer' },
+  { key: 'dj', label: 'DJ Mixes', match: r => r.role === 'dj' },
+  { key: 'production', label: 'Production', match: r => r.role === 'producer' },
+  { key: 'composition', label: 'Composition', match: r => r.role === 'composer' },
+]
 
 function DiscographyTab({ artistIdOrSlug }: { artistIdOrSlug: string | number }) {
   const { data, isLoading, error } = useArtistReleases({ artistIdOrSlug })
@@ -136,45 +110,72 @@ function DiscographyTab({ artistIdOrSlug }: { artistIdOrSlug: string | number })
     )
   }
 
-  if (!data?.releases || data.releases.length === 0) {
-    return (
-      <div className="py-8 text-center text-sm text-muted-foreground">
-        No releases yet
-      </div>
-    )
-  }
+  // Hide the whole section when empty — primary content sections in the
+  // redesign hide entirely rather than render an apologetic empty state
+  // (the only exception is upcoming shows, where the empty state has an
+  // action affordance).
+  if (!data?.releases || data.releases.length === 0) return null
 
-  // Group releases by role category
-  const albumsAndEPs = data.releases.filter(
-    r => r.role === 'main' && (r.release_type === 'lp' || r.release_type === 'ep')
-  )
-  const singles = data.releases.filter(
-    r => r.role === 'main' && r.release_type === 'single'
-  )
-  const otherMain = data.releases.filter(
-    r =>
-      r.role === 'main' &&
-      r.release_type !== 'lp' &&
-      r.release_type !== 'ep' &&
-      r.release_type !== 'single'
-  )
-  const appearsOn = data.releases.filter(r => r.role === 'featured')
-  const production = data.releases.filter(
-    r =>
-      r.role === 'producer' ||
-      r.role === 'remixer' ||
-      r.role === 'composer' ||
-      r.role === 'dj'
-  )
+  const groups = DISCOGRAPHY_BUCKETS.map(b => ({
+    ...b,
+    releases: data.releases.filter(b.match),
+  })).filter(g => g.releases.length > 0)
+
+  if (groups.length === 0) return null
 
   return (
-    <div>
-      <DiscographySection title="Albums & EPs" releases={albumsAndEPs} />
-      <DiscographySection title="Singles" releases={singles} />
-      <DiscographySection title="Other Releases" releases={otherMain} />
-      <DiscographySection title="Appears On" releases={appearsOn} />
-      <DiscographySection title="Production" releases={production} />
-    </div>
+    <section>
+      <SectionHeader title="Discography" as="h2" size="md" />
+      <DenseTable variant="alternating" aria-label="Discography">
+        <thead>
+          <tr>
+            <th>Title</th>
+            <th className="text-right">Year</th>
+            <th>Type</th>
+            <th>Label</th>
+          </tr>
+        </thead>
+        <tbody>
+          {groups.map(g => (
+            <Fragment key={g.key}>
+              <DenseTableGroupHeader title={g.label} colSpan={4} />
+              {g.releases.map(r => (
+                <tr key={`${r.id}-${r.role}`}>
+                  <td>
+                    <Link
+                      href={`/releases/${r.slug}`}
+                      className="hover:text-primary underline-offset-2 hover:underline"
+                    >
+                      {r.title}
+                    </Link>
+                  </td>
+                  <td className="text-right text-muted-foreground">
+                    {r.release_year ?? '—'}
+                  </td>
+                  <td className="text-muted-foreground">
+                    {getReleaseTypeLabel(r.release_type)}
+                  </td>
+                  <td className="text-muted-foreground">
+                    {r.label_name && r.label_slug ? (
+                      <Link
+                        href={`/labels/${r.label_slug}`}
+                        className="hover:text-foreground hover:underline"
+                      >
+                        {r.label_name}
+                      </Link>
+                    ) : r.label_name ? (
+                      r.label_name
+                    ) : (
+                      '—'
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </Fragment>
+          ))}
+        </tbody>
+      </DenseTable>
+    </section>
   )
 }
 
@@ -958,18 +959,14 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           />
         }
       >
-        {/* Single-scroll main column — no tabs. Order follows the spec:
-            shows → discography → bills → festival trajectory → bio →
-            admin music controls → revision history → discussion.
-            (docs/features/artist-page-redesign.md) */}
         <div className="space-y-8">
-          <ArtistShowsList artistId={artist.id} />
+          <ArtistShowsList artistId={artist.id} artistName={artist.name} />
 
           <DiscographyTab artistIdOrSlug={artistId} />
 
-          <BillComposition artistId={artist.id} />
+          <BillComposition artistId={artist.id} defaultCollapsed />
 
-          <ArtistTrajectoryChart artistIdOrSlug={artist.id} />
+          <ArtistTrajectoryChart artistIdOrSlug={artist.id} defaultCollapsed />
 
           <EntityDescription
             description={artist.description}
