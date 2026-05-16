@@ -53,8 +53,9 @@ import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
-import { RelatedArtists } from './RelatedArtists'
+import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
 import { BillComposition } from './BillComposition'
+import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Alert, AlertDescription } from '@/components/ui/alert'
@@ -255,11 +256,13 @@ function ArtistSidebar({
   labels,
   labelsLoading,
   isAuthenticated,
+  onOpenGraph,
 }: {
   artist: Artist
   labels: ArtistLabel[]
   labelsLoading: boolean
   isAuthenticated: boolean
+  onOpenGraph: () => void
 }) {
   const { data: aliasesData } = useArtistAliases(artist.id)
   const aliases = aliasesData?.aliases ?? []
@@ -303,6 +306,15 @@ function ArtistSidebar({
           <StatsList items={statsItems} />
         </section>
       )}
+
+      {/* Similar artists — dense list + [Explore graph] affordance (opens
+          the page-level Dialog). Self-hides when there are no relationships
+          AND the viewer can't contribute. */}
+      <ArtistSimilarSidebar
+        artistId={artist.id}
+        artistSlug={artist.slug}
+        onOpenGraph={onOpenGraph}
+      />
 
       {/* Tags — EntityTagList renders its own header + empty state. Not
           wrapped in SectionHeader (it owns its header); its "No tags yet"
@@ -817,6 +829,24 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
+  // Graph Dialog open state — reactive to the `#graph` URL hash (PSY-361
+  // shareable graph URLs still work) AND user toggles (header [Graph] link,
+  // sidebar [Explore graph], close button). User intent sticks once set.
+  const hash = useUrlHash()
+  const [graphDialogUserToggle, setGraphDialogUserToggle] = useState<
+    boolean | null
+  >(null)
+  const graphDialogOpen = graphDialogUserToggle ?? hash === GRAPH_HASH
+
+  // Open the Dialog AND push `#graph` to the URL so the page is shareable
+  // (matches pre-PSY-645 behavior of the inline graph). `replaceState` to
+  // avoid creating an extra history entry per open.
+  const openGraphDialog = () => {
+    if (typeof window !== 'undefined' && window.location.hash !== '#graph') {
+      window.history.replaceState(null, '', '#graph')
+    }
+    setGraphDialogUserToggle(true)
+  }
   const saveBanner = useEntitySaveSuccessBanner()
 
   // Fetch labels for sidebar
@@ -913,7 +943,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
           onClick={() => setIsEditing(true)}
         />
       )}
-      <BracketLink label="Graph" href="#graph" />
+      <BracketLink label="Graph" onClick={openGraphDialog} />
       {isAuthenticated && (
         <BracketLink
           label="Report"
@@ -956,6 +986,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             labels={labels}
             labelsLoading={labelsLoading}
             isAuthenticated={!!isAuthenticated}
+            onOpenGraph={openGraphDialog}
           />
         }
       >
@@ -1003,10 +1034,16 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         </div>
       </EntityDetailLayout>
 
-      {/* Related Artists — stays full-width below the layout for slice A;
-          moves into the sidebar as a dense list + graph-thumbnail modal in
-          PSY-645. The [Graph] header link targets this section's #graph hash. */}
-      <RelatedArtists artistId={artist.id} artistSlug={artist.slug} />
+      {/* Graph Dialog — opened by the header [Graph] link, the sidebar
+          [Explore graph] link, or the #graph URL hash (PSY-361 shareable
+          graph URLs preserved). Hosts the full re-centering graph. */}
+      <ArtistGraphDialog
+        artistId={artist.id}
+        artistSlug={artist.slug}
+        artistName={artist.name}
+        open={graphDialogOpen}
+        onOpenChange={setGraphDialogUserToggle}
+      />
 
       {/* Edit Drawer (all authenticated users) */}
       {isAuthenticated && (

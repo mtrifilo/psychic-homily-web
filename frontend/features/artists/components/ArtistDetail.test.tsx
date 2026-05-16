@@ -343,7 +343,11 @@ describe('ArtistDetail', () => {
       expect(headerActions).toHaveTextContent('Follow')
       expect(headerActions).toHaveTextContent('Notify')
       expect(headerActions).toHaveTextContent('Add to collection')
-      expect(screen.getByTestId('bracket-Graph')).toHaveAttribute('href', '#graph')
+      // [Graph] is a button that opens the page-level Dialog (PSY-645).
+      // The legacy href="#graph" auto-open still works via the parent's
+      // useUrlHash → graphDialogOpen plumbing, but the link itself no
+      // longer renders as an anchor.
+      expect(screen.getByTestId('bracket-Graph').tagName).toBe('BUTTON')
     })
 
     it('shows the report bracket link for authenticated users', () => {

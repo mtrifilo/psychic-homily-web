@@ -7,16 +7,20 @@ import {
   Loader2,
   ThumbsUp,
   ThumbsDown,
-  Network,
   X,
-  Plus,
   RotateCcw,
   ChevronRight,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
+import { BracketLink, SectionHeader } from '@/components/shared'
 import { useIsAuthenticated } from '@/features/auth'
-import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { useArtistGraph, useArtistRelationshipVote, useCreateArtistRelationship } from '../hooks/useArtistGraph'
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { useArtist } from '../hooks/useArtists'
@@ -29,7 +33,7 @@ import {
   buildRecenterAnnouncement,
   type TraversalEntry,
 } from './graphTraversalHistory'
-import type { ArtistGraphLink } from '../types'
+import type { ArtistGraphLink, ArtistGraphNode } from '../types'
 
 const RELATIONSHIP_BADGES: Record<string, { label: string; className: string }> = {
   similar: { label: 'Similar', className: 'bg-zinc-700/50 text-zinc-300 border-zinc-600' },
@@ -49,31 +53,153 @@ const ALL_TYPES = ['similar', 'shared_bills', 'shared_label', 'side_project', 'm
 // slug (not an ID) so links are human-readable and shareable.
 const CENTER_QUERY_KEY = 'center'
 
-interface RelatedArtistsProps {
+// Two top-level exports: `ArtistSimilarSidebar` is the sidebar dense list;
+// `ArtistGraphDialog` is the on-demand modal hosting `RecenteringGraph`.
+// The parent (ArtistDetail) owns the Dialog open state so the header
+// [Graph] link, the sidebar [Explore graph] link, and the `#graph` URL
+// hash auto-open all drive the same Dialog.
+
+interface ArtistSimilarSidebarProps {
   artistId: number
   artistSlug: string
+  /** Fires when the user clicks the `[Explore graph]` affordance. Parent
+   *  opens the graph Dialog. */
+  onOpenGraph: () => void
 }
 
-export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
-  const { data: originalGraph, isLoading } = useArtistGraph({ artistId, enabled: artistId > 0 })
+export function ArtistSimilarSidebar({
+  artistId,
+  artistSlug,
+  onOpenGraph,
+}: ArtistSimilarSidebarProps) {
+  const { data: graph, isLoading } = useArtistGraph({
+    artistId,
+    enabled: artistId > 0,
+  })
   const { isAuthenticated } = useIsAuthenticated()
-  // null = not interacted; URL hash drives the default. User toggle sticks once set.
-  const [showGraphOverride, setShowGraphOverride] = useState<boolean | null>(null)
-  const hash = useUrlHash()
-  const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(ALL_TYPES))
   const [showSuggest, setShowSuggest] = useState(false)
-  // Defer the graph render until ResizeObserver reports a real width.
-  // Initialising to a hard-coded value caused the canvas to render at
-  // the wrong size on first paint; null + a measured update is the fix.
+
+  if (isLoading) return null
+
+  const hasRelationships =
+    !!graph && (graph.nodes.length > 0 || graph.links.length > 0)
+
+  // Hide the section entirely when there's nothing to show AND the viewer
+  // can't contribute. Authenticated users always get the suggest affordance.
+  if (!hasRelationships && !isAuthenticated) return null
+
+  // Group links by related artist for the list view; sort by max-score-per-edge.
+  let sortedArtists: Array<{
+    node: ArtistGraphNode
+    links: ArtistGraphLink[]
+  }> = []
+  if (graph && hasRelationships) {
+    const artistLinks = new Map<
+      number,
+      { links: ArtistGraphLink[]; node: typeof graph.nodes[0] }
+    >()
+    for (const node of graph.nodes) {
+      artistLinks.set(node.id, { links: [], node })
+    }
+    for (const link of graph.links) {
+      const otherId =
+        link.source_id === graph.center.id
+          ? link.target_id
+          : link.target_id === graph.center.id
+            ? link.source_id
+            : null
+      if (otherId && artistLinks.has(otherId)) {
+        artistLinks.get(otherId)!.links.push(link)
+      }
+    }
+    sortedArtists = Array.from(artistLinks.values())
+      .filter(a => a.links.length > 0)
+      .sort((a, b) => {
+        const aScore = Math.max(...a.links.map(l => l.score))
+        const bScore = Math.max(...b.links.map(l => l.score))
+        return bScore - aScore
+      })
+  }
+
+  return (
+    <section>
+      <SectionHeader
+        title="Similar artists"
+        action={
+          hasRelationships ? (
+            <BracketLink label="Explore graph" onClick={onOpenGraph} />
+          ) : undefined
+        }
+      />
+      {sortedArtists.length > 0 ? (
+        <div className="space-y-1">
+          {sortedArtists.map(({ node, links }) => (
+            <RelatedArtistRow
+              key={node.id}
+              node={node}
+              links={links}
+              centerArtistId={artistId}
+              centerArtistSlug={artistSlug}
+              isAuthenticated={isAuthenticated}
+              userVotes={graph?.user_votes}
+            />
+          ))}
+        </div>
+      ) : (
+        // Empty + authenticated: render an explanatory line above the suggest
+        // affordance, matching the pre-PSY-645 "Be the first to suggest one"
+        // pattern. (We hit this branch only when authenticated; empty +
+        // unauthenticated returns null above.)
+        <p className="text-sm text-muted-foreground">
+          No similar artists yet. Be the first to suggest one!
+        </p>
+      )}
+      {isAuthenticated && (
+        <div className="mt-2">
+          {showSuggest ? (
+            <SuggestSimilarArtist
+              centerArtistId={artistId}
+              centerArtistSlug={artistSlug}
+              onClose={() => setShowSuggest(false)}
+            />
+          ) : (
+            <BracketLink
+              label="Suggest similar"
+              onClick={() => setShowSuggest(true)}
+            />
+          )}
+        </div>
+      )}
+    </section>
+  )
+}
+
+interface ArtistGraphDialogProps {
+  artistId: number
+  artistSlug: string
+  artistName: string
+  open: boolean
+  onOpenChange: (open: boolean) => void
+}
+
+export function ArtistGraphDialog({
+  artistId,
+  artistSlug,
+  artistName,
+  open,
+  onOpenChange,
+}: ArtistGraphDialogProps) {
+  // Filter + traversal state lives per-viewing-session in the Dialog.
+  // Trail / slug→id cache are reset each time the parent unmounts the
+  // Dialog (Radix lazy-mounts DialogContent under `open`).
+  const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(ALL_TYPES))
+  const [trail, setTrail] = useState<TraversalEntry[]>([])
+  const [slugToIdCache, setSlugToIdCache] = useState<Record<string, number>>({})
+  const [announcement, setAnnouncement] = useState('')
   const [containerWidth, setContainerWidth] = useState<number | null>(null)
 
-  // Callback ref instead of useRef + useEffect (PSY-519). Same fix that
-  // landed on SceneGraph.tsx (PSY-516/PSY-517): on first render this
-  // component returns `null` while TanStack Query is loading, so a ref-
-  // based useEffect with `[]` deps fires once with a null ref, bails, and
-  // never re-runs after the JSX mounts. A callback ref fires whenever the
-  // underlying DOM node mounts/unmounts, so we always measure the right
-  // node. Cleanup return is honored automatically (React 19).
+  // Same callback-ref + ResizeObserver pattern as the pre-PSY-645 inline
+  // graph (PSY-519). Measures the DialogContent inner container.
   const containerRefCallback = useCallback((node: HTMLDivElement | null) => {
     if (!node) return
     setContainerWidth(node.getBoundingClientRect().width)
@@ -86,177 +212,41 @@ export function RelatedArtists({ artistId, artistSlug }: RelatedArtistsProps) {
     return () => observer.disconnect()
   }, [])
 
-  // PSY-361: re-center state. The trail is the breadcrumb of *prior*
-  // centers (not including the current). Capped at MAX_TRAIL_SLOTS=3
-  // by pushTrail. The slug→id map is populated from each click event so
-  // we can re-center without an extra resolution round-trip; on reload
-  // (URL has ?center=<slug> but we have no click history), we fall back
-  // to the useArtist hook below.
-  const [trail, setTrail] = useState<TraversalEntry[]>([])
-  const [slugToIdCache, setSlugToIdCache] = useState<Record<string, number>>({})
-  const [announcement, setAnnouncement] = useState('')
-
-  if (isLoading) return null
-
-  const hasRelationships = originalGraph && (originalGraph.nodes.length > 0 || originalGraph.links.length > 0)
-
-  const autoOpenFromHash = hash === GRAPH_HASH && Boolean(hasRelationships)
-  const showGraph = showGraphOverride ?? autoOpenFromHash
-
-  // Empty state: show header + message + suggest button for authenticated users
-  if (!hasRelationships) {
-    return (
-      <div ref={containerRefCallback} className="mt-8 px-4 md:px-0">
-        <h2 className="text-lg font-semibold mb-4">Related Artists</h2>
-        <p className="text-sm text-muted-foreground">
-          No similar artists yet. Be the first to suggest one!
-        </p>
-        {isAuthenticated && (
-          <div className="mt-4">
-            {showSuggest ? (
-              <SuggestSimilarArtist
-                centerArtistId={artistId}
-                centerArtistSlug={artistSlug}
-                onClose={() => setShowSuggest(false)}
-              />
-            ) : (
-              <Button
-                variant="outline"
-                size="sm"
-                onClick={() => setShowSuggest(true)}
-                className="text-muted-foreground"
-              >
-                <Plus className="h-4 w-4 mr-1.5" />
-                Suggest similar artist
-              </Button>
-            )}
-          </div>
-        )}
-      </div>
-    )
-  }
-
   const toggleType = (type: string) => {
     setActiveTypes(prev => {
       const next = new Set(prev)
-      if (next.has(type)) {
-        next.delete(type)
-      } else {
-        next.add(type)
-      }
+      if (next.has(type)) next.delete(type)
+      else next.add(type)
       return next
     })
   }
 
-  // Group links by related artist for the list view
-  const artistLinks = new Map<number, { links: ArtistGraphLink[]; node: typeof originalGraph.nodes[0] }>()
-  for (const node of originalGraph.nodes) {
-    artistLinks.set(node.id, { links: [], node })
-  }
-  for (const link of originalGraph.links) {
-    const otherId =
-      link.source_id === originalGraph.center.id ? link.target_id :
-      link.target_id === originalGraph.center.id ? link.source_id : null
-    if (otherId && artistLinks.has(otherId)) {
-      artistLinks.get(otherId)!.links.push(link)
-    }
-  }
-
-  // Sort by combined score
-  const sortedArtists = Array.from(artistLinks.values())
-    .filter(a => a.links.length > 0)
-    .sort((a, b) => {
-      const aScore = Math.max(...a.links.map(l => l.score))
-      const bScore = Math.max(...b.links.map(l => l.score))
-      return bScore - aScore
-    })
-
-  // PSY-366: dropped the `nodes.length >= 3` gate to fix entry-point
-  // invisibility per `docs/research/knowledge-graph-viz-prior-art.md` §5.4
-  // — the button is the affordance, and a sparse graph (1–2 related artists)
-  // is still informative. The `!hasRelationships` early return above handles
-  // the truly-zero case.
-  //
-  // Mobile gating retained: below the Tailwind `sm` breakpoint (640px) the
-  // graph is unusable on a phone (PSY-369), so the button is hidden and the
-  // list view is the only surface. `containerWidth === null` (pre-measurement)
-  // also gates off so we never flash the button before measuring the viewport.
-  const graphAvailable = containerWidth !== null && containerWidth >= 640
-
   return (
-    <div ref={containerRefCallback} id="graph" className="mt-8 px-4 md:px-0 scroll-mt-20">
-      <div className="flex items-center justify-between mb-4">
-        <h2 className="text-lg font-semibold">Related Artists</h2>
-        <div className="flex items-center gap-2">
-          {graphAvailable && (
-            <Button
-              variant={showGraph ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShowGraphOverride(!showGraph)}
-            >
-              <Network className="h-4 w-4 mr-1.5" />
-              {showGraph ? 'Hide graph' : 'Explore graph'}
-            </Button>
-          )}
-        </div>
-      </div>
-
-      {/* Graph View */}
-      {showGraph && graphAvailable && (
-        <RecenteringGraph
-          originalArtistId={artistId}
-          originalArtistSlug={artistSlug}
-          originalArtistName={originalGraph.center.name}
-          containerWidth={containerWidth!}
-          activeTypes={activeTypes}
-          onToggleType={toggleType}
-          trail={trail}
-          setTrail={setTrail}
-          slugToIdCache={slugToIdCache}
-          setSlugToIdCache={setSlugToIdCache}
-          announcement={announcement}
-          setAnnouncement={setAnnouncement}
-        />
-      )}
-
-      {/* List View */}
-      <div className="space-y-2">
-        {sortedArtists.map(({ node, links }) => (
-          <RelatedArtistRow
-            key={node.id}
-            node={node}
-            links={links}
-            centerArtistId={artistId}
-            centerArtistSlug={artistSlug}
-            isAuthenticated={isAuthenticated}
-            userVotes={originalGraph.user_votes}
-          />
-        ))}
-      </div>
-
-      {/* Suggest Similar Artist */}
-      {isAuthenticated && (
-        <div className="mt-4">
-          {showSuggest ? (
-            <SuggestSimilarArtist
-              centerArtistId={artistId}
-              centerArtistSlug={artistSlug}
-              onClose={() => setShowSuggest(false)}
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-5xl max-h-[90vh] overflow-auto">
+        <DialogHeader>
+          <DialogTitle>Similar artists · {artistName}</DialogTitle>
+        </DialogHeader>
+        <div ref={containerRefCallback}>
+          {containerWidth !== null && (
+            <RecenteringGraph
+              originalArtistId={artistId}
+              originalArtistSlug={artistSlug}
+              originalArtistName={artistName}
+              containerWidth={containerWidth}
+              activeTypes={activeTypes}
+              onToggleType={toggleType}
+              trail={trail}
+              setTrail={setTrail}
+              slugToIdCache={slugToIdCache}
+              setSlugToIdCache={setSlugToIdCache}
+              announcement={announcement}
+              setAnnouncement={setAnnouncement}
             />
-          ) : (
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setShowSuggest(true)}
-              className="text-muted-foreground"
-            >
-              <Plus className="h-4 w-4 mr-1.5" />
-              Suggest similar artist
-            </Button>
           )}
         </div>
-      )}
-    </div>
+      </DialogContent>
+    </Dialog>
   )
 }
 
