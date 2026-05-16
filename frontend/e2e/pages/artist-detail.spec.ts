@@ -34,10 +34,14 @@ test.describe('Artist detail', () => {
     const breadcrumbNav = page.locator('nav[aria-label="Breadcrumb"]')
     await expect(breadcrumbNav.getByRole('link', { name: 'Artists' })).toBeVisible()
 
-    // Upcoming and Past Shows tabs (nested inside the Overview tab content)
-    await expect(page.getByRole('tab', { name: /upcoming/i })).toBeVisible()
+    // Upcoming and Past shows sections — PSY-644 replaced the Radix `<Tabs>`
+    // in ArtistShowsList with `<SectionHeader as="h2">` rendering ("Past shows"
+    // heading is always present as the collapsible's trigger).
     await expect(
-      page.getByRole('tab', { name: /past shows/i })
+      page.getByRole('heading', { name: /upcoming shows/i })
+    ).toBeVisible()
+    await expect(
+      page.getByRole('heading', { name: /past shows/i })
     ).toBeVisible()
   })
 
