@@ -6,13 +6,11 @@ import { useQueryClient } from '@tanstack/react-query'
 import {
   Loader2,
   Disc3,
-  Edit2,
   ExternalLink,
   Music,
   Calendar,
   Users,
   Tag,
-  Lightbulb,
 } from 'lucide-react'
 import { useRelease } from '../hooks/useReleases'
 import { useIsAuthenticated } from '@/features/auth'
@@ -21,13 +19,13 @@ import {
   EntityHeader,
   RevisionHistory,
   AddToCollectionButton,
+  BracketLink,
 } from '@/components/shared'
 import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
-import { EntityTagList } from '@/features/tags'
+import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
-import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
@@ -73,9 +71,9 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
     user?.user_tier === 'trusted_contributor' ||
     user?.user_tier === 'local_ambassador'
   )
-  const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
+  const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
   const saveBanner = useEntitySaveSuccessBanner()
 
   if (isLoading) {
@@ -131,13 +129,6 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
     release.external_links && release.external_links.length > 0
   const hasLabels = release.labels && release.labels.length > 0
   const hasDescription = !!release.description && release.description.trim().length > 0
-
-  const tabs = [
-    { value: 'overview', label: 'Overview' },
-    ...(hasExternalLinks
-      ? [{ value: 'listen', label: 'Listen / Buy' }]
-      : []),
-  ]
 
   const sidebar = (
     <div className="space-y-6">
@@ -254,19 +245,34 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                 </>
               }
               actions={
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                  <AddToCollectionButton
+                    entityType="release"
+                    entityId={release.id}
+                    entityName={release.title}
+                    variant="bracket"
+                  />
                   {isAuthenticated && (
-                    <Button
-                      variant="ghost"
-                      size="sm"
+                    <BracketLink
+                      label={canEditDirectly ? 'Edit' : 'Suggest edit'}
                       onClick={() => setIsEditing(true)}
-                      className="text-muted-foreground hover:text-foreground"
-                      title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
-                    >
-                      <Edit2 className="h-4 w-4" />
-                    </Button>
+                    />
                   )}
-                  <AddToCollectionButton entityType="release" entityId={release.id} entityName={release.title} />
+                  {isAuthenticated && !hasDescription && (
+                    <BracketLink
+                      label="Suggest description"
+                      onClick={() => {
+                        setEditFocusField('description')
+                        setIsEditing(true)
+                      }}
+                    />
+                  )}
+                  {isAuthenticated && (
+                    <BracketLink
+                      label="Add tag"
+                      onClick={() => setAddTagDialogOpen(true)}
+                    />
+                  )}
                 </div>
               }
             />
@@ -289,75 +295,47 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
             />
           </>
         }
-        tabs={tabs}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
         sidebar={sidebar}
       >
-        {/* Overview Tab */}
-        <TabsContent value="overview">
-          <div className="space-y-8">
-            {/* Description */}
-            {hasDescription ? (
-              <div>
-                <h2 className="text-lg font-semibold mb-3">About</h2>
-                <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
-                  {release.description}
-                </p>
-              </div>
-            ) : (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-muted-foreground/25 bg-muted/30 p-4 text-sm text-muted-foreground">
-                <Lightbulb className="h-4 w-4 shrink-0 text-primary" />
-                <span>
-                  Know something about this release? Help the community by adding a description.
-                </span>
-              </div>
-            )}
-
-            {/* Artists */}
-            {release.artists && release.artists.length > 0 && (
-              <div>
-                <h2 className="text-lg font-semibold mb-3">Artists</h2>
-                <div className="space-y-2">
-                  {release.artists.map(artist => (
-                    <div
-                      key={artist.id}
-                      className="flex items-center justify-between rounded-lg border border-border/50 bg-card p-3"
-                    >
-                      <Link
-                        href={`/artists/${artist.slug}`}
-                        className="font-medium text-foreground hover:text-primary transition-colors"
-                      >
-                        {artist.name}
-                      </Link>
-                      {artist.role && (
-                        <span className="text-sm text-muted-foreground capitalize">
-                          {artist.role}
-                        </span>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {/* External links prompt when none exist */}
-            {!hasExternalLinks && (
-              <div className="flex items-center gap-2 rounded-lg border border-dashed border-muted-foreground/25 bg-muted/30 p-4 text-sm text-muted-foreground">
-                <Lightbulb className="h-4 w-4 shrink-0 text-primary" />
-                <span>
-                  Help others discover this release — add a Bandcamp, Spotify, or other link.
-                </span>
-              </div>
-            )}
-          </div>
-        </TabsContent>
-
-        {/* Listen / Buy Tab */}
-        {hasExternalLinks && (
-          <TabsContent value="listen">
+        <div className="space-y-8">
+          {hasDescription && (
             <div>
-              <h2 className="text-lg font-semibold mb-4">Listen / Buy</h2>
+              <h2 className="text-lg font-semibold mb-3">About</h2>
+              <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
+                {release.description}
+              </p>
+            </div>
+          )}
+
+          {release.artists && release.artists.length > 0 && (
+            <div>
+              <h2 className="text-lg font-semibold mb-3">Artists</h2>
+              <div className="space-y-2">
+                {release.artists.map(artist => (
+                  <div
+                    key={artist.id}
+                    className="flex items-center justify-between rounded-lg border border-border/50 bg-card p-3"
+                  >
+                    <Link
+                      href={`/artists/${artist.slug}`}
+                      className="font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      {artist.name}
+                    </Link>
+                    {artist.role && (
+                      <span className="text-sm text-muted-foreground capitalize">
+                        {artist.role}
+                      </span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {hasExternalLinks && (
+            <div>
+              <h2 className="text-lg font-semibold mb-3">Listen / Buy</h2>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 {release.external_links.map(link => (
                   <a
@@ -380,8 +358,8 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                 ))}
               </div>
             </div>
-          </TabsContent>
-        )}
+          )}
+        </div>
       </EntityDetailLayout>
 
       {/* Revision History */}
@@ -417,6 +395,15 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
             })
             saveBanner.handleSaveSuccess(result)
           }}
+        />
+      )}
+
+      {isAuthenticated && (
+        <AddTagDialog
+          entityType="release"
+          entityId={release.id}
+          open={addTagDialogOpen}
+          onOpenChange={setAddTagDialogOpen}
         />
       )}
     </>
