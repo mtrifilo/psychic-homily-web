@@ -28,8 +28,8 @@ export function SubmissionSuccessDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader className="text-center sm:text-center">
-          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-slate-500/10">
-            <EyeOff className="h-6 w-6 text-slate-500" />
+          <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-muted-foreground/10">
+            <EyeOff className="h-6 w-6 text-muted-foreground" />
           </div>
           <DialogTitle className="text-xl">Private Show Added</DialogTitle>
           <DialogDescription className="text-center">

@@ -169,10 +169,10 @@ export function RevisionHistory({ entityType, entityId, isAdmin = false }: Revis
   const hasMore = offset + limit < total
 
   return (
-    <div className="mt-8 border border-border/50 rounded-lg">
+    <div className="mt-8 border border-border/50 rounded-md">
       <button
         onClick={() => setIsOpen(!isOpen)}
-        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/30 transition-colors rounded-lg"
+        className="w-full flex items-center gap-2 px-4 py-3 text-left hover:bg-muted/30 transition-colors rounded-md"
       >
         <History className="h-4 w-4 text-muted-foreground shrink-0" />
         <span className="text-sm font-medium">History</span>

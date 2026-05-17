@@ -203,7 +203,7 @@ export function AddToCollectionButton({
       </PopoverTrigger>
       <PopoverContent className="w-72 p-0" align="end">
         <div className="p-3 border-b border-border">
-          <h4 className="text-sm font-semibold">Add to Collection</h4>
+          <h4 className="text-sm font-display font-semibold">Add to Collection</h4>
           <p className="text-xs text-muted-foreground mt-0.5 truncate">
             {entityName}
           </p>

@@ -64,7 +64,7 @@ export function InlineErrorBanner({
       role="alert"
       data-testid={testId}
       className={cn(
-        'rounded-lg border border-destructive/50 bg-destructive/10',
+        'rounded-md border border-destructive/50 bg-destructive/10',
         VARIANT_CLASSES[variant],
         className
       )}

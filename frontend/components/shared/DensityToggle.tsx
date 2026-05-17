@@ -55,7 +55,7 @@ export function DensityToggle({
   const group = (
     <div
       className={cn(
-        'inline-flex items-center rounded-lg border border-border/50 bg-muted/30 p-0.5',
+        'inline-flex items-center rounded-md border border-border/50 bg-muted/30 p-0.5',
         disabled && 'opacity-50',
         className
       )}
@@ -75,7 +75,7 @@ export function DensityToggle({
           className={cn(
             'px-2.5 py-1 text-xs font-medium rounded-md transition-colors duration-100 disabled:cursor-not-allowed disabled:hover:text-current',
             density === option.value
-              ? 'bg-background text-foreground shadow-sm'
+              ? 'bg-background text-foreground border border-border'
               : 'text-muted-foreground hover:text-foreground'
           )}
         >
