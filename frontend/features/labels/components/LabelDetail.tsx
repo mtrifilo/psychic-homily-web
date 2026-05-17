@@ -1,27 +1,30 @@
 'use client'
 
-import { useState } from 'react'
+import { Fragment, useState } from 'react'
 import Link from 'next/link'
 import { useQueryClient } from '@tanstack/react-query'
-import {
-  Loader2,
-  Tag,
-  MapPin,
-  Calendar,
-  Users,
-  Disc3,
-  Music,
-  Edit2,
-} from 'lucide-react'
+import { Loader2, Tag, MapPin } from 'lucide-react'
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
-import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton, RevisionHistory } from '@/components/shared'
+import {
+  EntityDetailLayout,
+  EntityHeader,
+  SocialLinks,
+  FollowButton,
+  AddToCollectionButton,
+  RevisionHistory,
+  BracketLink,
+  SectionHeader,
+  StatsList,
+  DenseTable,
+  DenseTableGroupHeader,
+  type StatsListItem,
+} from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
-import { EntityTagList } from '@/features/tags'
+import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
 import { useIsAuthenticated } from '@/features/auth'
 import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
-import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
@@ -29,8 +32,24 @@ import {
   getLabelStatusLabel,
   getLabelStatusVariant,
   formatLabelLocation,
+  type LabelRelease,
 } from '../types'
-import { getReleaseTypeLabel } from '@/features/releases/types'
+import { RELEASE_TYPES, type ReleaseType } from '@/features/releases/types'
+
+const CATALOG_BUCKETS: Array<{
+  key: ReleaseType | 'other'
+  label: string
+  match: (r: LabelRelease) => boolean
+}> = [
+  { key: 'lp', label: 'Albums', match: r => r.release_type === 'lp' },
+  { key: 'ep', label: 'EPs', match: r => r.release_type === 'ep' },
+  { key: 'single', label: 'Singles', match: r => r.release_type === 'single' },
+  { key: 'compilation', label: 'Compilations', match: r => r.release_type === 'compilation' },
+  { key: 'live', label: 'Live', match: r => r.release_type === 'live' },
+  { key: 'remix', label: 'Remixes', match: r => r.release_type === 'remix' },
+  { key: 'demo', label: 'Demos', match: r => r.release_type === 'demo' },
+  { key: 'other', label: 'Other', match: r => !(RELEASE_TYPES as readonly string[]).includes(r.release_type) },
+]
 
 interface LabelDetailProps {
   idOrSlug: string | number
@@ -53,9 +72,9 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
     labelIdOrSlug: idOrSlug,
     enabled: !!label,
   })
-  const [activeTab, setActiveTab] = useState('overview')
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
+  const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
   const saveBanner = useEntitySaveSuccessBanner()
 
   if (isLoading) {
@@ -116,79 +135,58 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   // suppress the "Links" heading when SocialLinks would render nothing —
   // otherwise the detail page shows an orphan section header underlined by
   // empty space.
+  const hasDescription = !!label.description && label.description.trim().length > 0
   const hasSocialLinks = !!(
     label.social &&
     Object.values(label.social).some(value => typeof value === 'string' && value.trim() !== '')
   )
 
-  const tabs = [
-    { value: 'overview', label: 'Overview' },
-    { value: 'roster', label: `Roster (${label.artist_count})` },
-    { value: 'catalog', label: `Catalog (${label.release_count})` },
+  const statsItems: StatsListItem[] = [
+    { label: 'Roster', value: label.artist_count },
+    { label: 'Catalog', value: label.release_count },
   ]
+  if (label.founded_year) {
+    // String() bypasses StatsList's Intl.NumberFormat thousands separator —
+    // 1980 should render as "1980", not "1,980".
+    statsItems.push({ label: 'Founded', value: String(label.founded_year) })
+  }
+  statsItems.push({
+    label: 'Status',
+    value: (
+      <Badge variant={getLabelStatusVariant(label.status)} className="text-[10px] px-1.5 py-0">
+        {getLabelStatusLabel(label.status)}
+      </Badge>
+    ),
+  })
+
+  const catalogGroups = CATALOG_BUCKETS.map(b => ({
+    ...b,
+    releases: catalog.filter(b.match),
+  })).filter(g => g.releases.length > 0)
 
   const sidebar = (
     <div className="space-y-6">
-      {/* Label Icon */}
-      <div className="rounded-lg border border-border/50 bg-card overflow-hidden">
-        <div className="w-full aspect-square bg-muted/30 flex items-center justify-center">
-          <Tag className="h-16 w-16 text-muted-foreground/30" />
+      {label.image_url ? (
+        <div className="rounded-lg border border-border/50 bg-card overflow-hidden">
+          <img
+            src={label.image_url}
+            alt={`${label.name} logo`}
+            className="w-full aspect-square object-cover"
+          />
         </div>
-      </div>
-
-      {/* Quick Info */}
-      <div className="rounded-lg border border-border/50 bg-card p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-foreground">Details</h3>
-
-        <div className="space-y-2 text-sm">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Tag className="h-4 w-4 shrink-0" />
-            <span>
-              Status:{' '}
-              <Badge
-                variant={getLabelStatusVariant(label.status)}
-                className="text-[10px] px-1.5 py-0 ml-1"
-              >
-                {getLabelStatusLabel(label.status)}
-              </Badge>
-            </span>
-          </div>
-
-          {location && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <MapPin className="h-4 w-4 shrink-0" />
-              <span>{location}</span>
-            </div>
-          )}
-
-          {label.founded_year && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <Calendar className="h-4 w-4 shrink-0" />
-              <span>Founded: {label.founded_year}</span>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Users className="h-4 w-4 shrink-0" />
-            <span>
-              {label.artist_count === 1
-                ? '1 artist'
-                : `${label.artist_count} artists`}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Disc3 className="h-4 w-4 shrink-0" />
-            <span>
-              {label.release_count === 1
-                ? '1 release'
-                : `${label.release_count} releases`}
-            </span>
+      ) : (
+        <div className="rounded-lg border border-border/50 bg-card overflow-hidden">
+          <div className="w-full aspect-square bg-muted/30 flex items-center justify-center">
+            <Tag className="h-16 w-16 text-muted-foreground/30" />
           </div>
         </div>
-      </div>
+      )}
 
-      {/* In Collections */}
+      <section>
+        <SectionHeader title="Statistics" />
+        <StatsList items={statsItems} />
+      </section>
+
       <EntityCollections entityType="label" entityId={label.id} />
     </div>
   )
@@ -217,21 +215,45 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
               </>
             }
             actions={
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <FollowButton
+                  entityType="labels"
+                  entityId={label.id}
+                  variant="bracket"
+                />
+                <NotifyMeButton
+                  entityType="label"
+                  entityId={label.id}
+                  entityName={label.name}
+                  variant="bracket"
+                />
+                <AddToCollectionButton
+                  entityType="label"
+                  entityId={label.id}
+                  entityName={label.name}
+                  variant="bracket"
+                />
                 {isAuthenticated && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <BracketLink
+                    label={canEditDirectly ? 'Edit' : 'Suggest edit'}
                     onClick={() => setIsEditing(true)}
-                    className="text-muted-foreground hover:text-foreground"
-                    title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
+                  />
                 )}
-                <NotifyMeButton entityType="label" entityId={label.id} entityName={label.name} />
-                <FollowButton entityType="labels" entityId={label.id} />
-                <AddToCollectionButton entityType="label" entityId={label.id} entityName={label.name} />
+                {isAuthenticated && !hasDescription && (
+                  <BracketLink
+                    label="Suggest description"
+                    onClick={() => {
+                      setEditFocusField('description')
+                      setIsEditing(true)
+                    }}
+                  />
+                )}
+                {isAuthenticated && (
+                  <BracketLink
+                    label="Add tag"
+                    onClick={() => setAddTagDialogOpen(true)}
+                  />
+                )}
               </div>
             }
           />
@@ -254,137 +276,91 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
           />
         </>
       }
-      tabs={tabs}
-      activeTab={activeTab}
-      onTabChange={setActiveTab}
       sidebar={sidebar}
     >
-      {/* Overview Tab */}
-      <TabsContent value="overview">
-        <div className="space-y-8">
-          {/* Description */}
-          {label.description && (
-            <div>
-              <h2 className="text-lg font-semibold mb-3">About</h2>
-              <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
-                {label.description}
-              </p>
-            </div>
-          )}
-
-          {/* Social Links — only render the heading when there's actually
-              something for SocialLinks to show (PSY-481). */}
-          {hasSocialLinks && (
-            <div>
-              <h2 className="text-lg font-semibold mb-3">Links</h2>
-              <SocialLinks social={label.social} />
-            </div>
-          )}
-
-          {/* Quick preview of roster + catalog when no description */}
-          {!label.description && !hasSocialLinks && (
-            <div className="text-sm text-muted-foreground">
-              No additional information available for this label.
-            </div>
-          )}
-        </div>
-      </TabsContent>
-
-      {/* Roster Tab */}
-      <TabsContent value="roster">
-        <div>
-          <h2 className="text-lg font-semibold mb-4">Artist Roster</h2>
-          {rosterLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : roster.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No artists are currently associated with this label.
+      <div className="space-y-8">
+        {hasDescription && (
+          <section>
+            <SectionHeader title="About" as="h2" size="md" />
+            <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
+              {label.description}
             </p>
-          ) : (
-            <div className="space-y-2">
+          </section>
+        )}
+
+        {hasSocialLinks && (
+          <section>
+            <SectionHeader title="Links" as="h2" size="md" />
+            <SocialLinks social={label.social} />
+          </section>
+        )}
+
+        {rosterLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : roster.length > 0 ? (
+          <section>
+            <SectionHeader title="Roster" as="h2" size="md" />
+            <ul className="space-y-1 text-sm">
               {roster.map(artist => (
-                <div
-                  key={artist.id}
-                  className="flex items-center rounded-lg border border-border/50 bg-card p-3"
-                >
-                  <Users className="h-4 w-4 text-muted-foreground mr-3 shrink-0" />
+                <li key={artist.id}>
                   <Link
                     href={`/artists/${artist.slug}`}
-                    className="font-medium text-foreground hover:text-primary transition-colors"
+                    className="text-foreground hover:text-primary hover:underline underline-offset-2 transition-colors"
                   >
                     {artist.name}
                   </Link>
-                </div>
+                </li>
               ))}
-            </div>
-          )}
-        </div>
-      </TabsContent>
+            </ul>
+          </section>
+        ) : null}
 
-      {/* Catalog Tab */}
-      <TabsContent value="catalog">
-        <div>
-          <h2 className="text-lg font-semibold mb-4">Release Catalog</h2>
-          {catalogLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : catalog.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No releases are currently in this label&apos;s catalog.
-            </p>
-          ) : (
-            <div className="space-y-2">
-              {catalog.map(release => (
-                <div
-                  key={release.id}
-                  className="flex items-center gap-3 rounded-lg border border-border/50 bg-card p-3"
-                >
-                  {/* Cover art or placeholder */}
-                  <div className="h-10 w-10 shrink-0 rounded-md bg-muted/50 flex items-center justify-center overflow-hidden">
-                    {release.cover_art_url ? (
-                      <img
-                        src={release.cover_art_url}
-                        alt={`${release.title} cover art`}
-                        className="h-full w-full object-cover"
-                      />
-                    ) : (
-                      <Music className="h-5 w-5 text-muted-foreground/40" />
-                    )}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <Link
-                      href={`/releases/${release.slug}`}
-                      className="font-medium text-foreground hover:text-primary transition-colors truncate block"
-                    >
-                      {release.title}
-                    </Link>
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground mt-0.5">
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] px-1.5 py-0"
-                      >
-                        {getReleaseTypeLabel(release.release_type)}
-                      </Badge>
-                      {release.release_year && (
-                        <span>{release.release_year}</span>
-                      )}
-                      {release.catalog_number && (
-                        <span className="text-muted-foreground/60">
-                          {release.catalog_number}
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </TabsContent>
+        {catalogLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : catalogGroups.length > 0 ? (
+          <section>
+            <SectionHeader title="Catalog" as="h2" size="md" />
+            <DenseTable variant="alternating" aria-label="Catalog">
+              <thead>
+                <tr>
+                  <th>Title</th>
+                  <th className="text-right">Year</th>
+                  <th>Catalog #</th>
+                </tr>
+              </thead>
+              <tbody>
+                {catalogGroups.map(g => (
+                  <Fragment key={g.key}>
+                    <DenseTableGroupHeader title={g.label} colSpan={3} />
+                    {g.releases.map(r => (
+                      <tr key={r.id}>
+                        <td>
+                          <Link
+                            href={`/releases/${r.slug}`}
+                            className="hover:text-primary underline-offset-2 hover:underline"
+                          >
+                            {r.title}
+                          </Link>
+                        </td>
+                        <td className="text-right text-muted-foreground">
+                          {r.release_year ?? '—'}
+                        </td>
+                        <td className="text-muted-foreground">
+                          {r.catalog_number ?? '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </Fragment>
+                ))}
+              </tbody>
+            </DenseTable>
+          </section>
+        ) : null}
+      </div>
     </EntityDetailLayout>
 
     {/* Revision History */}
@@ -417,6 +393,15 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
           })
           saveBanner.handleSaveSuccess(result)
         }}
+      />
+    )}
+
+    {isAuthenticated && (
+      <AddTagDialog
+        entityType="label"
+        entityId={label.id}
+        open={addTagDialogOpen}
+        onOpenChange={setAddTagDialogOpen}
       />
     )}
   </>
