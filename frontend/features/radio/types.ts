@@ -9,6 +9,27 @@
 // Radio Station
 // ============================================================================
 
+// PSY-669 / PSY-673: per-station network metadata. `is_flagship` is the
+// bool on the station itself (radio_stations.is_flagship): true means
+// THIS station is the network's primary/default broadcast. Frontend uses
+// it to (a) hide non-flagship siblings from the /radio index, and (b)
+// render the network tab bar (PSY-674) with the flagship as default.
+export interface RadioNetworkInfo {
+  slug: string
+  name: string
+  is_flagship: boolean
+}
+
+// PSY-669: other stations in the same network. Excludes self.
+// Flagship-first sort; alphabetical within is_flagship buckets.
+export interface RadioSiblingStation {
+  id: number
+  slug: string
+  name: string
+  broadcast_type: string
+  is_flagship: boolean
+}
+
 export interface RadioStationListItem {
   id: number
   name: string
@@ -20,7 +41,20 @@ export interface RadioStationListItem {
   frequency_mhz: number | null
   logo_url: string | null
   is_active: boolean
+  network: RadioNetworkInfo | null
+  sibling_stations: RadioSiblingStation[]
   show_count: number
+}
+
+// PSY-673: returns true when a station should appear on the /radio index.
+// Network-less stations always render. Stations in a network render only
+// when they're the flagship; non-flagship siblings reach their pages via
+// the flagship's tab bar (PSY-674) or via their direct /radio/{slug} URL.
+export function isStationVisibleOnIndex(station: {
+  network: RadioNetworkInfo | null
+}): boolean {
+  if (!station.network) return true
+  return station.network.is_flagship
 }
 
 export interface RadioStationDetail {
@@ -45,6 +79,8 @@ export interface RadioStationDetail {
   playlist_config: Record<string, unknown> | null
   last_playlist_fetch_at: string | null
   is_active: boolean
+  network: RadioNetworkInfo | null
+  sibling_stations: RadioSiblingStation[]
   show_count: number
   created_at: string
   updated_at: string
