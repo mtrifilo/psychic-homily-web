@@ -57,6 +57,27 @@ export function isStationVisibleOnIndex(station: {
   return station.network.is_flagship
 }
 
+// PSY-674: returns the canonical /radio detail URL for a station.
+//   Network-less or flagship → /radio/{slug}
+//   Sub-stream                → /radio/{network-slug}/channel/{local-slug}
+// where local-slug = station.slug with the "{network-slug}-" prefix stripped.
+// The "channel" literal segment disambiguates sub-streams from show pages,
+// which live at /radio/{station-slug}/{show-slug}. Sub-stream slugs follow
+// the network-prefix convention (wfmu-drummer, wfmu-rocknsoulradio,
+// wfmu-sheena); a slug without the prefix falls back to the full slug
+// rather than producing a malformed URL.
+export function getStationDetailUrl(
+  slug: string,
+  network: { slug: string; is_flagship: boolean } | null
+): string {
+  if (!network || network.is_flagship) {
+    return `/radio/${slug}`
+  }
+  const prefix = `${network.slug}-`
+  const localSlug = slug.startsWith(prefix) ? slug.slice(prefix.length) : slug
+  return `/radio/${network.slug}/channel/${localSlug}`
+}
+
 export interface RadioStationDetail {
   id: number
   name: string

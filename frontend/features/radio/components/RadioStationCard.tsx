@@ -3,7 +3,7 @@
 import { Radio, MapPin, Music } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { EntityCardTitle } from '@/components/shared'
-import { getBroadcastTypeLabel } from '../types'
+import { getBroadcastTypeLabel, getStationDetailUrl } from '../types'
 import type { RadioStationListItem } from '../types'
 
 interface RadioStationCardProps {
@@ -11,7 +11,7 @@ interface RadioStationCardProps {
 }
 
 export function RadioStationCard({ station }: RadioStationCardProps) {
-  const stationUrl = `/radio/${station.slug}`
+  const stationUrl = getStationDetailUrl(station.slug, station.network)
   const location = [station.city, station.state].filter(Boolean).join(', ')
   const broadcastLabel = getBroadcastTypeLabel(station.broadcast_type)
   // PSY-673: only flagship cards advertise sibling channels. Non-flagship
