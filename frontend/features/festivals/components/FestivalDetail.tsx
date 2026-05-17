@@ -6,12 +6,9 @@ import {
   Loader2,
   Calendar,
   MapPin,
-  Users,
   Globe,
   Ticket,
   Building2,
-  Edit2,
-  Flag,
 } from 'lucide-react'
 import {
   useFestival,
@@ -19,9 +16,18 @@ import {
   useFestivalVenues,
   useFestivals,
 } from '../hooks/useFestivals'
-import { EntityDetailLayout, EntityHeader, SocialLinks, FollowButton, AddToCollectionButton, RevisionHistory } from '@/components/shared'
+import {
+  EntityDetailLayout,
+  EntityHeader,
+  SocialLinks,
+  FollowButton,
+  AddToCollectionButton,
+  RevisionHistory,
+  BracketLink,
+  SectionHeader,
+  StatsList,
+} from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
-import { TabsContent } from '@/components/ui/tabs'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FestivalLineup } from './FestivalLineup'
@@ -37,7 +43,7 @@ import {
 import { useIsAuthenticated } from '@/features/auth'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
 import { CommentThread } from '@/features/comments'
-import { EntityTagList } from '@/features/tags'
+import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { useQueryClient } from '@tanstack/react-query'
 
 interface FestivalDetailProps {
@@ -56,6 +62,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [isReportOpen, setIsReportOpen] = useState(false)
+  const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
   const saveBanner = useEntitySaveSuccessBanner()
   const { data: artistsData, isLoading: artistsLoading } = useFestivalArtists({
     festivalIdOrSlug: idOrSlug,
@@ -65,7 +72,6 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
     festivalIdOrSlug: idOrSlug,
     enabled: !!festival,
   })
-  // Fetch series editions for series festivals (needed for SeriesHistory tab)
   const { data: seriesData } = useFestivals({
     seriesSlug: festival?.series_slug,
   })
@@ -75,11 +81,7 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
       .filter((f) => f.series_slug === festival.series_slug)
       .map((f) => ({ year: f.edition_year }))
   }, [seriesData, festival?.series_slug])
-  const hasSeriesHistory = seriesEditions.length >= 2
 
-  const [activeTab, setActiveTab] = useState('lineup')
-
-  // Determine if this is a multi-day festival with day assignments
   const hasMultipleDays = useMemo(() => {
     if (!artistsData?.artists) return false
     const uniqueDays = new Set(
@@ -143,17 +145,19 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const dateRange = formatFestivalDateRange(festival.start_date, festival.end_date)
   const artists = artistsData?.artists ?? []
   const venues = venuesData?.venues ?? []
+  const hasDescription = !!festival.description && festival.description.trim().length > 0
+  const hasSocialLinks =
+    !!festival.social && Object.values(festival.social).some(v => !!v)
+  const hasLinks =
+    !!festival.website || !!festival.ticket_url || hasSocialLinks
 
-  const tabs = [
-    { value: 'lineup', label: `Lineup (${festival.artist_count})` },
-    { value: 'insights', label: 'Insights' },
-    ...(hasSeriesHistory ? [{ value: 'series', label: 'Series History' }] : []),
-    { value: 'info', label: 'Info' },
+  const statsItems = [
+    { label: 'Artists', value: festival.artist_count },
+    { label: 'Venues', value: festival.venue_count },
   ]
 
   const sidebar = (
     <div className="space-y-6">
-      {/* Festival Flyer or Placeholder */}
       {festival.flyer_url ? (
         <div className="rounded-lg border border-border/50 bg-card overflow-hidden">
           <img
@@ -170,102 +174,11 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         </div>
       )}
 
-      {/* Quick Info */}
-      <div className="rounded-lg border border-border/50 bg-card p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-foreground">Details</h3>
+      <section>
+        <SectionHeader title="Statistics" />
+        <StatsList items={statsItems} />
+      </section>
 
-        <div className="space-y-2 text-sm">
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Calendar className="h-4 w-4 shrink-0" />
-            <span>{dateRange}</span>
-          </div>
-
-          {location && (
-            <div className="flex items-center gap-2 text-muted-foreground">
-              <MapPin className="h-4 w-4 shrink-0" />
-              <span>{location}</span>
-            </div>
-          )}
-
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Users className="h-4 w-4 shrink-0" />
-            <span>
-              {festival.artist_count === 1
-                ? '1 artist'
-                : `${festival.artist_count} artists`}
-            </span>
-          </div>
-
-          <div className="flex items-center gap-2 text-muted-foreground">
-            <Building2 className="h-4 w-4 shrink-0" />
-            <span>
-              {festival.venue_count === 1
-                ? '1 venue'
-                : `${festival.venue_count} venues`}
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Venues */}
-      {venues.length > 0 && (
-        <div className="rounded-lg border border-border/50 bg-card p-4 space-y-3">
-          <h3 className="text-sm font-semibold text-foreground">Venues</h3>
-          <div className="space-y-2 text-sm">
-            {venues.map(venue => (
-              <div key={venue.id} className="flex items-center gap-2">
-                <Building2 className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                <Link
-                  href={venue.venue_slug ? `/venues/${venue.venue_slug}` : '#'}
-                  className="text-foreground hover:text-primary transition-colors"
-                >
-                  {venue.venue_name}
-                </Link>
-                {venue.is_primary && (
-                  <Badge
-                    variant="secondary"
-                    className="text-[10px] px-1.5 py-0"
-                  >
-                    Primary
-                  </Badge>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Links */}
-      <div className="rounded-lg border border-border/50 bg-card p-4 space-y-3">
-        <h3 className="text-sm font-semibold text-foreground">Links</h3>
-        <div className="space-y-2 text-sm">
-          {festival.website && (
-            <a
-              href={festival.website}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors"
-            >
-              <Globe className="h-4 w-4 shrink-0" />
-              <span>Website</span>
-            </a>
-          )}
-          {festival.ticket_url && (
-            <a
-              href={festival.ticket_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors"
-            >
-              <Ticket className="h-4 w-4 shrink-0" />
-              <span>Tickets</span>
-            </a>
-          )}
-          {festival.social && <SocialLinks social={festival.social} />}
-        </div>
-      </div>
-
-      {/* In Collections */}
       <EntityCollections entityType="festival" entityId={festival.id} />
     </div>
   )
@@ -297,31 +210,46 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
               </>
             }
             actions={
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <FollowButton
+                  entityType="festivals"
+                  entityId={festival.id}
+                  variant="bracket"
+                />
+                <AddToCollectionButton
+                  entityType="festival"
+                  entityId={festival.id}
+                  entityName={festival.name}
+                  variant="bracket"
+                />
                 {isAuthenticated && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
+                  <BracketLink
+                    label={canEditDirectly ? 'Edit' : 'Suggest edit'}
                     onClick={() => setIsEditing(true)}
-                    className="text-muted-foreground hover:text-foreground"
-                    title={canEditDirectly ? 'Edit' : 'Suggest Edit'}
-                  >
-                    <Edit2 className="h-4 w-4" />
-                  </Button>
+                  />
+                )}
+                {isAuthenticated && !hasDescription && (
+                  <BracketLink
+                    label="Suggest description"
+                    onClick={() => {
+                      setEditFocusField('description')
+                      setIsEditing(true)
+                    }}
+                  />
                 )}
                 {isAuthenticated && (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setIsReportOpen(true)}
-                    className="text-muted-foreground hover:text-foreground"
-                    title="Report an issue"
-                  >
-                    <Flag className="h-4 w-4" />
-                  </Button>
+                  <BracketLink
+                    label="Add tag"
+                    onClick={() => setAddTagDialogOpen(true)}
+                  />
                 )}
-                <FollowButton entityType="festivals" entityId={festival.id} />
-                <AddToCollectionButton entityType="festival" entityId={festival.id} entityName={festival.name} />
+                {isAuthenticated && (
+                  <BracketLink
+                    label="Report"
+                    title="Report an issue"
+                    onClick={() => setIsReportOpen(true)}
+                  />
+                )}
               </div>
             }
           />
@@ -344,13 +272,9 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
           />
         </>
       }
-      tabs={tabs}
-      activeTab={activeTab}
-      onTabChange={setActiveTab}
       sidebar={sidebar}
     >
-      {/* Lineup Tab */}
-      <TabsContent value="lineup">
+      <div className="space-y-8">
         {artistsLoading ? (
           <div className="flex justify-center py-8">
             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
@@ -361,137 +285,101 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
             multiDay={hasMultipleDays}
           />
         )}
-      </TabsContent>
 
-      {/* Insights Tab */}
-      <TabsContent value="insights">
-        <div className="space-y-8">
-          <RisingArtists
-            festivalIdOrSlug={idOrSlug}
-            enabled={activeTab === 'insights'}
-          />
-          <SimilarFestivals
-            festivalIdOrSlug={idOrSlug}
-            enabled={activeTab === 'insights'}
-          />
-        </div>
-      </TabsContent>
+        <SeriesHistory
+          seriesSlug={festival.series_slug}
+          editions={seriesEditions}
+        />
 
-      {/* Series History Tab */}
-      {hasSeriesHistory && (
-        <TabsContent value="series">
-          <SeriesHistory
-            seriesSlug={festival.series_slug}
-            editions={seriesEditions}
-            enabled={activeTab === 'series'}
-          />
-        </TabsContent>
-      )}
+        <RisingArtists festivalIdOrSlug={idOrSlug} />
 
-      {/* Info Tab */}
-      <TabsContent value="info">
-        <div className="space-y-8">
-          {/* Description */}
-          {festival.description && (
-            <div>
-              <h2 className="text-lg font-semibold mb-3">About</h2>
-              <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
-                {festival.description}
-              </p>
-            </div>
-          )}
+        <SimilarFestivals festivalIdOrSlug={idOrSlug} />
 
-          {/* Venues Section */}
-          {venuesLoading ? (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          ) : venues.length > 0 ? (
-            <div>
-              <h2 className="text-lg font-semibold mb-4">Venues</h2>
-              <div className="space-y-2">
-                {venues.map(venue => (
-                  <div
-                    key={venue.id}
-                    className="flex items-center gap-3 rounded-lg border border-border/50 bg-card p-3"
-                  >
-                    <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
-                    <div className="flex-1 min-w-0">
-                      <Link
-                        href={
-                          venue.venue_slug
-                            ? `/venues/${venue.venue_slug}`
-                            : '#'
-                        }
-                        className="font-medium text-foreground hover:text-primary transition-colors"
-                      >
-                        {venue.venue_name}
-                      </Link>
-                      <p className="text-xs text-muted-foreground">
-                        {venue.city}, {venue.state}
-                      </p>
-                    </div>
-                    {venue.is_primary && (
-                      <Badge
-                        variant="secondary"
-                        className="text-[10px] px-1.5 py-0"
-                      >
-                        Primary
-                      </Badge>
-                    )}
+        {hasDescription && (
+          <div>
+            <h2 className="text-lg font-semibold mb-3">About</h2>
+            <p className="text-muted-foreground leading-relaxed whitespace-pre-line">
+              {festival.description}
+            </p>
+          </div>
+        )}
+
+        {venuesLoading ? (
+          <div className="flex justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : venues.length > 0 ? (
+          <div>
+            <h2 className="text-lg font-semibold mb-3">Venues</h2>
+            <div className="space-y-2">
+              {venues.map(venue => (
+                <div
+                  key={venue.id}
+                  className="flex items-center gap-3 rounded-lg border border-border/50 bg-card p-3"
+                >
+                  <Building2 className="h-4 w-4 text-muted-foreground shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <Link
+                      href={
+                        venue.venue_slug
+                          ? `/venues/${venue.venue_slug}`
+                          : '#'
+                      }
+                      className="font-medium text-foreground hover:text-primary transition-colors"
+                    >
+                      {venue.venue_name}
+                    </Link>
+                    <p className="text-xs text-muted-foreground">
+                      {venue.city}, {venue.state}
+                    </p>
                   </div>
-                ))}
-              </div>
+                  {venue.is_primary && (
+                    <Badge
+                      variant="secondary"
+                      className="text-[10px] px-1.5 py-0"
+                    >
+                      Primary
+                    </Badge>
+                  )}
+                </div>
+              ))}
             </div>
-          ) : null}
+          </div>
+        ) : null}
 
-          {/* Social / External Links */}
-          {(festival.website || festival.ticket_url || festival.social) && (
-            <div>
-              <h2 className="text-lg font-semibold mb-3">Links</h2>
-              <div className="space-y-2">
-                {festival.website && (
-                  <a
-                    href={festival.website}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
-                  >
-                    <Globe className="h-4 w-4" />
-                    Official Website
-                  </a>
-                )}
-                {festival.ticket_url && (
-                  <a
-                    href={festival.ticket_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
-                  >
-                    <Ticket className="h-4 w-4" />
-                    Buy Tickets
-                  </a>
-                )}
-                {festival.social && <SocialLinks social={festival.social} />}
-              </div>
+        {hasLinks && (
+          <div>
+            <h2 className="text-lg font-semibold mb-3">Links</h2>
+            <div className="space-y-2">
+              {festival.website && (
+                <a
+                  href={festival.website}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
+                >
+                  <Globe className="h-4 w-4" />
+                  Official Website
+                </a>
+              )}
+              {festival.ticket_url && (
+                <a
+                  href={festival.ticket_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-2 text-primary hover:text-primary/80 transition-colors text-sm"
+                >
+                  <Ticket className="h-4 w-4" />
+                  Buy Tickets
+                </a>
+              )}
+              {hasSocialLinks && <SocialLinks social={festival.social!} />}
             </div>
-          )}
-
-          {/* Fallback if no info */}
-          {!festival.description &&
-            venues.length === 0 &&
-            !festival.website &&
-            !festival.ticket_url &&
-            !festival.social && (
-              <div className="text-sm text-muted-foreground">
-                No additional information available for this festival.
-              </div>
-            )}
-        </div>
-      </TabsContent>
+          </div>
+        )}
+      </div>
     </EntityDetailLayout>
 
-    {/* Revision History */}
     <div className="mt-0">
       <RevisionHistory
         entityType="festival"
@@ -500,12 +388,10 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
       />
     </div>
 
-    {/* Discussion */}
     <div className="mt-0 px-4 md:px-0">
       <CommentThread entityType="festival" entityId={festival.id} />
     </div>
 
-    {/* Edit Drawer */}
     {festival && isAuthenticated && (
       <EntityEditDrawer
         open={isEditing}
@@ -528,7 +414,6 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
       />
     )}
 
-    {/* Report Dialog (authenticated users) */}
     {festival && isAuthenticated && (
       <ReportEntityDialog
         open={isReportOpen}
@@ -536,6 +421,15 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
         entityType="festival"
         entityId={festival.id}
         entityName={festival.name}
+      />
+    )}
+
+    {isAuthenticated && (
+      <AddTagDialog
+        entityType="festival"
+        entityId={festival.id}
+        open={addTagDialogOpen}
+        onOpenChange={setAddTagDialogOpen}
       />
     )}
   </>
