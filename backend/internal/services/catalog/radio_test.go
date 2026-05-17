@@ -964,8 +964,9 @@ func (suite *RadioServiceIntegrationTestSuite) seedWFMUNetwork() (network catalo
 	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('wfmu', 'WFMU')`).Error)
 	suite.Require().NoError(suite.db.Where("slug = ?", "wfmu").First(&network).Error)
 
+	flagshipFreq := 91.1
 	rows := []catalogm.RadioStation{
-		{Name: "WFMU", Slug: "wfmu", BroadcastType: catalogm.BroadcastTypeBoth, IsActive: true, NetworkID: &network.ID, IsFlagship: true},
+		{Name: "WFMU", Slug: "wfmu", BroadcastType: catalogm.BroadcastTypeBoth, FrequencyMHz: &flagshipFreq, IsActive: true, NetworkID: &network.ID, IsFlagship: true},
 		{Name: "Give the Drummer Radio", Slug: "wfmu-drummer", BroadcastType: catalogm.BroadcastTypeInternet, IsActive: true, NetworkID: &network.ID, IsFlagship: false},
 		{Name: "Rock'n'Soul Radio", Slug: "wfmu-rocknsoulradio", BroadcastType: catalogm.BroadcastTypeInternet, IsActive: true, NetworkID: &network.ID, IsFlagship: false},
 		{Name: "Sheena's Jungle Room", Slug: "wfmu-sheena", BroadcastType: catalogm.BroadcastTypeInternet, IsActive: true, NetworkID: &network.ID, IsFlagship: false},
@@ -1022,8 +1023,14 @@ func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStation_Sibli
 	suite.Require().Len(resp.SiblingStations, 3, "drummer should see 3 siblings: flagship + 2 other sub-streams")
 	suite.Equal("WFMU", resp.SiblingStations[0].Name, "flagship must come first in sibling ordering")
 	suite.True(resp.SiblingStations[0].IsFlagship)
+	// PSY-676: flagship-as-sibling carries frequency so NetworkTabBar can render
+	// the flagship tab as "WFMU 91.1" from any sub-stream page, matching the
+	// label that renders from the flagship's own /radio/wfmu page.
+	suite.Require().NotNil(resp.SiblingStations[0].FrequencyMHz, "flagship sibling should carry frequency_mhz")
+	suite.InDelta(91.1, *resp.SiblingStations[0].FrequencyMHz, 0.001)
 	suite.Equal("Rock'n'Soul Radio", resp.SiblingStations[1].Name)
 	suite.False(resp.SiblingStations[1].IsFlagship)
+	suite.Nil(resp.SiblingStations[1].FrequencyMHz, "internet-only sub-stream has no frequency")
 	suite.Equal("Sheena's Jungle Room", resp.SiblingStations[2].Name)
 	suite.False(resp.SiblingStations[2].IsFlagship)
 
@@ -1069,6 +1076,8 @@ func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStationBySlug
 	suite.Require().Len(resp.SiblingStations, 3)
 	suite.Equal("WFMU", resp.SiblingStations[0].Name, "flagship must come first")
 	suite.True(resp.SiblingStations[0].IsFlagship)
+	suite.Require().NotNil(resp.SiblingStations[0].FrequencyMHz, "slug-keyed path must also carry flagship frequency_mhz")
+	suite.InDelta(91.1, *resp.SiblingStations[0].FrequencyMHz, 0.001)
 }
 
 // TestRadioNetwork_ListStations_PopulatesNetworkAndSiblings verifies the
@@ -1111,6 +1120,8 @@ func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_ListStations_Pop
 	suite.Require().Len(drummer.SiblingStations, 3)
 	suite.Equal("WFMU", drummer.SiblingStations[0].Name, "flagship-first ordering")
 	suite.True(drummer.SiblingStations[0].IsFlagship)
+	suite.Require().NotNil(drummer.SiblingStations[0].FrequencyMHz, "list path must also carry flagship frequency_mhz")
+	suite.InDelta(91.1, *drummer.SiblingStations[0].FrequencyMHz, 0.001)
 
 	// Network-less station has nil Network and empty SiblingStations.
 	k := bySlug["kexp"]
