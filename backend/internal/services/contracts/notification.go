@@ -80,4 +80,5 @@ type DiscordServiceInterface interface {
 	NotifyShowReport(report *communitym.ShowReport, reporterEmail string)
 	NotifyArtistReport(report *communitym.ArtistReport, reporterEmail string)
 	NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string)
+	NotifyNewRadioShows(stationName string, newShowNames []string)
 }

@@ -348,6 +348,37 @@ func (s *DiscordService) NotifyNewVenue(venueID uint, venueName, city, state str
 	go s.sendWebhook(embed)
 }
 
+// NotifyNewRadioShows sends a notification when the periodic discover loop
+// finds one or more shows that didn't previously exist for a station.
+// Fire-and-forget; silently skipped when Discord isn't configured.
+func (s *DiscordService) NotifyNewRadioShows(stationName string, newShowNames []string) {
+	if !s.IsConfigured() || len(newShowNames) == 0 {
+		return
+	}
+
+	// Cap the rendered list so a one-off provider-grid expansion doesn't blow
+	// past Discord's embed-field limits. Surface a count tail when truncated.
+	const maxShown = 25
+	displayed := newShowNames
+	tail := ""
+	if len(newShowNames) > maxShown {
+		displayed = newShowNames[:maxShown]
+		tail = fmt.Sprintf("\n…and %d more", len(newShowNames)-maxShown)
+	}
+
+	embed := DiscordEmbed{
+		Title:       fmt.Sprintf("New Radio Shows: %s", stationName),
+		Description: fmt.Sprintf("Discovered %d new show(s)", len(newShowNames)),
+		Color:       ColorBlue,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Fields: []DiscordEmbedField{
+			{Name: "Shows", Value: strings.Join(displayed, "\n") + tail, Inline: false},
+		},
+	}
+
+	go s.sendWebhook(embed)
+}
+
 // sendWebhook sends an embed to the Discord webhook (fire-and-forget)
 func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 	payload := DiscordWebhookPayload{
