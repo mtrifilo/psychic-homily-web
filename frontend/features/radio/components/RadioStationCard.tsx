@@ -14,6 +14,12 @@ export function RadioStationCard({ station }: RadioStationCardProps) {
   const stationUrl = `/radio/${station.slug}`
   const location = [station.city, station.state].filter(Boolean).join(', ')
   const broadcastLabel = getBroadcastTypeLabel(station.broadcast_type)
+  // PSY-673: only flagship cards advertise sibling channels. Non-flagship
+  // cards never reach this component on /radio (filtered by
+  // isStationVisibleOnIndex); the is_flagship guard keeps the count from
+  // appearing if the card is reused on a surface that doesn't filter.
+  const siblingCount = station.sibling_stations.length
+  const showChannels = station.network?.is_flagship && siblingCount > 0
 
   return (
     <article className="rounded-lg border border-border/50 bg-card p-5 transition-shadow hover:shadow-sm">
@@ -60,6 +66,12 @@ export function RadioStationCard({ station }: RadioStationCardProps) {
               </span>
             )}
           </div>
+
+          {showChannels && (
+            <div className="mt-1.5 text-xs text-muted-foreground/80">
+              + {siblingCount} {siblingCount === 1 ? 'channel' : 'channels'}
+            </div>
+          )}
         </div>
       </div>
 

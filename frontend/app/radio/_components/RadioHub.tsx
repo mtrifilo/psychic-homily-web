@@ -7,6 +7,7 @@ import {
   useRadioStats,
   useNewReleaseRadar,
   RadioStationCard,
+  isStationVisibleOnIndex,
 } from '@/features/radio'
 import type { RadioNewReleaseRadarEntry } from '@/features/radio'
 
@@ -14,6 +15,11 @@ export default function RadioHub() {
   const { data: stationsData, isLoading, error } = useRadioStations()
   const { data: stats } = useRadioStats()
   const { data: radarData, isLoading: radarLoading } = useNewReleaseRadar({ limit: 10 })
+
+  // PSY-673: hide non-flagship siblings of any network. Sub-streams remain
+  // reachable via their direct /radio/{slug} URL and via the flagship's tab
+  // bar (PSY-674).
+  const visibleStations = stationsData?.stations.filter(isStationVisibleOnIndex) ?? []
 
   return (
     <div className="flex min-h-screen items-start justify-center">
@@ -53,23 +59,21 @@ export default function RadioHub() {
         )}
 
         {!isLoading && !error && stationsData && (
-          <>
-            {stationsData.stations && stationsData.stations.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {stationsData.stations.map(station => (
-                  <RadioStationCard key={station.id} station={station} />
-                ))}
-              </div>
-            ) : (
-              <div className="py-12 text-center">
-                <Radio className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
-                <p className="text-muted-foreground">No radio stations yet</p>
-                <p className="text-sm text-muted-foreground/60 mt-1">
-                  Radio stations will appear here once they are added.
-                </p>
-              </div>
-            )}
-          </>
+          visibleStations.length > 0 ? (
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+              {visibleStations.map(station => (
+                <RadioStationCard key={station.id} station={station} />
+              ))}
+            </div>
+          ) : (
+            <div className="py-12 text-center">
+              <Radio className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
+              <p className="text-muted-foreground">No radio stations yet</p>
+              <p className="text-sm text-muted-foreground/60 mt-1">
+                Radio stations will appear here once they are added.
+              </p>
+            </div>
+          )
         )}
       </main>
     </div>
