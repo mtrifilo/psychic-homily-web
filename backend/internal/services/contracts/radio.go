@@ -53,51 +53,79 @@ type UpdateRadioStationRequest struct {
 	IsActive         *bool            `json:"is_active"`
 }
 
+// RadioNetworkInfo is the per-station view of its parent network, embedded
+// in RadioStationDetailResponse and RadioStationListResponse. `is_flagship`
+// is the bool on the *station* (radio_stations.is_flagship) — true means
+// THIS station is the network's primary/default broadcast. Frontend uses
+// it to render WFMU 91.1 as the default tab and the 3 stream-only siblings
+// as secondary tabs.
+type RadioNetworkInfo struct {
+	Slug       string `json:"slug"`
+	Name       string `json:"name"`
+	IsFlagship bool   `json:"is_flagship"`
+}
+
+// RadioSiblingStationResponse is a sibling station within the same network,
+// embedded in RadioStationDetailResponse.SiblingStations. Includes every
+// station in the network OTHER than the one this response represents, so a
+// tab bar can render the full set with the active tab highlighted.
+type RadioSiblingStationResponse struct {
+	ID            uint   `json:"id"`
+	Slug          string `json:"slug"`
+	Name          string `json:"name"`
+	BroadcastType string `json:"broadcast_type"`
+	IsFlagship    bool   `json:"is_flagship"`
+}
+
 // RadioStationDetailResponse represents the full radio station data returned to clients
 type RadioStationDetailResponse struct {
-	ID                  uint             `json:"id"`
-	Name                string           `json:"name"`
-	Slug                string           `json:"slug"`
-	Description         *string          `json:"description"`
-	City                *string          `json:"city"`
-	State               *string          `json:"state"`
-	Country             *string          `json:"country"`
-	Timezone            *string          `json:"timezone"`
-	StreamURL           *string          `json:"stream_url"`
-	StreamURLs          *json.RawMessage `json:"stream_urls"`
-	Website             *string          `json:"website"`
-	DonationURL         *string          `json:"donation_url"`
-	DonationEmbedURL    *string          `json:"donation_embed_url"`
-	LogoURL             *string          `json:"logo_url"`
-	Social              *json.RawMessage `json:"social"`
-	BroadcastType       string           `json:"broadcast_type"`
-	FrequencyMHz        *float64         `json:"frequency_mhz"`
-	PlaylistSource      *string          `json:"playlist_source"`
-	PlaylistConfig      *json.RawMessage `json:"playlist_config"`
-	LastPlaylistFetchAt *time.Time       `json:"last_playlist_fetch_at"`
-	IsActive            bool             `json:"is_active"`
-	NetworkID           *uint            `json:"network_id"`
-	NetworkSlug         *string          `json:"network_slug"`
-	ShowCount           int              `json:"show_count"`
-	CreatedAt           time.Time        `json:"created_at"`
-	UpdatedAt           time.Time        `json:"updated_at"`
+	ID                  uint                          `json:"id"`
+	Name                string                        `json:"name"`
+	Slug                string                        `json:"slug"`
+	Description         *string                       `json:"description"`
+	City                *string                       `json:"city"`
+	State               *string                       `json:"state"`
+	Country             *string                       `json:"country"`
+	Timezone            *string                       `json:"timezone"`
+	StreamURL           *string                       `json:"stream_url"`
+	StreamURLs          *json.RawMessage              `json:"stream_urls"`
+	Website             *string                       `json:"website"`
+	DonationURL         *string                       `json:"donation_url"`
+	DonationEmbedURL    *string                       `json:"donation_embed_url"`
+	LogoURL             *string                       `json:"logo_url"`
+	Social              *json.RawMessage              `json:"social"`
+	BroadcastType       string                        `json:"broadcast_type"`
+	FrequencyMHz        *float64                      `json:"frequency_mhz"`
+	PlaylistSource      *string                       `json:"playlist_source"`
+	PlaylistConfig      *json.RawMessage              `json:"playlist_config"`
+	LastPlaylistFetchAt *time.Time                    `json:"last_playlist_fetch_at"`
+	IsActive            bool                          `json:"is_active"`
+	NetworkID           *uint                         `json:"network_id"`
+	NetworkSlug         *string                       `json:"network_slug"`
+	Network             *RadioNetworkInfo             `json:"network"`
+	SiblingStations     []RadioSiblingStationResponse `json:"sibling_stations"`
+	ShowCount           int                           `json:"show_count"`
+	CreatedAt           time.Time                     `json:"created_at"`
+	UpdatedAt           time.Time                     `json:"updated_at"`
 }
 
 // RadioStationListResponse represents a radio station in list views
 type RadioStationListResponse struct {
-	ID            uint     `json:"id"`
-	Name          string   `json:"name"`
-	Slug          string   `json:"slug"`
-	City          *string  `json:"city"`
-	State         *string  `json:"state"`
-	Country       *string  `json:"country"`
-	BroadcastType string   `json:"broadcast_type"`
-	FrequencyMHz  *float64 `json:"frequency_mhz"`
-	LogoURL       *string  `json:"logo_url"`
-	IsActive      bool     `json:"is_active"`
-	NetworkID     *uint    `json:"network_id"`
-	NetworkSlug   *string  `json:"network_slug"`
-	ShowCount     int      `json:"show_count"`
+	ID              uint                          `json:"id"`
+	Name            string                        `json:"name"`
+	Slug            string                        `json:"slug"`
+	City            *string                       `json:"city"`
+	State           *string                       `json:"state"`
+	Country         *string                       `json:"country"`
+	BroadcastType   string                        `json:"broadcast_type"`
+	FrequencyMHz    *float64                      `json:"frequency_mhz"`
+	LogoURL         *string                       `json:"logo_url"`
+	IsActive        bool                          `json:"is_active"`
+	NetworkID       *uint                         `json:"network_id"`
+	NetworkSlug     *string                       `json:"network_slug"`
+	Network         *RadioNetworkInfo             `json:"network"`
+	SiblingStations []RadioSiblingStationResponse `json:"sibling_stations"`
+	ShowCount       int                           `json:"show_count"`
 }
 
 // ──────────────────────────────────────────────

@@ -70,6 +70,7 @@ type RadioStation struct {
 	LastPlaylistFetchAt *time.Time       `gorm:"column:last_playlist_fetch_at"`
 	IsActive            bool             `gorm:"column:is_active;not null;default:true"`
 	NetworkID           *uint            `gorm:"column:network_id"`
+	IsFlagship          bool             `gorm:"column:is_flagship;not null;default:false"`
 	CreatedAt           time.Time        `gorm:"not null"`
 	UpdatedAt           time.Time        `gorm:"not null"`
 

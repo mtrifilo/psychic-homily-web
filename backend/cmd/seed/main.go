@@ -848,6 +848,7 @@ func seedRadioStationsAndShows(database *gorm.DB) (int, int) {
 			BroadcastType:  s.BroadcastType,
 			PlaylistSource: &s.PlaylistSource,
 			IsActive:       true,
+			IsFlagship:     s.IsFlagship,
 		}
 		if s.State != "" {
 			station.State = &s.State
