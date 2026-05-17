@@ -26,7 +26,7 @@ Command.displayName = CommandPrimitive.displayName
 function CommandDialog({ children, ...props }: DialogProps) {
   return (
     <Dialog {...props}>
-      <DialogContent className="overflow-hidden p-0 shadow-lg sm:max-w-[520px] [&>button:last-child]:hidden">
+      <DialogContent className="overflow-hidden p-0 sm:max-w-[520px] [&>button:last-child]:hidden">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
         <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
           {children}
