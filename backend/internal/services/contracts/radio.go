@@ -70,11 +70,12 @@ type RadioNetworkInfo struct {
 // station in the network OTHER than the one this response represents, so a
 // tab bar can render the full set with the active tab highlighted.
 type RadioSiblingStationResponse struct {
-	ID            uint   `json:"id"`
-	Slug          string `json:"slug"`
-	Name          string `json:"name"`
-	BroadcastType string `json:"broadcast_type"`
-	IsFlagship    bool   `json:"is_flagship"`
+	ID            uint     `json:"id"`
+	Slug          string   `json:"slug"`
+	Name          string   `json:"name"`
+	BroadcastType string   `json:"broadcast_type"`
+	FrequencyMHz  *float64 `json:"frequency_mhz"`
+	IsFlagship    bool     `json:"is_flagship"`
 }
 
 // RadioStationDetailResponse represents the full radio station data returned to clients

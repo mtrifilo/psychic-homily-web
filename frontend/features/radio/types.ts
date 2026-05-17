@@ -27,6 +27,7 @@ export interface RadioSiblingStation {
   slug: string
   name: string
   broadcast_type: string
+  frequency_mhz: number | null
   is_flagship: boolean
 }
 

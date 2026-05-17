@@ -1015,7 +1015,7 @@ func (s *RadioService) fetchSiblings(networkID *uint, excludeStationID uint) []c
 // (caller-side filters self via excludeSibling). One query for any number
 // of network ids; no N+1. Select() narrows the row read so we skip the
 // JSONB blobs (stream_urls/social/playlist_config) the sibling response
-// doesn't render — ~25-column hydration shrinks to 6 scalar columns.
+// doesn't render — ~25-column hydration shrinks to 7 scalar columns.
 func (s *RadioService) batchFetchSiblings(networkIDs []uint) map[uint][]contracts.RadioSiblingStationResponse {
 	out := make(map[uint][]contracts.RadioSiblingStationResponse, len(networkIDs))
 	if len(networkIDs) == 0 {
@@ -1023,7 +1023,7 @@ func (s *RadioService) batchFetchSiblings(networkIDs []uint) map[uint][]contract
 	}
 	var stations []catalogm.RadioStation
 	s.db.
-		Select("id, slug, name, broadcast_type, is_flagship, network_id").
+		Select("id, slug, name, broadcast_type, frequency_mhz, is_flagship, network_id").
 		Where("network_id IN ?", networkIDs).
 		Order("is_flagship DESC, name ASC").
 		Find(&stations)
@@ -1036,6 +1036,7 @@ func (s *RadioService) batchFetchSiblings(networkIDs []uint) map[uint][]contract
 			Slug:          st.Slug,
 			Name:          st.Name,
 			BroadcastType: st.BroadcastType,
+			FrequencyMHz:  st.FrequencyMHz,
 			IsFlagship:    st.IsFlagship,
 		})
 	}

@@ -98,8 +98,7 @@ function buildTabs(station: RadioStationDetail): TabEntry[] {
       label: tabLabel({
         name: sib.name,
         isFlagship: sib.is_flagship,
-        // Sibling responses don't carry frequency; flagship-sibling tabs render name-only.
-        frequencyMHz: null,
+        frequencyMHz: sib.frequency_mhz,
       }),
       href: getStationDetailUrl(sib.slug, {
         slug: station.network.slug,
