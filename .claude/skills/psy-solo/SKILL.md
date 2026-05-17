@@ -165,7 +165,13 @@ const d = Array.from(document.querySelectorAll('[role=\"dialog\"]')).find(el => 
 
 Caught: May 16 post-shipped-UI audit — `offsetParent` false-negative made the Graph Dialog look like it never auto-opened from `#graph` URL; subsequent screenshot confirmed it DID open (the bug was on close, not on open).
 
-**6e. Auth-state screenshots are usually skippable.** Unauthenticated screenshots show the structural changes (flat layout, hide-when-empty, sidebar shape, public BracketLinks like `[Follow]`). Auth-only brackets (`[Edit | Suggest edit]`, `[Suggest description]`, `[Add tag]`, `[Report]`) are visible in the diff and can be described in the PR body. Skip the auth login flow unless the reviewer needs to see the rendered auth-only state.
+**6e. Auth-state screenshots — capture when the diff changes auth-gated behavior.** Skip the auth login flow only when the diff is structural / public-surface-only and the auth-only brackets are unchanged. For diffs that *change* what auth users see (permission expansion, new auth-gated affordances, gate flips like `canEdit={!!isAdmin}` → `canEdit={!!canEditDirectly}`), the rendered authenticated state IS the user-facing change — screenshot it.
+
+**Local dev test accounts** (harmless dev creds, owner-provided 2026-05-17):
+- Admin: `asdf@admin.com` / `adminadmin`
+- Non-admin: `asdfTwo@admin.com` / `TangoTango1` (default `contributor` tier; promote via admin UI or DB to test `trusted_contributor` / `local_ambassador` paths)
+
+Login URL: `http://localhost:3000/auth/login`. Use `agent-browser fill` for the form and `agent-browser click` for the submit; the JWT lands in cookies + AuthContext picks it up after a navigation. To promote a tier for trusted-tier screenshots: log in as admin first, hit the user management surface (or run a direct SQL update against the local dev DB — see `backend/db/migrations/` for the user-tier column).
 
 **6f. Upload via `gh release create --draft` for image hosting.** GitHub markdown can't embed local files or base64 PNGs, and `gh` has no direct image-upload API for PRs. The reliable path: create a DRAFT release with the PNGs as assets and embed the asset download URLs.
 

@@ -80,6 +80,7 @@ vi.mock('@/features/contributions', () => ({
   ReportEntityDialog: ({ open, entityName }: { open: boolean; entityName: string }) =>
     open ? <div data-testid="report-dialog">Report {entityName}</div> : null,
   ContributionPrompt: () => null,
+  useSuggestEdit: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
 // Mock comments feature

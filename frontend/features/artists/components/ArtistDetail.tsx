@@ -47,7 +47,7 @@ import {
 } from '@/components/shared'
 import { ArtistTrajectoryChart } from '@/features/festivals/components/ArtistTrajectoryChart'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
-import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, useSuggestEdit } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
@@ -824,6 +824,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   const isAdmin = isAuthenticated && user?.is_admin
   const canEditDirectly = isAdmin || user?.user_tier === 'trusted_contributor' || user?.user_tier === 'local_ambassador'
   const updateArtist = useArtistUpdate()
+  const suggestArtistEdit = useSuggestEdit()
 
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
@@ -1007,19 +1008,44 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
 
           <EntityDescription
             description={artist.description}
-            canEdit={!!isAdmin}
+            canEdit={!!canEditDirectly}
             onSave={async (description) => {
               await new Promise<void>((resolve, reject) => {
-                updateArtist.mutate(
-                  { artistId: artist.id, data: { description } },
+                if (isAdmin) {
+                  updateArtist.mutate(
+                    { artistId: artist.id, data: { description } },
+                    {
+                      onSuccess: () => {
+                        queryClient.invalidateQueries({
+                          queryKey: queryKeys.artists.detail(artistId),
+                        })
+                        resolve()
+                      },
+                      onError: reject,
+                    }
+                  )
+                  return
+                }
+                // PSY-642: trusted_contributor + local_ambassador route through
+                // suggest-edit, which auto-applies for them via canEditDirectly
+                // (backend pending_edit.go). useSuggestEdit's own onSuccess
+                // invalidates ['artists'], which prefix-matches the detail key.
+                suggestArtistEdit.mutate(
                   {
-                    onSuccess: () => {
-                      queryClient.invalidateQueries({
-                        queryKey: queryKeys.artists.detail(artistId),
-                      })
-                      resolve()
-                    },
-                    onError: (err) => reject(err),
+                    entityType: 'artist',
+                    entityId: artist.id,
+                    changes: [
+                      {
+                        field: 'description',
+                        old_value: artist.description ?? '',
+                        new_value: description,
+                      },
+                    ],
+                    summary: 'Updated description via inline editor',
+                  },
+                  {
+                    onSuccess: () => resolve(),
+                    onError: reject,
                   }
                 )
               })
