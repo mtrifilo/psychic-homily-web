@@ -158,7 +158,7 @@ export function EntityDescription({
     return (
       <button
         onClick={handleStartEdit}
-        className="w-full rounded-lg border border-dashed border-muted-foreground/25 bg-muted/30 p-4 text-left transition-colors hover:bg-muted/50"
+        className="w-full rounded-md border border-dashed border-muted-foreground/25 bg-muted/30 p-4 text-left transition-colors hover:bg-muted/50"
       >
         <p className="text-sm text-muted-foreground">
           No description yet.{' '}
