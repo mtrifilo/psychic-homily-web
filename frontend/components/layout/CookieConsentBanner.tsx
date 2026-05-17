@@ -33,7 +33,7 @@ export function CookieConsentBanner() {
   return (
     <>
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background p-4 shadow-lg motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300"
+        className="fixed bottom-0 left-0 right-0 z-50 border-t bg-background p-3 motion-safe:animate-in motion-safe:slide-in-from-bottom motion-safe:duration-300"
         role="dialog"
         aria-label="Cookie consent"
         aria-describedby="cookie-consent-description"

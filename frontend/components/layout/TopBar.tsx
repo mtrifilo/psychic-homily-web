@@ -207,14 +207,14 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
           </Sheet>
 
           <Link href="/" className="flex items-center gap-2 transition-opacity hover:opacity-80">
-            <div className="relative h-[36px] w-[36px] overflow-hidden rounded-full">
+            <div className="relative h-[36px] w-[36px] overflow-hidden rounded-md">
               <Image
                 src="/PsychicHomilyLogov2.svg"
                 alt="Psychic Homily Logo"
                 width={36}
                 height={36}
                 priority
-                className="rounded-full"
+                className="rounded-md"
                 style={{ filter: 'url(#glitch)' }}
               />
             </div>
