@@ -107,9 +107,9 @@ export function PasswordStrengthMeter({
           <span className="text-muted-foreground">Password strength</span>
           <span className={cn('font-medium', color)}>{label}</span>
         </div>
-        <div className="h-1.5 w-full rounded-full bg-muted overflow-hidden">
+        <div className="h-1.5 w-full rounded-sm bg-muted overflow-hidden">
           <div
-            className={cn('h-full rounded-full transition-all duration-300', bgColor)}
+            className={cn('h-full rounded-sm transition-all duration-300', bgColor)}
             style={{ width: `${strength}%` }}
           />
         </div>
