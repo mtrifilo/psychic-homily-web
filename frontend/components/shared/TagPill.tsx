@@ -32,7 +32,7 @@ export function TagPill({
   onClick,
 }: TagPillProps) {
   const pillClasses = cn(
-    'inline-flex items-center gap-1 rounded-full px-2.5 py-0.5',
+    'inline-flex items-center gap-1 rounded-md px-2.5 py-0.5',
     'text-xs font-medium',
     'bg-muted text-muted-foreground',
     'border border-border/50',
@@ -46,7 +46,7 @@ export function TagPill({
     <>
       <span>{label}</span>
       {voteCount !== undefined && (
-        <span className="text-primary/70 font-semibold">
+        <span className="text-primary/70 font-mono">
           {voteCount >= 0 ? `+${voteCount}` : voteCount}
         </span>
       )}

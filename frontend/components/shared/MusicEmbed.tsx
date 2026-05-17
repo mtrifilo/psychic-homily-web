@@ -105,12 +105,12 @@ export function MusicEmbed({
     return (
       <section className={compact ? 'mb-2' : 'mb-8'}>
         {!compact && (
-          <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+          <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
             <Music className="h-5 w-5" />
             Music
           </h2>
         )}
-        <div className={`flex items-center justify-center ${compact ? 'py-4' : 'py-8'} bg-muted/30 rounded-lg`}>
+        <div className={`flex items-center justify-center ${compact ? 'py-4' : 'py-8'} bg-muted/30 rounded-md`}>
           <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
         </div>
       </section>
@@ -120,7 +120,7 @@ export function MusicEmbed({
   return (
     <section className={compact ? 'mb-2' : 'mb-8'}>
       {!compact && (
-        <h2 className="text-lg font-semibold mb-4 flex items-center gap-2">
+        <h2 className="text-lg font-display font-semibold mb-4 flex items-center gap-2">
           <Music className="h-5 w-5" />
           Music
         </h2>
