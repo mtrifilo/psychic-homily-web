@@ -103,21 +103,6 @@ Invoke `Skill` with `skill: "simplify"`. The simplify skill spawns 3 parallel re
 
 If `/simplify` produced code changes, re-run the relevant test commands from phase 4.
 
-### Phase 5.5: /psy-self-review (after screenshots, before push)
-
-After `/simplify` is clean AND screenshots are captured (phase 6 if applicable), invoke `Skill` with `skill: "psy-self-review"`. It spawns 3 parallel reviewer sub-agents that check the draft PR body against session evidence:
-- Agent 1: every `[x]` test-plan item has a matching command / screenshot / test run in the session log
-- Agent 2: every behavior change in the diff is claimed-or-disclaimed in the PR body
-- Agent 3: convention + asymmetry traps (unauth fallback symmetry, truthy-empty gate shapes, dialog open/close URL-hash symmetry)
-
-**BLOCKING findings** (claims with no evidence) STOP the push — fix by re-doing the verification OR downgrading the `[x]` to `[ ]` with a "deferred manual repro" note. **WARNING / NIT findings** are agent's judgment call.
-
-Pass the draft PR body + session bash log path + git diff to the skill. The skill is honest about scope (can't verify what a screenshot SHOWS, only that it exists; spot-Read the PNG yourself for load-bearing claims).
-
-Required for any PR with a `## Test plan` containing `[x]` items. Skip only for backend-only / docs-only / config-only PRs where `/simplify` already covers the audit surface.
-
-Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` claim that caught a real bug post-merge (PSY-663). This phase exists to prevent that recurring. See `.claude/skills/psy-self-review/SKILL.md`.
-
 ### Phase 6: Screenshots (UI tickets only)
 
 Skip this phase entirely for backend-only / docs-only / config-only tickets — note `"no UI surface, screenshots skipped"` in the test plan.
@@ -155,6 +140,8 @@ agent-browser screenshot --full /tmp/psy-{N}-<short>-full.png   # full page (all
 ```
 
 **Prefer separate sequential foreground `agent-browser` calls over chained `open && sleep && screenshot && eval` in a single background bash.** The chained background pattern repeatedly returned ambiguous status (background-task completion with empty output, or the eval racing against navigation and erroring `Execution context was destroyed`). Separate foreground calls are slower per step but every step has visible result/error feedback, so you can react to a failure instead of guessing. Caught: May 16 audit — at least 4 chained-background calls hung or returned empty before I switched to foreground-sequential.
+
+**`agent-browser navigate reload` doesn't work** — the CLI interprets `reload` as a URL and tries to navigate to `https://reload/`. To reload after a code change (re-hydration of changed component, etc.), re-issue `agent-browser open <same-url>`. Caught: PSY-656 manual repro after the year-bug fix.
 
 Read the PNG back with the `Read` tool to verify visually before uploading — every once in a while, render is missing a section because hydration hadn't completed, or the dev server hit a runtime error you didn't see in the log. Heavy artist pages can need 12–15s for full hydration (multiple parallel data fetches — shows, discography, similar, labels, festival appearances). If the first screenshot looks blank or partial, wait another 5–8s and re-capture before assuming a render bug.
 
@@ -217,7 +204,30 @@ linear issue create \
 
 Description files should explain: the problem, the proposed change (backend / frontend / both), open questions, acceptance criteria, and a `## Source` line citing the parent ticket. See PSY-660 / PSY-661 / PSY-662 from the May 2026 Entity Pages Density Rollout for canonical examples.
 
+**Capture the filed PSY IDs** — you'll substitute them into the PR body's `## Deferred` section in phase 7.5. Filing in phase 7 BEFORE phase 7.5 / 7.6 means the PR body references real IDs (not `PSY-XXX` placeholders that `/psy-self-review` would then flag — caught: PSY-656 self-review warned about an unsubstituted placeholder because filing happened too late).
+
+### Phase 7.5: Draft PR body to /tmp/
+
+Write the planned PR body to `/tmp/psy-{N}-pr-body.md`. Use the [phase 8 template](#phase-8-commit--push--open-pr) below — substitute the real PSY IDs from phase 7 for any `PSY-{M}` placeholders. This is a real artifact (not a mental draft) because `/psy-self-review` (next phase) needs to read it.
+
+### Phase 7.6: /psy-self-review
+
+Invoke `Skill` with `skill: "psy-self-review"`, passing the `/tmp/psy-{N}-pr-body.md` path as arg. It spawns 3 parallel reviewer sub-agents that check the drafted PR body against session evidence:
+- Agent 1: every `[x]` test-plan item has a matching command / screenshot / test run in the session log
+- Agent 2: every behavior change in the diff is claimed-or-disclaimed in the PR body
+- Agent 3: convention + asymmetry traps (unauth fallback symmetry, truthy-empty gate shapes, dialog open/close URL-hash symmetry, year-shape numerics passed to `StatsList` without `String()` wrap, unresolved `PSY-XXX` placeholders)
+
+**BLOCKING findings** (claims with no evidence) STOP the push — fix by re-doing the verification OR downgrading the `[x]` to `[ ]` with a "deferred manual repro" note. **WARNING / NIT findings** are agent's judgment call (warnings usually require a PR-body patch; nits usually require a small disclosure line).
+
+The skill is honest about scope (can't verify what a screenshot SHOWS, only that it exists; cannot audit PR title since it's passed via `--title` separately from the body; spot-Read PNGs yourself for load-bearing claims).
+
+Required for any PR with a `## Test plan` containing `[x]` items. Skip only for backend-only / docs-only / config-only PRs where `/simplify` already covers the audit surface.
+
+Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` claim that caught a real bug post-merge (PSY-663). This phase exists to prevent that recurring. See `.claude/skills/psy-self-review/SKILL.md`.
+
 ### Phase 8: Commit + push + open PR
+
+The PR body is the file you wrote in phase 7.5 and refined in phase 7.6 — use `--body-file`, not an inline heredoc.
 
 ```bash
 git -C <repo> add <specific files>                # NOT `git add .` — never accidentally add untracked
@@ -225,7 +235,12 @@ git -C <repo> commit -m "PSY-{N}: <imperative summary>
 
 Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 git -C <repo> push -u origin PSY-{N}/<branch>
-gh pr create --title "PSY-{N}: <under-70-char summary>" --body "$(cat <<'EOF'
+gh pr create --title "PSY-{N}: <under-70-char summary>" --body-file /tmp/psy-{N}-pr-body.md
+```
+
+#### PR body template (use as starting point for the phase 7.5 draft)
+
+```markdown
 Closes PSY-{N}.
 
 ## Summary
@@ -242,20 +257,30 @@ Closes PSY-{N}.
 - [x] `bun run typecheck` — clean
 - [x] `bun run test:run features/<scope>` — N/N passing
 - [x] `/simplify` — <outcome>
-- [x] Manual repro against local dev stack with <entity>: <one-sentence description>
+- [x] `/psy-self-review` — <outcome: clean / N findings addressed>
+- [x] Manual repro against local dev stack with <entity>: <one-sentence description of what was visually verified>
 
 ## Screenshots
 <embed the asset URLs from phase 6f, with one-sentence captions describing what each shows>
 
 ![<alt>](<asset-url>)
 
-<If the dev DB couldn't exercise all render paths (e.g. no entity has a description, no entity is tagged, no entity has external_links), state that explicitly: "verified hide-when-empty paths on <slug>; rich-data paths (description / links / etc.) not exercised locally because no <entity> in dev DB has those fields populated." Honest-disclosure beats silent gap — the reviewer needs to know what the screenshot does and doesn't cover.>
+## Coverage gaps
+
+Honest disclosure of what the screenshots / manual repro do NOT cover:
+
+- **Rich-data paths not exercised** (dev DB is sparse — PSY-665 will unblock): <list which optional fields weren't populated on the entity tested>
+- **`[Add tag]` → `AddTagDialog` open / submit / close cycle not exercised** (gated on auth; dialog primitive shared across all entity pages).
+- **`canEditDirectly ? 'Edit' : 'Suggest edit'` label variant not visually verified** (trust-tier conditional; only unauth was exercised, so neither label was rendered).
+- **Authenticated header brackets not visually verified**: `[Edit | Suggest edit]`, `[Suggest description]` (when desc empty), `[Add tag]`, `[Report]` only render for authenticated viewers. Skipped the auth login flow per psy-solo convention; the brackets exist in the diff at <file:line>.
+- <add any UI-ticket-specific gaps here, e.g. multi-bucket grouping not observable because dev data has only one bucket type>
 
 EOF
-)"
 ```
 
-PR title under 70 chars. Body MUST include `Closes PSY-{N}`. If `/simplify` was clean, drop the `## Heads up` section. For non-UI tickets, replace `## Screenshots` with a Manual repro line in the Test plan ("no UI surface" or curl-against-backend response).
+The 3 bracket-related lines under `## Coverage gaps` are standard for any UI ticket using the header-linkbox + AddTagDialog pattern. Include them by default; remove only if the specific PR doesn't touch them.
+
+PR title under 70 chars (verify manually — `/psy-self-review` cannot audit titles passed via `--title`). Body MUST include `Closes PSY-{N}`. If `/simplify` was clean, drop the `## Heads up` section. For non-UI tickets, drop `## Screenshots` and add a Manual repro line in the Test plan ("no UI surface" or curl-against-backend response).
 
 ### Phase 9: Cleanup
 
@@ -288,7 +313,7 @@ Do NOT delete the draft release after the PR is open — the asset URLs depend o
 ## Related skills and memories
 
 - **`psy-dispatch`** — parallel-worktree batch execution. Use when 2+ tickets need to ship; `psy-solo` is for single tickets where worktree overhead would be friction.
-- **`/psy-self-review`** — invoked at phase 5.5 between `/simplify` and `git push`. Sub-agent audits the draft PR body against session evidence; BLOCKING finding (unverified `[x]` claim) stops the push.
+- **`/psy-self-review`** — invoked at phase 7.6 between follow-up filing (phases 7 / 7.5) and `git push` (phase 8). Sub-agent audits the draft PR body against session evidence; BLOCKING finding (unverified `[x]` claim) stops the push.
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped UI audit pattern (sweep N merged tickets via screenshots + DOM-eval, file follow-ups, post project-update). Different scope from `psy-solo` (retrospective sweep vs forward per-ticket). Will be drafted after PSY-656 validates the audit cadence is genuinely reusable. May 16 audit was the first instance: caught PSY-663 + PSY-664 in ~30 minutes.
 - **`psy-ticket`** — ticket creation; pair with phase 7 to file the follow-ups this skill identifies.
 - **`linear-cli`** — generic Linear surface; drop down to it if `linear issue` lacks a flag.
