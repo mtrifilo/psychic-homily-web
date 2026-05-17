@@ -33,7 +33,7 @@ describe('InlineErrorBanner', () => {
 
     const banner = screen.getByRole('alert')
     expect(banner).toHaveClass(
-      'rounded-lg',
+      'rounded-md',
       'border',
       'border-destructive/50',
       'bg-destructive/10',
@@ -122,7 +122,7 @@ describe('InlineErrorBanner', () => {
 
       const banner = screen.getByRole('alert')
       expect(banner).toHaveClass(
-        'rounded-lg',
+        'rounded-md',
         'border',
         'border-destructive/50',
         'bg-destructive/10'

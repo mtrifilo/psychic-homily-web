@@ -85,7 +85,7 @@ export function FavoriteVenueButton({
 
       {/* Error tooltip */}
       {showError && error && (
-        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-destructive text-destructive-foreground text-xs rounded-md whitespace-nowrap z-50 shadow-lg">
+        <div className="absolute top-full left-1/2 -translate-x-1/2 mt-2 px-3 py-1.5 bg-destructive text-destructive-foreground text-xs rounded-md whitespace-nowrap z-50 shadow-sm">
           Failed to {isFavorited ? 'remove' : 'add'} favorite
         </div>
       )}
