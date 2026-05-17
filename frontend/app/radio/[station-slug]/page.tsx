@@ -1,4 +1,5 @@
 import { Metadata } from 'next'
+import { redirect } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import StationDetail from './_components/StationDetail'
 
@@ -12,12 +13,18 @@ interface StationPageProps {
   params: Promise<{ 'station-slug': string }>
 }
 
+interface StationNetwork {
+  slug: string
+  is_flagship: boolean
+}
+
 interface StationData {
   name: string
   slug?: string
   description?: string | null
   city?: string | null
   state?: string | null
+  network?: StationNetwork | null
 }
 
 async function getStation(slug: string): Promise<StationData | null> {
@@ -79,5 +86,19 @@ export async function generateMetadata({ params }: StationPageProps): Promise<Me
 
 export default async function StationPage({ params }: StationPageProps) {
   const { 'station-slug': stationSlug } = await params
+  // PSY-674: sub-streams (non-flagship stations in a network) live under
+  // /radio/{network-slug}/channel/{local-slug} now. Old direct URLs like
+  // /radio/wfmu-drummer 308-redirect to /radio/wfmu/channel/drummer so
+  // shared links keep working. The literal "channel" segment disambiguates
+  // sub-streams from show pages (/radio/{station-slug}/{show-slug}).
+  // Flagship + network-less stations stay on the 1-segment URL.
+  const station = await getStation(stationSlug)
+  if (station?.network && !station.network.is_flagship) {
+    const prefix = `${station.network.slug}-`
+    const localSlug = stationSlug.startsWith(prefix)
+      ? stationSlug.slice(prefix.length)
+      : stationSlug
+    redirect(`/radio/${station.network.slug}/channel/${localSlug}`)
+  }
   return <StationDetail stationSlug={stationSlug} />
 }

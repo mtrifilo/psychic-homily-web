@@ -20,6 +20,7 @@ import {
   useRadioShows,
   useNewReleaseRadar,
   RadioShowCard,
+  NetworkTabBar,
   getBroadcastTypeLabel,
 } from '@/features/radio'
 import type { RadioNewReleaseRadarEntry } from '@/features/radio'
@@ -152,6 +153,15 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
           </Link>
         </div>
 
+        {/* PSY-674: network-name H1 + tab bar when the station belongs to a
+            network. Hidden for network-less stations (KEXP, NTS today). */}
+        {station.network && (
+          <>
+            <h1 className="text-3xl font-bold mb-2">{station.network.name}</h1>
+            <NetworkTabBar currentStation={station} />
+          </>
+        )}
+
         {/* Station header */}
         <div className="flex items-start gap-5 mb-8">
           {/* Logo */}
@@ -168,7 +178,13 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
           </div>
 
           <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-bold">{station.name}</h1>
+            {/* Station-name heading: H1 for network-less stations (page-level
+                identity); h2 when the network H1 already renders above. */}
+            {station.network ? (
+              <h2 className="text-2xl font-semibold">{station.name}</h2>
+            ) : (
+              <h1 className="text-3xl font-bold">{station.name}</h1>
+            )}
 
             <div className="flex items-center gap-3 flex-wrap mt-2">
               <Badge variant="secondary">{broadcastLabel}</Badge>

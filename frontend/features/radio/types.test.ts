@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { isStationVisibleOnIndex } from './types'
+import { isStationVisibleOnIndex, getStationDetailUrl } from './types'
 import type { RadioNetworkInfo } from './types'
 
 // PSY-673: filter used by /radio (RadioHub) to hide non-flagship siblings of
@@ -45,5 +45,35 @@ describe('isStationVisibleOnIndex', () => {
       is_flagship: false,
     }
     expect(isStationVisibleOnIndex({ network: siblingOfDifferentNetwork })).toBe(false)
+  })
+})
+
+// PSY-674: URL builder used by NetworkTabBar + cards to construct canonical
+// /radio detail URLs. Sub-streams live under /radio/{network}/{local-slug};
+// flagship + network-less stations stay at /radio/{slug}.
+describe('getStationDetailUrl', () => {
+  it('network-less stations use /radio/{slug}', () => {
+    expect(getStationDetailUrl('kexp', null)).toBe('/radio/kexp')
+    expect(getStationDetailUrl('nts-radio', null)).toBe('/radio/nts-radio')
+  })
+
+  it('flagship stations stay at /radio/{slug} (no network segment)', () => {
+    const network = { slug: 'wfmu', is_flagship: true }
+    expect(getStationDetailUrl('wfmu', network)).toBe('/radio/wfmu')
+  })
+
+  it('sub-streams use /radio/{network}/channel/{local-slug} with prefix stripped', () => {
+    const network = { slug: 'wfmu', is_flagship: false }
+    expect(getStationDetailUrl('wfmu-drummer', network)).toBe('/radio/wfmu/channel/drummer')
+    expect(getStationDetailUrl('wfmu-rocknsoulradio', network)).toBe('/radio/wfmu/channel/rocknsoulradio')
+    expect(getStationDetailUrl('wfmu-sheena', network)).toBe('/radio/wfmu/channel/sheena')
+  })
+
+  // Guards against a future station whose slug doesn't follow the
+  // network-prefix convention. Better to ship an honest /radio/wfmu/channel/foo
+  // URL than to silently produce /radio/wfmu/channel/ (empty local-slug).
+  it('falls back to full slug when prefix is absent', () => {
+    const network = { slug: 'wfmu', is_flagship: false }
+    expect(getStationDetailUrl('legacy-show', network)).toBe('/radio/wfmu/channel/legacy-show')
   })
 })
