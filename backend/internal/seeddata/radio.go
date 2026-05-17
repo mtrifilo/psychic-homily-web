@@ -44,6 +44,7 @@ type RadioStation struct {
 	FrequencyMHz   float64 // 0 -> NULL (for internet-only stations)
 	PlaylistSource string  // provider tag used by the fetcher pipeline
 	NetworkSlug    string  // empty -> NULL (station has no parent network)
+	IsFlagship     bool    // true -> primary station of NetworkSlug; only one flagship per network
 }
 
 // RadioShow is the canonical description of a flagship show on a radio
@@ -103,6 +104,7 @@ var RadioStations = []RadioStation{
 		FrequencyMHz:   91.1,
 		PlaylistSource: "wfmu_scrape",
 		NetworkSlug:    "wfmu",
+		IsFlagship:     true,
 	},
 	{
 		// PSY-508: WFMU stream-only 24/7 sub-channel curated by Doug

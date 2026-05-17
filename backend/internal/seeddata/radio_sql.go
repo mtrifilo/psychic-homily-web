@@ -38,7 +38,7 @@ func RenderRadioSeedSQL(w io.Writer) error {
 	b.WriteString("ON CONFLICT (slug) DO NOTHING;\n\n")
 
 	b.WriteString("-- Radio stations (generated from backend/internal/seeddata/radio.go)\n")
-	b.WriteString("INSERT INTO radio_stations (name, slug, description, city, state, country, timezone, stream_url, website, donation_url, broadcast_type, frequency_mhz, playlist_source, network_id, is_active, created_at, updated_at) VALUES\n")
+	b.WriteString("INSERT INTO radio_stations (name, slug, description, city, state, country, timezone, stream_url, website, donation_url, broadcast_type, frequency_mhz, playlist_source, network_id, is_flagship, is_active, created_at, updated_at) VALUES\n")
 	for i, s := range RadioStations {
 		b.WriteString("  (")
 		b.WriteString(sqlString(s.Name))
@@ -68,6 +68,8 @@ func RenderRadioSeedSQL(w io.Writer) error {
 		b.WriteString(sqlString(s.PlaylistSource))
 		b.WriteString(", ")
 		b.WriteString(sqlNetworkIDFromSlug(s.NetworkSlug))
+		b.WriteString(", ")
+		b.WriteString(strconv.FormatBool(s.IsFlagship))
 		b.WriteString(", true, NOW(), NOW())")
 		if i < len(RadioStations)-1 {
 			b.WriteString(",")

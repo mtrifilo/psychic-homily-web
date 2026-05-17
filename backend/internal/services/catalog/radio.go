@@ -160,27 +160,57 @@ func (s *RadioService) ListStations(filters map[string]interface{}) ([]*contract
 		}
 	}
 
+	// Batch-load siblings per network so list responses can render the
+	// network tab bar without N+1 (one extra query total, regardless of
+	// how many networked stations are in the response).
+	networkIDSet := make(map[uint]struct{})
+	for _, st := range stations {
+		if st.NetworkID != nil {
+			networkIDSet[*st.NetworkID] = struct{}{}
+		}
+	}
+	networkIDs := make([]uint, 0, len(networkIDSet))
+	for id := range networkIDSet {
+		networkIDs = append(networkIDs, id)
+	}
+	stationsByNetwork := s.batchFetchSiblings(networkIDs)
+
 	responses := make([]*contracts.RadioStationListResponse, len(stations))
 	for i, st := range stations {
 		var networkSlug *string
+		var network *contracts.RadioNetworkInfo
 		if st.Network != nil {
 			slug := st.Network.Slug
 			networkSlug = &slug
+			network = &contracts.RadioNetworkInfo{
+				Slug:       st.Network.Slug,
+				Name:       st.Network.Name,
+				IsFlagship: st.IsFlagship,
+			}
 		}
+
+		var networkScoped []contracts.RadioSiblingStationResponse
+		if st.NetworkID != nil {
+			networkScoped = stationsByNetwork[*st.NetworkID]
+		}
+		siblings := excludeSibling(networkScoped, st.ID)
+
 		responses[i] = &contracts.RadioStationListResponse{
-			ID:            st.ID,
-			Name:          st.Name,
-			Slug:          st.Slug,
-			City:          st.City,
-			State:         st.State,
-			Country:       st.Country,
-			BroadcastType: st.BroadcastType,
-			FrequencyMHz:  st.FrequencyMHz,
-			LogoURL:       st.LogoURL,
-			IsActive:      st.IsActive,
-			NetworkID:     st.NetworkID,
-			NetworkSlug:   networkSlug,
-			ShowCount:     showCounts[st.ID],
+			ID:              st.ID,
+			Name:            st.Name,
+			Slug:            st.Slug,
+			City:            st.City,
+			State:           st.State,
+			Country:         st.Country,
+			BroadcastType:   st.BroadcastType,
+			FrequencyMHz:    st.FrequencyMHz,
+			LogoURL:         st.LogoURL,
+			IsActive:        st.IsActive,
+			NetworkID:       st.NetworkID,
+			NetworkSlug:     networkSlug,
+			Network:         network,
+			SiblingStations: siblings,
+			ShowCount:       showCounts[st.ID],
 		}
 	}
 
@@ -922,12 +952,21 @@ func (s *RadioService) buildStationDetailResponse(station *catalogm.RadioStation
 	s.db.Model(&catalogm.RadioShow{}).Where("station_id = ?", station.ID).Count(&showCount)
 
 	// network_slug is convenience for clients that already know how to
-	// resolve a slug; full network objects are not embedded here.
+	// resolve a slug; the nested Network object below carries the same
+	// info plus name + is_flagship.
 	var networkSlug *string
+	var network *contracts.RadioNetworkInfo
 	if station.Network != nil {
 		slug := station.Network.Slug
 		networkSlug = &slug
+		network = &contracts.RadioNetworkInfo{
+			Slug:       station.Network.Slug,
+			Name:       station.Network.Name,
+			IsFlagship: station.IsFlagship,
+		}
 	}
+
+	siblings := s.fetchSiblings(station.NetworkID, station.ID)
 
 	return &contracts.RadioStationDetailResponse{
 		ID:                  station.ID,
@@ -953,10 +992,68 @@ func (s *RadioService) buildStationDetailResponse(station *catalogm.RadioStation
 		IsActive:            station.IsActive,
 		NetworkID:           station.NetworkID,
 		NetworkSlug:         networkSlug,
+		Network:             network,
+		SiblingStations:     siblings,
 		ShowCount:           int(showCount),
 		CreatedAt:           station.CreatedAt,
 		UpdatedAt:           station.UpdatedAt,
 	}, nil
+}
+
+// fetchSiblings is the single-station-response convenience wrapper around
+// batchFetchSiblings. Used by buildStationDetailResponse so single-station
+// fetch paths and the list path share one query shape.
+func (s *RadioService) fetchSiblings(networkID *uint, excludeStationID uint) []contracts.RadioSiblingStationResponse {
+	if networkID == nil {
+		return []contracts.RadioSiblingStationResponse{}
+	}
+	byNetwork := s.batchFetchSiblings([]uint{*networkID})
+	return excludeSibling(byNetwork[*networkID], excludeStationID)
+}
+
+// batchFetchSiblings returns network_id → all stations in that network
+// (caller-side filters self via excludeSibling). One query for any number
+// of network ids; no N+1. Select() narrows the row read so we skip the
+// JSONB blobs (stream_urls/social/playlist_config) the sibling response
+// doesn't render — ~25-column hydration shrinks to 6 scalar columns.
+func (s *RadioService) batchFetchSiblings(networkIDs []uint) map[uint][]contracts.RadioSiblingStationResponse {
+	out := make(map[uint][]contracts.RadioSiblingStationResponse, len(networkIDs))
+	if len(networkIDs) == 0 {
+		return out
+	}
+	var stations []catalogm.RadioStation
+	s.db.
+		Select("id, slug, name, broadcast_type, is_flagship, network_id").
+		Where("network_id IN ?", networkIDs).
+		Order("is_flagship DESC, name ASC").
+		Find(&stations)
+	for _, st := range stations {
+		if st.NetworkID == nil {
+			continue
+		}
+		out[*st.NetworkID] = append(out[*st.NetworkID], contracts.RadioSiblingStationResponse{
+			ID:            st.ID,
+			Slug:          st.Slug,
+			Name:          st.Name,
+			BroadcastType: st.BroadcastType,
+			IsFlagship:    st.IsFlagship,
+		})
+	}
+	return out
+}
+
+// excludeSibling drops the entry with the given id and returns the remaining
+// stations as a non-nil slice — empty `[]`, never `nil`, so the JSON shape
+// stays stable for frontend iterators.
+func excludeSibling(siblings []contracts.RadioSiblingStationResponse, excludeID uint) []contracts.RadioSiblingStationResponse {
+	out := make([]contracts.RadioSiblingStationResponse, 0, len(siblings))
+	for _, sib := range siblings {
+		if sib.ID == excludeID {
+			continue
+		}
+		out = append(out, sib)
+	}
+	return out
 }
 
 func (s *RadioService) buildShowDetailResponse(show *catalogm.RadioShow) (*contracts.RadioShowDetailResponse, error) {

@@ -952,3 +952,170 @@ func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStationBySlug
 	suite.Require().NotNil(resp.NetworkSlug)
 	suite.Equal("wfmu", *resp.NetworkSlug)
 }
+
+// =============================================================================
+// PSY-669: NETWORK INFO + SIBLING_STATIONS PROJECTION TESTS
+// =============================================================================
+
+// seedWFMUNetwork seeds the canonical WFMU network + 4 stations (flagship +
+// 3 stream-only sub-channels) used by the PSY-669 network projection tests.
+// Returns the seeded stations by slug for easy lookup.
+func (suite *RadioServiceIntegrationTestSuite) seedWFMUNetwork() (network catalogm.RadioNetwork, stationsBySlug map[string]catalogm.RadioStation) {
+	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('wfmu', 'WFMU')`).Error)
+	suite.Require().NoError(suite.db.Where("slug = ?", "wfmu").First(&network).Error)
+
+	rows := []catalogm.RadioStation{
+		{Name: "WFMU", Slug: "wfmu", BroadcastType: catalogm.BroadcastTypeBoth, IsActive: true, NetworkID: &network.ID, IsFlagship: true},
+		{Name: "Give the Drummer Radio", Slug: "wfmu-drummer", BroadcastType: catalogm.BroadcastTypeInternet, IsActive: true, NetworkID: &network.ID, IsFlagship: false},
+		{Name: "Rock'n'Soul Radio", Slug: "wfmu-rocknsoulradio", BroadcastType: catalogm.BroadcastTypeInternet, IsActive: true, NetworkID: &network.ID, IsFlagship: false},
+		{Name: "Sheena's Jungle Room", Slug: "wfmu-sheena", BroadcastType: catalogm.BroadcastTypeInternet, IsActive: true, NetworkID: &network.ID, IsFlagship: false},
+	}
+	stationsBySlug = make(map[string]catalogm.RadioStation, len(rows))
+	for i := range rows {
+		suite.Require().NoError(suite.db.Create(&rows[i]).Error)
+		stationsBySlug[rows[i].Slug] = rows[i]
+	}
+	return network, stationsBySlug
+}
+
+// TestRadioNetwork_GetStation_FlagshipResponse verifies the flagship station's
+// detail response carries Network.IsFlagship=true and SiblingStations contains
+// the 3 non-flagship sub-streams (self excluded), sorted alphabetically since
+// they share the same is_flagship=false level.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStation_FlagshipResponse() {
+	_, stations := suite.seedWFMUNetwork()
+	flagship := stations["wfmu"]
+
+	resp, err := suite.radioService.GetStation(flagship.ID)
+	suite.Require().NoError(err)
+
+	suite.Require().NotNil(resp.Network)
+	suite.Equal("wfmu", resp.Network.Slug)
+	suite.Equal("WFMU", resp.Network.Name)
+	suite.True(resp.Network.IsFlagship, "flagship station should report is_flagship=true on its network info")
+
+	suite.Require().Len(resp.SiblingStations, 3, "flagship should see 3 sibling sub-streams")
+	suite.Equal("Give the Drummer Radio", resp.SiblingStations[0].Name)
+	suite.Equal("Rock'n'Soul Radio", resp.SiblingStations[1].Name)
+	suite.Equal("Sheena's Jungle Room", resp.SiblingStations[2].Name)
+	for _, sib := range resp.SiblingStations {
+		suite.False(sib.IsFlagship, "siblings of the flagship should all be non-flagship: got %s flagged", sib.Slug)
+		suite.NotEqual(flagship.ID, sib.ID, "self must be excluded from siblings")
+	}
+}
+
+// TestRadioNetwork_GetStation_SiblingResponse verifies that fetching a
+// non-flagship sub-stream returns Network.IsFlagship=false and SiblingStations
+// includes the flagship FIRST (flagship-first ordering matters for the tab bar
+// UI which leads with the main station).
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStation_SiblingResponse() {
+	_, stations := suite.seedWFMUNetwork()
+	drummer := stations["wfmu-drummer"]
+
+	resp, err := suite.radioService.GetStation(drummer.ID)
+	suite.Require().NoError(err)
+
+	suite.Require().NotNil(resp.Network)
+	suite.Equal("wfmu", resp.Network.Slug)
+	suite.False(resp.Network.IsFlagship, "drummer is not the flagship")
+
+	suite.Require().Len(resp.SiblingStations, 3, "drummer should see 3 siblings: flagship + 2 other sub-streams")
+	suite.Equal("WFMU", resp.SiblingStations[0].Name, "flagship must come first in sibling ordering")
+	suite.True(resp.SiblingStations[0].IsFlagship)
+	suite.Equal("Rock'n'Soul Radio", resp.SiblingStations[1].Name)
+	suite.False(resp.SiblingStations[1].IsFlagship)
+	suite.Equal("Sheena's Jungle Room", resp.SiblingStations[2].Name)
+	suite.False(resp.SiblingStations[2].IsFlagship)
+
+	for _, sib := range resp.SiblingStations {
+		suite.NotEqual(drummer.ID, sib.ID, "self must be excluded from siblings")
+	}
+}
+
+// TestRadioNetwork_GetStation_NetworkLessResponse verifies a station that
+// belongs to no network returns Network=nil and SiblingStations as an empty
+// (non-nil) slice. Frontend depends on the JSON shape being a stable `[]`,
+// not `null`, so iterators don't trip.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStation_NetworkLessResponse() {
+	station := &catalogm.RadioStation{
+		Name:          "KEXP",
+		Slug:          "kexp",
+		BroadcastType: catalogm.BroadcastTypeBoth,
+		IsActive:      true,
+	}
+	suite.Require().NoError(suite.db.Create(station).Error)
+
+	resp, err := suite.radioService.GetStation(station.ID)
+	suite.Require().NoError(err)
+
+	suite.Nil(resp.Network)
+	suite.NotNil(resp.SiblingStations, "JSON shape must be `[]`, not `null`")
+	suite.Empty(resp.SiblingStations)
+}
+
+// TestRadioNetwork_GetStationBySlug_PopulatesNetworkAndSiblings is the
+// slug-keyed counterpart to TestRadioNetwork_GetStation_SiblingResponse and
+// guards against regressions where one of the two single-station fetch paths
+// drifts away from the other.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_GetStationBySlug_PopulatesNetworkAndSiblings() {
+	suite.seedWFMUNetwork()
+
+	resp, err := suite.radioService.GetStationBySlug("wfmu-sheena")
+	suite.Require().NoError(err)
+
+	suite.Require().NotNil(resp.Network)
+	suite.Equal("wfmu", resp.Network.Slug)
+	suite.False(resp.Network.IsFlagship)
+	suite.Require().Len(resp.SiblingStations, 3)
+	suite.Equal("WFMU", resp.SiblingStations[0].Name, "flagship must come first")
+	suite.True(resp.SiblingStations[0].IsFlagship)
+}
+
+// TestRadioNetwork_ListStations_PopulatesNetworkAndSiblings verifies the
+// batch path used by GET /radio-stations. Asserts every station in the
+// response gets correctly-populated Network info + siblings, AND that
+// network-less stations in the same response are unaffected.
+func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_ListStations_PopulatesNetworkAndSiblings() {
+	suite.seedWFMUNetwork()
+	// Add a network-less station to the same response to exercise the
+	// mixed-case branch (some rows have a network, some don't).
+	kexp := &catalogm.RadioStation{
+		Name: "KEXP", Slug: "kexp", BroadcastType: catalogm.BroadcastTypeBoth, IsActive: true,
+	}
+	suite.Require().NoError(suite.db.Create(kexp).Error)
+
+	resp, err := suite.radioService.ListStations(map[string]interface{}{"is_active": true})
+	suite.Require().NoError(err)
+	suite.Require().Len(resp, 5, "expected 4 WFMU stations + 1 network-less KEXP")
+
+	bySlug := map[string]*contracts.RadioStationListResponse{}
+	for _, r := range resp {
+		bySlug[r.Slug] = r
+	}
+
+	// Flagship sees 3 non-flagship siblings.
+	wfmu := bySlug["wfmu"]
+	suite.Require().NotNil(wfmu)
+	suite.Require().NotNil(wfmu.Network)
+	suite.True(wfmu.Network.IsFlagship)
+	suite.Require().Len(wfmu.SiblingStations, 3)
+	for _, sib := range wfmu.SiblingStations {
+		suite.False(sib.IsFlagship)
+	}
+
+	// A sub-stream sees flagship + 2 other sub-streams.
+	drummer := bySlug["wfmu-drummer"]
+	suite.Require().NotNil(drummer)
+	suite.Require().NotNil(drummer.Network)
+	suite.False(drummer.Network.IsFlagship)
+	suite.Require().Len(drummer.SiblingStations, 3)
+	suite.Equal("WFMU", drummer.SiblingStations[0].Name, "flagship-first ordering")
+	suite.True(drummer.SiblingStations[0].IsFlagship)
+
+	// Network-less station has nil Network and empty SiblingStations.
+	k := bySlug["kexp"]
+	suite.Require().NotNil(k)
+	suite.Nil(k.Network)
+	suite.NotNil(k.SiblingStations)
+	suite.Empty(k.SiblingStations)
+}
