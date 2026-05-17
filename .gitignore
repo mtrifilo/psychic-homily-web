@@ -67,6 +67,9 @@ postgres-data/
 !pnpm-lock.yaml
 !go.sum
 !vercel.json
+# Shared Claude Code project settings (hooks, etc.); settings.local.json
+# stays ignored for user-specific allow-list customizations.
+!.claude/settings.json
 
 # Backup files
 *.backup

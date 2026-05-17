@@ -73,14 +73,16 @@ This catches the PSY-664 shape: the diff introduced a close-path branch (`onOpen
 
 Sanity-check the PR body for project-convention drift + scan the diff for known asymmetry traps:
 
-- PR title format: `PSY-{N}: <under 70 chars>` — flag if over 70 or missing prefix.
+- PR title format: `PSY-{N}: <under 70 chars>` — **NOTE**: PR title is passed to `gh pr create --title` SEPARATELY from the body. If the title isn't supplied alongside the body in this skill's input, mark as **N/A — title not in scope**; recommend the calling agent verify length manually before `gh pr create`. Future improvement: caller passes `title` as a separate input.
 - PR body contains `Closes PSY-{N}` — flag if missing.
+- PR body does NOT contain unresolved `PSY-XXX` / `PSY-???` / `PSY-{N}` placeholder strings — these slip through when follow-up filing (phase 7) happens AFTER the PR body is drafted. Flag any placeholder.
 - `## Coverage gaps` section present (or explicitly stated as "no gaps") — flag if missing entirely; reviewers need to know what wasn't exercised.
-- `## Heads up from /simplify` present if simplify surfaced concerns; absent if `/simplify` was clean.
+- `## Heads up from /simplify` (or `## Findings from /simplify`) present if simplify surfaced concerns; absent if `/simplify` was clean.
 - `## Deferred (per pre-implementation Q&A)` section present if any spike questions resulted in "skip + file follow-up" decisions during phase 2; absent if none.
 - For frontend diffs touching shared components: if `if (!isAuthenticated) return null` is added/modified, check peer components (FollowButton.tsx, NotifyMeButton.tsx, AddToCollectionButton.tsx, EntityTagList.tsx, etc.) for the convention. Asymmetric unauth fallbacks is the PSY-663 footgun.
 - For frontend diffs gating on optional API data: check the gate uses shape-aware predicates (`Object.values(x).some(...)`, `.length > 0`) not truthy-only (`!!x` where `x` could be `{}` or `[]`). PSY-657 root cause.
 - For frontend diffs adding dialog open/close paths: check the URL-hash-cleanup symmetry (PSY-664 root cause) — if open SETS a hash, close should CLEAR it.
+- **For frontend diffs passing year-shape numeric values to `<StatsList />`** (`founded_year`, `edition_year`, `release_year`, `established_year`, etc.): check the value is wrapped in `String()` to bypass `Intl.NumberFormat` thousands separator. **Caught: PSY-656 manual repro** — 4AD's `founded_year: 1980` rendered as `1,980` in the sidebar. Fix: `value: String(label.founded_year)` with an inline comment explaining the why.
 
 For each finding: flag with a specific file:line reference + the convention/asymmetry it violates.
 
@@ -213,16 +215,18 @@ Git diff (truncated to relevant hunks):
 Your job — check for:
 
 **PR convention**:
-- Title format `PSY-{N}: <under 70 chars>`
+- Title format `PSY-{N}: <under 70 chars>` — **NOTE**: PR title is passed to `gh pr create --title` separately. If the title isn't supplied here, mark as `N/A — title not in scope` and recommend the calling agent verify length manually before `gh pr create`.
 - Body contains `Closes PSY-{N}`
+- Body does NOT contain unresolved `PSY-XXX` / `PSY-???` placeholder strings (slips through when follow-up filing happens after PR-body drafting)
 - `## Coverage gaps` section present (or explicitly stated as "no gaps")
-- `## Heads up from /simplify` if /simplify surfaced concerns; absent if clean
+- `## Heads up from /simplify` (or `## Findings from /simplify`) if /simplify surfaced concerns; absent if clean
 - `## Deferred` section if phase 2 produced "skip + file follow-up" decisions
 
 **Frontend asymmetry traps**:
 - If `if (!isAuthenticated) return null` is added/modified in a shared component: check that peer components (FollowButton, NotifyMeButton, AddToCollectionButton, EntityTagList) have consistent unauth-fallback patterns. Asymmetric fallbacks were PSY-663's root cause (AddToCollectionButton returned null while Follow/Notify rendered).
 - If gating render on optional API data: gate must use shape-aware predicates (`Object.values(x).some(...)`, `.length > 0`), NOT truthy-only (`!!x` where x could be `{}` or `[]`). PSY-657 root cause was `!!festival.social` being true when `social: {}`.
 - If adding dialog open/close paths with URL-hash management: OPEN setting a hash means CLOSE must CLEAR the hash. PSY-664 root cause was an asymmetric close.
+- If passing a year-shape numeric value to `<StatsList />` (founded_year, edition_year, release_year, established_year, etc.): check the value is wrapped in `String()` to bypass `Intl.NumberFormat` thousands separator. PSY-656 root cause: `1980` rendered as `1,980` in the 4AD sidebar.
 
 For each finding: cite file:line + the specific convention/asymmetry violated.
 
