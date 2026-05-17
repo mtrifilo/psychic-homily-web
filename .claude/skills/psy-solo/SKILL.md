@@ -103,6 +103,21 @@ Invoke `Skill` with `skill: "simplify"`. The simplify skill spawns 3 parallel re
 
 If `/simplify` produced code changes, re-run the relevant test commands from phase 4.
 
+### Phase 5.5: /psy-self-review (after screenshots, before push)
+
+After `/simplify` is clean AND screenshots are captured (phase 6 if applicable), invoke `Skill` with `skill: "psy-self-review"`. It spawns 3 parallel reviewer sub-agents that check the draft PR body against session evidence:
+- Agent 1: every `[x]` test-plan item has a matching command / screenshot / test run in the session log
+- Agent 2: every behavior change in the diff is claimed-or-disclaimed in the PR body
+- Agent 3: convention + asymmetry traps (unauth fallback symmetry, truthy-empty gate shapes, dialog open/close URL-hash symmetry)
+
+**BLOCKING findings** (claims with no evidence) STOP the push — fix by re-doing the verification OR downgrading the `[x]` to `[ ]` with a "deferred manual repro" note. **WARNING / NIT findings** are agent's judgment call.
+
+Pass the draft PR body + session bash log path + git diff to the skill. The skill is honest about scope (can't verify what a screenshot SHOWS, only that it exists; spot-Read the PNG yourself for load-bearing claims).
+
+Required for any PR with a `## Test plan` containing `[x]` items. Skip only for backend-only / docs-only / config-only PRs where `/simplify` already covers the audit surface.
+
+Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` claim that caught a real bug post-merge (PSY-663). This phase exists to prevent that recurring. See `.claude/skills/psy-self-review/SKILL.md`.
+
 ### Phase 6: Screenshots (UI tickets only)
 
 Skip this phase entirely for backend-only / docs-only / config-only tickets — note `"no UI surface, screenshots skipped"` in the test plan.
@@ -273,6 +288,7 @@ Do NOT delete the draft release after the PR is open — the asset URLs depend o
 ## Related skills and memories
 
 - **`psy-dispatch`** — parallel-worktree batch execution. Use when 2+ tickets need to ship; `psy-solo` is for single tickets where worktree overhead would be friction.
+- **`/psy-self-review`** — invoked at phase 5.5 between `/simplify` and `git push`. Sub-agent audits the draft PR body against session evidence; BLOCKING finding (unverified `[x]` claim) stops the push.
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped UI audit pattern (sweep N merged tickets via screenshots + DOM-eval, file follow-ups, post project-update). Different scope from `psy-solo` (retrospective sweep vs forward per-ticket). Will be drafted after PSY-656 validates the audit cadence is genuinely reusable. May 16 audit was the first instance: caught PSY-663 + PSY-664 in ~30 minutes.
 - **`psy-ticket`** — ticket creation; pair with phase 7 to file the follow-ups this skill identifies.
 - **`linear-cli`** — generic Linear surface; drop down to it if `linear issue` lacks a flag.
