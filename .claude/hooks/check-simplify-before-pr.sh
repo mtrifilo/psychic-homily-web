@@ -12,6 +12,10 @@
 
 set -euo pipefail
 
+# Fail-open if jq is missing — better to skip the check than to block ALL
+# Bash tool calls because a dependency is unavailable on this machine.
+command -v jq >/dev/null || exit 0
+
 # Read tool input JSON from stdin
 input="$(cat)"
 command=$(echo "$input" | jq -r '.tool_input.command // empty')
@@ -27,9 +31,12 @@ if [[ "${CLAUDE_SKIP_SIMPLIFY_CHECK:-}" == "1" ]]; then
     exit 0
 fi
 
-# Locate the PR body
+# Locate the PR body. Handles both `--body-file <path>` and `--body-file=<path>`.
+# Paths with spaces / shell quoting aren't supported here; if the regex misses,
+# the empty-body fallback at the next block falls back to permissive (rely on
+# /psy-self-review's Agent 1 audit instead of risking a false-positive block).
 body=""
-if [[ "$command" =~ --body-file[[:space:]]+([^[:space:]]+) ]]; then
+if [[ "$command" =~ --body-file[=[:space:]]+([^[:space:]]+) ]]; then
     body_file="${BASH_REMATCH[1]}"
     if [[ -r "$body_file" ]]; then
         body="$(cat "$body_file")"
@@ -50,8 +57,9 @@ fi
 #   - [x] `/simplify`
 #   - [x] /simplify — <outcome>
 #   - [x] `/simplify` — <outcome>
-# Case-insensitive on the X. Indented bullet allowed.
-if echo "$body" | grep -qiE '^[[:space:]]*-[[:space:]]*\[x\][[:space:]]*`?/simplify`?'; then
+# Lowercase `[x]` only — `[X]` is a typo signal worth catching as a miss,
+# not silently accepting. Indented bullet allowed.
+if echo "$body" | grep -qE '^[[:space:]]*-[[:space:]]*\[x\][[:space:]]*`?/simplify`?'; then
     exit 0
 fi
 
