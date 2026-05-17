@@ -126,11 +126,7 @@ export function FestivalLineup({ artists, multiDay = false }: FestivalLineupProp
   }, [artists, multiDay])
 
   if (artists.length === 0) {
-    return (
-      <div className="text-center py-12 text-muted-foreground">
-        <p>No artists have been announced for this festival yet.</p>
-      </div>
-    )
+    return null
   }
 
   return (

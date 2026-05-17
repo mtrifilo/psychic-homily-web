@@ -1,7 +1,39 @@
 import type { Metadata, Viewport } from 'next'
-import { GeistSans } from 'geist/font/sans'
-import { GeistMono } from 'geist/font/mono'
+import localFont from 'next/font/local'
+import { Space_Mono } from 'next/font/google'
 import './globals.css'
+
+/* PSY-647 editorial type system — Fontshare (ITF License, self-hosted) + Google Fonts.
+ * Clash Display: display / headings (4 weights). Satoshi: body / UI (3 weights —
+ * Fontshare's free Satoshi has no 600 weight; use Medium 500 where Semibold would
+ * apply). Space Mono: data / metadata / numerics (Google Fonts). */
+const clashDisplay = localFont({
+  src: [
+    { path: './fonts/ClashDisplay-Regular.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/ClashDisplay-Medium.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/ClashDisplay-Semibold.woff2', weight: '600', style: 'normal' },
+    { path: './fonts/ClashDisplay-Bold.woff2', weight: '700', style: 'normal' },
+  ],
+  variable: '--font-clash-display',
+  display: 'swap',
+})
+
+const satoshi = localFont({
+  src: [
+    { path: './fonts/Satoshi-Regular.woff2', weight: '400', style: 'normal' },
+    { path: './fonts/Satoshi-Medium.woff2', weight: '500', style: 'normal' },
+    { path: './fonts/Satoshi-Bold.woff2', weight: '700', style: 'normal' },
+  ],
+  variable: '--font-satoshi',
+  display: 'swap',
+})
+
+const spaceMono = Space_Mono({
+  weight: ['400', '700'],
+  subsets: ['latin'],
+  variable: '--font-space-mono',
+  display: 'swap',
+})
 import {
   ThemeProvider,
   Providers,
@@ -64,7 +96,7 @@ export default function RootLayout({
         <JsonLd data={generateOrganizationSchema()} />
       </head>
       <body
-        className={`${GeistSans.variable} ${GeistMono.variable} antialiased`}
+        className={`${clashDisplay.variable} ${satoshi.variable} ${spaceMono.variable} antialiased`}
       >
         <Providers>
           <ThemeProvider
