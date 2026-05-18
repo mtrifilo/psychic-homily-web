@@ -3,23 +3,26 @@ import { renderHook, act } from '@testing-library/react'
 import { useDensity, type Density } from './useDensity'
 
 describe('useDensity', () => {
-  const localStorageMock = (() => {
-    let store: Record<string, string> = {}
-    return {
-      getItem: vi.fn((key: string) => store[key] ?? null),
-      setItem: vi.fn((key: string, value: string) => {
-        store[key] = value
-      }),
-      clear: () => {
-        store = {}
-      },
-    }
-  })()
+  let store: Record<string, string> = {}
+
+  const localStorageMock = {
+    getItem: vi.fn((key: string) => store[key] ?? null),
+    setItem: vi.fn((key: string, value: string) => {
+      store[key] = value
+    }),
+    clear: vi.fn(() => {
+      store = {}
+    }),
+  }
 
   beforeEach(() => {
-    localStorageMock.clear()
-    localStorageMock.getItem.mockClear()
-    localStorageMock.setItem.mockClear()
+    store = {}
+    // `mockReset` + re-apply default impl avoids `mockReturnValue` /
+    // `mockImplementation` overrides leaking across tests.
+    localStorageMock.getItem.mockReset().mockImplementation((key: string) => store[key] ?? null)
+    localStorageMock.setItem.mockReset().mockImplementation((key: string, value: string) => {
+      store[key] = value
+    })
     Object.defineProperty(window, 'localStorage', {
       value: localStorageMock,
       writable: true,
@@ -33,7 +36,6 @@ describe('useDensity', () => {
   it('returns default density "comfortable" initially', () => {
     const { result } = renderHook(() => useDensity())
 
-    // Before the useEffect runs, density is the default
     expect(result.current.density).toBe('comfortable')
   })
 
@@ -55,11 +57,10 @@ describe('useDensity', () => {
   })
 
   it('reads stored density from localStorage on mount', () => {
-    localStorageMock.getItem.mockReturnValue('expanded')
+    store['ph-density'] = 'expanded'
 
     const { result } = renderHook(() => useDensity())
 
-    // After the effect runs, it should read from localStorage
     expect(localStorageMock.getItem).toHaveBeenCalledWith('ph-density')
     expect(result.current.density).toBe('expanded')
   })
@@ -75,10 +76,7 @@ describe('useDensity', () => {
   })
 
   it('reads from suffixed key on mount', () => {
-    localStorageMock.getItem.mockImplementation((key: string) => {
-      if (key === 'ph-density-artists') return 'expanded'
-      return null
-    })
+    store['ph-density-artists'] = 'expanded'
 
     const { result } = renderHook(() => useDensity('artists'))
 
@@ -87,7 +85,7 @@ describe('useDensity', () => {
   })
 
   it('falls back to default for invalid stored values', () => {
-    localStorageMock.getItem.mockReturnValue('invalid-value')
+    store['ph-density'] = 'invalid-value'
 
     const { result } = renderHook(() => useDensity())
 
@@ -124,7 +122,7 @@ describe('useDensity', () => {
     const validDensities: Density[] = ['compact', 'comfortable', 'expanded']
 
     for (const density of validDensities) {
-      localStorageMock.getItem.mockReturnValue(density)
+      store = { 'ph-density': density }
 
       const { result } = renderHook(() => useDensity())
 

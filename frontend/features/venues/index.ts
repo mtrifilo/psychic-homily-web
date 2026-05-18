@@ -56,5 +56,4 @@ export {
   DeleteVenueDialog,
   VenueDeniedDialog,
   FavoriteVenueButton,
-  FavoriteVenuesTab,
 } from './components'
