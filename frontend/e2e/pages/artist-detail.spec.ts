@@ -34,14 +34,14 @@ test.describe('Artist detail', () => {
     const breadcrumbNav = page.locator('nav[aria-label="Breadcrumb"]')
     await expect(breadcrumbNav.getByRole('link', { name: 'Artists' })).toBeVisible()
 
-    // Upcoming and Past shows sections — PSY-644 replaced the Radix `<Tabs>`
-    // in ArtistShowsList with `<SectionHeader as="h2">` rendering ("Past shows"
-    // heading is always present as the collapsible's trigger).
+    // ArtistShowsList renders the upcoming-shows heading unconditionally and
+    // the past-shows `<section>` (which wraps the past-shows heading) only
+    // when `pastShows.length > 0`. The E2E seed (setup-db.sh) inserts only
+    // future-dated shows, so the past-shows assertion would never resolve
+    // here; collapsible-trigger behaviour is covered by
+    // ArtistShowsList.test.tsx instead.
     await expect(
       page.getByRole('heading', { name: /upcoming shows/i })
-    ).toBeVisible()
-    await expect(
-      page.getByRole('heading', { name: /past shows/i })
     ).toBeVisible()
   })
 

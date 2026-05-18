@@ -34,10 +34,13 @@ test.describe('Venue detail', () => {
     const breadcrumbNav = page.locator('nav[aria-label="Breadcrumb"]')
     await expect(breadcrumbNav.getByRole('link', { name: 'Venues' })).toBeVisible()
 
-    // Upcoming and Past Shows tabs
-    await expect(page.getByRole('tab', { name: /upcoming/i })).toBeVisible()
+    // VenueShowsList renders the upcoming-shows heading unconditionally and
+    // the past-shows `<section>` only when `pastShows.length > 0`. The E2E
+    // seed (setup-db.sh) inserts only future-dated shows, so the past-shows
+    // assertion would never resolve here; collapsible-trigger behaviour is
+    // covered by VenueShowsList.test.tsx instead.
     await expect(
-      page.getByRole('tab', { name: /past shows/i })
+      page.getByRole('heading', { name: /upcoming shows/i })
     ).toBeVisible()
   })
 
