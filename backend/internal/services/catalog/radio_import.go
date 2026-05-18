@@ -57,7 +57,7 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 
 	showMap := make(map[string]uint) // external_id → our show ID
 	for _, importShow := range importedShows {
-		showID, err := s.upsertRadioShow(stationID, importShow)
+		showID, _, err := s.upsertRadioShow(stationID, importShow)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("upsert show %s: %v", importShow.Name, err))
 			continue
@@ -252,13 +252,17 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 	}
 
 	for _, importShow := range importedShows {
-		_, err := s.upsertRadioShow(stationID, importShow)
+		_, created, err := s.upsertRadioShow(stationID, importShow)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("upsert show %s: %v", importShow.Name, err))
 			continue
 		}
 		result.ShowsDiscovered++
 		result.ShowNames = append(result.ShowNames, importShow.Name)
+		if created {
+			result.ShowsNew++
+			result.NewShowNames = append(result.NewShowNames, importShow.Name)
+		}
 	}
 
 	return result, nil
@@ -384,7 +388,12 @@ func (s *RadioService) ImportShowEpisodes(showID uint, since string, until strin
 // When a show already exists, only fields that are currently empty/NULL in
 // the database are populated from the import data. This preserves
 // admin-curated or migration-seeded values.
-func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImport) (uint, error) {
+// upsertRadioShow returns (showID, created, error). created is true ONLY when
+// a brand-new row was inserted; both the match-by-external-id and the
+// match-by-slug fallback paths return false because they update an existing
+// row. Callers use the bool to distinguish "new arrival" from "idempotent
+// re-run" — e.g. to fire a notification only on actually-new shows.
+func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImport) (uint, bool, error) {
 	// Try matching by external_id first (canonical path)
 	var existing catalogm.RadioShow
 	err := s.db.Where("station_id = ? AND external_id = ?", stationID, importShow.ExternalID).First(&existing).Error
@@ -394,11 +403,11 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		if len(updates) > 0 {
 			s.db.Model(&existing).Updates(updates)
 		}
-		return existing.ID, nil
+		return existing.ID, false, nil
 	}
 
 	if err != gorm.ErrRecordNotFound {
-		return 0, fmt.Errorf("checking existing show by external_id: %w", err)
+		return 0, false, fmt.Errorf("checking existing show by external_id: %w", err)
 	}
 
 	// Fallback: match by slug within the same station.
@@ -413,11 +422,11 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		updates := s.buildNullSafeShowUpdates(&existing, importShow)
 		updates["external_id"] = importShow.ExternalID
 		s.db.Model(&existing).Updates(updates)
-		return existing.ID, nil
+		return existing.ID, false, nil
 	}
 
 	if err != gorm.ErrRecordNotFound {
-		return 0, fmt.Errorf("checking existing show by slug: %w", err)
+		return 0, false, fmt.Errorf("checking existing show by slug: %w", err)
 	}
 
 	// Create new show
@@ -439,10 +448,10 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 	}
 
 	if err := s.db.Create(show).Error; err != nil {
-		return 0, fmt.Errorf("creating show: %w", err)
+		return 0, false, fmt.Errorf("creating show: %w", err)
 	}
 
-	return show.ID, nil
+	return show.ID, true, nil
 }
 
 // buildNullSafeShowUpdates returns a map of fields to update, only including

@@ -120,6 +120,7 @@ func TestRadioFetchService_RunReMatchCycleNilDB(t *testing.T) {
 		fetchInterval:       1 * time.Hour,
 		affinityInterval:    24 * time.Hour,
 		rematchInterval:     168 * time.Hour,
+		discoverInterval:    24 * time.Hour,
 		stopCh:              make(chan struct{}),
 		logger:              testLogger(),
 		consecutiveFailures: make(map[uint]int),
@@ -127,4 +128,40 @@ func TestRadioFetchService_RunReMatchCycleNilDB(t *testing.T) {
 
 	// Should not panic — just log an error
 	svc.RunReMatchCycleNow()
+}
+
+// TestRadioFetchService_RunDiscoverCycleNilDB verifies discover cycle (PSY-671)
+// handles nil DB gracefully — GetActiveStationsWithPlaylistSource errors out
+// and the cycle logs the failure without panicking.
+func TestRadioFetchService_RunDiscoverCycleNilDB(t *testing.T) {
+	svc := &RadioFetchService{
+		radioService:        &RadioService{db: nil},
+		fetchInterval:       1 * time.Hour,
+		affinityInterval:    24 * time.Hour,
+		rematchInterval:     168 * time.Hour,
+		discoverInterval:    24 * time.Hour,
+		stopCh:              make(chan struct{}),
+		logger:              testLogger(),
+		consecutiveFailures: make(map[uint]int),
+	}
+
+	svc.RunDiscoverCycleNow()
+}
+
+// TestRadioFetchService_DiscoverInterval_EnvOverride verifies PSY-671's
+// RADIO_DISCOVER_INTERVAL_HOURS env var is honored. Defaults to 24h.
+func TestRadioFetchService_DiscoverInterval_EnvOverride(t *testing.T) {
+	t.Setenv("RADIO_DISCOVER_INTERVAL_HOURS", "48")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.discoverInterval != 48*time.Hour {
+		t.Fatalf("expected 48h discover interval, got %v", svc.discoverInterval)
+	}
+}
+
+func TestRadioFetchService_DiscoverInterval_Default(t *testing.T) {
+	t.Setenv("RADIO_DISCOVER_INTERVAL_HOURS", "")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.discoverInterval != DefaultDiscoverInterval {
+		t.Fatalf("expected default %v, got %v", DefaultDiscoverInterval, svc.discoverInterval)
+	}
 }

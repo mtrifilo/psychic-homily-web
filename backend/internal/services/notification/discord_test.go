@@ -753,3 +753,58 @@ func TestNotifyArtistReport_UnknownArtist(t *testing.T) {
 	payload := parseWebhookPayload(t, raw)
 	assert.Contains(t, payload.Embeds[0].Title, "Unknown Artist")
 }
+
+// =============================================================================
+// NotifyNewRadioShows (PSY-671)
+// =============================================================================
+
+func TestNotifyNewRadioShows_Success(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+
+	svc.NotifyNewRadioShows("WFMU", []string{"Three Chord Monte", "Bodega Pop", "Downtown Soulville"})
+
+	raw := waitForPayload(t, payloads)
+	payload := parseWebhookPayload(t, raw)
+	require.Len(t, payload.Embeds, 1)
+	e := payload.Embeds[0]
+	assert.Equal(t, "New Radio Shows: WFMU", e.Title)
+	assert.Equal(t, "Discovered 3 new show(s)", e.Description)
+	assert.Equal(t, ColorBlue, e.Color)
+	require.Len(t, e.Fields, 1)
+	assert.Equal(t, "Shows", e.Fields[0].Name)
+	assert.Contains(t, e.Fields[0].Value, "Three Chord Monte")
+	assert.Contains(t, e.Fields[0].Value, "Bodega Pop")
+	assert.Contains(t, e.Fields[0].Value, "Downtown Soulville")
+}
+
+func TestNotifyNewRadioShows_EmptyList(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+
+	svc.NotifyNewRadioShows("WFMU", []string{})
+
+	assertNoPayload(t, payloads)
+}
+
+func TestNotifyNewRadioShows_NotConfigured(t *testing.T) {
+	svc := &DiscordService{enabled: false}
+
+	svc.NotifyNewRadioShows("WFMU", []string{"Show A"})
+}
+
+func TestNotifyNewRadioShows_CapsAtTwentyFive(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+
+	names := make([]string, 30)
+	for i := range names {
+		names[i] = "Show " + string(rune('A'+i%26))
+	}
+
+	svc.NotifyNewRadioShows("WFMU", names)
+
+	raw := waitForPayload(t, payloads)
+	payload := parseWebhookPayload(t, raw)
+	require.Len(t, payload.Embeds, 1)
+	value := payload.Embeds[0].Fields[0].Value
+	assert.Contains(t, value, "…and 5 more")
+	assert.Equal(t, "Discovered 30 new show(s)", payload.Embeds[0].Description)
+}

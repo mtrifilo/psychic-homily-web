@@ -21,6 +21,11 @@ const DefaultAffinityInterval = 24 * time.Hour
 // Default re-matching interval (7 days)
 const DefaultReMatchInterval = 7 * 24 * time.Hour
 
+// Default show-discovery interval (24 hours). Provider rosters change slowly
+// (WFMU adds shows monthly at most; KEXP/NTS slower), so once a day is plenty
+// and the per-station DJ-index fetch cost is negligible.
+const DefaultDiscoverInterval = 24 * time.Hour
+
 // radioCircuitBreakerThreshold is the number of consecutive failures before
 // a station is temporarily skipped during fetch cycles.
 const radioCircuitBreakerThreshold = 5
@@ -29,6 +34,7 @@ const radioCircuitBreakerThreshold = 5
 //  1. Fetches new episodes from all active stations with playlist sources (every 6h)
 //  2. Computes artist affinity from co-occurrence data (daily)
 //  3. Re-matches unmatched plays against newly added artists (weekly)
+//  4. Discovers newly-added shows on every active station (daily)
 //
 // It follows the same Start/Stop pattern as SchedulerService and other background services.
 type RadioFetchService struct {
@@ -38,6 +44,7 @@ type RadioFetchService struct {
 	fetchInterval    time.Duration
 	affinityInterval time.Duration
 	rematchInterval  time.Duration
+	discoverInterval time.Duration
 
 	stopCh chan struct{}
 	wg     sync.WaitGroup
@@ -45,7 +52,8 @@ type RadioFetchService struct {
 
 	// consecutiveFailures tracks per-station failures within a fetch cycle
 	// Reset on success, incremented on failure. Stations with >= threshold
-	// failures are skipped until the counter resets.
+	// failures are skipped until the counter resets. Shared across the fetch
+	// and discover loops so a wedged provider gets one circuit breaker, not two.
 	mu                  sync.Mutex
 	consecutiveFailures map[uint]int
 }
@@ -55,6 +63,7 @@ type RadioFetchService struct {
 //   - RADIO_FETCH_INTERVAL_HOURS (default 6)
 //   - RADIO_AFFINITY_INTERVAL_HOURS (default 24)
 //   - RADIO_REMATCH_INTERVAL_HOURS (default 168, i.e. 7 days)
+//   - RADIO_DISCOVER_INTERVAL_HOURS (default 24)
 func NewRadioFetchService(
 	radioService *RadioService,
 	discordService contracts.DiscordServiceInterface,
@@ -80,12 +89,20 @@ func NewRadioFetchService(
 		}
 	}
 
+	discoverInterval := DefaultDiscoverInterval
+	if envVal := os.Getenv("RADIO_DISCOVER_INTERVAL_HOURS"); envVal != "" {
+		if hours, err := strconv.Atoi(envVal); err == nil && hours > 0 {
+			discoverInterval = time.Duration(hours) * time.Hour
+		}
+	}
+
 	return &RadioFetchService{
 		radioService:        radioService,
 		discordService:      discordService,
 		fetchInterval:       fetchInterval,
 		affinityInterval:    affinityInterval,
 		rematchInterval:     rematchInterval,
+		discoverInterval:    discoverInterval,
 		stopCh:              make(chan struct{}),
 		logger:              slog.Default(),
 		consecutiveFailures: make(map[uint]int),
@@ -100,11 +117,14 @@ func (s *RadioFetchService) Start(ctx context.Context) {
 	go s.runAffinityLoop(ctx)
 	s.wg.Add(1)
 	go s.runReMatchLoop(ctx)
+	s.wg.Add(1)
+	go s.runDiscoverLoop(ctx)
 
 	s.logger.Info("radio fetch service started",
 		"fetch_interval_hours", s.fetchInterval.Hours(),
 		"affinity_interval_hours", s.affinityInterval.Hours(),
 		"rematch_interval_hours", s.rematchInterval.Hours(),
+		"discover_interval_hours", s.discoverInterval.Hours(),
 	)
 }
 
@@ -138,6 +158,15 @@ func (s *RadioFetchService) runReMatchLoop(ctx context.Context) {
 	defer s.wg.Done()
 	shared.RunTickerLoop(ctx, "radio_rematch", s.rematchInterval, s.stopCh, false, func(_ context.Context) {
 		s.runReMatchCycle()
+	})
+}
+
+// runDiscoverLoop runs the periodic show-discovery cycle. Runs immediately on
+// startup so operators see output without waiting a full interval.
+func (s *RadioFetchService) runDiscoverLoop(ctx context.Context) {
+	defer s.wg.Done()
+	shared.RunTickerLoop(ctx, "radio_discover", s.discoverInterval, s.stopCh, true, func(_ context.Context) {
+		s.runDiscoverCycle()
 	})
 }
 
@@ -289,6 +318,98 @@ func (s *RadioFetchService) runReMatchCycle() {
 	)
 }
 
+// runDiscoverCycle calls DiscoverStationShows for every active station with a
+// playlist source. The cycle is idempotent — existing shows are no-ops; only
+// brand-new rows fire the per-station Discord notification.
+func (s *RadioFetchService) runDiscoverCycle() {
+	cycleStart := time.Now()
+	s.logger.Info("starting radio discover cycle")
+
+	stations, err := s.radioService.GetActiveStationsWithPlaylistSource()
+	if err != nil {
+		s.logger.Error("failed to list active stations for discover", "error", err)
+		return
+	}
+
+	if len(stations) == 0 {
+		s.logger.Info("no active stations with playlist source found for discover")
+		return
+	}
+
+	var (
+		totalProcessed   int
+		totalDiscovered  int
+		totalNew         int
+		totalFailed      int
+		stationsNotified int
+	)
+
+	for _, station := range stations {
+		s.mu.Lock()
+		failures := s.consecutiveFailures[station.ID]
+		s.mu.Unlock()
+
+		if failures >= radioCircuitBreakerThreshold {
+			s.logger.Warn("skipping station for discover (circuit breaker)",
+				"station_id", station.ID,
+				"station_name", station.Name,
+				"consecutive_failures", failures,
+			)
+			continue
+		}
+
+		totalProcessed++
+		s.logger.Info("discovering shows for station",
+			"station_id", station.ID,
+			"station_name", station.Name,
+		)
+
+		result, err := s.radioService.DiscoverStationShows(station.ID)
+		if err != nil {
+			totalFailed++
+			s.logger.Error("station discover failed",
+				"station_id", station.ID,
+				"station_name", station.Name,
+				"error", err,
+			)
+
+			s.mu.Lock()
+			s.consecutiveFailures[station.ID]++
+			s.mu.Unlock()
+			continue
+		}
+
+		s.mu.Lock()
+		s.consecutiveFailures[station.ID] = 0
+		s.mu.Unlock()
+
+		totalDiscovered += result.ShowsDiscovered
+		totalNew += result.ShowsNew
+
+		s.logger.Info("station discover complete",
+			"station_id", station.ID,
+			"station_name", station.Name,
+			"shows_discovered", result.ShowsDiscovered,
+			"shows_new", result.ShowsNew,
+			"error_count", len(result.Errors),
+		)
+
+		if result.ShowsNew > 0 && s.discordService != nil {
+			s.discordService.NotifyNewRadioShows(station.Name, result.NewShowNames)
+			stationsNotified++
+		}
+	}
+
+	s.logger.Info("radio discover cycle complete",
+		"stations_processed", totalProcessed,
+		"shows_discovered", totalDiscovered,
+		"shows_new", totalNew,
+		"failures", totalFailed,
+		"stations_notified", stationsNotified,
+		"duration", time.Since(cycleStart),
+	)
+}
+
 // GetConsecutiveFailures returns the failure count for a station. Exported for testing.
 func (s *RadioFetchService) GetConsecutiveFailures(stationID uint) int {
 	s.mu.Lock()
@@ -316,4 +437,9 @@ func (s *RadioFetchService) RunAffinityCycleNow() {
 // RunReMatchCycleNow triggers an immediate re-match cycle (useful for testing/admin).
 func (s *RadioFetchService) RunReMatchCycleNow() {
 	s.runReMatchCycle()
+}
+
+// RunDiscoverCycleNow triggers an immediate discover cycle (useful for testing/admin).
+func (s *RadioFetchService) RunDiscoverCycleNow() {
+	s.runDiscoverCycle()
 }

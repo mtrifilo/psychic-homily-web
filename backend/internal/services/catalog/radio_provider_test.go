@@ -1199,7 +1199,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_CreateNew() {
 		HostName:   stringPtr("John Richards"),
 	}
 
-	showID, err := suite.radioService.upsertRadioShow(station.ID, importShow)
+	showID, _, err := suite.radioService.upsertRadioShow(station.ID, importShow)
 	suite.Require().NoError(err)
 	suite.NotZero(showID)
 
@@ -1238,7 +1238,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_PreservesCurat
 		ImageURL:    stringPtr("https://example.com/image.jpg"),
 	}
 
-	showID, err := suite.radioService.upsertRadioShow(station.ID, importShow)
+	showID, _, err := suite.radioService.upsertRadioShow(station.ID, importShow)
 	suite.Require().NoError(err)
 	suite.Equal(show.ID, showID)
 
@@ -1275,7 +1275,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_FillsEmptyFiel
 		ArchiveURL:  stringPtr("https://example.com/archive"),
 	}
 
-	showID, err := suite.radioService.upsertRadioShow(station.ID, importShow)
+	showID, _, err := suite.radioService.upsertRadioShow(station.ID, importShow)
 	suite.Require().NoError(err)
 	suite.Equal(show.ID, showID)
 
@@ -1310,7 +1310,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_SlugFallback()
 		HostName:   stringPtr("John Richards"),
 	}
 
-	showID, err := suite.radioService.upsertRadioShow(station.ID, importShow)
+	showID, _, err := suite.radioService.upsertRadioShow(station.ID, importShow)
 	suite.Require().NoError(err)
 	suite.Equal(show.ID, showID, "should match the existing show by slug, not create a new one")
 
@@ -1347,7 +1347,7 @@ func (suite *RadioImportIntegrationTestSuite) TestUpsertRadioShow_SlugFallbackDo
 		Name:       "Morning Show",
 	}
 
-	showID, err := suite.radioService.upsertRadioShow(station2.ID, importShow)
+	showID, _, err := suite.radioService.upsertRadioShow(station2.ID, importShow)
 	suite.Require().NoError(err)
 	suite.NotEqual(show.ID, showID, "should not match show from a different station")
 }
@@ -1544,7 +1544,7 @@ func (suite *RadioImportIntegrationTestSuite) runImportWithProvider(stationID ui
 
 	showMap := make(map[string]uint)
 	for _, importShow := range importedShows {
-		showID, err := suite.radioService.upsertRadioShow(stationID, importShow)
+		showID, _, err := suite.radioService.upsertRadioShow(stationID, importShow)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("upsert show: %v", err))
 			continue
