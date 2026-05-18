@@ -48,44 +48,6 @@ const wfmuDJIndexHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-const wfmuRSSFeed = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
-<channel>
-  <title>WFMU's recent playlists from Nervous Boogie with Richard J.</title>
-  <link>http://www.wfmu.org/playlists/NB</link>
-  <description>WFMU's most recent playlists from Nervous Boogie with Richard J.</description>
-  <language>en</language>
-  <item>
-    <title>WFMU Playlist: Nervous Boogie from March 12, 2026</title>
-    <link>http://www.wfmu.org/playlists/shows/162145</link>
-    <description>&lt;a href="http://www.wfmu.org/playlists/shows/162145"&gt;Playlist&lt;/a&gt; from Nervous Boogie on WFMU</description>
-    <guid isPermaLink="true">http://www.wfmu.org/playlists/shows/162145</guid>
-    <pubDate>Thu, 12 Mar 2026 22:00:00 -0400</pubDate>
-  </item>
-  <item>
-    <title>WFMU Playlist: Nervous Boogie from March 5, 2026</title>
-    <link>http://www.wfmu.org/playlists/shows/161980</link>
-    <description>&lt;a href="http://www.wfmu.org/playlists/shows/161980"&gt;Playlist&lt;/a&gt; from Nervous Boogie on WFMU</description>
-    <guid isPermaLink="true">http://www.wfmu.org/playlists/shows/161980</guid>
-    <pubDate>Thu, 05 Mar 2026 22:00:00 -0400</pubDate>
-  </item>
-  <item>
-    <title>WFMU Playlist: Nervous Boogie from February 26, 2026</title>
-    <link>http://www.wfmu.org/playlists/shows/161800</link>
-    <description>&lt;a href="http://www.wfmu.org/playlists/shows/161800"&gt;Playlist&lt;/a&gt;</description>
-    <guid isPermaLink="true">http://www.wfmu.org/playlists/shows/161800</guid>
-    <pubDate>Thu, 26 Feb 2026 22:00:00 -0400</pubDate>
-  </item>
-  <item>
-    <title>WFMU Playlist: Nervous Boogie from January 15, 2026</title>
-    <link>http://www.wfmu.org/playlists/shows/160500</link>
-    <description>&lt;a href="http://www.wfmu.org/playlists/shows/160500"&gt;Playlist&lt;/a&gt;</description>
-    <guid isPermaLink="true">http://www.wfmu.org/playlists/shows/160500</guid>
-    <pubDate>Thu, 15 Jan 2026 22:00:00 -0400</pubDate>
-  </item>
-</channel>
-</rss>`
-
 const wfmuPlaylistPageHTML = `<!DOCTYPE html>
 <html>
 <head><title>Nervous Boogie: Playlist from March 12, 2026</title></head>
@@ -292,16 +254,6 @@ const wfmuMinimalColumnsHTML = `<!DOCTYPE html>
 </body>
 </html>`
 
-const wfmuRSSFeedEmpty = `<?xml version="1.0" encoding="UTF-8"?>
-<rss version="2.0">
-<channel>
-  <title>WFMU's recent playlists from Empty Show</title>
-  <link>http://www.wfmu.org/playlists/ES</link>
-  <description>No episodes</description>
-  <language>en</language>
-</channel>
-</rss>`
-
 // =============================================================================
 // DJ Index Parsing Tests
 // =============================================================================
@@ -418,54 +370,6 @@ func TestWFMU_ExtractDJName(t *testing.T) {
 			assert.Equal(t, tc.expected, result)
 		})
 	}
-}
-
-// =============================================================================
-// RSS Feed Parsing Tests
-// =============================================================================
-
-func TestWFMU_ParseRSSFeed_AllEpisodes(t *testing.T) {
-	// Use a "since" time that's before all items
-	since := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	episodes, err := parseWFMURSSFeed([]byte(wfmuRSSFeed), "NB", since, time.Time{})
-	require.NoError(t, err)
-	assert.Len(t, episodes, 4, "should parse all 4 episodes")
-
-	// Check first episode
-	ep := episodes[0]
-	assert.Equal(t, "162145", ep.ExternalID)
-	assert.Equal(t, "NB", ep.ShowExternalID)
-	assert.Equal(t, "2026-03-12", ep.AirDate)
-	assert.NotNil(t, ep.Title)
-	assert.Contains(t, *ep.Title, "Nervous Boogie")
-	assert.NotNil(t, ep.ArchiveURL)
-	assert.Contains(t, *ep.ArchiveURL, "/playlists/shows/162145")
-}
-
-func TestWFMU_ParseRSSFeed_SinceFilter(t *testing.T) {
-	// Only get episodes since March 1, 2026
-	since := time.Date(2026, 3, 1, 0, 0, 0, 0, time.UTC)
-	episodes, err := parseWFMURSSFeed([]byte(wfmuRSSFeed), "NB", since, time.Time{})
-	require.NoError(t, err)
-	assert.Len(t, episodes, 2, "should only return episodes after March 1")
-
-	// Both should be March episodes
-	for _, ep := range episodes {
-		assert.True(t, strings.HasPrefix(ep.AirDate, "2026-03"),
-			"expected March 2026 episode, got %s", ep.AirDate)
-	}
-}
-
-func TestWFMU_ParseRSSFeed_Empty(t *testing.T) {
-	since := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
-	episodes, err := parseWFMURSSFeed([]byte(wfmuRSSFeedEmpty), "ES", since, time.Time{})
-	require.NoError(t, err)
-	assert.Empty(t, episodes, "should return empty for feed with no items")
-}
-
-func TestWFMU_ParseRSSFeed_MalformedXML(t *testing.T) {
-	_, err := parseWFMURSSFeed([]byte("this is not xml"), "XX", time.Time{}, time.Time{})
-	assert.Error(t, err, "should error on malformed XML")
 }
 
 func TestWFMU_ExtractEpisodeID(t *testing.T) {
@@ -714,18 +618,21 @@ func TestWFMU_DiscoverShows_Integration(t *testing.T) {
 }
 
 func TestWFMU_FetchNewEpisodes_Integration(t *testing.T) {
-	// Track which path was taken — recent `since` should hit the RSS feed,
-	// NOT the archive page.
+	// PSY-670: FetchNewEpisodes always hits the archive page now (the RSS path
+	// was dropped because WFMU's RSS feed filters out fill-in / guest-DJ
+	// episodes that the archive page includes). RSS hits should be zero
+	// regardless of how recent `since` is.
+	archiveBody := loadWFMUTestdata(t, "wfmu_archive_page_bt.html")
 	var rssHits, archiveHits int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/playlistfeed/NB.xml":
+		case "/playlistfeed/BT.xml":
 			rssHits++
-			w.Header().Set("Content-Type", "application/rss+xml")
-			fmt.Fprint(w, wfmuRSSFeed)
-		case "/playlists/NB":
-			archiveHits++
 			http.NotFound(w, r)
+		case "/playlists/BT":
+			archiveHits++
+			w.Header().Set("Content-Type", "text/html")
+			w.Write(archiveBody)
 		default:
 			http.NotFound(w, r)
 		}
@@ -735,19 +642,15 @@ func TestWFMU_FetchNewEpisodes_Integration(t *testing.T) {
 	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
 	defer provider.Close()
 
-	// Recent `since` — should use RSS path.
 	since := time.Now().Add(-7 * 24 * time.Hour)
-	episodes, err := provider.FetchNewEpisodes("NB", since, time.Time{})
+	episodes, err := provider.FetchNewEpisodes("BT", since, time.Time{})
 	require.NoError(t, err)
-	assert.Equal(t, 1, rssHits, "recent since should hit the RSS feed")
-	assert.Equal(t, 0, archiveHits, "recent since should NOT hit the archive page")
+	assert.Equal(t, 0, rssHits, "RSS feed should never be hit post-PSY-670")
+	assert.Equal(t, 1, archiveHits, "archive page is the only path now")
 
-	// Episodes returned depend on how many RSS items are newer than `since`;
-	// the contract we verify is that every returned episode has the expected
-	// shape.
 	for _, ep := range episodes {
 		assert.NotEmpty(t, ep.ExternalID)
-		assert.Equal(t, "NB", ep.ShowExternalID)
+		assert.Equal(t, "BT", ep.ShowExternalID)
 		assert.NotEmpty(t, ep.AirDate)
 	}
 }
@@ -798,7 +701,10 @@ func TestWFMU_HTTPError_DiscoverShows(t *testing.T) {
 	assert.Contains(t, err.Error(), "500")
 }
 
-func TestWFMU_HTTPError_FetchNewEpisodes(t *testing.T) {
+func TestWFMU_HTTPError_FetchNewEpisodes_404(t *testing.T) {
+	// 404 on the archive page (unknown show code) is treated as "no episodes"
+	// rather than an error — matches DiscoverShows semantics so a scheduled
+	// fetch over a stale/typo'd show code doesn't trip the circuit breaker.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		fmt.Fprint(w, "Not Found")
@@ -808,9 +714,24 @@ func TestWFMU_HTTPError_FetchNewEpisodes(t *testing.T) {
 	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
 	defer provider.Close()
 
-	_, err := provider.FetchNewEpisodes("INVALID", time.Now(), time.Time{})
+	eps, err := provider.FetchNewEpisodes("INVALID", time.Now(), time.Time{})
+	require.NoError(t, err)
+	assert.Empty(t, eps)
+}
+
+func TestWFMU_HTTPError_FetchNewEpisodes_5xx(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprint(w, "Internal Server Error")
+	}))
+	defer server.Close()
+
+	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	_, err := provider.FetchNewEpisodes("ANY", time.Now(), time.Time{})
 	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "404")
+	assert.Contains(t, err.Error(), "500")
 }
 
 func TestWFMU_HTTPError_FetchPlaylist(t *testing.T) {
@@ -839,8 +760,6 @@ func TestWFMU_RateLimiting(t *testing.T) {
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/playlists/"):
 			fmt.Fprint(w, wfmuDJIndexHTML)
-		case strings.HasSuffix(r.URL.Path, ".xml"):
-			fmt.Fprint(w, wfmuRSSFeedEmpty)
 		default:
 			fmt.Fprint(w, wfmuEmptyPlaylistHTML)
 		}
@@ -945,25 +864,6 @@ func TestWFMU_ParseWFMUReleaseYear(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.input, func(t *testing.T) {
 			assert.Equal(t, tc.expected, parseWFMUReleaseYear(tc.input))
-		})
-	}
-}
-
-func TestWFMU_ExtractDateFromTitle(t *testing.T) {
-	tests := []struct {
-		title    string
-		expected string
-	}{
-		{"WFMU Playlist: Nervous Boogie from March 12, 2026", "2026-03-12"},
-		{"WFMU Playlist: Wake from January 5, 2026", "2026-01-05"},
-		{"WFMU Playlist: Show from December 31, 2025", "2025-12-31"},
-		{"Some random title without a date", ""},
-		{"", ""},
-	}
-
-	for _, tc := range tests {
-		t.Run(tc.title, func(t *testing.T) {
-			assert.Equal(t, tc.expected, extractDateFromTitle(tc.title))
 		})
 	}
 }
@@ -1157,6 +1057,62 @@ func TestWFMU_ParseArchivePage_MalformedRows(t *testing.T) {
 	assert.Equal(t, "2024-01-24", byID["103"].AirDate)
 }
 
+// Fill-in / guest-DJ rows on the show archive page point their "Listen here"
+// link at the GUEST'S playlist URL (a different show ID than the hosting
+// show). Captured shape from a real WFMU show page:
+//
+//	May 11, 2026:
+//	<b>Ira fills in. <a href="https://wfmu.org/playlists/shows/164051">Listen here</a></b>
+//
+// The archive parser MUST return this row as an episode under the hosting
+// show, with the guest playlist's external_id. FetchPlaylist on that ID then
+// imports the guest's actual track plays for the broadcast that aired in the
+// hosting show's slot.
+func TestWFMU_ParseArchivePage_FillInWithListenHereLink(t *testing.T) {
+	body := []byte(`<!DOCTYPE html><html><body>
+<div class="showlist">
+<ul>
+<li>
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-163880"></span>
+  May 4, 2026:
+  <b>Millennial Rock</b>
+  | <a href="/playlists/shows/163880">See the playlist</a>
+</li>
+<li>
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-164141"></span>
+  May 11, 2026:
+  <b>Ira fills in. <a href="https://wfmu.org/playlists/shows/164051">Listen here</a></b>
+</li>
+<li>
+  <span class="KDBFavIcon KDBepisode" id="KDBepisode-164363"></span>
+  May 18, 2026:
+  <b>live music from John Cozz and the Wellers!</b>
+  | <a href="/playlists/shows/164363">See the playlist</a>
+</li>
+</ul>
+</div>
+</body></html>`)
+
+	episodes, err := parseWFMUArchivePage(body, "TM", time.Time{}, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, episodes, 3, "regular + fill-in + regular should all be captured")
+
+	byID := make(map[string]RadioEpisodeImport)
+	for _, ep := range episodes {
+		byID[ep.ExternalID] = ep
+	}
+
+	// The fill-in episode is identified by the GUEST DJ's playlist ID, not TM's.
+	fillIn, ok := byID["164051"]
+	require.True(t, ok, "fill-in episode (guest playlist id 164051) must be captured under TM")
+	assert.Equal(t, "TM", fillIn.ShowExternalID, "fill-in still belongs to the hosting show")
+	assert.Equal(t, "2026-05-11", fillIn.AirDate)
+	require.NotNil(t, fillIn.Title)
+	assert.Contains(t, *fillIn.Title, "Ira fills in", "title should reflect the fill-in nature")
+	require.NotNil(t, fillIn.ArchiveURL)
+	assert.Contains(t, *fillIn.ArchiveURL, "/playlists/shows/164051")
+}
+
 func TestWFMU_ParseArchivePage_Deduplication(t *testing.T) {
 	// Duplicate episode IDs should be deduped.
 	body := []byte(`<!DOCTYPE html><html><body>
@@ -1213,13 +1169,9 @@ func TestWFMU_ExtractArchiveDate(t *testing.T) {
 func TestWFMU_FetchNewEpisodes_ArchiveFallback_Integration(t *testing.T) {
 	archiveBody := loadWFMUTestdata(t, "wfmu_archive_page_bt.html")
 
-	var rssHits, archiveHits int
+	var archiveHits int
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/playlistfeed/BT.xml":
-			rssHits++
-			w.Header().Set("Content-Type", "application/rss+xml")
-			fmt.Fprint(w, wfmuRSSFeed)
 		case "/playlists/BT":
 			archiveHits++
 			w.Header().Set("Content-Type", "text/html")
@@ -1233,13 +1185,12 @@ func TestWFMU_FetchNewEpisodes_ArchiveFallback_Integration(t *testing.T) {
 	provider := NewWFMUProviderWithClient(server.Client(), server.URL)
 	defer provider.Close()
 
-	// Old `since` (beyond the 14-day window) triggers the archive page path.
+	// PSY-670: historical AND recent since both hit the archive page now.
 	since := time.Date(2017, 1, 1, 0, 0, 0, 0, time.UTC)
 	episodes, err := provider.FetchNewEpisodes("BT", since, time.Time{})
 	require.NoError(t, err)
 
-	assert.Equal(t, 0, rssHits, "historical since should NOT hit RSS")
-	assert.Equal(t, 1, archiveHits, "historical since should hit archive page")
+	assert.Equal(t, 1, archiveHits, "should hit archive page")
 	assert.Len(t, episodes, 5, "should return all 5 modern episodes from fixture")
 
 	for _, ep := range episodes {

@@ -9,7 +9,6 @@ import (
 	"strings"
 	"time"
 
-	"github.com/mmcdole/gofeed"
 	"golang.org/x/net/html"
 )
 
@@ -18,14 +17,9 @@ const (
 	wfmuUserAgent      = "PsychicHomily/1.0 (radio-playlist-indexer)"
 	wfmuDefaultTimeout = 30 * time.Second
 	wfmuRateLimit      = 1 * time.Second
-	// wfmuRSSFallbackWindow is the age threshold beyond which FetchNewEpisodes
-	// switches from the 10-item RSS feed to the full HTML archive page. RSS is
-	// sufficient for ongoing incremental fetches; the archive page is required
-	// for historical backfill.
-	wfmuRSSFallbackWindow = 14 * 24 * time.Hour
 )
 
-// WFMUProvider implements RadioPlaylistProvider for WFMU's HTML playlists and RSS feeds.
+// WFMUProvider implements RadioPlaylistProvider for WFMU's HTML playlists.
 type WFMUProvider struct {
 	httpClient  *http.Client
 	baseURL     string
@@ -80,38 +74,15 @@ func (p *WFMUProvider) DiscoverShows() ([]RadioShowImport, error) {
 // FetchNewEpisodes returns episodes for a WFMU show within [since, until].
 // A zero until means no upper bound.
 //
-// WFMU's RSS feed (/playlistfeed/{CODE}.xml) returns only the most recent 10
-// episodes, which works for incremental fetches but makes historical backfill
-// impossible. When `since` falls within the RSS fallback window (~14 days ago),
-// we use the fast RSS path. For older `since` values we scrape the full show
-// archive page (/playlists/{CODE}), which lists every episode ever aired for
-// the show — up to ~26 years of history.
+// Always scrapes the show archive page (/playlists/{CODE}), which lists every
+// episode ever aired for the show — up to ~26 years of history. An earlier
+// implementation used WFMU's RSS feed (/playlistfeed/{CODE}.xml) for recent
+// windows, but the feed filters out fill-in / guest-DJ episodes that the
+// archive page includes. The archive page is ~10x the bytes of the RSS feed
+// but only one HTTP request per show per cycle, well within the per-instance
+// rate budget.
 func (p *WFMUProvider) FetchNewEpisodes(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
-	// Use RSS for recent windows: fast, sufficient, cheap.
-	// A zero `since` means "all history" — always use the archive page.
-	if !since.IsZero() && time.Since(since) < wfmuRSSFallbackWindow {
-		return p.fetchEpisodesFromRSS(showExternalID, since, until)
-	}
 	return p.fetchEpisodesFromArchivePage(showExternalID, since, until)
-}
-
-// fetchEpisodesFromRSS fetches recent episodes from the WFMU playlist RSS feed
-// (/playlistfeed/{CODE}.xml). The feed contains the 10 most recent episodes.
-func (p *WFMUProvider) fetchEpisodesFromRSS(showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
-	<-p.rateLimiter.C
-
-	feedURL := fmt.Sprintf("%s/playlistfeed/%s.xml", p.baseURL, showExternalID)
-	body, err := p.doGet(feedURL)
-	if err != nil {
-		return nil, fmt.Errorf("fetching RSS feed for %s: %w", showExternalID, err)
-	}
-
-	episodes, err := parseWFMURSSFeed(body, showExternalID, since, until)
-	if err != nil {
-		return nil, fmt.Errorf("parsing RSS feed for %s: %w", showExternalID, err)
-	}
-
-	return episodes, nil
 }
 
 // fetchEpisodesFromArchivePage fetches all historical episodes by scraping the
@@ -439,97 +410,12 @@ func getAttr(n *html.Node, key string) string {
 }
 
 // =============================================================================
-// RSS Feed Parser — FetchNewEpisodes
+// Episode ID + Month Map (shared helpers)
 // =============================================================================
 
 // episodeIDRegex extracts the numeric show ID from WFMU playlist URLs.
 // Matches: /playlists/shows/162230 or http://www.wfmu.org/playlists/shows/162230
 var episodeIDRegex = regexp.MustCompile(`/playlists/shows/(\d+)`)
-
-// parseWFMURSSFeed parses a WFMU playlist RSS feed and returns episodes within [since, until].
-// A zero until means no upper bound.
-func parseWFMURSSFeed(body []byte, showExternalID string, since time.Time, until time.Time) ([]RadioEpisodeImport, error) {
-	fp := gofeed.NewParser()
-	feed, err := fp.ParseString(string(body))
-	if err != nil {
-		return nil, fmt.Errorf("parsing RSS: %w", err)
-	}
-
-	var episodes []RadioEpisodeImport
-
-	for _, item := range feed.Items {
-		// Extract episode ID from the link URL
-		epID := extractEpisodeID(item.Link)
-		if epID == "" {
-			// Try GUID as fallback
-			epID = extractEpisodeID(item.GUID)
-		}
-		if epID == "" {
-			continue
-		}
-
-		// Parse publish date
-		var pubTime time.Time
-		if item.PublishedParsed != nil {
-			pubTime = *item.PublishedParsed
-		} else if item.Published != "" {
-			// Try manual parse if gofeed didn't handle it
-			pubTime, _ = time.Parse(time.RFC1123Z, item.Published)
-		}
-
-		// Filter by since time
-		if !pubTime.IsZero() && pubTime.Before(since) {
-			continue
-		}
-
-		// Filter by until time
-		if !pubTime.IsZero() && !until.IsZero() && pubTime.After(until) {
-			continue
-		}
-
-		// Determine air date: prefer extracting from title (reflects local broadcast date),
-		// fall back to pubDate in original timezone. WFMU RSS pubDates are in Eastern time
-		// so a 10pm EDT show becomes the next day in UTC — we want the local broadcast date.
-		airDate := ""
-		if item.Title != "" {
-			airDate = extractDateFromTitle(item.Title)
-		}
-		if airDate == "" && !pubTime.IsZero() {
-			// Use the original timezone from the RSS feed if available
-			if item.Published != "" {
-				if parsed, err := time.Parse("Mon, 02 Jan 2006 15:04:05 -0700", item.Published); err == nil {
-					airDate = parsed.Format("2006-01-02")
-				}
-			}
-			if airDate == "" {
-				airDate = pubTime.Format("2006-01-02")
-			}
-		}
-
-		ep := RadioEpisodeImport{
-			ExternalID:     epID,
-			ShowExternalID: showExternalID,
-			AirDate:        airDate,
-		}
-
-		if item.Title != "" {
-			title := item.Title
-			ep.Title = &title
-		}
-
-		if item.Link != "" {
-			archive := item.Link
-			ep.ArchiveURL = &archive
-		}
-
-		episodes = append(episodes, ep)
-	}
-
-	return episodes, nil
-}
-
-// titleDateRegex matches dates like "March 12, 2026" or "January 15, 2026" in titles.
-var titleDateRegex = regexp.MustCompile(`(?i)(January|February|March|April|May|June|July|August|September|October|November|December)\s+(\d{1,2}),?\s+(\d{4})`)
 
 // monthMap maps month names to month numbers.
 var monthMap = map[string]time.Month{
@@ -537,30 +423,6 @@ var monthMap = map[string]time.Month{
 	"april": time.April, "may": time.May, "june": time.June,
 	"july": time.July, "august": time.August, "september": time.September,
 	"october": time.October, "november": time.November, "december": time.December,
-}
-
-// extractDateFromTitle parses a date from a WFMU RSS title like
-// "WFMU Playlist: Show Name from March 12, 2026".
-func extractDateFromTitle(title string) string {
-	matches := titleDateRegex.FindStringSubmatch(title)
-	if len(matches) < 4 {
-		return ""
-	}
-
-	month, ok := monthMap[strings.ToLower(matches[1])]
-	if !ok {
-		return ""
-	}
-	day, err := strconv.Atoi(matches[2])
-	if err != nil {
-		return ""
-	}
-	year, err := strconv.Atoi(matches[3])
-	if err != nil {
-		return ""
-	}
-
-	return time.Date(year, month, day, 0, 0, 0, 0, time.UTC).Format("2006-01-02")
 }
 
 // extractEpisodeID pulls the numeric episode ID from a WFMU URL.
