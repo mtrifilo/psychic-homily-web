@@ -27,3 +27,20 @@ var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 func LikePattern(searchTerm string) string {
 	return "%" + likeEscaper.Replace(searchTerm) + "%"
 }
+
+// LikePrefixPattern produces a starts-with LIKE / ILIKE pattern. Same escape
+// guarantees as LikePattern but only appends a trailing `%`, so the input is
+// matched as a literal prefix. Use for autocomplete-style "name starts
+// with X" lookups where the DB has (or should have) a btree index on
+// `LOWER(column)` that the optimizer can use only when the leading
+// character is a literal.
+//
+//	shared.LikePrefixPattern("foo")     // "foo%"
+//	shared.LikePrefixPattern("foo%")    // "foo\%%"
+//	shared.LikePrefixPattern("a_")      // "a\_%"
+//
+// Same empty-string caveat as LikePattern — an empty term here produces `%`
+// which matches every row.
+func LikePrefixPattern(searchTerm string) string {
+	return likeEscaper.Replace(searchTerm) + "%"
+}

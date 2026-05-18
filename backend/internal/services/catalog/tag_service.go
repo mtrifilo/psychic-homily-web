@@ -15,6 +15,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -142,7 +143,7 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 		query = query.Where("category = ?", category)
 	}
 	if search != "" {
-		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+search+"%")
+		query = query.Where("LOWER(name) LIKE LOWER(?)", shared.LikePattern(search))
 	}
 	if parentID != nil {
 		query = query.Where("parent_id = ?", *parentID)
@@ -777,7 +778,7 @@ func (s *TagService) ListAllAliases(search string, limit, offset int) ([]contrac
 		Joins("JOIN tags AS t ON t.id = ta.tag_id")
 
 	if search != "" {
-		pattern := "%" + strings.ToLower(search) + "%"
+		pattern := shared.LikePattern(strings.ToLower(search))
 		query = query.Where("LOWER(ta.alias) LIKE ? OR LOWER(t.name) LIKE ?", pattern, pattern)
 	}
 
@@ -958,10 +959,11 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]con
 
 	// Search tags by name and by alias, dedup by tag ID.
 	// Group the OR conditions to ensure category filter applies to both.
+	pattern := shared.LikePattern(q)
 	db := s.db.Where(
-		s.db.Where("LOWER(name) LIKE ?", "%"+q+"%").
+		s.db.Where("LOWER(name) LIKE ?", pattern).
 			Or("id IN (?)",
-				s.db.Model(&catalogm.TagAlias{}).Select("tag_id").Where("LOWER(alias) LIKE ?", "%"+q+"%"),
+				s.db.Model(&catalogm.TagAlias{}).Select("tag_id").Where("LOWER(alias) LIKE ?", pattern),
 			),
 	)
 
@@ -981,7 +983,6 @@ func (s *TagService) SearchTags(query string, limit int, category string) ([]con
 	// look up which alias on that tag matched so the UI can surface the
 	// provenance. A single batch query avoids N+1.
 	results := make([]contracts.TagSearchResult, len(tags))
-	pattern := "%" + q + "%"
 
 	// Collect the tag IDs whose name did not match the query — those are
 	// the ones that were returned only because of an alias match.

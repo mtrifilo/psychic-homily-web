@@ -12,6 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -169,7 +170,7 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*contracts
 		}
 	}
 	if name, ok := filters["name"].(string); ok && name != "" {
-		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%")
+		query = query.Where("LOWER(name) LIKE LOWER(?)", shared.LikePattern(name))
 	}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
 		query = ApplyTagFilter(query, s.db, catalogm.TagEntityArtist, "artists.id", tf)
@@ -284,19 +285,23 @@ func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailRe
 	// Strategy depends on query length for optimal performance
 	if len(query) <= 2 {
 		// For short queries: use fast case-insensitive prefix search on name + aliases
+		prefixPattern := shared.LikePrefixPattern(query)
 		err = s.db.
 			Where("id IN (?)",
-				s.db.Table("artists").Select("id").Where("LOWER(name) LIKE LOWER(?)", query+"%"),
+				s.db.Table("artists").Select("id").Where("LOWER(name) LIKE LOWER(?)", prefixPattern),
 			).
 			Or("id IN (?)",
-				s.db.Table("artist_aliases").Select("artist_id").Where("LOWER(alias) LIKE LOWER(?)", query+"%"),
+				s.db.Table("artist_aliases").Select("artist_id").Where("LOWER(alias) LIKE LOWER(?)", prefixPattern),
 			).
 			Order("name ASC").
 			Limit(10).
 			Find(&artists).Error
 	} else {
-		// For longer queries: search names and aliases with similarity scoring
-		// Uses UNION to find matching artists by name or alias, then ranks by best similarity
+		// For longer queries: search names and aliases with similarity scoring.
+		// Uses UNION to find matching artists by name or alias, then ranks by best similarity.
+		// `name % ?` / `alias % ?` are the pg_trgm similarity operator and take the
+		// raw term; the ILIKE branches escape via LikePattern.
+		substringPattern := shared.LikePattern(query)
 		err = s.db.Raw(`
 			SELECT a.* FROM artists a
 			WHERE a.id IN (
@@ -309,7 +314,7 @@ func (s *ArtistService) SearchArtists(query string) ([]*contracts.ArtistDetailRe
 				COALESCE((SELECT MAX(similarity(aa.alias, ?)) FROM artist_aliases aa WHERE aa.artist_id = a.id), 0)
 			) DESC, a.name ASC
 			LIMIT 10
-		`, "%"+query+"%", query, "%"+query+"%", query, query, query).
+		`, substringPattern, query, substringPattern, query, query, query).
 			Scan(&artists).Error
 	}
 

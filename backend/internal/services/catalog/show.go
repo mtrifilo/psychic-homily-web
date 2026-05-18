@@ -1118,7 +1118,7 @@ func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*con
 
 	// Add search filter if provided
 	if search != "" {
-		searchPattern := "%" + search + "%"
+		searchPattern := shared.LikePattern(search)
 		baseQuery = baseQuery.Where("title ILIKE ? OR rejection_reason ILIKE ?", searchPattern, searchPattern)
 	}
 
@@ -1134,7 +1134,7 @@ func (s *ShowService) GetRejectedShows(limit, offset int, search string) ([]*con
 		Where("status = ?", catalogm.ShowStatusRejected).
 		Scopes(func(db *gorm.DB) *gorm.DB {
 			if search != "" {
-				searchPattern := "%" + search + "%"
+				searchPattern := shared.LikePattern(search)
 				return db.Where("title ILIKE ? OR rejection_reason ILIKE ?", searchPattern, searchPattern)
 			}
 			return db

@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -191,7 +192,7 @@ func (s *DataSyncService) ExportArtists(params contracts.ExportArtistsParams) (*
 	query := s.db.Model(&catalogm.Artist{})
 
 	if params.Search != "" {
-		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+params.Search+"%")
+		query = query.Where("LOWER(name) LIKE LOWER(?)", shared.LikePattern(params.Search))
 	}
 
 	var total int64
@@ -249,7 +250,7 @@ func (s *DataSyncService) ExportVenues(params contracts.ExportVenuesParams) (*co
 	query := s.db.Model(&catalogm.Venue{})
 
 	if params.Search != "" {
-		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+params.Search+"%")
+		query = query.Where("LOWER(name) LIKE LOWER(?)", shared.LikePattern(params.Search))
 	}
 	if params.Verified != nil {
 		query = query.Where("verified = ?", *params.Verified)

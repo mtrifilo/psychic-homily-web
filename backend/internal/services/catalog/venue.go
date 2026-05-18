@@ -11,6 +11,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -136,7 +137,7 @@ func (s *VenueService) GetVenues(filters map[string]interface{}) ([]*contracts.V
 		query = query.Where("city = ?", city)
 	}
 	if name, ok := filters["name"].(string); ok && name != "" {
-		query = query.Where("LOWER(name) LIKE LOWER(?)", "%"+name+"%")
+		query = query.Where("LOWER(name) LIKE LOWER(?)", shared.LikePattern(name))
 	}
 	if tf, ok := filters["tag_filter"].(TagFilter); ok {
 		query = ApplyTagFilter(query, s.db, catalogm.TagEntityVenue, "venues.id", tf)
@@ -263,14 +264,16 @@ func (venueService *VenueService) SearchVenues(query string) ([]*contracts.Venue
 
 	if len(query) <= 2 {
 		err = venueService.db.
-			Where("LOWER(name) LIKE LOWER(?)", query+"%").
+			Where("LOWER(name) LIKE LOWER(?)", shared.LikePrefixPattern(query)).
 			Order("name ASC").
 			Limit(10).
 			Find(&venues).Error
 	} else {
+		// `name % ?` is the pg_trgm similarity operator (NOT a LIKE pattern),
+		// so its argument stays raw. The ILIKE branch escapes via LikePattern.
 		err = venueService.db.
 			Select("venues.*, similarity(name, ?) as sim_score", query).
-			Where("name ILIKE ? OR name % ?", "%"+query+"%", query).
+			Where("name ILIKE ? OR name % ?", shared.LikePattern(query), query).
 			Order("sim_score DESC, name ASC").
 			Limit(10).
 			Find(&venues).Error

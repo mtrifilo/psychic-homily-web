@@ -15,6 +15,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Account lockout constants
@@ -34,7 +35,7 @@ func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFi
 
 	// Apply search filter
 	if filters.Search != "" {
-		searchPattern := "%" + filters.Search + "%"
+		searchPattern := shared.LikePattern(filters.Search)
 		query = query.Where("(email ILIKE ? OR username ILIKE ?)", searchPattern, searchPattern)
 	}
 

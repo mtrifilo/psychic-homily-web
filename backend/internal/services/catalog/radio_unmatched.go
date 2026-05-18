@@ -10,6 +10,7 @@ import (
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // GetUnmatchedPlays returns unmatched plays grouped by artist_name,
@@ -172,7 +173,7 @@ func (s *RadioService) suggestArtistMatches(artistName string, limit int) []cont
 	// 3. LIKE match (prefix)
 	remaining = limit - len(matches)
 	var likeMatches []catalogm.Artist
-	s.db.Where("LOWER(name) LIKE ?", normalizedName+"%").
+	s.db.Where("LOWER(name) LIKE ?", shared.LikePrefixPattern(normalizedName)).
 		Limit(remaining).
 		Find(&likeMatches)
 
