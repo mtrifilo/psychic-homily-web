@@ -1242,6 +1242,7 @@ type MockDiscordService struct {
 	NotifyArtistReportFn func(*communitym.ArtistReport, string)
 	NotifyNewVenueFn func(uint, string, string, string, *string, string)
 	NotifyNewRadioShowsFn func(string, []string)
+	NotifyBackfillCompletedFn func(string, []string, int, int)
 }
 
 func (m *MockDiscordService) IsConfigured() (bool) {
@@ -1293,6 +1294,11 @@ func (m *MockDiscordService) NotifyNewVenue(venueID uint, venueName string, city
 func (m *MockDiscordService) NotifyNewRadioShows(stationName string, newShowNames []string) {
 	if m.NotifyNewRadioShowsFn != nil {
 		m.NotifyNewRadioShowsFn(stationName, newShowNames)
+	}
+}
+func (m *MockDiscordService) NotifyBackfillCompleted(stationName string, completedShows []string, totalEpisodes int, totalPlays int) {
+	if m.NotifyBackfillCompletedFn != nil {
+		m.NotifyBackfillCompletedFn(stationName, completedShows, totalEpisodes, totalPlays)
 	}
 }
 

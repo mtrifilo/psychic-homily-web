@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -25,6 +26,17 @@ const DefaultReMatchInterval = 7 * 24 * time.Hour
 // (WFMU adds shows monthly at most; KEXP/NTS slower), so once a day is plenty
 // and the per-station DJ-index fetch cost is negligible.
 const DefaultDiscoverInterval = 24 * time.Hour
+
+// Default auto-backfill window (90 days). When the discover loop finds a new
+// show, an import job is created + started for the last N days so the show
+// arrives with some history instead of just the next ~7 days of episodes.
+// Set RADIO_AUTO_BACKFILL_DAYS=0 to disable auto-backfill entirely.
+const DefaultAutoBackfillDays = 90
+
+// autoBackfillPollInterval is how often the per-station backfill goroutine
+// polls a running import job for completion. The job updates its DB row every
+// 10 episodes; 5s is comfortably finer-grained than typical job tick rates.
+const autoBackfillPollInterval = 5 * time.Second
 
 // radioCircuitBreakerThreshold is the number of consecutive failures before
 // a station is temporarily skipped during fetch cycles.
@@ -46,6 +58,10 @@ type RadioFetchService struct {
 	rematchInterval  time.Duration
 	discoverInterval time.Duration
 
+	// autoBackfillDays: how far back to backfill when discovery finds a new show.
+	// 0 disables auto-backfill (admins can still manually trigger via /admin/radio-shows/{id}/import-job).
+	autoBackfillDays int
+
 	stopCh chan struct{}
 	wg     sync.WaitGroup
 	logger *slog.Logger
@@ -64,6 +80,7 @@ type RadioFetchService struct {
 //   - RADIO_AFFINITY_INTERVAL_HOURS (default 24)
 //   - RADIO_REMATCH_INTERVAL_HOURS (default 168, i.e. 7 days)
 //   - RADIO_DISCOVER_INTERVAL_HOURS (default 24)
+//   - RADIO_AUTO_BACKFILL_DAYS (default 90; 0 disables auto-backfill)
 func NewRadioFetchService(
 	radioService *RadioService,
 	discordService contracts.DiscordServiceInterface,
@@ -96,6 +113,15 @@ func NewRadioFetchService(
 		}
 	}
 
+	// 0 explicitly disables auto-backfill. Negative values are silently treated
+	// as 0 (defensive). Default 90 if env unset or invalid.
+	autoBackfillDays := DefaultAutoBackfillDays
+	if envVal := os.Getenv("RADIO_AUTO_BACKFILL_DAYS"); envVal != "" {
+		if days, err := strconv.Atoi(envVal); err == nil && days >= 0 {
+			autoBackfillDays = days
+		}
+	}
+
 	return &RadioFetchService{
 		radioService:        radioService,
 		discordService:      discordService,
@@ -103,6 +129,7 @@ func NewRadioFetchService(
 		affinityInterval:    affinityInterval,
 		rematchInterval:     rematchInterval,
 		discoverInterval:    discoverInterval,
+		autoBackfillDays:    autoBackfillDays,
 		stopCh:              make(chan struct{}),
 		logger:              slog.Default(),
 		consecutiveFailures: make(map[uint]int),
@@ -398,6 +425,16 @@ func (s *RadioFetchService) runDiscoverCycle() {
 			s.discordService.NotifyNewRadioShows(station.Name, result.NewShowNames)
 			stationsNotified++
 		}
+
+		// Kick off the per-station auto-backfill drain in its own goroutine so
+		// the discover cycle returns immediately. Serializes jobs PER STATION
+		// (one at a time) so a 56-show provider burst doesn't fan out into
+		// concurrent provider hits — the existing 1-rps per-instance rate
+		// limiter on each provider handles per-episode pacing.
+		if s.autoBackfillDays > 0 && len(result.NewShowIDs) > 0 {
+			s.wg.Add(1)
+			go s.autoBackfillStation(station.Name, result.NewShowIDs, result.NewShowNames)
+		}
 	}
 
 	s.logger.Info("radio discover cycle complete",
@@ -408,6 +445,133 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		"stations_notified", stationsNotified,
 		"duration", time.Since(cycleStart),
 	)
+}
+
+// autoBackfillStation drains a per-station batch of newly-discovered shows
+// SERIALLY — one import job at a time per station, polling each to completion
+// before starting the next. Single batched Discord notification at the end.
+//
+// Why serial: provider HTTP clients are rate-limited at 1 req/sec PER INSTANCE
+// (existing wfmuRateLimit / kexpRateLimit / ntsRateLimit). Each import job
+// gets its own provider instance via getProvider, so parallel jobs would each
+// have an independent rate limiter and could collectively hit a provider
+// faster than the per-instance cap intends. Per-station serialization keeps
+// effective egress at ~1 req/sec/provider.
+//
+// Process lifetime: the goroutine respects s.stopCh so a service Stop()
+// abandons pending jobs cleanly (no orphan ticker goroutines). Already-started
+// jobs continue in their own runImportJob goroutine until they finish or are
+// cancelled.
+func (s *RadioFetchService) autoBackfillStation(stationName string, showIDs []uint, showNames []string) {
+	defer s.wg.Done()
+
+	until := time.Now()
+	since := until.AddDate(0, 0, -s.autoBackfillDays)
+	sinceStr := since.Format("2006-01-02")
+	untilStr := until.Format("2006-01-02")
+
+	s.logger.Info("auto_backfill_started",
+		"station", stationName,
+		"shows", len(showIDs),
+		"since", sinceStr,
+		"until", untilStr,
+	)
+
+	var (
+		completedShows []string
+		totalEpisodes  int
+		totalPlays     int
+	)
+
+	for i, showID := range showIDs {
+		showName := showNames[i]
+
+		job, err := s.radioService.CreateImportJob(showID, sinceStr, untilStr)
+		if err != nil {
+			s.logger.Warn("auto_backfill_create_job_failed",
+				"show_id", showID,
+				"show", showName,
+				"error", err,
+			)
+			continue
+		}
+
+		if err := s.radioService.StartImportJob(job.ID); err != nil {
+			s.logger.Warn("auto_backfill_start_job_failed",
+				"show_id", showID,
+				"job_id", job.ID,
+				"error", err,
+			)
+			continue
+		}
+
+		finalJob, result := s.waitForJobCompletion(job.ID)
+		switch result {
+		case jobWaitShutdown:
+			s.logger.Info("auto_backfill_abandoned_on_shutdown", "job_id", job.ID)
+			return
+		case jobWaitPollError:
+			continue
+		}
+
+		if finalJob.Status == catalogm.RadioImportJobStatusCompleted {
+			completedShows = append(completedShows, showName)
+			totalEpisodes += finalJob.EpisodesImported
+			totalPlays += finalJob.PlaysMatched
+		} else {
+			s.logger.Warn("auto_backfill_job_did_not_complete",
+				"job_id", job.ID,
+				"status", finalJob.Status,
+			)
+		}
+	}
+
+	s.logger.Info("auto_backfill_finished",
+		"station", stationName,
+		"completed", len(completedShows),
+		"episodes_imported", totalEpisodes,
+		"plays_matched", totalPlays,
+	)
+
+	if s.discordService != nil && len(completedShows) > 0 {
+		s.discordService.NotifyBackfillCompleted(stationName, completedShows, totalEpisodes, totalPlays)
+	}
+}
+
+// jobWaitResult distinguishes the three outcomes of waitForJobCompletion so the
+// caller can route shutdown vs poll-error vs terminal without bool-overloading.
+type jobWaitResult int
+
+const (
+	jobWaitTerminal  jobWaitResult = iota // job reached completed/failed/cancelled — *Job is non-nil
+	jobWaitShutdown                       // service shutting down — caller should return
+	jobWaitPollError                      // GetImportJob failed — caller should continue to next show
+)
+
+// waitForJobCompletion polls a running import job every autoBackfillPollInterval
+// until it reaches a terminal status (catalogm.RadioImportJobStatus{Completed,
+// Failed,Cancelled}), or returns earlier if s.stopCh closes (shutdown) or a
+// GetImportJob call errors (poll error).
+func (s *RadioFetchService) waitForJobCompletion(jobID uint) (*contracts.RadioImportJobResponse, jobWaitResult) {
+	for {
+		select {
+		case <-s.stopCh:
+			return nil, jobWaitShutdown
+		case <-time.After(autoBackfillPollInterval):
+		}
+
+		job, err := s.radioService.GetImportJob(jobID)
+		if err != nil {
+			s.logger.Warn("auto_backfill_poll_job_load_failed", "job_id", jobID, "error", err)
+			return nil, jobWaitPollError
+		}
+		switch job.Status {
+		case catalogm.RadioImportJobStatusCompleted,
+			catalogm.RadioImportJobStatusFailed,
+			catalogm.RadioImportJobStatusCancelled:
+			return job, jobWaitTerminal
+		}
+	}
 }
 
 // GetConsecutiveFailures returns the failure count for a station. Exported for testing.

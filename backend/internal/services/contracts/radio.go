@@ -340,12 +340,15 @@ type RadioImportResult struct {
 // ShowsDiscovered + ShowNames count every show the provider returned
 // (idempotent upserts included). ShowsNew + NewShowNames count only the rows
 // that didn't previously exist — callers use this delta to drive notifications
-// on actually-new shows, not on every cycle.
+// on actually-new shows, not on every cycle. NewShowIDs is parallel to
+// NewShowNames (same length, same order); the discover orchestrator uses the
+// IDs to enqueue auto-backfill import jobs.
 type RadioDiscoverResult struct {
 	ShowsDiscovered int      `json:"shows_discovered"`
 	ShowNames       []string `json:"show_names"`
 	ShowsNew        int      `json:"shows_new"`
 	NewShowNames    []string `json:"new_show_names"`
+	NewShowIDs      []uint   `json:"new_show_ids"`
 	Errors          []string `json:"errors,omitempty"`
 }
 

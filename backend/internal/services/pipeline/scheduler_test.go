@@ -140,6 +140,8 @@ func (s *stubDiscordService) NotifyArtistReport(report *communitym.ArtistReport,
 func (s *stubDiscordService) NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string) {
 }
 func (s *stubDiscordService) NotifyNewRadioShows(stationName string, newShowNames []string) {}
+func (s *stubDiscordService) NotifyBackfillCompleted(stationName string, completedShows []string, totalEpisodes int, totalPlays int) {
+}
 
 // ── Tests ──────────────────────────────────────────────────────────────
 

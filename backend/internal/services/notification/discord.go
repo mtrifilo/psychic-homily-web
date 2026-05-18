@@ -379,6 +379,38 @@ func (s *DiscordService) NotifyNewRadioShows(stationName string, newShowNames []
 	go s.sendWebhook(embed)
 }
 
+// NotifyBackfillCompleted sends one batched notification when the auto-backfill
+// drain finishes for a station — fires AFTER all per-show backfill jobs from a
+// discover cycle have drained, not per-show. Fire-and-forget; silently skipped
+// when Discord isn't configured or no shows actually completed.
+func (s *DiscordService) NotifyBackfillCompleted(stationName string, completedShows []string, totalEpisodes int, totalPlays int) {
+	if !s.IsConfigured() || len(completedShows) == 0 {
+		return
+	}
+
+	// Cap the rendered list (Discord embed field limit is 1024 chars; show
+	// names average ~30 chars + line breaks).
+	const maxShown = 25
+	displayed := completedShows
+	tail := ""
+	if len(completedShows) > maxShown {
+		displayed = completedShows[:maxShown]
+		tail = fmt.Sprintf("\n…and %d more", len(completedShows)-maxShown)
+	}
+
+	embed := DiscordEmbed{
+		Title:       fmt.Sprintf("Backfill Complete: %s", stationName),
+		Description: fmt.Sprintf("Backfilled %d show(s) — %d episodes, %d plays matched", len(completedShows), totalEpisodes, totalPlays),
+		Color:       ColorGreen,
+		Timestamp:   time.Now().UTC().Format(time.RFC3339),
+		Fields: []DiscordEmbedField{
+			{Name: "Shows", Value: strings.Join(displayed, "\n") + tail, Inline: false},
+		},
+	}
+
+	go s.sendWebhook(embed)
+}
+
 // sendWebhook sends an embed to the Discord webhook (fire-and-forget)
 func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 	payload := DiscordWebhookPayload{
