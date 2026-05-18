@@ -6,6 +6,8 @@ import (
 	"os"
 	"testing"
 	"time"
+
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // testLogger returns a minimal slog.Logger suitable for testing.
@@ -163,5 +165,74 @@ func TestRadioFetchService_DiscoverInterval_Default(t *testing.T) {
 	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
 	if svc.discoverInterval != DefaultDiscoverInterval {
 		t.Fatalf("expected default %v, got %v", DefaultDiscoverInterval, svc.discoverInterval)
+	}
+}
+
+// PSY-672: RADIO_AUTO_BACKFILL_DAYS env var. Default 90, 0 disables.
+func TestRadioFetchService_AutoBackfillDays_Default(t *testing.T) {
+	t.Setenv("RADIO_AUTO_BACKFILL_DAYS", "")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.autoBackfillDays != DefaultAutoBackfillDays {
+		t.Fatalf("expected default %d, got %d", DefaultAutoBackfillDays, svc.autoBackfillDays)
+	}
+}
+
+func TestRadioFetchService_AutoBackfillDays_EnvOverride(t *testing.T) {
+	t.Setenv("RADIO_AUTO_BACKFILL_DAYS", "30")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.autoBackfillDays != 30 {
+		t.Fatalf("expected 30, got %d", svc.autoBackfillDays)
+	}
+}
+
+func TestRadioFetchService_AutoBackfillDays_DisableViaZero(t *testing.T) {
+	t.Setenv("RADIO_AUTO_BACKFILL_DAYS", "0")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.autoBackfillDays != 0 {
+		t.Fatalf("expected 0 (disabled), got %d", svc.autoBackfillDays)
+	}
+}
+
+func TestRadioFetchService_AutoBackfillDays_NegativeFallsBackToDefault(t *testing.T) {
+	t.Setenv("RADIO_AUTO_BACKFILL_DAYS", "-5")
+	svc := NewRadioFetchService(&RadioService{db: nil}, nil)
+	if svc.autoBackfillDays != DefaultAutoBackfillDays {
+		t.Fatalf("negative value should fall back to default %d, got %d", DefaultAutoBackfillDays, svc.autoBackfillDays)
+	}
+}
+
+// PSY-672: waitForJobCompletion respects stopCh — a service shutdown mid-poll
+// should return jobWaitShutdown within one poll interval so the drain goroutine
+// can return cleanly without orphan ticks.
+func TestRadioFetchService_WaitForJobCompletion_ShutdownAbort(t *testing.T) {
+	svc := &RadioFetchService{
+		radioService:        &RadioService{db: nil},
+		stopCh:              make(chan struct{}),
+		logger:              testLogger(),
+		consecutiveFailures: make(map[uint]int),
+	}
+
+	// Close stopCh immediately; the wait should return jobWaitShutdown on the
+	// first select iteration without ever hitting GetImportJob.
+	close(svc.stopCh)
+	done := make(chan struct{})
+	var (
+		job    *contracts.RadioImportJobResponse
+		result jobWaitResult
+	)
+	go func() {
+		job, result = svc.waitForJobCompletion(1)
+		close(done)
+	}()
+	select {
+	case <-done:
+		if result != jobWaitShutdown {
+			t.Fatalf("expected jobWaitShutdown on stopCh close, got %v", result)
+		}
+		if job != nil {
+			t.Fatal("expected nil job on stopCh close")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waitForJobCompletion did not honor stopCh within 2s")
 	}
 }

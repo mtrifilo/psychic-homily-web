@@ -252,7 +252,7 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 	}
 
 	for _, importShow := range importedShows {
-		_, created, err := s.upsertRadioShow(stationID, importShow)
+		showID, created, err := s.upsertRadioShow(stationID, importShow)
 		if err != nil {
 			result.Errors = append(result.Errors, fmt.Sprintf("upsert show %s: %v", importShow.Name, err))
 			continue
@@ -262,6 +262,7 @@ func (s *RadioService) DiscoverStationShows(stationID uint) (*contracts.RadioDis
 		if created {
 			result.ShowsNew++
 			result.NewShowNames = append(result.NewShowNames, importShow.Name)
+			result.NewShowIDs = append(result.NewShowIDs, showID)
 		}
 	}
 

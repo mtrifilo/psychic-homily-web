@@ -808,3 +808,55 @@ func TestNotifyNewRadioShows_CapsAtTwentyFive(t *testing.T) {
 	assert.Contains(t, value, "…and 5 more")
 	assert.Equal(t, "Discovered 30 new show(s)", payload.Embeds[0].Description)
 }
+
+// =============================================================================
+// NotifyBackfillCompleted (PSY-672)
+// =============================================================================
+
+func TestNotifyBackfillCompleted_Success(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+
+	svc.NotifyBackfillCompleted("WFMU", []string{"Three Chord Monte", "Bodega Pop"}, 26, 412)
+
+	raw := waitForPayload(t, payloads)
+	payload := parseWebhookPayload(t, raw)
+	require.Len(t, payload.Embeds, 1)
+	e := payload.Embeds[0]
+	assert.Equal(t, "Backfill Complete: WFMU", e.Title)
+	assert.Equal(t, "Backfilled 2 show(s) — 26 episodes, 412 plays matched", e.Description)
+	assert.Equal(t, ColorGreen, e.Color)
+	require.Len(t, e.Fields, 1)
+	assert.Contains(t, e.Fields[0].Value, "Three Chord Monte")
+	assert.Contains(t, e.Fields[0].Value, "Bodega Pop")
+}
+
+func TestNotifyBackfillCompleted_EmptyList(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+
+	svc.NotifyBackfillCompleted("WFMU", []string{}, 0, 0)
+
+	assertNoPayload(t, payloads)
+}
+
+func TestNotifyBackfillCompleted_NotConfigured(t *testing.T) {
+	svc := &DiscordService{enabled: false}
+
+	svc.NotifyBackfillCompleted("WFMU", []string{"Show A"}, 5, 50)
+}
+
+func TestNotifyBackfillCompleted_CapsAtTwentyFive(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+
+	names := make([]string, 30)
+	for i := range names {
+		names[i] = "Show " + string(rune('A'+i%26))
+	}
+
+	svc.NotifyBackfillCompleted("WFMU", names, 390, 8000)
+
+	raw := waitForPayload(t, payloads)
+	payload := parseWebhookPayload(t, raw)
+	require.Len(t, payload.Embeds, 1)
+	assert.Contains(t, payload.Embeds[0].Fields[0].Value, "…and 5 more")
+	assert.Contains(t, payload.Embeds[0].Description, "30 show(s)")
+}

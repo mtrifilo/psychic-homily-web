@@ -81,4 +81,5 @@ type DiscordServiceInterface interface {
 	NotifyArtistReport(report *communitym.ArtistReport, reporterEmail string)
 	NotifyNewVenue(venueID uint, venueName, city, state string, address *string, submitterEmail string)
 	NotifyNewRadioShows(stationName string, newShowNames []string)
+	NotifyBackfillCompleted(stationName string, completedShows []string, totalEpisodes int, totalPlays int)
 }
