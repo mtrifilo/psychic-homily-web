@@ -91,6 +91,7 @@ import { CollectionGraph } from './CollectionGraph'
 import { CollectionItemCard } from './CollectionItemCard'
 import { CollectionCoverImage } from './CollectionCoverImage'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
+import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { DensityToggle, Breadcrumb, UserAttribution } from '@/components/shared'
 import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
@@ -967,7 +968,8 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
  * inline notes editor. Preserved as the alternate so curators who
  * prefer dense scan-and-edit can keep their existing UX.
  */
-type CollectionItemsViewMode = 'grid' | 'list'
+const VIEW_MODES = ['grid', 'list'] as const
+type CollectionItemsViewMode = (typeof VIEW_MODES)[number]
 
 const VIEW_MODE_STORAGE_KEY = 'ph-collection-items-view-mode'
 
@@ -983,17 +985,6 @@ const GRID_COLUMN_CLASSES: Record<Density, string> = {
   compact: 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-3',
   comfortable: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4',
   expanded: 'grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5',
-}
-
-function readStoredViewMode(): CollectionItemsViewMode {
-  if (typeof window === 'undefined') return 'grid'
-  try {
-    const stored = window.localStorage.getItem(VIEW_MODE_STORAGE_KEY)
-    if (stored === 'grid' || stored === 'list') return stored
-  } catch {
-    // localStorage unavailable (private mode, etc.) — fall through.
-  }
-  return 'grid'
 }
 
 function CollectionItemsList({
@@ -1027,29 +1018,20 @@ function CollectionItemsList({
     formatReorderError
   )
 
-  // PSY-360: density preference for the grid view. List view ignores
-  // density (its layout is intentionally fixed). Storage key matches the
-  // hook's prefix convention (ph-density-collections).
+  // Density preference for the grid view. List view ignores density (its
+  // layout is intentionally fixed). Storage key matches the hook's prefix
+  // convention (ph-density-collections).
   const { density, setDensity } = useDensity('collections')
 
-  // PSY-360: view-mode preference (grid vs list). Default `grid` so
-  // first-time viewers see the visual layout. Persists per-browser.
-  // Read once on mount via lazy initializer; `useEffect` could fight
-  // with SSR hydration so we delay the read by mirroring the
-  // FavoriteVenuesTab pattern that already ships.
-  const [viewMode, setViewModeState] = useState<CollectionItemsViewMode>(() =>
-    readStoredViewMode()
+  // View-mode preference (grid vs list). Default `grid` so first-time viewers
+  // see the visual layout. Persists per-browser. `useLocalStorageEnum` returns
+  // the default on the server + first hydration so the public SSR boundary
+  // never trips a React mismatch when the stored preference is `list`.
+  const [viewMode, setViewMode] = useLocalStorageEnum<CollectionItemsViewMode>(
+    VIEW_MODE_STORAGE_KEY,
+    'grid',
+    VIEW_MODES
   )
-
-  const setViewMode = useCallback((mode: CollectionItemsViewMode) => {
-    setViewModeState(mode)
-    try {
-      window.localStorage.setItem(VIEW_MODE_STORAGE_KEY, mode)
-    } catch {
-      // localStorage unavailable — preference falls back to default
-      // next mount. Acceptable.
-    }
-  }, [])
 
   const persistOrder = useCallback(
     (orderedItems: CollectionItem[]) => {

@@ -1,28 +1,16 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useLocalStorageEnum } from './useLocalStorageEnum'
 
-export type Density = 'compact' | 'comfortable' | 'expanded'
+const VALID_DENSITIES = ['compact', 'comfortable', 'expanded'] as const
+
+export type Density = (typeof VALID_DENSITIES)[number]
 
 const DENSITY_STORAGE_PREFIX = 'ph-density'
 const DEFAULT_DENSITY: Density = 'comfortable'
-const VALID_DENSITIES: Density[] = ['compact', 'comfortable', 'expanded']
 
 function getStorageKey(suffix?: string): string {
   return suffix ? `${DENSITY_STORAGE_PREFIX}-${suffix}` : DENSITY_STORAGE_PREFIX
-}
-
-function readDensity(key: string): Density {
-  if (typeof window === 'undefined') return DEFAULT_DENSITY
-  try {
-    const stored = localStorage.getItem(key)
-    if (stored && VALID_DENSITIES.includes(stored as Density)) {
-      return stored as Density
-    }
-  } catch {
-    // localStorage not available
-  }
-  return DEFAULT_DENSITY
 }
 
 /**
@@ -36,24 +24,10 @@ function readDensity(key: string): Density {
  */
 export function useDensity(storageKeySuffix?: string) {
   const key = getStorageKey(storageKeySuffix)
-  const [density, setDensityState] = useState<Density>(DEFAULT_DENSITY)
-
-  // Read from localStorage on mount (client-side only)
-  useEffect(() => {
-    setDensityState(readDensity(key))
-  }, [key])
-
-  const setDensity = useCallback(
-    (value: Density) => {
-      setDensityState(value)
-      try {
-        localStorage.setItem(key, value)
-      } catch {
-        // localStorage not available
-      }
-    },
-    [key]
+  const [density, setDensity] = useLocalStorageEnum<Density>(
+    key,
+    DEFAULT_DENSITY,
+    VALID_DENSITIES
   )
-
   return { density, setDensity }
 }
