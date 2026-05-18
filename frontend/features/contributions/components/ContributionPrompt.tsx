@@ -1,7 +1,8 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useCallback } from 'react'
 import { Lightbulb, X, ArrowRight } from 'lucide-react'
+import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
 import { useDataGaps } from '../hooks/useDataGaps'
 import type { EditableEntityType } from '../types'
 
@@ -29,13 +30,11 @@ function getDismissalKey(entityType: string, entityId: number): string {
   return `dismissed-prompt-${entityType}-${entityId}`
 }
 
-function checkDismissed(entityType: string, entityId: number): boolean {
-  try {
-    return localStorage.getItem(getDismissalKey(entityType, entityId)) === 'true'
-  } catch {
-    return false
-  }
-}
+// Boolean-as-enum so the dismissal flag can ride the SSR-safe
+// useLocalStorageEnum hook. The 'false' default lets an absent key read as
+// "not dismissed".
+const DISMISSAL_VALUES = ['true', 'false'] as const
+type DismissalFlag = (typeof DISMISSAL_VALUES)[number]
 
 interface ContributionPromptProps {
   entityType: EditableEntityType
@@ -54,22 +53,20 @@ export function ContributionPrompt({
   isAuthenticated,
   onEditClick,
 }: ContributionPromptProps) {
-  const [isDismissed, setIsDismissed] = useState(() =>
-    checkDismissed(entityType, entityId)
+  const [dismissalFlag, setDismissalFlag] = useLocalStorageEnum<DismissalFlag>(
+    getDismissalKey(entityType, entityId),
+    'false',
+    DISMISSAL_VALUES
   )
+  const isDismissed = dismissalFlag === 'true'
 
   const { data, isLoading } = useDataGaps(entityType, entitySlug, {
     enabled: isAuthenticated && !isDismissed,
   })
 
   const handleDismiss = useCallback(() => {
-    setIsDismissed(true)
-    try {
-      localStorage.setItem(getDismissalKey(entityType, entityId), 'true')
-    } catch {
-      // localStorage unavailable
-    }
-  }, [entityType, entityId])
+    setDismissalFlag('true')
+  }, [setDismissalFlag])
 
   // Don't render anything if:
   // - Not authenticated
