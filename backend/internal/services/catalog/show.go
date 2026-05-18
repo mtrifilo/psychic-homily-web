@@ -20,6 +20,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -917,7 +918,7 @@ func (s *ShowService) SearchShows(query string) ([]*contracts.ShowSearchResult, 
 		return []*contracts.ShowSearchResult{}, nil
 	}
 
-	pattern := "%" + query + "%"
+	pattern := shared.LikePattern(query)
 
 	// Single query: select shows whose title matches OR any artist on the
 	// bill matches, then resolve headliner/venue via correlated subqueries.

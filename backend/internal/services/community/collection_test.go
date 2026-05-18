@@ -681,6 +681,31 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	suite.Equal(tagOnly.ID, resp[3].ID, "tier 4: tag match last")
 }
 
+// TestListCollections_FilterBySearch_EscapesLikeWildcards confirms that
+// `%` in a user-supplied search term is matched as a literal character,
+// not as the SQL ANY-substring wildcard. Without escaping, `foo%bar`
+// would silently match `foothing-bar`; we want it to match only rows
+// whose title (or description / notes / tag) actually contains the
+// literal text `foo%bar`.
+func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_EscapesLikeWildcards() {
+	user := suite.createTestUser("WildcardSearcher")
+
+	// Decoy: this title would match `foo%bar` if `%` were treated as the
+	// wildcard. With escaping, it must NOT match.
+	suite.createBasicCollection(user, "foothing-and-bar")
+	// Target: a literal `%` in the title — the only correct match.
+	target := suite.createBasicCollection(user, "Mix Tape: foo%bar Edition")
+
+	resp, total, err := suite.collectionService.ListCollections(
+		contracts.CollectionFilters{Search: "foo%bar"}, 20, 0,
+	)
+
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total, "wildcard `%` in search term must be literal, not ANY-substring")
+	suite.Require().Len(resp, 1)
+	suite.Equal(target.ID, resp[0].ID)
+}
+
 // TestListCollections_FilterBySearch_EmptyShortCircuits confirms an empty
 // string disables the search predicate. (The handler also short-circuits
 // before reaching the service; this guards the service-direct path used by
@@ -718,21 +743,25 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 
 // TestListCollections_FilterBySearch_PopularSortOverridesRelevance verifies
 // that an explicit ?sort=popular wins over relevance ranking when both
-// search and sort are set. The user's deliberate sort choice always wins.
+// search and sort are set. Both collections match "indie" but in different
+// tiers — titleMatch is tier 1, descMatch is tier 2 — so relevance would
+// surface titleMatch first. We then like descMatch so HN gravity flips the
+// order; if a regression silently routed through applySearchRelevanceOrder
+// despite Sort=popular, the title-tier match would still win and the
+// assertion would fail.
 func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBySearch_PopularSortOverridesRelevance() {
-	user := suite.createTestUser("SortOverride")
+	creator := suite.createTestUser("SortOverrideCreator")
+	liker := suite.createTestUser("SortOverrideLiker")
 
-	// All three collections match the search term but in different tiers.
-	// With relevance ordering: title > description > notes. With popular
-	// sort: order is by likes (none here) then updated_at DESC.
-	titleMatch := suite.createBasicCollection(user, "Indie Anthems")
-	descMatch := suite.createBasicCollection(user, "Eclectic Mix")
-	suite.updateCollectionDescription(descMatch.Slug, user.ID, "indie playlist seed for the year")
+	titleMatch := suite.createPublicCollection(creator, "Indie Anthems")
+	descMatch := suite.createPublicCollection(creator, "Eclectic Mix")
+	suite.updateCollectionDescription(descMatch.Slug, creator.ID, "indie playlist seed for the year")
 
-	// Verify the explicit Sort knob is respected — we don't assert the
-	// exact ordering popular produces (that's covered elsewhere) but we
-	// confirm the call succeeds and surfaces both rows. The relevance
-	// tier-order test above proves the default-sort path.
+	// Bias gravity toward descMatch so the popular ordering inverts the
+	// relevance ordering. titleMatch keeps zero likes.
+	_, err := suite.collectionService.Like(descMatch.Slug, liker.ID)
+	suite.Require().NoError(err)
+
 	resp, total, err := suite.collectionService.ListCollections(
 		contracts.CollectionFilters{
 			Search: "indie",
@@ -743,10 +772,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 	suite.Require().NoError(err)
 	suite.Equal(int64(2), total)
 	suite.Require().Len(resp, 2)
-	// Both rows present — order is popular-driven, not relevance-driven.
-	ids := []uint{resp[0].ID, resp[1].ID}
-	suite.Contains(ids, titleMatch.ID)
-	suite.Contains(ids, descMatch.ID)
+	suite.Equal(descMatch.ID, resp[0].ID,
+		"popular sort must win: descMatch has likes and should outrank the title-tier match")
+	suite.Equal(titleMatch.ID, resp[1].ID)
 }
 
 // TestListCollections_FilterBySearch_CaseInsensitive confirms ILIKE behavior:
