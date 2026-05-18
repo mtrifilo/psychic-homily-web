@@ -164,4 +164,32 @@ describe('useLocalStorageEnum', () => {
     expect(a.result.current[0]).toBe('blue')
     expect(b.result.current[0]).toBe('green')
   })
+
+  it('drops a stale intent override when the key prop changes mid-instance', () => {
+    // Simulates a component instance whose `key` prop changes (e.g.
+    // ContributionPrompt re-rendered with a different entityId) AFTER a
+    // setter call that failed to persist (localStorage.setItem threw).
+    // Without per-key intent isolation, the stale 'true' intent from the
+    // previous key would bleed through into the new key's read.
+    localStorageMock.setItem.mockImplementation(() => {
+      throw new Error('localStorage full')
+    })
+
+    const { result, rerender } = renderHook(
+      ({ key }) => useLocalStorageEnum<Color>(key, 'red', COLORS),
+      { initialProps: { key: 'key-1' } }
+    )
+
+    act(() => {
+      result.current[1]('blue')
+    })
+    // Intent layer kept the calling component live.
+    expect(result.current[0]).toBe('blue')
+
+    // Key changes to an unrelated entity. The new key has no stored value
+    // and no intent — should fall back to the default.
+    rerender({ key: 'key-2' })
+
+    expect(result.current[0]).toBe('red')
+  })
 })

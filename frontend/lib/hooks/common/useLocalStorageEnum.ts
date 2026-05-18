@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState, useSyncExternalStore } from 'react'
+import { useCallback, useState, useSyncExternalStore } from 'react'
 
 // The 'storage' event only fires in OTHER tabs/windows, never the tab that
 // wrote the value. This custom event keeps multiple readers of the same key
@@ -38,11 +38,11 @@ export function useLocalStorageEnum<T extends string>(
   defaultValue: T,
   allowed: ReadonlyArray<T>
 ): readonly [T, (next: T) => void] {
-  // Per-component intent layer. Set on every setValue, cleared once the
-  // useSyncExternalStore snapshot catches up. This keeps the UI responsive
-  // even if localStorage.setItem throws, without leaking state across
-  // unrelated components or tests.
-  const [intent, setIntent] = useState<T | null>(null)
+  // Per-component intent layer. The intent is tagged with the key it was set
+  // for; reads with a different key naturally ignore it (no useEffect-based
+  // reset needed when the key prop changes). Cleared during render once
+  // storage catches up so cross-tab / cross-component updates can win again.
+  const [intent, setIntent] = useState<{ key: string; value: T } | null>(null)
 
   const getClientSnapshot = useCallback((): T => {
     try {
@@ -64,27 +64,28 @@ export function useLocalStorageEnum<T extends string>(
     getServerSnapshot
   )
 
-  // Drop the intent once storage agrees so cross-tab / cross-component
-  // updates can win again.
-  useEffect(() => {
-    if (intent !== null && storageValue === intent) {
-      setIntent(null)
-    }
-  }, [intent, storageValue])
+  const intentApplies = intent !== null && intent.key === key
+  const value = intentApplies ? intent.value : storageValue
 
-  const value = intent ?? storageValue
+  // Compare-during-render reset (the React-recommended alternative to a
+  // useEffect — see react.dev/learn/you-might-not-need-an-effect): once
+  // storage agrees with the intent for the current key, drop the intent so
+  // subsequent cross-tab / cross-component updates win.
+  if (intentApplies && storageValue === intent.value) {
+    setIntent(null)
+  }
 
   const setValue = useCallback(
     (next: T) => {
-      setIntent(next)
+      setIntent({ key, value: next })
       try {
         window.localStorage.setItem(key, next)
         window.dispatchEvent(new Event(SAME_TAB_EVENT))
       } catch {
-        // localStorage unavailable; the intent layer above keeps this
-        // component's UI live. Other components reading the same key will
-        // not re-render until localStorage recovers — acceptable for the
-        // private-mode / quota-exceeded edge cases.
+        // localStorage unavailable; the keyed intent keeps this component's
+        // UI live. Other components reading the same key will not re-render
+        // until localStorage recovers — acceptable for the private-mode /
+        // quota-exceeded edge cases.
       }
     },
     [key]
