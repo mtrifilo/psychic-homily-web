@@ -45,7 +45,7 @@ func NewArtistHandler(artistService contracts.ArtistServiceInterface, auditLogSe
 
 // SearchArtistsRequest represents the autocomplete search request
 type SearchArtistsRequest struct {
-	Query string `query:"q" doc:"Search query for artist autocomplete" example:"radio"`
+	Query string `query:"q" maxLength:"200" doc:"Search query for artist autocomplete" example:"radio"`
 }
 
 // SearchArtistsResponse represents the autocomplete search response

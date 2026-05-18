@@ -34,11 +34,11 @@ func NewTagHandler(tagService contracts.TagServiceInterface, auditLog contracts.
 
 type ListTagsRequest struct {
 	Category string `query:"category" required:"false" doc:"Filter by category (genre, locale, other)"`
-	Search   string `query:"search" required:"false" doc:"Search tags by name"`
+	Search   string `query:"search" required:"false" maxLength:"200" doc:"Search tags by name"`
 	ParentID uint   `query:"parent_id" required:"false" doc:"Filter by parent tag ID"`
 	Sort     string `query:"sort" required:"false" doc:"Sort by: usage, name, created (default: usage)"`
-	Limit    int    `query:"limit" required:"false" doc:"Max results (default 50)" example:"50"`
-	Offset   int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	Limit    int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 50)" example:"50"`
+	Offset   int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 	// EntityType scopes the per-tag usage_count in the response to a single
 	// entity type (PSY-484). Used by the browse-page tag facet so the count
 	// next to each chip reflects "tags applied to <this entity type>" rather
@@ -179,8 +179,8 @@ func (h *TagHandler) ListTagEntitiesHandler(ctx context.Context, req *ListTagEnt
 // ============================================================================
 
 type SearchTagsRequest struct {
-	Query    string `query:"q" doc:"Search query" example:"post"`
-	Limit    int    `query:"limit" required:"false" doc:"Max results (default 10)" example:"10"`
+	Query    string `query:"q" maxLength:"200" doc:"Search query" example:"post"`
+	Limit    int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 10)" example:"10"`
 	Category string `query:"category" required:"false" doc:"Filter by category (genre, locale, descriptor, era, mood, instrument, technique, origin, status, other)" example:"genre"`
 }
 
@@ -691,9 +691,9 @@ func (h *TagHandler) DeleteAliasHandler(ctx context.Context, req *DeleteAliasReq
 // ============================================================================
 
 type ListAllAliasesRequest struct {
-	Search string `query:"search" required:"false" doc:"Search by alias text or canonical tag name"`
-	Limit  int    `query:"limit" required:"false" doc:"Max results (default 50, max 500)" example:"50"`
-	Offset int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	Search string `query:"search" required:"false" maxLength:"200" doc:"Search by alias text or canonical tag name"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"500" doc:"Max results (default 50, max 500)" example:"50"`
+	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
 
 type ListAllAliasesResponse struct {

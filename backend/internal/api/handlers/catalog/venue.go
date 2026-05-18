@@ -36,7 +36,7 @@ func NewVenueHandler(venueService contracts.VenueServiceInterface, discordServic
 }
 
 type SearchVenuesRequest struct {
-	Query string `query:"q" doc:"Search query for venue autocomplete" example:"empty bottle"`
+	Query string `query:"q" maxLength:"200" doc:"Search query for venue autocomplete" example:"empty bottle"`
 }
 
 type SearchVenuesResponse struct {

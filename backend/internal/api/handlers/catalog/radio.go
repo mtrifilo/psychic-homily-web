@@ -1099,8 +1099,8 @@ func (h *RadioHandler) AdminImportShowEpisodesHandler(ctx context.Context, req *
 // AdminGetUnmatchedPlaysRequest represents the request for listing unmatched plays.
 type AdminGetUnmatchedPlaysRequest struct {
 	StationID uint `query:"station_id" required:"false" doc:"Filter by station ID (0 for all)" example:"0"`
-	Limit     int  `query:"limit" required:"false" doc:"Max results (default 50)" example:"50"`
-	Offset    int  `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	Limit     int  `query:"limit" required:"false" default:"50" minimum:"1" maximum:"100" doc:"Max results (default 50)" example:"50"`
+	Offset    int  `query:"offset" required:"false" default:"0" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
 
 // AdminGetUnmatchedPlaysResponse represents the response for listing unmatched plays.

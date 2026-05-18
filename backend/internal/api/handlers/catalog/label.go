@@ -36,7 +36,7 @@ func NewLabelHandler(labelService contracts.LabelServiceInterface, auditLogServi
 
 // SearchLabelsRequest represents the autocomplete search request
 type SearchLabelsRequest struct {
-	Query string `query:"q" doc:"Search query for label autocomplete" example:"sub pop"`
+	Query string `query:"q" maxLength:"200" doc:"Search query for label autocomplete" example:"sub pop"`
 }
 
 // SearchLabelsResponse represents the autocomplete search response
