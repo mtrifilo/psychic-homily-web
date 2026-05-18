@@ -41,15 +41,15 @@ type ListCollectionsHandlerRequest struct {
 	// tag names/aliases (case-insensitive ILIKE substring). Empty / whitespace
 	// queries short-circuit before hitting the DB. Title-tier matches rank
 	// above body-tier matches when the default sort is in effect.
-	Search string `query:"search" required:"false" doc:"Search across collection title, description, item notes, and tag names/aliases (case-insensitive substring)"`
+	Search string `query:"search" required:"false" maxLength:"200" doc:"Search across collection title, description, item notes, and tag names/aliases (case-insensitive substring)"`
 	// PSY-352: sort=popular orders by HN gravity (likes / age^1.8). Empty
 	// or omitted defaults to updated_at DESC.
 	Sort string `query:"sort" required:"false" doc:"Sort order: 'popular' for HN-gravity ranking. Defaults to recently-updated." enum:"popular"`
 	// PSY-354: filter the listing to collections tagged with the given slug.
 	// Single-tag for the MVP — multi-tag intersection is out of scope.
 	Tag    string `query:"tag" required:"false" doc:"Filter to collections tagged with this slug" example:"phoenix"`
-	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
-	Offset int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20)" example:"20"`
+	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
 
 // ListCollectionsHandlerResponse represents the response for listing collections
@@ -677,9 +677,9 @@ type GetUserCollectionsHandlerRequest struct {
 	// PSY-580: search across title, description, item notes, and tag
 	// names/aliases — same field expansion as the public browse listing
 	// (PSY-355). Empty / whitespace disables the predicate.
-	Search string `query:"search" required:"false" doc:"Search across collection title, description, item notes, and tag names/aliases (case-insensitive substring)"`
-	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
-	Offset int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	Search string `query:"search" required:"false" maxLength:"200" doc:"Search across collection title, description, item notes, and tag names/aliases (case-insensitive substring)"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20)" example:"20"`
+	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
 
 // GetUserCollectionsHandlerResponse represents the response for the user collections endpoint

@@ -86,6 +86,13 @@ type CollectionFilters struct {
 	Tag string
 }
 
+// CollectionSortDefault is the implicit "no sort requested" value (recently-
+// updated ordering, or relevance ranking when ?search is also set). Made
+// explicit so the relevance-vs-popular branch in ListCollections doesn't
+// gate on a bare string literal that quietly degrades if a new sort enum
+// value is added later.
+const CollectionSortDefault = ""
+
 // CollectionSortPopular is the recognized sort value for the HN-gravity
 // "popular" ordering. PSY-352.
 const CollectionSortPopular = "popular"

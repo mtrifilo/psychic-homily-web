@@ -230,7 +230,7 @@ type GetShowsRequest struct {
 // SearchShowsRequest represents the autocomplete search request for shows.
 // PSY-520.
 type SearchShowsRequest struct {
-	Query string `query:"q" doc:"Search query. Matches show title or any bill artist name (case-insensitive)." example:"valley bar"`
+	Query string `query:"q" maxLength:"200" doc:"Search query. Matches show title or any bill artist name (case-insensitive)." example:"valley bar"`
 }
 
 // SearchShowsResponse represents the autocomplete search response for shows.

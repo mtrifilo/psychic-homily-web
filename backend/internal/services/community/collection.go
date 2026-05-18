@@ -742,9 +742,8 @@ func (s *CollectionService) ListCollections(filters contracts.CollectionFilters,
 	// tiebreaker. An explicit `sort=popular` wins over relevance — that's
 	// the user's deliberate choice and mirrors how most browse UIs treat
 	// "sort + filter" combinations.
-	if searchTerm != "" && filters.Sort == "" {
-		pattern := "%" + searchTerm + "%"
-		query = applySearchRelevanceOrder(query, pattern).Limit(limit).Offset(offset)
+	if searchTerm != "" && filters.Sort == contracts.CollectionSortDefault {
+		query = applySearchRelevanceOrder(query, shared.LikePattern(searchTerm)).Limit(limit).Offset(offset)
 	} else {
 		query = applyCollectionSort(query, filters.Sort).Limit(limit).Offset(offset)
 	}
@@ -879,7 +878,7 @@ func applyCollectionSort(query *gorm.DB, sort string) *gorm.DB {
 // implementations. Pair this with applySearchRelevanceOrder for the
 // matching tier rank ORDER BY.
 func applyCollectionSearchWhere(query *gorm.DB, searchTerm string) *gorm.DB {
-	pattern := "%" + searchTerm + "%"
+	pattern := shared.LikePattern(searchTerm)
 	return query.Where(`
 		collections.title ILIKE ?
 		OR collections.description ILIKE ?
@@ -1550,8 +1549,7 @@ func (s *CollectionService) GetUserCollections(userID uint, search string, limit
 	// updated_at DESC ordering that the library tab expects.
 	var collections []communitym.Collection
 	if searchTerm != "" {
-		pattern := "%" + searchTerm + "%"
-		query = applySearchRelevanceOrder(query, pattern).Limit(limit).Offset(offset)
+		query = applySearchRelevanceOrder(query, shared.LikePattern(searchTerm)).Limit(limit).Offset(offset)
 	} else {
 		query = query.Order("updated_at DESC").Limit(limit).Offset(offset)
 	}
