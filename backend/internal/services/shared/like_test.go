@@ -25,3 +25,25 @@ func TestLikePattern(t *testing.T) {
 		})
 	}
 }
+
+func TestLikePrefixPattern(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{"plain prefix", "foo", `foo%`},
+		{"percent literal in prefix", "100%", `100\%%`},
+		{"underscore literal in prefix", "a_", `a\_%`},
+		{"backslash literal in prefix", `path\`, `path\\%`},
+		{"empty input collapses to wildcard-only", "", `%`},
+		{"unicode untouched", "café", `café%`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := LikePrefixPattern(c.in); got != c.want {
+				t.Errorf("LikePrefixPattern(%q) = %q, want %q", c.in, got, c.want)
+			}
+		})
+	}
+}

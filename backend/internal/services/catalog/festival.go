@@ -9,6 +9,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -232,14 +233,14 @@ func (s *FestivalService) SearchFestivals(query string) ([]*contracts.FestivalLi
 	if len(query) <= 2 {
 		// For short queries: prefix match
 		err = s.db.
-			Where("LOWER(name) LIKE LOWER(?)", query+"%").
+			Where("LOWER(name) LIKE LOWER(?)", shared.LikePrefixPattern(query)).
 			Order("name ASC").
 			Limit(20).
 			Find(&festivals).Error
 	} else {
 		// For longer queries: ILIKE substring match, ordered by name
 		err = s.db.
-			Where("name ILIKE ?", "%"+query+"%").
+			Where("name ILIKE ?", shared.LikePattern(query)).
 			Order("name ASC").
 			Limit(20).
 			Find(&festivals).Error

@@ -9,6 +9,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -165,7 +166,7 @@ func (s *ReleaseService) ListReleases(filters contracts.ReleaseListFilters) ([]*
 		)
 	}
 	if filters.Search != "" {
-		searchPattern := "%" + filters.Search + "%"
+		searchPattern := shared.LikePattern(filters.Search)
 		// Search by release title OR by artist name (via artist_releases + artists join)
 		query = query.Where(
 			"releases.title ILIKE ? OR releases.id IN (?)",
@@ -246,14 +247,14 @@ func (s *ReleaseService) SearchReleases(query string) ([]*contracts.ReleaseListR
 	if len(query) <= 2 {
 		// For short queries: prefix match
 		err = s.db.
-			Where("LOWER(title) LIKE LOWER(?)", query+"%").
+			Where("LOWER(title) LIKE LOWER(?)", shared.LikePrefixPattern(query)).
 			Order("title ASC").
 			Limit(20).
 			Find(&releases).Error
 	} else {
 		// For longer queries: ILIKE substring match, ordered by title
 		err = s.db.
-			Where("title ILIKE ?", "%"+query+"%").
+			Where("title ILIKE ?", shared.LikePattern(query)).
 			Order("title ASC").
 			Limit(20).
 			Find(&releases).Error
