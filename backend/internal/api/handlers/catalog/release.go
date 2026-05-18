@@ -37,7 +37,7 @@ func NewReleaseHandler(releaseService contracts.ReleaseServiceInterface, artistS
 
 // SearchReleasesRequest represents the autocomplete search request
 type SearchReleasesRequest struct {
-	Query string `query:"q" doc:"Search query for release autocomplete" example:"nevermind"`
+	Query string `query:"q" maxLength:"200" doc:"Search query for release autocomplete" example:"nevermind"`
 }
 
 // SearchReleasesResponse represents the autocomplete search response
@@ -71,11 +71,11 @@ type ListReleasesRequest struct {
 	ArtistID    uint   `query:"artist_id" required:"false" doc:"Filter by artist ID" example:"1"`
 	ReleaseType string `query:"release_type" required:"false" doc:"Filter by release type" example:"lp"`
 	Year        int    `query:"year" required:"false" doc:"Filter by release year" example:"2024"`
-	Search      string `query:"search" required:"false" doc:"Search by release title or artist name" example:"nevermind"`
+	Search      string `query:"search" required:"false" maxLength:"200" doc:"Search by release title or artist name" example:"nevermind"`
 	Sort        string `query:"sort" required:"false" doc:"Sort order: newest, oldest, title_asc, title_desc, recently_added" example:"newest"`
 	LabelID     uint   `query:"label_id" required:"false" doc:"Filter by label ID" example:"1"`
-	Limit       int    `query:"limit" required:"false" doc:"Page size (default 50, max 200)" example:"50"`
-	Offset      int    `query:"offset" required:"false" doc:"Pagination offset" example:"0"`
+	Limit       int    `query:"limit" required:"false" minimum:"1" maximum:"200" doc:"Page size (default 50, max 200)" example:"50"`
+	Offset      int    `query:"offset" required:"false" minimum:"0" doc:"Pagination offset" example:"0"`
 	Tags        string `query:"tags" required:"false" doc:"Comma-separated tag slugs. Multi-tag filter (PSY-309): AND by default; set tag_match=any for OR." example:"shoegaze,dream-pop"`
 	TagMatch    string `query:"tag_match" required:"false" doc:"Tag matching mode: 'all' (default, AND) or 'any' (OR)" example:"all" enum:"all,any"`
 }

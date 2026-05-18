@@ -99,9 +99,9 @@ func (h *AdminDataHandler) ExportShowsHandler(ctx context.Context, req *ExportSh
 
 // ExportArtistsRequest represents the HTTP request for exporting artists
 type ExportArtistsRequest struct {
-	Limit  int    `query:"limit" default:"50" doc:"Number of artists to return (max 200)"`
-	Offset int    `query:"offset" default:"0" doc:"Offset for pagination"`
-	Search string `query:"search" doc:"Search by name"`
+	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of artists to return (max 200)"`
+	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	Search string `query:"search" maxLength:"200" doc:"Search by name"`
 }
 
 // ExportArtistsResponse represents the HTTP response for exporting artists
@@ -151,9 +151,9 @@ func (h *AdminDataHandler) ExportArtistsHandler(ctx context.Context, req *Export
 
 // ExportVenuesRequest represents the HTTP request for exporting venues
 type ExportVenuesRequest struct {
-	Limit    int    `query:"limit" default:"50" doc:"Number of venues to return (max 200)"`
-	Offset   int    `query:"offset" default:"0" doc:"Offset for pagination"`
-	Search   string `query:"search" doc:"Search by name"`
+	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of venues to return (max 200)"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	Search   string `query:"search" maxLength:"200" doc:"Search by name"`
 	Verified string `query:"verified" doc:"Filter by verified status: true, false, or empty for all"`
 	City     string `query:"city" doc:"Filter by city"`
 	State    string `query:"state" doc:"Filter by state"`

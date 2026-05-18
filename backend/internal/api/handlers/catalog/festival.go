@@ -38,7 +38,7 @@ func NewFestivalHandler(festivalService contracts.FestivalServiceInterface, arti
 
 // SearchFestivalsRequest represents the autocomplete search request
 type SearchFestivalsRequest struct {
-	Query string `query:"q" doc:"Search query for festival autocomplete" example:"m3f"`
+	Query string `query:"q" maxLength:"200" doc:"Search query for festival autocomplete" example:"m3f"`
 }
 
 // SearchFestivalsResponse represents the autocomplete search response

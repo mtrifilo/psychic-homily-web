@@ -26,9 +26,9 @@ func NewAdminUserHandler(
 
 // GetAdminUsersRequest represents the HTTP request for listing users
 type GetAdminUsersRequest struct {
-	Limit  int    `query:"limit" default:"50" doc:"Number of users to return (max 100)"`
-	Offset int    `query:"offset" default:"0" doc:"Offset for pagination"`
-	Search string `query:"search" doc:"Search by email or username"`
+	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of users to return (max 100)"`
+	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+	Search string `query:"search" maxLength:"200" doc:"Search by email or username"`
 }
 
 // GetAdminUsersResponse represents the HTTP response for listing users
