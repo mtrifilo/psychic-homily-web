@@ -2,6 +2,7 @@
 
 import { use } from 'react'
 import { Suspense } from 'react'
+import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { PublicProfile } from '@/components/contributor'
 
@@ -21,16 +22,7 @@ export default function UserProfilePage({ params }: UserProfilePageProps) {
   const { username } = use(params)
 
   if (!username) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Invalid User</h1>
-          <p className="text-muted-foreground">
-            The user could not be found.
-          </p>
-        </div>
-      </div>
-    )
+    notFound()
   }
 
   return (
