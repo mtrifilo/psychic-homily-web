@@ -19,10 +19,10 @@ describe('useSuggestEdit', () => {
     mockApiRequest.mockReset()
   })
 
-  // PSY-726: replaces `entityType + 's'` with an exhaustive ENTITY_PLURAL
-  // map. Enumerating every EditableEntityType is the manual-repro evidence
-  // for the refactor — if any entity is added to EditableEntityType without
-  // a matching ENTITY_PLURAL entry, this test (and TS) catches it.
+  // Enumerating every EditableEntityType is the verification that the
+  // ENTITY_PLURAL map stays in sync with the union — if a new entity is
+  // added without a matching plural, TS catches the map and this test
+  // catches the URL shape.
   const cases: Array<{ entityType: EditableEntityType; expectedPlural: string }> = [
     { entityType: 'artist', expectedPlural: 'artists' },
     { entityType: 'venue', expectedPlural: 'venues' },
