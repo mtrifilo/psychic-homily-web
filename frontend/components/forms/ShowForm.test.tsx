@@ -3,12 +3,13 @@ import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 
-// PSY-724 regression: the artists list used the array index as the React key,
-// so removing a middle row caused React to reuse DOM/component state for the
-// wrong artist. These tests mount the real ShowForm with the dependencies that
-// touch the network or auth stubbed out, then drive the add → remove-middle
-// path through user-event and assert each remaining input still holds the
-// value the user typed into it (not the value that lived at its old index).
+// Regression guard for the artists list React-key contract: when keyed on
+// array index, removing a middle row caused React to reuse DOM/component
+// state for the wrong artist. These tests mount the real ShowForm with the
+// dependencies that touch the network or auth stubbed out, then drive the
+// add → remove-middle path through user-event and assert each remaining
+// input still holds the state that belongs to its logical row (not the row
+// that lived at its old index).
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn(), back: vi.fn() }),
@@ -43,7 +44,7 @@ vi.mock('@/features/venues', () => ({
 // Imported AFTER mocks so the component picks up the stubbed modules.
 import { ShowForm } from './ShowForm'
 
-describe('ShowForm — artists list stable keys (PSY-724)', () => {
+describe('ShowForm — artists list stable keys', () => {
   beforeEach(() => {
     vi.clearAllMocks()
   })

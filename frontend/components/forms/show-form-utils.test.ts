@@ -110,7 +110,7 @@ describe('showToFormValues', () => {
     expect(result.artists[1].is_headliner).toBe(false)
   })
 
-  it('assigns a unique _clientId to every artist in edit mode (PSY-724)', () => {
+  it('assigns a unique _clientId to every artist in edit mode', () => {
     const show = makeShowResponse()
     const result = showToFormValues(show)
 
@@ -278,9 +278,9 @@ describe('removeArtistAtIndex', () => {
   })
 
   it('preserves _clientId on the remaining artists so React keys stay stable', () => {
-    // PSY-724: removing the middle entry must not shift _clientIds onto the
-    // wrong rows — that's the underlying invariant that lets the React key
-    // stay tied to the same logical row across renders.
+    // Removing the middle entry must not shift _clientIds onto the wrong
+    // rows — that's the underlying invariant that lets the React key stay
+    // tied to the same logical row across renders.
     const result = removeArtistAtIndex([headliner, opener, support], 1)!
     expect(result.map(a => a._clientId)).toEqual(['cid-1', 'cid-3'])
   })
@@ -323,7 +323,7 @@ describe('defaultFormValues', () => {
     expect(defaultFormValues.artists[0].name).toBe('')
   })
 
-  it('default artist has a _clientId for stable React keys (PSY-724)', () => {
+  it('default artist has a _clientId for stable React keys', () => {
     expect(defaultFormValues.artists[0]._clientId).toBeTruthy()
   })
 

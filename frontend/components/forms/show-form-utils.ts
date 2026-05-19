@@ -25,7 +25,7 @@ export interface FormArtist {
 export function makeFormArtist(
   artist: Omit<FormArtist, '_clientId'>
 ): FormArtist {
-  return { _clientId: crypto.randomUUID(), ...artist }
+  return { ...artist, _clientId: crypto.randomUUID() }
 }
 
 export interface FormValues {
