@@ -296,6 +296,16 @@ export function CollectionManagement() {
                               featured: checked,
                             },
                             {
+                              onSuccess: () => {
+                                // Clears-on-next-success per the
+                                // sticky-on-error mutation-feedback
+                                // convention. Guards against the banner
+                                // surviving a successful toggle elsewhere
+                                // (refetch retry, parallel mutation, etc.)
+                                // — relying on the click handler's
+                                // pre-mutate reset alone is fragile.
+                                setFeaturedError(null)
+                              },
                               onError: (err) => {
                                 setFeaturedError(
                                   err instanceof Error
