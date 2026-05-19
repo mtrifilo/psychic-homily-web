@@ -127,11 +127,6 @@ vi.mock('./FavoriteVenueButton', () => ({
   ),
 }))
 
-vi.mock('@/components/forms/VenueEditForm', () => ({
-  VenueEditForm: ({ open }: { open: boolean }) =>
-    open ? <div data-testid="edit-form">Edit Form</div> : null,
-}))
-
 vi.mock('@/features/contributions', () => ({
   EntityEditDrawer: ({ open }: { open: boolean }) =>
     open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
