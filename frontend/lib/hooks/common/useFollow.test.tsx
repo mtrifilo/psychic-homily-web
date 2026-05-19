@@ -44,6 +44,16 @@ import {
   useMyFollowing,
 } from './useFollow'
 
+type CachedFollow = { follower_count: number; is_following: boolean }
+
+function createDeferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => {}
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
 
 describe('useFollowStatus', () => {
   beforeEach(() => {
@@ -194,13 +204,10 @@ describe('useFollow', () => {
       is_following: false,
     })
 
-    let resolveCancel: () => void = () => {}
-    const cancelGate = new Promise<void>((res) => {
-      resolveCancel = res
-    })
+    const cancelGate = createDeferred<void>()
     const cancelSpy = vi
       .spyOn(queryClient, 'cancelQueries')
-      .mockImplementation(() => cancelGate)
+      .mockImplementation(() => cancelGate.promise)
 
     mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Followed' })
 
@@ -221,28 +228,20 @@ describe('useFollow', () => {
     // Yield microtasks; cache must NOT yet show the optimistic update.
     await Promise.resolve()
     await Promise.resolve()
-    let cached = queryClient.getQueryData<{
-      follower_count: number
-      is_following: boolean
-    }>(['follows', 'artists', 1])
-    expect(cached?.follower_count).toBe(10)
-    expect(cached?.is_following).toBe(false)
+    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
+      .toEqual({ follower_count: 10, is_following: false })
     expect(cancelSpy).toHaveBeenCalledWith({
       queryKey: ['follows', 'artists', 1],
     })
 
     // Release the cancellation; optimistic update must now run.
     await act(async () => {
-      resolveCancel()
+      cancelGate.resolve()
       await mutatePromise
     })
 
-    cached = queryClient.getQueryData<{
-      follower_count: number
-      is_following: boolean
-    }>(['follows', 'artists', 1])
-    expect(cached?.follower_count).toBe(11)
-    expect(cached?.is_following).toBe(true)
+    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
+      .toEqual({ follower_count: 11, is_following: true })
   })
 })
 
@@ -312,13 +311,10 @@ describe('useUnfollow', () => {
       is_following: true,
     })
 
-    let resolveCancel: () => void = () => {}
-    const cancelGate = new Promise<void>((res) => {
-      resolveCancel = res
-    })
+    const cancelGate = createDeferred<void>()
     const cancelSpy = vi
       .spyOn(queryClient, 'cancelQueries')
-      .mockImplementation(() => cancelGate)
+      .mockImplementation(() => cancelGate.promise)
 
     mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Unfollowed' })
 
@@ -336,27 +332,19 @@ describe('useUnfollow', () => {
 
     await Promise.resolve()
     await Promise.resolve()
-    let cached = queryClient.getQueryData<{
-      follower_count: number
-      is_following: boolean
-    }>(['follows', 'artists', 1])
-    expect(cached?.follower_count).toBe(10)
-    expect(cached?.is_following).toBe(true)
+    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
+      .toEqual({ follower_count: 10, is_following: true })
     expect(cancelSpy).toHaveBeenCalledWith({
       queryKey: ['follows', 'artists', 1],
     })
 
     await act(async () => {
-      resolveCancel()
+      cancelGate.resolve()
       await mutatePromise
     })
 
-    cached = queryClient.getQueryData<{
-      follower_count: number
-      is_following: boolean
-    }>(['follows', 'artists', 1])
-    expect(cached?.follower_count).toBe(9)
-    expect(cached?.is_following).toBe(false)
+    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
+      .toEqual({ follower_count: 9, is_following: false })
   })
 
   it('handles unfollow errors', async () => {
