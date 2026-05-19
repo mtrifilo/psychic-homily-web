@@ -5,10 +5,27 @@ import {
 import type { ShowResponse, VenueResponse } from '@/features/shows'
 
 export interface FormArtist {
+  /**
+   * Stable per-entry identifier used as the React key in the artists list.
+   * Transient (UI-only) — never sent to the backend. Required so add/remove/reorder
+   * does not let React reuse the wrong DOM/component state across siblings.
+   */
+  _clientId: string
   name: string
   is_headliner: boolean
   matched_id?: number
   instagram_handle?: string
+}
+
+/**
+ * Build a FormArtist, minting a fresh _clientId. Always use this when creating
+ * a new entry (initial form values, add-artist button, AI extraction) so the
+ * artists list always has stable keys.
+ */
+export function makeFormArtist(
+  artist: Omit<FormArtist, '_clientId'>
+): FormArtist {
+  return { _clientId: crypto.randomUUID(), ...artist }
 }
 
 export interface FormValues {
@@ -31,7 +48,14 @@ export interface FormValues {
 
 export const defaultFormValues: FormValues = {
   title: '',
-  artists: [{ name: '', is_headliner: true, matched_id: undefined, instagram_handle: undefined }],
+  artists: [
+    makeFormArtist({
+      name: '',
+      is_headliner: true,
+      matched_id: undefined,
+      instagram_handle: undefined,
+    }),
+  ],
   venue: { id: undefined, name: '', city: '', state: '', address: '' },
   date: '',
   time: '20:00',
@@ -51,12 +75,14 @@ export function showToFormValues(show: ShowResponse): FormValues {
 
   return {
     title: show.title || '',
-    artists: show.artists.map(artist => ({
-      name: artist.name,
-      is_headliner: artist.is_headliner ?? false,
-      matched_id: artist.id,
-      instagram_handle: undefined,
-    })),
+    artists: show.artists.map(artist =>
+      makeFormArtist({
+        name: artist.name,
+        is_headliner: artist.is_headliner ?? false,
+        matched_id: artist.id,
+        instagram_handle: undefined,
+      })
+    ),
     venue: {
       name: venue?.name || '',
       city: venue?.city || show.city || '',
