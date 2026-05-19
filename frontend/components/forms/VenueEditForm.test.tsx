@@ -104,11 +104,7 @@ describe('VenueEditForm', () => {
     })
   })
 
-  describe('venue switch with key prop (regression: PSY-732)', () => {
-    // Contract: parent components MUST pass `key={venue.id}` so React
-    // unmounts + remounts the form with fresh state when the venue
-    // switches. This replaces a `useEffect` reset that is the
-    // anti-pattern per feedback_no_useeffect_for_prop_derived_state.md.
+  describe('venue switch resets fields via key prop', () => {
     it('resets fields when re-rendered with a different venue (via key prop)', async () => {
       const user = userEvent.setup()
       const venueA = makeVenue({
@@ -145,18 +141,13 @@ describe('VenueEditForm', () => {
         />
       )
 
-      // Sanity: venue A's data is loaded.
       const nameInput = screen.getByLabelText(/Venue Name/i)
       expect(nameInput).toHaveValue('Venue A')
 
-      // User edits a field but does NOT save.
       await user.clear(nameInput)
       await user.type(nameInput, 'Dirty Edit')
-      expect(screen.getByLabelText(/Venue Name/i)).toHaveValue('Dirty Edit')
+      expect(nameInput).toHaveValue('Dirty Edit')
 
-      // Parent swaps to venue B with the new key — React unmounts +
-      // remounts the form. Fields must now show venue B's values, NOT
-      // the dirty "Dirty Edit" text and NOT venue A's original values.
       rerender(
         <VenueEditForm
           key={venueB.id}
@@ -166,17 +157,20 @@ describe('VenueEditForm', () => {
         />
       )
 
+      // Re-query after rerender — the key change unmounts the previous
+      // input node, so `nameInput` no longer points at a live element.
       expect(screen.getByLabelText(/Venue Name/i)).toHaveValue('Venue B')
       expect(screen.getByLabelText(/City/i)).toHaveValue('Tucson')
       expect(screen.getByLabelText(/Address/i)).toHaveValue('456 Oak Ave')
       expect(screen.getByLabelText(/Zipcode/i)).toHaveValue('85701')
     })
 
-    it('preserves dirty edits when re-rendered with same key + same venue', async () => {
-      // Negative case: if the parent re-renders with the SAME key (e.g.,
-      // an unrelated state update), the form must NOT reset. This
-      // demonstrates the `key` is the load-bearing mechanism for the
-      // reset — not the venue prop alone.
+    it('preserves dirty edits when re-rendered with the same key', async () => {
+      // Pins the `key` as the load-bearing reset mechanism: if React
+      // re-renders the same instance (no key change), the dirty edit
+      // must survive. Without this, a future maintainer could
+      // accidentally add a venue-prop-based reset and have both tests
+      // still pass.
       const user = userEvent.setup()
       const venue = makeVenue({ id: 1, name: 'Venue A' })
 
@@ -202,7 +196,6 @@ describe('VenueEditForm', () => {
         />
       )
 
-      // Same key → same instance → dirty edit survives.
       expect(screen.getByLabelText(/Venue Name/i)).toHaveValue('Dirty Edit')
     })
   })

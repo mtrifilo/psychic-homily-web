@@ -221,9 +221,7 @@ export function VenueCard({ venue }: VenueCardProps) {
         </div>
       )}
 
-      {/* Venue Edit Form Dialog. `key={venue.id}` ensures form state resets
-          when the venue switches (e.g., admin lists with multiple cards on
-          screen). See VenueEditForm's doc comment. */}
+      {/* `key={venue.id}` is required by VenueEditForm — see its doc comment. */}
       <VenueEditForm
         key={venue.id}
         venue={venue}

@@ -55,13 +55,10 @@ interface VenueEditFormProps {
 // Admin-only direct-edit form. Non-admin edits go through the unified
 // suggest-edit flow (EntityEditDrawer / useSuggestEdit).
 //
-// Callers MUST pass `key={venue.id}` (or equivalent stable per-venue ID)
-// when rendering this component to ensure form state resets when the
-// venue switches. We deliberately do NOT useEffect to sync prop-derived
-// state — that's the anti-pattern per
-// feedback_no_useeffect_for_prop_derived_state.md. The `key` prop causes
-// React to unmount + remount with fresh state, which is the canonical
-// fix from React's "You Might Not Need an Effect" docs.
+// Callers MUST pass `key={venue.id}` so React unmounts + remounts with
+// fresh state when the venue switches. The form deliberately does NOT
+// useEffect to reset prop-derived state — see React's "You Might Not
+// Need an Effect" guide for the rationale.
 export function VenueEditForm({
   venue,
   open,
