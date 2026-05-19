@@ -1,12 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CollectionManagement } from './CollectionManagement'
 import type { Collection } from '@/features/collections'
 
-// Mock the collections feature module. `useSetFeatured` is the focus of this
-// test — the inner mutate fn is a spy whose behaviour each test case
-// controls (success vs error) by overriding `nextSetFeaturedOutcome`.
 type MutateOptions = {
   onSuccess?: () => void
   onError?: (err: unknown) => void
@@ -14,7 +11,7 @@ type MutateOptions = {
 
 let nextSetFeaturedOutcome:
   | { kind: 'success' }
-  | { kind: 'error'; error: Error } = { kind: 'success' }
+  | { kind: 'error'; error: unknown } = { kind: 'success' }
 
 const mockSetFeaturedMutate = vi.fn(
   (_vars: { slug: string; featured: boolean }, options: MutateOptions = {}) => {
@@ -109,20 +106,11 @@ describe('CollectionManagement', () => {
       expect(banner.textContent).toContain('Network timeout')
     })
 
-    // Regression for PSY-729: a failed toggle sets the inline error banner,
-    // and the next successful toggle must clear it. Previously, only the
-    // onError callback was wired to setFeaturedError, so the banner
-    // persisted across subsequent successful toggles until the user
-    // reloaded or manually dismissed.
-    //
-    // This test specifically validates that an onSuccess callback is
-    // wired into the mutate options and that invoking it clears the
-    // banner. We intentionally bypass the click handler for the success
-    // step — the click handler already clears the banner pre-mutate
-    // (line 292), which would mask a missing onSuccess.
+    // The click handler also clears the banner pre-mutate, which would
+    // mask a missing onSuccess. Bypass it: invoke the captured onSuccess
+    // directly to prove the clear is wired into the mutation contract.
     it('clears error banner on the next successful featured toggle', async () => {
       const user = userEvent.setup()
-      // First click fails → banner surfaces via onError.
       nextSetFeaturedOutcome = {
         kind: 'error',
         error: new Error('Network timeout'),
@@ -133,9 +121,6 @@ describe('CollectionManagement', () => {
         await screen.findByTestId('featured-toggle-error')
       ).toBeInTheDocument()
 
-      // Grab the most recent mutate call's options and invoke its
-      // onSuccess directly. This proves the convention is wired in
-      // the mutation contract itself, not just in the click handler.
       const lastCall =
         mockSetFeaturedMutate.mock.calls[
           mockSetFeaturedMutate.mock.calls.length - 1
@@ -143,9 +128,6 @@ describe('CollectionManagement', () => {
       const options = lastCall[1] as MutateOptions
       expect(options.onSuccess).toBeDefined()
 
-      // Invoke onSuccess (this is what TanStack Query does on a
-      // successful mutation). Wrap in act so the state update flushes.
-      const { act } = await import('@testing-library/react')
       act(() => {
         options.onSuccess?.()
       })
@@ -161,7 +143,7 @@ describe('CollectionManagement', () => {
       // The onError fallback must still surface a human-readable message.
       nextSetFeaturedOutcome = {
         kind: 'error',
-        error: 'not-an-error-instance' as unknown as Error,
+        error: 'not-an-error-instance',
       }
 
       render(<CollectionManagement />)
