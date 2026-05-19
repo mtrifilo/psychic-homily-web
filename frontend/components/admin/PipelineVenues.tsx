@@ -15,6 +15,7 @@ import {
 } from '@/lib/hooks/usePipeline'
 import { useVenueSearch } from '@/features/venues'
 import { Switch } from '@/components/ui/switch'
+import { InlineErrorBanner } from '@/components/shared'
 
 function ApprovalBadge({ rate }: { rate?: number }) {
   if (rate === undefined || rate === null) {
@@ -322,6 +323,10 @@ function VenueDetailPanel({
   const resetRenderMethod = useResetRenderMethod()
   const extractVenue = useExtractVenue()
   const [isEditingConfig, setIsEditingConfig] = useState(false)
+  // Surface reset-render-method failures so admins aren't left wondering why
+  // the render method didn't change. Sticky until the next successful reset
+  // clears it, per the project mutation-feedback convention.
+  const [resetError, setResetError] = useState<string | null>(null)
 
   const handleExtract = (dryRun: boolean) => {
     extractVenue.mutate({ venueId: venue.venue_id, dryRun })
@@ -329,7 +334,20 @@ function VenueDetailPanel({
 
   const handleResetRenderMethod = () => {
     if (window.confirm('Reset render method to auto-detect? It will be re-detected on the next pipeline run.')) {
-      resetRenderMethod.mutate({ venueId: venue.venue_id })
+      setResetError(null)
+      resetRenderMethod.mutate(
+        { venueId: venue.venue_id },
+        {
+          onSuccess: () => {
+            setResetError(null)
+          },
+          onError: (err) => {
+            setResetError(
+              err instanceof Error ? err.message : 'Failed to reset render method'
+            )
+          },
+        }
+      )
     }
   }
 
@@ -440,6 +458,11 @@ function VenueDetailPanel({
               <span className="text-muted-foreground">Notes:</span>{' '}
               <span className="italic">{venue.extraction_notes}</span>
             </div>
+          )}
+          {resetError && (
+            <InlineErrorBanner testId="reset-render-method-error">
+              {resetError}
+            </InlineErrorBanner>
           )}
         </div>
       )}
