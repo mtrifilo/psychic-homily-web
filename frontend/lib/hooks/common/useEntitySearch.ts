@@ -231,43 +231,87 @@ function mapTag(t: TagSearchItem): EntitySearchResult {
 // ============================================================================
 
 const MAX_RESULTS_PER_TYPE = 5
+const TOTAL_ENDPOINTS = 7
 
-async function fetchEntitySearch(query: string): Promise<EntitySearchResults> {
+/**
+ * Internal shape returned by `fetchEntitySearch`. Carries the mapped results
+ * plus an `allFailed` flag so the hook can distinguish a true empty
+ * (every endpoint returned empty arrays) from a total outage (every
+ * endpoint rejected and we swallowed the rejection per partial-failure
+ * resilience). The flag is the only thing consumers need to switch the
+ * UI from "no results" copy to "search unavailable" copy.
+ */
+interface FetchEntitySearchResult {
+  results: EntitySearchResults
+  allFailed: boolean
+}
+
+/**
+ * Helper: turn a settled promise result into either the resolved value
+ * (so it flows through the existing mapper code unchanged) or the fallback
+ * shape when the request rejected. We deliberately don't surface per-request
+ * errors — partial failure resilience is intentional. The only signal we
+ * preserve is the rejected-count tally, used to detect the all-fail case.
+ */
+function settledValue<T>(settled: PromiseSettledResult<T>, fallback: T): T {
+  return settled.status === 'fulfilled' ? settled.value : fallback
+}
+
+async function fetchEntitySearch(query: string): Promise<FetchEntitySearchResult> {
   const encoded = encodeURIComponent(query)
 
-  // Fire all requests in parallel; if individual ones fail, return empty arrays
-  const [artists, venues, shows, releases, labels, festivals, tags] = await Promise.all([
+  // Fire all requests in parallel via allSettled so we can tally rejections
+  // without losing the partial-failure resilience that .catch(() => …) on
+  // Promise.all gave us. Individual rejections still degrade silently to an
+  // empty group; the only new behaviour is detecting "every endpoint
+  // rejected" so the hook can surface a banner instead of a silent zero.
+  const settled = await Promise.allSettled([
     apiRequest<{ artists: ArtistSearchItem[]; count: number }>(
       `${artistEndpoints.SEARCH}?q=${encoded}`
-    ).catch(() => ({ artists: [], count: 0 })),
+    ),
     apiRequest<{ venues: VenueSearchItem[]; count: number }>(
       `${venueEndpoints.SEARCH}?q=${encoded}`
-    ).catch(() => ({ venues: [], count: 0 })),
+    ),
     apiRequest<{ shows: ShowSearchItem[]; count: number }>(
       `${showEndpoints.SEARCH}?q=${encoded}`
-    ).catch(() => ({ shows: [], count: 0 })),
+    ),
     apiRequest<{ releases: ReleaseSearchItem[]; count: number }>(
       `${releaseEndpoints.SEARCH}?q=${encoded}`
-    ).catch(() => ({ releases: [], count: 0 })),
+    ),
     apiRequest<{ labels: LabelSearchItem[]; count: number }>(
       `${labelEndpoints.SEARCH}?q=${encoded}`
-    ).catch(() => ({ labels: [], count: 0 })),
+    ),
     apiRequest<{ festivals: FestivalSearchItem[]; count: number }>(
       `${festivalEndpoints.SEARCH}?q=${encoded}`
-    ).catch(() => ({ festivals: [], count: 0 })),
+    ),
     apiRequest<{ tags: TagSearchItem[] }>(
       `${API_ENDPOINTS.TAGS.SEARCH}?q=${encoded}`
-    ).catch(() => ({ tags: [] })),
+    ),
   ])
 
+  const rejectedCount = settled.filter(s => s.status === 'rejected').length
+  const allFailed = rejectedCount === TOTAL_ENDPOINTS
+
+  const [artistsS, venuesS, showsS, releasesS, labelsS, festivalsS, tagsS] = settled
+  const artists = settledValue(artistsS, { artists: [], count: 0 })
+  const venues = settledValue(venuesS, { venues: [], count: 0 })
+  const shows = settledValue(showsS, { shows: [], count: 0 })
+  const releases = settledValue(releasesS, { releases: [], count: 0 })
+  const labels = settledValue(labelsS, { labels: [], count: 0 })
+  const festivals = settledValue(festivalsS, { festivals: [], count: 0 })
+  const tags = settledValue(tagsS, { tags: [] })
+
   return {
-    artists: (artists.artists || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapArtist),
-    venues: (venues.venues || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapVenue),
-    shows: (shows.shows || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapShow),
-    releases: (releases.releases || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapRelease),
-    labels: (labels.labels || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapLabel),
-    festivals: (festivals.festivals || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapFestival),
-    tags: (tags.tags || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapTag),
+    results: {
+      artists: (artists.artists || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapArtist),
+      venues: (venues.venues || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapVenue),
+      shows: (shows.shows || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapShow),
+      releases: (releases.releases || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapRelease),
+      labels: (labels.labels || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapLabel),
+      festivals: (festivals.festivals || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapFestival),
+      tags: (tags.tags || []).slice(0, MAX_RESULTS_PER_TYPE).map(mapTag),
+    },
+    allFailed,
   }
 }
 
@@ -285,12 +329,23 @@ const EMPTY_RESULTS: EntitySearchResults = {
   tags: [],
 }
 
+const EMPTY_FETCH_RESULT: FetchEntitySearchResult = {
+  results: EMPTY_RESULTS,
+  allFailed: false,
+}
+
 /**
  * Hook for searching entities across all types (artists, venues, shows,
  * releases, labels, festivals, tags). Used by the collection-detail
  * "Add Items" search panel and the Cmd+K command palette.
  *
- * Returns results grouped by entity type, limited to 5 per type.
+ * Returns results grouped by entity type, limited to 5 per type, plus
+ * a `searchError` flag (PSY-725) that's true only when ALL 7 endpoints
+ * rejected in the latest fetch. Consumers use the flag to render a
+ * "search unavailable" banner instead of the default "no results"
+ * empty state — otherwise a total backend outage would look
+ * indistinguishable from a typo.
+ *
  * Debounces input by default (300ms) and requires at least 2 characters.
  */
 export function useEntitySearch(options: {
@@ -309,21 +364,29 @@ export function useEntitySearch(options: {
     enabled: enabled && isQueryLongEnough,
     staleTime: 5 * 60 * 1000,
     gcTime: 30 * 60 * 1000,
-    placeholderData: EMPTY_RESULTS,
+    placeholderData: EMPTY_FETCH_RESULT,
   })
 
+  // Unwrap the internal { results, allFailed } envelope so consumers see
+  // the same `data: EntitySearchResults` shape as before — only the
+  // `searchError` flag is new.
+  const data = result.data?.results ?? EMPTY_RESULTS
+  const searchError = result.data?.allFailed ?? false
+
   const totalResults =
-    (result.data?.artists.length ?? 0) +
-    (result.data?.venues.length ?? 0) +
-    (result.data?.shows.length ?? 0) +
-    (result.data?.releases.length ?? 0) +
-    (result.data?.labels.length ?? 0) +
-    (result.data?.festivals.length ?? 0) +
-    (result.data?.tags.length ?? 0)
+    data.artists.length +
+    data.venues.length +
+    data.shows.length +
+    data.releases.length +
+    data.labels.length +
+    data.festivals.length +
+    data.tags.length
 
   return {
     ...result,
+    data,
     totalResults,
     isSearching: isQueryLongEnough && result.isFetching,
+    searchError,
   }
 }

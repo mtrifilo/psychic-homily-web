@@ -25,6 +25,7 @@ import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
 import { GRAPH_HASH } from '@/lib/hooks/common/useUrlHash'
 import { TagOfficialIndicator } from '@/features/tags'
+import { InlineErrorBanner } from '@/components/shared'
 
 interface RouteItem {
   label: string
@@ -361,7 +362,9 @@ export function CommandPalette() {
   // collection Add Items panel surfaces). The palette intentionally does not
   // render shows, so we derive a palette-local `hasEntityResults` from the
   // visible groups below instead of using the hook's total directly.
-  const { data: entityResults, isSearching } = useEntitySearch({
+  // PSY-725: `searchError` is true only when every backing endpoint failed
+  // in the latest fetch — distinct from "no results" so we can swap copy.
+  const { data: entityResults, isSearching, searchError } = useEntitySearch({
     query: search,
     enabled: open,
   })
@@ -518,10 +521,22 @@ export function CommandPalette() {
 
       <CommandList className="max-h-[400px] p-2">
         <CommandEmpty>
-          {showEntityResults && !hasEntityResults && !isSearching
+          {showEntityResults && !hasEntityResults && !isSearching && !searchError
             ? 'No matching entities or pages.'
             : 'No matching pages.'}
         </CommandEmpty>
+
+        {/* PSY-725: total search outage — every backing endpoint rejected.
+            Show before any other groups so users see why their results
+            collapsed instead of retyping the query against a dead backend. */}
+        {showEntityResults && searchError && (
+          <InlineErrorBanner
+            className="mx-2 my-2"
+            testId="entity-search-error-banner"
+          >
+            Search is temporarily unavailable. Try again in a moment.
+          </InlineErrorBanner>
+        )}
 
         {showRecent && (
           <CommandGroup
