@@ -94,7 +94,10 @@ import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { DensityToggle, Breadcrumb, UserAttribution, InlineErrorBanner } from '@/components/shared'
-import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
+import {
+  useEntitySearch,
+  ENTITY_SEARCH_UNAVAILABLE_MESSAGE,
+} from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -1596,10 +1599,10 @@ function AddItemsSection({
   const [addedMessage, setAddedMessage] = useState<string | null>(null)
   const addMutation = useAddCollectionItem()
 
-  // PSY-725: `searchError` is true only when every backing search endpoint
-  // failed in the latest fetch. Lets us swap the "No results" message for an
-  // explicit "search unavailable" banner so users don't retype a query
-  // against a dead backend.
+  // `searchError` is true only when every backing search endpoint failed in
+  // the latest fetch. Lets us swap the "No results" message for an explicit
+  // "search unavailable" banner so users don't retype a query against a
+  // dead backend.
   const { data: searchResults, isSearching, searchError } = useEntitySearch({
     query: searchQuery,
     enabled: isOpen,
@@ -1700,11 +1703,11 @@ function AddItemsSection({
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
               ) : searchError ? (
-                // PSY-725: every backing search endpoint rejected — surface
-                // the outage explicitly so users don't keep typing against
-                // a dead backend and read silence as "no matches".
+                // Every backing search endpoint rejected — surface the
+                // outage explicitly so users don't keep typing against a
+                // dead backend and read silence as "no matches".
                 <InlineErrorBanner testId="add-items-search-error-banner">
-                  Search is temporarily unavailable. Try again in a moment.
+                  {ENTITY_SEARCH_UNAVAILABLE_MESSAGE}
                 </InlineErrorBanner>
               ) : allResults.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-3 text-center">

@@ -80,6 +80,11 @@ let mockEntitySearchResult: {
 }
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
   useEntitySearch: () => mockEntitySearchResult,
+  // PSY-725: consumers import the canonical banner copy from the same
+  // module. Re-export the literal here so the mock fully replaces the real
+  // module without forcing tests to assert against a stub value.
+  ENTITY_SEARCH_UNAVAILABLE_MESSAGE:
+    'Search is temporarily unavailable. Try again in a moment.',
 }))
 
 describe('CommandPalette', () => {

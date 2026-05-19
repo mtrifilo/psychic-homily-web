@@ -335,16 +335,24 @@ const EMPTY_FETCH_RESULT: FetchEntitySearchResult = {
 }
 
 /**
+ * Copy shown by both consumers (command palette + collection-detail Add
+ * Items panel) when `searchError` flips true. Single-sourced here so the
+ * two surfaces can't drift; capitalization follows the codebase's
+ * user-facing-error convention.
+ */
+export const ENTITY_SEARCH_UNAVAILABLE_MESSAGE =
+  'Search is temporarily unavailable. Try again in a moment.'
+
+/**
  * Hook for searching entities across all types (artists, venues, shows,
  * releases, labels, festivals, tags). Used by the collection-detail
  * "Add Items" search panel and the Cmd+K command palette.
  *
- * Returns results grouped by entity type, limited to 5 per type, plus
- * a `searchError` flag (PSY-725) that's true only when ALL 7 endpoints
- * rejected in the latest fetch. Consumers use the flag to render a
- * "search unavailable" banner instead of the default "no results"
- * empty state — otherwise a total backend outage would look
- * indistinguishable from a typo.
+ * Returns results grouped by entity type, limited to 5 per type, plus a
+ * `searchError` flag that's true only when ALL 7 endpoints rejected in
+ * the latest fetch. Consumers render `ENTITY_SEARCH_UNAVAILABLE_MESSAGE`
+ * when the flag flips — otherwise a total backend outage looks identical
+ * to "no matches" and users retype indefinitely against a dead backend.
  *
  * Debounces input by default (300ms) and requires at least 2 characters.
  */
@@ -367,9 +375,8 @@ export function useEntitySearch(options: {
     placeholderData: EMPTY_FETCH_RESULT,
   })
 
-  // Unwrap the internal { results, allFailed } envelope so consumers see
-  // the same `data: EntitySearchResults` shape as before — only the
-  // `searchError` flag is new.
+  // Flatten the internal envelope so the public `data` keeps its existing
+  // EntitySearchResults shape; only `searchError` is new.
   const data = result.data?.results ?? EMPTY_RESULTS
   const searchError = result.data?.allFailed ?? false
 

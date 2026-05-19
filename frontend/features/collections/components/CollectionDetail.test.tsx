@@ -306,6 +306,11 @@ let mockUseEntitySearchResult: MockedEntitySearchResult = {
 }
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
   useEntitySearch: () => mockUseEntitySearchResult,
+  // PSY-725: AddItemsSection imports the canonical banner copy from the
+  // same module. Re-export the literal so the mock fully replaces the
+  // real module and the banner-copy assertion still finds the right text.
+  ENTITY_SEARCH_UNAVAILABLE_MESSAGE:
+    'Search is temporarily unavailable. Try again in a moment.',
 }))
 
 function makeCollection(
