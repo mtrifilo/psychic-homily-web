@@ -380,15 +380,54 @@ func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]cont
 }
 
 // UpdateShow updates an existing show (basic fields only)
-func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*contracts.ShowResponse, error) {
+// showUpdatesToMap translates a typed UpdateShowRequest into a GORM update
+// map. Only non-nil fields are written so omitted fields stay unchanged.
+// EventDate is normalized to UTC before storing (PSY-576 keeps the
+// denormalized show_artists.event_date in sync downstream); ImageURL is
+// nullable and normalizes empty input to SQL NULL. The remaining fields are
+// written verbatim to preserve prior handler behavior. A nil req yields an
+// empty map (used by the relations path when only associations change).
+func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
+	updates := map[string]interface{}{}
+	if req == nil {
+		return updates
+	}
+	if req.Title != nil {
+		updates["title"] = *req.Title
+	}
+	if req.EventDate != nil {
+		updates["event_date"] = req.EventDate.UTC()
+	}
+	if req.City != nil {
+		updates["city"] = *req.City
+	}
+	if req.State != nil {
+		updates["state"] = *req.State
+	}
+	if req.Price != nil {
+		updates["price"] = *req.Price
+	}
+	if req.AgeRequirement != nil {
+		updates["age_requirement"] = *req.AgeRequirement
+	}
+	if req.Description != nil {
+		updates["description"] = *req.Description
+	}
+	if req.TicketURL != nil {
+		updates["ticket_url"] = *req.TicketURL
+	}
+	if req.ImageURL != nil {
+		updates["image_url"] = utils.NilIfEmpty(*req.ImageURL)
+	}
+	return updates
+}
+
+func (s *ShowService) UpdateShow(showID uint, req *contracts.UpdateShowRequest) (*contracts.ShowResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Handle event_date conversion to UTC if present
-	if eventDate, ok := updates["event_date"].(time.Time); ok {
-		updates["event_date"] = eventDate.UTC()
-	}
+	updates := showUpdatesToMap(req)
 
 	_, eventDateChanged := updates["event_date"]
 	err := s.db.Transaction(func(tx *gorm.DB) error {
@@ -422,7 +461,7 @@ func (s *ShowService) UpdateShow(showID uint, updates map[string]interface{}) (*
 // Returns the updated show response and any artists that became orphaned (0 shows).
 func (s *ShowService) UpdateShowWithRelations(
 	showID uint,
-	updates map[string]interface{},
+	req *contracts.UpdateShowRequest,
 	venues []contracts.CreateShowVenue,
 	artists []contracts.CreateShowArtist,
 	isAdmin bool,
@@ -431,10 +470,7 @@ func (s *ShowService) UpdateShowWithRelations(
 		return nil, nil, fmt.Errorf("database not initialized")
 	}
 
-	// Handle event_date conversion to UTC if present
-	if eventDate, ok := updates["event_date"].(time.Time); ok {
-		updates["event_date"] = eventDate.UTC()
-	}
+	updates := showUpdatesToMap(req)
 
 	var response *contracts.ShowResponse
 	var orphanedArtists []contracts.OrphanedArtist
