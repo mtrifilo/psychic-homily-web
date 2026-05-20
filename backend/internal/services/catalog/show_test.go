@@ -453,9 +453,9 @@ func (suite *ShowServiceIntegrationTestSuite) TestDeleteShow_AssociationsCleaned
 func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_BasicFields() {
 	created := suite.createTestShow()
 
-	resp, err := suite.showService.UpdateShow(created.ID, map[string]interface{}{
-		"title":       "Updated Title",
-		"description": "New description",
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		Title:       stringPtr("Updated Title"),
+		Description: stringPtr("New description"),
 	})
 
 	suite.Require().NoError(err)
@@ -470,8 +470,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_EventDate_UTC() {
 	eastern, _ := time.LoadLocation("America/New_York")
 	newDate := time.Date(2026, 12, 25, 20, 0, 0, 0, eastern)
 
-	resp, err := suite.showService.UpdateShow(created.ID, map[string]interface{}{
-		"event_date": newDate,
+	resp, err := suite.showService.UpdateShow(created.ID, &contracts.UpdateShowRequest{
+		EventDate: &newDate,
 	})
 
 	suite.Require().NoError(err)
@@ -1111,8 +1111,8 @@ func (suite *ShowServiceIntegrationTestSuite) TestUpdateShow_CascadesEventDateTo
 	resp, err := suite.showService.CreateShow(req)
 	suite.Require().NoError(err)
 
-	_, err = suite.showService.UpdateShow(resp.ID, map[string]interface{}{
-		"event_date": newDate,
+	_, err = suite.showService.UpdateShow(resp.ID, &contracts.UpdateShowRequest{
+		EventDate: &newDate,
 	})
 	suite.Require().NoError(err)
 

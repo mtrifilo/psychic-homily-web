@@ -580,7 +580,7 @@ func TestDeleteArtist_ServiceError(t *testing.T) {
 
 func TestAdminUpdateArtist_Success(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		UpdateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+		UpdateArtistFn: func(artistID uint, _ *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
@@ -604,7 +604,7 @@ func TestAdminUpdateArtist_Success(t *testing.T) {
 
 func TestAdminUpdateArtist_NotFound(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		UpdateArtistFn: func(_ uint, _ map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+		UpdateArtistFn: func(_ uint, _ *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(99)
 		},
 	}
@@ -621,7 +621,7 @@ func TestAdminUpdateArtist_NotFound(t *testing.T) {
 func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 	var auditCalled bool
 	artistMock := &testhelpers.MockArtistService{
-		UpdateArtistFn: func(_ uint, _ map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+		UpdateArtistFn: func(_ uint, _ *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
 	}
@@ -665,17 +665,21 @@ func TestAdminUpdateArtist_AuditLogCalled(t *testing.T) {
 
 func TestUpdateBandcamp_Success(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		UpdateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+		UpdateArtistFn: func(artistID uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
-			// Verify bandcamp_embed_url is set
-			if _, ok := updates["bandcamp_embed_url"]; !ok {
-				t.Error("expected bandcamp_embed_url in updates")
+			// Verify bandcamp_embed_url is set to the full URL
+			if req.BandcampEmbedURL == nil {
+				t.Error("expected bandcamp_embed_url to be set")
+			} else if *req.BandcampEmbedURL != "https://artist.bandcamp.com/album/cool-album" {
+				t.Errorf("expected full embed URL, got %q", *req.BandcampEmbedURL)
 			}
 			// Verify social bandcamp profile URL is derived
-			if _, ok := updates["bandcamp"]; !ok {
-				t.Error("expected bandcamp profile URL in updates")
+			if req.Bandcamp == nil {
+				t.Error("expected bandcamp profile URL to be derived")
+			} else if *req.Bandcamp != "https://artist.bandcamp.com" {
+				t.Errorf("expected derived profile URL, got %q", *req.Bandcamp)
 			}
 			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
@@ -697,12 +701,19 @@ func TestUpdateBandcamp_Success(t *testing.T) {
 
 func TestUpdateBandcamp_ClearURL(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		UpdateArtistFn: func(_ uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
-			// When clearing, bandcamp_embed_url should be a nil *string
-			if v, ok := updates["bandcamp_embed_url"]; ok {
-				if sp, isStr := v.(*string); isStr && sp != nil {
-					t.Errorf("expected nil *string for bandcamp_embed_url, got %q", *sp)
-				}
+		UpdateArtistFn: func(_ uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+			// When clearing, the handler signals an empty string for both the
+			// embed and social bandcamp fields; the service normalizes empty
+			// input to SQL NULL.
+			if req.BandcampEmbedURL == nil {
+				t.Error("expected bandcamp_embed_url to be set (empty string clears it)")
+			} else if *req.BandcampEmbedURL != "" {
+				t.Errorf("expected empty bandcamp_embed_url to clear, got %q", *req.BandcampEmbedURL)
+			}
+			if req.Bandcamp == nil {
+				t.Error("expected bandcamp social to be set (empty string clears it)")
+			} else if *req.Bandcamp != "" {
+				t.Errorf("expected empty bandcamp social to clear, got %q", *req.Bandcamp)
 			}
 			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
@@ -725,12 +736,14 @@ func TestUpdateBandcamp_ClearURL(t *testing.T) {
 
 func TestUpdateSpotify_Success(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		UpdateArtistFn: func(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+		UpdateArtistFn: func(artistID uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			if artistID != 42 {
 				t.Errorf("expected artistID=42, got %d", artistID)
 			}
-			if _, ok := updates["spotify"]; !ok {
-				t.Error("expected spotify in updates")
+			if req.Spotify == nil {
+				t.Error("expected spotify to be set")
+			} else if *req.Spotify != "https://open.spotify.com/artist/abc123" {
+				t.Errorf("expected spotify URL, got %q", *req.Spotify)
 			}
 			return &contracts.ArtistDetailResponse{ID: 42}, nil
 		},
@@ -1266,7 +1279,7 @@ func TestDeleteArtist_OverflowID(t *testing.T) {
 
 func TestAdminUpdateArtist_ZeroID(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		UpdateArtistFn: func(id uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+		UpdateArtistFn: func(id uint, _ *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(id)
 		},
 	}
@@ -1281,7 +1294,7 @@ func TestAdminUpdateArtist_ZeroID(t *testing.T) {
 
 func TestAdminUpdateArtist_VeryLargeID(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
-		UpdateArtistFn: func(id uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+		UpdateArtistFn: func(id uint, _ *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 			return nil, apperrors.ErrArtistNotFound(id)
 		},
 	}

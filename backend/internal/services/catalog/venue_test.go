@@ -311,9 +311,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_BasicFields() {
 	}, true)
 	suite.Require().NoError(err)
 
-	resp, err := suite.venueService.UpdateVenue(created.ID, map[string]interface{}{
-		"name":    "Updated Name",
-		"address": "123 Main St",
+	resp, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		Name:    stringPtr("Updated Name"),
+		Address: stringPtr("123 Main St"),
 	})
 
 	suite.Require().NoError(err)
@@ -322,7 +322,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_BasicFields() {
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_NotFound() {
-	resp, err := suite.venueService.UpdateVenue(99999, map[string]interface{}{"name": "x"})
+	resp, err := suite.venueService.UpdateVenue(99999, &contracts.UpdateVenueRequest{Name: stringPtr("x")})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
@@ -345,7 +345,7 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_DuplicateNameCity
 	suite.Require().NoError(err)
 
 	// Try to rename "Other Venue" to "Existing Venue" in same city
-	_, err = suite.venueService.UpdateVenue(other.ID, map[string]interface{}{"name": "Existing Venue"})
+	_, err = suite.venueService.UpdateVenue(other.ID, &contracts.UpdateVenueRequest{Name: stringPtr("Existing Venue")})
 
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "already exists")
@@ -360,9 +360,9 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_SameNameSameVenue
 	suite.Require().NoError(err)
 
 	// Update address while keeping the same name — should not conflict with self
-	resp, err := suite.venueService.UpdateVenue(created.ID, map[string]interface{}{
-		"name":    "Keep My Name",
-		"address": "456 New St",
+	resp, err := suite.venueService.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		Name:    stringPtr("Keep My Name"),
+		Address: stringPtr("456 New St"),
 	})
 
 	suite.Require().NoError(err)

@@ -345,9 +345,9 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_BasicFields() {
 	created, err := suite.artistService.CreateArtist(&contracts.CreateArtistRequest{Name: "Original Artist"})
 	suite.Require().NoError(err)
 
-	resp, err := suite.artistService.UpdateArtist(created.ID, map[string]interface{}{
-		"city":  "Mesa",
-		"state": "AZ",
+	resp, err := suite.artistService.UpdateArtist(created.ID, &contracts.UpdateArtistRequest{
+		City:  stringPtr("Mesa"),
+		State: stringPtr("AZ"),
 	})
 
 	suite.Require().NoError(err)
@@ -361,8 +361,8 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_NameChangeRegen
 	suite.Require().NoError(err)
 	oldSlug := created.Slug
 
-	resp, err := suite.artistService.UpdateArtist(created.ID, map[string]interface{}{
-		"name": "New Name Band",
+	resp, err := suite.artistService.UpdateArtist(created.ID, &contracts.UpdateArtistRequest{
+		Name: stringPtr("New Name Band"),
 	})
 
 	suite.Require().NoError(err)
@@ -379,7 +379,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_DuplicateName_F
 	suite.Require().NoError(err)
 
 	// Try to rename "Other Artist" to "Existing Artist"
-	_, err = suite.artistService.UpdateArtist(other.ID, map[string]interface{}{"name": "Existing Artist"})
+	_, err = suite.artistService.UpdateArtist(other.ID, &contracts.UpdateArtistRequest{Name: stringPtr("Existing Artist")})
 
 	suite.Require().Error(err)
 	suite.Contains(err.Error(), "already exists")
@@ -390,9 +390,9 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_SameNameSameArt
 	suite.Require().NoError(err)
 
 	// Update city while keeping the same name — should not conflict with self
-	resp, err := suite.artistService.UpdateArtist(created.ID, map[string]interface{}{
-		"name": "Keep My Name",
-		"city": "Scottsdale",
+	resp, err := suite.artistService.UpdateArtist(created.ID, &contracts.UpdateArtistRequest{
+		Name: stringPtr("Keep My Name"),
+		City: stringPtr("Scottsdale"),
 	})
 
 	suite.Require().NoError(err)
@@ -403,7 +403,7 @@ func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_SameNameSameArt
 func (suite *ArtistServiceIntegrationTestSuite) TestUpdateArtist_NotFound() {
 	// Updating a non-existent artist — the Updates call succeeds (0 rows affected),
 	// but the subsequent GetArtist reload returns ARTIST_NOT_FOUND
-	resp, err := suite.artistService.UpdateArtist(99999, map[string]interface{}{"city": "Nowhere"})
+	resp, err := suite.artistService.UpdateArtist(99999, &contracts.UpdateArtistRequest{City: stringPtr("Nowhere")})
 
 	suite.Require().Error(err)
 	suite.Nil(resp)
