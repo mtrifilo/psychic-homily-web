@@ -140,7 +140,8 @@ describe('generateMetadata', () => {
 })
 
 describe('ShowPage', () => {
-  it('calls notFound() when the slug is empty (post-PSY-733)', async () => {
+  // An empty slug 404s rather than rendering an inline placeholder.
+  it('calls notFound() when the slug is empty', async () => {
     await expect(
       ShowPage({ params: Promise.resolve({ slug: '' }) })
     ).rejects.toThrow(NOT_FOUND_SENTINEL)
