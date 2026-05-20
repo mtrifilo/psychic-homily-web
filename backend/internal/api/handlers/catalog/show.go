@@ -15,8 +15,8 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
 // ShowHandler handles show-related HTTP requests
@@ -941,7 +941,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		newShow := show
 		summary := shared.Deref(req.Body.Summary)
 		go func() {
-			changes := computeShowChanges(oldShow, newShow)
+			changes := revisiondiff.Compare(oldShow, newShow, revisiondiff.ShowFields)
 			if len(changes) > 0 {
 				if err := h.revisionService.RecordRevision("show", uint(showID), user.ID, changes, summary); err != nil {
 					logger.Default().Error("record_show_revision_failed",
@@ -957,46 +957,6 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		ShowResponse:    *show,
 		OrphanedArtists: orphanedArtists,
 	}}, nil
-}
-
-// computeShowChanges compares old and new show responses and returns
-// field-level diffs for revision history. Tracks the same scalar fields
-// that the EntityEditDrawer surfaces — venue and artist association
-// changes are intentionally excluded (the artist analog at
-// computeArtistChanges follows the same convention; relation diffs would
-// need their own schema). PSY-563.
-func computeShowChanges(old, new *contracts.ShowResponse) []adminm.FieldChange {
-	var changes []adminm.FieldChange
-
-	if old.Title != new.Title {
-		changes = append(changes, adminm.FieldChange{Field: "title", OldValue: old.Title, NewValue: new.Title})
-	}
-	if !old.EventDate.Equal(new.EventDate) {
-		changes = append(changes, adminm.FieldChange{Field: "event_date", OldValue: old.EventDate.Format(time.RFC3339), NewValue: new.EventDate.Format(time.RFC3339)})
-	}
-	if ptrToStr(old.City) != ptrToStr(new.City) {
-		changes = append(changes, adminm.FieldChange{Field: "city", OldValue: ptrToStr(old.City), NewValue: ptrToStr(new.City)})
-	}
-	if ptrToStr(old.State) != ptrToStr(new.State) {
-		changes = append(changes, adminm.FieldChange{Field: "state", OldValue: ptrToStr(old.State), NewValue: ptrToStr(new.State)})
-	}
-	if shared.Deref(old.Price) != shared.Deref(new.Price) {
-		changes = append(changes, adminm.FieldChange{Field: "price", OldValue: shared.Deref(old.Price), NewValue: shared.Deref(new.Price)})
-	}
-	if ptrToStr(old.AgeRequirement) != ptrToStr(new.AgeRequirement) {
-		changes = append(changes, adminm.FieldChange{Field: "age_requirement", OldValue: ptrToStr(old.AgeRequirement), NewValue: ptrToStr(new.AgeRequirement)})
-	}
-	if ptrToStr(old.Description) != ptrToStr(new.Description) {
-		changes = append(changes, adminm.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
-	}
-	if ptrToStr(old.TicketURL) != ptrToStr(new.TicketURL) {
-		changes = append(changes, adminm.FieldChange{Field: "ticket_url", OldValue: ptrToStr(old.TicketURL), NewValue: ptrToStr(new.TicketURL)})
-	}
-	if ptrToStr(old.ImageURL) != ptrToStr(new.ImageURL) {
-		changes = append(changes, adminm.FieldChange{Field: "image_url", OldValue: ptrToStr(old.ImageURL), NewValue: ptrToStr(new.ImageURL)})
-	}
-
-	return changes
 }
 
 // DeleteShowHandler handles DELETE /shows/{show_id}

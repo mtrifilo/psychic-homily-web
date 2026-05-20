@@ -475,225 +475,40 @@ func (s *ShowService) UpdateShowWithRelations(
 	}
 
 	updates := showUpdatesToMap(req)
+	_, eventDateChanged := updates["event_date"]
 
 	var response *contracts.ShowResponse
 	var orphanedArtists []contracts.OrphanedArtist
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		// First, verify the show exists
-		var show catalogm.Show
-		if err := tx.First(&show, showID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return apperrors.ErrShowNotFound(showID)
-			}
-			return fmt.Errorf("failed to find show: %w", err)
+		show, err := s.updateShowFields(tx, showID, updates)
+		if err != nil {
+			return err
 		}
 
-		// Update basic show fields if any updates provided
-		if len(updates) > 0 {
-			if err := tx.Model(&show).Updates(updates).Error; err != nil {
-				return fmt.Errorf("failed to update show: %w", err)
-			}
-			// Reload show to get updated values
-			if err := tx.First(&show, showID).Error; err != nil {
-				return fmt.Errorf("failed to reload show: %w", err)
-			}
+		venueResponses, err := s.replaceShowVenues(tx, showID, venues, isAdmin)
+		if err != nil {
+			return err
 		}
 
-		// Update venue associations if venues are provided
-		var venueResponses []contracts.VenueResponse
-		if venues != nil {
-			// Delete existing show-venue associations
-			if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowVenue{}).Error; err != nil {
-				return fmt.Errorf("failed to delete existing show venues: %w", err)
-			}
-
-			// Create new associations (pass admin status for venue verification)
-			var err error
-			venueResponses, err = s.associateVenues(tx, showID, venues, isAdmin)
-			if err != nil {
-				return fmt.Errorf("failed to associate venues: %w", err)
-			}
+		artistResponses, orphaned, err := s.replaceShowArtists(tx, showID, artists)
+		if err != nil {
+			return err
 		}
-
-		// Update artist associations if artists are provided
-		var artistResponses []contracts.ArtistResponse
-		if artists != nil {
-			// Capture old artist IDs before deleting associations
-			var oldShowArtists []catalogm.ShowArtist
-			if err := tx.Where("show_id = ?", showID).Find(&oldShowArtists).Error; err != nil {
-				return fmt.Errorf("failed to fetch old show artists: %w", err)
-			}
-			oldArtistIDs := make(map[uint]bool)
-			for _, sa := range oldShowArtists {
-				oldArtistIDs[sa.ArtistID] = true
-			}
-
-			// Delete existing show-artist associations
-			if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowArtist{}).Error; err != nil {
-				return fmt.Errorf("failed to delete existing show artists: %w", err)
-			}
-
-			// Create new associations
-			var err error
-			artistResponses, err = s.associateArtists(tx, showID, artists)
-			if err != nil {
-				return fmt.Errorf("failed to associate artists: %w", err)
-			}
-
-			// Build set of new artist IDs
-			newArtistIDs := make(map[uint]bool)
-			for _, ar := range artistResponses {
-				newArtistIDs[ar.ID] = true
-			}
-
-			// Check which old artists are no longer associated with ANY show
-			for oldID := range oldArtistIDs {
-				if newArtistIDs[oldID] {
-					continue // still associated with this show
-				}
-				var count int64
-				if err := tx.Model(&catalogm.ShowArtist{}).Where("artist_id = ?", oldID).Count(&count).Error; err != nil {
-					return fmt.Errorf("failed to count artist associations: %w", err)
-				}
-				if count == 0 {
-					var artist catalogm.Artist
-					if err := tx.First(&artist, oldID).Error; err == nil {
-						slug := ""
-						if artist.Slug != nil {
-							slug = *artist.Slug
-						}
-						orphanedArtists = append(orphanedArtists, contracts.OrphanedArtist{
-							ID:   artist.ID,
-							Name: artist.Name,
-							Slug: slug,
-						})
-					}
-				}
-			}
-		}
+		orphanedArtists = orphaned
 
 		// Re-stamp denormalized (event_date, venue_id) on show_artists
 		// whenever the show's event_date, venue set, or artist set may
 		// have changed. Idempotent — safe to call when nothing changed.
 		// Keeps the partial unique index `shows_artist_venue_eventdate_uniq`
 		// in sync with the parent rows (PSY-576).
-		_, eventDateChanged := updates["event_date"]
 		if venues != nil || artists != nil || eventDateChanged {
 			if err := syncShowArtistDedupColumns(tx, showID); err != nil {
 				return fmt.Errorf("failed to sync show_artists dedup columns: %w", err)
 			}
 		}
 
-		// Build response - need to fetch associations if not updated
-		if venues == nil {
-			// Fetch existing venues in batch
-			var showVenues []catalogm.ShowVenue
-			if err := tx.Where("show_id = ?", showID).Find(&showVenues).Error; err != nil {
-				return fmt.Errorf("failed to fetch show venues: %w", err)
-			}
-			if len(showVenues) > 0 {
-				venueIDs := make([]uint, len(showVenues))
-				for i, sv := range showVenues {
-					venueIDs[i] = sv.VenueID
-				}
-				var venueModels []catalogm.Venue
-				if err := tx.Where("id IN ?", venueIDs).Find(&venueModels).Error; err != nil {
-					return fmt.Errorf("failed to fetch venues: %w", err)
-				}
-				venueMap := make(map[uint]catalogm.Venue, len(venueModels))
-				for _, v := range venueModels {
-					venueMap[v.ID] = v
-				}
-				for _, sv := range showVenues {
-					if venue, ok := venueMap[sv.VenueID]; ok {
-						var addr *string
-						if venue.Verified {
-							addr = venue.Address
-						}
-						venueResponses = append(venueResponses, contracts.VenueResponse{
-							ID:       venue.ID,
-							Name:     venue.Name,
-							Address:  addr,
-							City:     venue.City,
-							State:    venue.State,
-							Verified: venue.Verified,
-						})
-					}
-				}
-			}
-		}
-
-		if artists == nil {
-			// Fetch existing artists in batch, preserving position order
-			var showArtists []catalogm.ShowArtist
-			if err := tx.Where("show_id = ?", showID).Order("position ASC").Find(&showArtists).Error; err != nil {
-				return fmt.Errorf("failed to fetch show artists: %w", err)
-			}
-			if len(showArtists) > 0 {
-				artistIDs := make([]uint, len(showArtists))
-				for i, sa := range showArtists {
-					artistIDs[i] = sa.ArtistID
-				}
-				var artistModels []catalogm.Artist
-				if err := tx.Where("id IN ?", artistIDs).Find(&artistModels).Error; err != nil {
-					return fmt.Errorf("failed to fetch artists: %w", err)
-				}
-				artistMap := make(map[uint]catalogm.Artist, len(artistModels))
-				for _, a := range artistModels {
-					artistMap[a.ID] = a
-				}
-				for _, sa := range showArtists {
-					if artist, ok := artistMap[sa.ArtistID]; ok {
-						isHeadliner := sa.SetType == "headliner"
-						isNewArtist := false
-						socials := contracts.ShowArtistSocials{
-							Instagram:  artist.Social.Instagram,
-							Facebook:   artist.Social.Facebook,
-							Twitter:    artist.Social.Twitter,
-							YouTube:    artist.Social.YouTube,
-							Spotify:    artist.Social.Spotify,
-							SoundCloud: artist.Social.SoundCloud,
-							Bandcamp:   artist.Social.Bandcamp,
-							Website:    artist.Social.Website,
-						}
-						artistResponses = append(artistResponses, contracts.ArtistResponse{
-							ID:               artist.ID,
-							Name:             artist.Name,
-							State:            artist.State,
-							City:             artist.City,
-							IsHeadliner:      &isHeadliner,
-							SetType:          sa.SetType,
-							Position:         sa.Position,
-							IsNewArtist:      &isNewArtist,
-							BandcampEmbedURL: artist.BandcampEmbedURL,
-							Socials:          socials,
-						})
-					}
-				}
-			}
-		}
-
-		response = &contracts.ShowResponse{
-			ID:              show.ID,
-			Title:           show.Title,
-			EventDate:       show.EventDate,
-			City:            show.City,
-			State:           show.State,
-			Price:           show.Price,
-			AgeRequirement:  show.AgeRequirement,
-			Description:     show.Description,
-			TicketURL:       show.TicketURL,
-			ImageURL:        show.ImageURL,
-			Status:          string(show.Status),
-			SubmittedBy:     show.SubmittedBy,
-			RejectionReason: show.RejectionReason,
-			Venues:          venueResponses,
-			Artists:         artistResponses,
-			CreatedAt:       show.CreatedAt,
-			UpdatedAt:       show.UpdatedAt,
-		}
-
-		return nil
+		response, err = s.buildUpdatedShowResponse(tx, show, venues, artists, venueResponses, artistResponses)
+		return err
 	})
 
 	if err != nil {
@@ -701,6 +516,271 @@ func (s *ShowService) UpdateShowWithRelations(
 	}
 
 	return response, orphanedArtists, nil
+}
+
+// updateShowFields verifies the show exists, applies any scalar-field updates,
+// and returns the (reloaded) show row. An empty updates map is a no-op write
+// (associations-only edits take this path); the show is still loaded so the
+// caller can build the response. Returns ErrShowNotFound when the row is
+// missing so callers map it to a 404/422.
+func (s *ShowService) updateShowFields(tx *gorm.DB, showID uint, updates map[string]interface{}) (*catalogm.Show, error) {
+	var show catalogm.Show
+	if err := tx.First(&show, showID).Error; err != nil {
+		if err == gorm.ErrRecordNotFound {
+			return nil, apperrors.ErrShowNotFound(showID)
+		}
+		return nil, fmt.Errorf("failed to find show: %w", err)
+	}
+
+	if len(updates) > 0 {
+		if err := tx.Model(&show).Updates(updates).Error; err != nil {
+			return nil, fmt.Errorf("failed to update show: %w", err)
+		}
+		// Reload show to get updated values
+		if err := tx.First(&show, showID).Error; err != nil {
+			return nil, fmt.Errorf("failed to reload show: %w", err)
+		}
+	}
+
+	return &show, nil
+}
+
+// replaceShowVenues teardown-and-rebuilds the show's venue associations when
+// venues is non-nil, returning the rebuilt venue responses. A nil venues slice
+// means "leave associations untouched" and returns (nil, nil) — the caller
+// lazy-loads the existing venues for the response in that case.
+func (s *ShowService) replaceShowVenues(tx *gorm.DB, showID uint, venues []contracts.CreateShowVenue, isAdmin bool) ([]contracts.VenueResponse, error) {
+	if venues == nil {
+		return nil, nil
+	}
+
+	// Delete existing show-venue associations
+	if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowVenue{}).Error; err != nil {
+		return nil, fmt.Errorf("failed to delete existing show venues: %w", err)
+	}
+
+	// Create new associations (pass admin status for venue verification)
+	venueResponses, err := s.associateVenues(tx, showID, venues, isAdmin)
+	if err != nil {
+		return nil, fmt.Errorf("failed to associate venues: %w", err)
+	}
+	return venueResponses, nil
+}
+
+// replaceShowArtists teardown-and-rebuilds the show's artist associations when
+// artists is non-nil, returning the rebuilt artist responses plus any artists
+// that became orphaned (left with zero show associations). A nil artists slice
+// means "leave associations untouched" and returns (nil, nil, nil) — the caller
+// lazy-loads the existing artists for the response in that case.
+func (s *ShowService) replaceShowArtists(tx *gorm.DB, showID uint, artists []contracts.CreateShowArtist) ([]contracts.ArtistResponse, []contracts.OrphanedArtist, error) {
+	if artists == nil {
+		return nil, nil, nil
+	}
+
+	// Capture old artist IDs before deleting associations
+	var oldShowArtists []catalogm.ShowArtist
+	if err := tx.Where("show_id = ?", showID).Find(&oldShowArtists).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to fetch old show artists: %w", err)
+	}
+	oldArtistIDs := make(map[uint]bool)
+	for _, sa := range oldShowArtists {
+		oldArtistIDs[sa.ArtistID] = true
+	}
+
+	// Delete existing show-artist associations
+	if err := tx.Where("show_id = ?", showID).Delete(&catalogm.ShowArtist{}).Error; err != nil {
+		return nil, nil, fmt.Errorf("failed to delete existing show artists: %w", err)
+	}
+
+	// Create new associations
+	artistResponses, err := s.associateArtists(tx, showID, artists)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to associate artists: %w", err)
+	}
+
+	// Build set of new artist IDs
+	newArtistIDs := make(map[uint]bool)
+	for _, ar := range artistResponses {
+		newArtistIDs[ar.ID] = true
+	}
+
+	// Check which old artists are no longer associated with ANY show
+	var orphanedArtists []contracts.OrphanedArtist
+	for oldID := range oldArtistIDs {
+		if newArtistIDs[oldID] {
+			continue // still associated with this show
+		}
+		var count int64
+		if err := tx.Model(&catalogm.ShowArtist{}).Where("artist_id = ?", oldID).Count(&count).Error; err != nil {
+			return nil, nil, fmt.Errorf("failed to count artist associations: %w", err)
+		}
+		if count == 0 {
+			var artist catalogm.Artist
+			if err := tx.First(&artist, oldID).Error; err == nil {
+				slug := ""
+				if artist.Slug != nil {
+					slug = *artist.Slug
+				}
+				orphanedArtists = append(orphanedArtists, contracts.OrphanedArtist{
+					ID:   artist.ID,
+					Name: artist.Name,
+					Slug: slug,
+				})
+			}
+		}
+	}
+
+	return artistResponses, orphanedArtists, nil
+}
+
+// buildUpdatedShowResponse assembles the ShowResponse from the updated show
+// row and its associations. venueResponses / artistResponses carry the rebuilt
+// associations when the corresponding slice was provided; when it was nil the
+// existing associations are lazy-loaded here so the response is always
+// complete.
+func (s *ShowService) buildUpdatedShowResponse(
+	tx *gorm.DB,
+	show *catalogm.Show,
+	venues []contracts.CreateShowVenue,
+	artists []contracts.CreateShowArtist,
+	venueResponses []contracts.VenueResponse,
+	artistResponses []contracts.ArtistResponse,
+) (*contracts.ShowResponse, error) {
+	if venues == nil {
+		loaded, err := s.loadShowVenueResponses(tx, show.ID)
+		if err != nil {
+			return nil, err
+		}
+		venueResponses = loaded
+	}
+
+	if artists == nil {
+		loaded, err := s.loadShowArtistResponses(tx, show.ID)
+		if err != nil {
+			return nil, err
+		}
+		artistResponses = loaded
+	}
+
+	return &contracts.ShowResponse{
+		ID:              show.ID,
+		Title:           show.Title,
+		EventDate:       show.EventDate,
+		City:            show.City,
+		State:           show.State,
+		Price:           show.Price,
+		AgeRequirement:  show.AgeRequirement,
+		Description:     show.Description,
+		TicketURL:       show.TicketURL,
+		ImageURL:        show.ImageURL,
+		Status:          string(show.Status),
+		SubmittedBy:     show.SubmittedBy,
+		RejectionReason: show.RejectionReason,
+		Venues:          venueResponses,
+		Artists:         artistResponses,
+		CreatedAt:       show.CreatedAt,
+		UpdatedAt:       show.UpdatedAt,
+	}, nil
+}
+
+// loadShowVenueResponses batch-loads the existing venue associations for a show
+// and maps them to VenueResponse, hiding the address of unverified venues.
+func (s *ShowService) loadShowVenueResponses(tx *gorm.DB, showID uint) ([]contracts.VenueResponse, error) {
+	var showVenues []catalogm.ShowVenue
+	if err := tx.Where("show_id = ?", showID).Find(&showVenues).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch show venues: %w", err)
+	}
+	if len(showVenues) == 0 {
+		return nil, nil
+	}
+
+	venueIDs := make([]uint, len(showVenues))
+	for i, sv := range showVenues {
+		venueIDs[i] = sv.VenueID
+	}
+	var venueModels []catalogm.Venue
+	if err := tx.Where("id IN ?", venueIDs).Find(&venueModels).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch venues: %w", err)
+	}
+	venueMap := make(map[uint]catalogm.Venue, len(venueModels))
+	for _, v := range venueModels {
+		venueMap[v.ID] = v
+	}
+
+	var venueResponses []contracts.VenueResponse
+	for _, sv := range showVenues {
+		if venue, ok := venueMap[sv.VenueID]; ok {
+			var addr *string
+			if venue.Verified {
+				addr = venue.Address
+			}
+			venueResponses = append(venueResponses, contracts.VenueResponse{
+				ID:       venue.ID,
+				Name:     venue.Name,
+				Address:  addr,
+				City:     venue.City,
+				State:    venue.State,
+				Verified: venue.Verified,
+			})
+		}
+	}
+	return venueResponses, nil
+}
+
+// loadShowArtistResponses batch-loads the existing artist associations for a
+// show in position order and maps them to ArtistResponse.
+func (s *ShowService) loadShowArtistResponses(tx *gorm.DB, showID uint) ([]contracts.ArtistResponse, error) {
+	var showArtists []catalogm.ShowArtist
+	if err := tx.Where("show_id = ?", showID).Order("position ASC").Find(&showArtists).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch show artists: %w", err)
+	}
+	if len(showArtists) == 0 {
+		return nil, nil
+	}
+
+	artistIDs := make([]uint, len(showArtists))
+	for i, sa := range showArtists {
+		artistIDs[i] = sa.ArtistID
+	}
+	var artistModels []catalogm.Artist
+	if err := tx.Where("id IN ?", artistIDs).Find(&artistModels).Error; err != nil {
+		return nil, fmt.Errorf("failed to fetch artists: %w", err)
+	}
+	artistMap := make(map[uint]catalogm.Artist, len(artistModels))
+	for _, a := range artistModels {
+		artistMap[a.ID] = a
+	}
+
+	var artistResponses []contracts.ArtistResponse
+	for _, sa := range showArtists {
+		if artist, ok := artistMap[sa.ArtistID]; ok {
+			isHeadliner := sa.SetType == "headliner"
+			isNewArtist := false
+			socials := contracts.ShowArtistSocials{
+				Instagram:  artist.Social.Instagram,
+				Facebook:   artist.Social.Facebook,
+				Twitter:    artist.Social.Twitter,
+				YouTube:    artist.Social.YouTube,
+				Spotify:    artist.Social.Spotify,
+				SoundCloud: artist.Social.SoundCloud,
+				Bandcamp:   artist.Social.Bandcamp,
+				Website:    artist.Social.Website,
+			}
+			artistResponses = append(artistResponses, contracts.ArtistResponse{
+				ID:               artist.ID,
+				Name:             artist.Name,
+				State:            artist.State,
+				City:             artist.City,
+				IsHeadliner:      &isHeadliner,
+				SetType:          sa.SetType,
+				Position:         sa.Position,
+				IsNewArtist:      &isNewArtist,
+				BandcampEmbedURL: artist.BandcampEmbedURL,
+				Socials:          socials,
+			})
+		}
+	}
+	return artistResponses, nil
 }
 
 // syncShowArtistDedupColumns stamps the denormalized event_date + venue_id

@@ -806,88 +806,12 @@ func TestUpdateShowHandler_SkipsRevisionWhenNoChanges(t *testing.T) {
 	}
 }
 
-// PSY-563: computeShowChanges returns a non-empty diff for every supported
-// scalar field that differs between old and new. Pure function, no async.
-func TestComputeShowChanges_DiffShape(t *testing.T) {
-	oldCity := "Phoenix"
-	newCity := "Mesa"
-	oldDesc := "old desc"
-	newDesc := "new desc"
-	oldPrice := 10.0
-	newPrice := 15.0
-	oldImage := "https://old.example/flyer.png"
-	newImage := "https://new.example/flyer.png"
-	oldDate := time.Date(2026, 5, 1, 20, 0, 0, 0, time.UTC)
-	newDate := time.Date(2026, 5, 2, 21, 0, 0, 0, time.UTC)
-
-	old := &contracts.ShowResponse{
-		Title:       "Old Title",
-		EventDate:   oldDate,
-		City:        &oldCity,
-		Price:       &oldPrice,
-		Description: &oldDesc,
-		ImageURL:    &oldImage,
-	}
-	updated := &contracts.ShowResponse{
-		Title:       "New Title",
-		EventDate:   newDate,
-		City:        &newCity,
-		Price:       &newPrice,
-		Description: &newDesc,
-		ImageURL:    &newImage,
-	}
-
-	changes := computeShowChanges(old, updated)
-	expected := map[string]bool{
-		"title":       true,
-		"event_date":  true,
-		"city":        true,
-		"price":       true,
-		"description": true,
-		"image_url":   true,
-	}
-	if len(changes) != len(expected) {
-		t.Fatalf("expected %d changes, got %d: %+v", len(expected), len(changes), changes)
-	}
-	for _, c := range changes {
-		if !expected[c.Field] {
-			t.Errorf("unexpected field in diff: %q", c.Field)
-		}
-	}
-}
-
-func TestComputeShowChanges_NoChanges(t *testing.T) {
-	city := "Phoenix"
-	desc := "desc"
-	now := time.Date(2026, 5, 1, 20, 0, 0, 0, time.UTC)
-	old := &contracts.ShowResponse{Title: "T", EventDate: now, City: &city, Description: &desc}
-	updated := &contracts.ShowResponse{Title: "T", EventDate: now, City: &city, Description: &desc}
-
-	changes := computeShowChanges(old, updated)
-	if len(changes) != 0 {
-		t.Errorf("expected no changes, got %d: %+v", len(changes), changes)
-	}
-}
-
-func TestComputeShowChanges_NilToValueAndBack(t *testing.T) {
-	desc := "now has a description"
-	old := &contracts.ShowResponse{Title: "T"}                     // Description nil
-	updated := &contracts.ShowResponse{Title: "T", Description: &desc} // Description set
-
-	changes := computeShowChanges(old, updated)
-	if len(changes) != 1 {
-		t.Fatalf("expected 1 change (description nil -> value), got %d", len(changes))
-	}
-	if changes[0].Field != "description" {
-		t.Errorf("expected description field, got %q", changes[0].Field)
-	}
-	if changes[0].OldValue != "" {
-		t.Errorf("expected old description to be empty string (nil → \"\"), got %v", changes[0].OldValue)
-	}
-	if changes[0].NewValue != desc {
-		t.Errorf("expected new description=%q, got %v", desc, changes[0].NewValue)
-	}
-}
+// Show revision-diff field semantics (PSY-563) are now exercised directly
+// against the shared comparator in
+// internal/services/shared/revisiondiff/revisiondiff_test.go
+// (TestCompare_ShowAllFields / _NoChanges / _NilPtrToValue) since the
+// per-entity computeShowChanges helper was replaced by revisiondiff.Compare
+// (PSY-759).
 
 // ============================================================================
 // Mock-based tests: DeleteShowHandler

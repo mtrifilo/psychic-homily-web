@@ -12,8 +12,8 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
 type ReleaseHandler struct {
@@ -352,7 +352,7 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 	// Record revision (fire and forget)
 	if h.revisionService != nil && oldRelease != nil {
 		go func() {
-			changes := computeReleaseChanges(oldRelease, release)
+			changes := revisiondiff.Compare(oldRelease, release, revisiondiff.ReleaseFields)
 			if len(changes) > 0 {
 				summary := ""
 				if req.Body.Summary != nil {
@@ -375,51 +375,6 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 	)
 
 	return &UpdateReleaseResponse{Body: release}, nil
-}
-
-// computeReleaseChanges compares old and new release detail responses and returns field-level diffs.
-func computeReleaseChanges(old, new *contracts.ReleaseDetailResponse) []adminm.FieldChange {
-	var changes []adminm.FieldChange
-
-	if old.Title != new.Title {
-		changes = append(changes, adminm.FieldChange{Field: "title", OldValue: old.Title, NewValue: new.Title})
-	}
-	if old.ReleaseType != new.ReleaseType {
-		changes = append(changes, adminm.FieldChange{Field: "release_type", OldValue: old.ReleaseType, NewValue: new.ReleaseType})
-	}
-	if !intPtrEq(old.ReleaseYear, new.ReleaseYear) {
-		changes = append(changes, adminm.FieldChange{Field: "release_year", OldValue: intPtrVal(old.ReleaseYear), NewValue: intPtrVal(new.ReleaseYear)})
-	}
-	if ptrToStr(old.ReleaseDate) != ptrToStr(new.ReleaseDate) {
-		changes = append(changes, adminm.FieldChange{Field: "release_date", OldValue: ptrToStr(old.ReleaseDate), NewValue: ptrToStr(new.ReleaseDate)})
-	}
-	if ptrToStr(old.CoverArtURL) != ptrToStr(new.CoverArtURL) {
-		changes = append(changes, adminm.FieldChange{Field: "cover_art_url", OldValue: ptrToStr(old.CoverArtURL), NewValue: ptrToStr(new.CoverArtURL)})
-	}
-	if ptrToStr(old.Description) != ptrToStr(new.Description) {
-		changes = append(changes, adminm.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
-	}
-
-	return changes
-}
-
-// intPtrEq returns true if two *int pointers refer to equal values (both nil is equal).
-func intPtrEq(a, b *int) bool {
-	if a == nil && b == nil {
-		return true
-	}
-	if a == nil || b == nil {
-		return false
-	}
-	return *a == *b
-}
-
-// intPtrVal returns the pointed-to int or 0 if nil.
-func intPtrVal(a *int) int {
-	if a == nil {
-		return 0
-	}
-	return *a
 }
 
 // ============================================================================

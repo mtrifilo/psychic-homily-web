@@ -15,8 +15,8 @@ import (
 	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
-	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
 type ArtistHandler struct {
@@ -878,7 +878,7 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	// Record revision (fire and forget)
 	if h.revisionService != nil && oldArtist != nil {
 		go func() {
-			changes := computeArtistChanges(oldArtist, artist)
+			changes := revisiondiff.Compare(oldArtist, artist, revisiondiff.ArtistFields)
 			if len(changes) > 0 {
 				summary := ""
 				if req.Body.Summary != nil {
@@ -901,53 +901,6 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	)
 
 	return &AdminUpdateArtistResponse{Body: artist}, nil
-}
-
-// computeArtistChanges compares old and new artist detail responses and returns field-level diffs.
-func computeArtistChanges(old, new *contracts.ArtistDetailResponse) []adminm.FieldChange {
-	var changes []adminm.FieldChange
-
-	if old.Name != new.Name {
-		changes = append(changes, adminm.FieldChange{Field: "name", OldValue: old.Name, NewValue: new.Name})
-	}
-	if ptrToStr(old.City) != ptrToStr(new.City) {
-		changes = append(changes, adminm.FieldChange{Field: "city", OldValue: ptrToStr(old.City), NewValue: ptrToStr(new.City)})
-	}
-	if ptrToStr(old.State) != ptrToStr(new.State) {
-		changes = append(changes, adminm.FieldChange{Field: "state", OldValue: ptrToStr(old.State), NewValue: ptrToStr(new.State)})
-	}
-	if ptrToStr(old.Country) != ptrToStr(new.Country) {
-		changes = append(changes, adminm.FieldChange{Field: "country", OldValue: ptrToStr(old.Country), NewValue: ptrToStr(new.Country)})
-	}
-	if ptrToStr(old.Social.Instagram) != ptrToStr(new.Social.Instagram) {
-		changes = append(changes, adminm.FieldChange{Field: "instagram", OldValue: ptrToStr(old.Social.Instagram), NewValue: ptrToStr(new.Social.Instagram)})
-	}
-	if ptrToStr(old.Social.Facebook) != ptrToStr(new.Social.Facebook) {
-		changes = append(changes, adminm.FieldChange{Field: "facebook", OldValue: ptrToStr(old.Social.Facebook), NewValue: ptrToStr(new.Social.Facebook)})
-	}
-	if ptrToStr(old.Social.Twitter) != ptrToStr(new.Social.Twitter) {
-		changes = append(changes, adminm.FieldChange{Field: "twitter", OldValue: ptrToStr(old.Social.Twitter), NewValue: ptrToStr(new.Social.Twitter)})
-	}
-	if ptrToStr(old.Social.YouTube) != ptrToStr(new.Social.YouTube) {
-		changes = append(changes, adminm.FieldChange{Field: "youtube", OldValue: ptrToStr(old.Social.YouTube), NewValue: ptrToStr(new.Social.YouTube)})
-	}
-	if ptrToStr(old.Social.Spotify) != ptrToStr(new.Social.Spotify) {
-		changes = append(changes, adminm.FieldChange{Field: "spotify", OldValue: ptrToStr(old.Social.Spotify), NewValue: ptrToStr(new.Social.Spotify)})
-	}
-	if ptrToStr(old.Social.SoundCloud) != ptrToStr(new.Social.SoundCloud) {
-		changes = append(changes, adminm.FieldChange{Field: "soundcloud", OldValue: ptrToStr(old.Social.SoundCloud), NewValue: ptrToStr(new.Social.SoundCloud)})
-	}
-	if ptrToStr(old.Social.Bandcamp) != ptrToStr(new.Social.Bandcamp) {
-		changes = append(changes, adminm.FieldChange{Field: "bandcamp", OldValue: ptrToStr(old.Social.Bandcamp), NewValue: ptrToStr(new.Social.Bandcamp)})
-	}
-	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
-		changes = append(changes, adminm.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
-	}
-	if ptrToStr(old.Description) != ptrToStr(new.Description) {
-		changes = append(changes, adminm.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
-	}
-
-	return changes
 }
 
 // ptrToStr safely dereferences a *string, returning "" if nil.
