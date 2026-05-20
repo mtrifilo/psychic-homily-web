@@ -613,9 +613,8 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_SameDayDifferen
 	// dedup gate keys on the full event_date timestamp, so the second import must be
 	// created rather than skipped.
 	venue := suite.createVenue("Matinee Venue", "NYC", "NY", true)
-	day := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
-	matinee := day.Add(15 * time.Hour) // 15:00 UTC
-	evening := day.Add(21 * time.Hour) // 21:00 UTC
+	matinee := time.Date(2025, 6, 15, 15, 0, 0, 0, time.UTC)
+	evening := time.Date(2025, 6, 15, 21, 0, 0, 0, time.UTC)
 	existing := suite.createShow("Same Day Show", matinee, catalogm.ShowStatusApproved, venue)
 
 	result, err := suite.service.ImportData(contracts.DataImportRequest{
