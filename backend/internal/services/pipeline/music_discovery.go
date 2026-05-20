@@ -11,6 +11,7 @@ import (
 	"github.com/getsentry/sentry-go"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/utils"
 )
 
 // MusicDiscoveryService handles automatic discovery of music platforms for new artists
@@ -71,11 +72,14 @@ func (s *MusicDiscoveryService) triggerDiscovery(artistID uint, artistName strin
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
+		// Redact before capture: net/http's *url.Error embeds the request URL,
+		// keeping the internal endpoint out of long-retention Sentry storage.
+		redacted := utils.RedactErrorURL(err)
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "music-discovery")
 			scope.SetExtra("artist_id", artistID)
 			scope.SetExtra("artist_name", artistName)
-			sentry.CaptureException(fmt.Errorf("discovery endpoint call failed: %w", err))
+			sentry.CaptureException(fmt.Errorf("discovery endpoint call failed: %w", redacted))
 		})
 		return
 	}

@@ -509,16 +509,16 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		venueName = show.Venues[0].Name
 	}
 
-	// Check for duplicate: same title + venue + date
+	// Check for duplicate: same title + venue + event_date. The dedup key is the
+	// full event_date timestamp (not the calendar day), so a matinee and an evening
+	// show at the same title/venue are distinct rows rather than a false duplicate.
+	// EventDate round-trips through RFC3339 on export/import, preserving time-of-day.
 	if venueName != "" {
-		startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
-		endOfDay := startOfDay.Add(24 * time.Hour)
-
 		var existingShow catalogm.Show
 		err := s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 			Joins("JOIN venues ON show_venues.venue_id = venues.id").
-			Where("LOWER(shows.title) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ?",
-				show.Title, venueName, startOfDay, endOfDay).
+			Where("LOWER(shows.title) = LOWER(?) AND LOWER(venues.name) = LOWER(?) AND shows.event_date = ?",
+				show.Title, venueName, eventDate).
 			First(&existingShow).Error
 		if err == nil {
 			// Backfill slugs for the existing show and its associated entities
