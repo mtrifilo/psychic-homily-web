@@ -406,6 +406,53 @@ func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorN
 	suite.Equal("cooluser", feed.Events[0].ActorName)
 }
 
+// PSY-760: actor name now delegates to the canonical shared.ResolveUserName
+// chain, which prefers username over first/last name. Previously this surface
+// showed "FirstName LastName" first — this asserts the intended user-visible
+// reordering.
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorNamePrefersUsername() {
+	firstName := "Jane"
+	lastName := "Doe"
+	username := "jdoe_dj"
+	email := "jane@test.com"
+	user := &authm.User{
+		Email:     &email,
+		Username:  &username,
+		FirstName: &firstName,
+		LastName:  &lastName,
+		IsActive:  true,
+	}
+	err := suite.db.Create(user).Error
+	suite.Require().NoError(err)
+
+	suite.createAuditLog(user.ID, "approve_show", "show", 1)
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 1)
+	suite.Equal("jdoe_dj", feed.Events[0].ActorName)
+}
+
+// PSY-760: a raw email address must never surface as the actor display string.
+// A user with only an email resolves to its local-part, not the full address.
+func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_ActorNameNeverLeaksRawEmail() {
+	email := "secret.person@private.example.com"
+	user := &authm.User{
+		Email:    &email,
+		IsActive: true,
+	}
+	err := suite.db.Create(user).Error
+	suite.Require().NoError(err)
+
+	suite.createAuditLog(user.ID, "approve_show", "show", 1)
+
+	feed, err := suite.service.GetRecentActivity()
+	suite.Require().NoError(err)
+	suite.Require().Len(feed.Events, 1)
+	suite.Equal("secret.person", feed.Events[0].ActorName)
+	suite.NotContains(feed.Events[0].ActorName, "@", "actor name must not leak a raw email")
+}
+
 func (suite *AdminStatsServiceIntegrationTestSuite) TestGetRecentActivity_UnknownActionFallback() {
 	user := suite.createUser("admin@test.com")
 	suite.createAuditLog(user.ID, "some_new_action", "widget", 42)

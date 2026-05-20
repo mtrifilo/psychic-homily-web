@@ -891,6 +891,47 @@ func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_
 	suite.NotNil(resp)
 }
 
+// TestCreateShow_SameDayDifferentTime_OK is the PSY-752 regression guard:
+// a matinee (15:00) and an evening (21:00) show with the SAME headliner at the
+// SAME venue on the SAME calendar day are distinct shows, not duplicates. The
+// dedup key is the full event_date TIMESTAMPTZ (PSY-559), so the second create
+// must succeed. The prior same-day RANGE check threw away the time component
+// and false-flagged the evening show as a duplicate.
+func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_SameDayDifferentTime_OK() {
+	user := suite.createTestUser()
+
+	matinee := &contracts.CreateShowRequest{
+		Title:             "Matinee Set",
+		EventDate:         time.Date(2026, 6, 1, 15, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Two-Set Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Two-Set Headliner", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	matineeResp, err := suite.showService.CreateShow(matinee)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(matineeResp)
+
+	// Same headliner, same venue, same DAY but a different time-of-day.
+	evening := &contracts.CreateShowRequest{
+		Title:             "Evening Set",
+		EventDate:         time.Date(2026, 6, 1, 21, 0, 0, 0, time.UTC),
+		City:              "Phoenix",
+		State:             "AZ",
+		Venues:            []contracts.CreateShowVenue{{Name: "Two-Set Venue", City: "Phoenix", State: "AZ"}},
+		Artists:           []contracts.CreateShowArtist{{Name: "Two-Set Headliner", IsHeadliner: boolPtr(true)}},
+		SubmittedByUserID: &user.ID,
+		SubmitterIsAdmin:  true,
+	}
+	eveningResp, err := suite.showService.CreateShow(evening)
+
+	suite.Require().NoError(err, "matinee + evening at same venue/headliner are distinct shows (PSY-559), not duplicates")
+	suite.Require().NotNil(eveningResp)
+	suite.NotEqual(matineeResp.ID, eveningResp.ID, "both shows should persist as distinct rows")
+}
+
 func (suite *ShowServiceIntegrationTestSuite) TestCreateShow_DuplicateHeadliner_DifferentVenue_OK() {
 	user := suite.createTestUser()
 	eventDate := time.Date(2026, 11, 5, 20, 0, 0, 0, time.UTC)
