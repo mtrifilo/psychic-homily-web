@@ -45,6 +45,7 @@ import {
   parseCost,
   removeArtistAtIndex,
   isVenueLocationEditable as computeVenueEditable,
+  makeFormArtist,
 } from './show-form-utils'
 
 // Form validation schema
@@ -53,6 +54,8 @@ const showFormSchema = z.object({
   artists: z
     .array(
       z.object({
+        // Transient UI-only identifier for stable React keys.
+        _clientId: z.string(),
         name: z.string().min(1, 'Artist name is required'),
         is_headliner: z.boolean(),
         matched_id: z.number().optional(),
@@ -308,12 +311,14 @@ export function ShowForm({
       if (initialExtraction.artists.length > 0) {
         form.setFieldValue(
           'artists',
-          initialExtraction.artists.map(a => ({
-            name: a.matched_name || a.name,
-            is_headliner: a.is_headliner,
-            matched_id: a.matched_id,
-            instagram_handle: a.matched_id ? undefined : a.instagram_handle,
-          }))
+          initialExtraction.artists.map(a =>
+            makeFormArtist({
+              name: a.matched_name || a.name,
+              is_headliner: a.is_headliner,
+              matched_id: a.matched_id,
+              instagram_handle: a.matched_id ? undefined : a.instagram_handle,
+            })
+          )
         )
       }
 
@@ -405,7 +410,12 @@ export function ShowForm({
     const currentArtists = form.getFieldValue('artists')
     form.setFieldValue('artists', [
       ...currentArtists,
-      { name: '', is_headliner: false, matched_id: undefined, instagram_handle: undefined },
+      makeFormArtist({
+        name: '',
+        is_headliner: false,
+        matched_id: undefined,
+        instagram_handle: undefined,
+      }),
     ])
   }
 
@@ -466,7 +476,7 @@ export function ShowForm({
           {artistsField => (
             <div className="space-y-4">
               {artistsField.state.value.map((artist: FormArtist, index: number) => (
-                <div key={index} className="space-y-2">
+                <div key={artist._clientId} className="space-y-2">
                   <form.Field name={`artists[${index}].name`}>
                     {field => (
                       <ArtistInput

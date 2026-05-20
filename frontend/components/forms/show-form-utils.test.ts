@@ -5,6 +5,7 @@ import {
   removeArtistAtIndex,
   isVenueLocationEditable,
   defaultFormValues,
+  makeFormArtist,
   type FormArtist,
 } from './show-form-utils'
 import type { ShowResponse, VenueResponse } from '@/features/shows'
@@ -107,6 +108,15 @@ describe('showToFormValues', () => {
     expect(result.artists[0].matched_id).toBe(100)
     expect(result.artists[1].name).toBe('Artist Two')
     expect(result.artists[1].is_headliner).toBe(false)
+  })
+
+  it('assigns a unique _clientId to every artist in edit mode', () => {
+    const show = makeShowResponse()
+    const result = showToFormValues(show)
+
+    expect(result.artists[0]._clientId).toBeTruthy()
+    expect(result.artists[1]._clientId).toBeTruthy()
+    expect(result.artists[0]._clientId).not.toBe(result.artists[1]._clientId)
   })
 
   it('parses date and time in venue timezone', () => {
@@ -235,9 +245,9 @@ describe('parseCost', () => {
 // --- removeArtistAtIndex ---
 
 describe('removeArtistAtIndex', () => {
-  const headliner: FormArtist = { name: 'Head', is_headliner: true, matched_id: 1 }
-  const opener: FormArtist = { name: 'Opener', is_headliner: false, matched_id: 2 }
-  const support: FormArtist = { name: 'Support', is_headliner: false, matched_id: 3 }
+  const headliner: FormArtist = { _clientId: 'cid-1', name: 'Head', is_headliner: true, matched_id: 1 }
+  const opener: FormArtist = { _clientId: 'cid-2', name: 'Opener', is_headliner: false, matched_id: 2 }
+  const support: FormArtist = { _clientId: 'cid-3', name: 'Support', is_headliner: false, matched_id: 3 }
 
   it('returns null when only one artist remains', () => {
     expect(removeArtistAtIndex([headliner], 0)).toBeNull()
@@ -265,6 +275,14 @@ describe('removeArtistAtIndex', () => {
     const artists = [headliner, opener]
     removeArtistAtIndex(artists, 1)
     expect(artists).toHaveLength(2)
+  })
+
+  it('preserves _clientId on the remaining artists so React keys stay stable', () => {
+    // Removing the middle entry must not shift _clientIds onto the wrong
+    // rows — that's the underlying invariant that lets the React key stay
+    // tied to the same logical row across renders.
+    const result = removeArtistAtIndex([headliner, opener, support], 1)!
+    expect(result.map(a => a._clientId)).toEqual(['cid-1', 'cid-3'])
   })
 })
 
@@ -305,7 +323,36 @@ describe('defaultFormValues', () => {
     expect(defaultFormValues.artists[0].name).toBe('')
   })
 
+  it('default artist has a _clientId for stable React keys', () => {
+    expect(defaultFormValues.artists[0]._clientId).toBeTruthy()
+  })
+
   it('has default time of 20:00', () => {
     expect(defaultFormValues.time).toBe('20:00')
+  })
+})
+
+// --- makeFormArtist ---
+
+describe('makeFormArtist', () => {
+  it('mints a unique _clientId on each call', () => {
+    const a = makeFormArtist({ name: 'A', is_headliner: true })
+    const b = makeFormArtist({ name: 'B', is_headliner: false })
+    expect(a._clientId).toBeTruthy()
+    expect(b._clientId).toBeTruthy()
+    expect(a._clientId).not.toBe(b._clientId)
+  })
+
+  it('preserves all supplied fields', () => {
+    const artist = makeFormArtist({
+      name: 'A',
+      is_headliner: true,
+      matched_id: 42,
+      instagram_handle: '@a',
+    })
+    expect(artist.name).toBe('A')
+    expect(artist.is_headliner).toBe(true)
+    expect(artist.matched_id).toBe(42)
+    expect(artist.instagram_handle).toBe('@a')
   })
 })
