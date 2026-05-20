@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -47,8 +48,6 @@ func captureWithMiddleware(t *testing.T, req *http.Request) *sentry.Event {
 	return captured
 }
 
-func userPtr(s string) *string { return &s }
-
 // --- HumaSentryContextMiddleware tests ---
 
 func TestHumaSentryContextMiddleware_DropsRawQueryTag(t *testing.T) {
@@ -71,7 +70,7 @@ func TestHumaSentryContextMiddleware_DropsRawQueryTag(t *testing.T) {
 
 	// Defense in depth: no tag value anywhere should contain the secret.
 	for k, v := range captured.Tags {
-		if v == "supersecretjwt" || (len(v) > 0 && contains(v, "supersecretjwt")) {
+		if strings.Contains(v, "supersecretjwt") {
 			t.Errorf("tag %q leaks the secret token: %q", k, v)
 		}
 	}
@@ -81,7 +80,7 @@ func TestHumaSentryContextMiddleware_HashesUserEmail(t *testing.T) {
 	req := httptest.NewRequest(http.MethodGet, "/api/me", nil)
 
 	email := "matt.trifilo@gmail.com"
-	user := &authm.User{ID: 42, Email: userPtr(email), IsAdmin: true}
+	user := &authm.User{ID: 42, Email: strPtr(email), IsAdmin: true}
 	reqWithUser := req.WithContext(
 		context.WithValue(req.Context(), UserContextKey, user),
 	)
@@ -128,13 +127,4 @@ func TestHumaSentryContextMiddleware_CallsNext(t *testing.T) {
 	if !called {
 		t.Error("next handler was not called")
 	}
-}
-
-func contains(s, sub string) bool {
-	for i := 0; i+len(sub) <= len(s); i++ {
-		if s[i:i+len(sub)] == sub {
-			return true
-		}
-	}
-	return false
 }
