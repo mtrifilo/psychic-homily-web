@@ -422,11 +422,47 @@ func TestValidate(t *testing.T) {
 	t.Run("production with real secrets passes", func(t *testing.T) {
 		t.Setenv("ENVIRONMENT", "production")
 		cfg := &Config{
-			JWT:   JWTConfig{SecretKey: "a-real-production-jwt-secret-key"},
-			OAuth: OAuthConfig{SecretKey: "a-real-production-oauth-secret"},
+			JWT:            JWTConfig{SecretKey: "a-real-production-jwt-secret-key"},
+			OAuth:          OAuthConfig{SecretKey: "a-real-production-oauth-secret"},
+			MusicDiscovery: MusicDiscoveryConfig{InternalAPISecret: "a-real-internal-api-secret-32+chars"},
 		}
 		if err := cfg.Validate(); err != nil {
 			t.Errorf("expected nil error with real secrets, got: %v", err)
+		}
+	})
+
+	t.Run("production with unset internal API secret errors", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "production")
+		cfg := &Config{
+			JWT:   JWTConfig{SecretKey: "a-real-production-jwt-secret-key"},
+			OAuth: OAuthConfig{SecretKey: "a-real-production-oauth-secret"},
+			// MusicDiscovery.InternalAPISecret deliberately unset
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected error for unset internal API secret, got nil")
+		}
+	})
+
+	t.Run("production with short internal API secret errors", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "production")
+		cfg := &Config{
+			JWT:            JWTConfig{SecretKey: "a-real-production-jwt-secret-key"},
+			OAuth:          OAuthConfig{SecretKey: "a-real-production-oauth-secret"},
+			MusicDiscovery: MusicDiscoveryConfig{InternalAPISecret: "too-short"},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected error for sub-32-char internal API secret, got nil")
+		}
+	})
+
+	t.Run("stage with unset internal API secret errors", func(t *testing.T) {
+		t.Setenv("ENVIRONMENT", "stage")
+		cfg := &Config{
+			JWT:   JWTConfig{SecretKey: "a-real-stage-jwt-secret-key"},
+			OAuth: OAuthConfig{SecretKey: "a-real-stage-oauth-secret"},
+		}
+		if err := cfg.Validate(); err == nil {
+			t.Error("expected error for unset internal API secret in stage, got nil")
 		}
 	})
 }
