@@ -441,8 +441,8 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
 	s.Require().NoError(err)
-	s.True(resp.Body.Success)         // enumeration prevention
-	s.Empty(resp.Body.ErrorCode)      // no EMAIL_NOT_VERIFIED leak
+	s.True(resp.Body.Success)    // enumeration prevention
+	s.Empty(resp.Body.ErrorCode) // no EMAIL_NOT_VERIFIED leak
 }
 
 // TestSendMagicLink_SendFails verifies a downstream send failure for a
