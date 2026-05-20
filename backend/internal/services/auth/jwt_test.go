@@ -53,6 +53,7 @@ func TestJWTService_CreateToken(t *testing.T) {
 		assert.Equal(t, "test@example.com", claims["email"])
 		assert.Equal(t, "psychic-homily-backend", claims["iss"])
 		assert.Equal(t, "psychic-homily-users", claims["aud"])
+		assert.Equal(t, "session", claims["sub"])
 		assert.NotNil(t, claims["exp"])
 		assert.NotNil(t, claims["iat"])
 	})
@@ -225,6 +226,99 @@ func TestJWTService_ValidateToken(t *testing.T) {
 		assert.Error(t, err)
 		assert.Contains(t, err.Error(), "TOKEN_INVALID")
 		assert.Nil(t, validatedUser)
+	})
+}
+
+// TestJWTService_ValidateToken_RejectsCrossTypeTokens proves the session
+// validator refuses every other token the service mints (PSY-744). All four
+// issuers share the same HS256 secret and embed user_id, so before the subject
+// assertion a leaked single-purpose token was a usable session credential.
+// These tokens are rejected at claim validation, before any DB lookup — so the
+// nil-DB user service never gets a chance to mask the failure.
+func TestJWTService_ValidateToken_RejectsCrossTypeTokens(t *testing.T) {
+	secretKey := "test-secret-key-cross-type"
+	cfg := &config.Config{
+		JWT: config.JWTConfig{
+			SecretKey: secretKey,
+			Expiry:    24,
+		},
+	}
+	jwtService := NewJWTService(nil, cfg, newNilDBUserService())
+
+	t.Run("RejectsMagicLinkToken", func(t *testing.T) {
+		token, err := jwtService.CreateMagicLinkToken(123, "magic@example.com")
+		require.NoError(t, err)
+
+		user, err := jwtService.ValidateToken(token)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "TOKEN_INVALID")
+		assert.Nil(t, user)
+	})
+
+	t.Run("RejectsVerificationToken", func(t *testing.T) {
+		token, err := jwtService.CreateVerificationToken(123, "verify@example.com")
+		require.NoError(t, err)
+
+		user, err := jwtService.ValidateToken(token)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "TOKEN_INVALID")
+		assert.Nil(t, user)
+	})
+
+	t.Run("RejectsAccountRecoveryToken", func(t *testing.T) {
+		token, err := jwtService.CreateAccountRecoveryToken(123, "recover@example.com")
+		require.NoError(t, err)
+
+		user, err := jwtService.ValidateToken(token)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "TOKEN_INVALID")
+		assert.Nil(t, user)
+	})
+
+	// A token minted before PSY-744 — correct issuer/audience/user_id but no
+	// "sub" claim. Enforcing immediately (no grace window) means these are
+	// rejected the moment the change deploys, forcing affected users to re-login.
+	t.Run("RejectsLegacySessionTokenWithoutSubject", func(t *testing.T) {
+		claims := jwt.MapClaims{
+			"user_id": uint(123),
+			"email":   "legacy@example.com",
+			"exp":     time.Now().Add(24 * time.Hour).Unix(),
+			"iat":     time.Now().Unix(),
+			"iss":     "psychic-homily-backend",
+			"aud":     "psychic-homily-users",
+			// no "sub" — the pre-PSY-744 session token shape
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		user, err := jwtService.ValidateToken(tokenStr)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "TOKEN_INVALID")
+		assert.Nil(t, user)
+	})
+
+	// A forged token with the right user_id but a non-session subject string
+	// must still be rejected — guards against future helpers picking a subject
+	// that isn't exactly "session".
+	t.Run("RejectsWrongSubjectString", func(t *testing.T) {
+		claims := jwt.MapClaims{
+			"user_id": uint(123),
+			"email":   "wrong-sub@example.com",
+			"exp":     time.Now().Add(24 * time.Hour).Unix(),
+			"iat":     time.Now().Unix(),
+			"iss":     "psychic-homily-backend",
+			"aud":     "psychic-homily-users",
+			"sub":     "not-a-session",
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		user, err := jwtService.ValidateToken(tokenStr)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "TOKEN_INVALID")
+		assert.Nil(t, user)
 	})
 }
 
