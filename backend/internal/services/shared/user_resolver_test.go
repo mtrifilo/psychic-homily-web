@@ -109,3 +109,17 @@ func TestResolveUserUsername_ReturnsCopy(t *testing.T) {
 		assert.Equal(t, "ph_user", *got)
 	}
 }
+
+// =============================================================================
+// BatchResolveShowArtistNames
+// =============================================================================
+
+func TestBatchResolveShowArtistNames_EmptyInputReturnsEmptyMap(t *testing.T) {
+	// Empty input must short-circuit before touching the DB and return a
+	// non-nil map so callers can index without a nil guard. A nil *gorm.DB
+	// would panic if the early return were ever removed.
+	got, err := BatchResolveShowArtistNames(nil, nil)
+	assert.NoError(t, err)
+	assert.NotNil(t, got)
+	assert.Empty(t, got)
+}

@@ -877,7 +877,6 @@ func registerArtistQueryCounter(db *gorm.DB) {
 // per show (N), an N+1 on the discovery hot path.
 func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_BatchesArtistFetch() {
 	const numShows = 50
-	const artistsPerShow = 3
 
 	events := make([]contracts.DiscoveredEvent, 0, numShows)
 	expectedArtists := make(map[string][]string, numShows)
@@ -888,7 +887,6 @@ func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_BatchesArtistFetch()
 			fmt.Sprintf("Support %d", i),
 			fmt.Sprintf("Opener %d", i),
 		}
-		suite.Require().Len(artists, artistsPerShow)
 		events = append(events, suite.makeEvent(
 			eventID,
 			fmt.Sprintf("Batch Show %d", i),

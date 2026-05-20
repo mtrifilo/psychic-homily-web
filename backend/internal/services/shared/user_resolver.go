@@ -133,3 +133,32 @@ func BatchResolveUserUsernames(db *gorm.DB, userIDs []uint) (map[uint]*string, e
 	}
 	return result, nil
 }
+
+// BatchResolveShowArtistNames returns the billing-ordered artist names for
+// multiple shows in a single query, grouped by show ID. Avoids the per-show
+// artist query that an N+1 caller would otherwise issue on a hot path.
+//
+// Returns an empty map (not nil) when showIDs is empty so callers can index
+// without nil-check guards. Shows with no artists are absent from the map.
+func BatchResolveShowArtistNames(db *gorm.DB, showIDs []uint) (map[uint][]string, error) {
+	byShowID := make(map[uint][]string, len(showIDs))
+	if len(showIDs) == 0 {
+		return byShowID, nil
+	}
+
+	var rows []struct {
+		ShowID uint
+		Name   string
+	}
+	if err := db.Raw(`SELECT show_artists.show_id, artists.name FROM show_artists
+		JOIN artists ON show_artists.artist_id = artists.id
+		WHERE show_artists.show_id IN (?)
+		ORDER BY show_artists.show_id, show_artists.position`, showIDs).Scan(&rows).Error; err != nil {
+		return nil, err
+	}
+
+	for _, row := range rows {
+		byShowID[row.ShowID] = append(byShowID[row.ShowID], row.Name)
+	}
+	return byShowID, nil
+}

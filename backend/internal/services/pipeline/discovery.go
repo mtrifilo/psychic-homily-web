@@ -14,6 +14,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -839,7 +840,7 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 	for _, show := range fallbackByEventID {
 		showIDs = append(showIDs, show.ID)
 	}
-	artistsByShowID, err := s.fetchShowArtistsByIDs(showIDs)
+	artistsByShowID, err := shared.BatchResolveShowArtistNames(s.db, showIDs)
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch show artists: %w", err)
 	}
@@ -856,36 +857,9 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 	return result, nil
 }
 
-// fetchShowArtistsByIDs returns artist names for the given show IDs in one
-// query, grouped by show ID and ordered by billing position. Returns an empty
-// map for an empty input so callers can index it unconditionally.
-func (s *DiscoveryService) fetchShowArtistsByIDs(showIDs []uint) (map[uint][]string, error) {
-	byShowID := make(map[uint][]string, len(showIDs))
-	if len(showIDs) == 0 {
-		return byShowID, nil
-	}
-
-	var rows []struct {
-		ShowID uint
-		Name   string
-	}
-	err := s.db.Raw(`SELECT show_artists.show_id, artists.name FROM show_artists
-		JOIN artists ON show_artists.artist_id = artists.id
-		WHERE show_artists.show_id IN (?)
-		ORDER BY show_artists.show_id, show_artists.position`, showIDs).Scan(&rows).Error
-	if err != nil {
-		return nil, err
-	}
-
-	for _, row := range rows {
-		byShowID[row.ShowID] = append(byShowID[row.ShowID], row.Name)
-	}
-	return byShowID, nil
-}
-
 // buildCheckEventStatus creates a CheckEventStatus from a Show model and its
-// pre-fetched artist names (see fetchShowArtistsByIDs — names must not be
-// queried per-show on the discovery hot path).
+// pre-fetched artist names (see shared.BatchResolveShowArtistNames — names must
+// not be queried per-show on the discovery hot path).
 func buildCheckEventStatus(show catalogm.Show, artistNames []string) contracts.CheckEventStatus {
 	return contracts.CheckEventStatus{
 		Exists: true,
