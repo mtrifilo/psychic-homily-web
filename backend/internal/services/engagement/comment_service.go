@@ -1,7 +1,6 @@
 package engagement
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -11,8 +10,6 @@ import (
 
 	"log"
 
-	"github.com/microcosm-cc/bluemonday"
-	"github.com/yuin/goldmark"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
@@ -21,6 +18,7 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/utils"
 )
 
 // FollowChecker is the minimal FollowService surface that CommentService
@@ -41,10 +39,13 @@ type commentNotifier interface {
 
 // CommentService implements CommentServiceInterface for comment CRUD and threading.
 type CommentService struct {
-	db            *gorm.DB
-	md            goldmark.Markdown
-	sanitize      *bluemonday.Policy
-	followChecker FollowChecker
+	db *gorm.DB
+	// markdownRenderer is the shared utils.MarkdownRenderer (goldmark +
+	// bluemonday, comment-system allowlist) used to render comment and field-note
+	// bodies on write. Routing through the canonical renderer keeps the
+	// sanitization policy single-sourced — future policy hardening lands once.
+	markdownRenderer *utils.MarkdownRenderer
+	followChecker    FollowChecker
 	// notifier is optional — tests often leave it nil. Production wires it
 	// via SetNotifier() after both services are constructed.
 	notifier commentNotifier
@@ -61,25 +62,16 @@ func (s *CommentService) SetNotifier(n commentNotifier) {
 }
 
 // NewCommentService creates a new CommentService.
-func NewCommentService(db *gorm.DB) *CommentService {
-	// Create sanitization policy: allow safe formatting, no images/raw HTML/tables
-	policy := bluemonday.NewPolicy()
-	policy.AllowStandardURLs()
-	policy.AllowAttrs("href").OnElements("a")
-	policy.AllowElements("p", "br",
-		"strong", "b", "em", "i",
-		"code", "pre",
-		"ul", "ol", "li",
-		"blockquote",
-		"h3", "h4", "h5", "h6",
-	)
-	policy.RequireNoFollowOnLinks(true)
-	policy.AddTargetBlankToFullyQualifiedLinks(true)
-
+//
+// renderer is the canonical utils.MarkdownRenderer (goldmark + bluemonday,
+// comment-system allowlist) used to render comment and field-note bodies. It
+// is injected so the sanitization policy stays single-sourced; when nil
+// (older bare-construction test paths) renderMarkdown lazily falls back to a
+// fresh canonical renderer.
+func NewCommentService(db *gorm.DB, renderer *utils.MarkdownRenderer) *CommentService {
 	svc := &CommentService{
-		db:       db,
-		md:       goldmark.New(),
-		sanitize: policy,
+		db:               db,
+		markdownRenderer: renderer,
 	}
 	// Default FollowChecker is a FollowService bound to the same DB. Tests
 	// that construct CommentService without a DB get a nil checker; the
@@ -95,14 +87,14 @@ func (s *CommentService) SetFollowChecker(fc FollowChecker) {
 	s.followChecker = fc
 }
 
-// renderMarkdown converts markdown body to sanitized HTML.
+// renderMarkdown converts a comment/field-note body to sanitized HTML via the
+// canonical utils.MarkdownRenderer. Falls back to a freshly-constructed renderer
+// when the service was built without one (older bare-construction test paths).
 func (s *CommentService) renderMarkdown(body string) string {
-	var buf bytes.Buffer
-	if err := s.md.Convert([]byte(body), &buf); err != nil {
-		// Fallback: escape and wrap in <p> tag
-		return "<p>" + s.sanitize.Sanitize(body) + "</p>"
+	if s.markdownRenderer == nil {
+		s.markdownRenderer = utils.NewMarkdownRenderer()
 	}
-	return s.sanitize.Sanitize(buf.String())
+	return s.markdownRenderer.Render(body)
 }
 
 // wilsonScore computes the Wilson score lower bound for ranking.
