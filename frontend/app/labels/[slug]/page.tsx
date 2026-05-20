@@ -90,16 +90,7 @@ export default async function LabelPage({ params }: LabelPageProps) {
   const { slug } = await params
 
   if (!slug) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Invalid Label</h1>
-          <p className="text-muted-foreground">
-            The label could not be found.
-          </p>
-        </div>
-      </div>
-    )
+    notFound()
   }
 
   const labelData = await getLabel(slug)

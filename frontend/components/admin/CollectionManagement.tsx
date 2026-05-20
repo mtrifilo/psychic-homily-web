@@ -296,6 +296,15 @@ export function CollectionManagement() {
                               featured: checked,
                             },
                             {
+                              onSuccess: () => {
+                                // Clears-on-next-success per the
+                                // sticky-on-error mutation-feedback
+                                // convention. The click handler's
+                                // pre-mutate reset covers the common
+                                // case but misses retries / parallel
+                                // successes that don't go through it.
+                                setFeaturedError(null)
+                              },
                               onError: (err) => {
                                 setFeaturedError(
                                   err instanceof Error
