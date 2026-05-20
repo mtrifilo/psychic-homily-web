@@ -389,6 +389,11 @@ var placeholderSecrets = []string{
 	"your-super-secret-jwt-key-32-chars-minimum",
 }
 
+// minInternalAPISecretLength is the minimum length required for INTERNAL_API_SECRET
+// in deployed environments. It guards the admin-bypass path on the artist
+// Bandcamp/Spotify mutation endpoints against weak or unset secrets.
+const minInternalAPISecretLength = 32
+
 // Validate checks that security-critical secrets are not placeholder defaults.
 // Skips validation only for explicit "development" environment or local database URLs.
 func (c *Config) Validate() error {
@@ -416,6 +421,20 @@ func (c *Config) Validate() error {
 		}
 		if c.OAuth.SecretKey == placeholder {
 			return fmt.Errorf("OAUTH_SECRET_KEY is using a placeholder default; set a unique secret for %s", env)
+		}
+	}
+
+	// The internal API secret bypasses the admin requirement on the artist
+	// Bandcamp/Spotify mutation paths, so a weak or unset value is a privilege
+	// escalation risk in a real deployment. Only enforce for production/stage:
+	// test/CI run with the bypass disabled (an empty secret never matches in
+	// the constant-time compare), so they need not supply it.
+	if env == EnvProduction || env == EnvStage {
+		if len(c.MusicDiscovery.InternalAPISecret) < minInternalAPISecretLength {
+			return fmt.Errorf(
+				"INTERNAL_API_SECRET must be set and at least %d characters for %s",
+				minInternalAPISecretLength, env,
+			)
 		}
 	}
 
