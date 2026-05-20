@@ -20,7 +20,7 @@ type ArtistHandlerIntegrationSuite struct {
 
 func (s *ArtistHandlerIntegrationSuite) SetupSuite() {
 	s.deps = testhelpers.SetupIntegrationDeps(s.T())
-	s.handler = NewArtistHandler(s.deps.ArtistService, s.deps.AuditLogService, nil)
+	s.handler = NewArtistHandler(s.deps.ArtistService, s.deps.AuditLogService, nil, nil)
 }
 
 func (s *ArtistHandlerIntegrationSuite) TearDownTest() {

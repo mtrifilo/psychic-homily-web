@@ -164,22 +164,37 @@ func TestHashEmail(t *testing.T) {
 	}
 }
 
+// buildUserName is a thin wrapper over the canonical shared.ResolveUserName
+// chain (username → first/last → email-prefix), substituting the Discord-only
+// "Not provided" label for the chain's anonymous sentinel. Fixtures set ID: 1
+// because the canonical resolver short-circuits ID-0 users to anonymous, and
+// in production every user reaching this path comes from the DB with a real ID.
 func TestBuildUserName(t *testing.T) {
 	tests := []struct {
 		name string
 		user *authm.User
 		want string
 	}{
-		{"full name", &authm.User{FirstName: stringPtr("John"), LastName: stringPtr("Doe")}, "John Doe"},
-		{"first only", &authm.User{FirstName: stringPtr("Jane")}, "Jane"},
-		{"last only", &authm.User{LastName: stringPtr("Smith")}, "Smith"},
-		{"neither", &authm.User{}, "Not provided"},
-		{"nil user", nil, "N/A"},
-		{"empty strings", &authm.User{FirstName: stringPtr(""), LastName: stringPtr("")}, "Not provided"},
+		// Canonical chain: username wins over first/last and over email.
+		{"prefers username", &authm.User{ID: 1, Username: stringPtr("dj_cool"), FirstName: stringPtr("John"), LastName: stringPtr("Doe"), Email: stringPtr("john@example.com")}, "dj_cool"},
+		{"full name when no username", &authm.User{ID: 1, FirstName: stringPtr("John"), LastName: stringPtr("Doe")}, "John Doe"},
+		{"first only", &authm.User{ID: 1, FirstName: stringPtr("Jane")}, "Jane"},
+		// Email is only ever shown as its local-part (never the full address).
+		{"email prefix, not full email", &authm.User{ID: 1, Email: stringPtr("solo@example.com")}, "solo"},
+		// Chain bottoms out → Discord-specific terminal label.
+		{"neither", &authm.User{ID: 1}, "Not provided"},
+		{"empty strings", &authm.User{ID: 1, FirstName: stringPtr(""), LastName: stringPtr("")}, "Not provided"},
+		{"nil user", nil, "Not provided"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assert.Equal(t, tt.want, buildUserName(tt.user))
+			got := buildUserName(tt.user)
+			assert.Equal(t, tt.want, got)
+			// Regression guard for PSY-760: a raw email address must never
+			// surface as the display string outside the canonical chain.
+			if tt.user != nil && tt.user.Email != nil {
+				assert.NotContains(t, got, "@", "buildUserName must not leak a raw email")
+			}
 		})
 	}
 }
@@ -346,7 +361,10 @@ func TestNotifyNewUser_NilUser(t *testing.T) {
 	assertNoPayload(t, payloads)
 }
 
-func TestNotifyNewUser_NoName(t *testing.T) {
+// PSY-760: a username-less, name-less signup now resolves through the canonical
+// chain's email-prefix step (the local-part only — never the full address). This
+// replaced the old "Not provided" output for users that have an email on file.
+func TestNotifyNewUser_NoName_FallsBackToEmailPrefix(t *testing.T) {
 	svc, payloads, _ := setupDiscordTest(t)
 	email := "anon@example.com"
 	user := &authm.User{ID: 1, Email: &email}
@@ -355,7 +373,22 @@ func TestNotifyNewUser_NoName(t *testing.T) {
 
 	raw := waitForPayload(t, payloads)
 	payload := parseWebhookPayload(t, raw)
-	// Name field should say "Not provided"
+	nameField := payload.Embeds[0].Fields[2]
+	assert.Equal(t, "Name", nameField.Name)
+	assert.Equal(t, "anon", nameField.Value)
+	assert.NotContains(t, nameField.Value, "@", "Discord embed must not leak a raw email")
+}
+
+// "Not provided" is still the terminal label when the canonical chain bottoms
+// out entirely (no username, no name, no usable email).
+func TestNotifyNewUser_NoIdentifiers_NotProvided(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+	user := &authm.User{ID: 1}
+
+	svc.NotifyNewUser(user)
+
+	raw := waitForPayload(t, payloads)
+	payload := parseWebhookPayload(t, raw)
 	nameField := payload.Embeds[0].Fields[2]
 	assert.Equal(t, "Name", nameField.Name)
 	assert.Equal(t, "Not provided", nameField.Value)

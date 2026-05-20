@@ -17,7 +17,6 @@ import (
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/utils"
 )
 
 // ShowHandler handles show-related HTTP requests
@@ -853,34 +852,19 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		return nil, huma.Error422UnprocessableEntity("Summary must be 5000 characters or fewer")
 	}
 
-	// Build updates map for basic show fields
-	updates := make(map[string]interface{})
-	if req.Body.Title != nil {
-		updates["title"] = *req.Body.Title
-	}
-	if req.Body.EventDate != nil {
-		updates["event_date"] = *req.Body.EventDate
-	}
-	if req.Body.City != nil {
-		updates["city"] = *req.Body.City
-	}
-	if req.Body.State != nil {
-		updates["state"] = *req.Body.State
-	}
-	if req.Body.Price != nil {
-		updates["price"] = *req.Body.Price
-	}
-	if req.Body.AgeRequirement != nil {
-		updates["age_requirement"] = *req.Body.AgeRequirement
-	}
-	if req.Body.Description != nil {
-		updates["description"] = *req.Body.Description
-	}
-	if req.Body.TicketURL != nil {
-		updates["ticket_url"] = *req.Body.TicketURL
-	}
-	if req.Body.ImageURL != nil {
-		updates["image_url"] = utils.NilIfEmpty(*req.Body.ImageURL)
+	// Build typed update request for basic show fields. The service writes
+	// only the non-nil fields, converts EventDate to UTC, and normalizes an
+	// empty ImageURL to SQL NULL.
+	serviceUpdates := &contracts.UpdateShowRequest{
+		Title:          req.Body.Title,
+		EventDate:      req.Body.EventDate,
+		City:           req.Body.City,
+		State:          req.Body.State,
+		Price:          req.Body.Price,
+		AgeRequirement: req.Body.AgeRequirement,
+		Description:    req.Body.Description,
+		TicketURL:      req.Body.TicketURL,
+		ImageURL:       req.Body.ImageURL,
 	}
 
 	// Convert venues to service format (nil if not provided)
@@ -914,13 +898,12 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 
 	logger.FromContext(ctx).Debug("show_update_attempt",
 		"show_id", showID,
-		"update_fields", len(updates),
 		"has_venues", serviceVenues != nil,
 		"has_artists", serviceArtists != nil,
 	)
 
 	// Update show using service with relations support (pass admin status for venue verification)
-	show, orphanedArtists, err := h.showService.UpdateShowWithRelations(uint(showID), updates, serviceVenues, serviceArtists, isAdmin)
+	show, orphanedArtists, err := h.showService.UpdateShowWithRelations(uint(showID), serviceUpdates, serviceVenues, serviceArtists, isAdmin)
 	if err != nil {
 		showErr := apperrors.ErrShowUpdateFailed(uint(showID), err)
 		logger.FromContext(ctx).Error("show_update_failed",

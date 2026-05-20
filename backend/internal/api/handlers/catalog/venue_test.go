@@ -82,7 +82,7 @@ func TestGetVenueHandler_OverflowID(t *testing.T) {
 
 func TestUpdateVenueHandler_ZeroID(t *testing.T) {
 	mock := &testhelpers.MockVenueService{
-		UpdateVenueFn: func(venueID uint, _ map[string]interface{}) (*contracts.VenueDetailResponse, error) {
+		UpdateVenueFn: func(venueID uint, _ *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
 			return nil, apperrors.ErrVenueNotFound(venueID)
 		},
 	}
