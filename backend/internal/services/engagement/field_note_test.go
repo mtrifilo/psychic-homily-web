@@ -15,6 +15,7 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/utils"
 )
 
 // =============================================================================
@@ -22,7 +23,7 @@ import (
 // =============================================================================
 
 func TestFieldNote_NilDB(t *testing.T) {
-	svc := NewCommentService(nil)
+	svc := NewCommentService(nil, utils.NewMarkdownRenderer())
 
 	t.Run("CreateFieldNote_NilDB", func(t *testing.T) {
 		_, err := svc.CreateFieldNote(1, &contracts.CreateFieldNoteRequest{
@@ -148,7 +149,7 @@ type FieldNoteIntegrationTestSuite struct {
 func (suite *FieldNoteIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
-	suite.commentService = NewCommentService(suite.testDB.DB)
+	suite.commentService = NewCommentService(suite.testDB.DB, utils.NewMarkdownRenderer())
 }
 
 func (suite *FieldNoteIntegrationTestSuite) TearDownSuite() {

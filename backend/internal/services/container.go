@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	usersvc "psychic-homily-backend/internal/services/user"
+	"psychic-homily-backend/internal/utils"
 )
 
 // ServiceContainer eagerly creates all services once at startup.
@@ -140,7 +141,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 
 	// PSY-289: wire the comment notifier into the comment service so new
 	// comments fan out notification emails fire-and-forget.
-	commentSvc := engagement.NewCommentService(database)
+	commentSvc := engagement.NewCommentService(database, utils.NewMarkdownRenderer())
 	commentNotificationSvc := engagement.NewCommentNotificationService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL)
 	commentSvc.SetNotifier(commentNotificationSvc)
 

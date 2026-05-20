@@ -242,3 +242,113 @@ func TestValidateFieldChangeValue_ImageURLLargerCap(t *testing.T) {
 	err := ValidateFieldChangeValue("image_url", too2049)
 	testhelpers.AssertHumaError(t, err, 422)
 }
+
+// ============================================================================
+// ValidateURLField — PSY-747: collection cover_image_url, release
+// cover_art_url, show ticket_url (typed *string boundary).
+// ============================================================================
+
+func TestValidateURLField_NilAndEmptyPass(t *testing.T) {
+	for _, field := range []string{"cover_image_url", "cover_art_url", "ticket_url"} {
+		t.Run(field, func(t *testing.T) {
+			if err := ValidateURLField(field, nil); err != nil {
+				t.Errorf("nil should pass, got: %v", err)
+			}
+			if err := ValidateURLField(field, PtrString("")); err != nil {
+				t.Errorf("empty string should pass, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateURLField_UnknownFieldPasses(t *testing.T) {
+	// A field name not in urlFieldSpecs degrades to no-op rather than crashing.
+	if err := ValidateURLField("not_a_url_field", PtrString("javascript:alert(1)")); err != nil {
+		t.Errorf("unknown field should pass, got: %v", err)
+	}
+}
+
+func TestValidateURLField_AcceptsValidHTTPAndHTTPS(t *testing.T) {
+	cases := []struct{ field, value string }{
+		{"cover_image_url", "https://example.com/cover.jpg"},
+		{"cover_image_url", "http://example.com/cover.jpg"},
+		{"cover_art_url", "https://example.com/art.png"},
+		{"ticket_url", "https://tickets.example.com/event/1"},
+	}
+	for _, c := range cases {
+		t.Run(c.field+"="+c.value, func(t *testing.T) {
+			if err := ValidateURLField(c.field, PtrString(c.value)); err != nil {
+				t.Errorf("valid URL should pass, got: %v", err)
+			}
+		})
+	}
+}
+
+func TestValidateURLField_RejectsJavaScriptScheme(t *testing.T) {
+	for _, field := range []string{"cover_image_url", "cover_art_url", "ticket_url"} {
+		t.Run(field, func(t *testing.T) {
+			err := ValidateURLField(field, PtrString("javascript:alert(1)"))
+			testhelpers.AssertHumaError(t, err, 422)
+		})
+	}
+}
+
+func TestValidateURLField_RejectsDataScheme(t *testing.T) {
+	for _, field := range []string{"cover_image_url", "cover_art_url", "ticket_url"} {
+		t.Run(field, func(t *testing.T) {
+			err := ValidateURLField(field, PtrString("data:text/html,<script>alert(1)</script>"))
+			testhelpers.AssertHumaError(t, err, 422)
+		})
+	}
+}
+
+func TestValidateURLField_RejectsLengthExceeded(t *testing.T) {
+	// ticket_url cap is 500; build a 501-char URL.
+	base := "https://tickets.example.com/"
+	long := base + strings.Repeat("a", 501-len(base)+1)
+	err := ValidateURLField("ticket_url", PtrString(long))
+	testhelpers.AssertHumaError(t, err, 422)
+	var he *huma.ErrorModel
+	errors.As(err, &he)
+	if !strings.Contains(he.Detail, "500") {
+		t.Errorf("expected error to mention 500 char cap, got: %s", he.Detail)
+	}
+}
+
+// ============================================================================
+// URLSchemeError — PSY-747: the huma Resolve()-style path (show ticket_url
+// create), which collects field-level *huma.ErrorDetail with a Location.
+// ============================================================================
+
+func TestURLSchemeError_ValidAndEmptyReturnNil(t *testing.T) {
+	if err := URLSchemeError("ticket_url", ""); err != nil {
+		t.Errorf("empty should return nil, got: %v", err)
+	}
+	if err := URLSchemeError("ticket_url", "https://tickets.example.com/1"); err != nil {
+		t.Errorf("valid URL should return nil, got: %v", err)
+	}
+	if err := URLSchemeError("not_a_url_field", "javascript:alert(1)"); err != nil {
+		t.Errorf("unknown field should return nil, got: %v", err)
+	}
+}
+
+func TestURLSchemeError_RejectsNonHTTPScheme(t *testing.T) {
+	// Returns a plain (unwrapped) error so the Resolve() caller can wrap it as
+	// an *huma.ErrorDetail with a Location.
+	err := URLSchemeError("ticket_url", "javascript:alert(1)")
+	if err == nil {
+		t.Fatal("expected error for javascript: scheme, got nil")
+	}
+	if _, isHuma := err.(huma.StatusError); isHuma {
+		t.Errorf("expected a plain error (not huma StatusError), got: %T", err)
+	}
+}
+
+func TestURLSchemeError_RejectsLengthExceeded(t *testing.T) {
+	base := "https://tickets.example.com/"
+	long := base + strings.Repeat("a", 501-len(base)+1)
+	err := URLSchemeError("ticket_url", long)
+	if err == nil || !strings.Contains(err.Error(), "500") {
+		t.Errorf("expected 500-char cap error, got: %v", err)
+	}
+}
