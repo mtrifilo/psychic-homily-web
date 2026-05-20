@@ -238,7 +238,6 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 		for _, venueName := range venueNames {
 			var existingShows []catalogm.Show
 
-			// Query for shows at the same exact event_date with the same headliner and venue
 			err := tx.Table("shows").
 				Joins("JOIN show_artists ON shows.id = show_artists.show_id").
 				Joins("JOIN artists ON show_artists.artist_id = artists.id").
