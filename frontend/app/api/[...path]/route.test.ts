@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 import * as Sentry from '@sentry/nextjs'
+import { cookies } from 'next/headers'
 import { GET, POST, PUT, DELETE, PATCH, OPTIONS } from './route'
 
 // Mock Sentry so capture calls are observable and never hit the network.
@@ -13,8 +14,6 @@ vi.mock('@sentry/nextjs', () => ({
 vi.mock('next/headers', () => ({
   cookies: vi.fn(),
 }))
-
-import { cookies } from 'next/headers'
 
 const mockCookies = vi.mocked(cookies)
 
@@ -46,7 +45,7 @@ let fetchSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
   vi.clearAllMocks()
-  setAuthToken() // default: no auth cookie
+  setAuthToken()
   fetchSpy = vi.spyOn(globalThis, 'fetch')
 })
 
@@ -69,7 +68,6 @@ describe('api/[...path] proxy route', () => {
       const [calledUrl, init] = fetchSpy.mock.calls[0]
       expect(calledUrl).toBe(`${BACKEND}/shows?city=phoenix&page=2`)
       expect(init?.method).toBe('GET')
-      // GET must not forward a body.
       expect(init?.body).toBeUndefined()
     })
 
@@ -185,7 +183,7 @@ describe('api/[...path] proxy route', () => {
 
       const init = fetchSpy.mock.calls[0][1]
       expect(init?.method).toBe('DELETE')
-      // A bodyless DELETE forwards an empty string (await request.text()).
+      // request.text() yields '' for a bodyless request, so '' is forwarded.
       expect(init?.body).toBe('')
     })
   })
