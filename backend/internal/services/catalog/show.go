@@ -382,11 +382,11 @@ func (s *ShowService) GetUserSubmissions(userID uint, limit, offset int) ([]cont
 // UpdateShow updates an existing show (basic fields only)
 // showUpdatesToMap translates a typed UpdateShowRequest into a GORM update
 // map. Only non-nil fields are written so omitted fields stay unchanged.
-// EventDate is normalized to UTC before storing (PSY-576 keeps the
-// denormalized show_artists.event_date in sync downstream); ImageURL is
-// nullable and normalizes empty input to SQL NULL. The remaining fields are
-// written verbatim to preserve prior handler behavior. A nil req yields an
-// empty map (used by the relations path when only associations change).
+// EventDate is normalized to UTC before storing so the denormalized
+// show_artists.event_date stays in sync downstream; ImageURL is nullable and
+// normalizes empty input to SQL NULL. The remaining fields are written
+// verbatim to preserve prior handler behavior. A nil req yields an empty map
+// (used by the relations path when only associations change).
 func showUpdatesToMap(req *contracts.UpdateShowRequest) map[string]interface{} {
 	updates := map[string]interface{}{}
 	if req == nil {

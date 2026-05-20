@@ -434,7 +434,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		oldVenue, _ = h.venueService.GetVenue(uint(venueID))
 	}
 
-	// Image URL length + scheme already validated above (PSY-525); the service
+	// Image URL length + scheme already validated above; the service
 	// normalizes empty Description/ImageURL to SQL NULL.
 	serviceReq := &contracts.UpdateVenueRequest{
 		Name:        req.Body.Name,

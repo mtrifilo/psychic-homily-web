@@ -491,10 +491,7 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 
 	// Always write the embed column; an empty string clears it (the service
 	// normalizes empty input to SQL NULL).
-	embedValue := ""
-	if req.Body.BandcampEmbedURL != nil {
-		embedValue = *req.Body.BandcampEmbedURL
-	}
+	embedValue := shared.Deref(req.Body.BandcampEmbedURL)
 	serviceReq := &contracts.UpdateArtistRequest{
 		BandcampEmbedURL: &embedValue,
 	}
@@ -631,10 +628,7 @@ func (h *ArtistHandler) UpdateArtistSpotifyHandler(ctx context.Context, req *Upd
 
 	// Always write the spotify column; an empty string clears it (the service
 	// normalizes empty input to SQL NULL).
-	spotifyValue := ""
-	if req.Body.SpotifyURL != nil {
-		spotifyValue = *req.Body.SpotifyURL
-	}
+	spotifyValue := shared.Deref(req.Body.SpotifyURL)
 	serviceReq := &contracts.UpdateArtistRequest{
 		Spotify: &spotifyValue,
 	}
