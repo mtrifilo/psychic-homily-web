@@ -24,7 +24,6 @@ describe('SoundCloud', () => {
 
   it('omits the attribution block when neither artist nor title is set', () => {
     const { container } = render(<SoundCloud url={PLAYER_URL} />)
-    // Only the iframe child should exist inside the wrapper div.
     const wrapper = container.querySelector('div.mb-6')
     expect(wrapper?.childElementCount).toBe(1)
     expect(wrapper?.firstElementChild?.tagName).toBe('IFRAME')
