@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useRef } from 'react'
+import { Suspense, useEffect } from 'react'
 import { usePathname, useSearchParams } from 'next/navigation'
 import { useCookieConsent } from '@/lib/context/CookieConsentContext'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -29,17 +29,18 @@ function PostHogPageView() {
 export function PostHogProvider({ children }: { children: React.ReactNode }) {
   const { canUseAnalytics, isLoaded } = useCookieConsent()
   const { user, isAuthenticated } = useAuthContext()
-  const prevConsent = useRef<boolean | null>(null)
 
   // Initialize on mount (doesn't start tracking)
   useEffect(() => {
     initPostHog()
   }, [])
 
-  // Handle consent changes
+  // Sync PostHog's opt-in state to consent. Comparing against PostHog's own
+  // persisted state (rather than a per-mount ref) avoids re-firing opt-in +
+  // session recording on every page load when the user is already opted in.
   useEffect(() => {
-    if (!isLoaded || prevConsent.current === canUseAnalytics) return
-    prevConsent.current = canUseAnalytics
+    if (!isLoaded) return
+    if (canUseAnalytics === posthog.has_opted_in_capturing()) return
     canUseAnalytics ? optInPostHog() : optOutPostHog()
   }, [canUseAnalytics, isLoaded])
 
