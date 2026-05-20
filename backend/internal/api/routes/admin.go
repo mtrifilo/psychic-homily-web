@@ -26,7 +26,7 @@ func setupAdminRoutes(rc RouteContext) {
 	dataHandler := adminh.NewAdminDataHandler(rc.SC.DataSync)
 	discoveryHandler := pipelineh.NewAdminDiscoveryHandler(rc.SC.Discovery)
 
-	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
+	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision, rc.Cfg)
 	auditLogHandler := adminh.NewAuditLogHandler(rc.SC.AuditLog)
 
 	// Admin dashboard stats endpoint
