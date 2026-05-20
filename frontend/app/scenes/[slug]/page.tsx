@@ -1,4 +1,5 @@
 import { Suspense } from 'react'
+import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import { SceneDetailView } from '@/features/scenes'
 
@@ -41,16 +42,7 @@ export default async function ScenePage({ params }: ScenePageProps) {
   const { slug } = await params
 
   if (!slug) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Invalid Scene</h1>
-          <p className="text-muted-foreground">
-            The scene could not be found.
-          </p>
-        </div>
-      </div>
-    )
+    notFound()
   }
 
   return (
