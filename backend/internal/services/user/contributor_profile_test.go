@@ -87,6 +87,41 @@ func TestValidatePrivacySettings(t *testing.T) {
 	})
 }
 
+// TestBuildSectionResponse_RendersContentHTML verifies PSY-747: the profile
+// section response exposes Content rendered to sanitized HTML in ContentHTML
+// while preserving the raw markdown in Content for edit round-tripping.
+func TestBuildSectionResponse_RendersContentHTML(t *testing.T) {
+	t.Run("RendersMarkdownToHTML", func(t *testing.T) {
+		section := &authm.UserProfileSection{
+			ID:      1,
+			Title:   "About",
+			Content: "I like **post-punk** and [shows](https://example.com).",
+		}
+		resp := buildSectionResponse(section)
+
+		// Raw markdown preserved for edit forms.
+		assert.Equal(t, "I like **post-punk** and [shows](https://example.com).", resp.Content)
+		// Rendered HTML carries the bold + link markup.
+		assert.Contains(t, resp.ContentHTML, "<strong>post-punk</strong>")
+		assert.Contains(t, resp.ContentHTML, `href="https://example.com"`)
+	})
+
+	t.Run("SanitizesScriptTags", func(t *testing.T) {
+		section := &authm.UserProfileSection{
+			Content: "Hello <script>alert('xss')</script> world",
+		}
+		resp := buildSectionResponse(section)
+
+		assert.NotContains(t, resp.ContentHTML, "<script>")
+		assert.NotContains(t, resp.ContentHTML, "alert('xss')")
+	})
+
+	t.Run("EmptyContentYieldsEmptyHTML", func(t *testing.T) {
+		resp := buildSectionResponse(&authm.UserProfileSection{Content: ""})
+		assert.Empty(t, resp.ContentHTML)
+	})
+}
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================

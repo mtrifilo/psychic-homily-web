@@ -14,7 +14,14 @@ import (
 	communitym "psychic-homily-backend/internal/models/community"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
+
+// profileMarkdown renders profile-section Content to sanitized HTML. The
+// renderer is stateless after construction (goldmark + bluemonday), so a single
+// package-level instance is shared by the package-level buildSectionResponse
+// helpers — same policy used by tag/collection descriptions (PSY-747).
+var profileMarkdown = utils.NewMarkdownRenderer()
 
 // ContributorProfileService handles contributor profile and contribution history operations.
 type ContributorProfileService struct {
@@ -724,13 +731,14 @@ func buildSectionResponses(sections []authm.UserProfileSection) []*contracts.Pro
 
 func buildSectionResponse(section *authm.UserProfileSection) *contracts.ProfileSectionResponse {
 	return &contracts.ProfileSectionResponse{
-		ID:        section.ID,
-		Title:     section.Title,
-		Content:   section.Content,
-		Position:  section.Position,
-		IsVisible: section.IsVisible,
-		CreatedAt: section.CreatedAt,
-		UpdatedAt: section.UpdatedAt,
+		ID:          section.ID,
+		Title:       section.Title,
+		Content:     section.Content,
+		ContentHTML: profileMarkdown.Render(section.Content),
+		Position:    section.Position,
+		IsVisible:   section.IsVisible,
+		CreatedAt:   section.CreatedAt,
+		UpdatedAt:   section.UpdatedAt,
 	}
 }
 

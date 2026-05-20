@@ -20,9 +20,9 @@ Sentry.init({
   integrations: [
     Sentry.replayIntegration({
       // Mask all text for privacy
-      maskAllText: false,
-      // Block all media for performance
-      blockAllMedia: false,
+      maskAllText: true,
+      // Block all media for privacy
+      blockAllMedia: true,
     }),
   ],
 })
