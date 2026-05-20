@@ -243,7 +243,7 @@ describe('ReleaseManagement', () => {
     })
     renderWithProviders(<ReleaseManagement />)
 
-    // The pencil icon button is the first action button on the row.
+    // Row actions are icon-only buttons; identify edit by its lucide glyph.
     const editButtons = screen.getAllByRole('button')
     const pencil = editButtons.find((b) =>
       b.querySelector('.lucide-pencil')
