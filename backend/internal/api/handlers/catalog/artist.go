@@ -2,9 +2,9 @@ package catalog
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -12,35 +12,46 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/utils"
 )
-
-// isInternalServiceRequest checks if the request has a valid internal service secret
-func isInternalServiceRequest(ctx huma.Context) bool {
-	internalSecret := os.Getenv("INTERNAL_API_SECRET")
-	if internalSecret == "" {
-		return false
-	}
-	requestSecret := ctx.Header("X-Internal-Secret")
-	return requestSecret == internalSecret
-}
 
 type ArtistHandler struct {
 	artistService   contracts.ArtistServiceInterface
 	auditLogService contracts.AuditLogServiceInterface
 	revisionService contracts.RevisionServiceInterface
+	// internalSecret is the configured INTERNAL_API_SECRET, loaded once at
+	// startup. The artist Bandcamp/Spotify mutation endpoints accept it as an
+	// admin bypass for the discovery backfill bot.
+	internalSecret string
 }
 
-func NewArtistHandler(artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface) *ArtistHandler {
+func NewArtistHandler(artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface, cfg *config.Config) *ArtistHandler {
+	var internalSecret string
+	if cfg != nil {
+		internalSecret = cfg.MusicDiscovery.InternalAPISecret
+	}
 	return &ArtistHandler{
 		artistService:   artistService,
 		auditLogService: auditLogService,
 		revisionService: revisionService,
+		internalSecret:  internalSecret,
 	}
+}
+
+// matchesInternalSecret reports whether the request-supplied secret matches the
+// configured internal API secret. The comparison is constant-time to avoid a
+// timing oracle: these endpoints are mounted on rc.Protected (not rc.Admin)
+// because a match grants an admin-equivalent bypass. An empty configured secret
+// never matches, so the bypass is disabled when INTERNAL_API_SECRET is unset.
+func (h *ArtistHandler) matchesInternalSecret(provided string) bool {
+	if h.internalSecret == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(h.internalSecret)) == 1
 }
 
 // SearchArtistsRequest represents the autocomplete search request
@@ -440,8 +451,7 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 
 	// Check for internal service request (automated discovery)
 	isInternalRequest := false
-	internalSecret := os.Getenv("INTERNAL_API_SECRET")
-	if internalSecret != "" && req.InternalSecret == internalSecret {
+	if h.matchesInternalSecret(req.InternalSecret) {
 		isInternalRequest = true
 		logger.FromContext(ctx).Info("internal_service_request",
 			"endpoint", "update_artist_bandcamp",
@@ -490,29 +500,29 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 		"is_internal", isInternalRequest,
 	)
 
-	// Prepare updates - if URL is empty string, set to nil to clear the field
-	var bandcampURL *string
-	if req.Body.BandcampEmbedURL != nil && *req.Body.BandcampEmbedURL != "" {
-		bandcampURL = req.Body.BandcampEmbedURL
+	// Always write the embed column; an empty string clears it (the service
+	// normalizes empty input to SQL NULL).
+	embedValue := shared.Deref(req.Body.BandcampEmbedURL)
+	serviceReq := &contracts.UpdateArtistRequest{
+		BandcampEmbedURL: &embedValue,
 	}
 
-	updates := map[string]interface{}{
-		"bandcamp_embed_url": bandcampURL,
-	}
-
-	// Also set the social bandcamp profile URL from the embed URL
-	if bandcampURL != nil {
+	// Mirror the embed URL into the social bandcamp profile URL.
+	if embedValue != "" {
 		// Extract profile URL: https://artist.bandcamp.com/album/name → https://artist.bandcamp.com
-		if idx := strings.Index(*bandcampURL, ".bandcamp.com"); idx != -1 {
-			profileURL := (*bandcampURL)[:idx+len(".bandcamp.com")]
-			updates["bandcamp"] = profileURL
+		if idx := strings.Index(embedValue, ".bandcamp.com"); idx != -1 {
+			profileURL := embedValue[:idx+len(".bandcamp.com")]
+			serviceReq.Bandcamp = &profileURL
 		}
+		// If the URL lacks a bandcamp.com host the social link is left
+		// unchanged (Bandcamp stays nil — no write).
 	} else {
-		// Clear the social bandcamp link when clearing the embed URL
-		updates["bandcamp"] = nil
+		// Clear the social bandcamp link when clearing the embed URL.
+		empty := ""
+		serviceReq.Bandcamp = &empty
 	}
 
-	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
+	artist, err := h.artistService.UpdateArtist(uint(artistID), serviceReq)
 	if err != nil {
 		var artistErr *apperrors.ArtistError
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
@@ -577,8 +587,7 @@ func (h *ArtistHandler) UpdateArtistSpotifyHandler(ctx context.Context, req *Upd
 
 	// Check for internal service request (automated discovery)
 	isInternalRequest := false
-	internalSecret := os.Getenv("INTERNAL_API_SECRET")
-	if internalSecret != "" && req.InternalSecret == internalSecret {
+	if h.matchesInternalSecret(req.InternalSecret) {
 		isInternalRequest = true
 		logger.FromContext(ctx).Info("internal_service_request",
 			"endpoint", "update_artist_spotify",
@@ -627,17 +636,14 @@ func (h *ArtistHandler) UpdateArtistSpotifyHandler(ctx context.Context, req *Upd
 		"is_internal", isInternalRequest,
 	)
 
-	// Prepare updates - if URL is empty string, set to nil to clear the field
-	var spotifyURL *string
-	if req.Body.SpotifyURL != nil && *req.Body.SpotifyURL != "" {
-		spotifyURL = req.Body.SpotifyURL
+	// Always write the spotify column; an empty string clears it (the service
+	// normalizes empty input to SQL NULL).
+	spotifyValue := shared.Deref(req.Body.SpotifyURL)
+	serviceReq := &contracts.UpdateArtistRequest{
+		Spotify: &spotifyValue,
 	}
 
-	updates := map[string]interface{}{
-		"spotify": spotifyURL,
-	}
-
-	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
+	artist, err := h.artistService.UpdateArtist(uint(artistID), serviceReq)
 	if err != nil {
 		var artistErr *apperrors.ArtistError
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
@@ -738,6 +744,26 @@ func (h *ArtistHandler) DeleteArtistHandler(ctx context.Context, req *DeleteArti
 // Admin Update Artist
 // ============================================================================
 
+// hasArtistUpdateFields reports whether the request carries at least one field
+// to update. The admin endpoint rejects an empty PATCH with 422 rather than
+// issuing a no-op write.
+func hasArtistUpdateFields(req *contracts.UpdateArtistRequest) bool {
+	return req.Name != nil ||
+		req.State != nil ||
+		req.City != nil ||
+		req.Country != nil ||
+		req.Description != nil ||
+		req.BandcampEmbedURL != nil ||
+		req.Instagram != nil ||
+		req.Facebook != nil ||
+		req.Twitter != nil ||
+		req.YouTube != nil ||
+		req.Spotify != nil ||
+		req.SoundCloud != nil ||
+		req.Bandcamp != nil ||
+		req.Website != nil
+}
+
 // AdminUpdateArtistRequest represents the request for updating an artist (admin only)
 type AdminUpdateArtistRequest struct {
 	ArtistID string `path:"artist_id" validate:"required" doc:"Artist ID"`
@@ -800,54 +826,35 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 		oldArtist, _ = h.artistService.GetArtist(uint(artistID))
 	}
 
-	// Build updates map with only provided fields
-	updates := map[string]interface{}{}
-
+	// Trim the name at the boundary; the service applies the uniqueness guard
+	// and slug regeneration, and normalizes the remaining nullable fields'
+	// empty values to SQL NULL.
+	var trimmedName *string
 	if req.Body.Name != nil {
-		updates["name"] = strings.TrimSpace(*req.Body.Name)
+		trimmed := strings.TrimSpace(*req.Body.Name)
+		trimmedName = &trimmed
 	}
-	if req.Body.City != nil {
-		updates["city"] = utils.NilIfEmpty(*req.Body.City)
-	}
-	if req.Body.State != nil {
-		updates["state"] = utils.NilIfEmpty(*req.Body.State)
-	}
-	if req.Body.Country != nil {
-		updates["country"] = utils.NilIfEmpty(*req.Body.Country)
-	}
-	if req.Body.Instagram != nil {
-		updates["instagram"] = utils.NilIfEmpty(*req.Body.Instagram)
-	}
-	if req.Body.Facebook != nil {
-		updates["facebook"] = utils.NilIfEmpty(*req.Body.Facebook)
-	}
-	if req.Body.Twitter != nil {
-		updates["twitter"] = utils.NilIfEmpty(*req.Body.Twitter)
-	}
-	if req.Body.Youtube != nil {
-		updates["youtube"] = utils.NilIfEmpty(*req.Body.Youtube)
-	}
-	if req.Body.Spotify != nil {
-		updates["spotify"] = utils.NilIfEmpty(*req.Body.Spotify)
-	}
-	if req.Body.Soundcloud != nil {
-		updates["soundcloud"] = utils.NilIfEmpty(*req.Body.Soundcloud)
-	}
-	if req.Body.Bandcamp != nil {
-		updates["bandcamp"] = utils.NilIfEmpty(*req.Body.Bandcamp)
-	}
-	if req.Body.Website != nil {
-		updates["website"] = utils.NilIfEmpty(*req.Body.Website)
-	}
-	if req.Body.Description != nil {
-		updates["description"] = utils.NilIfEmpty(*req.Body.Description)
+	serviceReq := &contracts.UpdateArtistRequest{
+		Name:        trimmedName,
+		City:        req.Body.City,
+		State:       req.Body.State,
+		Country:     req.Body.Country,
+		Description: req.Body.Description,
+		Instagram:   req.Body.Instagram,
+		Facebook:    req.Body.Facebook,
+		Twitter:     req.Body.Twitter,
+		YouTube:     req.Body.Youtube,
+		Spotify:     req.Body.Spotify,
+		SoundCloud:  req.Body.Soundcloud,
+		Bandcamp:    req.Body.Bandcamp,
+		Website:     req.Body.Website,
 	}
 
-	if len(updates) == 0 {
+	if !hasArtistUpdateFields(serviceReq) {
 		return nil, huma.Error422UnprocessableEntity("No fields to update")
 	}
 
-	artist, err := h.artistService.UpdateArtist(uint(artistID), updates)
+	artist, err := h.artistService.UpdateArtist(uint(artistID), serviceReq)
 	if err != nil {
 		var artistErr *apperrors.ArtistError
 		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {

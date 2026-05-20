@@ -169,7 +169,7 @@ func (s *stubVenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailRe
 func (s *stubVenueService) GetVenues(filters map[string]interface{}) ([]*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
-func (s *stubVenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*contracts.VenueDetailResponse, error) {
+func (s *stubVenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
 	panic("not implemented")
 }
 func (s *stubVenueService) DeleteVenue(venueID uint) error { panic("not implemented") }

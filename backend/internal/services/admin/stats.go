@@ -14,6 +14,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // AdminStatsService handles admin dashboard statistics
@@ -161,7 +162,7 @@ func (s *AdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResponse
 			Timestamp:   log.CreatedAt,
 		}
 		if log.Actor != nil {
-			event.ActorName = resolveActorName(log.Actor)
+			event.ActorName = shared.ResolveUserName(log.Actor)
 		}
 		event.EntitySlug = s.resolveEntitySlug(log.EntityType, log.EntityID)
 		events = append(events, event)
@@ -179,7 +180,7 @@ func (s *AdminStatsService) GetRecentActivity() (*contracts.ActivityFeedResponse
 			Timestamp:   log.CreatedAt,
 		}
 		if log.Actor != nil {
-			event.ActorName = resolveActorName(log.Actor)
+			event.ActorName = shared.ResolveUserName(log.Actor)
 		}
 		event.EntitySlug = s.resolveEntitySlug(log.EntityType, log.EntityID)
 		events = append(events, event)
@@ -335,20 +336,6 @@ func normalizeEntityType(entityType string) string {
 		return normalized
 	}
 	return entityType
-}
-
-// resolveActorName returns a display name from a User model.
-func resolveActorName(user *authm.User) string {
-	if user.FirstName != nil && user.LastName != nil && *user.FirstName != "" {
-		return *user.FirstName + " " + *user.LastName
-	}
-	if user.Username != nil && *user.Username != "" {
-		return *user.Username
-	}
-	if user.Email != nil && *user.Email != "" {
-		return *user.Email
-	}
-	return "Unknown"
 }
 
 // resolveEntitySlug looks up the slug for an entity. Returns empty string if not found.
