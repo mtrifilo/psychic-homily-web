@@ -215,13 +215,18 @@ type PublicProfileResponse struct {
 
 // ProfileSectionResponse represents a profile section in API responses.
 type ProfileSectionResponse struct {
-	ID        uint      `json:"id"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	Position  int       `json:"position"`
-	IsVisible bool      `json:"is_visible"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID    uint   `json:"id"`
+	Title string `json:"title"`
+	// Content is the raw markdown source, preserved for edit-form round-tripping.
+	Content string `json:"content"`
+	// ContentHTML is Content rendered to sanitized HTML (goldmark + bluemonday),
+	// mirroring tag/collection descriptions (PSY-747). Read this for display;
+	// keep Content for editing. Omitted when Content is empty.
+	ContentHTML string    `json:"content_html,omitempty"`
+	Position    int       `json:"position"`
+	IsVisible   bool      `json:"is_visible"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // ActivityDay represents a single day's contribution count for the activity heatmap.
