@@ -607,6 +607,42 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_Duplicate() {
 	suite.Contains(result.Shows.Messages[0], "DUPLICATE")
 }
 
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_SameDayDifferentTime_NotDuplicate() {
+	// A matinee and an evening show with the same title+venue on the same calendar
+	// day differ only in time-of-day. They are distinct shows, not duplicates: the
+	// dedup gate keys on the full event_date timestamp, so the second import must be
+	// created rather than skipped.
+	venue := suite.createVenue("Matinee Venue", "NYC", "NY", true)
+	day := time.Date(2025, 6, 15, 0, 0, 0, 0, time.UTC)
+	matinee := day.Add(15 * time.Hour) // 15:00 UTC
+	evening := day.Add(21 * time.Hour) // 21:00 UTC
+	existing := suite.createShow("Same Day Show", matinee, catalogm.ShowStatusApproved, venue)
+
+	result, err := suite.service.ImportData(contracts.DataImportRequest{
+		Shows: []contracts.ExportedShow{
+			{
+				Title:     "Same Day Show",
+				EventDate: evening.Format(time.RFC3339),
+				Status:    "approved",
+				Venues:    []contracts.ExportedVenue{{Name: "Matinee Venue", City: "NYC", State: "NY"}},
+			},
+		},
+	})
+	suite.Require().NoError(err)
+	suite.Equal(1, result.Shows.Imported)
+	suite.Equal(0, result.Shows.Duplicates)
+
+	// Both the matinee and the newly imported evening show persist as distinct rows.
+	var count int64
+	suite.db.Model(&catalogm.Show{}).Where("title = ?", "Same Day Show").Count(&count)
+	suite.Equal(int64(2), count)
+
+	var eveningShow catalogm.Show
+	err = suite.db.Where("title = ? AND event_date = ?", "Same Day Show", evening).First(&eveningShow).Error
+	suite.Require().NoError(err)
+	suite.NotEqual(existing.ID, eveningShow.ID)
+}
+
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportShow_DuplicateBackfillSlugs() {
 	// Create entities without slugs
 	venue := &catalogm.Venue{Name: "No Slug Venue", City: "NYC", State: "NY", Verified: true}
