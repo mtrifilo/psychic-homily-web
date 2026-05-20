@@ -221,8 +221,9 @@ export function VenueCard({ venue }: VenueCardProps) {
         </div>
       )}
 
-      {/* Venue Edit Form Dialog */}
+      {/* `key={venue.id}` is required by VenueEditForm — see its doc comment. */}
       <VenueEditForm
+        key={venue.id}
         venue={venue}
         open={isEditingVenue}
         onOpenChange={setIsEditingVenue}
