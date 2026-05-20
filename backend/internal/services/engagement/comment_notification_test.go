@@ -16,6 +16,7 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/utils"
 )
 
 // =============================================================================
@@ -321,7 +322,7 @@ func (s *CommentNotificationServiceIntegrationSuite) TearDownSuite() {
 func (s *CommentNotificationServiceIntegrationSuite) SetupTest() {
 	s.mock = &captureEmailService{configured: true}
 	s.svc = NewCommentNotificationService(s.db, s.mock, "test-secret", "http://localhost:3000")
-	s.comment = NewCommentService(s.db)
+	s.comment = NewCommentService(s.db, utils.NewMarkdownRenderer())
 }
 
 func (s *CommentNotificationServiceIntegrationSuite) TearDownTest() {
