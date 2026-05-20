@@ -202,6 +202,32 @@ func TestOAuthLoginHTTPHandler_CLICallbackStored(t *testing.T) {
 	}
 }
 
+func TestOAuthLoginHTTPHandler_CLICallbackRejected_400(t *testing.T) {
+	defer cleanCLICallbackStore()
+
+	handler := NewOAuthHTTPHandler(nil, nil)
+
+	req := httptest.NewRequest("GET", "/auth/login/google?cli_callback=https://evil.com/steal", nil)
+	w := httptest.NewRecorder()
+
+	rctx := chi.NewRouteContext()
+	rctx.URLParams.Add("provider", "google")
+	req = req.WithContext(context.WithValue(req.Context(), chi.RouteCtxKey, rctx))
+
+	handler.OAuthLoginHTTPHandler(w, req)
+
+	if w.Code != http.StatusBadRequest {
+		t.Errorf("expected 400 for off-allowlist cli_callback, got %d", w.Code)
+	}
+
+	// No cookie should be set and nothing stored for a rejected callback.
+	for _, c := range w.Result().Cookies() {
+		if c.Name == "cli_callback_id" {
+			t.Error("expected no cli_callback_id cookie for rejected callback")
+		}
+	}
+}
+
 func TestOAuthLoginHTTPHandler_ValidProvider_GoogleQueryParam(t *testing.T) {
 	// Verify that the handler adds the provider to query params for Goth
 	// (gothic.BeginAuthHandler will fail without registered providers, but

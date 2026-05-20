@@ -2,9 +2,9 @@ package catalog
 
 import (
 	"context"
+	"crypto/subtle"
 	"errors"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 
@@ -12,34 +12,46 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	"psychic-homily-backend/internal/config"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	adminm "psychic-homily-backend/internal/models/admin"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// isInternalServiceRequest checks if the request has a valid internal service secret
-func isInternalServiceRequest(ctx huma.Context) bool {
-	internalSecret := os.Getenv("INTERNAL_API_SECRET")
-	if internalSecret == "" {
-		return false
-	}
-	requestSecret := ctx.Header("X-Internal-Secret")
-	return requestSecret == internalSecret
-}
-
 type ArtistHandler struct {
 	artistService   contracts.ArtistServiceInterface
 	auditLogService contracts.AuditLogServiceInterface
 	revisionService contracts.RevisionServiceInterface
+	// internalSecret is the configured INTERNAL_API_SECRET, loaded once at
+	// startup. The artist Bandcamp/Spotify mutation endpoints accept it as an
+	// admin bypass for the discovery backfill bot.
+	internalSecret string
 }
 
-func NewArtistHandler(artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface) *ArtistHandler {
+func NewArtistHandler(artistService contracts.ArtistServiceInterface, auditLogService contracts.AuditLogServiceInterface, revisionService contracts.RevisionServiceInterface, cfg *config.Config) *ArtistHandler {
+	var internalSecret string
+	if cfg != nil {
+		internalSecret = cfg.MusicDiscovery.InternalAPISecret
+	}
 	return &ArtistHandler{
 		artistService:   artistService,
 		auditLogService: auditLogService,
 		revisionService: revisionService,
+		internalSecret:  internalSecret,
 	}
+}
+
+// matchesInternalSecret reports whether the request-supplied secret matches the
+// configured internal API secret. The comparison is constant-time to avoid a
+// timing oracle: these endpoints are mounted on rc.Protected (not rc.Admin)
+// because a match grants an admin-equivalent bypass. An empty configured secret
+// never matches, so the bypass is disabled when INTERNAL_API_SECRET is unset.
+func (h *ArtistHandler) matchesInternalSecret(provided string) bool {
+	if h.internalSecret == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(provided), []byte(h.internalSecret)) == 1
 }
 
 // SearchArtistsRequest represents the autocomplete search request
@@ -439,8 +451,7 @@ func (h *ArtistHandler) UpdateArtistBandcampHandler(ctx context.Context, req *Up
 
 	// Check for internal service request (automated discovery)
 	isInternalRequest := false
-	internalSecret := os.Getenv("INTERNAL_API_SECRET")
-	if internalSecret != "" && req.InternalSecret == internalSecret {
+	if h.matchesInternalSecret(req.InternalSecret) {
 		isInternalRequest = true
 		logger.FromContext(ctx).Info("internal_service_request",
 			"endpoint", "update_artist_bandcamp",
@@ -576,8 +587,7 @@ func (h *ArtistHandler) UpdateArtistSpotifyHandler(ctx context.Context, req *Upd
 
 	// Check for internal service request (automated discovery)
 	isInternalRequest := false
-	internalSecret := os.Getenv("INTERNAL_API_SECRET")
-	if internalSecret != "" && req.InternalSecret == internalSecret {
+	if h.matchesInternalSecret(req.InternalSecret) {
 		isInternalRequest = true
 		logger.FromContext(ctx).Info("internal_service_request",
 			"endpoint", "update_artist_spotify",

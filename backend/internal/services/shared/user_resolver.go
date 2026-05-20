@@ -20,22 +20,30 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
+// AnonymousUserName is the terminal label ResolveUserName returns when a user
+// has no username, name, or email to resolve (and for nil / ID-0 users).
+//
+// Exported so surfaces that layer their own channel-specific empty-state copy
+// (e.g. a Discord embed's "Not provided") can detect "the chain bottomed out"
+// without re-deriving the chain or hardcoding the sentinel string.
+const AnonymousUserName = "Anonymous"
+
 // ResolveUserName returns the display name for a user. Never empty.
 //
 // Resolution chain, in order:
 //  1. user.Username                            (preferred, also the URL slug)
 //  2. user.FirstName [+ " " + user.LastName]   (human full name)
 //  3. local-part of user.Email (before "@")    (last-resort handle)
-//  4. "Anonymous"                              (terminal fallback)
+//  4. AnonymousUserName                        (terminal fallback)
 //
-// nil-safe: returns "Anonymous" when the user is nil or has ID 0.
+// nil-safe: returns AnonymousUserName when the user is nil or has ID 0.
 //
 // Use this whenever a backend response needs a label for a user. Pair with
 // ResolveUserUsername when you also want a profile-link slug — the username
 // form returns *string so consumers can omit the link when no username is set.
 func ResolveUserName(user *authm.User) string {
 	if user == nil || user.ID == 0 {
-		return "Anonymous"
+		return AnonymousUserName
 	}
 	if user.Username != nil && *user.Username != "" {
 		return *user.Username
@@ -52,7 +60,7 @@ func ResolveUserName(user *authm.User) string {
 			return (*user.Email)[:idx]
 		}
 	}
-	return "Anonymous"
+	return AnonymousUserName
 }
 
 // ResolveUserUsername returns the user's username for /users/:username links,
