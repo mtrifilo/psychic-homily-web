@@ -125,8 +125,10 @@ describe('RadioPlayRow', () => {
     expect(screen.getByText(/\d{1,2}:\d{2}\s?(AM|PM)/)).toBeInTheDocument()
   })
 
-  it('does not render a separator dash when there is no track title', () => {
+  it('omits the track title when it is null', () => {
     render(<RadioPlayRow play={makePlay({ track_title: null })} />)
     expect(screen.queryByText('Sweltering Madness')).not.toBeInTheDocument()
+    // Artist still renders; only the track-title slot (and its leading dash) drop.
+    expect(screen.getByText('Gatecreeper')).toBeInTheDocument()
   })
 })
