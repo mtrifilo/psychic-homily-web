@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
@@ -209,6 +210,12 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 		return nil, huma.Error422UnprocessableEntity("Title is required")
 	}
 
+	// PSY-747: reject non-http/https cover art URLs (e.g. javascript:, data:)
+	// and cap length.
+	if err := shared.ValidateURLField("cover_art_url", req.Body.CoverArtURL); err != nil {
+		return nil, err
+	}
+
 	// Convert handler types to service types
 	artists := make([]contracts.CreateReleaseArtistEntry, len(req.Body.Artists))
 	for i, a := range req.Body.Artists {
@@ -295,6 +302,12 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 	// Resolve release ID
 	releaseID, err := h.resolveReleaseID(req.ReleaseID)
 	if err != nil {
+		return nil, err
+	}
+
+	// PSY-747: reject non-http/https cover art URLs (e.g. javascript:, data:)
+	// and cap length.
+	if err := shared.ValidateURLField("cover_art_url", req.Body.CoverArtURL); err != nil {
 		return nil, err
 	}
 

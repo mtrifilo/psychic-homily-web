@@ -15,6 +15,7 @@ import (
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/utils"
 )
 
 // Discord embed colors
@@ -426,10 +427,13 @@ func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 
 	resp, err := s.httpClient.Post(s.webhookURL, "application/json", bytes.NewBuffer(jsonPayload))
 	if err != nil {
+		// Redact before capture: the webhook URL carries a secret token in its
+		// path, and net/http's *url.Error embeds the full URL in its message.
+		redacted := utils.RedactErrorURL(err)
 		sentry.WithScope(func(scope *sentry.Scope) {
 			scope.SetTag("service", "discord")
 			scope.SetExtra("embed_title", embed.Title)
-			sentry.CaptureException(fmt.Errorf("discord webhook failed: %w", err))
+			sentry.CaptureException(fmt.Errorf("discord webhook failed: %w", redacted))
 		})
 		return
 	}

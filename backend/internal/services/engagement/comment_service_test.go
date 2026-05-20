@@ -15,6 +15,7 @@ import (
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
+	"psychic-homily-backend/internal/utils"
 )
 
 // =============================================================================
@@ -22,7 +23,7 @@ import (
 // =============================================================================
 
 func TestCommentService_NilDB(t *testing.T) {
-	svc := NewCommentService(nil)
+	svc := NewCommentService(nil, utils.NewMarkdownRenderer())
 
 	t.Run("CreateComment_NilDB", func(t *testing.T) {
 		_, err := svc.CreateComment(1, &contracts.CreateCommentRequest{
@@ -190,7 +191,7 @@ func TestCommentService_BodyValidation(t *testing.T) {
 }
 
 func TestMarkdownRendering(t *testing.T) {
-	svc := NewCommentService(nil)
+	svc := NewCommentService(nil, utils.NewMarkdownRenderer())
 
 	t.Run("Bold", func(t *testing.T) {
 		html := svc.renderMarkdown("**bold text**")
@@ -345,7 +346,7 @@ type CommentServiceIntegrationTestSuite struct {
 func (suite *CommentServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
-	suite.commentService = NewCommentService(suite.testDB.DB)
+	suite.commentService = NewCommentService(suite.testDB.DB, utils.NewMarkdownRenderer())
 }
 
 func (suite *CommentServiceIntegrationTestSuite) TearDownSuite() {
