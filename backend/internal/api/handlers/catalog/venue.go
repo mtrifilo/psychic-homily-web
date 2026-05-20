@@ -12,7 +12,6 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
-	"psychic-homily-backend/internal/utils"
 
 	adminm "psychic-homily-backend/internal/models/admin"
 
@@ -435,58 +434,28 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 		oldVenue, _ = h.venueService.GetVenue(uint(venueID))
 	}
 
-	updates := make(map[string]interface{})
-	if req.Body.Name != nil {
-		updates["name"] = *req.Body.Name
-	}
-	if req.Body.Address != nil {
-		updates["address"] = *req.Body.Address
-	}
-	if req.Body.City != nil {
-		updates["city"] = *req.Body.City
-	}
-	if req.Body.State != nil {
-		updates["state"] = *req.Body.State
-	}
-	if req.Body.Country != nil {
-		updates["country"] = *req.Body.Country
-	}
-	if req.Body.Zipcode != nil {
-		updates["zipcode"] = *req.Body.Zipcode
-	}
-	if req.Body.Instagram != nil {
-		updates["instagram"] = *req.Body.Instagram
-	}
-	if req.Body.Facebook != nil {
-		updates["facebook"] = *req.Body.Facebook
-	}
-	if req.Body.Twitter != nil {
-		updates["twitter"] = *req.Body.Twitter
-	}
-	if req.Body.YouTube != nil {
-		updates["youtube"] = *req.Body.YouTube
-	}
-	if req.Body.Spotify != nil {
-		updates["spotify"] = *req.Body.Spotify
-	}
-	if req.Body.SoundCloud != nil {
-		updates["soundcloud"] = *req.Body.SoundCloud
-	}
-	if req.Body.Bandcamp != nil {
-		updates["bandcamp"] = *req.Body.Bandcamp
-	}
-	if req.Body.Website != nil {
-		updates["website"] = *req.Body.Website
-	}
-	if req.Body.Description != nil {
-		updates["description"] = utils.NilIfEmpty(*req.Body.Description)
-	}
-	if req.Body.ImageURL != nil {
-		// Length + scheme already validated above (PSY-525); just persist.
-		updates["image_url"] = utils.NilIfEmpty(*req.Body.ImageURL)
+	// Image URL length + scheme already validated above; the service
+	// normalizes empty Description/ImageURL to SQL NULL.
+	serviceReq := &contracts.UpdateVenueRequest{
+		Name:        req.Body.Name,
+		Address:     req.Body.Address,
+		City:        req.Body.City,
+		State:       req.Body.State,
+		Country:     req.Body.Country,
+		Zipcode:     req.Body.Zipcode,
+		Description: req.Body.Description,
+		ImageURL:    req.Body.ImageURL,
+		Instagram:   req.Body.Instagram,
+		Facebook:    req.Body.Facebook,
+		Twitter:     req.Body.Twitter,
+		YouTube:     req.Body.YouTube,
+		Spotify:     req.Body.Spotify,
+		SoundCloud:  req.Body.SoundCloud,
+		Bandcamp:    req.Body.Bandcamp,
+		Website:     req.Body.Website,
 	}
 
-	updatedVenue, err := h.venueService.UpdateVenue(uint(venueID), updates)
+	updatedVenue, err := h.venueService.UpdateVenue(uint(venueID), serviceReq)
 	if err != nil {
 		var venueErr *apperrors.VenueError
 		if errors.As(err, &venueErr) && venueErr.Code == apperrors.CodeVenueNotFound {

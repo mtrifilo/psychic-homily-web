@@ -195,13 +195,20 @@ func (s *ArtistService) GetArtists(filters map[string]interface{}) ([]*contracts
 }
 
 // UpdateArtist updates an existing artist
-func (s *ArtistService) UpdateArtist(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Check if name is being updated and if it conflicts with existing artist
-	if name, ok := updates["name"].(string); ok {
+	// Translate the typed request into a GORM update map. Only non-nil fields
+	// are written so omitted fields stay unchanged. Every column is nullable
+	// except name, so empty input normalizes to SQL NULL via utils.NilIfEmpty.
+	updates := map[string]interface{}{}
+
+	// Name maps to a NOT NULL column and additionally drives the uniqueness
+	// guard and slug regeneration.
+	if req.Name != nil {
+		name := *req.Name
 		var existingArtist catalogm.Artist
 		err := s.db.Where("LOWER(name) = LOWER(?) AND id != ?", name, artistID).First(&existingArtist).Error
 		if err == nil {
@@ -209,6 +216,7 @@ func (s *ArtistService) UpdateArtist(artistID uint, updates map[string]interface
 		} else if err != gorm.ErrRecordNotFound {
 			return nil, fmt.Errorf("failed to check existing artist: %w", err)
 		}
+		updates["name"] = name
 
 		// Regenerate slug when name changes
 		baseSlug := utils.GenerateArtistSlug(name)
@@ -219,10 +227,51 @@ func (s *ArtistService) UpdateArtist(artistID uint, updates map[string]interface
 		})
 		updates["slug"] = slug
 	}
+	if req.State != nil {
+		updates["state"] = utils.NilIfEmpty(*req.State)
+	}
+	if req.City != nil {
+		updates["city"] = utils.NilIfEmpty(*req.City)
+	}
+	if req.Country != nil {
+		updates["country"] = utils.NilIfEmpty(*req.Country)
+	}
+	if req.Description != nil {
+		updates["description"] = utils.NilIfEmpty(*req.Description)
+	}
+	if req.BandcampEmbedURL != nil {
+		updates["bandcamp_embed_url"] = utils.NilIfEmpty(*req.BandcampEmbedURL)
+	}
+	if req.Instagram != nil {
+		updates["instagram"] = utils.NilIfEmpty(*req.Instagram)
+	}
+	if req.Facebook != nil {
+		updates["facebook"] = utils.NilIfEmpty(*req.Facebook)
+	}
+	if req.Twitter != nil {
+		updates["twitter"] = utils.NilIfEmpty(*req.Twitter)
+	}
+	if req.YouTube != nil {
+		updates["youtube"] = utils.NilIfEmpty(*req.YouTube)
+	}
+	if req.Spotify != nil {
+		updates["spotify"] = utils.NilIfEmpty(*req.Spotify)
+	}
+	if req.SoundCloud != nil {
+		updates["soundcloud"] = utils.NilIfEmpty(*req.SoundCloud)
+	}
+	if req.Bandcamp != nil {
+		updates["bandcamp"] = utils.NilIfEmpty(*req.Bandcamp)
+	}
+	if req.Website != nil {
+		updates["website"] = utils.NilIfEmpty(*req.Website)
+	}
 
-	err := s.db.Model(&catalogm.Artist{}).Where("id = ?", artistID).Updates(updates).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to update artist: %w", err)
+	if len(updates) > 0 {
+		err := s.db.Model(&catalogm.Artist{}).Where("id = ?", artistID).Updates(updates).Error
+		if err != nil {
+			return nil, fmt.Errorf("failed to update artist: %w", err)
+		}
 	}
 
 	return s.GetArtist(artistID)

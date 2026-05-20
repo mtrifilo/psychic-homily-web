@@ -545,7 +545,7 @@ func TestUpdateShowHandler_OwnerSuccess(t *testing.T) {
 		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID, Status: "pending"}, nil
 		},
-		UpdateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+		UpdateShowWithRelationsFn: func(showID uint, _ *contracts.UpdateShowRequest, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 			return &contracts.ShowResponse{ID: showID, Title: "Updated"}, nil, nil
 		},
 	}
@@ -570,7 +570,7 @@ func TestUpdateShowHandler_AdminSuccess(t *testing.T) {
 		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &otherUser, Status: "approved"}, nil
 		},
-		UpdateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+		UpdateShowWithRelationsFn: func(showID uint, _ *contracts.UpdateShowRequest, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 			return &contracts.ShowResponse{ID: showID}, nil, nil
 		},
 	}
@@ -619,7 +619,7 @@ func TestUpdateShowHandler_ServiceError(t *testing.T) {
 		GetShowFn: func(_ uint) (*contracts.ShowResponse, error) {
 			return &contracts.ShowResponse{ID: 1, SubmittedBy: &userID}, nil
 		},
-		UpdateShowWithRelationsFn: func(_ uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+		UpdateShowWithRelationsFn: func(_ uint, _ *contracts.UpdateShowRequest, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 			return nil, nil, fmt.Errorf("update failed")
 		},
 	}
@@ -673,7 +673,7 @@ func TestUpdateShowHandler_RecordsRevisionOnChange(t *testing.T) {
 				Status:      "pending",
 			}, nil
 		},
-		UpdateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+		UpdateShowWithRelationsFn: func(showID uint, _ *contracts.UpdateShowRequest, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 			newDescription := "New description"
 			return &contracts.ShowResponse{
 				ID:          showID,
@@ -768,7 +768,7 @@ func TestUpdateShowHandler_SkipsRevisionWhenNoChanges(t *testing.T) {
 				Status:      "pending",
 			}, nil
 		},
-		UpdateShowWithRelationsFn: func(showID uint, _ map[string]interface{}, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+		UpdateShowWithRelationsFn: func(showID uint, _ *contracts.UpdateShowRequest, _ []contracts.CreateShowVenue, _ []contracts.CreateShowArtist, _ bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 			return &contracts.ShowResponse{
 				ID:    showID,
 				Title: "Same Title",

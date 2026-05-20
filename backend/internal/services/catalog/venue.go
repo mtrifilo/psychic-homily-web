@@ -162,7 +162,7 @@ func (s *VenueService) GetVenues(filters map[string]interface{}) ([]*contracts.V
 }
 
 // UpdateVenue updates an existing venue
-func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*contracts.VenueDetailResponse, error) {
+func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -178,22 +178,16 @@ func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{})
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
 
-	// Determine what values to check
-	var checkName string
-	var checkCity string
-
-	// If name is being updated, use new name, otherwise use current
-	if name, ok := updates["name"].(string); ok && name != "" {
-		checkName = name
-	} else {
-		checkName = currentVenue.Name
+	// Determine what values to check for the duplicate guard. A provided name
+	// or city replaces the current value; an empty provided value falls back
+	// to the current (mirrors the prior map-key check semantics).
+	checkName := currentVenue.Name
+	if req.Name != nil && *req.Name != "" {
+		checkName = *req.Name
 	}
-
-	// If city is being updated, use new city, otherwise use current
-	if city, ok := updates["city"].(string); ok && city != "" {
-		checkCity = city
-	} else {
-		checkCity = currentVenue.City
+	checkCity := currentVenue.City
+	if req.City != nil && *req.City != "" {
+		checkCity = *req.City
 	}
 
 	// Check for duplicate venue with same name and city (excluding current venue)
@@ -205,10 +199,67 @@ func (s *VenueService) UpdateVenue(venueID uint, updates map[string]interface{})
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
+	// Translate the typed request into a GORM update map. Only non-nil fields
+	// are written so omitted fields stay unchanged. Name/City/State are NOT
+	// NULL columns written verbatim; Description and ImageURL are nullable and
+	// normalize empty input to SQL NULL. Address/Country/Zipcode and the social
+	// fields are written through as-is to preserve prior behavior.
+	updates := map[string]interface{}{}
+	if req.Name != nil {
+		updates["name"] = *req.Name
+	}
+	if req.Address != nil {
+		updates["address"] = *req.Address
+	}
+	if req.City != nil {
+		updates["city"] = *req.City
+	}
+	if req.State != nil {
+		updates["state"] = *req.State
+	}
+	if req.Country != nil {
+		updates["country"] = *req.Country
+	}
+	if req.Zipcode != nil {
+		updates["zipcode"] = *req.Zipcode
+	}
+	if req.Instagram != nil {
+		updates["instagram"] = *req.Instagram
+	}
+	if req.Facebook != nil {
+		updates["facebook"] = *req.Facebook
+	}
+	if req.Twitter != nil {
+		updates["twitter"] = *req.Twitter
+	}
+	if req.YouTube != nil {
+		updates["youtube"] = *req.YouTube
+	}
+	if req.Spotify != nil {
+		updates["spotify"] = *req.Spotify
+	}
+	if req.SoundCloud != nil {
+		updates["soundcloud"] = *req.SoundCloud
+	}
+	if req.Bandcamp != nil {
+		updates["bandcamp"] = *req.Bandcamp
+	}
+	if req.Website != nil {
+		updates["website"] = *req.Website
+	}
+	if req.Description != nil {
+		updates["description"] = utils.NilIfEmpty(*req.Description)
+	}
+	if req.ImageURL != nil {
+		updates["image_url"] = utils.NilIfEmpty(*req.ImageURL)
+	}
+
 	// Update the venue
-	err = s.db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(updates).Error
-	if err != nil {
-		return nil, fmt.Errorf("failed to update venue: %w", err)
+	if len(updates) > 0 {
+		err = s.db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(updates).Error
+		if err != nil {
+			return nil, fmt.Errorf("failed to update venue: %w", err)
+		}
 	}
 
 	return s.GetVenue(venueID)
