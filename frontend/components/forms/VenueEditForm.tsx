@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import {
@@ -52,8 +52,13 @@ interface VenueEditFormProps {
   onSuccess?: () => void
 }
 
-// PSY-503: This form is now admin-only. Non-admin edits go through the
-// unified suggest-edit flow (EntityEditDrawer / useSuggestEdit).
+// Admin-only direct-edit form. Non-admin edits go through the unified
+// suggest-edit flow (EntityEditDrawer / useSuggestEdit).
+//
+// Callers MUST pass `key={venue.id}` so React unmounts + remounts with
+// fresh state when the venue switches. The form deliberately does NOT
+// useEffect to reset prop-derived state — see React's "You Might Not
+// Need an Effect" guide for the rationale.
 export function VenueEditForm({
   venue,
   open,
@@ -124,13 +129,6 @@ export function VenueEditForm({
       onSubmit: venueEditSchema,
     },
   })
-
-  // Reset form when venue changes
-  useEffect(() => {
-    if (open) {
-      form.reset()
-    }
-  }, [open, venue.id])
 
   const handleDialogOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {

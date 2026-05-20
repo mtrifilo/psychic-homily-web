@@ -118,6 +118,21 @@ vi.mock('@/components/shared', () => ({
       </span>
     )
   },
+  // PSY-725: AddItemsSection renders the shared InlineErrorBanner when
+  // useEntitySearch flips `searchError` true. The mock keeps the same
+  // role + testId contract as the real primitive so the assertions in
+  // the PSY-725 banner tests look for the right elements.
+  InlineErrorBanner: ({
+    children,
+    testId,
+  }: {
+    children: React.ReactNode
+    testId?: string
+  }) => (
+    <div role="alert" data-testid={testId}>
+      {children}
+    </div>
+  ),
 }))
 
 // Mock hooks
@@ -269,6 +284,11 @@ type MockedEntitySearchResult = {
   }
   isSearching: boolean
   totalResults: number
+  /**
+   * PSY-725: total-outage flag from the shared hook. Defaults false so
+   * existing tests don't accidentally surface the banner.
+   */
+  searchError: boolean
 }
 let mockUseEntitySearchResult: MockedEntitySearchResult = {
   data: {
@@ -282,9 +302,15 @@ let mockUseEntitySearchResult: MockedEntitySearchResult = {
   },
   isSearching: false,
   totalResults: 0,
+  searchError: false,
 }
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
   useEntitySearch: () => mockUseEntitySearchResult,
+  // PSY-725: AddItemsSection imports the canonical banner copy from the
+  // same module. Re-export the literal so the mock fully replaces the
+  // real module and the banner-copy assertion still finds the right text.
+  ENTITY_SEARCH_UNAVAILABLE_MESSAGE:
+    'Search is temporarily unavailable. Try again in a moment.',
 }))
 
 function makeCollection(
@@ -386,6 +412,7 @@ describe('CollectionDetail', () => {
       },
       isSearching: false,
       totalResults: 0,
+      searchError: false,
     }
   })
 
@@ -1657,6 +1684,7 @@ describe('CollectionDetail', () => {
         },
         isSearching: false,
         totalResults: shows.length + artists.length,
+        searchError: false,
       }
       const user = userEvent.setup()
       render(<CollectionDetail slug="test-collection" />)
@@ -1804,6 +1832,60 @@ describe('CollectionDetail', () => {
           'Search artists, shows, venues, releases, labels, festivals...'
         )
       ).not.toBeInTheDocument()
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-725: Add Items search-outage banner
+  // ──────────────────────────────────────────────
+  // When every backing search endpoint fails, useEntitySearch flips
+  // `searchError` true. The Add Items panel has to render the dedicated
+  // banner instead of the silent "no results" message so users don't
+  // mistake a backend outage for a typo and retype indefinitely.
+
+  describe('PSY-725 Add Items search-outage banner', () => {
+    it('renders the InlineErrorBanner when searchError is true and query is 2+ chars', async () => {
+      mockUseEntitySearchResult = {
+        data: {
+          artists: [],
+          venues: [],
+          shows: [],
+          releases: [],
+          labels: [],
+          festivals: [],
+          tags: [],
+        },
+        isSearching: false,
+        totalResults: 0,
+        searchError: true,
+      }
+
+      const user = userEvent.setup()
+      // Default fixture is empty → Add Items panel renders open on first paint.
+      render(<CollectionDetail slug="test-collection" />)
+      const input = screen.getByPlaceholderText(/Search artists, shows/)
+      await user.type(input, 'tt')
+
+      const banner = screen.getByTestId('add-items-search-error-banner')
+      expect(banner).toBeInTheDocument()
+      expect(banner).toHaveTextContent(/Search is temporarily unavailable/i)
+      // "No results found" copy MUST NOT appear when the banner is showing —
+      // otherwise we'd be lying about the cause to the user.
+      expect(screen.queryByText(/No results found/i)).not.toBeInTheDocument()
+    })
+
+    it('does NOT render the banner when searchError is false (default empty case)', async () => {
+      // Default mock state has searchError: false. Typing into the empty
+      // state should produce "No results found" copy, not the outage banner.
+      const user = userEvent.setup()
+      render(<CollectionDetail slug="test-collection" />)
+      const input = screen.getByPlaceholderText(/Search artists, shows/)
+      await user.type(input, 'tt')
+
+      expect(
+        screen.queryByTestId('add-items-search-error-banner')
+      ).not.toBeInTheDocument()
+      expect(screen.getByText(/No results found/i)).toBeInTheDocument()
     })
   })
 

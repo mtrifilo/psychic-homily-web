@@ -88,16 +88,7 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
   const { slug } = await params
 
   if (!slug) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Invalid Artist</h1>
-          <p className="text-muted-foreground">
-            The artist could not be found.
-          </p>
-        </div>
-      </div>
-    )
+    notFound()
   }
 
   const artistData = await getArtist(slug)
