@@ -42,6 +42,7 @@
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",
     "d3-polygon": "^3.0.1",
+    "dompurify": "^3.4.5",
     "gray-matter": "^4.0.3",
     "lucide-react": "^0.554.0",
     "marked": "^18.0.2",
