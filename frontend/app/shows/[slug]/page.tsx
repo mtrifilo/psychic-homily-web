@@ -132,16 +132,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
   const { slug } = await params
 
   if (!slug) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Invalid Show</h1>
-          <p className="text-muted-foreground">
-            The show could not be found.
-          </p>
-        </div>
-      </div>
-    )
+    notFound()
   }
 
   const showData = await getShow(slug)

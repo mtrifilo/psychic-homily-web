@@ -44,6 +44,16 @@ import {
   useMyFollowing,
 } from './useFollow'
 
+type CachedFollow = { follower_count: number; is_following: boolean }
+
+function createDeferred<T = void>(): { promise: Promise<T>; resolve: (value: T) => void } {
+  let resolve: (value: T) => void = () => {}
+  const promise = new Promise<T>((res) => {
+    resolve = res
+  })
+  return { promise, resolve }
+}
+
 
 describe('useFollowStatus', () => {
   beforeEach(() => {
@@ -173,6 +183,66 @@ describe('useFollow', () => {
     expect(cached?.follower_count).toBe(11)
     expect(cached?.is_following).toBe(true)
   })
+
+  it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
+    // Regression for PSY-727: onMutate must `await queryClient.cancelQueries(...)`
+    // before snapshotting/optimistically updating. Without the await, a concurrent
+    // in-flight follow-status fetch can resolve and overwrite the optimistic
+    // value, causing the user's click to "snap back".
+    //
+    // We assert ordering by making cancelQueries return a Promise we control:
+    // - Trigger mutate(); while cancelQueries is unresolved, the cache must NOT
+    //   yet hold the optimistic value (proves onMutate is waiting on the await).
+    // - Resolve cancelQueries; the optimistic value must then appear in the
+    //   cache (proves the optimistic update runs after the await resolves).
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+    })
+
+    queryClient.setQueryData(['follows', 'artists', 1], {
+      follower_count: 10,
+      is_following: false,
+    })
+
+    const cancelGate = createDeferred<void>()
+    const cancelSpy = vi
+      .spyOn(queryClient, 'cancelQueries')
+      .mockImplementation(() => cancelGate.promise)
+
+    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Followed' })
+
+    const { result } = renderHook(() => useFollow(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    // Fire the mutation but don't await it -- onMutate should be parked on
+    // the unresolved cancelQueries Promise.
+    let mutatePromise: Promise<unknown>
+    act(() => {
+      mutatePromise = result.current.mutateAsync({
+        entityType: 'artists',
+        entityId: 1,
+      })
+    })
+
+    // Yield microtasks; cache must NOT yet show the optimistic update.
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
+      .toEqual({ follower_count: 10, is_following: false })
+    expect(cancelSpy).toHaveBeenCalledWith({
+      queryKey: ['follows', 'artists', 1],
+    })
+
+    // Release the cancellation; optimistic update must now run.
+    await act(async () => {
+      cancelGate.resolve()
+      await mutatePromise
+    })
+
+    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
+      .toEqual({ follower_count: 11, is_following: true })
+  })
 })
 
 describe('useUnfollow', () => {
@@ -226,6 +296,55 @@ describe('useUnfollow', () => {
 
     expect(cached?.follower_count).toBe(9)
     expect(cached?.is_following).toBe(false)
+  })
+
+  it('awaits cancelQueries before applying the optimistic update (regression)', async () => {
+    // Parallel to the useFollow case -- unfollow's onMutate must also await
+    // cancelQueries so a stale in-flight fetch can't clobber the optimistic
+    // unfollow.
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: Infinity }, mutations: { retry: false } },
+    })
+
+    queryClient.setQueryData(['follows', 'artists', 1], {
+      follower_count: 10,
+      is_following: true,
+    })
+
+    const cancelGate = createDeferred<void>()
+    const cancelSpy = vi
+      .spyOn(queryClient, 'cancelQueries')
+      .mockImplementation(() => cancelGate.promise)
+
+    mockApiRequest.mockResolvedValueOnce({ success: true, message: 'Unfollowed' })
+
+    const { result } = renderHook(() => useUnfollow(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    let mutatePromise: Promise<unknown>
+    act(() => {
+      mutatePromise = result.current.mutateAsync({
+        entityType: 'artists',
+        entityId: 1,
+      })
+    })
+
+    await Promise.resolve()
+    await Promise.resolve()
+    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
+      .toEqual({ follower_count: 10, is_following: true })
+    expect(cancelSpy).toHaveBeenCalledWith({
+      queryKey: ['follows', 'artists', 1],
+    })
+
+    await act(async () => {
+      cancelGate.resolve()
+      await mutatePromise
+    })
+
+    expect(queryClient.getQueryData<CachedFollow>(['follows', 'artists', 1]))
+      .toEqual({ follower_count: 9, is_following: false })
   })
 
   it('handles unfollow errors', async () => {
