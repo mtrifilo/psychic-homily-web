@@ -14,6 +14,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // Discord embed colors
@@ -465,25 +466,18 @@ func HashEmail(email string) string {
 	return local[:2] + "***@" + domain
 }
 
-// buildUserName builds a display name from user fields
+// buildUserName builds a display name from user fields.
+//
+// Thin wrapper over the canonical shared.ResolveUserName chain (username →
+// first/last → email-prefix → anonymous). The only Discord-specific twist is
+// the terminal label: where the canonical chain yields its anonymous sentinel,
+// this surface shows "Not provided" to match the embed's other empty-field copy.
 func buildUserName(user *authm.User) string {
-	if user == nil {
-		return "N/A"
-	}
-
-	var parts []string
-	if user.FirstName != nil && *user.FirstName != "" {
-		parts = append(parts, *user.FirstName)
-	}
-	if user.LastName != nil && *user.LastName != "" {
-		parts = append(parts, *user.LastName)
-	}
-
-	if len(parts) == 0 {
+	name := shared.ResolveUserName(user)
+	if name == shared.AnonymousUserName {
 		return "Not provided"
 	}
-
-	return strings.Join(parts, " ")
+	return name
 }
 
 // buildVenueList builds a comma-separated list of venue names

@@ -7,7 +7,7 @@ import (
 )
 
 func setupArtistRoutes(rc RouteContext) {
-	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision)
+	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision, rc.Cfg)
 
 	// Public artist endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes
