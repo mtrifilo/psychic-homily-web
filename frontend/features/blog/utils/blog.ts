@@ -2,6 +2,7 @@ import fs from 'fs'
 import path from 'path'
 import matter from 'gray-matter'
 import * as Sentry from '@sentry/nextjs'
+import { getTextExcerpt } from '@/lib/utils/markdownExcerpt'
 import type { BlogPost, BlogPostMeta, BlogPostFrontmatter } from '../types'
 
 // Path to blog content (inside frontend directory)
@@ -54,23 +55,6 @@ function convertShortcodesToMDX(content: string): string {
 }
 
 /**
- * Extract a plain text excerpt from markdown content
- */
-function extractExcerpt(content: string, maxLength = 200): string {
-  // Remove MDX components
-  let text = content.replace(/<[^>]+\/>/g, '')
-  // Remove markdown formatting
-  text = text.replace(/[#*_`\[\]]/g, '')
-  // Remove extra whitespace
-  text = text.replace(/\s+/g, ' ').trim()
-  // Truncate
-  if (text.length > maxLength) {
-    text = text.substring(0, maxLength).trim() + '...'
-  }
-  return text
-}
-
-/**
  * Get a single blog post by slug
  */
 export function getBlogPost(slug: string): BlogPost | null {
@@ -91,7 +75,7 @@ export function getBlogPost(slug: string): BlogPost | null {
       slug,
       frontmatter,
       content: mdxContent,
-      excerpt: extractExcerpt(content),
+      excerpt: getTextExcerpt(content),
     }
   } catch (error) {
     Sentry.captureException(error, {
