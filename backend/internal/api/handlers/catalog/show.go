@@ -129,12 +129,16 @@ func (r *CreateShowRequestBody) Resolve(ctx huma.Context) []error {
 		})
 	}
 
-	if r.TicketURL != nil && len(*r.TicketURL) > 500 {
-		errors = append(errors, &huma.ErrorDetail{
-			Location: "body.ticket_url",
-			Message:  "Ticket URL must be 500 characters or fewer",
-			Value:    len(*r.TicketURL),
-		})
+	// PSY-747: ticket URL is length-capped AND scheme-validated (http/https
+	// only) — previously it accepted javascript:/data: on a public show.
+	if r.TicketURL != nil {
+		if err := shared.URLSchemeError("ticket_url", *r.TicketURL); err != nil {
+			errors = append(errors, &huma.ErrorDetail{
+				Location: "body.ticket_url",
+				Message:  err.Error(),
+				Value:    *r.TicketURL,
+			})
+		}
 	}
 
 	// Validate price range
@@ -835,8 +839,10 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 	if req.Body.Price != nil && (*req.Body.Price < 0 || *req.Body.Price > 10000) {
 		return nil, huma.Error422UnprocessableEntity("Price must be between 0 and 10000")
 	}
-	if req.Body.TicketURL != nil && len(*req.Body.TicketURL) > 500 {
-		return nil, huma.Error422UnprocessableEntity("Ticket URL must be 500 characters or fewer")
+	// PSY-747: ticket URL is length-capped AND scheme-validated (http/https
+	// only) — previously it accepted javascript:/data: on a public show.
+	if err := shared.ValidateURLField("ticket_url", req.Body.TicketURL); err != nil {
+		return nil, err
 	}
 	if req.Body.ImageURL != nil && len(*req.Body.ImageURL) > 2048 {
 		return nil, huma.Error422UnprocessableEntity("Image URL must be 2048 characters or fewer")
