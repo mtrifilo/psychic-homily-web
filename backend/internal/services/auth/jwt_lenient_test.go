@@ -88,7 +88,7 @@ func TestValidateTokenLenient(t *testing.T) {
 	})
 
 	t.Run("wrong_issuer_rejected", func(t *testing.T) {
-		// Token with wrong issuer
+		// Token with wrong issuer (subject/audience otherwise valid)
 		claims := jwt.MapClaims{
 			"user_id": float64(123),
 			"email":   "wrong-iss@example.com",
@@ -96,6 +96,7 @@ func TestValidateTokenLenient(t *testing.T) {
 			"iat":     time.Now().Add(-2 * time.Hour).Unix(),
 			"iss":     "wrong-issuer",
 			"aud":     "psychic-homily-users",
+			"sub":     "session",
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenStr, err := token.SignedString([]byte(secretKey))
@@ -103,11 +104,11 @@ func TestValidateTokenLenient(t *testing.T) {
 
 		_, err = jwtService.ValidateTokenLenient(tokenStr, gracePeriod)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid token issuer or audience")
+		assert.Contains(t, err.Error(), "invalid token subject, issuer, or audience")
 	})
 
 	t.Run("wrong_audience_rejected", func(t *testing.T) {
-		// Token with wrong audience
+		// Token with wrong audience (subject/issuer otherwise valid)
 		claims := jwt.MapClaims{
 			"user_id": float64(123),
 			"email":   "wrong-aud@example.com",
@@ -115,6 +116,7 @@ func TestValidateTokenLenient(t *testing.T) {
 			"iat":     time.Now().Add(-2 * time.Hour).Unix(),
 			"iss":     "psychic-homily-backend",
 			"aud":     "wrong-audience",
+			"sub":     "session",
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenStr, err := token.SignedString([]byte(secretKey))
@@ -122,17 +124,39 @@ func TestValidateTokenLenient(t *testing.T) {
 
 		_, err = jwtService.ValidateTokenLenient(tokenStr, gracePeriod)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "invalid token issuer or audience")
+		assert.Contains(t, err.Error(), "invalid token subject, issuer, or audience")
+	})
+
+	t.Run("wrong_subject_rejected", func(t *testing.T) {
+		// Token with a non-session subject (issuer/audience otherwise valid) —
+		// e.g. a leaked magic-link token caught inside the grace window.
+		claims := jwt.MapClaims{
+			"user_id": float64(123),
+			"email":   "wrong-sub@example.com",
+			"exp":     time.Now().Add(-1 * time.Hour).Unix(),
+			"iat":     time.Now().Add(-2 * time.Hour).Unix(),
+			"iss":     "psychic-homily-backend",
+			"aud":     "psychic-homily-users",
+			"sub":     "magic-link",
+		}
+		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+		tokenStr, err := token.SignedString([]byte(secretKey))
+		require.NoError(t, err)
+
+		_, err = jwtService.ValidateTokenLenient(tokenStr, gracePeriod)
+		assert.Error(t, err)
+		assert.Contains(t, err.Error(), "invalid token subject, issuer, or audience")
 	})
 
 	t.Run("missing_exp_claim_rejected", func(t *testing.T) {
-		// Token with no exp claim
+		// Token with no exp claim (session subject so it reaches the exp check)
 		claims := jwt.MapClaims{
 			"user_id": float64(123),
 			"email":   "no-exp@example.com",
 			"iat":     time.Now().Unix(),
 			"iss":     "psychic-homily-backend",
 			"aud":     "psychic-homily-users",
+			"sub":     "session",
 		}
 		token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 		tokenStr, err := token.SignedString([]byte(secretKey))
@@ -163,7 +187,9 @@ func TestValidateTokenLenient(t *testing.T) {
 	})
 }
 
-// createTestToken creates a JWT with specific expiration for testing
+// createTestToken creates a session-shaped JWT with a specific expiration for
+// testing. It mirrors CreateToken's claim set — including sub:"session" — so the
+// lenient validator's subject assertion treats it as a genuine session token.
 func createTestToken(t *testing.T, secretKey string, userID int, email string, exp time.Time) string {
 	t.Helper()
 	claims := jwt.MapClaims{
@@ -173,6 +199,7 @@ func createTestToken(t *testing.T, secretKey string, userID int, email string, e
 		"iat":     time.Now().Add(-2 * time.Hour).Unix(),
 		"iss":     "psychic-homily-backend",
 		"aud":     "psychic-homily-users",
+		"sub":     "session",
 	}
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
 	tokenStr, err := token.SignedString([]byte(secretKey))

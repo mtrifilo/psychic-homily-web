@@ -200,6 +200,12 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 		return nil, huma.Error422UnprocessableEntity("Title is required")
 	}
 
+	// PSY-747: reject non-http/https cover image URLs (e.g. javascript:, data:)
+	// and cap length.
+	if err := shared.ValidateURLField("cover_image_url", req.Body.CoverImageURL); err != nil {
+		return nil, err
+	}
+
 	serviceReq := &contracts.CreateCollectionRequest{
 		Title:         req.Body.Title,
 		Description:   req.Body.Description,
@@ -263,6 +269,12 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
 		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	// PSY-747: reject non-http/https cover image URLs (e.g. javascript:, data:)
+	// and cap length.
+	if err := shared.ValidateURLField("cover_image_url", req.Body.CoverImageURL); err != nil {
+		return nil, err
 	}
 
 	serviceReq := &contracts.UpdateCollectionRequest{
