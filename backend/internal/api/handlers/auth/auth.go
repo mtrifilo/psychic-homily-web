@@ -739,9 +739,9 @@ type SendMagicLinkRequest struct {
 // SendMagicLinkResponse represents the response for sending a magic link
 type SendMagicLinkResponse struct {
 	Body struct {
-		Success   bool   `json:"success" example:"true" doc:"Success status"`
-		Message   string `json:"message" example:"Magic link sent" doc:"Response message"`
-		ErrorCode string `json:"error_code,omitempty" example:"EMAIL_NOT_VERIFIED" doc:"Error code for programmatic handling"`
+		Success   bool   `json:"success" example:"true" doc:"Success status. Always true for any well-formed request — the response never reveals whether the email is registered or verified."`
+		Message   string `json:"message" example:"If an account exists with this email, a magic link has been sent." doc:"Response message"`
+		ErrorCode string `json:"error_code,omitempty" example:"SERVICE_UNAVAILABLE" doc:"Error code for programmatic handling (only set for pre-lookup validation/config errors, never for account state)"`
 		RequestID string `json:"request_id,omitempty" example:"550e8400-e29b-41d4-a716-446655440000" doc:"Request ID for debugging"`
 	}
 }
@@ -773,36 +773,35 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 		return resp, nil
 	}
 
+	// Enumeration-safe response: callers always get the same body regardless
+	// of whether the email is registered, unregistered, or registered but
+	// unverified. Any per-user-state branch — including a token or send
+	// failure for a known account — must surface only in server logs, or the
+	// response becomes an account-existence/verification oracle.
+	resp.Body.Success = true
+	resp.Body.Message = "If an account exists with this email, a magic link has been sent."
+
 	// Find user by email
 	user, err := h.userService.GetUserByEmail(input.Body.Email)
 	if err != nil {
 		logger.AuthError(ctx, "magic_link_user_lookup_failed", err,
 			"email_hash", logger.HashEmail(input.Body.Email),
 		)
-		// Don't reveal if user exists - return success message anyway
-		resp.Body.Success = true
-		resp.Body.Message = "If an account exists with this email, a magic link has been sent."
 		return resp, nil
 	}
 
 	if user == nil {
-		// User doesn't exist - return success to avoid email enumeration
 		logger.AuthDebug(ctx, "magic_link_user_not_found",
 			"email_hash", logger.HashEmail(input.Body.Email),
 		)
-		resp.Body.Success = true
-		resp.Body.Message = "If an account exists with this email, a magic link has been sent."
 		return resp, nil
 	}
 
-	// Check if email is verified - magic links only work for verified emails
+	// Unverified accounts can't receive a magic link (it would skip the
+	// verification step), so re-send the verification email as a side effect
+	// and return the generic response. The user proceeds via that link.
 	if !user.EmailVerified {
-		logger.AuthDebug(ctx, "magic_link_email_not_verified",
-			"user_id", user.ID,
-		)
-		resp.Body.Success = false
-		resp.Body.Message = "Please verify your email address first. Check your inbox for a verification email, or sign in with your password to request a new one."
-		resp.Body.ErrorCode = "EMAIL_NOT_VERIFIED"
+		h.resendVerificationEmail(ctx, user)
 		return resp, nil
 	}
 
@@ -812,9 +811,6 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 		logger.AuthError(ctx, "magic_link_token_failed", err,
 			"user_id", user.ID,
 		)
-		resp.Body.Success = false
-		resp.Body.Message = "Failed to generate magic link"
-		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, nil
 	}
 
@@ -823,9 +819,6 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 		logger.AuthError(ctx, "magic_link_email_failed", err,
 			"user_id", user.ID,
 		)
-		resp.Body.Success = false
-		resp.Body.Message = "Failed to send magic link email"
-		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 		return resp, nil
 	}
 
@@ -834,9 +827,34 @@ func (h *AuthHandler) SendMagicLinkHandler(ctx context.Context, input *SendMagic
 		"email_hash", logger.HashEmail(input.Body.Email),
 	)
 
-	resp.Body.Success = true
-	resp.Body.Message = "Magic link sent! Check your email to sign in."
 	return resp, nil
+}
+
+// resendVerificationEmail re-sends an email-verification link to an unverified
+// account as a side effect of a magic-link request. It is fire-and-forget:
+// failures are logged but never surfaced to the caller, so the magic-link
+// response stays enumeration-safe.
+func (h *AuthHandler) resendVerificationEmail(ctx context.Context, user *authm.User) {
+	if user.Email == nil || *user.Email == "" {
+		return
+	}
+	token, err := h.jwtService.CreateVerificationToken(user.ID, *user.Email)
+	if err != nil {
+		logger.AuthError(ctx, "magic_link_verification_token_failed", err,
+			"user_id", user.ID,
+		)
+		return
+	}
+	if err := h.emailService.SendVerificationEmail(*user.Email, token); err != nil {
+		logger.AuthError(ctx, "magic_link_verification_email_failed", err,
+			"user_id", user.ID,
+		)
+		return
+	}
+	logger.AuthInfo(ctx, "magic_link_verification_resent",
+		"user_id", user.ID,
+		"email_hash", logger.HashEmail(*user.Email),
+	)
 }
 
 // VerifyMagicLinkRequest represents the request to verify a magic link

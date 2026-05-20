@@ -429,6 +429,9 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_UserNotFound() {
 	s.True(resp.Body.Success) // enumeration prevention
 }
 
+// TestSendMagicLink_EmailNotVerified verifies an unverified account no longer
+// leaks its state: the response is the generic enumeration-safe success body,
+// identical to the unknown-email case (PSY-749).
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
 	h := s.newAuthHandler(true)
 	s.createUserWithPassword("unverified@test.com", "strong-password-123!")
@@ -438,10 +441,14 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_EmailNotVerified() {
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
 	s.Require().NoError(err)
-	s.False(resp.Body.Success)
-	s.Equal("EMAIL_NOT_VERIFIED", resp.Body.ErrorCode)
+	s.True(resp.Body.Success)         // enumeration prevention
+	s.Empty(resp.Body.ErrorCode)      // no EMAIL_NOT_VERIFIED leak
 }
 
+// TestSendMagicLink_SendFails verifies a downstream send failure for a
+// known-verified account stays generic — the failure must not surface as a
+// distinct error response, which would leak that the account exists (PSY-749).
+// The fake Resend API key makes the underlying send fail.
 func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_SendFails() {
 	h := s.newAuthHandler(true) // email configured but fake API key
 	user := s.createUserWithPassword("magic-fail@test.com", "strong-password-123!")
@@ -452,8 +459,8 @@ func (s *AuthHandlerIntegrationSuite) TestSendMagicLink_SendFails() {
 
 	resp, err := h.SendMagicLinkHandler(context.Background(), input)
 	s.Require().NoError(err)
-	s.False(resp.Body.Success)
-	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	s.True(resp.Body.Success)
+	s.Empty(resp.Body.ErrorCode)
 }
 
 // --- VerifyMagicLinkHandler ---

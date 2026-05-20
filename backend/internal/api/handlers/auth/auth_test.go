@@ -1313,22 +1313,91 @@ func TestConfirmVerificationHandler_SetVerifiedFails(t *testing.T) {
 
 // --- SendMagicLinkHandler mock tests ---
 
-func TestSendMagicLinkHandler_Success(t *testing.T) {
-	email := "test@example.com"
+// magicLinkAccountState models a GetUserByEmail outcome for the enumeration test.
+type magicLinkAccountState struct {
+	name string
+	user func(email string) (*authm.User, error)
+}
+
+// magicLinkAccountStates enumerates the three states whose responses must be
+// indistinguishable (PSY-749): unknown email, known-unverified, known-verified.
+func magicLinkAccountStates(email string) []magicLinkAccountState {
+	return []magicLinkAccountState{
+		{name: "unknown_email", user: func(string) (*authm.User, error) { return nil, nil }},
+		{name: "known_unverified", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, EmailVerified: false}, nil
+		}},
+		{name: "known_verified", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, EmailVerified: true}, nil
+		}},
+	}
+}
+
+// TestSendMagicLinkHandler_ResponseIdenticalAcrossAccountStates is the PSY-749
+// regression guard: the response body must be byte-identical regardless of
+// whether the email is unregistered, registered-unverified, or
+// registered-verified, so the endpoint can't be used as an enumeration oracle.
+func TestSendMagicLinkHandler_ResponseIdenticalAcrossAccountStates(t *testing.T) {
+	email := "probe@example.com"
+
+	respFor := func(state magicLinkAccountState) SendMagicLinkResponse {
+		h := authHandler(func(ah *AuthHandler) {
+			ah.emailService = &testhelpers.MockEmailService{
+				IsConfiguredFn:          func() bool { return true },
+				SendMagicLinkEmailFn:    func(string, string) error { return nil },
+				SendVerificationEmailFn: func(string, string) error { return nil },
+			}
+			ah.userService = &testhelpers.MockUserService{GetUserByEmailFn: state.user}
+			ah.jwtService = &testhelpers.MockJWTService{
+				CreateMagicLinkTokenFn:    func(uint, string) (string, error) { return "magic-token", nil },
+				CreateVerificationTokenFn: func(uint, string) (string, error) { return "verify-token", nil },
+			}
+		})
+		input := &SendMagicLinkRequest{}
+		input.Body.Email = email
+		resp, err := h.SendMagicLinkHandler(context.Background(), input)
+		if err != nil {
+			t.Fatalf("[%s] unexpected error: %v", state.name, err)
+		}
+		return *resp
+	}
+
+	states := magicLinkAccountStates(email)
+	want := respFor(states[0])
+	if !want.Body.Success {
+		t.Fatalf("expected success=true for enumeration-safe response, got message=%q", want.Body.Message)
+	}
+	if want.Body.ErrorCode != "" {
+		t.Fatalf("expected empty error_code, got %q", want.Body.ErrorCode)
+	}
+	for _, state := range states[1:] {
+		got := respFor(state)
+		if got.Body != want.Body {
+			t.Errorf("response body for %s differs from %s:\n  got  %+v\n  want %+v",
+				state.name, states[0].name, got.Body, want.Body)
+		}
+	}
+}
+
+// TestSendMagicLinkHandler_UnverifiedResendsVerification asserts the side
+// effect: an unverified account triggers a re-sent verification email (not a
+// magic link), so the user can still proceed (PSY-749).
+func TestSendMagicLinkHandler_UnverifiedResendsVerification(t *testing.T) {
+	email := "unverified@example.com"
+	var verificationSent, magicLinkSent bool
 	h := authHandler(func(ah *AuthHandler) {
 		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn:       func() bool { return true },
-			SendMagicLinkEmailFn: func(toEmail, token string) error { return nil },
+			IsConfiguredFn:          func() bool { return true },
+			SendVerificationEmailFn: func(string, string) error { verificationSent = true; return nil },
+			SendMagicLinkEmailFn:    func(string, string) error { magicLinkSent = true; return nil },
 		}
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &email, EmailVerified: true}, nil
+				return &authm.User{ID: 1, Email: &e, EmailVerified: false}, nil
 			},
 		}
 		ah.jwtService = &testhelpers.MockJWTService{
-			CreateMagicLinkTokenFn: func(userID uint, e string) (string, error) {
-				return "magic-token", nil
-			},
+			CreateVerificationTokenFn: func(uint, string) (string, error) { return "verify-token", nil },
 		}
 	})
 
@@ -1340,45 +1409,34 @@ func TestSendMagicLinkHandler_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !resp.Body.Success {
-		t.Errorf("expected success=true, got message=%q", resp.Body.Message)
+		t.Error("expected success=true")
+	}
+	if !verificationSent {
+		t.Error("expected verification email to be re-sent for unverified account")
+	}
+	if magicLinkSent {
+		t.Error("expected no magic link email for unverified account")
 	}
 }
 
-func TestSendMagicLinkHandler_UserNotFound(t *testing.T) {
+// TestSendMagicLinkHandler_VerifiedSendsMagicLink asserts the verified path
+// sends a magic link (and not a verification email).
+func TestSendMagicLinkHandler_VerifiedSendsMagicLink(t *testing.T) {
+	email := "verified@example.com"
+	var verificationSent, magicLinkSent bool
 	h := authHandler(func(ah *AuthHandler) {
 		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn: func() bool { return true },
+			IsConfiguredFn:          func() bool { return true },
+			SendVerificationEmailFn: func(string, string) error { verificationSent = true; return nil },
+			SendMagicLinkEmailFn:    func(string, string) error { magicLinkSent = true; return nil },
 		}
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailFn: func(e string) (*authm.User, error) {
-				return nil, nil // user not found
+				return &authm.User{ID: 1, Email: &e, EmailVerified: true}, nil
 			},
 		}
-	})
-
-	input := &SendMagicLinkRequest{}
-	input.Body.Email = "nobody@example.com"
-
-	resp, err := h.SendMagicLinkHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	// Should return success to prevent email enumeration
-	if !resp.Body.Success {
-		t.Error("expected success=true (silent failure)")
-	}
-}
-
-func TestSendMagicLinkHandler_EmailNotVerified(t *testing.T) {
-	email := "unverified@example.com"
-	h := authHandler(func(ah *AuthHandler) {
-		ah.emailService = &testhelpers.MockEmailService{
-			IsConfiguredFn: func() bool { return true },
-		}
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &email, EmailVerified: false}, nil
-			},
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateMagicLinkTokenFn: func(uint, string) (string, error) { return "magic-token", nil },
 		}
 	})
 
@@ -1389,11 +1447,49 @@ func TestSendMagicLinkHandler_EmailNotVerified(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
+	if !resp.Body.Success {
+		t.Error("expected success=true")
 	}
-	if resp.Body.ErrorCode != "EMAIL_NOT_VERIFIED" {
-		t.Errorf("expected error_code=EMAIL_NOT_VERIFIED, got %s", resp.Body.ErrorCode)
+	if !magicLinkSent {
+		t.Error("expected magic link email for verified account")
+	}
+	if verificationSent {
+		t.Error("expected no verification email for verified account")
+	}
+}
+
+// TestSendMagicLinkHandler_SendFailureStaysGeneric asserts that a downstream
+// send failure for a known-verified account does NOT change the response —
+// otherwise the failure response would leak that the account exists (PSY-749).
+func TestSendMagicLinkHandler_SendFailureStaysGeneric(t *testing.T) {
+	email := "verified@example.com"
+	h := authHandler(func(ah *AuthHandler) {
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn:       func() bool { return true },
+			SendMagicLinkEmailFn: func(string, string) error { return fmt.Errorf("resend exploded") },
+		}
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailFn: func(e string) (*authm.User, error) {
+				return &authm.User{ID: 1, Email: &e, EmailVerified: true}, nil
+			},
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateMagicLinkTokenFn: func(uint, string) (string, error) { return "magic-token", nil },
+		}
+	})
+
+	input := &SendMagicLinkRequest{}
+	input.Body.Email = email
+
+	resp, err := h.SendMagicLinkHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Error("expected success=true even when send fails (no enumeration leak)")
+	}
+	if resp.Body.ErrorCode != "" {
+		t.Errorf("expected empty error_code on send failure, got %q", resp.Body.ErrorCode)
 	}
 }
 
