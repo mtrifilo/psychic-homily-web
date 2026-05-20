@@ -318,9 +318,8 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 		return []*contracts.AttendingShowResponse{}, total, nil
 	}
 
-	// Fetch the full row (incl. first venue) for the paged shows. Multiple
-	// rows per show are expected for multi-venue shows; dedup below keeps the
-	// first venue. Same ordering so the dedup loop emits shows in page order.
+	// Fetch the full row (incl. venue) for the paged shows. Same ordering so
+	// the dedup loop below emits shows in page order.
 	type attendingRow struct {
 		ShowID    uint
 		Title     string

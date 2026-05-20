@@ -264,9 +264,8 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_OppositeDe
 	suite.Require().Error(setErr)
 	suite.Contains(setErr.Error(), "failed to remove opposite attendance")
 
-	// Verification reads are SELECTs, so the DELETE callback does not affect
-	// them; it is removed in the deferred cleanup above.
 	// State unchanged: still exactly the original going row, no interested row.
+	// (These reads are SELECTs, so the registered DELETE-fail callback is inert.)
 	var goingCount, interestedCount int64
 	suite.db.Model(&engagementm.UserBookmark{}).
 		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
