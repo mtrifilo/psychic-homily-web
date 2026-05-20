@@ -93,8 +93,11 @@ import { CollectionCoverImage } from './CollectionCoverImage'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
-import { DensityToggle, Breadcrumb, UserAttribution } from '@/components/shared'
-import { useEntitySearch } from '@/lib/hooks/common/useEntitySearch'
+import { DensityToggle, Breadcrumb, UserAttribution, InlineErrorBanner } from '@/components/shared'
+import {
+  useEntitySearch,
+  ENTITY_SEARCH_UNAVAILABLE_MESSAGE,
+} from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
@@ -1596,7 +1599,11 @@ function AddItemsSection({
   const [addedMessage, setAddedMessage] = useState<string | null>(null)
   const addMutation = useAddCollectionItem()
 
-  const { data: searchResults, isSearching } = useEntitySearch({
+  // `searchError` is true only when every backing search endpoint failed in
+  // the latest fetch. Lets us swap the "No results" message for an explicit
+  // "search unavailable" banner so users don't retype a query against a
+  // dead backend.
+  const { data: searchResults, isSearching, searchError } = useEntitySearch({
     query: searchQuery,
     enabled: isOpen,
   })
@@ -1695,6 +1702,13 @@ function AddItemsSection({
                 <div className="flex items-center justify-center py-4">
                   <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
                 </div>
+              ) : searchError ? (
+                // Every backing search endpoint rejected — surface the
+                // outage explicitly so users don't keep typing against a
+                // dead backend and read silence as "no matches".
+                <InlineErrorBanner testId="add-items-search-error-banner">
+                  {ENTITY_SEARCH_UNAVAILABLE_MESSAGE}
+                </InlineErrorBanner>
               ) : allResults.length === 0 ? (
                 <p className="text-sm text-muted-foreground py-3 text-center">
                   No results found for &quot;{searchQuery}&quot;

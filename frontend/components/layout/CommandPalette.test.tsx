@@ -66,14 +66,25 @@ let mockEntitySearchResult: {
   isSearching: boolean
   totalResults: number
   isFetching: boolean
+  /**
+   * PSY-725: total-outage flag exposed by useEntitySearch. Defaults false
+   * so existing tests don't accidentally surface the banner.
+   */
+  searchError: boolean
 } = {
   data: emptyEntityData,
   isSearching: false,
   totalResults: 0,
   isFetching: false,
+  searchError: false,
 }
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
   useEntitySearch: () => mockEntitySearchResult,
+  // PSY-725: consumers import the canonical banner copy from the same
+  // module. Re-export the literal here so the mock fully replaces the real
+  // module without forcing tests to assert against a stub value.
+  ENTITY_SEARCH_UNAVAILABLE_MESSAGE:
+    'Search is temporarily unavailable. Try again in a moment.',
 }))
 
 describe('CommandPalette', () => {
@@ -87,6 +98,7 @@ describe('CommandPalette', () => {
       isSearching: false,
       totalResults: 0,
       isFetching: false,
+      searchError: false,
     }
   })
 
@@ -303,6 +315,7 @@ describe('CommandPalette — tag row official indicator (PSY-453)', () => {
       isSearching: false,
       totalResults: 2,
       isFetching: false,
+      searchError: false,
     }
 
     renderWithProviders(<CommandPalette />)
@@ -319,5 +332,59 @@ describe('CommandPalette — tag row official indicator (PSY-453)', () => {
     const markers = screen.getAllByRole('img', { name: 'Official tag' })
     expect(markers).toHaveLength(1)
     expect(markers[0]).toHaveAttribute('title', 'shoegaze (Official)')
+  })
+})
+
+// PSY-725: when every backing search endpoint fails, the hook flips its
+// `searchError` flag and the palette has to swap the silent empty state for
+// an explicit outage banner. Otherwise users read "no matches" and retype.
+describe('CommandPalette — search outage banner (PSY-725)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockAuthContext.user = null
+    mockAuthContext.isAuthenticated = false
+    mockEntitySearchResult = {
+      data: emptyEntityData,
+      isSearching: false,
+      totalResults: 0,
+      isFetching: false,
+      searchError: true,
+    }
+  })
+
+  it('renders the InlineErrorBanner when searchError is true and query is 2+ chars', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    const input = screen.getByPlaceholderText('Search entities or go to page...')
+    await user.type(input, 'doom')
+
+    const banner = screen.getByTestId('entity-search-error-banner')
+    expect(banner).toBeInTheDocument()
+    expect(banner).toHaveTextContent(/Search is temporarily unavailable/i)
+    // role="alert" is part of the banner contract — screen readers should
+    // announce the outage immediately.
+    expect(banner).toHaveAttribute('role', 'alert')
+  })
+
+  it('does NOT render the banner before the user types 2+ chars', async () => {
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    // Palette open with searchError=true but no query yet — banner must
+    // stay hidden so users see the static routes, not a stale outage flag.
+    expect(screen.queryByTestId('entity-search-error-banner')).not.toBeInTheDocument()
   })
 })

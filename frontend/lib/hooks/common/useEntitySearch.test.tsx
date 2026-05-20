@@ -448,6 +448,79 @@ describe('useEntitySearch', () => {
     // Artists should be empty (failed), venues should have results
     expect(result.current.data!.artists).toEqual([])
     expect(result.current.data!.venues.length).toBe(1)
+    // PSY-725: only ONE endpoint failed — searchError must remain false so
+    // the partial-failure path still renders "no/some results" not "outage".
+    expect(result.current.searchError).toBe(false)
+  })
+
+  // PSY-725: when every backing endpoint rejects we used to swallow the
+  // failures and return an empty result set — indistinguishable from "no
+  // matches" in the UI, so users retyped against a dead backend. The hook
+  // now exposes `searchError` as an explicit total-outage flag that
+  // consumers translate into a banner.
+  it('should set searchError when ALL endpoints fail', async () => {
+    mockApiRequest.mockImplementation(() => Promise.reject(new Error('Backend down')))
+
+    const { result } = renderHook(
+      () => useEntitySearch({ query: 'anything' }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => {
+      expect(result.current.searchError).toBe(true)
+    })
+
+    // All 7 endpoints should have been attempted.
+    expect(mockApiRequest).toHaveBeenCalledTimes(7)
+    // Results stay empty (the partial-failure resilience still applies —
+    // we don't blow up the hook, we just signal the outage).
+    expect(result.current.totalResults).toBe(0)
+    expect(result.current.data!.artists).toEqual([])
+    expect(result.current.data!.tags).toEqual([])
+  })
+
+  // The mirror-image case — every endpoint resolved with zero rows — must
+  // NOT set searchError. Otherwise legitimately empty queries would
+  // surface an outage banner.
+  it('should NOT set searchError when all endpoints succeed with empty results', async () => {
+    mockApiRequest.mockResolvedValue({
+      artists: [], venues: [], shows: [], releases: [], labels: [], festivals: [], tags: [], count: 0,
+    })
+
+    const { result } = renderHook(
+      () => useEntitySearch({ query: 'no-matches-anywhere' }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => {
+      expect(mockApiRequest).toHaveBeenCalledTimes(7)
+    })
+
+    expect(result.current.searchError).toBe(false)
+    expect(result.current.totalResults).toBe(0)
+  })
+
+  // 6 failures + 1 success must NOT trigger the outage flag — the partial
+  // result is still usable. Only the truly-all-failed case flips the bit.
+  it('should NOT set searchError when 6 of 7 endpoints fail', async () => {
+    mockApiRequest.mockImplementation((url: string) => {
+      if (url.includes('/tags/search')) {
+        return Promise.resolve({ tags: [{ id: 1, slug: 'doom', name: 'doom', category: 'genre', usage_count: 1, is_official: false }] })
+      }
+      return Promise.reject(new Error('Backend down'))
+    })
+
+    const { result } = renderHook(
+      () => useEntitySearch({ query: 'doom' }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => {
+      expect(result.current.data?.tags.length).toBe(1)
+    })
+
+    expect(result.current.searchError).toBe(false)
+    expect(result.current.totalResults).toBe(1)
   })
 
   it('should calculate totalResults across all entity types', async () => {
