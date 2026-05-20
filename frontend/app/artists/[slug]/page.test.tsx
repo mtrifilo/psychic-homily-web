@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
 
 vi.mock('next/navigation', () => ({
   notFound: vi.fn(),
@@ -26,14 +27,6 @@ function buildArtist(overrides: Record<string, unknown> = {}) {
     social: {},
     ...overrides,
   }
-}
-
-function okResponse(body: unknown): Response {
-  return { ok: true, status: 200, json: async () => body } as unknown as Response
-}
-
-function errorResponse(status: number): Response {
-  return { ok: false, status, json: async () => ({}) } as unknown as Response
 }
 
 const fetchMock = vi.fn()
