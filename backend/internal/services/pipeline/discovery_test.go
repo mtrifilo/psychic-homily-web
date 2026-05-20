@@ -2,6 +2,9 @@ package pipeline
 
 import (
 	"fmt"
+	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -839,4 +842,139 @@ func TestResolveHeadlinerName_NoArtists(t *testing.T) {
 	svc := &DiscoveryService{}
 	event := &contracts.DiscoveredEvent{}
 	assert.Equal(t, "", svc.resolveHeadlinerName(event))
+}
+
+// =============================================================================
+// CheckEvents artist-fetch batching (PSY-757)
+// =============================================================================
+
+// artistQueryCounter counts queries that touch show_artists on the suite DB.
+// CheckEvents fetches artist names via db.Raw(...).Scan(...). GORM's Scan path
+// runs through Rows(), which fires the "gorm:row" callback (NOT the query/raw
+// callbacks), so the counter hooks Row(). This lets the regression tests below
+// assert the artist fetch is O(1) — exactly one query — regardless of how many
+// events are checked.
+var artistQueryCounter atomic.Int64
+
+// registerArtistQueryCounterOnce attaches the counter callback to the shared
+// suite DB exactly once (GORM rejects duplicate callback names).
+var registerArtistQueryCounterOnce sync.Once
+
+func registerArtistQueryCounter(db *gorm.DB) {
+	registerArtistQueryCounterOnce.Do(func() {
+		_ = db.Callback().Row().After("gorm:row").Register("test:count_artist_query", func(tx *gorm.DB) {
+			if tx.Statement != nil && strings.Contains(tx.Statement.SQL.String(), "show_artists") {
+				artistQueryCounter.Add(1)
+			}
+		})
+	})
+}
+
+// TestCheckEvents_BatchesArtistFetch seeds N shows (each with M artists) that
+// all match by source key, then asserts CheckEvents issues exactly ONE Raw
+// query for artist names regardless of N — and that every event still gets its
+// correct, position-ordered artist list. Before PSY-757 this was one Raw query
+// per show (N), an N+1 on the discovery hot path.
+func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_BatchesArtistFetch() {
+	const numShows = 50
+
+	events := make([]contracts.DiscoveredEvent, 0, numShows)
+	expectedArtists := make(map[string][]string, numShows)
+	for i := 0; i < numShows; i++ {
+		eventID := fmt.Sprintf("evt-batch-%d", i)
+		artists := []string{
+			fmt.Sprintf("Headliner %d", i),
+			fmt.Sprintf("Support %d", i),
+			fmt.Sprintf("Opener %d", i),
+		}
+		events = append(events, suite.makeEvent(
+			eventID,
+			fmt.Sprintf("Batch Show %d", i),
+			"valley-bar",
+			fmt.Sprintf("2026-12-%02d", (i%28)+1),
+			artists,
+		))
+		expectedArtists[eventID] = artists
+	}
+
+	_, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	checkInputs := make([]contracts.CheckEventInput, 0, numShows)
+	for _, e := range events {
+		checkInputs = append(checkInputs, contracts.CheckEventInput{ID: e.ID, VenueSlug: "valley-bar"})
+	}
+
+	registerArtistQueryCounter(suite.db)
+	artistQueryCounter.Store(0)
+
+	result, err := suite.svc.CheckEvents(checkInputs)
+	suite.Require().NoError(err)
+
+	// O(1) artist queries: exactly one fetch for all 50 shows' artists.
+	suite.Equal(int64(1), artistQueryCounter.Load(),
+		"CheckEvents must batch artist fetches into a single query regardless of event count")
+
+	// Correctness: every event resolves to its own position-ordered artist list.
+	suite.Require().Len(result.Events, numShows)
+	for eventID, want := range expectedArtists {
+		status, ok := result.Events[eventID]
+		suite.Require().True(ok, "event %s should be found", eventID)
+		suite.Require().NotNil(status.CurrentData)
+		suite.Equal(want, status.CurrentData.Artists, "artist names/order for %s", eventID)
+	}
+}
+
+// TestCheckEvents_BatchesArtistFetch_FallbackPath verifies the venue+date
+// fallback path (manually-created shows with no source key) also uses the
+// single batched artist fetch — one Raw query for all fallback matches.
+func (suite *DiscoveryIntegrationTestSuite) TestCheckEvents_BatchesArtistFetch_FallbackPath() {
+	const numShows = 10
+
+	// Seed shows via the normal import (gives them a source key + artists),
+	// then strip source_venue/source_event_id so CheckEvents can only match
+	// them through the venue+date fallback branch.
+	events := make([]contracts.DiscoveredEvent, 0, numShows)
+	expectedArtists := make(map[string][]string, numShows)
+	for i := 0; i < numShows; i++ {
+		eventID := fmt.Sprintf("evt-fallback-%d", i)
+		artists := []string{fmt.Sprintf("FB Headliner %d", i), fmt.Sprintf("FB Opener %d", i)}
+		date := fmt.Sprintf("2026-11-%02d", i+1)
+		events = append(events, suite.makeEvent(eventID, fmt.Sprintf("FB Show %d", i), "valley-bar", date, artists))
+		expectedArtists[date] = artists
+	}
+
+	_, err := suite.svc.ImportEvents(events, false, false, catalogm.ShowStatusApproved)
+	suite.Require().NoError(err)
+
+	// Remove the source key so only the date fallback can match.
+	suite.Require().NoError(
+		suite.db.Model(&catalogm.Show{}).
+			Where("source_event_id LIKE ?", "evt-fallback-%").
+			Updates(map[string]interface{}{"source_venue": nil, "source_event_id": nil}).Error,
+	)
+
+	checkInputs := make([]contracts.CheckEventInput, 0, numShows)
+	for date := range expectedArtists {
+		// Date-only input with no ID match forces the venue+date fallback.
+		checkInputs = append(checkInputs, contracts.CheckEventInput{ID: "no-source-" + date, VenueSlug: "valley-bar", Date: date})
+	}
+
+	registerArtistQueryCounter(suite.db)
+	artistQueryCounter.Store(0)
+
+	result, err := suite.svc.CheckEvents(checkInputs)
+	suite.Require().NoError(err)
+
+	// One query for all fallback-matched shows' artists.
+	suite.Equal(int64(1), artistQueryCounter.Load(),
+		"fallback path must batch artist fetches into a single query")
+
+	suite.Require().Len(result.Events, numShows)
+	for date, want := range expectedArtists {
+		status, ok := result.Events["no-source-"+date]
+		suite.Require().True(ok, "fallback event for %s should be found", date)
+		suite.Require().NotNil(status.CurrentData)
+		suite.Equal(want, status.CurrentData.Artists, "artist names/order for %s", date)
+	}
 }

@@ -14,6 +14,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -771,16 +772,23 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		return nil, fmt.Errorf("failed to check events: %w", err)
 	}
 
+	// Index the source-key matches by their event ID for O(1) "already matched?"
+	// lookups in the fallback loop below.
+	matchedByEventID := make(map[string]bool, len(shows))
 	for _, show := range shows {
 		if show.SourceEventID != nil {
-			result.Events[*show.SourceEventID] = s.buildCheckEventStatus(show)
+			matchedByEventID[*show.SourceEventID] = true
 		}
 	}
 
 	// Fallback: for events not found by source key, try venue + date match.
 	// This catches manually-created shows that don't have source_venue/source_event_id.
+	// Collect the matched fallback shows here (keyed by the input event ID) so
+	// their artist names can be batched into the single fetch below alongside
+	// the source-key matches — keeping CheckEvents at O(1) artist queries.
+	fallbackByEventID := make(map[string]catalogm.Show)
 	for _, e := range events {
-		if _, found := result.Events[e.ID]; found {
+		if matchedByEventID[e.ID] {
 			continue // Already matched by source key
 		}
 		if e.Date == "" || e.VenueSlug == "" {
@@ -818,20 +826,41 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 			continue // No match found — that's fine
 		}
 
-		result.Events[e.ID] = s.buildCheckEventStatus(matchedShow)
+		fallbackByEventID[e.ID] = matchedShow
+	}
+
+	// Batch-fetch artist names for every matched show (source-key + fallback) in
+	// a single query, keyed by show ID. Avoids the per-show artist query that
+	// previously ran inside buildCheckEventStatus — the admin handler allows up
+	// to 200 events per call, so the per-show query was up to 200 round-trips.
+	showIDs := make([]uint, 0, len(shows)+len(fallbackByEventID))
+	for _, show := range shows {
+		showIDs = append(showIDs, show.ID)
+	}
+	for _, show := range fallbackByEventID {
+		showIDs = append(showIDs, show.ID)
+	}
+	artistsByShowID, err := shared.BatchResolveShowArtistNames(s.db, showIDs)
+	if err != nil {
+		return nil, fmt.Errorf("failed to fetch show artists: %w", err)
+	}
+
+	for _, show := range shows {
+		if show.SourceEventID != nil {
+			result.Events[*show.SourceEventID] = buildCheckEventStatus(show, artistsByShowID[show.ID])
+		}
+	}
+	for eventID, show := range fallbackByEventID {
+		result.Events[eventID] = buildCheckEventStatus(show, artistsByShowID[show.ID])
 	}
 
 	return result, nil
 }
 
-// buildCheckEventStatus creates a CheckEventStatus from a Show model
-func (s *DiscoveryService) buildCheckEventStatus(show catalogm.Show) contracts.CheckEventStatus {
-	var artistNames []string
-	s.db.Raw(`SELECT artists.name FROM show_artists
-		JOIN artists ON show_artists.artist_id = artists.id
-		WHERE show_artists.show_id = ?
-		ORDER BY show_artists.position`, show.ID).Scan(&artistNames)
-
+// buildCheckEventStatus creates a CheckEventStatus from a Show model and its
+// pre-fetched artist names (see shared.BatchResolveShowArtistNames — names must
+// not be queried per-show on the discovery hot path).
+func buildCheckEventStatus(show catalogm.Show, artistNames []string) contracts.CheckEventStatus {
 	return contracts.CheckEventStatus{
 		Exists: true,
 		ShowID: show.ID,
