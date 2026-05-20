@@ -128,10 +128,9 @@ describe('AuthPage', () => {
     })
 
     it('does not honor ?tab=signup as an initial-tab hint (param is inert)', () => {
-      // Documents a gap surfaced by PSY-682: the page hardcodes
-      // defaultValue="login" and never reads ?tab, so ?tab=signup has no
-      // effect. If deep-linking to the signup tab is later implemented, this
-      // expectation should flip.
+      // The page hardcodes defaultValue="login" and never reads ?tab, so
+      // ?tab=signup has no effect. If deep-linking to the signup tab is later
+      // implemented, this expectation should flip.
       setSearchParams('tab=signup')
       renderWithProviders(<AuthPage />)
 
@@ -183,16 +182,10 @@ describe('AuthPage', () => {
     })
 
     it('falls back to "/" when returnTo points at an external origin', () => {
+      // Confirms the page routes the raw param through sanitizeReturnTo rather
+      // than forwarding it verbatim (open-redirect guard). The sanitizer's full
+      // matrix is covered in auth-redirect-utils.test.ts.
       setSearchParams('returnTo=https%3A%2F%2Fevil.com%2Fphish')
-      renderWithProviders(<AuthPage />)
-
-      expect(passkeyLoginProps).toHaveBeenCalledWith(
-        expect.objectContaining({ returnTo: '/' })
-      )
-    })
-
-    it('falls back to "/" when returnTo loops back to an auth path', () => {
-      setSearchParams('returnTo=%2Fauth%3FreturnTo%3D%2Flibrary')
       renderWithProviders(<AuthPage />)
 
       expect(passkeyLoginProps).toHaveBeenCalledWith(
