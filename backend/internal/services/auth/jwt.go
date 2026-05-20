@@ -13,6 +13,18 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
+// Session JWT claim values. The issuer and audience are shared by every token
+// this service mints; the subject distinguishes a full session token from the
+// short-lived single-purpose tokens (email-verification, magic-link,
+// account-recovery). ValidateToken asserts all three so a leaked short-lived
+// token — which travels through email URLs, query strings, and browser history
+// — can never be replayed as a session credential.
+const (
+	jwtIssuer         = "psychic-homily-backend"
+	jwtAudience       = "psychic-homily-users"
+	jwtSessionSubject = "session"
+)
+
 type JWTService struct {
 	config      *config.Config
 	userService contracts.UserServiceInterface
@@ -32,8 +44,9 @@ func (s *JWTService) CreateToken(user *authm.User) (string, error) {
 		"email":   user.Email,
 		"exp":     time.Now().Add(time.Duration(s.config.JWT.Expiry) * time.Hour).Unix(),
 		"iat":     time.Now().Unix(),
-		"iss":     "psychic-homily-backend",
-		"aud":     "psychic-homily-users",
+		"iss":     jwtIssuer,
+		"aud":     jwtAudience,
+		"sub":     jwtSessionSubject,
 	}
 
 	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
@@ -43,12 +56,17 @@ func (s *JWTService) CreateToken(user *authm.User) (string, error) {
 // ValidateToken validates and extracts user info from JWT
 // Fetches the full user from the database to ensure we have current admin status
 func (s *JWTService) ValidateToken(tokenString string) (*authm.User, error) {
+	// Enforce the session subject, issuer, and audience as part of parsing.
+	// WithSubject/WithIssuer/WithAudience require the claim to exist and match,
+	// so single-purpose tokens (email-verification, magic-link,
+	// account-recovery) and legacy session tokens minted before the subject was
+	// added are rejected here rather than being honored as session credentials.
 	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
 		return []byte(s.config.JWT.SecretKey), nil
-	})
+	}, jwt.WithIssuer(jwtIssuer), jwt.WithAudience(jwtAudience), jwt.WithSubject(jwtSessionSubject))
 
 	if err != nil {
 		if errors.Is(err, jwt.ErrTokenExpired) {
@@ -126,11 +144,15 @@ func (s *JWTService) ValidateTokenLenient(tokenString string, gracePeriod time.D
 		return nil, apperrors.ErrTokenExpired(fmt.Errorf("token expired beyond grace period"))
 	}
 
-	// Validate issuer and audience manually
+	// Validate subject, issuer, and audience manually. The without-validation
+	// parse above skips claim checks, so we must assert the session subject here
+	// too — otherwise a leaked single-purpose token (magic-link, verification,
+	// recovery) caught inside the grace window could be refreshed into a session.
+	sub, _ := claims["sub"].(string)
 	iss, _ := claims["iss"].(string)
 	aud, _ := claims["aud"].(string)
-	if iss != "psychic-homily-backend" || aud != "psychic-homily-users" {
-		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("invalid token issuer or audience"))
+	if sub != jwtSessionSubject || iss != jwtIssuer || aud != jwtAudience {
+		return nil, apperrors.ErrTokenInvalid(fmt.Errorf("invalid token subject, issuer, or audience"))
 	}
 
 	// Token is within grace period — extract user
