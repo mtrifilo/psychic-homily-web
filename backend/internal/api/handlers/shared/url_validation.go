@@ -22,23 +22,27 @@ type urlFieldSpec struct {
 // boundary. PSY-525 introduced http/https scheme validation for these fields
 // in the catalog handlers; PSY-549 extends the same rules to the
 // pending-edit suggest path so the two write surfaces agree on what
-// constitutes a valid URL.
+// constitutes a valid URL. PSY-747 closes the gaps for cover_image_url
+// (collection), cover_art_url (release), and ticket_url (show), which were
+// previously length-only and accepted javascript:/data: schemes.
 //
-// Intentionally omitted: flyer_url, ticket_url, cover_art_url, and
-// bandcamp_embed_url. PSY-525 left them to length-only / domain-specific
-// checks (e.g. isValidBandcampURL); PSY-549 matches that scope so the
-// suggest-edit path doesn't enforce stricter rules than the catalog handler
-// would.
+// Intentionally omitted: flyer_url and bandcamp_embed_url — PSY-525 left them
+// to length-only / domain-specific checks (e.g. isValidBandcampURL), and the
+// suggest-edit path matches that scope so it doesn't enforce stricter rules
+// than the catalog handler would.
 var urlFieldSpecs = map[string]urlFieldSpec{
-	"image_url":  {displayName: "Image URL", maxLength: 2048},
-	"instagram":  {displayName: "Instagram URL", maxLength: 255},
-	"facebook":   {displayName: "Facebook URL", maxLength: 500},
-	"twitter":    {displayName: "Twitter URL", maxLength: 255},
-	"youtube":    {displayName: "YouTube URL", maxLength: 500},
-	"spotify":    {displayName: "Spotify URL", maxLength: 500},
-	"soundcloud": {displayName: "SoundCloud URL", maxLength: 500},
-	"bandcamp":   {displayName: "Bandcamp URL", maxLength: 500},
-	"website":    {displayName: "Website URL", maxLength: 500},
+	"image_url":       {displayName: "Image URL", maxLength: 2048},
+	"cover_image_url": {displayName: "Cover image URL", maxLength: 2048},
+	"cover_art_url":   {displayName: "Cover art URL", maxLength: 2048},
+	"ticket_url":      {displayName: "Ticket URL", maxLength: 500},
+	"instagram":       {displayName: "Instagram URL", maxLength: 255},
+	"facebook":        {displayName: "Facebook URL", maxLength: 500},
+	"twitter":         {displayName: "Twitter URL", maxLength: 255},
+	"youtube":         {displayName: "YouTube URL", maxLength: 500},
+	"spotify":         {displayName: "Spotify URL", maxLength: 500},
+	"soundcloud":      {displayName: "SoundCloud URL", maxLength: 500},
+	"bandcamp":        {displayName: "Bandcamp URL", maxLength: 500},
+	"website":         {displayName: "Website URL", maxLength: 500},
 }
 
 // ValidateImageURL applies the http/https scheme check to an optional image
@@ -52,6 +56,33 @@ func ValidateImageURL(imageURL *string) error {
 		return nil
 	}
 	return validateScheme(*imageURL, urlFieldSpecs["image_url"].displayName)
+}
+
+// ValidateURLField applies both the http/https scheme check and the per-field
+// length cap to an optional URL identified by its urlFieldSpecs key. Unlike
+// ValidateImageURL (scheme-only, length enforced by a struct maxLength tag),
+// this helper also caps length, so it works for boundary fields that lack a
+// struct-tag length cap (e.g. collection cover_image_url, release
+// cover_art_url, show ticket_url — PSY-747).
+//
+// Empty strings and nil pass through so callers that allow "clear via empty
+// string" semantics keep working. Unknown field names return nil rather than
+// panicking, so a typo degrades to no-op validation rather than a runtime
+// crash; callers pass a literal key matched against urlFieldSpecs.
+func ValidateURLField(fieldName string, value *string) error {
+	spec, ok := urlFieldSpecs[fieldName]
+	if !ok {
+		return nil
+	}
+	if value == nil || *value == "" {
+		return nil
+	}
+	if len(*value) > spec.maxLength {
+		return huma.Error422UnprocessableEntity(
+			fmt.Sprintf("%s must be %d characters or fewer", spec.displayName, spec.maxLength),
+		)
+	}
+	return validateScheme(*value, spec.displayName)
 }
 
 // ValidateSocialURLs applies the http/https scheme check to the standard set
@@ -126,6 +157,24 @@ func ValidateFieldChangeValue(fieldName string, value any) error {
 		)
 	}
 	return validateScheme(s, spec.displayName)
+}
+
+// URLSchemeError validates the http/https scheme and per-field length cap for
+// a known URL field and returns the underlying error (NOT wrapped as a huma
+// 422). It exists for the huma Resolve()-style request bodies that collect
+// field-level *huma.ErrorDetail entries with a Location — the caller wraps the
+// returned error so the rejection keeps its body-field attribution (PSY-747,
+// show ticket_url create path). Returns nil for unknown fields, nil/empty
+// values, or valid URLs.
+func URLSchemeError(fieldName, value string) error {
+	spec, ok := urlFieldSpecs[fieldName]
+	if !ok || value == "" {
+		return nil
+	}
+	if len(value) > spec.maxLength {
+		return fmt.Errorf("%s must be %d characters or fewer", spec.displayName, spec.maxLength)
+	}
+	return utils.ValidateHTTPURL(value, spec.displayName)
 }
 
 // validateScheme calls utils.ValidateHTTPURL and translates failures into
