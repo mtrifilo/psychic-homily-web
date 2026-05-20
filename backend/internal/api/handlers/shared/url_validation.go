@@ -59,10 +59,10 @@ func ValidateImageURL(imageURL *string) error {
 }
 
 // ValidateURLField applies both the http/https scheme check and the per-field
-// length cap to an optional URL identified by its urlFieldSpecs key. Unlike
-// ValidateImageURL (scheme-only, length enforced by a struct maxLength tag),
-// this helper also caps length, so it works for boundary fields that lack a
-// struct-tag length cap (e.g. collection cover_image_url, release
+// length cap to an optional URL identified by its urlFieldSpecs key, returning
+// a huma 422. Unlike ValidateImageURL (scheme-only, length enforced by a struct
+// maxLength tag), this helper also caps length, so it works for boundary fields
+// that lack a struct-tag length cap (e.g. collection cover_image_url, release
 // cover_art_url, show ticket_url — PSY-747).
 //
 // Empty strings and nil pass through so callers that allow "clear via empty
@@ -70,19 +70,13 @@ func ValidateImageURL(imageURL *string) error {
 // panicking, so a typo degrades to no-op validation rather than a runtime
 // crash; callers pass a literal key matched against urlFieldSpecs.
 func ValidateURLField(fieldName string, value *string) error {
-	spec, ok := urlFieldSpecs[fieldName]
-	if !ok {
+	if value == nil {
 		return nil
 	}
-	if value == nil || *value == "" {
-		return nil
+	if err := URLSchemeError(fieldName, *value); err != nil {
+		return huma.Error422UnprocessableEntity(err.Error())
 	}
-	if len(*value) > spec.maxLength {
-		return huma.Error422UnprocessableEntity(
-			fmt.Sprintf("%s must be %d characters or fewer", spec.displayName, spec.maxLength),
-		)
-	}
-	return validateScheme(*value, spec.displayName)
+	return nil
 }
 
 // ValidateSocialURLs applies the http/https scheme check to the standard set
