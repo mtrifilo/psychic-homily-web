@@ -146,6 +146,19 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 	// Check for CLI callback parameter
 	cliCallback := r.URL.Query().Get("cli_callback")
 	if cliCallback != "" {
+		// Reject any callback that is not a loopback URL. The OAuth callback
+		// appends a 24h JWT to this destination, so an attacker-controlled
+		// host (e.g. ?cli_callback=https://evil.com/steal) would exfiltrate
+		// the victim's token. SameSite=Lax does NOT mitigate — the OAuth
+		// cookie is set on this same top-level navigation.
+		validated, err := validateCLICallback(cliCallback)
+		if err != nil {
+			log.Printf("WARN: rejected open-redirect cli_callback from %s: %v", r.RemoteAddr, err)
+			http.Error(w, "Invalid cli_callback", http.StatusBadRequest)
+			return
+		}
+		cliCallback = validated
+
 		// Generate unique ID and store callback in memory
 		callbackID := generateRandomID()
 		storeCLICallback(callbackID, cliCallback)
@@ -197,9 +210,18 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	if cookie, err := r.Cookie("cli_callback_id"); err == nil {
 		callbackID := cookie.Value
 		if callback, ok := getCLICallback(callbackID); ok {
-			cliCallback = callback
 			deleteCLICallback(callbackID)
-			log.Printf("DEBUG: CLI callback found for ID %s: %s", callbackID, cliCallback)
+			// Defense in depth: re-validate the stored callback before we
+			// build a token-bearing redirect from it. Even though the value
+			// was checked at initiation, never trust a stored redirect target
+			// against the loopback allowlist a second time. A rejected value
+			// falls back to the standard web flow (no token leaked).
+			if validated, verr := validateCLICallback(callback); verr == nil {
+				cliCallback = validated
+				log.Printf("DEBUG: CLI callback found for ID %s: %s", callbackID, cliCallback)
+			} else {
+				log.Printf("WARN: rejected non-loopback cli_callback at callback from %s: %v", r.RemoteAddr, verr)
+			}
 		}
 		// Clear the CLI callback ID cookie
 		http.SetCookie(w, &http.Cookie{

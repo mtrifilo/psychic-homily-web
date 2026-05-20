@@ -52,6 +52,22 @@ type CreateShowRequest struct {
 	IsPrivate         bool  `json:"-"` // Whether show should be private (user's list only)
 }
 
+// UpdateShowRequest represents the basic show fields that can be updated.
+// A nil field means "leave unchanged"; only non-nil fields are written.
+// Artist and venue association replacement is handled separately via the
+// venues/artists params on UpdateShowWithRelations.
+type UpdateShowRequest struct {
+	Title          *string    `json:"title"`
+	EventDate      *time.Time `json:"event_date"`
+	City           *string    `json:"city"`
+	State          *string    `json:"state"`
+	Price          *float64   `json:"price"`
+	AgeRequirement *string    `json:"age_requirement"`
+	Description    *string    `json:"description"`
+	TicketURL      *string    `json:"ticket_url"`
+	ImageURL       *string    `json:"image_url"`
+}
+
 // ShowResponse represents the show data returned to clients
 type ShowResponse struct {
 	ID                uint             `json:"id"`
@@ -323,6 +339,33 @@ type CreateVenueRequest struct {
 	SubmittedBy *uint   `json:"-"` // Set by handler, not from request body
 }
 
+// UpdateVenueRequest represents the data that can be updated on a venue.
+// A nil field means "leave unchanged"; only non-nil fields are written.
+//
+// Name/City/State map to NOT NULL columns and are written as-is (the handler
+// rejects empty values up front). The remaining optional string columns are
+// nullable, so Description and ImageURL normalize an empty string to SQL NULL
+// in the service (utils.NilIfEmpty). Address/Country/Zipcode and the social
+// fields preserve the prior behavior of writing the value through verbatim.
+type UpdateVenueRequest struct {
+	Name        *string `json:"name"`
+	Address     *string `json:"address"`
+	City        *string `json:"city"`
+	State       *string `json:"state"`
+	Country     *string `json:"country"`
+	Zipcode     *string `json:"zipcode"`
+	Description *string `json:"description"`
+	ImageURL    *string `json:"image_url"`
+	Instagram   *string `json:"instagram"`
+	Facebook    *string `json:"facebook"`
+	Twitter     *string `json:"twitter"`
+	YouTube     *string `json:"youtube"`
+	Spotify     *string `json:"spotify"`
+	SoundCloud  *string `json:"soundcloud"`
+	Bandcamp    *string `json:"bandcamp"`
+	Website     *string `json:"website"`
+}
+
 // VenueDetailResponse represents the venue data returned to clients
 type VenueDetailResponse struct {
 	ID          uint           `json:"id"`
@@ -414,6 +457,31 @@ type CreateArtistRequest struct {
 	Bandcamp    *string `json:"bandcamp"`
 	Website     *string `json:"website"`
 	Description *string `json:"description"`
+}
+
+// UpdateArtistRequest represents the data that can be updated on an artist.
+// A nil field means "leave unchanged"; only non-nil fields are written.
+//
+// Every column here is nullable, so the service normalizes an empty string to
+// SQL NULL (utils.NilIfEmpty) for all fields except Name, which maps to a NOT
+// NULL column. Name additionally drives slug regeneration and a uniqueness
+// check in the service. BandcampEmbedURL is the embed-specific column distinct
+// from the Bandcamp social profile URL.
+type UpdateArtistRequest struct {
+	Name             *string `json:"name"`
+	State            *string `json:"state"`
+	City             *string `json:"city"`
+	Country          *string `json:"country"`
+	Description      *string `json:"description"`
+	BandcampEmbedURL *string `json:"bandcamp_embed_url"`
+	Instagram        *string `json:"instagram"`
+	Facebook         *string `json:"facebook"`
+	Twitter          *string `json:"twitter"`
+	YouTube          *string `json:"youtube"`
+	Spotify          *string `json:"spotify"`
+	SoundCloud       *string `json:"soundcloud"`
+	Bandcamp         *string `json:"bandcamp"`
+	Website          *string `json:"website"`
 }
 
 // ArtistDetailResponse represents the artist data returned to clients
@@ -765,8 +833,8 @@ type ShowServiceInterface interface {
 	GetShowBySlug(slug string) (*ShowResponse, error)
 	GetShows(filters map[string]interface{}) ([]*ShowResponse, error)
 	GetUserSubmissions(userID uint, limit, offset int) ([]ShowResponse, int, error)
-	UpdateShow(showID uint, updates map[string]interface{}) (*ShowResponse, error)
-	UpdateShowWithRelations(showID uint, updates map[string]interface{}, venues []CreateShowVenue, artists []CreateShowArtist, isAdmin bool) (*ShowResponse, []OrphanedArtist, error)
+	UpdateShow(showID uint, req *UpdateShowRequest) (*ShowResponse, error)
+	UpdateShowWithRelations(showID uint, req *UpdateShowRequest, venues []CreateShowVenue, artists []CreateShowArtist, isAdmin bool) (*ShowResponse, []OrphanedArtist, error)
 	GetUpcomingShows(timezone string, cursor string, limit int, includeNonApproved bool, filters *UpcomingShowsFilter) ([]*ShowResponse, *string, error)
 	GetShowCities(timezone string) ([]ShowCityResponse, error)
 	DeleteShow(showID uint) error
@@ -826,7 +894,7 @@ type VenueServiceInterface interface {
 	GetVenue(venueID uint) (*VenueDetailResponse, error)
 	GetVenueBySlug(slug string) (*VenueDetailResponse, error)
 	GetVenues(filters map[string]interface{}) ([]*VenueDetailResponse, error)
-	UpdateVenue(venueID uint, updates map[string]interface{}) (*VenueDetailResponse, error)
+	UpdateVenue(venueID uint, req *UpdateVenueRequest) (*VenueDetailResponse, error)
 	DeleteVenue(venueID uint) error
 	SearchVenues(query string) ([]*VenueDetailResponse, error)
 	FindOrCreateVenue(name, city, state string, address, zipcode *string, db *gorm.DB, isAdmin bool) (*catalogm.Venue, bool, error)
@@ -857,7 +925,7 @@ type ArtistServiceInterface interface {
 	GetArtistBySlug(slug string) (*ArtistDetailResponse, error)
 	GetArtists(filters map[string]interface{}) ([]*ArtistDetailResponse, error)
 	GetArtistsWithShowCounts(filters map[string]interface{}) ([]*ArtistWithShowCountResponse, error)
-	UpdateArtist(artistID uint, updates map[string]interface{}) (*ArtistDetailResponse, error)
+	UpdateArtist(artistID uint, req *UpdateArtistRequest) (*ArtistDetailResponse, error)
 	DeleteArtist(artistID uint) error
 	SearchArtists(query string) ([]*ArtistDetailResponse, error)
 	GetShowsForArtist(artistID uint, timezone string, limit int, timeFilter string) ([]*ArtistShowResponse, int64, error)

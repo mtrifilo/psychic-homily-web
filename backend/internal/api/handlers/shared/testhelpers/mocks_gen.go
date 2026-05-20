@@ -321,7 +321,7 @@ type MockArtistService struct {
 	GetArtistBySlugFn func(string) (*contracts.ArtistDetailResponse, error)
 	GetArtistsFn func(map[string]interface{}) ([]*contracts.ArtistDetailResponse, error)
 	GetArtistsWithShowCountsFn func(map[string]interface{}) ([]*contracts.ArtistWithShowCountResponse, error)
-	UpdateArtistFn func(uint, map[string]interface{}) (*contracts.ArtistDetailResponse, error)
+	UpdateArtistFn func(uint, *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error)
 	DeleteArtistFn func(uint) (error)
 	SearchArtistsFn func(string) ([]*contracts.ArtistDetailResponse, error)
 	GetShowsForArtistFn func(uint, string, int, string) ([]*contracts.ArtistShowResponse, int64, error)
@@ -369,9 +369,9 @@ func (m *MockArtistService) GetArtistsWithShowCounts(filters map[string]interfac
 	}
 	return nil, nil
 }
-func (m *MockArtistService) UpdateArtist(artistID uint, updates map[string]interface{}) (*contracts.ArtistDetailResponse, error) {
+func (m *MockArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistRequest) (*contracts.ArtistDetailResponse, error) {
 	if m.UpdateArtistFn != nil {
-		return m.UpdateArtistFn(artistID, updates)
+		return m.UpdateArtistFn(artistID, req)
 	}
 	return nil, nil
 }
@@ -3026,8 +3026,8 @@ type MockShowService struct {
 	GetShowBySlugFn func(string) (*contracts.ShowResponse, error)
 	GetShowsFn func(map[string]interface{}) ([]*contracts.ShowResponse, error)
 	GetUserSubmissionsFn func(uint, int, int) ([]contracts.ShowResponse, int, error)
-	UpdateShowFn func(uint, map[string]interface{}) (*contracts.ShowResponse, error)
-	UpdateShowWithRelationsFn func(uint, map[string]interface{}, []contracts.CreateShowVenue, []contracts.CreateShowArtist, bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
+	UpdateShowFn func(uint, *contracts.UpdateShowRequest) (*contracts.ShowResponse, error)
+	UpdateShowWithRelationsFn func(uint, *contracts.UpdateShowRequest, []contracts.CreateShowVenue, []contracts.CreateShowArtist, bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error)
 	GetUpcomingShowsFn func(string, string, int, bool, *contracts.UpcomingShowsFilter) ([]*contracts.ShowResponse, *string, error)
 	GetShowCitiesFn func(string) ([]contracts.ShowCityResponse, error)
 	DeleteShowFn func(uint) (error)
@@ -3064,15 +3064,15 @@ func (m *MockShowService) GetUserSubmissions(userID uint, limit int, offset int)
 	}
 	return nil, 0, nil
 }
-func (m *MockShowService) UpdateShow(showID uint, updates map[string]interface{}) (*contracts.ShowResponse, error) {
+func (m *MockShowService) UpdateShow(showID uint, req *contracts.UpdateShowRequest) (*contracts.ShowResponse, error) {
 	if m.UpdateShowFn != nil {
-		return m.UpdateShowFn(showID, updates)
+		return m.UpdateShowFn(showID, req)
 	}
 	return nil, nil
 }
-func (m *MockShowService) UpdateShowWithRelations(showID uint, updates map[string]interface{}, venues []contracts.CreateShowVenue, artists []contracts.CreateShowArtist, isAdmin bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
+func (m *MockShowService) UpdateShowWithRelations(showID uint, req *contracts.UpdateShowRequest, venues []contracts.CreateShowVenue, artists []contracts.CreateShowArtist, isAdmin bool) (*contracts.ShowResponse, []contracts.OrphanedArtist, error) {
 	if m.UpdateShowWithRelationsFn != nil {
-		return m.UpdateShowWithRelationsFn(showID, updates, venues, artists, isAdmin)
+		return m.UpdateShowWithRelationsFn(showID, req, venues, artists, isAdmin)
 	}
 	return nil, nil, nil
 }
@@ -3659,7 +3659,7 @@ type MockVenueService struct {
 	GetVenueFn func(uint) (*contracts.VenueDetailResponse, error)
 	GetVenueBySlugFn func(string) (*contracts.VenueDetailResponse, error)
 	GetVenuesFn func(map[string]interface{}) ([]*contracts.VenueDetailResponse, error)
-	UpdateVenueFn func(uint, map[string]interface{}) (*contracts.VenueDetailResponse, error)
+	UpdateVenueFn func(uint, *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error)
 	DeleteVenueFn func(uint) (error)
 	SearchVenuesFn func(string) ([]*contracts.VenueDetailResponse, error)
 	FindOrCreateVenueFn func(string, string, string, *string, *string, *gorm.DB, bool) (*catalogm.Venue, bool, error)
@@ -3698,9 +3698,9 @@ func (m *MockVenueService) GetVenues(filters map[string]interface{}) ([]*contrac
 	}
 	return nil, nil
 }
-func (m *MockVenueService) UpdateVenue(venueID uint, updates map[string]interface{}) (*contracts.VenueDetailResponse, error) {
+func (m *MockVenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueRequest) (*contracts.VenueDetailResponse, error) {
 	if m.UpdateVenueFn != nil {
-		return m.UpdateVenueFn(venueID, updates)
+		return m.UpdateVenueFn(venueID, req)
 	}
 	return nil, nil
 }
