@@ -21,7 +21,8 @@ import type {
 // so these are compile-time contract guards: each fixture must satisfy its
 // interface for `tsc --noEmit` (run by `bun run typecheck`) to pass, which
 // catches accidental field renames/removals. The runtime expects double as a
-// readable record of the expected shape and exercise the optional fields.
+// readable record of the expected shape and exercise the optional/nullable
+// fields (description, node city/state, link detail).
 
 describe('scene types contract', () => {
   it('SceneListItem / SceneListResponse', () => {
