@@ -48,11 +48,8 @@ func redactURL(raw string) string {
 	const placeholder = "[redacted]"
 
 	u, parseErr := url.Parse(raw)
-	if parseErr != nil || u.Host == "" {
+	if parseErr != nil || u.Host == "" || u.Scheme == "" {
 		return placeholder
-	}
-	if u.Scheme == "" {
-		return u.Host + "/" + placeholder
 	}
 	return fmt.Sprintf("%s://%s/%s", u.Scheme, u.Host, placeholder)
 }
