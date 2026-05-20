@@ -87,9 +87,9 @@ func (s *CommentService) SetFollowChecker(fc FollowChecker) {
 	s.followChecker = fc
 }
 
-// renderMarkdown converts a comment/field-note body to sanitized HTML via the
-// canonical utils.MarkdownRenderer. Falls back to a freshly-constructed renderer
-// when the service was built without one (older bare-construction test paths).
+// renderMarkdown delegates to the canonical utils.MarkdownRenderer. Falls back
+// to a freshly-constructed renderer when the service was built without one
+// (older bare-construction test paths).
 func (s *CommentService) renderMarkdown(body string) string {
 	if s.markdownRenderer == nil {
 		s.markdownRenderer = utils.NewMarkdownRenderer()
