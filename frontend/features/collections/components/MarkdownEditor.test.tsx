@@ -91,7 +91,7 @@ describe('MarkdownEditor', () => {
     const user = userEvent.setup()
     render(
       <MarkdownEditor
-        value="hi <script>alert('x')</script>"
+        value="hi <script>alert(1)</script>"
         onChange={vi.fn()}
       />
     )
@@ -100,6 +100,59 @@ describe('MarkdownEditor', () => {
     const preview = screen.getByTestId('markdown-editor-preview')
     expect(preview.querySelector('script')).toBeNull()
     expect(preview.innerHTML).not.toMatch(/<script\b/i)
+    // The harmless text content survives; only the executable tag is dropped.
+    expect(preview.textContent).toContain('hi')
+  })
+
+  it('strips <img onerror> payloads from the preview', async () => {
+    const user = userEvent.setup()
+    render(
+      <MarkdownEditor
+        value="<img src=x onerror=alert(1)>"
+        onChange={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByTestId('markdown-editor-preview-tab'))
+    const preview = screen.getByTestId('markdown-editor-preview')
+    // <img> is not in the allowlist, so the whole element is removed.
+    expect(preview.querySelector('img')).toBeNull()
+    expect(preview.innerHTML).not.toMatch(/onerror/i)
+  })
+
+  it('does not resurrect HTML-encoded <script> entities into live tags', async () => {
+    const user = userEvent.setup()
+    // NOTE: pass the entities via a JS expression, not a JSX string literal —
+    // JSX decodes `&lt;` → `<` at parse time, which would test a raw <script>
+    // tag instead of the encoded-entity case we care about here.
+    render(
+      <MarkdownEditor
+        value={'&lt;script&gt;alert(1)&lt;/script&gt;'}
+        onChange={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByTestId('markdown-editor-preview-tab'))
+    const preview = screen.getByTestId('markdown-editor-preview')
+    // Encoded entities must render as inert text, never as an executable tag:
+    // the markup stays escaped (`&lt;script&gt;`) and decodes only as text.
+    expect(preview.querySelector('script')).toBeNull()
+    expect(preview.innerHTML).not.toMatch(/<script\b/i)
+    expect(preview.textContent).toContain('<script>alert(1)</script>')
+  })
+
+  it('strips javascript: URLs from anchor hrefs in the preview', async () => {
+    const user = userEvent.setup()
+    render(
+      <MarkdownEditor
+        value={'<a href="javascript:alert(1)">x</a>'}
+        onChange={vi.fn()}
+      />
+    )
+
+    await user.click(screen.getByTestId('markdown-editor-preview-tab'))
+    const preview = screen.getByTestId('markdown-editor-preview')
+    expect(preview.innerHTML).not.toMatch(/javascript:/i)
   })
 
   it('strips on* event handlers from the preview', async () => {
@@ -114,6 +167,10 @@ describe('MarkdownEditor', () => {
     await user.click(screen.getByTestId('markdown-editor-preview-tab'))
     const preview = screen.getByTestId('markdown-editor-preview')
     expect(preview.innerHTML).not.toMatch(/onclick=/i)
+    // The anchor itself survives with its safe href intact.
+    expect(preview.querySelector('a')?.getAttribute('href')).toBe(
+      'https://example.com'
+    )
   })
 
   it('shows the empty-preview placeholder when value is blank', async () => {

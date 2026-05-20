@@ -14,37 +14,64 @@
  *
  * Allowed primitives (per the comment-system policy): bold, italic, links,
  * blockquotes, lists, inline code/pre, h3+. The preview uses `marked` for
- * markdown → HTML conversion and additionally strips obviously-dangerous
- * fragments (script/style/iframe/event-handlers) defense-in-depth, since
+ * markdown → HTML conversion and `DOMPurify` to sanitize the result, since
  * the rendered preview is shown via `dangerouslySetInnerHTML` to the author.
+ * The allowlist below mirrors the server's bluemonday policy
+ * (`backend/internal/utils/markdown.go`) so the preview is a faithful
+ * approximation of what every other user will eventually see. The server
+ * remains the actual security boundary; this keeps the author-facing preview
+ * from rendering anything the server would strip.
  */
 
 import { useState, useMemo } from 'react'
 import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import { Eye, Pencil } from 'lucide-react'
 import { Textarea } from '@/components/ui/textarea'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 
 /**
- * Strips a small set of unsafe constructs from preview HTML. The author is
- * the only viewer — but defense-in-depth against accidentally pasting an
- * unsafe snippet is cheap. The server's bluemonday policy is the actual
- * security boundary; this is a hygiene pass for the preview pane only.
+ * Tags the preview is allowed to render. Mirrors the bluemonday allowlist in
+ * `backend/internal/utils/markdown.go` (the comments/field-notes policy):
+ * paragraphs, line breaks, bold/italic, code/pre, lists, blockquote, h3–h6,
+ * and anchors. Anything outside this set (script, style, iframe, img, etc.)
+ * is dropped by DOMPurify.
  */
-function stripUnsafe(html: string): string {
-  return html
-    .replace(/<script\b[^<]*(?:(?!<\/script>)<[^<]*)*<\/script>/gi, '')
-    .replace(/<style\b[^<]*(?:(?!<\/style>)<[^<]*)*<\/style>/gi, '')
-    .replace(/<iframe\b[^>]*>[\s\S]*?<\/iframe>/gi, '')
-    .replace(/<iframe\b[^>]*\/?>/gi, '')
-    // Strip on* event handlers from any tag.
-    .replace(/\s+on[a-z]+\s*=\s*"[^"]*"/gi, '')
-    .replace(/\s+on[a-z]+\s*=\s*'[^']*'/gi, '')
-    .replace(/\s+on[a-z]+\s*=\s*[^\s>]+/gi, '')
-    // Strip javascript: URLs from href/src.
-    .replace(/(href|src)\s*=\s*"javascript:[^"]*"/gi, '$1="#"')
-    .replace(/(href|src)\s*=\s*'javascript:[^']*'/gi, "$1='#'")
+const PREVIEW_ALLOWED_TAGS = [
+  'p',
+  'br',
+  'strong',
+  'b',
+  'em',
+  'i',
+  'code',
+  'pre',
+  'ul',
+  'ol',
+  'li',
+  'blockquote',
+  'h3',
+  'h4',
+  'h5',
+  'h6',
+  'a',
+]
+
+/** Only `href` survives on anchors; everything else (e.g. on* handlers) is dropped. */
+const PREVIEW_ALLOWED_ATTRS = ['href']
+
+/**
+ * Sanitizes marked-rendered HTML for the preview pane. Returns "" in
+ * non-browser environments (SSR) since DOMPurify needs a DOM; the preview is
+ * a client-only, interaction-gated surface so this never affects first paint.
+ */
+function sanitizePreview(html: string): string {
+  if (typeof window === 'undefined') return ''
+  return DOMPurify.sanitize(html, {
+    ALLOWED_TAGS: PREVIEW_ALLOWED_TAGS,
+    ALLOWED_ATTR: PREVIEW_ALLOWED_ATTRS,
+  })
 }
 
 export interface MarkdownEditorProps {
@@ -94,7 +121,7 @@ export function MarkdownEditor({
       gfm: true,
       breaks: false,
     }) as unknown as string
-    return stripUnsafe(rendered)
+    return sanitizePreview(rendered)
   }, [value])
 
   return (
