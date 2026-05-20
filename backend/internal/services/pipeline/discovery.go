@@ -176,11 +176,10 @@ func (s *DiscoveryService) ImportFromJSON(filepath string, dryRun bool) (*contra
 }
 
 // checkHeadlinerDuplicate checks if there's an existing non-rejected show with the same
-// headliner at the same venue on the same date. Returns the matching show or nil.
+// headliner at the same venue at the same exact event_date. Returns the matching show or nil.
+// The dedup key is the FULL event_date timestamp (PSY-559) — matinee and evening sets at
+// the same venue are distinct shows, not duplicates.
 func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName string, eventDate time.Time) *catalogm.Show {
-	startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
-	endOfDay := startOfDay.Add(24 * time.Hour)
-
 	var existingShow catalogm.Show
 	err := s.db.
 		Joins("JOIN show_artists ON shows.id = show_artists.show_id").
@@ -190,7 +189,7 @@ func (s *DiscoveryService) checkHeadlinerDuplicate(headlinerName, venueName stri
 		Where("LOWER(artists.name) = LOWER(?)", headlinerName).
 		Where("(show_artists.set_type = ? OR show_artists.position = 0)", "headliner").
 		Where("LOWER(venues.name) = LOWER(?)", venueName).
-		Where("shows.event_date >= ? AND shows.event_date < ?", startOfDay, endOfDay).
+		Where("shows.event_date = ?", eventDate).
 		Where("shows.status NOT IN ?", []catalogm.ShowStatus{catalogm.ShowStatusRejected, catalogm.ShowStatusPrivate}).
 		First(&existingShow).Error
 	if err != nil {
@@ -262,20 +261,19 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 		return fmt.Sprintf("ERROR: Failed to parse date for %s: %v", event.Title, err), "error"
 	}
 
-	// Check if there's a rejected show at the same venue on the same date
-	// This prevents re-importing events that were previously rejected
-	startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
-	endOfDay := startOfDay.Add(24 * time.Hour)
-
+	// Check if there's a rejected show at the same venue at the same exact
+	// event_date. This prevents re-importing events that were previously
+	// rejected. Keyed on the FULL event_date timestamp (PSY-559) so a rejected
+	// matinee does not block a legitimate evening import at the same venue.
 	var rejectedShow catalogm.Show
 	err = s.db.Joins("JOIN show_venues ON shows.id = show_venues.show_id").
 		Joins("JOIN venues ON show_venues.venue_id = venues.id").
-		Where("LOWER(venues.name) = LOWER(?) AND shows.event_date >= ? AND shows.event_date < ? AND shows.status = ?",
-			venueConfig.Name, startOfDay, endOfDay, catalogm.ShowStatusRejected).
+		Where("LOWER(venues.name) = LOWER(?) AND shows.event_date = ? AND shows.status = ?",
+			venueConfig.Name, eventDate, catalogm.ShowStatusRejected).
 		First(&rejectedShow).Error
 	if err == nil {
 		return fmt.Sprintf("REJECTED: %s matches previously rejected show #%d at %s on %s",
-			event.Title, rejectedShow.ID, venueConfig.Name, eventDate.Format("2006-01-02")), "rejected"
+			event.Title, rejectedShow.ID, venueConfig.Name, eventDate.Format("2006-01-02 15:04")), "rejected"
 	}
 
 	// Check for duplicate: same headliner + venue + date as an existing show.
@@ -798,6 +796,14 @@ func (s *DiscoveryService) CheckEvents(events []contracts.CheckEventInput) (*con
 		if err != nil {
 			continue
 		}
+		// This is a read-only "does a show already exist at this venue that
+		// day" status lookup for the scraper UI — NOT a dedup-rejection gate.
+		// Unlike the dedup checks above, the CheckEventInput here carries only
+		// a date (YYYY-MM-DD), with no time-of-day, so a full-timestamp
+		// equality match is impossible. The same-day range is the correct
+		// (and only feasible) comparison for a date-only input. Surfacing a
+		// same-day match here never rejects an import; importEvent's
+		// full-timestamp dedup checks remain the authoritative gate.
 		startOfDay := eventDate
 		endOfDay := eventDate.Add(24 * time.Hour)
 
