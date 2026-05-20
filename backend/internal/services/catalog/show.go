@@ -211,29 +211,33 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 		venueNames = append(venueNames, venue.Name)
 	}
 
-	// Compute date window for same-day matching (matches discovery import logic)
+	// The dedup key is the FULL event_date timestamp (PSY-559): a matinee and
+	// an evening set at the same venue with the same headliner are distinct
+	// shows, not duplicates. Match on exact-timestamp equality, mirroring the
+	// shows_artist_venue_eventdate_uniq unique index.
 	eventDate := req.EventDate.UTC()
-	startOfDay := time.Date(eventDate.Year(), eventDate.Month(), eventDate.Day(), 0, 0, 0, 0, time.UTC)
-	endOfDay := startOfDay.Add(24 * time.Hour)
 
-	// Acquire advisory lock keyed on (headliner, venue, date) to serialize concurrent inserts.
-	// Uses FNV hash to produce a stable int64 lock key. Auto-released on transaction commit/rollback.
+	// Acquire advisory lock keyed on (headliner, venue, exact timestamp) to
+	// serialize concurrent inserts of the SAME show. Keying on the full
+	// timestamp (not the calendar day) lets matinee + evening inserts proceed
+	// in parallel. Uses FNV hash for a stable int64 lock key; auto-released on
+	// transaction commit/rollback.
 	for _, headlinerName := range headlinerNames {
 		for _, venueName := range venueNames {
-			lockKey := fnvHash(strings.ToLower(headlinerName) + "|" + strings.ToLower(venueName) + "|" + startOfDay.Format("2006-01-02"))
+			lockKey := fnvHash(strings.ToLower(headlinerName) + "|" + strings.ToLower(venueName) + "|" + eventDate.Format(time.RFC3339Nano))
 			if err := tx.Exec("SELECT pg_advisory_xact_lock(?)", lockKey).Error; err != nil {
 				return fmt.Errorf("failed to acquire advisory lock: %w", err)
 			}
 		}
 	}
 
-	// Check for conflicts: same headliner + same venue + same day (case-insensitive).
-	// Matches headliner by explicit set_type='headliner' OR position=0 (first billed artist).
+	// Check for conflicts: same headliner + same venue + same exact timestamp
+	// (case-insensitive). Matches headliner by explicit set_type='headliner'
+	// OR position=0 (first billed artist).
 	for _, headlinerName := range headlinerNames {
 		for _, venueName := range venueNames {
 			var existingShows []catalogm.Show
 
-			// Query for shows on the same day with the same headliner and venue
 			err := tx.Table("shows").
 				Joins("JOIN show_artists ON shows.id = show_artists.show_id").
 				Joins("JOIN artists ON show_artists.artist_id = artists.id").
@@ -242,7 +246,7 @@ func (s *ShowService) checkDuplicateHeadlinerConflicts(tx *gorm.DB, req *contrac
 				Where("LOWER(artists.name) = LOWER(?) AND LOWER(venues.name) = LOWER(?)",
 					headlinerName, venueName).
 				Where("(show_artists.set_type = ? OR show_artists.position = 0)", "headliner").
-				Where("shows.event_date >= ? AND shows.event_date < ?", startOfDay, endOfDay).
+				Where("shows.event_date = ?", eventDate).
 				Find(&existingShows).Error
 
 			if err != nil {
