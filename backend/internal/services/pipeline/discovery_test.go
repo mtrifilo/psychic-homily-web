@@ -757,9 +757,14 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_
 	artist.Slug = &slug
 	suite.Require().NoError(suite.db.Create(artist).Error)
 
+	// Store the existing show at midnight UTC so it matches the exact
+	// event_date a date-only import produces (parseEventDate with no ShowTime
+	// yields 00:00 UTC). The dedup key is the FULL timestamp (PSY-559), so the
+	// fixture must share the import's exact event_date to be a true duplicate —
+	// a different time-of-day would be a distinct (matinee/evening) show.
 	show := &catalogm.Show{
 		Title:     "Existing Show",
-		EventDate: time.Date(2026, 11, 15, 2, 0, 0, 0, time.UTC),
+		EventDate: time.Date(2026, 11, 15, 0, 0, 0, 0, time.UTC),
 		Status:    catalogm.ShowStatusApproved,
 		Source:    catalogm.ShowSourceUser,
 	}
@@ -771,7 +776,8 @@ func (suite *DiscoveryIntegrationTestSuite) TestImportEvents_HeadlinerDuplicate_
 		"INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (?, ?, 0, 'performer')",
 		show.ID, artist.ID).Error)
 
-	// Now try to import an event with the same artist at the same venue on the same date
+	// Now try to import an event with the same artist at the same venue at the
+	// same exact event_date (date-only import → 00:00 UTC, matching the fixture)
 	events := []contracts.DiscoveredEvent{
 		suite.makeEvent("evt-pos0-001", "Position Zero Band Live", "valley-bar", "2026-11-15", []string{"Position Zero Band"}),
 	}

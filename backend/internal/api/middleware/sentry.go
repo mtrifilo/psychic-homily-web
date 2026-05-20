@@ -21,20 +21,23 @@ func HumaSentryContextMiddleware(ctx huma.Context, next func(huma.Context)) {
 				scope.SetTag("request_id", reqID)
 			}
 
-			// HTTP context
+			// HTTP context. The raw query string is deliberately NOT
+			// tagged: secret-bearing routes (magic-link ?token=, digest
+			// unsubscribe ?sig=) would otherwise land in searchable Sentry
+			// retention. Sentry's default request integration still captures
+			// the full URL, so method+path remain sufficient for triage.
 			scope.SetTag("http.method", ctx.Method())
 			scope.SetTag("http.path", ctx.URL().Path)
-			if q := ctx.URL().RawQuery; q != "" {
-				scope.SetTag("http.query", q)
-			}
 
-			// User context (nil if not authenticated yet)
+			// User context (nil if not authenticated yet). Email is masked
+			// via logger.HashEmail so the observability tier never holds
+			// plaintext addresses; ID + masked email keep events correlatable.
 			if user := GetUserFromContext(ctx.Context()); user != nil {
 				sentryUser := sentry.User{
 					ID: fmt.Sprintf("%d", user.ID),
 				}
 				if user.Email != nil {
-					sentryUser.Email = *user.Email
+					sentryUser.Email = logger.HashEmail(*user.Email)
 				}
 				scope.SetUser(sentryUser)
 				scope.SetTag("user.is_admin", fmt.Sprintf("%t", user.IsAdmin))
