@@ -465,6 +465,22 @@ func TestValidate(t *testing.T) {
 			t.Error("expected error for unset internal API secret in stage, got nil")
 		}
 	})
+
+	t.Run("test env does not require internal API secret", func(t *testing.T) {
+		// The E2E/CI backend boots with ENVIRONMENT=test and does not supply
+		// INTERNAL_API_SECRET; the admin-bypass path stays disabled there. The
+		// secret must only be required for production/stage, or the test backend
+		// fails to boot and the E2E smoke suite times out.
+		t.Setenv("ENVIRONMENT", "test")
+		cfg := &Config{
+			JWT:   JWTConfig{SecretKey: "e2e-jwt-secret-key-for-testing-only"},
+			OAuth: OAuthConfig{SecretKey: "e2e-oauth-secret-key-for-testing-only"},
+			// MusicDiscovery.InternalAPISecret deliberately unset
+		}
+		if err := cfg.Validate(); err != nil {
+			t.Errorf("expected nil error in test env without internal API secret, got: %v", err)
+		}
+	})
 }
 
 // --- getFrontendURL tests ---

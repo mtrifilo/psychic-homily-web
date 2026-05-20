@@ -426,12 +426,16 @@ func (c *Config) Validate() error {
 
 	// The internal API secret bypasses the admin requirement on the artist
 	// Bandcamp/Spotify mutation paths, so a weak or unset value is a privilege
-	// escalation risk. Require a non-trivial secret in deployed environments.
-	if len(c.MusicDiscovery.InternalAPISecret) < minInternalAPISecretLength {
-		return fmt.Errorf(
-			"INTERNAL_API_SECRET must be set and at least %d characters for %s",
-			minInternalAPISecretLength, env,
-		)
+	// escalation risk in a real deployment. Only enforce for production/stage:
+	// test/CI run with the bypass disabled (an empty secret never matches in
+	// the constant-time compare), so they need not supply it.
+	if env == EnvProduction || env == EnvStage {
+		if len(c.MusicDiscovery.InternalAPISecret) < minInternalAPISecretLength {
+			return fmt.Errorf(
+				"INTERNAL_API_SECRET must be set and at least %d characters for %s",
+				minInternalAPISecretLength, env,
+			)
+		}
 	}
 
 	return nil
