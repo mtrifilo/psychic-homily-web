@@ -812,3 +812,53 @@ func TestNTS_ParseNTSEpisode_DateOnlyBroadcast(t *testing.T) {
 	require.NotNil(t, ep.AirTime)
 	assert.Equal(t, "00:00:00", *ep.AirTime)
 }
+
+func TestNTS_ParseNTSEpisode_DerivesDateFromAliasWhenNoBroadcast(t *testing.T) {
+	// Older NTS episodes return no `broadcast`; the air date must be recovered
+	// from the alias so the episode still imports (air_date is NOT NULL).
+	ep := parseNTSEpisode(ntsEpisode{
+		Name:         "Anu",
+		EpisodeAlias: "anu-11th-july-2017",
+	}, "anu")
+
+	assert.Equal(t, "anu/anu-11th-july-2017", ep.ExternalID)
+	assert.Equal(t, "2017-07-11", ep.AirDate, "should derive air date from the alias")
+	assert.Nil(t, ep.AirTime, "no broadcast means no air time")
+}
+
+func TestNTS_ParseNTSEpisode_NoRecoverableDate(t *testing.T) {
+	// No broadcast and an alias without a trailing date -> AirDate stays empty.
+	// The import layer skips such episodes rather than insert an invalid date.
+	ep := parseNTSEpisode(ntsEpisode{
+		Name:         "Pilot",
+		EpisodeAlias: "pilot-episode",
+	}, "show")
+
+	assert.Empty(t, ep.AirDate)
+	assert.Nil(t, ep.AirTime)
+}
+
+func TestNTS_DateFromNTSAlias(t *testing.T) {
+	cases := []struct {
+		name  string
+		alias string
+		want  string
+	}{
+		{"th ordinal", "anu-11th-july-2017", "2017-07-11"},
+		{"st ordinal", "anu-21st-march-2017", "2017-03-21"},
+		{"nd ordinal", "show-2nd-june-2020", "2020-06-02"},
+		{"rd ordinal", "show-3rd-may-2019", "2019-05-03"},
+		{"multi-word slug", "anu-jm-moser-lil-stoner-diva-18th-april-2017", "2017-04-18"},
+		{"single-digit day", "x-1st-january-2021", "2021-01-01"},
+		{"mixed case", "Anu-11TH-July-2017", "2017-07-11"},
+		{"no date in slug", "morning-becomes-eclectic", ""},
+		{"month-year only, no day", "huerco-s-march-2026", ""},
+		{"invalid month name", "x-10th-smarch-2020", ""},
+		{"impossible date", "x-31st-february-2020", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			assert.Equal(t, tc.want, dateFromNTSAlias(tc.alias))
+		})
+	}
+}
