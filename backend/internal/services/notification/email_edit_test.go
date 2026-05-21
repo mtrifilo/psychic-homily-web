@@ -20,6 +20,7 @@ func TestSendEditApprovedEmail_Success(t *testing.T) {
 		"artist",
 		"The Cool Band",
 		"http://localhost:3000/artists/the-cool-band",
+		"http://api.test.local/unsubscribe/edit-notifications?uid=7&sig=abc",
 	)
 
 	require.NoError(t, err)
@@ -38,7 +39,7 @@ func TestSendEditApprovedEmail_Success(t *testing.T) {
 func TestSendEditApprovedEmail_NotConfigured(t *testing.T) {
 	svc := &EmailService{client: nil, fromEmail: ""}
 
-	err := svc.SendEditApprovedEmail("user@test.com", "user", "artist", "Band", "http://example.com")
+	err := svc.SendEditApprovedEmail("user@test.com", "user", "artist", "Band", "http://example.com", "http://unsub")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not configured")
@@ -47,7 +48,7 @@ func TestSendEditApprovedEmail_NotConfigured(t *testing.T) {
 func TestSendEditApprovedEmail_APIError(t *testing.T) {
 	svc := setupEmailTestError(t)
 
-	err := svc.SendEditApprovedEmail("user@test.com", "user", "artist", "Band", "http://example.com")
+	err := svc.SendEditApprovedEmail("user@test.com", "user", "artist", "Band", "http://example.com", "http://unsub")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to send edit approved email")
@@ -56,7 +57,7 @@ func TestSendEditApprovedEmail_APIError(t *testing.T) {
 func TestSendEditApprovedEmail_EmptyUsername(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 
-	err := svc.SendEditApprovedEmail("user@test.com", "", "venue", "Valley Bar", "http://localhost:3000/venues/valley-bar")
+	err := svc.SendEditApprovedEmail("user@test.com", "", "venue", "Valley Bar", "http://localhost:3000/venues/valley-bar", "http://unsub")
 
 	require.NoError(t, err)
 	email := <-emails
@@ -67,7 +68,7 @@ func TestSendEditApprovedEmail_EmptyUsername(t *testing.T) {
 func TestSendEditApprovedEmail_VenueEntity(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 
-	err := svc.SendEditApprovedEmail("user@test.com", "admin", "venue", "Crescent Ballroom", "http://localhost:3000/venues/crescent-ballroom")
+	err := svc.SendEditApprovedEmail("user@test.com", "admin", "venue", "Crescent Ballroom", "http://localhost:3000/venues/crescent-ballroom", "http://unsub")
 
 	require.NoError(t, err)
 	email := <-emails
@@ -80,7 +81,7 @@ func TestSendEditApprovedEmail_VenueEntity(t *testing.T) {
 func TestSendEditApprovedEmail_FestivalEntity(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 
-	err := svc.SendEditApprovedEmail("user@test.com", "testuser", "festival", "M3F Fest 2026", "http://localhost:3000/festivals/m3f-fest-2026")
+	err := svc.SendEditApprovedEmail("user@test.com", "testuser", "festival", "M3F Fest 2026", "http://localhost:3000/festivals/m3f-fest-2026", "http://unsub")
 
 	require.NoError(t, err)
 	email := <-emails
@@ -102,6 +103,7 @@ func TestSendEditRejectedEmail_Success(t *testing.T) {
 		"artist",
 		"Some Artist",
 		"The name does not match the artist's official spelling",
+		"http://api.test.local/unsubscribe/edit-notifications?uid=7&sig=abc",
 	)
 
 	require.NoError(t, err)
@@ -120,7 +122,7 @@ func TestSendEditRejectedEmail_Success(t *testing.T) {
 func TestSendEditRejectedEmail_NotConfigured(t *testing.T) {
 	svc := &EmailService{client: nil, fromEmail: ""}
 
-	err := svc.SendEditRejectedEmail("user@test.com", "user", "artist", "Band", "reason")
+	err := svc.SendEditRejectedEmail("user@test.com", "user", "artist", "Band", "reason", "http://unsub")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "not configured")
@@ -129,7 +131,7 @@ func TestSendEditRejectedEmail_NotConfigured(t *testing.T) {
 func TestSendEditRejectedEmail_APIError(t *testing.T) {
 	svc := setupEmailTestError(t)
 
-	err := svc.SendEditRejectedEmail("user@test.com", "user", "artist", "Band", "reason")
+	err := svc.SendEditRejectedEmail("user@test.com", "user", "artist", "Band", "reason", "http://unsub")
 
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "failed to send edit rejected email")
@@ -138,7 +140,7 @@ func TestSendEditRejectedEmail_APIError(t *testing.T) {
 func TestSendEditRejectedEmail_EmptyUsername(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 
-	err := svc.SendEditRejectedEmail("user@test.com", "", "venue", "Valley Bar", "incorrect info")
+	err := svc.SendEditRejectedEmail("user@test.com", "", "venue", "Valley Bar", "incorrect info", "http://unsub")
 
 	require.NoError(t, err)
 	email := <-emails
@@ -149,7 +151,7 @@ func TestSendEditRejectedEmail_EmptyUsername(t *testing.T) {
 func TestSendEditRejectedEmail_ContainsEncouragement(t *testing.T) {
 	svc, emails, _ := setupEmailTest(t)
 
-	err := svc.SendEditRejectedEmail("user@test.com", "testuser", "artist", "Band", "wrong info")
+	err := svc.SendEditRejectedEmail("user@test.com", "testuser", "artist", "Band", "wrong info", "http://unsub")
 
 	require.NoError(t, err)
 	email := <-emails

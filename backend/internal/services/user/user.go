@@ -1212,6 +1212,24 @@ func (s *UserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) err
 	return nil
 }
 
+// SetNotifyOnTierNotifications toggles the tier-change email preference.
+// Upserts — see setNotificationFlagPref.
+func (s *UserService) SetNotifyOnTierNotifications(userID uint, enabled bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return s.setNotificationFlagPref(userID, "notify_on_tier_notifications", enabled)
+}
+
+// SetNotifyOnEditNotifications toggles the edit-review email preference.
+// Upserts — see setNotificationFlagPref.
+func (s *UserService) SetNotifyOnEditNotifications(userID uint, enabled bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	return s.setNotificationFlagPref(userID, "notify_on_edit_notifications", enabled)
+}
+
 // setCommentNotificationPref updates one or both of the PSY-289 preference
 // flags on the user_preferences row, creating the row if it doesn't exist.
 func (s *UserService) setCommentNotificationPref(userID uint, updates map[string]interface{}) error {
@@ -1237,6 +1255,46 @@ func (s *UserService) setCommentNotificationPref(userID uint, updates map[string
 		}
 		if err := s.db.Create(prefs).Error; err != nil {
 			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+	}
+	return nil
+}
+
+// setNotificationFlagPref updates a single default-TRUE notification flag,
+// creating the preferences row if it doesn't exist yet. Used by the tier/edit
+// toggles. The created row carries the other default-TRUE flags
+// (comment/mention/tier/edit) at TRUE and applies the one incoming override.
+//
+// GORM bool gotcha: a freshly Create-d struct skips false fields (zero value),
+// but every column here defaults TRUE, so a "disable" path (enabled=false on
+// the target column) needs an explicit follow-up Update. We just rebuild the
+// targeted column with Update after Create when disabling.
+func (s *UserService) setNotificationFlagPref(userID uint, column string, enabled bool) error {
+	result := s.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", userID).
+		Update(column, enabled)
+	if result.Error != nil {
+		return fmt.Errorf("failed to update %s: %w", column, result.Error)
+	}
+	if result.RowsAffected == 0 {
+		prefs := &authm.UserPreferences{
+			UserID:                      userID,
+			NotifyOnCommentSubscription: true,
+			NotifyOnMention:             true,
+			NotifyOnTierNotifications:   true,
+			NotifyOnEditNotifications:   true,
+		}
+		if err := s.db.Create(prefs).Error; err != nil {
+			return fmt.Errorf("failed to create user preferences: %w", err)
+		}
+		// Create skipped the column if `enabled` is false (zero value) and the
+		// column default is TRUE — apply the disable explicitly.
+		if !enabled {
+			if err := s.db.Model(&authm.UserPreferences{}).
+				Where("user_id = ?", userID).
+				Update(column, false).Error; err != nil {
+				return fmt.Errorf("failed to update %s: %w", column, err)
+			}
 		}
 	}
 	return nil

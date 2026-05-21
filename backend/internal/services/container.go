@@ -159,7 +159,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		APIToken:               adminsvc.NewAPITokenService(database),
 		DataQuality:            adminsvc.NewDataQualityService(database),
 		Revision:               revisionSvc,
-		PendingEdit:            adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL),
+		PendingEdit:            adminsvc.NewPendingEditService(database, revisionSvc, email, cfg.Email.FrontendURL, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		Charts:                 catalog.NewChartsService(database),
 		Artist:                 artist,
 		ContributorProfile:     usersvc.NewContributorProfileService(database),
@@ -219,7 +219,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Scheduler:        pipeline.NewSchedulerService(database, pipelineSvc, venueSourceConfig, discord),
 		Enrichment:       enrichmentSvc,
 		EnrichmentWorker: enrichmentWorker,
-		AutoPromotion:    adminsvc.NewAutoPromotionService(database, email),
+		AutoPromotion:    adminsvc.NewAutoPromotionService(database, email, engagement.DeriveBackendURL(cfg.Email.FrontendURL), cfg.JWT.SecretKey),
 		CollectionDigest: engagement.NewCollectionDigestService(database, email, cfg),
 	}
 }

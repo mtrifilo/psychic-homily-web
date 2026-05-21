@@ -508,3 +508,79 @@ func TestSetCollectionDigestHandler_ServiceError(t *testing.T) {
 	_, err := h.SetCollectionDigestHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 500)
 }
+
+// ──────────────────────────────────────────────
+// PSY-756: tier-edit-notifications preference handler
+// ──────────────────────────────────────────────
+
+func TestSetTierEditNotificationsHandler_NoAuth(t *testing.T) {
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
+	req := &SetTierEditNotificationsRequest{}
+	enabled := false
+	req.Body.NotifyOnTierNotifications = &enabled
+	_, err := h.SetTierEditNotificationsHandler(context.Background(), req)
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestSetTierEditNotificationsHandler_NoFieldsRejected(t *testing.T) {
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetTierEditNotificationsRequest{}
+	_, err := h.SetTierEditNotificationsHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestSetTierEditNotificationsHandler_Success(t *testing.T) {
+	var tierEnabled, editEnabled *bool
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnTierNotificationsFn: func(_ uint, enabled bool) error {
+			e := enabled
+			tierEnabled = &e
+			return nil
+		},
+		SetNotifyOnEditNotificationsFn: func(_ uint, enabled bool) error {
+			e := enabled
+			editEnabled = &e
+			return nil
+		},
+		GetUserByIDFn: func(uid uint) (*authm.User, error) {
+			return &authm.User{
+				ID: uid,
+				Preferences: &authm.UserPreferences{
+					UserID:                    uid,
+					NotifyOnTierNotifications: false,
+					NotifyOnEditNotifications: true,
+				},
+			}, nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	no := false
+	yes := true
+	req := &SetTierEditNotificationsRequest{}
+	req.Body.NotifyOnTierNotifications = &no
+	req.Body.NotifyOnEditNotifications = &yes
+
+	resp, err := h.SetTierEditNotificationsHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatal("expected success=true")
+	}
+	if tierEnabled == nil || *tierEnabled {
+		t.Fatalf("expected SetNotifyOnTierNotifications(false); got %v", tierEnabled)
+	}
+	if editEnabled == nil || !*editEnabled {
+		t.Fatalf("expected SetNotifyOnEditNotifications(true); got %v", editEnabled)
+	}
+	// Response mirrors DB state via GetUserByID.
+	if resp.Body.NotifyOnTierNotifications {
+		t.Fatal("expected response to reflect DB state (false)")
+	}
+	if !resp.Body.NotifyOnEditNotifications {
+		t.Fatal("expected response to reflect DB state (true)")
+	}
+}

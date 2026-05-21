@@ -47,11 +47,12 @@ type mockEmailServiceForPendingEdit struct {
 }
 
 type editApprovedCall struct {
-	ToEmail    string
-	Username   string
-	EntityType string
-	EntityName string
-	EntityURL  string
+	ToEmail        string
+	Username       string
+	EntityType     string
+	EntityName     string
+	EntityURL      string
+	UnsubscribeURL string
 }
 
 type editRejectedCall struct {
@@ -60,6 +61,7 @@ type editRejectedCall struct {
 	EntityType      string
 	EntityName      string
 	RejectionReason string
+	UnsubscribeURL  string
 }
 
 func (m *mockEmailServiceForPendingEdit) IsConfigured() bool                      { return m.configured }
@@ -74,26 +76,26 @@ func (m *mockEmailServiceForPendingEdit) SendShowReminderEmail(_, _, _, _ string
 func (m *mockEmailServiceForPendingEdit) SendFilterNotificationEmail(_, _, _, _ string) error {
 	return nil
 }
-func (m *mockEmailServiceForPendingEdit) SendTierPromotionEmail(_, _, _, _, _ string, _ []string) error {
+func (m *mockEmailServiceForPendingEdit) SendTierPromotionEmail(_, _, _, _, _, _ string, _ []string) error {
 	return nil
 }
-func (m *mockEmailServiceForPendingEdit) SendTierDemotionEmail(_, _, _, _, _ string) error {
+func (m *mockEmailServiceForPendingEdit) SendTierDemotionEmail(_, _, _, _, _, _ string) error {
 	return nil
 }
-func (m *mockEmailServiceForPendingEdit) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
+func (m *mockEmailServiceForPendingEdit) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64, _ string) error {
 	return nil
 }
-func (m *mockEmailServiceForPendingEdit) SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL string) error {
+func (m *mockEmailServiceForPendingEdit) SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL, unsubscribeURL string) error {
 	m.editApprovedCalls = append(m.editApprovedCalls, editApprovedCall{
 		ToEmail: toEmail, Username: username, EntityType: entityType,
-		EntityName: entityName, EntityURL: entityURL,
+		EntityName: entityName, EntityURL: entityURL, UnsubscribeURL: unsubscribeURL,
 	})
 	return m.editApprovedErr
 }
-func (m *mockEmailServiceForPendingEdit) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason string) error {
+func (m *mockEmailServiceForPendingEdit) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason, unsubscribeURL string) error {
 	m.editRejectedCalls = append(m.editRejectedCalls, editRejectedCall{
 		ToEmail: toEmail, Username: username, EntityType: entityType,
-		EntityName: entityName, RejectionReason: rejectionReason,
+		EntityName: entityName, RejectionReason: rejectionReason, UnsubscribeURL: unsubscribeURL,
 	})
 	return m.editRejectedErr
 }
@@ -121,7 +123,7 @@ func (s *PendingEditServiceIntegrationTestSuite) SetupSuite() {
 	s.db = s.testDB.DB
 	s.revisionSvc = NewRevisionService(s.db)
 	s.mockEmail = &mockEmailServiceForPendingEdit{configured: true}
-	s.svc = NewPendingEditService(s.db, s.revisionSvc, s.mockEmail, "http://localhost:3000")
+	s.svc = NewPendingEditService(s.db, s.revisionSvc, s.mockEmail, "http://localhost:3000", "http://localhost:8080", "test-jwt-secret")
 }
 
 func (s *PendingEditServiceIntegrationTestSuite) TearDownSuite() {
@@ -136,6 +138,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM festivals")
+	_, _ = sqlDB.Exec("DELETE FROM user_preferences")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 	// Reset mock email state between tests
 	s.mockEmail.editApprovedCalls = nil
@@ -1117,6 +1120,40 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_SendsApp
 	s.Equal("The Cool Band", call.EntityName) // Entity was updated, so name should reflect the update
 	s.Contains(call.EntityURL, "/artists/")
 	s.Contains(call.EntityURL, "http://localhost:3000")
+	// PSY-756: an edit-notifications unsubscribe URL is minted and passed.
+	s.Contains(call.UnsubscribeURL, "/unsubscribe/edit-notifications", "expected an HMAC-signed edit-notifications unsubscribe URL")
+	s.Contains(call.UnsubscribeURL, "uid=")
+	s.Contains(call.UnsubscribeURL, "sig=")
+}
+
+// TestApprovePendingEdit_SuppressedWhenOptedOut verifies the edit-notifications
+// opt-out flag suppresses the email without blocking the approval (PSY-756).
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_SuppressedWhenOptedOut() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	artist := s.createTestArtist("Optout Band")
+
+	// Opt the submitter out of edit-review emails.
+	s.Require().NoError(s.db.Create(&authm.UserPreferences{
+		UserID:                    user.ID,
+		NotifyOnEditNotifications: false,
+	}).Error)
+	s.Require().NoError(s.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", user.ID).
+		Update("notify_on_edit_notifications", false).Error)
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "artist", EntityID: artist.ID, UserID: user.ID,
+		Changes: makeChanges("name", "Optout Band", "The Optout Band"), Summary: "add 'The'",
+	})
+	s.Require().NoError(err)
+
+	resp, err := s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.NoError(err)
+	s.Equal(adminm.PendingEditStatusApproved, resp.Status, "approval must still succeed when emails are opted out")
+
+	// No email should have been sent.
+	s.Empty(s.mockEmail.editApprovedCalls, "approval email must be suppressed when opted out")
 }
 
 func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_EmailErrorDoesNotFail() {
@@ -1230,7 +1267,7 @@ func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_Festival
 
 func TestPendingEditService_NilEmailServiceDoesNotPanic(t *testing.T) {
 	// Constructor with nil email service should work fine
-	svc := NewPendingEditService(nil, nil, nil, "")
+	svc := NewPendingEditService(nil, nil, nil, "", "", "")
 	assert.NotNil(t, svc)
 
 	// sendApprovalEmail and sendRejectionEmail should not panic with nil email service
@@ -1240,7 +1277,7 @@ func TestPendingEditService_NilEmailServiceDoesNotPanic(t *testing.T) {
 
 func TestPendingEditService_UnconfiguredEmailServiceDoesNotPanic(t *testing.T) {
 	mockEmail := &mockEmailServiceForPendingEdit{configured: false}
-	svc := NewPendingEditService(nil, nil, mockEmail, "http://localhost:3000")
+	svc := NewPendingEditService(nil, nil, mockEmail, "http://localhost:3000", "http://localhost:8080", "test-jwt-secret")
 
 	// Should return early without attempting to send
 	svc.sendApprovalEmail(&adminm.PendingEntityEdit{SubmittedBy: 1, EntityType: "artist", EntityID: 1})

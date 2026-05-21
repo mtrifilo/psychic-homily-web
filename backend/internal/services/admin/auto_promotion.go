@@ -16,6 +16,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/shared"
 )
@@ -69,10 +70,14 @@ type AutoPromotionService struct {
 	stopCh       chan struct{}
 	wg           sync.WaitGroup
 	logger       *slog.Logger
+	// backendURL + jwtSecret mint the HMAC-signed tier-notifications
+	// unsubscribe URL placed in the tier-change emails.
+	backendURL string
+	jwtSecret  string
 }
 
 // NewAutoPromotionService creates a new auto-promotion service.
-func NewAutoPromotionService(database *gorm.DB, emailService contracts.EmailServiceInterface) *AutoPromotionService {
+func NewAutoPromotionService(database *gorm.DB, emailService contracts.EmailServiceInterface, backendURL, jwtSecret string) *AutoPromotionService {
 	if database == nil {
 		database = db.GetDB()
 	}
@@ -90,6 +95,8 @@ func NewAutoPromotionService(database *gorm.DB, emailService contracts.EmailServ
 		interval:     interval,
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
+		backendURL:   backendURL,
+		jwtSecret:    jwtSecret,
 	}
 }
 
@@ -245,25 +252,42 @@ func (s *AutoPromotionService) sendTierChangeEmail(user *authm.User, change cont
 		return
 	}
 
+	if !s.tierNotificationsEnabled(user.ID) {
+		return
+	}
+
 	email := *user.Email
 	username := change.Username
+	unsubURL := engagement.GenerateScopedUnsubscribeURL(s.backendURL, user.ID, engagement.UnsubscribeScopeTierNotifications, s.jwtSecret)
 
 	if isPromotion {
 		newPermissions := notification.TierPermissions(change.NewTier)
-		if err := s.emailService.SendTierPromotionEmail(email, username, change.OldTier, change.NewTier, change.Reason, newPermissions); err != nil {
+		if err := s.emailService.SendTierPromotionEmail(email, username, change.OldTier, change.NewTier, change.Reason, unsubURL, newPermissions); err != nil {
 			s.logger.Error("failed to send tier promotion email",
 				"user_id", user.ID,
 				"error", err,
 			)
 		}
 	} else {
-		if err := s.emailService.SendTierDemotionEmail(email, username, change.OldTier, change.NewTier, change.Reason); err != nil {
+		if err := s.emailService.SendTierDemotionEmail(email, username, change.OldTier, change.NewTier, change.Reason, unsubURL); err != nil {
 			s.logger.Error("failed to send tier demotion email",
 				"user_id", user.ID,
 				"error", err,
 			)
 		}
 	}
+}
+
+// tierNotificationsEnabled reports whether the user wants tier-change emails.
+// Defaults to TRUE (opt-OUT): a missing preferences row or a read error means
+// the user hasn't opted out, so we send. Only an explicit FALSE suppresses.
+func (s *AutoPromotionService) tierNotificationsEnabled(userID uint) bool {
+	var prefs authm.UserPreferences
+	if err := s.db.Select("notify_on_tier_notifications").
+		Where("user_id = ?", userID).First(&prefs).Error; err != nil {
+		return true
+	}
+	return prefs.NotifyOnTierNotifications
 }
 
 // writeTierChangeAuditLog records a tier change in the audit log.

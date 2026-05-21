@@ -22,7 +22,7 @@ import (
 // =============================================================================
 
 func TestNewAutoPromotionService(t *testing.T) {
-	svc := NewAutoPromotionService(nil, nil)
+	svc := NewAutoPromotionService(nil, nil, "http://localhost:8080", "test-jwt-secret")
 	assert.NotNil(t, svc)
 	assert.Equal(t, DefaultAutoPromotionInterval, svc.interval)
 	assert.NotNil(t, svc.stopCh)
@@ -31,19 +31,19 @@ func TestNewAutoPromotionService(t *testing.T) {
 
 func TestNewAutoPromotionService_EnvOverride(t *testing.T) {
 	t.Setenv("AUTO_PROMOTION_INTERVAL_HOURS", "12")
-	svc := NewAutoPromotionService(nil, nil)
+	svc := NewAutoPromotionService(nil, nil, "http://localhost:8080", "test-jwt-secret")
 	assert.Equal(t, 12*time.Hour, svc.interval)
 }
 
 func TestNewAutoPromotionService_InvalidEnvIgnored(t *testing.T) {
 	t.Setenv("AUTO_PROMOTION_INTERVAL_HOURS", "not-a-number")
-	svc := NewAutoPromotionService(nil, nil)
+	svc := NewAutoPromotionService(nil, nil, "http://localhost:8080", "test-jwt-secret")
 	assert.Equal(t, DefaultAutoPromotionInterval, svc.interval)
 }
 
 func TestNewAutoPromotionService_ZeroEnvIgnored(t *testing.T) {
 	t.Setenv("AUTO_PROMOTION_INTERVAL_HOURS", "0")
-	svc := NewAutoPromotionService(nil, nil)
+	svc := NewAutoPromotionService(nil, nil, "http://localhost:8080", "test-jwt-secret")
 	assert.Equal(t, DefaultAutoPromotionInterval, svc.interval)
 }
 
@@ -64,7 +64,7 @@ func TestAutoPromotionService_EvaluateUser_NilDB(t *testing.T) {
 }
 
 func TestAutoPromotionService_StartStop(t *testing.T) {
-	svc := NewAutoPromotionService(nil, nil)
+	svc := NewAutoPromotionService(nil, nil, "http://localhost:8080", "test-jwt-secret")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -110,7 +110,7 @@ type AutoPromotionIntegrationTestSuite struct {
 func (s *AutoPromotionIntegrationTestSuite) SetupSuite() {
 	s.testDB = testutil.SetupTestPostgres(s.T())
 	s.db = s.testDB.DB
-	s.svc = NewAutoPromotionService(s.db, nil)
+	s.svc = NewAutoPromotionService(s.db, nil, "http://localhost:8080", "test-jwt-secret")
 }
 
 func (s *AutoPromotionIntegrationTestSuite) TearDownSuite() {

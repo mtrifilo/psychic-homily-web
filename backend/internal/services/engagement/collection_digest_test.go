@@ -138,15 +138,15 @@ func (m *captureDigestEmailService) SendShowReminderEmail(_, _, _, _ string, _ t
 	return nil
 }
 func (m *captureDigestEmailService) SendFilterNotificationEmail(_, _, _, _ string) error { return nil }
-func (m *captureDigestEmailService) SendTierPromotionEmail(_, _, _, _, _ string, _ []string) error {
+func (m *captureDigestEmailService) SendTierPromotionEmail(_, _, _, _, _, _ string, _ []string) error {
 	return nil
 }
-func (m *captureDigestEmailService) SendTierDemotionEmail(_, _, _, _, _ string) error { return nil }
-func (m *captureDigestEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
+func (m *captureDigestEmailService) SendTierDemotionEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *captureDigestEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64, _ string) error {
 	return nil
 }
-func (m *captureDigestEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
-func (m *captureDigestEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }
+func (m *captureDigestEmailService) SendEditApprovedEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *captureDigestEmailService) SendEditRejectedEmail(_, _, _, _, _, _ string) error { return nil }
 func (m *captureDigestEmailService) SendCommentNotification(_, _, _, _, _, _, _ string) error {
 	return nil
 }

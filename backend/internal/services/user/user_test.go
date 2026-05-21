@@ -340,6 +340,56 @@ func (suite *UserServiceIntegrationTestSuite) TestFindOrCreateUser_ExistingOAuth
 	assert.Equal(suite.T(), *user.Email, *retrievedUser.Email)
 }
 
+// PSY-756: tier/edit notification preference setters. The opt-OUT defaults
+// (column DEFAULT TRUE) make the "disable on a fresh prefs row" path the
+// interesting one — GORM skips the false zero-value on Create, so the setter
+// needs an explicit follow-up Update.
+
+func (suite *UserServiceIntegrationTestSuite) TestSetNotifyOnTierNotifications_DisableCreatesRowAsFalse() {
+	user := &authm.User{Email: stringPtr("tier-optout@example.com"), IsActive: true}
+	suite.Require().NoError(suite.db.Create(user).Error)
+
+	// No prefs row exists yet — disabling must create one with the flag false.
+	suite.Require().NoError(suite.userService.SetNotifyOnTierNotifications(user.ID, false))
+
+	var prefs authm.UserPreferences
+	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&prefs).Error)
+	suite.False(prefs.NotifyOnTierNotifications, "fresh-row disable must persist as false despite the TRUE column default")
+	// The other notification flags should be created at their TRUE defaults.
+	suite.True(prefs.NotifyOnEditNotifications)
+	suite.True(prefs.NotifyOnCommentSubscription)
+}
+
+func (suite *UserServiceIntegrationTestSuite) TestSetNotifyOnEditNotifications_ToggleExistingRow() {
+	user := &authm.User{Email: stringPtr("edit-toggle@example.com"), IsActive: true}
+	suite.Require().NoError(suite.db.Create(user).Error)
+
+	// Enable on a fresh row (default is already TRUE, but exercise the path).
+	suite.Require().NoError(suite.userService.SetNotifyOnEditNotifications(user.ID, true))
+	var prefs authm.UserPreferences
+	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&prefs).Error)
+	suite.True(prefs.NotifyOnEditNotifications)
+
+	// Now disable on the existing row.
+	suite.Require().NoError(suite.userService.SetNotifyOnEditNotifications(user.ID, false))
+	suite.Require().NoError(suite.db.Where("user_id = ?", user.ID).First(&prefs).Error)
+	suite.False(prefs.NotifyOnEditNotifications)
+}
+
+func TestUserService_SetNotifyOnTierNotifications_NilDB(t *testing.T) {
+	svc := &UserService{}
+	err := svc.SetNotifyOnTierNotifications(1, false)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database not initialized")
+}
+
+func TestUserService_SetNotifyOnEditNotifications_NilDB(t *testing.T) {
+	svc := &UserService{}
+	err := svc.SetNotifyOnEditNotifications(1, false)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "database not initialized")
+}
+
 // Run the integration test suite
 func TestUserServiceIntegrationTestSuite(t *testing.T) {
 	suite.Run(t, new(UserServiceIntegrationTestSuite))

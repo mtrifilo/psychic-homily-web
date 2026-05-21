@@ -185,15 +185,15 @@ func (m *mockReminderEmailService) SendShowReminderEmail(toEmail, showTitle, sho
 func (m *mockReminderEmailService) SendFilterNotificationEmail(_, _, _, _ string) error {
 	return nil
 }
-func (m *mockReminderEmailService) SendTierPromotionEmail(_, _, _, _, _ string, _ []string) error {
+func (m *mockReminderEmailService) SendTierPromotionEmail(_, _, _, _, _, _ string, _ []string) error {
 	return nil
 }
-func (m *mockReminderEmailService) SendTierDemotionEmail(_, _, _, _, _ string) error { return nil }
-func (m *mockReminderEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
+func (m *mockReminderEmailService) SendTierDemotionEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *mockReminderEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64, _ string) error {
 	return nil
 }
-func (m *mockReminderEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
-func (m *mockReminderEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockReminderEmailService) SendEditApprovedEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *mockReminderEmailService) SendEditRejectedEmail(_, _, _, _, _, _ string) error { return nil }
 func (m *mockReminderEmailService) SendCommentNotification(_, _, _, _, _, _, _ string) error {
 	return nil
 }

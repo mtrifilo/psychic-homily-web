@@ -349,7 +349,8 @@ func TierPermissions(tier string) []string {
 }
 
 // SendTierPromotionEmail sends a congratulatory email when a user is promoted to a higher tier.
-func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason string, newPermissions []string) error {
+// unsubscribeURL is the HMAC-signed tier-notifications opt-out link (RFC 8058).
+func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string, newPermissions []string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
 	}
@@ -401,18 +402,21 @@ func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTie
         %s
     </div>
 
+    %s
+
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Thank you for contributing to the Psychic Homily community.</p>
     </div>
 </body>
 </html>
-`, greeting, oldDisplayName, displayName, reason, permissionsHTML, nextTierHTML)
+`, greeting, oldDisplayName, displayName, reason, permissionsHTML, nextTierHTML, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: fmt.Sprintf("You've been promoted to %s!", displayName),
 		Html:    html,
+		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
 	_, err := s.client.Emails.Send(params)
@@ -429,7 +433,8 @@ func (s *EmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTie
 }
 
 // SendTierDemotionEmail sends a notification when a user is demoted to a lower tier.
-func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason string) error {
+// unsubscribeURL is the HMAC-signed tier-notifications opt-out link (RFC 8058).
+func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
 	}
@@ -467,18 +472,21 @@ func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier
         </ul>
     </div>
 
+    %s
+
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Your contributions are valued. Keep at it and you'll regain your tier.</p>
     </div>
 </body>
 </html>
-`, greeting, oldDisplayName, newDisplayName, reason)
+`, greeting, oldDisplayName, newDisplayName, reason, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "Your contributor tier has changed",
 		Html:    html,
+		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
 	_, err := s.client.Emails.Send(params)
@@ -495,7 +503,8 @@ func (s *EmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier
 }
 
 // SendTierDemotionWarningEmail sends a warning when a user's approval rate is approaching the demotion threshold.
-func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64) error {
+// unsubscribeURL is the HMAC-signed tier-notifications opt-out link (RFC 8058).
+func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64, unsubscribeURL string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
 	}
@@ -531,18 +540,21 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
         </ul>
     </div>
 
+    %s
+
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>This is a friendly heads-up to help you maintain your contributor status.</p>
     </div>
 </body>
 </html>
-`, greeting, currentRate*100, threshold*100, displayName)
+`, greeting, currentRate*100, threshold*100, displayName, unsubscribeCardHTML(unsubscribeURL, "tier-change emails"))
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: "Your contributor status is at risk",
 		Html:    html,
+		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
 	_, err := s.client.Emails.Send(params)
@@ -559,7 +571,8 @@ func (s *EmailService) SendTierDemotionWarningEmail(toEmail, username, currentTi
 }
 
 // SendEditApprovedEmail sends a notification when a user's pending edit is approved.
-func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL string) error {
+// unsubscribeURL is the HMAC-signed edit-notifications opt-out link (RFC 8058).
+func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL, unsubscribeURL string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
 	}
@@ -594,18 +607,21 @@ func (s *EmailService) SendEditApprovedEmail(toEmail, username, entityType, enti
         <p style="font-size: 14px; color: #444;">Thank you for improving the Psychic Homily database. Every contribution helps the community discover great music.</p>
     </div>
 
+    %s
+
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Keep contributing to build your reputation and unlock new permissions.</p>
     </div>
 </body>
 </html>
-`, greeting, entityType, entityName, entityURL, entityTypeTitle)
+`, greeting, entityType, entityName, entityURL, entityTypeTitle, unsubscribeCardHTML(unsubscribeURL, "edit-review emails"))
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: fmt.Sprintf("Your edit to %s was approved!", entityName),
 		Html:    html,
+		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
 	_, err := s.client.Emails.Send(params)
@@ -859,15 +875,7 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 		To:      []string{toEmail},
 		Subject: subject,
 		Html:    html,
-		// RFC 8058 / RFC 2369 — Gmail & Yahoo bulk-sender requirement. The
-		// header value MUST be a single HTTPS URL or mailto wrapped in <>;
-		// see RFC 2369 §3. List-Unsubscribe-Post tells the receiver this
-		// link supports RFC 8058 one-click POST so it can render the
-		// "Unsubscribe" button next to the sender name.
-		Headers: map[string]string{
-			"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
-			"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
-		},
+		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
 	_, err := s.client.Emails.Send(params)
@@ -881,6 +889,34 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 	}
 
 	return nil
+}
+
+// unsubscribeCardHTML renders the prominent in-body opt-out block shared by
+// the notification emails. `label` describes the category in the recipient's
+// words (e.g. "tier-change emails"). The same `unsubscribeURL`
+// goes in the List-Unsubscribe header — RFC 8058 one-click and the visible
+// in-body link are the same endpoint, so a recipient and a mailbox provider
+// both have a single way out. The endpoint requires no login (HMAC-signed).
+func unsubscribeCardHTML(unsubscribeURL, label string) string {
+	return fmt.Sprintf(`
+    <div style="background: #fff7ed; border: 1px solid #fed7aa; border-radius: 8px; padding: 16px 20px; margin-bottom: 20px;">
+        <p style="margin: 0; font-size: 14px; color: #444;">
+            Don&rsquo;t want %s?
+            <a href="%s" style="color: #c2410c; font-weight: 600;">Unsubscribe in one click</a> &mdash;
+            no login required.
+        </p>
+    </div>`, label, unsubscribeURL)
+}
+
+// unsubscribeHeaders returns the RFC 8058 / RFC 2369 List-Unsubscribe headers.
+// The value MUST be a single HTTPS URL wrapped in <> (RFC 2369 §3);
+// List-Unsubscribe-Post advertises RFC 8058 one-click POST so Gmail/Yahoo
+// render the native "Unsubscribe" button next to the sender name.
+func unsubscribeHeaders(unsubscribeURL string) map[string]string {
+	return map[string]string{
+		"List-Unsubscribe":      fmt.Sprintf("<%s>", unsubscribeURL),
+		"List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+	}
 }
 
 // pluralize returns word with an "s" appended if n != 1.
@@ -908,7 +944,8 @@ func htmlEscape(s string) string {
 }
 
 // SendEditRejectedEmail sends a notification when a user's pending edit is rejected.
-func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason string) error {
+// unsubscribeURL is the HMAC-signed edit-notifications opt-out link (RFC 8058).
+func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason, unsubscribeURL string) error {
 	if !s.IsConfigured() {
 		return fmt.Errorf("email service is not configured")
 	}
@@ -943,18 +980,21 @@ func (s *EmailService) SendEditRejectedEmail(toEmail, username, entityType, enti
         </ul>
     </div>
 
+    %s
+
     <div style="text-align: center; font-size: 12px; color: #999;">
         <p>Don't be discouraged — your contributions are valued. Feel free to submit a revised edit.</p>
     </div>
 </body>
 </html>
-`, entityName, greeting, entityType, entityName, rejectionReason)
+`, entityName, greeting, entityType, entityName, rejectionReason, unsubscribeCardHTML(unsubscribeURL, "edit-review emails"))
 
 	params := &resend.SendEmailRequest{
 		From:    fmt.Sprintf("Psychic Homily <%s>", s.fromEmail),
 		To:      []string{toEmail},
 		Subject: fmt.Sprintf("Update on your edit to %s", entityName),
 		Html:    html,
+		Headers: unsubscribeHeaders(unsubscribeURL),
 	}
 
 	_, err := s.client.Emails.Send(params)

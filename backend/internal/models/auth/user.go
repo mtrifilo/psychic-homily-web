@@ -105,6 +105,13 @@ type UserPreferences struct {
 	// PSY-289 opt-OUT defaults. See migration
 	// 20260428003421_collection_digest_columns.up.sql for rationale.
 	NotifyOnCollectionDigest bool `json:"notify_on_collection_digest" gorm:"column:notify_on_collection_digest;not null;default:false"`
+
+	// Per-category opt-out for tier-change and edit-review emails. Each is a
+	// single email per discrete action, so both default TRUE (opt-OUT) like
+	// the comment/mention flags. Flipped off by the one-click unsubscribe link
+	// in those emails and gated on by the senders' callers.
+	NotifyOnTierNotifications bool `json:"notify_on_tier_notifications" gorm:"column:notify_on_tier_notifications;not null;default:true"`
+	NotifyOnEditNotifications bool `json:"notify_on_edit_notifications" gorm:"column:notify_on_edit_notifications;not null;default:true"`
 }
 
 // TableName specifies the table name for UserPreferences
