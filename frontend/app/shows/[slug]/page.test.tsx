@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import * as Sentry from '@sentry/nextjs'
+import { okResponse, errorResponse } from '@/lib/seo/test-helpers'
 
 // `notFound()` in Next.js throws a control-flow error to halt rendering. We
 // mirror that here so tests can assert BOTH that it was called and that
@@ -42,14 +43,6 @@ function buildShow(overrides: Record<string, unknown> = {}) {
     ],
     ...overrides,
   }
-}
-
-function okResponse(body: unknown): Response {
-  return { ok: true, status: 200, json: async () => body } as unknown as Response
-}
-
-function errorResponse(status: number): Response {
-  return { ok: false, status, json: async () => ({}) } as unknown as Response
 }
 
 const fetchMock = vi.fn()
