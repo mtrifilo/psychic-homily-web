@@ -1,7 +1,8 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { act, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import type { ExtractedShowData } from '@/lib/types/extraction'
 
 // Regression guard for the artists list React-key contract: when keyed on
 // array index, removing a middle row caused React to reuse DOM/component
@@ -97,5 +98,92 @@ describe('ShowForm — artists list stable keys', () => {
     // "Artist C" but its internal state (aria-expanded) would belong to the
     // removed empty row, surfacing as aria-expanded="false".
     expect(remaining[1]).toHaveAttribute('aria-expanded', 'true')
+  })
+})
+
+// Regression guard for the AI-extraction effect's requestAnimationFrame
+// cleanup. The effect defers form.setFieldValue calls to the next animation
+// frame to batch state updates. Without cancelAnimationFrame in the cleanup,
+// unmounting the form between the schedule and the callback let setFieldValue
+// run against an unmounted form — producing a React dev warning (and a
+// double-schedule under StrictMode). These tests drive that exact ordering by
+// controlling rAF deterministically: capture the scheduled callback, unmount,
+// then assert the frame was cancelled and that running the stale callback
+// afterward neither warns nor writes extracted values into the DOM.
+describe('ShowForm — AI extraction rAF cleanup', () => {
+  const extraction: ExtractedShowData = {
+    artists: [{ name: 'Extracted Artist', is_headliner: true }],
+    venue: { name: 'Extracted Venue', city: 'Phoenix', state: 'AZ' },
+    date: '2099-12-31',
+    time: '20:00',
+    cost: '$10',
+    ages: '21+',
+    description: 'from the flyer',
+  }
+
+  let rafCallbacks: Map<number, FrameRequestCallback>
+  let cancelled: number[]
+  let nextRafId: number
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    rafCallbacks = new Map()
+    cancelled = []
+    nextRafId = 0
+
+    // Capture rAF callbacks instead of running them, so the test controls
+    // whether the deferred setFieldValue work happens before or after unmount.
+    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => {
+      const id = ++nextRafId
+      rafCallbacks.set(id, cb)
+      return id
+    })
+    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => {
+      cancelled.push(id)
+      rafCallbacks.delete(id)
+    })
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+  })
+
+  it('cancels the pending extraction frame on unmount before it fires', () => {
+    const { unmount } = renderWithProviders(
+      <ShowForm mode="create" initialExtraction={extraction} />
+    )
+
+    // The effect scheduled exactly one frame and has not run it yet.
+    expect(rafCallbacks.size).toBe(1)
+    const [scheduledId] = [...rafCallbacks.keys()]
+
+    // Unmount before the frame fires — the cleanup must cancel it.
+    unmount()
+
+    expect(cancelled).toContain(scheduledId)
+    expect(rafCallbacks.has(scheduledId)).toBe(false)
+  })
+
+  it('does not warn or write extracted values when a stale frame runs after unmount', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+
+    const { unmount } = renderWithProviders(
+      <ShowForm mode="create" initialExtraction={extraction} />
+    )
+    const staleCallback = [...rafCallbacks.values()][0]
+
+    unmount()
+
+    // Force the captured frame to run post-unmount, simulating a frame the
+    // browser had already queued slipping through. This proves the deferred
+    // setFieldValue work cannot warn even if a frame leaks past the cleanup.
+    act(() => {
+      staleCallback(performance.now())
+    })
+
+    expect(errorSpy).not.toHaveBeenCalled()
+    // Nothing extracted should be rendered after unmount.
+    expect(screen.queryByDisplayValue('Extracted Artist')).toBeNull()
+    expect(screen.queryByDisplayValue('Extracted Venue')).toBeNull()
   })
 })
