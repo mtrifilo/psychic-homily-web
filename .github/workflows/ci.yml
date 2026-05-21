@@ -146,6 +146,38 @@ jobs:
           flags: backend
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  # PSY-771: the committed testhelpers/mocks_gen.go is generated. It drifted
+  # from its generator once already because the regen workflow has two steps
+  # (go run + gofmt) and a prior change committed only the raw `go run` output,
+  # leaving the file gofmt-noncompliant. There's no general gofmt/lint gate on
+  # CI, so nothing caught it. This job re-runs the documented two-step regen and
+  # fails if the committed file differs — cheap (no DB, just the generator).
+  mocks-gen-check:
+    name: Mocks Generator Drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+          cache-dependency-path: backend/go.sum
+
+      - name: Regenerate mocks and assert no drift
+        working-directory: ./backend
+        run: |
+          go run ./internal/api/handlers/gen/ > internal/api/handlers/shared/testhelpers/mocks_gen.go
+          gofmt -w internal/api/handlers/shared/testhelpers/mocks_gen.go
+          if ! git diff --exit-code -- internal/api/handlers/shared/testhelpers/mocks_gen.go; then
+            echo ""
+            echo "ERROR: mocks_gen.go is stale relative to its generator."
+            echo "Regenerate and commit the result (BOTH steps are required):"
+            echo "  cd backend && go run ./internal/api/handlers/gen/ > ./internal/api/handlers/shared/testhelpers/mocks_gen.go"
+            echo "  gofmt -w ./internal/api/handlers/shared/testhelpers/mocks_gen.go"
+            exit 1
+          fi
+          echo "OK: mocks_gen.go matches go run + gofmt output"
+
   frontend-unit-tests:
     name: Frontend Unit Tests
     runs-on: ubuntu-latest
@@ -320,11 +352,12 @@ jobs:
     name: Notify on main CI failure
     # `always()` so this runs even when upstream `needs:` failed — the
     # whole point. Scoped to main-branch push events (not PRs).
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.e2e-tests.result == 'failure' || needs.e2e-report.result == 'failure') }}
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.e2e-tests.result == 'failure' || needs.e2e-report.result == 'failure') }}
     needs:
       - migration-lint
       - migration-reversibility
       - backend-tests
+      - mocks-gen-check
       - frontend-unit-tests
       - e2e-tests
       - e2e-report
@@ -338,6 +371,7 @@ jobs:
           RES_MIGRATION_LINT: ${{ needs.migration-lint.result }}
           RES_MIGRATION_REVERSIBILITY: ${{ needs.migration-reversibility.result }}
           RES_BACKEND_TESTS: ${{ needs.backend-tests.result }}
+          RES_MOCKS_GEN_CHECK: ${{ needs.mocks-gen-check.result }}
           RES_FRONTEND_UNIT: ${{ needs.frontend-unit-tests.result }}
           RES_E2E_TESTS: ${{ needs.e2e-tests.result }}
           RES_E2E_REPORT: ${{ needs.e2e-report.result }}
@@ -365,6 +399,7 @@ jobs:
               'Migration Lint': process.env.RES_MIGRATION_LINT,
               'Migration Reversibility': process.env.RES_MIGRATION_REVERSIBILITY,
               'Backend Tests': process.env.RES_BACKEND_TESTS,
+              'Mocks Generator Drift': process.env.RES_MOCKS_GEN_CHECK,
               'Frontend Unit Tests': process.env.RES_FRONTEND_UNIT,
               'E2E Tests (sharded)': process.env.RES_E2E_TESTS,
               'E2E Merged Report': process.env.RES_E2E_REPORT,

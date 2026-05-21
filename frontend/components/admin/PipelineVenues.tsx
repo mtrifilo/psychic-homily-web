@@ -16,6 +16,7 @@ import {
 import { useVenueSearch } from '@/features/venues'
 import { Switch } from '@/components/ui/switch'
 import { InlineErrorBanner } from '@/components/shared'
+import { formatShortDate, formatTimestamp } from '@/lib/utils/formatters'
 
 function ApprovalBadge({ rate }: { rate?: number }) {
   if (rate === undefined || rate === null) {
@@ -70,7 +71,7 @@ function RunHistorySection({ venueId }: { venueId: number }) {
                   {data.runs.map((run: VenueExtractionRun) => (
                     <tr key={run.id}>
                       <td className="p-2 text-muted-foreground">
-                        {new Date(run.run_at || run.created_at).toLocaleString()}
+                        {formatTimestamp(run.run_at || run.created_at)}
                       </td>
                       <td className="p-2 text-muted-foreground">{run.render_method ?? '—'}</td>
                       <td className="p-2 text-center">{run.events_extracted}</td>
@@ -420,7 +421,7 @@ function VenueDetailPanel({
             <div>
               <span className="text-muted-foreground">Last extracted:</span>{' '}
               {venue.last_extracted_at
-                ? new Date(venue.last_extracted_at).toLocaleDateString()
+                ? formatShortDate(venue.last_extracted_at)
                 : 'Never'}
             </div>
             <div>
@@ -616,7 +617,7 @@ function ImportHistorySection() {
             {imports.map((entry: ImportHistoryEntry) => (
               <tr key={entry.id}>
                 <td className="p-3 text-muted-foreground text-xs">
-                  {new Date(entry.run_at).toLocaleString()}
+                  {formatTimestamp(entry.run_at)}
                 </td>
                 <td className="p-3">
                   <span className="font-medium">{entry.venue_name}</span>
@@ -790,7 +791,7 @@ export function PipelineVenues() {
                     </td>
                     <td className="p-3 text-muted-foreground text-xs">
                       {venue.last_run
-                        ? `${venue.last_run.events_extracted} events, ${new Date(venue.last_run.created_at).toLocaleDateString()}`
+                        ? `${venue.last_run.events_extracted} events, ${formatShortDate(venue.last_run.created_at)}`
                         : 'Never'}
                     </td>
                     <td className="p-3 text-center">
