@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // CommentSubscriptionHandler handles comment subscription API requests.
@@ -72,9 +73,9 @@ func (h *CommentSubscriptionHandler) SubscribeHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "subscribe_comments", req.EntityType, uint(entityID), nil)
-		}()
+		})
 	}
 
 	resp := &SubscribeResponse{}
@@ -117,9 +118,9 @@ func (h *CommentSubscriptionHandler) UnsubscribeHandler(ctx context.Context, req
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "unsubscribe_comments", req.EntityType, uint(entityID), nil)
-		}()
+		})
 	}
 
 	return nil, nil

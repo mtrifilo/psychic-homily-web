@@ -15,6 +15,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // rateLimited429 wraps a 429 service-layer error with a `Retry-After` header
@@ -314,11 +315,11 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_comment", req.EntityType, comment.ID, map[string]interface{}{
 				"entity_id": uint(entityID),
 			})
-		}()
+		})
 	}
 
 	return &CreateCommentResponse{Body: comment}, nil
@@ -410,12 +411,12 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_comment", parent.EntityType, comment.ID, map[string]interface{}{
 				"entity_id": parent.EntityID,
 				"parent_id": parentIDUint,
 			})
-		}()
+		})
 	}
 
 	return &CreateReplyResponse{Body: comment}, nil
@@ -493,9 +494,9 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "edit_comment", "comment", uint(commentID), nil)
-		}()
+		})
 	}
 
 	return &UpdateCommentResponse{Body: comment}, nil
@@ -559,11 +560,11 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 	}
 
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_reply_permission", "comment", uint(commentID), map[string]interface{}{
 				"permission": perm,
 			})
-		}()
+		})
 	}
 
 	return &UpdateReplyPermissionResponse{Body: comment}, nil
@@ -612,9 +613,9 @@ func (h *CommentHandler) DeleteCommentHandler(ctx context.Context, req *DeleteCo
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_comment", "comment", uint(commentID), nil)
-		}()
+		})
 	}
 
 	return nil, nil

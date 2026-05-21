@@ -13,6 +13,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // AdminShowHandler handles admin show management
@@ -305,7 +306,7 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 
 	// Fire-and-forget: match notification filters for this newly approved show
 	if h.notificationFilterService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "notification_filter_match", func() {
 			showModel := &catalogm.Show{ID: uint(showID), Title: show.Title, EventDate: show.EventDate, Price: show.Price, Slug: shared.PtrString(show.Slug)}
 			if show.City != nil {
 				showModel.City = show.City
@@ -319,7 +320,7 @@ func (h *AdminShowHandler) ApproveShowHandler(ctx context.Context, req *ApproveS
 					"error", err.Error(),
 				)
 			}
-		}()
+		})
 	}
 
 	// Audit log
@@ -400,7 +401,7 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 
 	// Fire-and-forget: match notification filters for batch-approved shows
 	if h.notificationFilterService != nil && len(result.Succeeded) > 0 {
-		go func() {
+		servicesshared.GoSafe(ctx, "notification_filter_match", func() {
 			for _, showID := range result.Succeeded {
 				show, err := h.showService.GetShow(showID)
 				if err != nil || show == nil {
@@ -420,7 +421,7 @@ func (h *AdminShowHandler) BatchApproveShowsHandler(ctx context.Context, req *Ba
 					)
 				}
 			}
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("admin_batch_approve_shows",

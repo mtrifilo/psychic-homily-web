@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // EntityReportHandler handles entity report API endpoints.
@@ -126,9 +127,11 @@ func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType strin
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		go h.auditLogService.LogAction(user.ID, "report_"+entityType, entityType, uint(entityID), map[string]interface{}{
-			"report_id":   report.ID,
-			"report_type": reportType,
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "report_"+entityType, entityType, uint(entityID), map[string]interface{}{
+				"report_id":   report.ID,
+				"report_type": reportType,
+			})
 		})
 	}
 
@@ -260,10 +263,12 @@ func (h *EntityReportHandler) AdminResolveEntityReportHandler(ctx context.Contex
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		go h.auditLogService.LogAction(user.ID, "resolve_entity_report", resolved.EntityType, resolved.EntityID, map[string]interface{}{
-			"report_id":   resolved.ID,
-			"report_type": resolved.ReportType,
-			"notes":       notes,
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "resolve_entity_report", resolved.EntityType, resolved.EntityID, map[string]interface{}{
+				"report_id":   resolved.ID,
+				"report_type": resolved.ReportType,
+				"notes":       notes,
+			})
 		})
 	}
 
@@ -323,10 +328,12 @@ func (h *EntityReportHandler) AdminDismissEntityReportHandler(ctx context.Contex
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		go h.auditLogService.LogAction(user.ID, "dismiss_entity_report", dismissed.EntityType, dismissed.EntityID, map[string]interface{}{
-			"report_id":   dismissed.ID,
-			"report_type": dismissed.ReportType,
-			"notes":       notes,
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "dismiss_entity_report", dismissed.EntityType, dismissed.EntityID, map[string]interface{}{
+				"report_id":   dismissed.ID,
+				"report_type": dismissed.ReportType,
+				"notes":       notes,
+			})
 		})
 	}
 

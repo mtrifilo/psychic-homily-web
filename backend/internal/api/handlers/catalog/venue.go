@@ -12,6 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -327,13 +328,13 @@ func (h *VenueHandler) AdminCreateVenueHandler(ctx context.Context, req *AdminCr
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_venue", "venue", venue.ID, map[string]interface{}{
 				"name":  venue.Name,
 				"city":  venue.City,
 				"state": venue.State,
 			})
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("admin_venue_created",
@@ -472,7 +473,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 
 	// Record revision (fire and forget)
 	if h.revisionService != nil && oldVenue != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "record_revision", func() {
 			changes := revisiondiff.Compare(oldVenue, updatedVenue, revisiondiff.VenueFields)
 			if len(changes) > 0 {
 				summary := ""
@@ -486,7 +487,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 					)
 				}
 			}
-		}()
+		})
 	}
 
 	return &UpdateVenueResponse{Body: updatedVenue}, nil

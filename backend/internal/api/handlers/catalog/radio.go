@@ -14,6 +14,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // ============================================================================
@@ -660,9 +661,9 @@ func (h *RadioHandler) AdminCreateRadioStationHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_radio_station", "radio_station", station.ID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("radio_station_created",
@@ -753,9 +754,9 @@ func (h *RadioHandler) AdminUpdateRadioStationHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_radio_station", "radio_station", req.StationID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("radio_station_updated",
@@ -800,9 +801,9 @@ func (h *RadioHandler) AdminDeleteRadioStationHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_radio_station", "radio_station", req.StationID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("radio_station_deleted",
@@ -881,11 +882,11 @@ func (h *RadioHandler) AdminCreateRadioShowHandler(ctx context.Context, req *Adm
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_radio_show", "radio_show", show.ID, map[string]interface{}{
 				"station_id": req.StationID,
 			})
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("radio_show_created",
@@ -959,9 +960,9 @@ func (h *RadioHandler) AdminUpdateRadioShowHandler(ctx context.Context, req *Adm
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_radio_show", "radio_show", req.ShowID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("radio_show_updated",
@@ -1006,9 +1007,9 @@ func (h *RadioHandler) AdminDeleteRadioShowHandler(ctx context.Context, req *Adm
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_radio_show", "radio_show", req.ShowID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("radio_show_deleted",
@@ -1179,13 +1180,13 @@ func (h *RadioHandler) AdminLinkPlayHandler(ctx context.Context, req *AdminLinkP
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "link_radio_play", "radio_play", req.PlayID, map[string]interface{}{
 				"artist_id":  req.Body.ArtistID,
 				"release_id": req.Body.ReleaseID,
 				"label_id":   req.Body.LabelID,
 			})
-		}()
+		})
 	}
 
 	resp := &AdminLinkPlayResponse{}
@@ -1243,13 +1244,13 @@ func (h *RadioHandler) AdminBulkLinkPlaysHandler(ctx context.Context, req *Admin
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "bulk_link_radio_plays", "radio_play", 0, map[string]interface{}{
 				"artist_name": req.Body.ArtistName,
 				"artist_id":   req.Body.ArtistID,
 				"updated":     result.Updated,
 			})
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("bulk_link_plays_complete",
@@ -1318,13 +1319,13 @@ func (h *RadioHandler) AdminCreateImportJobHandler(ctx context.Context, req *Adm
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_radio_import_job", "radio_import_job", job.ID, map[string]interface{}{
 				"show_id": req.ShowID,
 				"since":   req.Body.Since,
 				"until":   req.Body.Until,
 			})
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("radio_import_job_created",
@@ -1396,9 +1397,9 @@ func (h *RadioHandler) AdminCancelImportJobHandler(ctx context.Context, req *Adm
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "cancel_radio_import_job", "radio_import_job", req.JobID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("radio_import_job_cancelled",

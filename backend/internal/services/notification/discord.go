@@ -2,6 +2,7 @@ package notification
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -97,7 +98,7 @@ func (s *DiscordService) NotifyNewUser(user *authm.User) {
 		},
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyNewShow sends a notification when a new show is submitted
@@ -131,7 +132,7 @@ func (s *DiscordService) NotifyNewShow(show *contracts.ShowResponse, submitterEm
 		Fields:      fields,
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyShowStatusChange sends a notification when a show's status changes
@@ -159,7 +160,7 @@ func (s *DiscordService) NotifyShowStatusChange(showTitle string, showID uint, o
 		Fields:      fields,
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyShowApproved sends a notification when an admin approves a show
@@ -183,7 +184,7 @@ func (s *DiscordService) NotifyShowApproved(show *contracts.ShowResponse) {
 		},
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyShowRejected sends a notification when an admin rejects a show
@@ -208,7 +209,7 @@ func (s *DiscordService) NotifyShowRejected(show *contracts.ShowResponse, reason
 		},
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyShowReport sends a notification when a user reports a show issue
@@ -262,7 +263,7 @@ func (s *DiscordService) NotifyShowReport(report *communitym.ShowReport, reporte
 		Fields:    fields,
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyArtistReport sends a notification when a user reports an artist issue
@@ -311,7 +312,7 @@ func (s *DiscordService) NotifyArtistReport(report *communitym.ArtistReport, rep
 		Fields:    fields,
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyNewVenue sends a notification when a new unverified venue is created
@@ -347,7 +348,7 @@ func (s *DiscordService) NotifyNewVenue(venueID uint, venueName, city, state str
 		Fields:      fields,
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyNewRadioShows sends a notification when the periodic discover loop
@@ -378,7 +379,7 @@ func (s *DiscordService) NotifyNewRadioShows(stationName string, newShowNames []
 		},
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // NotifyBackfillCompleted sends one batched notification when the auto-backfill
@@ -410,7 +411,7 @@ func (s *DiscordService) NotifyBackfillCompleted(stationName string, completedSh
 		},
 	}
 
-	go s.sendWebhook(embed)
+	shared.GoSafe(context.Background(), "discord_webhook", func() { s.sendWebhook(embed) })
 }
 
 // sendWebhook sends an embed to the Discord webhook (fire-and-forget)

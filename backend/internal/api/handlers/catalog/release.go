@@ -13,6 +13,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -256,9 +257,9 @@ func (h *ReleaseHandler) CreateReleaseHandler(ctx context.Context, req *CreateRe
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_release", "release", release.ID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("release_created",
@@ -344,14 +345,14 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 
 	// Audit log (fire and forget) — PSY-618: edits go to entity_edit_audit_logs
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogEntityEdit(user.ID, "release", releaseID, nil)
-		}()
+		})
 	}
 
 	// Record revision (fire and forget)
 	if h.revisionService != nil && oldRelease != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "record_revision", func() {
 			changes := revisiondiff.Compare(oldRelease, release, revisiondiff.ReleaseFields)
 			if len(changes) > 0 {
 				summary := ""
@@ -365,7 +366,7 @@ func (h *ReleaseHandler) UpdateReleaseHandler(ctx context.Context, req *UpdateRe
 					)
 				}
 			}
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("release_updated",
@@ -416,9 +417,9 @@ func (h *ReleaseHandler) DeleteReleaseHandler(ctx context.Context, req *DeleteRe
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_release", "release", releaseID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("release_deleted",
@@ -533,9 +534,9 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_release_link", "release", uint(releaseID), nil)
-		}()
+		})
 	}
 
 	return &AddExternalLinkResponse{Body: link}, nil
@@ -573,9 +574,9 @@ func (h *ReleaseHandler) RemoveExternalLinkHandler(ctx context.Context, req *Rem
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
 		releaseID, _ := strconv.ParseUint(req.ReleaseID, 10, 32)
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_release_link", "release", uint(releaseID), nil)
-		}()
+		})
 	}
 
 	return nil, nil

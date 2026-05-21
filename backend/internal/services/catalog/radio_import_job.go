@@ -1,12 +1,14 @@
 package catalog
 
 import (
+	"context"
 	"fmt"
 	"log/slog"
 	"time"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // CreateImportJob creates a new pending import job for a radio show.
@@ -79,7 +81,9 @@ func (s *RadioService) StartImportJob(jobID uint) error {
 	})
 
 	// Launch the import goroutine
-	go s.runImportJob(job.ID)
+	shared.GoSafe(context.Background(), "radio_import_job", func() {
+		s.runImportJob(job.ID)
+	})
 
 	return nil
 }
