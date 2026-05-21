@@ -432,11 +432,11 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		// concurrent provider hits — the existing 1-rps per-instance rate
 		// limiter on each provider handles per-episode pacing.
 		if s.autoBackfillDays > 0 && len(result.NewShowIDs) > 0 {
-			// autoBackfillStation defers s.wg.Done() itself, so the WaitGroup
-			// stays balanced even if it panics (the defer runs during unwind
-			// before GoSafe's recover). GoSafe contains a panic here to this
-			// one goroutine — it would otherwise escape RunTickerLoop's guard,
-			// which only covers the discover-tick goroutine, not its children.
+			// GoSafe contains a panic here: this child goroutine escapes the
+			// discover tick's RunTickerLoop guard, which only covers the tick
+			// goroutine itself. autoBackfillStation defers s.wg.Done(), which
+			// runs during unwind before GoSafe's recover, so the WaitGroup
+			// stays balanced even on panic.
 			s.wg.Add(1)
 			showIDs := result.NewShowIDs
 			showNames := result.NewShowNames
