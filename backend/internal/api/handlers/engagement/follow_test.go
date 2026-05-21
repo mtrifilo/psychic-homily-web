@@ -76,7 +76,7 @@ func TestFollowEntityHandler_ServiceError(t *testing.T) {
 	req := &FollowRequest{EntityType: "artists", EntityID: "42"}
 
 	_, err := h.FollowEntityHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestFollowEntityHandler_AllEntityTypes(t *testing.T) {
@@ -167,7 +167,7 @@ func TestUnfollowEntityHandler_ServiceError(t *testing.T) {
 	req := &UnfollowRequest{EntityType: "artists", EntityID: "42"}
 
 	_, err := h.UnfollowEntityHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- GetFollowersHandler ---

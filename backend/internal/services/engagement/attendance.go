@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
@@ -32,11 +33,11 @@ func NewAttendanceService(database *gorm.DB) *AttendanceService {
 // Setting "going" removes any existing "interested" and vice versa (atomic via transaction).
 func (s *AttendanceService) SetAttendance(userID, showID uint, status string) error {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return apperrors.ErrAttendanceInternal(fmt.Errorf("database not initialized"))
 	}
 
 	if status != string(engagementm.BookmarkActionGoing) && status != string(engagementm.BookmarkActionInterested) && status != "" {
-		return fmt.Errorf("invalid attendance status: %s", status)
+		return apperrors.ErrAttendanceInvalidStatus(status)
 	}
 
 	// Empty status means clear both
@@ -48,9 +49,9 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("show not found")
+			return apperrors.ErrAttendanceShowNotFound()
 		}
-		return fmt.Errorf("failed to verify show: %w", err)
+		return apperrors.ErrAttendanceInternal(fmt.Errorf("failed to verify show: %w", err))
 	}
 
 	// Determine which status to set and which to remove
@@ -62,7 +63,7 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 		removeAction = engagementm.BookmarkActionGoing
 	}
 
-	return s.db.Transaction(func(tx *gorm.DB) error {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
 		// Remove the opposite status (if any). A no-row match is a no-op
 		// (GORM returns nil error + RowsAffected=0). A real error (lock
 		// timeout, FK trigger, dropped conn) must roll back the whole
@@ -92,13 +93,16 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 		}).Assign(engagementm.UserBookmark{
 			CreatedAt: bookmark.CreatedAt,
 		}).FirstOrCreate(&bookmark).Error
-	})
+	}); err != nil {
+		return apperrors.ErrAttendanceInternal(err)
+	}
+	return nil
 }
 
 // RemoveAttendance removes both going and interested bookmarks for a user+show.
 func (s *AttendanceService) RemoveAttendance(userID, showID uint) error {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return apperrors.ErrAttendanceInternal(fmt.Errorf("database not initialized"))
 	}
 
 	result := s.db.Where(
@@ -108,7 +112,7 @@ func (s *AttendanceService) RemoveAttendance(userID, showID uint) error {
 	).Delete(&engagementm.UserBookmark{})
 
 	if result.Error != nil {
-		return fmt.Errorf("failed to remove attendance: %w", result.Error)
+		return apperrors.ErrAttendanceInternal(result.Error)
 	}
 
 	return nil
