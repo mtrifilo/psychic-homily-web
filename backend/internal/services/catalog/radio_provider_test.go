@@ -57,14 +57,13 @@ func TestParseKEXPPlay_FullFields(t *testing.T) {
 		Artist:                 "Radiohead",
 		Song:                   "Everything In Its Right Place",
 		Album:                  "Kid A",
-		Label:                  "Parlophone",
+		Labels:                 []string{"Parlophone"},
 		ReleaseDate:            "2000-10-02",
 		RotationStatus:         "heavy",
-		IsNew:                  true,
 		IsLive:                 false,
 		IsRequest:              true,
 		Comment:                "Classic album opener",
-		MusicBrainzArtistID:    "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+		ArtistIDs:              []string{"a74b1b7f-71a5-4011-9441-d0b5e4122711"},
 		MusicBrainzReleaseID:   "b95ce3ff-3d05-4e87-9e01-c97b66af13d4",
 		MusicBrainzRecordingID: "c22af0e6-1e3c-4b6c-aa83-42a2de43b84c",
 	}
@@ -78,7 +77,6 @@ func TestParseKEXPPlay_FullFields(t *testing.T) {
 	assert.Equal(t, "Parlophone", *play.LabelName)
 	assert.Equal(t, 2000, *play.ReleaseYear)
 	assert.Equal(t, "heavy", *play.RotationStatus)
-	assert.True(t, play.IsNew)
 	assert.False(t, play.IsLivePerformance)
 	assert.True(t, play.IsRequest)
 	assert.Equal(t, "Classic album opener", *play.DJComment)
@@ -387,19 +385,18 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 			"count": 3,
 			"results": []map[string]interface{}{
 				{
-					"id":                    1,
-					"play_type":             "trackplay",
-					"airdate":               "2026-01-15T06:05:00-08:00",
-					"artist":                "Radiohead",
-					"song":                  "Everything In Its Right Place",
-					"album":                 "Kid A",
-					"label_name":            "Parlophone",
-					"release_date":          "2000-10-02",
-					"rotation_status":       "library",
-					"is_new":                false,
-					"is_live":               false,
-					"is_request":            false,
-					"musicbrainz_artist_id": "a74b1b7f-71a5-4011-9441-d0b5e4122711",
+					"id":              1,
+					"play_type":       "trackplay",
+					"airdate":         "2026-01-15T06:05:00-08:00",
+					"artist":          "Radiohead",
+					"song":            "Everything In Its Right Place",
+					"album":           "Kid A",
+					"labels":          []string{"Parlophone"},
+					"release_date":    "2000-10-02",
+					"rotation_status": "library",
+					"is_live":         false,
+					"is_request":      false,
+					"artist_ids":      []string{"a74b1b7f-71a5-4011-9441-d0b5e4122711"},
 				},
 				{
 					"id":        2,
@@ -412,7 +409,6 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 					"airdate":    "2026-01-15T06:15:00-08:00",
 					"artist":     "Deerhunter",
 					"song":       "Desire Lines",
-					"is_new":     true,
 					"is_live":    true,
 					"is_request": false,
 				},
@@ -457,13 +453,11 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	assert.Equal(t, "Parlophone", *plays[0].LabelName)
 	assert.Equal(t, 2000, *plays[0].ReleaseYear)
 	assert.Equal(t, "library", *plays[0].RotationStatus)
-	assert.False(t, plays[0].IsNew)
 	assert.Equal(t, "a74b1b7f-71a5-4011-9441-d0b5e4122711", *plays[0].MusicBrainzArtistID)
 
 	// Second play
 	assert.Equal(t, 1, plays[1].Position)
 	assert.Equal(t, "Deerhunter", plays[1].ArtistName)
-	assert.True(t, plays[1].IsNew)
 	assert.True(t, plays[1].IsLivePerformance)
 }
 

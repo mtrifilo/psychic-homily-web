@@ -463,8 +463,9 @@ func parseKEXPPlay(kPlay kexpPlay, position int) RadioPlayImport {
 	if kPlay.Album != "" {
 		play.AlbumTitle = &kPlay.Album
 	}
-	if kPlay.Label != "" {
-		play.LabelName = &kPlay.Label
+	if len(kPlay.Labels) > 0 && kPlay.Labels[0] != "" {
+		label := kPlay.Labels[0]
+		play.LabelName = &label
 	}
 	if kPlay.ReleaseDate != "" {
 		if year := parseReleaseYear(kPlay.ReleaseDate); year > 0 {
@@ -477,13 +478,10 @@ func parseKEXPPlay(kPlay kexpPlay, position int) RadioPlayImport {
 	if kPlay.Comment != "" {
 		play.DJComment = &kPlay.Comment
 	}
-	if kPlay.IsNew {
-		play.IsNew = true
-	}
-
-	// MusicBrainz IDs
-	if kPlay.MusicBrainzArtistID != "" {
-		play.MusicBrainzArtistID = &kPlay.MusicBrainzArtistID
+	// MusicBrainz IDs — `artist_ids` is an array; take the first.
+	if len(kPlay.ArtistIDs) > 0 && kPlay.ArtistIDs[0] != "" {
+		mbArtist := kPlay.ArtistIDs[0]
+		play.MusicBrainzArtistID = &mbArtist
 	}
 	if kPlay.MusicBrainzReleaseID != "" {
 		play.MusicBrainzReleaseID = &kPlay.MusicBrainzReleaseID
@@ -582,20 +580,22 @@ type kexpPlaysResponse struct {
 }
 
 type kexpPlay struct {
-	ID                     int    `json:"id"`
-	PlayType               string `json:"play_type"`
-	Airdate                string `json:"airdate"`
-	Artist                 string `json:"artist"`
-	Song                   string `json:"song"`
-	Album                  string `json:"album"`
-	Label                  string `json:"label_name"`
-	ReleaseDate            string `json:"release_date"`
-	RotationStatus         string `json:"rotation_status"`
-	IsNew                  bool   `json:"is_new"`
-	IsLive                 bool   `json:"is_live"`
-	IsRequest              bool   `json:"is_request"`
-	Comment                string `json:"comment"`
-	MusicBrainzArtistID    string `json:"musicbrainz_artist_id"`
-	MusicBrainzReleaseID   string `json:"musicbrainz_release_id"`
-	MusicBrainzRecordingID string `json:"musicbrainz_recording_id"`
+	ID             int      `json:"id"`
+	PlayType       string   `json:"play_type"`
+	Airdate        string   `json:"airdate"`
+	Artist         string   `json:"artist"`
+	Song           string   `json:"song"`
+	Album          string   `json:"album"`
+	Labels         []string `json:"labels"`
+	ReleaseDate    string   `json:"release_date"`
+	RotationStatus string   `json:"rotation_status"`
+	IsLive         bool     `json:"is_live"`
+	IsRequest      bool     `json:"is_request"`
+	Comment        string   `json:"comment"`
+	// KEXP exposes MusicBrainz artist IDs as an array (`artist_ids`); release
+	// and recording are scalars (`release_id`, `recording_id`). There is no
+	// `is_new` field on the play.
+	ArtistIDs              []string `json:"artist_ids"`
+	MusicBrainzReleaseID   string   `json:"release_id"`
+	MusicBrainzRecordingID string   `json:"recording_id"`
 }
