@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"regexp"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -320,6 +322,13 @@ func parseNTSEpisode(ntsEp ntsEpisode, showExternalID string) RadioEpisodeImport
 		}
 	}
 
+	// Older NTS episodes return no `broadcast`; the air date still lives in the
+	// episode alias (e.g. "anu-11th-july-2017"). Fall back to it so the episode
+	// imports instead of failing the air_date NOT NULL insert.
+	if ep.AirDate == "" {
+		ep.AirDate = dateFromNTSAlias(ntsEp.EpisodeAlias)
+	}
+
 	if ntsEp.Name != "" {
 		name := ntsEp.Name
 		ep.Title = &name
@@ -338,6 +347,33 @@ func parseNTSEpisode(ntsEp ntsEpisode, showExternalID string) RadioEpisodeImport
 	}
 
 	return ep
+}
+
+// ntsAliasDateRegex captures a trailing "{day}{ordinal}-{month}-{year}" date in
+// an NTS episode alias slug, e.g. "anu-11th-july-2017" -> 11, july, 2017.
+var ntsAliasDateRegex = regexp.MustCompile(`(\d{1,2})(?:st|nd|rd|th)-([a-z]+)-(\d{4})$`)
+
+// dateFromNTSAlias derives a YYYY-MM-DD air date from an episode alias slug like
+// "anu-11th-july-2017". Returns "" when the alias has no trailing date or the
+// date is invalid. Used as a fallback when the NTS API omits `broadcast`.
+func dateFromNTSAlias(alias string) string {
+	m := ntsAliasDateRegex.FindStringSubmatch(strings.ToLower(alias))
+	if m == nil {
+		return ""
+	}
+	day, _ := strconv.Atoi(m[1])
+	month, ok := monthMap[m[2]]
+	if !ok {
+		return ""
+	}
+	year, _ := strconv.Atoi(m[3])
+	t := time.Date(year, month, day, 0, 0, 0, 0, time.UTC)
+	// time.Date normalizes overflow (Feb 31 -> Mar 3), so a round-trip mismatch
+	// means the alias held an impossible date — reject it.
+	if t.Day() != day || t.Month() != month || t.Year() != year {
+		return ""
+	}
+	return t.Format("2006-01-02")
 }
 
 // encodeTagsJSON converts a slice of strings to a JSON-encoded *json.RawMessage.
