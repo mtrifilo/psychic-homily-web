@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -1303,11 +1304,13 @@ func (s *CollectionService) Subscribe(slug string, userID uint) error {
 		LastVisitedAt: &now,
 	}
 
-	// Use FirstOrCreate to handle idempotent subscribe
-	result := s.db.Where("collection_id = ? AND user_id = ?", collection.ID, userID).
-		FirstOrCreate(subscriber)
-	if result.Error != nil {
-		return fmt.Errorf("failed to subscribe to collection: %w", result.Error)
+	// ON CONFLICT DO NOTHING — idempotent under concurrent subscribes. A plain
+	// FirstOrCreate (SELECT-then-INSERT) lets two simultaneous calls both miss
+	// the row and trip the collection_subscribers(collection_id, user_id)
+	// primary key. As with the prior FirstOrCreate, an existing subscription's
+	// last_visited_at is left untouched on conflict.
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(subscriber).Error; err != nil {
+		return fmt.Errorf("failed to subscribe to collection: %w", err)
 	}
 
 	return nil

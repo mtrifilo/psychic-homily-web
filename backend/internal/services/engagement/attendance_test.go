@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -29,6 +30,18 @@ type AttendanceServiceIntegrationTestSuite struct {
 func (suite *AttendanceServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
+
+	// Bound the connection pool. SetAttendance runs inside an explicit
+	// transaction, so each concurrent call holds a connection for its whole
+	// span. TestSetAttendance_ConcurrentIdempotent fires many calls at once;
+	// without a cap the pool opens a connection per goroutine and exhausts the
+	// container's max_connections (53300) before the unique-violation race can
+	// even be exercised. A modest cap queues goroutines at the pool (the
+	// realistic production shape) while still letting enough transactions
+	// interleave to trip a SELECT-then-INSERT race.
+	if sqlDB, err := suite.db.DB(); err == nil {
+		sqlDB.SetMaxOpenConns(25)
+	}
 
 	suite.attendanceService = NewAttendanceService(suite.testDB.DB)
 }
@@ -330,6 +343,44 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_Idempotent
 			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing).
 		Count(&count)
 	suite.Equal(int64(1), count)
+}
+
+// TestSetAttendance_ConcurrentIdempotent fires N parallel SetAttendance("going")
+// calls for the same (user, show) and asserts none errors and exactly one row
+// lands. PSY-755: the insert leg used FirstOrCreate (SELECT-then-INSERT) inside
+// the transaction, so two racing taps could both miss the row and both INSERT,
+// surfacing the 23505 unique violation. ON CONFLICT DO NOTHING makes the insert
+// leg idempotent. The opposite-status DELETE + transaction rollback (PSY-753)
+// stay intact and are unaffected here since no opposite row exists.
+func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_ConcurrentIdempotent() {
+	user := suite.createTestUser()
+	show := suite.createApprovedShow("Concurrent Attendance Show", user.ID)
+
+	const n = 150
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start // release all goroutines together to maximize contention
+			errs[idx] = suite.attendanceService.SetAttendance(user.ID, show.ID, "going")
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		suite.NoError(err, "concurrent SetAttendance #%d must not surface a unique violation", i)
+	}
+
+	var count int64
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing).
+		Count(&count)
+	suite.Equal(int64(1), count, "concurrent going taps must collapse to exactly one row")
 }
 
 // =============================================================================

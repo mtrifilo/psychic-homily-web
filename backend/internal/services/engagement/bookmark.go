@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	engagementm "psychic-homily-backend/internal/models/engagement"
@@ -26,7 +27,8 @@ func NewBookmarkService(database *gorm.DB) *BookmarkService {
 }
 
 // CreateBookmark creates a bookmark for a user on an entity.
-// Idempotent: if the bookmark already exists, it updates the created_at timestamp.
+// Idempotent: if the bookmark already exists, this is a no-op (the existing
+// row, including its created_at and any reminder_sent_at, is left untouched).
 func (s *BookmarkService) CreateBookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -40,15 +42,13 @@ func (s *BookmarkService) CreateBookmark(userID uint, entityType engagementm.Boo
 		CreatedAt:  time.Now().UTC(),
 	}
 
-	err := s.db.Where(engagementm.UserBookmark{
-		UserID:     userID,
-		EntityType: entityType,
-		EntityID:   entityID,
-		Action:     action,
-	}).Assign(engagementm.UserBookmark{
-		CreatedAt: bookmark.CreatedAt,
-	}).FirstOrCreate(&bookmark).Error
-
+	// ON CONFLICT DO NOTHING — idempotent under concurrent toggles. A plain
+	// FirstOrCreate (SELECT-then-INSERT) lets two simultaneous saves both miss
+	// the row and both INSERT, tripping the unique violation on
+	// user_bookmarks(user_id, entity_type, entity_id, action). DO NOTHING
+	// deliberately preserves the existing row's created_at and reminder_sent_at
+	// so a re-save never resets a reminder's already-sent state.
+	err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&bookmark).Error
 	if err != nil {
 		return fmt.Errorf("failed to create bookmark: %w", err)
 	}
