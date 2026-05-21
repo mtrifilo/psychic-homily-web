@@ -1900,10 +1900,13 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		// Check for unique constraint violation (username taken)
-		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique") {
+		// Username unique-constraint violation surfaces as a typed
+		// CodeUsernameTaken from the user service (the driver-string match
+		// lives there now, isolated to the DB boundary).
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUsernameTaken {
 			resp.Body.Success = false
-			resp.Body.Message = "Username is already taken"
+			resp.Body.Message = authErr.UserMessage()
 			resp.Body.ErrorCode = autherrors.CodeValidationFailed
 			return resp, nil
 		}

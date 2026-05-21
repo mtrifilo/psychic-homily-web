@@ -143,3 +143,27 @@ func MapAttendanceError(err error) error {
 	}
 	return nil
 }
+
+// MapNotificationFilterError converts a NotificationFilterError to an
+// appropriate Huma HTTP error. Returns nil if err is not a
+// *apperrors.NotificationFilterError.
+//
+// PSY-792 (follows the PSY-761 engagement template): replaces the
+// 422-for-everything behaviour of the filter CRUD handlers. Filter-not-found
+// → 404; domain-validation (no criteria, per-user cap) → 422; infrastructure
+// fault → 500. The handler still falls through to a generic 500 for any
+// unrecognised error.
+func MapNotificationFilterError(err error) error {
+	var filterErr *apperrors.NotificationFilterError
+	if errors.As(err, &filterErr) {
+		switch filterErr.Code {
+		case apperrors.CodeFilterNotFound:
+			return huma.Error404NotFound(filterErr.Message)
+		case apperrors.CodeFilterValidation:
+			return huma.Error422UnprocessableEntity(filterErr.Message)
+		case apperrors.CodeFilterInternal:
+			return huma.Error500InternalServerError(filterErr.Message)
+		}
+	}
+	return nil
+}

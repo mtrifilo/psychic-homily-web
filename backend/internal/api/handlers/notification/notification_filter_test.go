@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
 
 	authm "psychic-homily-backend/internal/models/auth"
@@ -109,7 +110,7 @@ func TestCreateFilterHandler_Success(t *testing.T) {
 func TestCreateFilterHandler_ValidationError(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
 		CreateFilterFn: func(_ uint, _ contracts.CreateFilterInput) (*notificationm.NotificationFilter, error) {
-			return nil, fmt.Errorf("at least one filter criteria is required")
+			return nil, apperrors.ErrFilterValidation("at least one filter criteria is required")
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
@@ -120,6 +121,23 @@ func TestCreateFilterHandler_ValidationError(t *testing.T) {
 
 	_, err := h.CreateFilterHandler(ctx, req)
 	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestCreateFilterHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockNotificationFilterService{
+		CreateFilterFn: func(_ uint, _ contracts.CreateFilterInput) (*notificationm.NotificationFilter, error) {
+			return nil, apperrors.ErrFilterInternal(fmt.Errorf("db down"))
+		},
+	}
+	h := NewNotificationFilterHandler(mock, "test-secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	req := &CreateFilterRequest{}
+	req.Body.Name = "PHX punk"
+	req.Body.ArtistIDs = []int64{1}
+
+	_, err := h.CreateFilterHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- UpdateFilterHandler ---
@@ -141,7 +159,7 @@ func TestUpdateFilterHandler_InvalidID(t *testing.T) {
 func TestUpdateFilterHandler_NotFound(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
 		UpdateFilterFn: func(_ uint, _ uint, _ contracts.UpdateFilterInput) (*notificationm.NotificationFilter, error) {
-			return nil, fmt.Errorf("filter not found")
+			return nil, apperrors.ErrFilterNotFound()
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
@@ -149,6 +167,19 @@ func TestUpdateFilterHandler_NotFound(t *testing.T) {
 
 	_, err := h.UpdateFilterHandler(ctx, &UpdateFilterRequest{ID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestUpdateFilterHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockNotificationFilterService{
+		UpdateFilterFn: func(_ uint, _ uint, _ contracts.UpdateFilterInput) (*notificationm.NotificationFilter, error) {
+			return nil, apperrors.ErrFilterInternal(fmt.Errorf("db down"))
+		},
+	}
+	h := NewNotificationFilterHandler(mock, "test-secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.UpdateFilterHandler(ctx, &UpdateFilterRequest{ID: "42"})
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 func TestUpdateFilterHandler_Success(t *testing.T) {
@@ -217,7 +248,7 @@ func TestDeleteFilterHandler_Success(t *testing.T) {
 func TestDeleteFilterHandler_NotFound(t *testing.T) {
 	mock := &testhelpers.MockNotificationFilterService{
 		DeleteFilterFn: func(_, _ uint) error {
-			return fmt.Errorf("filter not found")
+			return apperrors.ErrFilterNotFound()
 		},
 	}
 	h := NewNotificationFilterHandler(mock, "test-secret")
@@ -225,6 +256,19 @@ func TestDeleteFilterHandler_NotFound(t *testing.T) {
 
 	_, err := h.DeleteFilterHandler(ctx, &DeleteFilterRequest{ID: "99"})
 	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestDeleteFilterHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockNotificationFilterService{
+		DeleteFilterFn: func(_, _ uint) error {
+			return apperrors.ErrFilterInternal(fmt.Errorf("db down"))
+		},
+	}
+	h := NewNotificationFilterHandler(mock, "test-secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	_, err := h.DeleteFilterHandler(ctx, &DeleteFilterRequest{ID: "42"})
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- QuickCreateFilterHandler ---

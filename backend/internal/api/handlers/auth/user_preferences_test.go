@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	autherrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/engagement"
 )
@@ -438,6 +439,42 @@ func TestSetDefaultReplyPermission_AcceptsAllValidEnumValues(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestSetDefaultReplyPermission_ServiceTypedInvalid: PSY-792 defence-in-depth.
+// If the service-layer enum check is somehow reached (it surfaces a typed
+// CodeInvalidReplyPermission), the handler maps it to 400 with the canonical
+// message rather than string-matching. We bypass the handler's own enum guard
+// by mocking the service to reject a value the handler considers valid.
+func TestSetDefaultReplyPermission_ServiceTypedInvalid(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		SetDefaultReplyPermissionFn: func(_ uint, permission string) error {
+			return autherrors.ErrInvalidReplyPermission(permission)
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetDefaultReplyPermissionRequest{}
+	req.Body.Permission = "anyone"
+	_, err := h.SetDefaultReplyPermissionHandler(ctx, req)
+	testhelpers.AssertHumaErrorWithDetail(t, err, 400, "permission must be one of: anyone, followers, author_only")
+}
+
+// TestSetDefaultReplyPermission_ServiceError: a non-typed service fault (e.g.
+// DB down) maps to 500, not 422 — PSY-792 corrects the prior 422-for-everything
+// fallthrough to match the engagement (PSY-761) convention.
+func TestSetDefaultReplyPermission_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		SetDefaultReplyPermissionFn: func(_ uint, _ string) error {
+			return errors.New("db down")
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetDefaultReplyPermissionRequest{}
+	req.Body.Permission = "anyone"
+	_, err := h.SetDefaultReplyPermissionHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- SetCollectionDigestHandler ---

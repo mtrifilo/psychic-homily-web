@@ -225,7 +225,12 @@ func (h *NotificationFilterHandler) CreateFilterHandler(ctx context.Context, req
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		return nil, huma.Error422UnprocessableEntity(err.Error())
+		if mapped := shared.MapNotificationFilterError(err); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to create filter (request_id: %s)", requestID),
+		)
 	}
 
 	logger.FromContext(ctx).Info("create_filter_success",
@@ -274,10 +279,10 @@ func (h *NotificationFilterHandler) UpdateFilterHandler(ctx context.Context, req
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		if err.Error() == "filter not found" {
-			return nil, huma.Error404NotFound("Filter not found")
+		if mapped := shared.MapNotificationFilterError(err); mapped != nil {
+			return nil, mapped
 		}
-		return nil, huma.Error422UnprocessableEntity(
+		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to update filter (request_id: %s)", requestID),
 		)
 	}
@@ -312,10 +317,10 @@ func (h *NotificationFilterHandler) DeleteFilterHandler(ctx context.Context, req
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		if err.Error() == "filter not found" {
-			return nil, huma.Error404NotFound("Filter not found")
+		if mapped := shared.MapNotificationFilterError(err); mapped != nil {
+			return nil, mapped
 		}
-		return nil, huma.Error422UnprocessableEntity(
+		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to delete filter (request_id: %s)", requestID),
 		)
 	}
