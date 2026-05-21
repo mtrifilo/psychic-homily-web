@@ -520,7 +520,7 @@ func inferParamName(typStr string, index int) string {
 func generateFile(ifaces []ifaceData, outPath string) {
 	var buf bytes.Buffer
 
-	// Header. The go:generate directive is written via a format verb so this
+	// The go:generate directive is written via a format verb so this
 	// generator's OWN source never has a line literally starting with
 	// "//go:generate" — otherwise `go generate ./...` would treat it as a
 	// directive for the gen package too and recurse. The directive uses the
@@ -639,15 +639,6 @@ var (
 		fmt.Fprintf(os.Stderr, "Error writing %s: %v\n", outPath, err)
 		os.Exit(1)
 	}
-}
-
-func toLowerFirst(s string) string {
-	if len(s) == 0 {
-		return s
-	}
-	runes := []rune(s)
-	runes[0] = unicode.ToLower(runes[0])
-	return string(runes)
 }
 
 func formatFuncType(params []paramData, results []resultData, isVariadic bool) string {
