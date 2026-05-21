@@ -434,6 +434,9 @@ type SyncAffinityResult struct {
 	Created int `json:"created"`
 	Updated int `json:"updated"`
 	Deleted int `json:"deleted"`
+	// Failed counts per-row writes that were logged and skipped; the sync
+	// continues past individual failures rather than aborting the batch.
+	Failed int `json:"failed"`
 }
 
 // ──────────────────────────────────────────────

@@ -3,6 +3,7 @@ package catalog
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -348,7 +349,8 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 			aff.ArtistAID, aff.ArtistBID, catalogm.RelationshipTypeRadioCooccurrence).
 			First(&existing).Error
 
-		if err == gorm.ErrRecordNotFound {
+		switch {
+		case err == gorm.ErrRecordNotFound:
 			rel := &catalogm.ArtistRelationship{
 				SourceArtistID:   aff.ArtistAID,
 				TargetArtistID:   aff.ArtistBID,
@@ -357,29 +359,61 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 				AutoDerived:      true,
 				Detail:           &detailRaw,
 			}
-			if err := s.db.Create(rel).Error; err == nil {
+			if createErr := s.db.Create(rel).Error; createErr != nil {
+				slog.Error("radio affinity sync: failed to create relationship",
+					"source_artist_id", aff.ArtistAID,
+					"target_artist_id", aff.ArtistBID,
+					"error", createErr)
+				result.Failed++
+			} else {
 				result.Created++
 			}
-		} else if err == nil {
-			s.db.Model(&existing).Updates(map[string]interface{}{
+		case err == nil:
+			if updateErr := s.db.Model(&existing).Updates(map[string]interface{}{
 				"score":  score,
 				"detail": &detailRaw,
-			})
-			result.Updated++
+			}).Error; updateErr != nil {
+				slog.Error("radio affinity sync: failed to update relationship",
+					"source_artist_id", aff.ArtistAID,
+					"target_artist_id", aff.ArtistBID,
+					"error", updateErr)
+				result.Failed++
+			} else {
+				result.Updated++
+			}
+		default:
+			// A real lookup error (not ErrRecordNotFound) was previously
+			// swallowed, silently skipping the pair.
+			slog.Error("radio affinity sync: failed to look up existing relationship",
+				"source_artist_id", aff.ArtistAID,
+				"target_artist_id", aff.ArtistBID,
+				"error", err)
+			result.Failed++
 		}
 	}
 
 	// 2. Delete stale radio_cooccurrence relationships that no longer exist in affinity table
 	var staleRels []catalogm.ArtistRelationship
-	s.db.Where("relationship_type = ? AND auto_derived = TRUE", catalogm.RelationshipTypeRadioCooccurrence).
-		Find(&staleRels)
+	// A failed query aborts the sync (vs. the per-row failures above, which are
+	// counted in result.Failed and skipped): without the stale set, cleanup can't run.
+	if err := s.db.Where("relationship_type = ? AND auto_derived = TRUE", catalogm.RelationshipTypeRadioCooccurrence).
+		Find(&staleRels).Error; err != nil {
+		slog.Error("radio affinity sync: failed to query stale relationships", "error", err)
+		return result, fmt.Errorf("querying stale relationships: %w", err)
+	}
 
 	for _, rel := range staleRels {
 		pair := [2]uint{rel.SourceArtistID, rel.TargetArtistID}
 		if !affinityPairs[pair] {
 			if err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 				rel.SourceArtistID, rel.TargetArtistID, catalogm.RelationshipTypeRadioCooccurrence).
-				Delete(&catalogm.ArtistRelationship{}).Error; err == nil {
+				Delete(&catalogm.ArtistRelationship{}).Error; err != nil {
+				slog.Error("radio affinity sync: failed to delete stale relationship",
+					"source_artist_id", rel.SourceArtistID,
+					"target_artist_id", rel.TargetArtistID,
+					"error", err)
+				result.Failed++
+			} else {
 				result.Deleted++
 			}
 		}
