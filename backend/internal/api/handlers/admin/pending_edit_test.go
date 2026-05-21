@@ -882,3 +882,48 @@ func TestSuggestEdit_AutoApplyPathStillGates(t *testing.T) {
 		})
 	}
 }
+
+// ============================================================================
+// Tests: SuggestReleaseEditHandler — a thin wrapper over the shared
+// suggestEdit path (already exercised by the artist/venue/festival cases).
+// One happy path + one error path confirm the release allowlist is wired.
+// ============================================================================
+
+func TestSuggestReleaseEditHandler_NewUser_CreatesPending(t *testing.T) {
+	expected := makePendingEditResponse(11)
+	expected.EntityType = "release"
+	h := NewPendingEditHandler(
+		&testhelpers.MockPendingEditService{
+			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
+				if req.EntityType != "release" || req.EntityID != 10 {
+					t.Errorf("unexpected params: %+v", req)
+				}
+				return expected, nil
+			},
+		},
+		nil,
+	)
+
+	req := &SuggestEntityEditRequest{EntityID: "10"}
+	req.Body.Changes = []adminm.FieldChange{{Field: "title", OldValue: "Old", NewValue: "New"}}
+	req.Body.Summary = "Fix title"
+
+	resp, err := h.SuggestReleaseEditHandler(pendingEditNewUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.PendingEdit == nil || resp.Body.PendingEdit.ID != 11 {
+		t.Errorf("expected pending edit ID=11, got %+v", resp.Body.PendingEdit)
+	}
+}
+
+func TestSuggestReleaseEditHandler_DisallowedField(t *testing.T) {
+	h := testPendingEditHandler()
+	req := &SuggestEntityEditRequest{EntityID: "1"}
+	// "label_id" is not on the release allowlist (title/release_year/
+	// release_date/release_type/cover_art_url/description only).
+	req.Body.Changes = []adminm.FieldChange{{Field: "label_id", OldValue: 1, NewValue: 2}}
+	req.Body.Summary = "reassign label"
+	_, err := h.SuggestReleaseEditHandler(pendingEditNewUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}

@@ -179,6 +179,41 @@ func TestReportShow_Success(t *testing.T) {
 	}
 }
 
+func TestReportComment_Success(t *testing.T) {
+	expected := makeEntityReportResponse(6, "comment", "harassment")
+	h := NewEntityReportHandler(
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+				if req.EntityType != "comment" || req.ReportType != "harassment" {
+					t.Errorf("unexpected params: %+v", req)
+				}
+				return expected, nil
+			},
+		},
+		nil,
+	)
+
+	req := &ReportEntityRequest{EntityID: "10"}
+	req.Body.ReportType = "harassment"
+
+	resp, err := h.ReportCommentHandler(entityReportUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.EntityType != "comment" {
+		t.Errorf("expected entity_type=comment, got %s", resp.Body.EntityType)
+	}
+}
+
+func TestReportComment_InvalidReportType(t *testing.T) {
+	// "wrong_venue" is valid for shows but not for comments.
+	h := testEntityReportHandler()
+	req := &ReportEntityRequest{EntityID: "1"}
+	req.Body.ReportType = "wrong_venue"
+	_, err := h.ReportCommentHandler(entityReportUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 // PSY-357: collections accept the same shape as the other entity types.
 // PSY-578: collection-specific taxonomy is spam/inappropriate/misleading/other
 // (diverges from the comment vocabulary — see entity_report.go for rationale).

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -250,4 +251,165 @@ func TestSplitAndTrim(t *testing.T) {
 			}
 		}
 	}
+}
+
+// --- GetArtistBillCompositionHandler ---
+
+func TestGetArtistBillComposition_InvalidID(t *testing.T) {
+	h := testArtistRelationshipHandler()
+	_, err := h.GetArtistBillCompositionHandler(context.Background(), &GetArtistBillCompositionRequest{ArtistID: "abc"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestGetArtistBillComposition_NegativeMonths(t *testing.T) {
+	h := testArtistRelationshipHandler()
+	_, err := h.GetArtistBillCompositionHandler(context.Background(), &GetArtistBillCompositionRequest{ArtistID: "1", Months: -1})
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestGetArtistBillComposition_Success(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			GetArtistBillCompositionFn: func(artistID uint, months int) (*contracts.ArtistBillComposition, error) {
+				if artistID != 1 || months != 12 {
+					t.Errorf("unexpected params artistID=%d months=%d", artistID, months)
+				}
+				bc := &contracts.ArtistBillComposition{}
+				bc.Stats.TotalShows = 5
+				bc.TimeFilterMonths = months
+				return bc, nil
+			},
+		},
+		nil,
+	)
+	resp, err := h.GetArtistBillCompositionHandler(context.Background(), &GetArtistBillCompositionRequest{ArtistID: "1", Months: 12})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Stats.TotalShows != 5 {
+		t.Errorf("expected total shows=5, got %d", resp.Body.Stats.TotalShows)
+	}
+}
+
+func TestGetArtistBillComposition_NotFound(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			GetArtistBillCompositionFn: func(_ uint, _ int) (*contracts.ArtistBillComposition, error) {
+				// Handler maps an "artist not found"-prefixed error to 404.
+				return nil, fmt.Errorf("artist not found: 99")
+			},
+		},
+		nil,
+	)
+	_, err := h.GetArtistBillCompositionHandler(context.Background(), &GetArtistBillCompositionRequest{ArtistID: "99"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestGetArtistBillComposition_ServiceError(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			GetArtistBillCompositionFn: func(_ uint, _ int) (*contracts.ArtistBillComposition, error) {
+				return nil, fmt.Errorf("db error")
+			},
+		},
+		nil,
+	)
+	_, err := h.GetArtistBillCompositionHandler(context.Background(), &GetArtistBillCompositionRequest{ArtistID: "1"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// --- DeleteRelationshipHandler (admin) ---
+
+func TestDeleteRelationship_Success(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			DeleteRelationshipFn: func(sourceID, targetID uint, relType string) error {
+				if sourceID != 1 || targetID != 2 || relType != "similar" {
+					t.Errorf("unexpected params source=%d target=%d type=%q", sourceID, targetID, relType)
+				}
+				return nil
+			},
+		},
+		nil,
+	)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	_, err := h.DeleteRelationshipHandler(ctx, &DeleteRelationshipRequest{SourceID: "1", TargetID: "2", Type: "similar"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestDeleteRelationship_ServiceError(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			DeleteRelationshipFn: func(_, _ uint, _ string) error {
+				return fmt.Errorf("db error")
+			},
+		},
+		nil,
+	)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	_, err := h.DeleteRelationshipHandler(ctx, &DeleteRelationshipRequest{SourceID: "1", TargetID: "2", Type: "similar"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// --- DeriveRelationshipsHandler (admin) ---
+
+func TestDeriveRelationships_Success(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			DeriveSharedBillsFn: func(minShows int) (int64, error) {
+				if minShows != 2 {
+					t.Errorf("expected minShows=2, got %d", minShows)
+				}
+				return 7, nil
+			},
+			DeriveSharedLabelsFn: func(minLabels int) (int64, error) {
+				if minLabels != 1 {
+					t.Errorf("expected minLabels=1, got %d", minLabels)
+				}
+				return 3, nil
+			},
+		},
+		nil,
+	)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	resp, err := h.DeriveRelationshipsHandler(ctx, &DeriveRelationshipsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success || resp.Body.SharedBillsUpserted != 7 || resp.Body.SharedLabelsUpserted != 3 {
+		t.Errorf("unexpected body: %+v", resp.Body)
+	}
+}
+
+func TestDeriveRelationships_SharedBillsError(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			DeriveSharedBillsFn: func(_ int) (int64, error) {
+				return 0, fmt.Errorf("db error")
+			},
+		},
+		nil,
+	)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	_, err := h.DeriveRelationshipsHandler(ctx, &DeriveRelationshipsRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+func TestDeriveRelationships_SharedLabelsError(t *testing.T) {
+	h := NewArtistRelationshipHandler(
+		&testhelpers.MockArtistRelationshipService{
+			DeriveSharedBillsFn: func(_ int) (int64, error) {
+				return 5, nil
+			},
+			DeriveSharedLabelsFn: func(_ int) (int64, error) {
+				return 0, fmt.Errorf("db error")
+			},
+		},
+		nil,
+	)
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
+	_, err := h.DeriveRelationshipsHandler(ctx, &DeriveRelationshipsRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
 }

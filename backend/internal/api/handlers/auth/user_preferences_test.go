@@ -439,3 +439,72 @@ func TestSetDefaultReplyPermission_AcceptsAllValidEnumValues(t *testing.T) {
 		})
 	}
 }
+
+// --- SetCollectionDigestHandler ---
+
+func TestSetCollectionDigestHandler_NoAuth(t *testing.T) {
+	h := NewUserPreferencesHandler(&testhelpers.MockUserService{}, "secret")
+	_, err := h.SetCollectionDigestHandler(context.Background(), &SetCollectionDigestRequest{})
+	testhelpers.AssertHumaError(t, err, 401)
+}
+
+func TestSetCollectionDigestHandler_Success_Enable(t *testing.T) {
+	var calledEnabled bool
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCollectionDigestFn: func(userID uint, enabled bool) error {
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			calledEnabled = enabled
+			return nil
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetCollectionDigestRequest{}
+	req.Body.Enabled = true
+
+	resp, err := h.SetCollectionDigestHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success || !resp.Body.NotifyOnCollectionDigest {
+		t.Fatal("expected success=true and notify_on_collection_digest=true")
+	}
+	if !calledEnabled {
+		t.Fatal("expected service called with enabled=true")
+	}
+}
+
+func TestSetCollectionDigestHandler_Success_Disable(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCollectionDigestFn: func(_ uint, _ bool) error { return nil },
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetCollectionDigestRequest{}
+	req.Body.Enabled = false
+
+	resp, err := h.SetCollectionDigestHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success || resp.Body.NotifyOnCollectionDigest {
+		t.Fatal("expected success=true and notify_on_collection_digest=false")
+	}
+}
+
+func TestSetCollectionDigestHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		SetNotifyOnCollectionDigestFn: func(_ uint, _ bool) error {
+			return errors.New("db error")
+		},
+	}
+	h := NewUserPreferencesHandler(mock, "secret")
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &SetCollectionDigestRequest{}
+	req.Body.Enabled = true
+
+	_, err := h.SetCollectionDigestHandler(ctx, req)
+	testhelpers.AssertHumaError(t, err, 500)
+}

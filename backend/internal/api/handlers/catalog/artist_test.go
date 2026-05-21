@@ -1339,3 +1339,74 @@ func TestAdminCreateArtist_NameTrimmed(t *testing.T) {
 		t.Errorf("expected name='Trimmed Name', got %q", resp.Body.Name)
 	}
 }
+
+// ============================================================================
+// Mock-based tests: GetArtistLabelsHandler
+// ============================================================================
+
+func TestGetArtistLabels_ByID(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetLabelsForArtistFn: func(artistID uint) ([]*contracts.ArtistLabelResponse, error) {
+			if artistID != 5 {
+				t.Errorf("expected artistID=5, got %d", artistID)
+			}
+			return []*contracts.ArtistLabelResponse{{ID: 1, Name: "Sub Pop"}}, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	resp, err := h.GetArtistLabelsHandler(context.Background(), &GetArtistLabelsRequest{ArtistID: "5"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 1 || resp.Body.Labels[0].Name != "Sub Pop" {
+		t.Errorf("unexpected body: %+v", resp.Body)
+	}
+}
+
+func TestGetArtistLabels_BySlug(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistBySlugFn: func(slug string) (*contracts.ArtistDetailResponse, error) {
+			return &contracts.ArtistDetailResponse{ID: 10, Slug: slug}, nil
+		},
+		GetLabelsForArtistFn: func(artistID uint) ([]*contracts.ArtistLabelResponse, error) {
+			if artistID != 10 {
+				t.Errorf("expected resolved artistID=10, got %d", artistID)
+			}
+			return nil, nil
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	resp, err := h.GetArtistLabelsHandler(context.Background(), &GetArtistLabelsRequest{ArtistID: "the-national"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Count != 0 {
+		t.Errorf("expected count=0, got %d", resp.Body.Count)
+	}
+}
+
+func TestGetArtistLabels_SlugNotFound(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetArtistBySlugFn: func(_ string) (*contracts.ArtistDetailResponse, error) {
+			return nil, apperrors.ErrArtistNotFound(0)
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	_, err := h.GetArtistLabelsHandler(context.Background(), &GetArtistLabelsRequest{ArtistID: "ghost"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestGetArtistLabels_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockArtistService{
+		GetLabelsForArtistFn: func(_ uint) ([]*contracts.ArtistLabelResponse, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	h := NewArtistHandler(mock, nil, nil, nil)
+
+	_, err := h.GetArtistLabelsHandler(context.Background(), &GetArtistLabelsRequest{ArtistID: "5"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
