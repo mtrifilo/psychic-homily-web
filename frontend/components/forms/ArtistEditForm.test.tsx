@@ -136,11 +136,10 @@ describe('ArtistEditForm', () => {
       expect(mockMutate).not.toHaveBeenCalled()
     })
 
-    it('blocks the mutation when the required name is cleared', async () => {
-      // The zod `onSubmit` validator rejects an empty name, so the form's
-      // submit handler never runs. NOTE: the component does not surface the
-      // validation message in the DOM (no field-error rendering) — this test
-      // pins the observable behavior (mutation blocked), not a visible error.
+    it('surfaces a validation message and blocks the mutation when the required name is cleared', async () => {
+      // The zod `onSubmit` validator rejects an empty name. The form must both
+      // block the mutation AND surface the message inline (via FieldInfo), so
+      // the user isn't left with a silent, dead Save button.
       const user = userEvent.setup()
       const artist = makeArtist()
       renderWithProviders(
@@ -150,10 +149,9 @@ describe('ArtistEditForm', () => {
       await user.clear(screen.getByLabelText(/Name \*/i))
       await user.click(screen.getByRole('button', { name: /Save Changes/i }))
 
-      // Give the async submit/validation a tick to settle, then assert no call.
-      await waitFor(() =>
-        expect(screen.getByLabelText(/Name \*/i)).toHaveValue('')
-      )
+      expect(
+        await screen.findByText(/Artist name is required/i)
+      ).toBeInTheDocument()
       expect(mockMutate).not.toHaveBeenCalled()
     })
   })
