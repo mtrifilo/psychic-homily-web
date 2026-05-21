@@ -267,23 +267,12 @@ func parseNTSShow(ntsShow ntsShow) RadioShowImport {
 	archiveURL := fmt.Sprintf("https://www.nts.live/shows/%s", ntsShow.Alias)
 	show.ArchiveURL = &archiveURL
 
-	// Extract host name from the show's description_short field if available,
-	// or from the hosts list
-	if len(ntsShow.Hosts) > 0 {
-		var hostNames []string
-		for _, h := range ntsShow.Hosts {
-			if h.Name != "" {
-				hostNames = append(hostNames, h.Name)
-			}
-		}
-		if len(hostNames) > 0 {
-			joined := strings.Join(hostNames, ", ")
-			show.HostName = &joined
-		}
-	}
-
-	if ntsShow.ImageURL != "" {
-		img := ntsShow.ImageURL
+	// NTS show artwork lives under media.picture_large (background_large as a
+	// fallback). This endpoint exposes no host field, so HostName stays nil
+	// (admins can fill it in via the edit drawer).
+	if img := ntsShow.Media.PictureLarge; img != "" {
+		show.ImageURL = &img
+	} else if img := ntsShow.Media.BackgroundLarge; img != "" {
 		show.ImageURL = &img
 	}
 
@@ -322,12 +311,6 @@ func parseNTSEpisode(ntsEp ntsEpisode, showExternalID string) RadioEpisodeImport
 	if ntsEp.Mixcloud != "" {
 		mixcloud := ntsEp.Mixcloud
 		ep.ArchiveURL = &mixcloud
-	}
-
-	// Duration if available
-	if ntsEp.DurationMinutes > 0 {
-		dur := ntsEp.DurationMinutes
-		ep.DurationMinutes = &dur
 	}
 
 	return ep
@@ -378,19 +361,6 @@ func dateFromNTSAlias(alias string) string {
 	return t.Format("2006-01-02")
 }
 
-// encodeTagsJSON converts a slice of strings to a JSON-encoded *json.RawMessage.
-func encodeTagsJSON(tags []string) *json.RawMessage {
-	if len(tags) == 0 {
-		return nil
-	}
-	data, err := json.Marshal(tags)
-	if err != nil {
-		return nil
-	}
-	raw := json.RawMessage(data)
-	return &raw
-}
-
 // =============================================================================
 // NTS API response types (not exported -- internal to provider)
 // =============================================================================
@@ -400,19 +370,16 @@ type ntsShowsResponse struct {
 }
 
 type ntsShow struct {
-	Name             string    `json:"name"`
-	Alias            string    `json:"alias"`
-	Description      string    `json:"description"`
-	DescriptionShort string    `json:"description_short"`
-	GenreTags        []string  `json:"genre_tags"`
-	MoodTags         []string  `json:"mood_tags"`
-	Location         string    `json:"location"`
-	ImageURL         string    `json:"image_url"`
-	Hosts            []ntsHost `json:"hosts"`
+	Name        string   `json:"name"`
+	Alias       string   `json:"show_alias"`
+	Description string   `json:"description"`
+	Media       ntsMedia `json:"media"`
 }
 
-type ntsHost struct {
-	Name string `json:"name"`
+// ntsMedia holds the image variants NTS attaches to a show/episode.
+type ntsMedia struct {
+	PictureLarge    string `json:"picture_large"`
+	BackgroundLarge string `json:"background_large"`
 }
 
 type ntsEpisodesResponse struct {
@@ -420,13 +387,10 @@ type ntsEpisodesResponse struct {
 }
 
 type ntsEpisode struct {
-	Name            string   `json:"name"`
-	EpisodeAlias    string   `json:"episode_alias"`
-	Broadcast       string   `json:"broadcast"`
-	Mixcloud        string   `json:"mixcloud"`
-	GenreTags       []string `json:"genre_tags"`
-	MoodTags        []string `json:"mood_tags"`
-	DurationMinutes int      `json:"duration"`
+	Name         string `json:"name"`
+	EpisodeAlias string `json:"episode_alias"`
+	Broadcast    string `json:"broadcast"`
+	Mixcloud     string `json:"mixcloud"`
 }
 
 // ntsTracklistResponse matches the JSON returned by
