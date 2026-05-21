@@ -10,6 +10,7 @@ import {
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { formatContentDate } from '@/lib/utils/formatters'
+import { getTextExcerpt } from '@/lib/utils/markdownExcerpt'
 
 interface CategoryPageProps {
   params: Promise<{ category: string }>
@@ -44,21 +45,6 @@ export async function generateMetadata({ params }: CategoryPageProps) {
       type: 'website',
     },
   }
-}
-
-/**
- * Extract a text-only summary from MDX content
- */
-function getTextExcerpt(content: string, maxLength = 200): string {
-  let text = content.replace(/<[^>]+\/>/g, '')
-  text = text.replace(/<[^>]+>[^<]*<\/[^>]+>/g, '')
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-  text = text.replace(/[#*_`]/g, '')
-  text = text.replace(/\s+/g, ' ').trim()
-  if (text.length > maxLength) {
-    text = text.substring(0, maxLength).trim() + '...'
-  }
-  return text
 }
 
 /**
