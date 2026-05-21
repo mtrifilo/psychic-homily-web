@@ -36,9 +36,11 @@ export function Bandcamp({
 
   const embedUrl = `https://bandcamp.com/EmbeddedPlayer/${embedParts.join('/')}/`
 
-  // Build the link URL
+  // Build the link URL. `artist` is an author-authored Bandcamp subdomain slug
+  // (encodeURIComponent is invalid in a hostname), so only the title path
+  // segment is encoded — keeps the href well-formed if a title isn't pre-slugged.
   const linkType = album ? 'album' : 'track'
-  const linkUrl = `https://${artist}.bandcamp.com/${linkType}/${title}`
+  const linkUrl = `https://${artist}.bandcamp.com/${linkType}/${encodeURIComponent(title)}`
 
   return (
     <iframe

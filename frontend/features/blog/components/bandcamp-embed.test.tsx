@@ -93,6 +93,17 @@ describe('Bandcamp', () => {
     )
   })
 
+  it('URL-encodes the title path segment so a non-slug title stays well-formed', () => {
+    const { container } = render(
+      <Bandcamp album="123" artist="myband" title="live at the / venue & more" />
+    )
+    const link = container.querySelector('iframe a')
+    expect(link).toHaveAttribute(
+      'href',
+      'https://myband.bandcamp.com/album/live%20at%20the%20%2F%20venue%20%26%20more'
+    )
+  })
+
   it('applies the height prop to the iframe style', () => {
     const { container } = render(
       <Bandcamp album="123" artist="myband" title="my-album" height="350" />
