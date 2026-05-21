@@ -21,34 +21,21 @@ const ntsShowsPage1JSON = `{
   "results": [
     {
       "name": "Huerco S.",
-      "alias": "huerco-s",
+      "show_alias": "huerco-s",
       "description": "Kansas-born ambient producer Brian Leeds presents a monthly show exploring the fringes of experimental music.",
-      "description_short": "Ambient explorations with Brian Leeds",
-      "genre_tags": ["ambient", "experimental", "drone"],
-      "mood_tags": ["deep", "meditative", "nocturnal"],
-      "location": "Kansas, USA",
-      "image_url": "https://media.nts.live/uploads/huerco-s.jpg",
-      "hosts": [{"name": "Brian Leeds"}]
+      "media": {"picture_large": "https://media.nts.live/uploads/huerco-s.jpg"}
     },
     {
       "name": "Scratcha DVA",
-      "alias": "scratcha-dva",
+      "show_alias": "scratcha-dva",
       "description": "London DJ and producer Scratcha DVA mixing bass, grime, and club music from the diaspora.",
-      "genre_tags": ["grime", "bass", "club"],
-      "mood_tags": ["energetic", "dark"],
-      "location": "London, UK",
-      "image_url": "https://media.nts.live/uploads/scratcha-dva.jpg",
-      "hosts": [{"name": "Scratcha DVA"}]
+      "media": {"picture_large": "https://media.nts.live/uploads/scratcha-dva.jpg"}
     },
     {
       "name": "Morning Becomes Eclectic",
-      "alias": "morning-becomes-eclectic",
+      "show_alias": "morning-becomes-eclectic",
       "description": "An eclectic morning show with no singular host, featuring guest DJs and live sessions.",
-      "genre_tags": ["eclectic", "indie", "world"],
-      "mood_tags": ["uplifting", "warm"],
-      "location": "London, UK",
-      "image_url": "",
-      "hosts": []
+      "media": {}
     }
   ]
 }`
@@ -57,13 +44,9 @@ const ntsShowsPage2JSON = `{
   "results": [
     {
       "name": "Donato Dozzy",
-      "alias": "donato-dozzy",
+      "show_alias": "donato-dozzy",
       "description": "Legendary Italian techno producer showcasing hypnotic rhythms and deep electronics.",
-      "genre_tags": ["techno", "minimal", "hypnotic"],
-      "mood_tags": ["hypnotic", "deep"],
-      "location": "Rome, Italy",
-      "image_url": "https://media.nts.live/uploads/donato-dozzy.jpg",
-      "hosts": [{"name": "Donato Dozzy"}]
+      "media": {"picture_large": "https://media.nts.live/uploads/donato-dozzy.jpg"}
     }
   ]
 }`
@@ -73,29 +56,20 @@ const ntsEpisodesJSON = `{
     {
       "name": "Huerco S. - March 2026",
       "episode_alias": "march-2026",
-      "broadcast": "2026-03-15T20:00:00Z",
-      "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-march-2026/",
-      "genre_tags": ["ambient", "experimental"],
-      "mood_tags": ["meditative", "nocturnal"],
-      "duration": 120
+      "broadcast": "2026-03-15T20:00:00+00:00",
+      "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-march-2026/"
     },
     {
       "name": "Huerco S. - February 2026",
       "episode_alias": "february-2026",
-      "broadcast": "2026-02-15T20:00:00Z",
-      "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-february-2026/",
-      "genre_tags": ["ambient", "drone"],
-      "mood_tags": ["deep"],
-      "duration": 60
+      "broadcast": "2026-02-15T20:00:00+00:00",
+      "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-february-2026/"
     },
     {
       "name": "Huerco S. - January 2026",
       "episode_alias": "january-2026",
-      "broadcast": "2026-01-15T20:00:00Z",
-      "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-january-2026/",
-      "genre_tags": ["ambient"],
-      "mood_tags": [],
-      "duration": 120
+      "broadcast": "2026-01-15T20:00:00+00:00",
+      "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-january-2026/"
     }
   ]
 }`
@@ -105,11 +79,8 @@ const ntsEpisodeOlderJSON = `{
     {
       "name": "Huerco S. - December 2025",
       "episode_alias": "december-2025",
-      "broadcast": "2025-12-15T20:00:00Z",
-      "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-december-2025/",
-      "genre_tags": ["ambient"],
-      "mood_tags": [],
-      "duration": 120
+      "broadcast": "2025-12-15T20:00:00+00:00",
+      "mixcloud": "https://www.mixcloud.com/NTSRadio/huerco-s-15th-december-2025/"
     }
   ]
 }`
@@ -167,21 +138,19 @@ func TestNTS_DiscoverShows_ParsesAllFields(t *testing.T) {
 	assert.Equal(t, "Huerco S.", h.Name)
 	require.NotNil(t, h.Description)
 	assert.Contains(t, *h.Description, "ambient producer")
-	require.NotNil(t, h.HostName)
-	assert.Equal(t, "Brian Leeds", *h.HostName)
+	assert.Nil(t, h.HostName, "NTS /v2/shows exposes no host field")
 	require.NotNil(t, h.ImageURL)
 	assert.Equal(t, "https://media.nts.live/uploads/huerco-s.jpg", *h.ImageURL)
 	require.NotNil(t, h.ArchiveURL)
 	assert.Equal(t, "https://www.nts.live/shows/huerco-s", *h.ArchiveURL)
 
-	// Check Scratcha DVA — different host
+	// Check Scratcha DVA
 	s := shows[1]
 	assert.Equal(t, "scratcha-dva", s.ExternalID)
 	assert.Equal(t, "Scratcha DVA", s.Name)
-	require.NotNil(t, s.HostName)
-	assert.Equal(t, "Scratcha DVA", *s.HostName)
+	assert.Nil(t, s.HostName)
 
-	// Check Morning Becomes Eclectic — no host, no image
+	// Check Morning Becomes Eclectic — no image (empty media)
 	m := shows[2]
 	assert.Equal(t, "morning-becomes-eclectic", m.ExternalID)
 	assert.Equal(t, "Morning Becomes Eclectic", m.Name)
@@ -267,8 +236,6 @@ func TestNTS_FetchNewEpisodes_AllFields(t *testing.T) {
 	assert.Equal(t, "Huerco S. - March 2026", *ep.Title)
 	require.NotNil(t, ep.ArchiveURL)
 	assert.Contains(t, *ep.ArchiveURL, "mixcloud.com")
-	require.NotNil(t, ep.DurationMinutes)
-	assert.Equal(t, 120, *ep.DurationMinutes)
 }
 
 func TestNTS_FetchNewEpisodes_DateFiltering(t *testing.T) {
@@ -482,52 +449,6 @@ func TestNTS_FetchPlaylist_SkipsEmptyArtist(t *testing.T) {
 }
 
 // =============================================================================
-// Genre and Mood Tag Tests
-// =============================================================================
-
-func TestNTS_GenreAndMoodTags_Extraction(t *testing.T) {
-	// Verify the NTS API response types properly capture genre and mood tags
-	var showResp ntsShowsResponse
-	err := json.Unmarshal([]byte(ntsShowsPage1JSON), &showResp)
-	require.NoError(t, err)
-
-	huerco := showResp.Results[0]
-	assert.Equal(t, []string{"ambient", "experimental", "drone"}, huerco.GenreTags)
-	assert.Equal(t, []string{"deep", "meditative", "nocturnal"}, huerco.MoodTags)
-	assert.Equal(t, "Kansas, USA", huerco.Location)
-
-	scratcha := showResp.Results[1]
-	assert.Equal(t, []string{"grime", "bass", "club"}, scratcha.GenreTags)
-	assert.Equal(t, []string{"energetic", "dark"}, scratcha.MoodTags)
-
-	// Episode tags
-	var epResp ntsEpisodesResponse
-	err = json.Unmarshal([]byte(ntsEpisodesJSON), &epResp)
-	require.NoError(t, err)
-
-	ep := epResp.Results[0]
-	assert.Equal(t, []string{"ambient", "experimental"}, ep.GenreTags)
-	assert.Equal(t, []string{"meditative", "nocturnal"}, ep.MoodTags)
-}
-
-func TestNTS_EncodeTagsJSON(t *testing.T) {
-	// Non-empty tags
-	result := encodeTagsJSON([]string{"ambient", "experimental"})
-	require.NotNil(t, result)
-
-	var decoded []string
-	err := json.Unmarshal(*result, &decoded)
-	require.NoError(t, err)
-	assert.Equal(t, []string{"ambient", "experimental"}, decoded)
-
-	// Empty tags
-	assert.Nil(t, encodeTagsJSON([]string{}))
-
-	// Nil tags
-	assert.Nil(t, encodeTagsJSON(nil))
-}
-
-// =============================================================================
 // Mixcloud Archive URL Tests
 // =============================================================================
 
@@ -735,20 +656,27 @@ func TestNTS_ParseNTSShow(t *testing.T) {
 		Name:        "Test Show",
 		Alias:       "test-show",
 		Description: "A test show",
-		ImageURL:    "https://example.com/image.jpg",
-		Hosts:       []ntsHost{{Name: "Host A"}, {Name: "Host B"}},
+		Media:       ntsMedia{PictureLarge: "https://example.com/image.jpg"},
 	})
 
 	assert.Equal(t, "test-show", show.ExternalID)
 	assert.Equal(t, "Test Show", show.Name)
 	require.NotNil(t, show.Description)
 	assert.Equal(t, "A test show", *show.Description)
-	require.NotNil(t, show.HostName)
-	assert.Equal(t, "Host A, Host B", *show.HostName)
+	assert.Nil(t, show.HostName, "NTS /v2/shows exposes no host field")
 	require.NotNil(t, show.ImageURL)
 	assert.Equal(t, "https://example.com/image.jpg", *show.ImageURL)
 	require.NotNil(t, show.ArchiveURL)
 	assert.Equal(t, "https://www.nts.live/shows/test-show", *show.ArchiveURL)
+
+	// Image falls back to background_large when picture_large is absent
+	bgShow := parseNTSShow(ntsShow{
+		Name:  "Bg",
+		Alias: "bg",
+		Media: ntsMedia{BackgroundLarge: "https://example.com/bg.jpg"},
+	})
+	require.NotNil(t, bgShow.ImageURL)
+	assert.Equal(t, "https://example.com/bg.jpg", *bgShow.ImageURL)
 
 	// Show with minimal fields
 	minShow := parseNTSShow(ntsShow{
@@ -770,11 +698,10 @@ func TestNTS_ParseNTSShow(t *testing.T) {
 func TestNTS_ParseNTSEpisode(t *testing.T) {
 	// Full episode
 	ep := parseNTSEpisode(ntsEpisode{
-		Name:            "Show - March 2026",
-		EpisodeAlias:    "march-2026",
-		Broadcast:       "2026-03-15T20:00:00Z",
-		Mixcloud:        "https://www.mixcloud.com/NTSRadio/show-march-2026/",
-		DurationMinutes: 120,
+		Name:         "Show - March 2026",
+		EpisodeAlias: "march-2026",
+		Broadcast:    "2026-03-15T20:00:00Z",
+		Mixcloud:     "https://www.mixcloud.com/NTSRadio/show-march-2026/",
 	}, "test-show")
 
 	assert.Equal(t, "test-show/march-2026", ep.ExternalID)
@@ -786,10 +713,8 @@ func TestNTS_ParseNTSEpisode(t *testing.T) {
 	assert.Equal(t, "Show - March 2026", *ep.Title)
 	require.NotNil(t, ep.ArchiveURL)
 	assert.Contains(t, *ep.ArchiveURL, "mixcloud.com")
-	require.NotNil(t, ep.DurationMinutes)
-	assert.Equal(t, 120, *ep.DurationMinutes)
 
-	// Episode with no mixcloud, no duration
+	// Episode with no mixcloud
 	minEp := parseNTSEpisode(ntsEpisode{
 		Name:         "Minimal Episode",
 		EpisodeAlias: "min-ep",
@@ -798,7 +723,6 @@ func TestNTS_ParseNTSEpisode(t *testing.T) {
 
 	assert.Equal(t, "show/min-ep", minEp.ExternalID)
 	assert.Nil(t, minEp.ArchiveURL)
-	assert.Nil(t, minEp.DurationMinutes)
 }
 
 func TestNTS_ParseNTSEpisode_DateOnlyBroadcast(t *testing.T) {
