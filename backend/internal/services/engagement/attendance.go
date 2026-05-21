@@ -63,11 +63,18 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// Remove the opposite status (if any) — ignore "not found"
-		tx.Where(
+		// Remove the opposite status (if any). A no-row match is a no-op
+		// (GORM returns nil error + RowsAffected=0). A real error (lock
+		// timeout, FK trigger, dropped conn) must roll back the whole
+		// transaction — otherwise the upsert below leaves the user with
+		// BOTH going AND interested rows, violating the going-XOR-interested
+		// invariant and double-counting in GetAttendanceCounts.
+		if result := tx.Where(
 			"user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
 			userID, engagementm.BookmarkEntityShow, showID, removeAction,
-		).Delete(&engagementm.UserBookmark{})
+		).Delete(&engagementm.UserBookmark{}); result.Error != nil {
+			return fmt.Errorf("failed to remove opposite attendance: %w", result.Error)
+		}
 
 		// Upsert the desired status
 		bookmark := engagementm.UserBookmark{
@@ -285,7 +292,34 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 		return []*contracts.AttendingShowResponse{}, 0, nil
 	}
 
-	// Query bookmarks joined with shows and first venue
+	// Page on DISTINCT show IDs first, BEFORE joining venues. The data query
+	// below LEFT-JOINs show_venues+venues, so a multi-venue show fans out into
+	// multiple rows. Applying LIMIT/OFFSET to that fanned-out stream would pull
+	// fewer than N distinct shows per page (page drift). Pluck the distinct
+	// page of show IDs here so a page always yields exactly N shows.
+	// Order by (event_date, id) so the tie-break is deterministic and pages
+	// partition cleanly (no show appears on two pages, none is skipped).
+	var showIDs []uint
+	err = s.db.Model(&engagementm.UserBookmark{}).
+		Select("shows.id").
+		Joins("JOIN shows ON shows.id = user_bookmarks.entity_id").
+		Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action IN ?",
+			userID, engagementm.BookmarkEntityShow, actions).
+		Where("shows.status = ? AND shows.event_date >= ?", catalogm.ShowStatusApproved, now).
+		Order("shows.event_date ASC, shows.id ASC").
+		Limit(limit).
+		Offset(offset).
+		Pluck("shows.id", &showIDs).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to page attending show ids: %w", err)
+	}
+
+	if len(showIDs) == 0 {
+		return []*contracts.AttendingShowResponse{}, total, nil
+	}
+
+	// Fetch the full row (incl. venue) for the paged shows. Same ordering so
+	// the dedup loop below emits shows in page order.
 	type attendingRow struct {
 		ShowID    uint
 		Title     string
@@ -318,9 +352,8 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 		Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action IN ?",
 			userID, engagementm.BookmarkEntityShow, actions).
 		Where("shows.status = ? AND shows.event_date >= ?", catalogm.ShowStatusApproved, now).
-		Order("shows.event_date ASC").
-		Limit(limit).
-		Offset(offset).
+		Where("shows.id IN ?", showIDs).
+		Order("shows.event_date ASC, shows.id ASC").
 		Find(&rows).Error
 
 	if err != nil {
@@ -330,7 +363,7 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 	// Deduplicate rows by show ID (a show may have multiple venues)
 	// Keep the first venue encountered for each show
 	seen := make(map[uint]bool)
-	responses := make([]*contracts.AttendingShowResponse, 0, len(rows))
+	responses := make([]*contracts.AttendingShowResponse, 0, len(showIDs))
 	for _, row := range rows {
 		if seen[row.ShowID] {
 			continue
