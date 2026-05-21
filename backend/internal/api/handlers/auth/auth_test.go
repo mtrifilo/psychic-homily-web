@@ -2239,3 +2239,150 @@ func TestGenerateCLITokenHandler_TokenFails(t *testing.T) {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 	}
 }
+
+// --- UpdateProfileHandler ---
+//
+// UpdateProfileHandler returns a 200 with a structured Success/ErrorCode body
+// rather than huma errors, so assertions read those fields instead of an HTTP
+// status.
+
+func TestUpdateProfileHandler_NoAuth(t *testing.T) {
+	h := testAuthHandler()
+	resp, err := h.UpdateProfileHandler(context.Background(), &UpdateProfileRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeUnauthorized {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeUnauthorized, resp.Body.ErrorCode)
+	}
+}
+
+func TestUpdateProfileHandler_UsernameTooShort(t *testing.T) {
+	h := testAuthHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.Username = strPtr("ab") // < 3 chars
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+}
+
+func TestUpdateProfileHandler_UsernameInvalidChars(t *testing.T) {
+	h := testAuthHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.Username = strPtr("bad name!") // space + punctuation
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+}
+
+func TestUpdateProfileHandler_BioTooLong(t *testing.T) {
+	h := testAuthHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.Bio = strPtr(strings.Repeat("x", 501))
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+}
+
+func TestUpdateProfileHandler_NoFields(t *testing.T) {
+	h := testAuthHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	resp, err := h.UpdateProfileHandler(ctx, &UpdateProfileRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected validation failure for empty update, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+}
+
+func TestUpdateProfileHandler_Success(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		UpdateUserFn: func(userID uint, updates map[string]any) (*authm.User, error) {
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			if updates["username"] != "new_name" {
+				t.Errorf("expected username=new_name, got %v", updates["username"])
+			}
+			return &authm.User{ID: 1, Username: strPtr("new_name")}, nil
+		},
+	}
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.Username = strPtr("new_name")
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatalf("expected success=true, got message=%q code=%s", resp.Body.Message, resp.Body.ErrorCode)
+	}
+	if resp.Body.User == nil || resp.Body.User.Username == nil || *resp.Body.User.Username != "new_name" {
+		t.Errorf("expected updated user with username=new_name, got %+v", resp.Body.User)
+	}
+}
+
+func TestUpdateProfileHandler_DuplicateUsername(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		UpdateUserFn: func(_ uint, _ map[string]any) (*authm.User, error) {
+			return nil, fmt.Errorf("ERROR: duplicate key value violates unique constraint")
+		},
+	}
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.Username = strPtr("taken_name")
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected validation failure for duplicate username, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+}
+
+func TestUpdateProfileHandler_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockUserService{
+		UpdateUserFn: func(_ uint, _ map[string]any) (*authm.User, error) {
+			return nil, fmt.Errorf("db connection lost")
+		},
+	}
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.FirstName = strPtr("Jane")
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected service-unavailable failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+}

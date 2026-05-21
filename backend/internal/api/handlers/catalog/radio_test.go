@@ -1193,3 +1193,143 @@ func TestAdminListImportJobs_ServiceError(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
+// ============================================================================
+// AdminGetUnmatchedPlaysHandler Tests
+// ============================================================================
+
+func TestAdminGetUnmatchedPlays_Success(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		GetUnmatchedPlaysFn: func(stationID uint, limit, offset int) ([]*contracts.UnmatchedPlayGroup, int64, error) {
+			// Defaults are applied by the handler when limit<=0 / offset<0.
+			if limit != 50 || offset != 0 {
+				t.Errorf("expected default limit=50 offset=0, got limit=%d offset=%d", limit, offset)
+			}
+			return []*contracts.UnmatchedPlayGroup{
+				{ArtistName: "Unknown Band", PlayCount: 3, StationNames: []string{"KEXP"}},
+			}, 1, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	resp, err := h.AdminGetUnmatchedPlaysHandler(radioAdminCtx(), &AdminGetUnmatchedPlaysRequest{Limit: 0, Offset: -5})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Total != 1 || len(resp.Body.Groups) != 1 {
+		t.Errorf("unexpected response body: %+v", resp.Body)
+	}
+}
+
+func TestAdminGetUnmatchedPlays_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		GetUnmatchedPlaysFn: func(_ uint, _, _ int) ([]*contracts.UnmatchedPlayGroup, int64, error) {
+			return nil, 0, fmt.Errorf("database error")
+		},
+	}
+	h := testRadioHandler(mock)
+	_, err := h.AdminGetUnmatchedPlaysHandler(radioAdminCtx(), &AdminGetUnmatchedPlaysRequest{})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// AdminLinkPlayHandler Tests
+// ============================================================================
+
+func TestAdminLinkPlay_Success(t *testing.T) {
+	artistID := uint(123)
+	mock := &testhelpers.MockRadioService{
+		LinkPlayFn: func(playID uint, req *contracts.LinkPlayRequest) error {
+			if playID != 7 {
+				t.Errorf("unexpected playID=%d", playID)
+			}
+			if req.ArtistID == nil || *req.ArtistID != 123 {
+				t.Errorf("unexpected link request: %+v", req)
+			}
+			return nil
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminLinkPlayRequest{PlayID: 7}
+	req.Body.ArtistID = &artistID
+
+	resp, err := h.AdminLinkPlayHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Error("expected success=true")
+	}
+}
+
+func TestAdminLinkPlay_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		LinkPlayFn: func(_ uint, _ *contracts.LinkPlayRequest) error {
+			return fmt.Errorf("constraint violation")
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminLinkPlayRequest{PlayID: 7}
+
+	_, err := h.AdminLinkPlayHandler(radioAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// AdminBulkLinkPlaysHandler Tests
+// ============================================================================
+
+func TestAdminBulkLinkPlays_Success(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		BulkLinkPlaysFn: func(req *contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error) {
+			if req.ArtistName != "Radiohead" || req.ArtistID != 123 {
+				t.Errorf("unexpected bulk request: %+v", req)
+			}
+			return &contracts.BulkLinkResult{Updated: 9}, nil
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminBulkLinkPlaysRequest{}
+	req.Body.ArtistName = "Radiohead"
+	req.Body.ArtistID = 123
+
+	resp, err := h.AdminBulkLinkPlaysHandler(radioAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Updated != 9 {
+		t.Errorf("expected 9 updated, got %d", resp.Body.Updated)
+	}
+}
+
+func TestAdminBulkLinkPlays_MissingArtistName(t *testing.T) {
+	h := testRadioHandler(&testhelpers.MockRadioService{})
+	req := &AdminBulkLinkPlaysRequest{}
+	req.Body.ArtistID = 123 // name omitted
+
+	_, err := h.AdminBulkLinkPlaysHandler(radioAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestAdminBulkLinkPlays_MissingArtistID(t *testing.T) {
+	h := testRadioHandler(&testhelpers.MockRadioService{})
+	req := &AdminBulkLinkPlaysRequest{}
+	req.Body.ArtistName = "Radiohead" // id omitted (zero)
+
+	_, err := h.AdminBulkLinkPlaysHandler(radioAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+func TestAdminBulkLinkPlays_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockRadioService{
+		BulkLinkPlaysFn: func(_ *contracts.BulkLinkRequest) (*contracts.BulkLinkResult, error) {
+			return nil, fmt.Errorf("database error")
+		},
+	}
+	h := testRadioHandler(mock)
+	req := &AdminBulkLinkPlaysRequest{}
+	req.Body.ArtistName = "Radiohead"
+	req.Body.ArtistID = 123
+
+	_, err := h.AdminBulkLinkPlaysHandler(radioAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+}
+

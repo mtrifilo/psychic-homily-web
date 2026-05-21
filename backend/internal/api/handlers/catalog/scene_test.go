@@ -247,6 +247,112 @@ func TestGetSceneActiveArtists_ServiceError(t *testing.T) {
 }
 
 // ============================================================================
+// GetSceneGraphHandler Tests
+// ============================================================================
+
+func TestGetSceneGraph_Success(t *testing.T) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetSceneGraphFn: func(city, state string, types []string) (*contracts.SceneGraphResponse, error) {
+			resp := &contracts.SceneGraphResponse{}
+			resp.Scene.City = city
+			resp.Scene.State = state
+			resp.Scene.Slug = "phoenix-az"
+			return resp, nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	resp, err := h.GetSceneGraphHandler(context.Background(), &GetSceneGraphRequest{Slug: "phoenix-az"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Scene.City != "Phoenix" {
+		t.Errorf("expected Phoenix, got %s", resp.Body.Scene.City)
+	}
+}
+
+func TestGetSceneGraph_TypeFilterParsed(t *testing.T) {
+	var capturedTypes []string
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetSceneGraphFn: func(_, _ string, types []string) (*contracts.SceneGraphResponse, error) {
+			capturedTypes = types
+			return &contracts.SceneGraphResponse{}, nil
+		},
+	}
+	h := NewSceneHandler(mock)
+	req := &GetSceneGraphRequest{Slug: "phoenix-az", Types: " shared_bills , shared_label ,"}
+	_, err := h.GetSceneGraphHandler(context.Background(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// parseTypesQueryParam trims whitespace and drops empties.
+	if len(capturedTypes) != 2 || capturedTypes[0] != "shared_bills" || capturedTypes[1] != "shared_label" {
+		t.Errorf("expected [shared_bills shared_label], got %v", capturedTypes)
+	}
+}
+
+func TestGetSceneGraph_SlugNotFound(t *testing.T) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+		},
+	}
+	h := NewSceneHandler(mock)
+	_, err := h.GetSceneGraphHandler(context.Background(), &GetSceneGraphRequest{Slug: "nope-xx"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestGetSceneGraph_SceneNotFound(t *testing.T) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Tiny", "XX", nil
+		},
+		GetSceneGraphFn: func(city, state string, _ []string) (*contracts.SceneGraphResponse, error) {
+			return nil, fmt.Errorf("scene not found: %s, %s", city, state)
+		},
+	}
+	h := NewSceneHandler(mock)
+	_, err := h.GetSceneGraphHandler(context.Background(), &GetSceneGraphRequest{Slug: "tiny-xx"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestGetSceneGraph_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockSceneService{
+		ParseSceneSlugFn: func(slug string) (string, string, error) {
+			return "Phoenix", "AZ", nil
+		},
+		GetSceneGraphFn: func(_, _ string, _ []string) (*contracts.SceneGraphResponse, error) {
+			return nil, fmt.Errorf("database connection lost")
+		},
+	}
+	h := NewSceneHandler(mock)
+	_, err := h.GetSceneGraphHandler(context.Background(), &GetSceneGraphRequest{Slug: "phoenix-az"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// parseTypesQueryParam Tests
+// ============================================================================
+
+func TestParseTypesQueryParam(t *testing.T) {
+	if got := parseTypesQueryParam(""); got != nil {
+		t.Errorf("parseTypesQueryParam(\"\") = %v, want nil", got)
+	}
+	if got := parseTypesQueryParam("  ,  , "); len(got) != 0 {
+		t.Errorf("parseTypesQueryParam(all-blank) = %v, want empty", got)
+	}
+	got := parseTypesQueryParam(" similar , shared_bills ")
+	if len(got) != 2 || got[0] != "similar" || got[1] != "shared_bills" {
+		t.Errorf("parseTypesQueryParam = %v, want [similar shared_bills]", got)
+	}
+}
+
+// ============================================================================
 // isSceneNotFoundErr Tests
 // ============================================================================
 
