@@ -18,6 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { FieldInfo } from './FormField'
 
 const artistEditSchema = z.object({
   name: z.string().min(1, 'Artist name is required'),
@@ -207,7 +208,9 @@ export function ArtistEditForm({
                     onChange={e => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
                     placeholder="e.g. The National"
+                    aria-invalid={field.state.meta.errors.length > 0}
                   />
+                  <FieldInfo field={field} />
                 </div>
               )}
             </form.Field>
