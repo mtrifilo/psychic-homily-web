@@ -65,18 +65,23 @@ func (h *UserPreferencesHandler) UnsubscribeCollectionDigestPageHandler(w http.R
 	)
 
 	if isOneClickPost(r) {
-		// RFC 8058: respond with 200 and a minimal body. The body is not
-		// strictly required, but Gmail's documented examples include one
-		// and including it makes manual debugging easier.
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.Header().Set("Cache-Control", "no-store")
-		w.WriteHeader(http.StatusOK)
-		_ = json.NewEncoder(w).Encode(map[string]bool{"unsubscribed": true})
+		writeOneClickUnsubscribed(w)
 		return
 	}
 
 	// GET (manual click) — render an HTML confirmation page.
 	writeUnsubscribeConfirmation(w, r)
+}
+
+// writeOneClickUnsubscribed writes the RFC 8058 one-click POST success
+// response: 200 with a minimal JSON body. The body is not strictly required,
+// but Gmail's documented examples include one and it makes manual debugging
+// easier. Shared by every one-click unsubscribe handler.
+func writeOneClickUnsubscribed(w http.ResponseWriter) {
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	_ = json.NewEncoder(w).Encode(map[string]bool{"unsubscribed": true})
 }
 
 // isOneClickPost returns true when the request is a POST with body
@@ -95,6 +100,17 @@ func writeUnsubscribeConfirmation(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
 	fmt.Fprint(w, unsubscribeConfirmationHTML)
+}
+
+// writeScopedUnsubscribeConfirmation renders a GET success page whose body
+// names the specific category the recipient unsubscribed from. The noun is
+// supplied by the handler (e.g. "tier-change emails") and is from a fixed
+// internal allowlist, not user input, so it's safe to interpolate.
+func writeScopedUnsubscribeConfirmation(w http.ResponseWriter, noun string) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	w.Header().Set("Cache-Control", "no-store")
+	w.WriteHeader(http.StatusOK)
+	fmt.Fprintf(w, scopedUnsubscribeConfirmationTemplate, noun)
 }
 
 // writeUnsubscribeError renders an error page on GET, or a JSON body on POST,
@@ -134,6 +150,32 @@ const unsubscribeConfirmationHTML = `<!DOCTYPE html>
         <h1 style="margin: 0 0 12px; font-size: 22px; font-weight: 600;">You&rsquo;re unsubscribed</h1>
         <p style="margin: 0 0 24px; color: #555; line-height: 1.5;">
             You&rsquo;ve been unsubscribed from collection digest emails.
+            You can re-enable this anytime in your notification settings.
+        </p>
+        <p style="margin: 0;">
+            <a href="/settings" style="display: inline-block; padding: 10px 20px; border-radius: 8px; background: #f97316; color: #ffffff; text-decoration: none; font-weight: 600;">Go to notification settings</a>
+        </p>
+    </div>
+</body>
+</html>`
+
+// scopedUnsubscribeConfirmationTemplate is the GET success page for the
+// scoped unsubscribe handlers. The single %s is the category noun (e.g.
+// "tier-change emails"). Literal CSS percent signs are escaped (%%) because
+// this is rendered via fmt.Fprintf.
+const scopedUnsubscribeConfirmationTemplate = `<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unsubscribed | Psychic Homily</title>
+</head>
+<body style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; margin: 0; padding: 32px 16px; background: #fafafa; color: #1a1a1a;">
+    <div style="max-width: 480px; margin: 48px auto; background: #ffffff; border: 1px solid #e5e5e5; border-radius: 12px; padding: 32px; text-align: center;">
+        <div style="width: 56px; height: 56px; margin: 0 auto 16px; border-radius: 50%%; background: #d1fae5; display: flex; align-items: center; justify-content: center; font-size: 28px;">&#10003;</div>
+        <h1 style="margin: 0 0 12px; font-size: 22px; font-weight: 600;">You&rsquo;re unsubscribed</h1>
+        <p style="margin: 0 0 24px; color: #555; line-height: 1.5;">
+            You&rsquo;ve been unsubscribed from %s.
             You can re-enable this anytime in your notification settings.
         </p>
         <p style="margin: 0;">

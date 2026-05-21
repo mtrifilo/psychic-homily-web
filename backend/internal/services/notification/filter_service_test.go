@@ -872,15 +872,15 @@ func (m *mockEmailService) SendFilterNotificationEmail(_, _, _, _ string) error 
 	m.sendCalls++
 	return nil
 }
-func (m *mockEmailService) SendTierPromotionEmail(_, _, _, _, _ string, _ []string) error {
+func (m *mockEmailService) SendTierPromotionEmail(_, _, _, _, _, _ string, _ []string) error {
 	return nil
 }
-func (m *mockEmailService) SendTierDemotionEmail(_, _, _, _, _ string) error { return nil }
-func (m *mockEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
+func (m *mockEmailService) SendTierDemotionEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64, _ string) error {
 	return nil
 }
-func (m *mockEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
-func (m *mockEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendEditApprovedEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendEditRejectedEmail(_, _, _, _, _, _ string) error { return nil }
 func (m *mockEmailService) SendCommentNotification(_, _, _, _, _, _, _ string) error {
 	return nil
 }

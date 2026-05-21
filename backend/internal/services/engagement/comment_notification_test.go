@@ -240,15 +240,15 @@ func (m *captureEmailService) SendShowReminderEmail(_, _, _, _ string, _ time.Ti
 	return nil
 }
 func (m *captureEmailService) SendFilterNotificationEmail(_, _, _, _ string) error { return nil }
-func (m *captureEmailService) SendTierPromotionEmail(_, _, _, _, _ string, _ []string) error {
+func (m *captureEmailService) SendTierPromotionEmail(_, _, _, _, _, _ string, _ []string) error {
 	return nil
 }
-func (m *captureEmailService) SendTierDemotionEmail(_, _, _, _, _ string) error { return nil }
-func (m *captureEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64) error {
+func (m *captureEmailService) SendTierDemotionEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *captureEmailService) SendTierDemotionWarningEmail(_, _, _ string, _, _ float64, _ string) error {
 	return nil
 }
-func (m *captureEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
-func (m *captureEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }
+func (m *captureEmailService) SendEditApprovedEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *captureEmailService) SendEditRejectedEmail(_, _, _, _, _, _ string) error { return nil }
 func (m *captureEmailService) SendCollectionDigestEmail(_ string, _ []contracts.CollectionDigestGroup, _ string) error {
 	return nil
 }

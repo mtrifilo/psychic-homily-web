@@ -14,6 +14,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -30,11 +31,15 @@ type PendingEditService struct {
 	revisionService contracts.RevisionServiceInterface
 	emailService    contracts.EmailServiceInterface
 	frontendURL     string
-	md              *utils.MarkdownRenderer
+	// backendURL + jwtSecret mint the HMAC-signed edit-notifications
+	// unsubscribe URL placed in the approval/rejection emails.
+	backendURL string
+	jwtSecret  string
+	md         *utils.MarkdownRenderer
 }
 
 // NewPendingEditService creates a new PendingEditService.
-func NewPendingEditService(database *gorm.DB, revisionService contracts.RevisionServiceInterface, emailService contracts.EmailServiceInterface, frontendURL string) *PendingEditService {
+func NewPendingEditService(database *gorm.DB, revisionService contracts.RevisionServiceInterface, emailService contracts.EmailServiceInterface, frontendURL, backendURL, jwtSecret string) *PendingEditService {
 	if database == nil {
 		database = db.GetDB()
 	}
@@ -43,6 +48,8 @@ func NewPendingEditService(database *gorm.DB, revisionService contracts.Revision
 		revisionService: revisionService,
 		emailService:    emailService,
 		frontendURL:     frontendURL,
+		backendURL:      backendURL,
+		jwtSecret:       jwtSecret,
 		md:              utils.NewMarkdownRenderer(),
 	}
 }
@@ -494,10 +501,15 @@ func (s *PendingEditService) sendApprovalEmail(edit *adminm.PendingEntityEdit) {
 		return
 	}
 
+	if !s.editNotificationsEnabled(user.ID) {
+		return
+	}
+
 	entityName, entityURL := s.resolveEntityInfo(edit.EntityType, edit.EntityID)
 	username := shared.ResolveUserName(&user)
+	unsubURL := engagement.GenerateScopedUnsubscribeURL(s.backendURL, user.ID, engagement.UnsubscribeScopeEditNotifications, s.jwtSecret)
 
-	if err := s.emailService.SendEditApprovedEmail(*user.Email, username, edit.EntityType, entityName, entityURL); err != nil {
+	if err := s.emailService.SendEditApprovedEmail(*user.Email, username, edit.EntityType, entityName, entityURL, unsubURL); err != nil {
 		log.Printf("sendApprovalEmail: failed to send email to %s: %v", *user.Email, err)
 	}
 }
@@ -519,12 +531,29 @@ func (s *PendingEditService) sendRejectionEmail(edit *adminm.PendingEntityEdit, 
 		return
 	}
 
+	if !s.editNotificationsEnabled(user.ID) {
+		return
+	}
+
 	entityName, _ := s.resolveEntityInfo(edit.EntityType, edit.EntityID)
 	username := shared.ResolveUserName(&user)
+	unsubURL := engagement.GenerateScopedUnsubscribeURL(s.backendURL, user.ID, engagement.UnsubscribeScopeEditNotifications, s.jwtSecret)
 
-	if err := s.emailService.SendEditRejectedEmail(*user.Email, username, edit.EntityType, entityName, reason); err != nil {
+	if err := s.emailService.SendEditRejectedEmail(*user.Email, username, edit.EntityType, entityName, reason, unsubURL); err != nil {
 		log.Printf("sendRejectionEmail: failed to send email to %s: %v", *user.Email, err)
 	}
+}
+
+// editNotificationsEnabled reports whether the user wants edit-review emails.
+// Defaults to TRUE (opt-OUT): a missing preferences row or a read error means
+// the user hasn't opted out, so we send. Only an explicit FALSE suppresses.
+func (s *PendingEditService) editNotificationsEnabled(userID uint) bool {
+	var prefs authm.UserPreferences
+	if err := s.db.Select("notify_on_edit_notifications").
+		Where("user_id = ?", userID).First(&prefs).Error; err != nil {
+		return true
+	}
+	return prefs.NotifyOnEditNotifications
 }
 
 // resolveEntityInfo looks up an entity's name and builds its frontend URL.

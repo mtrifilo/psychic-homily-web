@@ -41,11 +41,12 @@ type EmailServiceInterface interface {
 	SendAccountRecoveryEmail(toEmail, token string, daysRemaining int) error
 	SendShowReminderEmail(toEmail, showTitle, showURL, unsubscribeURL string, eventDate time.Time, venues []string) error
 	SendFilterNotificationEmail(toEmail, subject, htmlBody, unsubscribeURL string) error
-	SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason string, newPermissions []string) error
-	SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason string) error
-	SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64) error
-	SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL string) error
-	SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason string) error
+	// Each takes an HMAC-signed unsubscribeURL (RFC 8058 one-click).
+	SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string, newPermissions []string) error
+	SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string) error
+	SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64, unsubscribeURL string) error
+	SendEditApprovedEmail(toEmail, username, entityType, entityName, entityURL, unsubscribeURL string) error
+	SendEditRejectedEmail(toEmail, username, entityType, entityName, rejectionReason, unsubscribeURL string) error
 	// PSY-289: comment + mention notifications.
 	SendCommentNotification(toEmail, commenterName, entityType, entityName, commentExcerpt, entityURL, unsubscribeURL string) error
 	SendMentionNotification(toEmail, mentionerName, entityType, entityName, commentExcerpt, commentURL, unsubscribeURL string) error

@@ -62,21 +62,21 @@ func TestTierPermissions(t *testing.T) {
 
 func TestSendTierPromotionEmail_NotConfigured(t *testing.T) {
 	svc := &EmailService{}
-	err := svc.SendTierPromotionEmail("test@example.com", "testuser", "new_user", "contributor", "5 approved edits", []string{"Submit edits"})
+	err := svc.SendTierPromotionEmail("test@example.com", "testuser", "new_user", "contributor", "5 approved edits", "http://unsub", []string{"Submit edits"})
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "email service is not configured")
 }
 
 func TestSendTierDemotionEmail_NotConfigured(t *testing.T) {
 	svc := &EmailService{}
-	err := svc.SendTierDemotionEmail("test@example.com", "testuser", "contributor", "new_user", "low approval rate")
+	err := svc.SendTierDemotionEmail("test@example.com", "testuser", "contributor", "new_user", "low approval rate", "http://unsub")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "email service is not configured")
 }
 
 func TestSendTierDemotionWarningEmail_NotConfigured(t *testing.T) {
 	svc := &EmailService{}
-	err := svc.SendTierDemotionWarningEmail("test@example.com", "testuser", "contributor", 0.82, 0.80)
+	err := svc.SendTierDemotionWarningEmail("test@example.com", "testuser", "contributor", 0.82, 0.80, "http://unsub")
 	assert.Error(t, err)
 	assert.Contains(t, err.Error(), "email service is not configured")
 }

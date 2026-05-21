@@ -77,15 +77,17 @@ func NewCollectionDigestService(database *gorm.DB, emailService contracts.EmailS
 		stopCh:       make(chan struct{}),
 		logger:       slog.Default(),
 		frontendURL:  cfg.Email.FrontendURL,
-		backendURL:   deriveBackendURL(cfg.Email.FrontendURL),
+		backendURL:   DeriveBackendURL(cfg.Email.FrontendURL),
 		jwtSecret:    cfg.JWT.SecretKey,
 	}
 }
 
-// deriveBackendURL maps a frontend URL to the corresponding public API URL.
+// DeriveBackendURL maps a frontend URL to the corresponding public API URL.
 // Mirrors handlers.getAPIBaseURL — pulled inline to avoid cross-package
-// imports. Defaults to localhost:8080 in dev.
-func deriveBackendURL(frontendURL string) string {
+// imports. Defaults to localhost:8080 in dev. Exported so other services that
+// mint backend-hosted unsubscribe URLs (e.g. the admin tier/edit emails) can
+// reuse the same mapping rather than copy it again.
+func DeriveBackendURL(frontendURL string) string {
 	switch frontendURL {
 	case "https://psychichomily.com":
 		return "https://api.psychichomily.com"

@@ -32,15 +32,17 @@ type promotionCall struct {
 	oldTier        string
 	newTier        string
 	reason         string
+	unsubscribeURL string
 	newPermissions []string
 }
 
 type demotionCall struct {
-	toEmail  string
-	username string
-	oldTier  string
-	newTier  string
-	reason   string
+	toEmail        string
+	username       string
+	oldTier        string
+	newTier        string
+	reason         string
+	unsubscribeURL string
 }
 
 type demotionWarningCall struct {
@@ -60,23 +62,23 @@ func (m *mockEmailService) SendShowReminderEmail(_, _, _, _ string, _ time.Time,
 }
 func (m *mockEmailService) SendFilterNotificationEmail(_, _, _, _ string) error { return nil }
 
-func (m *mockEmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason string, newPermissions []string) error {
-	m.promotionCalls = append(m.promotionCalls, promotionCall{toEmail, username, oldTier, newTier, reason, newPermissions})
+func (m *mockEmailService) SendTierPromotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string, newPermissions []string) error {
+	m.promotionCalls = append(m.promotionCalls, promotionCall{toEmail, username, oldTier, newTier, reason, unsubscribeURL, newPermissions})
 	return m.promotionError
 }
 
-func (m *mockEmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason string) error {
-	m.demotionCalls = append(m.demotionCalls, demotionCall{toEmail, username, oldTier, newTier, reason})
+func (m *mockEmailService) SendTierDemotionEmail(toEmail, username, oldTier, newTier, reason, unsubscribeURL string) error {
+	m.demotionCalls = append(m.demotionCalls, demotionCall{toEmail, username, oldTier, newTier, reason, unsubscribeURL})
 	return m.demotionError
 }
 
-func (m *mockEmailService) SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64) error {
+func (m *mockEmailService) SendTierDemotionWarningEmail(toEmail, username, currentTier string, currentRate float64, threshold float64, _ string) error {
 	m.demotionWarningCalls = append(m.demotionWarningCalls, demotionWarningCall{toEmail, username, currentTier, currentRate, threshold})
 	return m.demotionWarningError
 }
 
-func (m *mockEmailService) SendEditApprovedEmail(_, _, _, _, _ string) error { return nil }
-func (m *mockEmailService) SendEditRejectedEmail(_, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendEditApprovedEmail(_, _, _, _, _, _ string) error { return nil }
+func (m *mockEmailService) SendEditRejectedEmail(_, _, _, _, _, _ string) error { return nil }
 func (m *mockEmailService) SendCommentNotification(_, _, _, _, _, _, _ string) error {
 	return nil
 }
@@ -114,6 +116,7 @@ func (s *AutoPromotionEmailTestSuite) TearDownTest() {
 	_, _ = sqlDB.Exec("DELETE FROM revisions")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	_, _ = sqlDB.Exec("DELETE FROM user_preferences")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -187,7 +190,7 @@ func (s *AutoPromotionEmailTestSuite) createTestArtist(name string) *catalogm.Ar
 // TestPromotionSendsEmail verifies that a promotion triggers a promotion email.
 func (s *AutoPromotionEmailTestSuite) TestPromotionSendsEmail() {
 	emailSvc := &mockEmailService{configured: true}
-	svc := NewAutoPromotionService(s.db, emailSvc)
+	svc := NewAutoPromotionService(s.db, emailSvc, "http://localhost:8080", "test-jwt-secret")
 
 	user := s.createUserWithEmail(TierNewUser, true, time.Now().Add(-15*24*time.Hour), "promo@test.com")
 	artist := s.createTestArtist("Promo Artist")
@@ -207,12 +210,52 @@ func (s *AutoPromotionEmailTestSuite) TestPromotionSendsEmail() {
 	s.Equal(TierNewUser, call.oldTier)
 	s.Equal(TierContributor, call.newTier)
 	s.NotEmpty(call.newPermissions)
+	// PSY-756: a tier-notifications unsubscribe URL is minted and passed.
+	s.Contains(call.unsubscribeURL, "/unsubscribe/tier-notifications", "expected an HMAC-signed tier-notifications unsubscribe URL")
+	s.Contains(call.unsubscribeURL, "uid=")
+	s.Contains(call.unsubscribeURL, "sig=")
+}
+
+// TestPromotionSuppressedWhenOptedOut verifies the tier-notifications opt-out
+// flag suppresses the email but not the tier change itself (PSY-756).
+func (s *AutoPromotionEmailTestSuite) TestPromotionSuppressedWhenOptedOut() {
+	emailSvc := &mockEmailService{configured: true}
+	svc := NewAutoPromotionService(s.db, emailSvc, "http://localhost:8080", "test-jwt-secret")
+
+	user := s.createUserWithEmail(TierNewUser, true, time.Now().Add(-15*24*time.Hour), "optout@test.com")
+	// Opt the user out of tier-change emails.
+	s.Require().NoError(s.db.Create(&authm.UserPreferences{
+		UserID:                    user.ID,
+		NotifyOnTierNotifications: false,
+	}).Error)
+	// Re-assert false: GORM skips the zero-value bool on Create, and the
+	// column default is TRUE, so set it explicitly.
+	s.Require().NoError(s.db.Model(&authm.UserPreferences{}).
+		Where("user_id = ?", user.ID).
+		Update("notify_on_tier_notifications", false).Error)
+
+	artist := s.createTestArtist("Optout Artist")
+	for i := 0; i < 5; i++ {
+		s.createApprovedEdit(user.ID, "artist", artist.ID)
+	}
+
+	result, err := svc.EvaluateAllUsers()
+	s.Require().NoError(err)
+	s.Require().Len(result.Promoted, 1, "tier change must still happen even when emails are opted out")
+
+	// No email should have been sent.
+	s.Empty(emailSvc.promotionCalls, "promotion email must be suppressed when opted out")
+
+	// But the DB tier was still updated.
+	var updated authm.User
+	s.Require().NoError(s.db.First(&updated, user.ID).Error)
+	s.Equal(TierContributor, updated.UserTier)
 }
 
 // TestDemotionSendsEmail verifies that a demotion triggers a demotion email.
 func (s *AutoPromotionEmailTestSuite) TestDemotionSendsEmail() {
 	emailSvc := &mockEmailService{configured: true}
-	svc := NewAutoPromotionService(s.db, emailSvc)
+	svc := NewAutoPromotionService(s.db, emailSvc, "http://localhost:8080", "test-jwt-secret")
 
 	user := s.createUserWithEmail(TierContributor, true, time.Now().Add(-60*24*time.Hour), "demote@test.com")
 	artist := s.createTestArtist("Demote Artist")
@@ -241,7 +284,7 @@ func (s *AutoPromotionEmailTestSuite) TestEmailErrorDoesNotFailPromotion() {
 		configured:     true,
 		promotionError: fmt.Errorf("email send failed"),
 	}
-	svc := NewAutoPromotionService(s.db, emailSvc)
+	svc := NewAutoPromotionService(s.db, emailSvc, "http://localhost:8080", "test-jwt-secret")
 
 	user := s.createUserWithEmail(TierNewUser, true, time.Now().Add(-15*24*time.Hour), "fail@test.com")
 	artist := s.createTestArtist("Error Artist")
@@ -266,7 +309,7 @@ func (s *AutoPromotionEmailTestSuite) TestEmailErrorDoesNotFailPromotion() {
 
 // TestNilEmailServiceDoesNotPanic verifies that nil email service is handled gracefully.
 func (s *AutoPromotionEmailTestSuite) TestNilEmailServiceDoesNotPanic() {
-	svc := NewAutoPromotionService(s.db, nil)
+	svc := NewAutoPromotionService(s.db, nil, "http://localhost:8080", "test-jwt-secret")
 
 	user := s.createUserWithEmail(TierNewUser, true, time.Now().Add(-15*24*time.Hour), "nil@test.com")
 	artist := s.createTestArtist("Nil Artist")
@@ -284,7 +327,7 @@ func (s *AutoPromotionEmailTestSuite) TestNilEmailServiceDoesNotPanic() {
 // TestUnconfiguredEmailServiceSkipsEmail verifies that unconfigured email service is handled.
 func (s *AutoPromotionEmailTestSuite) TestUnconfiguredEmailServiceSkipsEmail() {
 	emailSvc := &mockEmailService{configured: false}
-	svc := NewAutoPromotionService(s.db, emailSvc)
+	svc := NewAutoPromotionService(s.db, emailSvc, "http://localhost:8080", "test-jwt-secret")
 
 	user := s.createUserWithEmail(TierNewUser, true, time.Now().Add(-15*24*time.Hour), "unconfig@test.com")
 	artist := s.createTestArtist("Unconfig Artist")
@@ -303,7 +346,7 @@ func (s *AutoPromotionEmailTestSuite) TestUnconfiguredEmailServiceSkipsEmail() {
 
 // TestAuditLogWrittenOnPromotion verifies that an audit log entry is created for promotions.
 func (s *AutoPromotionEmailTestSuite) TestAuditLogWrittenOnPromotion() {
-	svc := NewAutoPromotionService(s.db, nil)
+	svc := NewAutoPromotionService(s.db, nil, "http://localhost:8080", "test-jwt-secret")
 
 	user := s.createUserWithEmail(TierNewUser, true, time.Now().Add(-15*24*time.Hour), "audit@test.com")
 	artist := s.createTestArtist("Audit Artist")
@@ -330,7 +373,7 @@ func (s *AutoPromotionEmailTestSuite) TestAuditLogWrittenOnPromotion() {
 
 // TestAuditLogWrittenOnDemotion verifies that an audit log entry is created for demotions.
 func (s *AutoPromotionEmailTestSuite) TestAuditLogWrittenOnDemotion() {
-	svc := NewAutoPromotionService(s.db, nil)
+	svc := NewAutoPromotionService(s.db, nil, "http://localhost:8080", "test-jwt-secret")
 
 	user := s.createUserWithEmail(TierContributor, true, time.Now().Add(-60*24*time.Hour), "audit-demote@test.com")
 	artist := s.createTestArtist("Audit Demote Artist")

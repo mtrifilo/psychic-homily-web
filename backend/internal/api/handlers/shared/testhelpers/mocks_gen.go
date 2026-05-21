@@ -1349,11 +1349,11 @@ type MockEmailService struct {
 	SendAccountRecoveryEmailFn     func(string, string, int) error
 	SendShowReminderEmailFn        func(string, string, string, string, time.Time, []string) error
 	SendFilterNotificationEmailFn  func(string, string, string, string) error
-	SendTierPromotionEmailFn       func(string, string, string, string, string, []string) error
-	SendTierDemotionEmailFn        func(string, string, string, string, string) error
-	SendTierDemotionWarningEmailFn func(string, string, string, float64, float64) error
-	SendEditApprovedEmailFn        func(string, string, string, string, string) error
-	SendEditRejectedEmailFn        func(string, string, string, string, string) error
+	SendTierPromotionEmailFn       func(string, string, string, string, string, string, []string) error
+	SendTierDemotionEmailFn        func(string, string, string, string, string, string) error
+	SendTierDemotionWarningEmailFn func(string, string, string, float64, float64, string) error
+	SendEditApprovedEmailFn        func(string, string, string, string, string, string) error
+	SendEditRejectedEmailFn        func(string, string, string, string, string, string) error
 	SendCommentNotificationFn      func(string, string, string, string, string, string, string) error
 	SendMentionNotificationFn      func(string, string, string, string, string, string, string) error
 	SendCollectionDigestEmailFn    func(string, []contracts.CollectionDigestGroup, string) error
@@ -1395,33 +1395,33 @@ func (m *MockEmailService) SendFilterNotificationEmail(toEmail string, subject s
 	}
 	return nil
 }
-func (m *MockEmailService) SendTierPromotionEmail(toEmail string, username string, oldTier string, newTier string, reason string, newPermissions []string) error {
+func (m *MockEmailService) SendTierPromotionEmail(toEmail string, username string, oldTier string, newTier string, reason string, unsubscribeURL string, newPermissions []string) error {
 	if m.SendTierPromotionEmailFn != nil {
-		return m.SendTierPromotionEmailFn(toEmail, username, oldTier, newTier, reason, newPermissions)
+		return m.SendTierPromotionEmailFn(toEmail, username, oldTier, newTier, reason, unsubscribeURL, newPermissions)
 	}
 	return nil
 }
-func (m *MockEmailService) SendTierDemotionEmail(toEmail string, username string, oldTier string, newTier string, reason string) error {
+func (m *MockEmailService) SendTierDemotionEmail(toEmail string, username string, oldTier string, newTier string, reason string, unsubscribeURL string) error {
 	if m.SendTierDemotionEmailFn != nil {
-		return m.SendTierDemotionEmailFn(toEmail, username, oldTier, newTier, reason)
+		return m.SendTierDemotionEmailFn(toEmail, username, oldTier, newTier, reason, unsubscribeURL)
 	}
 	return nil
 }
-func (m *MockEmailService) SendTierDemotionWarningEmail(toEmail string, username string, currentTier string, currentRate float64, threshold float64) error {
+func (m *MockEmailService) SendTierDemotionWarningEmail(toEmail string, username string, currentTier string, currentRate float64, threshold float64, unsubscribeURL string) error {
 	if m.SendTierDemotionWarningEmailFn != nil {
-		return m.SendTierDemotionWarningEmailFn(toEmail, username, currentTier, currentRate, threshold)
+		return m.SendTierDemotionWarningEmailFn(toEmail, username, currentTier, currentRate, threshold, unsubscribeURL)
 	}
 	return nil
 }
-func (m *MockEmailService) SendEditApprovedEmail(toEmail string, username string, entityType string, entityName string, entityURL string) error {
+func (m *MockEmailService) SendEditApprovedEmail(toEmail string, username string, entityType string, entityName string, entityURL string, unsubscribeURL string) error {
 	if m.SendEditApprovedEmailFn != nil {
-		return m.SendEditApprovedEmailFn(toEmail, username, entityType, entityName, entityURL)
+		return m.SendEditApprovedEmailFn(toEmail, username, entityType, entityName, entityURL, unsubscribeURL)
 	}
 	return nil
 }
-func (m *MockEmailService) SendEditRejectedEmail(toEmail string, username string, entityType string, entityName string, rejectionReason string) error {
+func (m *MockEmailService) SendEditRejectedEmail(toEmail string, username string, entityType string, entityName string, rejectionReason string, unsubscribeURL string) error {
 	if m.SendEditRejectedEmailFn != nil {
-		return m.SendEditRejectedEmailFn(toEmail, username, entityType, entityName, rejectionReason)
+		return m.SendEditRejectedEmailFn(toEmail, username, entityType, entityName, rejectionReason, unsubscribeURL)
 	}
 	return nil
 }
@@ -3413,6 +3413,8 @@ type MockUserService struct {
 	SetNotifyOnCommentSubscriptionFn  func(uint, bool) error
 	SetNotifyOnMentionFn              func(uint, bool) error
 	SetNotifyOnCollectionDigestFn     func(uint, bool) error
+	SetNotifyOnTierNotificationsFn    func(uint, bool) error
+	SetNotifyOnEditNotificationsFn    func(uint, bool) error
 }
 
 func (m *MockUserService) ListUsers(limit int, offset int, filters contracts.AdminUserFilters) ([]*contracts.AdminUserResponse, int64, error) {
@@ -3646,6 +3648,18 @@ func (m *MockUserService) SetNotifyOnMention(userID uint, enabled bool) error {
 func (m *MockUserService) SetNotifyOnCollectionDigest(userID uint, enabled bool) error {
 	if m.SetNotifyOnCollectionDigestFn != nil {
 		return m.SetNotifyOnCollectionDigestFn(userID, enabled)
+	}
+	return nil
+}
+func (m *MockUserService) SetNotifyOnTierNotifications(userID uint, enabled bool) error {
+	if m.SetNotifyOnTierNotificationsFn != nil {
+		return m.SetNotifyOnTierNotificationsFn(userID, enabled)
+	}
+	return nil
+}
+func (m *MockUserService) SetNotifyOnEditNotifications(userID uint, enabled bool) error {
+	if m.SetNotifyOnEditNotificationsFn != nil {
+		return m.SetNotifyOnEditNotificationsFn(userID, enabled)
 	}
 	return nil
 }

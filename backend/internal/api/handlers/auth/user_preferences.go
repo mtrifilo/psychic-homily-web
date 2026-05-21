@@ -491,3 +491,84 @@ func (h *UserPreferencesHandler) SetCollectionDigestHandler(ctx context.Context,
 //     unsubscribe button): returns 200 with a small JSON body.
 // See UnsubscribeCollectionDigestPageHandler in this package and the
 // route registration in routes.go.
+
+// ──────────────────────────────────────────────
+// Tier-change + edit-review notification preferences (opt-OUT)
+// ──────────────────────────────────────────────
+
+// SetTierEditNotificationsRequest toggles the two notification preferences.
+// Both fields are pointers so a caller can update one without touching the
+// other (same shape as SetCommentNotificationsRequest).
+type SetTierEditNotificationsRequest struct {
+	Body struct {
+		NotifyOnTierNotifications *bool `json:"notify_on_tier_notifications,omitempty" required:"false" doc:"Receive emails when your contributor tier changes"`
+		NotifyOnEditNotifications *bool `json:"notify_on_edit_notifications,omitempty" required:"false" doc:"Receive emails when your submitted edits are approved or rejected"`
+	}
+}
+
+// SetTierEditNotificationsResponse reports the resulting preference state.
+type SetTierEditNotificationsResponse struct {
+	Body struct {
+		Success                   bool `json:"success"`
+		NotifyOnTierNotifications bool `json:"notify_on_tier_notifications"`
+		NotifyOnEditNotifications bool `json:"notify_on_edit_notifications"`
+	}
+}
+
+// SetTierEditNotificationsHandler handles PATCH /auth/preferences/tier-edit-notifications.
+// Sends one update per non-nil field, then reloads the current state.
+func (h *UserPreferencesHandler) SetTierEditNotificationsHandler(ctx context.Context, req *SetTierEditNotificationsRequest) (*SetTierEditNotificationsResponse, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	if req.Body.NotifyOnTierNotifications == nil && req.Body.NotifyOnEditNotifications == nil {
+		return nil, huma.Error422UnprocessableEntity("No preferences provided")
+	}
+
+	if req.Body.NotifyOnTierNotifications != nil {
+		if err := h.userService.SetNotifyOnTierNotifications(user.ID, *req.Body.NotifyOnTierNotifications); err != nil {
+			logger.FromContext(ctx).Error("set_notify_on_tier_notifications_failed",
+				"error", err.Error(),
+				"user_id", user.ID,
+			)
+			return nil, huma.Error500InternalServerError(
+				fmt.Sprintf("Failed to update preference: %s", err.Error()),
+			)
+		}
+	}
+	if req.Body.NotifyOnEditNotifications != nil {
+		if err := h.userService.SetNotifyOnEditNotifications(user.ID, *req.Body.NotifyOnEditNotifications); err != nil {
+			logger.FromContext(ctx).Error("set_notify_on_edit_notifications_failed",
+				"error", err.Error(),
+				"user_id", user.ID,
+			)
+			return nil, huma.Error500InternalServerError(
+				fmt.Sprintf("Failed to update preference: %s", err.Error()),
+			)
+		}
+	}
+
+	// Reload current state from DB (authoritative).
+	refreshed, err := h.userService.GetUserByID(user.ID)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to reload user")
+	}
+	resp := &SetTierEditNotificationsResponse{}
+	resp.Body.Success = true
+	if refreshed.Preferences != nil {
+		resp.Body.NotifyOnTierNotifications = refreshed.Preferences.NotifyOnTierNotifications
+		resp.Body.NotifyOnEditNotifications = refreshed.Preferences.NotifyOnEditNotifications
+	} else {
+		// No prefs row — return the defaults we requested (both default TRUE).
+		resp.Body.NotifyOnTierNotifications = shared.DerefOr(req.Body.NotifyOnTierNotifications, true)
+		resp.Body.NotifyOnEditNotifications = shared.DerefOr(req.Body.NotifyOnEditNotifications, true)
+	}
+	return resp, nil
+}
+
+// The tier-notifications + edit-notifications unsubscribe handlers are
+// registered as chi routes (not Huma), same dual GET/POST shape as the
+// collection-digest handler. See UnsubscribeTierNotificationsPageHandler and
+// UnsubscribeEditNotificationsPageHandler in this package.

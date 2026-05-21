@@ -121,6 +121,8 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	huma.Patch(rc.Protected, "/auth/preferences/comment-notifications", userPrefsHandler.SetCommentNotificationsHandler)
 	// PSY-350: collection digest preference toggle (weekly cadence; opt-IN).
 	huma.Patch(rc.Protected, "/auth/preferences/collection-digest", userPrefsHandler.SetCollectionDigestHandler)
+	// Tier-change + edit-review notification toggles (opt-OUT).
+	huma.Patch(rc.Protected, "/auth/preferences/tier-edit-notifications", userPrefsHandler.SetTierEditNotificationsHandler)
 
 	// Public unsubscribe endpoint (HMAC-signed, no auth required)
 	huma.Post(rc.API, "/auth/unsubscribe/show-reminders", userPrefsHandler.UnsubscribeShowRemindersHandler)
@@ -135,6 +137,11 @@ func setupProtectedAuthRoutes(rc RouteContext) {
 	// the email body. Both verify the same HMAC signature.
 	rc.Router.Get("/unsubscribe/collection-digest", userPrefsHandler.UnsubscribeCollectionDigestPageHandler)
 	rc.Router.Post("/unsubscribe/collection-digest", userPrefsHandler.UnsubscribeCollectionDigestPageHandler)
+	// Tier-change + edit-review unsubscribe (same chi GET+POST shape).
+	rc.Router.Get("/unsubscribe/tier-notifications", userPrefsHandler.UnsubscribeTierNotificationsPageHandler)
+	rc.Router.Post("/unsubscribe/tier-notifications", userPrefsHandler.UnsubscribeTierNotificationsPageHandler)
+	rc.Router.Get("/unsubscribe/edit-notifications", userPrefsHandler.UnsubscribeEditNotificationsPageHandler)
+	rc.Router.Post("/unsubscribe/edit-notifications", userPrefsHandler.UnsubscribeEditNotificationsPageHandler)
 
 	// Public email verification confirm endpoint (user clicks link from email)
 	huma.Post(rc.API, "/auth/verify-email/confirm", authHandler.ConfirmVerificationHandler)
