@@ -99,16 +99,9 @@ func (suite *FollowServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
 
-	// Bound the connection pool. TestFollow_ConcurrentIdempotent fires many
-	// Follow calls at once; without a cap each goroutine opens its own
-	// connection and, especially when other integration suites run in the same
-	// `go test` invocation, exhausts the container's max_connections (53300)
-	// before the unique-violation race can be exercised. A modest cap queues
-	// goroutines at the pool (the realistic production shape) while still
-	// letting enough INSERTs interleave to trip a SELECT-then-INSERT race.
-	if sqlDB, err := suite.db.DB(); err == nil {
-		sqlDB.SetMaxOpenConns(25)
-	}
+	// TestFollow_ConcurrentIdempotent fires many Follow calls at once; bound
+	// the pool so they queue rather than exhaust the container's connections.
+	boundTestPool(suite.db)
 
 	suite.followService = NewFollowService(suite.testDB.DB)
 }

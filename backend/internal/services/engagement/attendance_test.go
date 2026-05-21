@@ -31,17 +31,10 @@ func (suite *AttendanceServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
 
-	// Bound the connection pool. SetAttendance runs inside an explicit
-	// transaction, so each concurrent call holds a connection for its whole
-	// span. TestSetAttendance_ConcurrentIdempotent fires many calls at once;
-	// without a cap the pool opens a connection per goroutine and exhausts the
-	// container's max_connections (53300) before the unique-violation race can
-	// even be exercised. A modest cap queues goroutines at the pool (the
-	// realistic production shape) while still letting enough transactions
-	// interleave to trip a SELECT-then-INSERT race.
-	if sqlDB, err := suite.db.DB(); err == nil {
-		sqlDB.SetMaxOpenConns(25)
-	}
+	// TestSetAttendance_ConcurrentIdempotent fires many calls at once, each
+	// holding a connection for its whole transaction; bound the pool so they
+	// queue rather than exhaust the container's connections.
+	boundTestPool(suite.db)
 
 	suite.attendanceService = NewAttendanceService(suite.testDB.DB)
 }
