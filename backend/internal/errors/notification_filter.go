@@ -9,9 +9,8 @@ import (
 // Filter CRUD has three genuine failure shapes: the target filter does not
 // exist or is owned by another user (not found), a request that parses but
 // violates a domain rule — no criteria set, per-user filter cap reached
-// (validation), and a database/infrastructure fault (internal). Matching the
-// PSY-761 engagement convention so the handlers can return 404 / 422 / 500
-// instead of 422-for-everything.
+// (validation), and a database/infrastructure fault (internal). These let the
+// handlers return 404 / 422 / 500 instead of 422-for-everything.
 const (
 	// CodeFilterNotFound indicates the filter does not exist for this user.
 	CodeFilterNotFound = "FILTER_NOT_FOUND"
