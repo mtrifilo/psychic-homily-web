@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"gorm.io/gorm"
@@ -101,7 +102,16 @@ func (m *RadioMatchingEngine) matchPlay(play *catalogm.RadioPlay) bool {
 	}
 
 	if len(updates) > 0 {
-		m.db.Model(play).Updates(updates)
+		if err := m.db.Model(play).Updates(updates).Error; err != nil {
+			// The match did not persist, so report the play as unmatched rather
+			// than over-counting it; a swallowed error here left plays silently
+			// unmatched in the DB while the caller recorded a match.
+			slog.Error("radio match: failed to persist play match",
+				"play_id", play.ID,
+				"artist_name", play.ArtistName,
+				"error", err)
+			return false
+		}
 	}
 
 	return artistMatched

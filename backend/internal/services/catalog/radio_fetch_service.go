@@ -322,6 +322,7 @@ func (s *RadioFetchService) runAffinityCycle() {
 		"created", syncResult.Created,
 		"updated", syncResult.Updated,
 		"deleted", syncResult.Deleted,
+		"failed", syncResult.Failed,
 		"duration", time.Since(syncStart),
 	)
 }

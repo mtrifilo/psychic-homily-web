@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -431,4 +432,87 @@ func (s *RadioAffinitySyncSuite) TestSync_DoesNotDeleteOtherRelationshipTypes() 
 			lowID, highID, catalogm.RelationshipTypeSharedBills).
 		Count(&count)
 	s.Equal(int64(1), count)
+}
+
+// TestSync_CreateFailureIsReported verifies that a failed relationship INSERT
+// is counted in result.Failed instead of being silently swallowed (the create
+// path previously incremented nothing on error, hiding the failure).
+func (s *RadioAffinitySyncSuite) TestSync_CreateFailureIsReported() {
+	artist1 := s.createArtist("Artist A", "artist-a-failcreate")
+	artist2 := s.createArtist("Artist B", "artist-b-failcreate")
+
+	lowID, highID := artist1.ID, artist2.ID
+	if lowID > highID {
+		lowID, highID = highID, lowID
+	}
+	s.insertAffinity(lowID, highID, 5, 3, 1)
+
+	// Inject a failure on the artist_relationships INSERT. The callback is on
+	// the shared connection, so remove it after the test for isolation.
+	const cbName = "test:fail_artist_relationships_create"
+	s.Require().NoError(s.db.Callback().Create().Before("gorm:create").Register(cbName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Table == "artist_relationships" {
+			_ = tx.AddError(fmt.Errorf("simulated create failure"))
+		}
+	}))
+	defer func() {
+		s.Require().NoError(s.db.Callback().Create().Remove(cbName))
+	}()
+
+	result, err := s.svc.SyncAffinityToRelationships()
+	s.Require().NoError(err)
+	s.Equal(0, result.Created)
+	s.Equal(1, result.Failed)
+
+	// The relationship must not exist, since the create failed.
+	var count int64
+	s.db.Model(&catalogm.ArtistRelationship{}).
+		Where("relationship_type = ?", catalogm.RelationshipTypeRadioCooccurrence).
+		Count(&count)
+	s.Equal(int64(0), count)
+}
+
+// TestSync_UpdateFailureIsReported verifies that a failed relationship UPDATE
+// is counted in result.Failed instead of being swallowed (the update path
+// previously incremented result.Updated unconditionally, ignoring the error).
+func (s *RadioAffinitySyncSuite) TestSync_UpdateFailureIsReported() {
+	artist1 := s.createArtist("Artist A", "artist-a-failupdate")
+	artist2 := s.createArtist("Artist B", "artist-b-failupdate")
+
+	lowID, highID := artist1.ID, artist2.ID
+	if lowID > highID {
+		lowID, highID = highID, lowID
+	}
+
+	// Seed an existing relationship so the sync takes the update path.
+	existingRel := &catalogm.ArtistRelationship{
+		SourceArtistID:   lowID,
+		TargetArtistID:   highID,
+		RelationshipType: catalogm.RelationshipTypeRadioCooccurrence,
+		Score:            0.1,
+		AutoDerived:      true,
+	}
+	s.Require().NoError(s.db.Create(existingRel).Error)
+	s.insertAffinity(lowID, highID, 25, 10, 2)
+
+	const cbName = "test:fail_artist_relationships_update"
+	s.Require().NoError(s.db.Callback().Update().Before("gorm:update").Register(cbName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Table == "artist_relationships" {
+			_ = tx.AddError(fmt.Errorf("simulated update failure"))
+		}
+	}))
+	defer func() {
+		s.Require().NoError(s.db.Callback().Update().Remove(cbName))
+	}()
+
+	result, err := s.svc.SyncAffinityToRelationships()
+	s.Require().NoError(err)
+	s.Equal(0, result.Updated)
+	s.Equal(1, result.Failed)
+
+	// The score must be unchanged, since the update failed.
+	var rel catalogm.ArtistRelationship
+	s.Require().NoError(s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
+		lowID, highID, catalogm.RelationshipTypeRadioCooccurrence).First(&rel).Error)
+	s.InDelta(0.1, float64(rel.Score), 0.01)
 }
