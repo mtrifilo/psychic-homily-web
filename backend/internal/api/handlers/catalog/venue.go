@@ -12,8 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
-
-	adminm "psychic-homily-backend/internal/models/admin"
+	"psychic-homily-backend/internal/services/shared/revisiondiff"
 
 	"github.com/danielgtaylor/huma/v2"
 )
@@ -474,7 +473,7 @@ func (h *VenueHandler) UpdateVenueHandler(ctx context.Context, req *UpdateVenueR
 	// Record revision (fire and forget)
 	if h.revisionService != nil && oldVenue != nil {
 		go func() {
-			changes := computeVenueChanges(oldVenue, updatedVenue)
+			changes := revisiondiff.Compare(oldVenue, updatedVenue, revisiondiff.VenueFields)
 			if len(changes) > 0 {
 				summary := ""
 				if req.Body.Summary != nil {
@@ -704,57 +703,4 @@ func (h *VenueHandler) GetVenueBillNetworkHandler(ctx context.Context, req *GetV
 	}
 
 	return &GetVenueBillNetworkResponse{Body: graph}, nil
-}
-
-// computeVenueChanges compares old and new venue detail responses and returns field-level diffs.
-func computeVenueChanges(old, new *contracts.VenueDetailResponse) []adminm.FieldChange {
-	var changes []adminm.FieldChange
-
-	if old.Name != new.Name {
-		changes = append(changes, adminm.FieldChange{Field: "name", OldValue: old.Name, NewValue: new.Name})
-	}
-	if ptrToStr(old.Address) != ptrToStr(new.Address) {
-		changes = append(changes, adminm.FieldChange{Field: "address", OldValue: ptrToStr(old.Address), NewValue: ptrToStr(new.Address)})
-	}
-	if old.City != new.City {
-		changes = append(changes, adminm.FieldChange{Field: "city", OldValue: old.City, NewValue: new.City})
-	}
-	if old.State != new.State {
-		changes = append(changes, adminm.FieldChange{Field: "state", OldValue: old.State, NewValue: new.State})
-	}
-	if ptrToStr(old.Zipcode) != ptrToStr(new.Zipcode) {
-		changes = append(changes, adminm.FieldChange{Field: "zipcode", OldValue: ptrToStr(old.Zipcode), NewValue: ptrToStr(new.Zipcode)})
-	}
-	if ptrToStr(old.Social.Instagram) != ptrToStr(new.Social.Instagram) {
-		changes = append(changes, adminm.FieldChange{Field: "instagram", OldValue: ptrToStr(old.Social.Instagram), NewValue: ptrToStr(new.Social.Instagram)})
-	}
-	if ptrToStr(old.Social.Facebook) != ptrToStr(new.Social.Facebook) {
-		changes = append(changes, adminm.FieldChange{Field: "facebook", OldValue: ptrToStr(old.Social.Facebook), NewValue: ptrToStr(new.Social.Facebook)})
-	}
-	if ptrToStr(old.Social.Twitter) != ptrToStr(new.Social.Twitter) {
-		changes = append(changes, adminm.FieldChange{Field: "twitter", OldValue: ptrToStr(old.Social.Twitter), NewValue: ptrToStr(new.Social.Twitter)})
-	}
-	if ptrToStr(old.Social.YouTube) != ptrToStr(new.Social.YouTube) {
-		changes = append(changes, adminm.FieldChange{Field: "youtube", OldValue: ptrToStr(old.Social.YouTube), NewValue: ptrToStr(new.Social.YouTube)})
-	}
-	if ptrToStr(old.Social.Spotify) != ptrToStr(new.Social.Spotify) {
-		changes = append(changes, adminm.FieldChange{Field: "spotify", OldValue: ptrToStr(old.Social.Spotify), NewValue: ptrToStr(new.Social.Spotify)})
-	}
-	if ptrToStr(old.Social.SoundCloud) != ptrToStr(new.Social.SoundCloud) {
-		changes = append(changes, adminm.FieldChange{Field: "soundcloud", OldValue: ptrToStr(old.Social.SoundCloud), NewValue: ptrToStr(new.Social.SoundCloud)})
-	}
-	if ptrToStr(old.Social.Bandcamp) != ptrToStr(new.Social.Bandcamp) {
-		changes = append(changes, adminm.FieldChange{Field: "bandcamp", OldValue: ptrToStr(old.Social.Bandcamp), NewValue: ptrToStr(new.Social.Bandcamp)})
-	}
-	if ptrToStr(old.Social.Website) != ptrToStr(new.Social.Website) {
-		changes = append(changes, adminm.FieldChange{Field: "website", OldValue: ptrToStr(old.Social.Website), NewValue: ptrToStr(new.Social.Website)})
-	}
-	if ptrToStr(old.Description) != ptrToStr(new.Description) {
-		changes = append(changes, adminm.FieldChange{Field: "description", OldValue: ptrToStr(old.Description), NewValue: ptrToStr(new.Description)})
-	}
-	if ptrToStr(old.ImageURL) != ptrToStr(new.ImageURL) {
-		changes = append(changes, adminm.FieldChange{Field: "image_url", OldValue: ptrToStr(old.ImageURL), NewValue: ptrToStr(new.ImageURL)})
-	}
-
-	return changes
 }
