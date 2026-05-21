@@ -862,3 +862,71 @@ func TestNTS_DateFromNTSAlias(t *testing.T) {
 		})
 	}
 }
+
+func TestNTS_ParseNTSBroadcast(t *testing.T) {
+	cases := []struct {
+		name             string
+		broadcast        string
+		wantOK           bool
+		wantDate, wantTm string
+	}{
+		{"rfc3339 numeric offset (real NTS format)", "2021-11-04T12:00:00+00:00", true, "2021-11-04", "12:00:00"},
+		{"rfc3339 with Z", "2026-03-15T20:00:00Z", true, "2026-03-15", "20:00:00"},
+		{"non-UTC offset", "2026-05-20T19:00:18-07:00", true, "2026-05-20", "19:00:18"},
+		{"date only", "2026-03-15", true, "2026-03-15", "00:00:00"},
+		{"empty", "", false, "", ""},
+		{"garbage", "not-a-date", false, "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, ok := parseNTSBroadcast(tc.broadcast)
+			assert.Equal(t, tc.wantOK, ok)
+			if tc.wantOK {
+				assert.Equal(t, tc.wantDate, got.Format("2006-01-02"))
+				assert.Equal(t, tc.wantTm, got.Format("15:04:05"))
+			}
+		})
+	}
+}
+
+func TestNTS_ParseNTSEpisode_OffsetBroadcast(t *testing.T) {
+	// Regression: NTS returns RFC3339 with a numeric offset, which the old
+	// literal-Z layout failed to parse — dropping every episode's air date.
+	ep := parseNTSEpisode(ntsEpisode{
+		Name:         "Anu",
+		EpisodeAlias: "anu-4th-november-2021",
+		Broadcast:    "2021-11-04T12:00:00+00:00",
+	}, "anu")
+
+	assert.Equal(t, "2021-11-04", ep.AirDate)
+	require.NotNil(t, ep.AirTime)
+	assert.Equal(t, "12:00:00", *ep.AirTime)
+}
+
+func TestNTS_FetchNewEpisodes_DateFiltering_OffsetFormat(t *testing.T) {
+	// Regression: the [since, until] filter parsed broadcast with a literal-Z
+	// layout, so the real "+00:00" offset format never parsed and the window
+	// silently never applied (every episode passed through).
+	const body = `{"results":[
+		{"name":"Nov","episode_alias":"show-4th-november-2021","broadcast":"2021-11-04T12:00:00+00:00"},
+		{"name":"Oct","episode_alias":"show-20th-october-2021","broadcast":"2021-10-20T13:00:00+00:00"},
+		{"name":"Sep","episode_alias":"show-8th-september-2021","broadcast":"2021-09-08T13:00:00+00:00"}
+	]}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, body)
+	}))
+	defer server.Close()
+
+	provider := NewNTSProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	// Only episodes on/after Oct 1, 2021: the Sep episode is filtered out (and,
+	// since results are date-descending, the walk stops there).
+	since := time.Date(2021, 10, 1, 0, 0, 0, 0, time.UTC)
+	episodes, err := provider.FetchNewEpisodes("show", since, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, episodes, 2)
+	assert.Equal(t, "2021-11-04", episodes[0].AirDate)
+	assert.Equal(t, "2021-10-20", episodes[1].AirDate)
+}
