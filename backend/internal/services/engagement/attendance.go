@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -77,7 +78,13 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 			return fmt.Errorf("failed to remove opposite attendance: %w", result.Error)
 		}
 
-		// Upsert the desired status
+		// Insert the desired status. ON CONFLICT DO NOTHING keeps this
+		// idempotent under concurrent toggles — a plain FirstOrCreate
+		// (SELECT-then-INSERT) lets two simultaneous taps both miss the row
+		// and both INSERT, tripping the unique violation on
+		// user_bookmarks(user_id, entity_type, entity_id, action). When the
+		// row already exists (re-tapping the current status) DO NOTHING leaves
+		// it untouched, which is the desired no-op.
 		bookmark := engagementm.UserBookmark{
 			UserID:     userID,
 			EntityType: engagementm.BookmarkEntityShow,
@@ -85,14 +92,7 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 			Action:     setAction,
 			CreatedAt:  time.Now().UTC(),
 		}
-		return tx.Where(engagementm.UserBookmark{
-			UserID:     userID,
-			EntityType: engagementm.BookmarkEntityShow,
-			EntityID:   showID,
-			Action:     setAction,
-		}).Assign(engagementm.UserBookmark{
-			CreatedAt: bookmark.CreatedAt,
-		}).FirstOrCreate(&bookmark).Error
+		return tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&bookmark).Error
 	}); err != nil {
 		return apperrors.ErrAttendanceInternal(err)
 	}

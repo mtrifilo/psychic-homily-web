@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -67,12 +68,11 @@ func (s *FollowService) Follow(userID uint, entityType string, entityID uint) er
 		CreatedAt:  time.Now().UTC(),
 	}
 
-	if err := s.db.Where(engagementm.UserBookmark{
-		UserID:     userID,
-		EntityType: engagementm.BookmarkEntityType(entityType),
-		EntityID:   entityID,
-		Action:     engagementm.BookmarkActionFollow,
-	}).FirstOrCreate(&bookmark).Error; err != nil {
+	// ON CONFLICT DO NOTHING — idempotent under concurrent toggles. A plain
+	// FirstOrCreate (SELECT-then-INSERT) lets two simultaneous follows both
+	// miss the row and both INSERT, tripping the unique violation. The unique
+	// constraint is user_bookmarks(user_id, entity_type, entity_id, action).
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&bookmark).Error; err != nil {
 		return apperrors.ErrFollowInternal(err)
 	}
 	return nil

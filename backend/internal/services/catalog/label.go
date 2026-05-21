@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -537,12 +538,14 @@ func (s *LabelService) AddArtistToLabel(labelID, artistID uint) error {
 		return fmt.Errorf("failed to get artist: %w", err)
 	}
 
-	// Idempotent: use FirstOrCreate to skip if already exists
+	// Idempotent insert. ON CONFLICT DO NOTHING is safe under concurrent calls
+	// where a SELECT-then-INSERT (FirstOrCreate) would let two callers both
+	// miss the row and trip the artist_labels(artist_id, label_id) primary key.
 	al := catalogm.ArtistLabel{
 		ArtistID: artistID,
 		LabelID:  labelID,
 	}
-	if err := s.db.Where("artist_id = ? AND label_id = ?", artistID, labelID).FirstOrCreate(&al).Error; err != nil {
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&al).Error; err != nil {
 		return fmt.Errorf("failed to create artist-label link: %w", err)
 	}
 
@@ -573,13 +576,17 @@ func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber 
 		return fmt.Errorf("failed to get release: %w", err)
 	}
 
-	// Idempotent: use FirstOrCreate to skip if already exists
+	// Idempotent insert. ON CONFLICT DO NOTHING is safe under concurrent calls
+	// where a SELECT-then-INSERT (FirstOrCreate) would let two callers both
+	// miss the row and trip the release_labels(release_id, label_id) primary
+	// key. As with the prior FirstOrCreate, an existing row's catalog_number is
+	// left untouched (the conflict target is the PK, not catalog_number).
 	rl := catalogm.ReleaseLabel{
 		ReleaseID:     releaseID,
 		LabelID:       labelID,
 		CatalogNumber: catalogNumber,
 	}
-	if err := s.db.Where("release_id = ? AND label_id = ?", releaseID, labelID).FirstOrCreate(&rl).Error; err != nil {
+	if err := s.db.Clauses(clause.OnConflict{DoNothing: true}).Create(&rl).Error; err != nil {
 		return fmt.Errorf("failed to create release-label link: %w", err)
 	}
 

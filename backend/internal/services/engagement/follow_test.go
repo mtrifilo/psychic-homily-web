@@ -2,6 +2,7 @@ package engagement
 
 import (
 	"fmt"
+	"sync"
 	"testing"
 	"time"
 
@@ -97,6 +98,10 @@ type FollowServiceIntegrationTestSuite struct {
 func (suite *FollowServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
+
+	// TestFollow_ConcurrentIdempotent fires many Follow calls at once; bound
+	// the pool so they queue rather than exhaust the container's connections.
+	boundTestPool(suite.db)
 
 	suite.followService = NewFollowService(suite.testDB.DB)
 }
@@ -237,6 +242,44 @@ func (suite *FollowServiceIntegrationTestSuite) TestFollow_Idempotent() {
 			user.ID, engagementm.BookmarkEntityArtist, artistID, engagementm.BookmarkActionFollow).
 		Count(&count)
 	suite.Equal(int64(1), count)
+}
+
+// TestFollow_ConcurrentIdempotent fires N parallel Follow calls for the same
+// (user, entity) and asserts none returns an error and exactly one row lands.
+// PSY-755: the prior FirstOrCreate (SELECT-then-INSERT) let two racing calls
+// both miss the row and both INSERT, surfacing the 23505 unique violation as a
+// user-visible error from a supposedly-idempotent op. ON CONFLICT DO NOTHING
+// makes the INSERT itself idempotent so no caller sees a failure under
+// contention.
+func (suite *FollowServiceIntegrationTestSuite) TestFollow_ConcurrentIdempotent() {
+	user := suite.createTestUser()
+	artistID := suite.createTestArtist("Concurrent Follow Artist")
+
+	const n = 100
+	var wg sync.WaitGroup
+	errs := make([]error, n)
+	start := make(chan struct{})
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			<-start // release all goroutines together to maximize contention
+			errs[idx] = suite.followService.Follow(user.ID, "artist", artistID)
+		}(i)
+	}
+	close(start)
+	wg.Wait()
+
+	for i, err := range errs {
+		suite.NoError(err, "concurrent Follow #%d must not surface a unique violation", i)
+	}
+
+	var count int64
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			user.ID, engagementm.BookmarkEntityArtist, artistID, engagementm.BookmarkActionFollow).
+		Count(&count)
+	suite.Equal(int64(1), count, "concurrent follows must collapse to exactly one row")
 }
 
 func (suite *FollowServiceIntegrationTestSuite) TestFollow_Venue() {
