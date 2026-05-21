@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -180,7 +181,10 @@ func (h *FollowHandler) FollowEntityHandler(ctx context.Context, req *FollowRequ
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		return nil, huma.Error422UnprocessableEntity(
+		if mapped := shared.MapFollowError(err); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to follow (request_id: %s)", requestID),
 		)
 	}
@@ -236,7 +240,10 @@ func (h *FollowHandler) UnfollowEntityHandler(ctx context.Context, req *Unfollow
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		return nil, huma.Error422UnprocessableEntity(
+		if mapped := shared.MapFollowError(err); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to unfollow (request_id: %s)", requestID),
 		)
 	}
