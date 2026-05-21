@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -145,10 +146,10 @@ func (h *AttendanceHandler) SetAttendanceHandler(ctx context.Context, req *SetAt
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		if err.Error() == "show not found" {
-			return nil, huma.Error404NotFound("Show not found")
+		if mapped := shared.MapAttendanceError(err); mapped != nil {
+			return nil, mapped
 		}
-		return nil, huma.Error422UnprocessableEntity(
+		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to set attendance (request_id: %s)", requestID),
 		)
 	}
@@ -202,7 +203,10 @@ func (h *AttendanceHandler) RemoveAttendanceHandler(ctx context.Context, req *Re
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		return nil, huma.Error422UnprocessableEntity(
+		if mapped := shared.MapAttendanceError(err); mapped != nil {
+			return nil, mapped
+		}
+		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to remove attendance (request_id: %s)", requestID),
 		)
 	}

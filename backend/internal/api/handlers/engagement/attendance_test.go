@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -118,7 +119,7 @@ func TestSetAttendanceHandler_Clear_Success(t *testing.T) {
 func TestSetAttendanceHandler_ShowNotFound(t *testing.T) {
 	mock := &testhelpers.MockAttendanceService{
 		SetAttendanceFn: func(_, _ uint, _ string) error {
-			return fmt.Errorf("show not found")
+			return apperrors.ErrAttendanceShowNotFound()
 		},
 	}
 	h := NewAttendanceHandler(mock)
@@ -142,7 +143,7 @@ func TestSetAttendanceHandler_ServiceError(t *testing.T) {
 	req.Body.Status = "going"
 
 	_, err := h.SetAttendanceHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- RemoveAttendanceHandler ---
@@ -197,7 +198,7 @@ func TestRemoveAttendanceHandler_ServiceError(t *testing.T) {
 	req := &RemoveAttendanceRequest{ShowID: "42"}
 
 	_, err := h.RemoveAttendanceHandler(ctx, req)
-	testhelpers.AssertHumaError(t, err, 422)
+	testhelpers.AssertHumaError(t, err, 500)
 }
 
 // --- GetAttendanceHandler ---
