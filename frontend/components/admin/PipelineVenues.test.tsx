@@ -1,13 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
-import type { PipelineVenueInfo } from '@/lib/hooks/usePipeline'
+import type {
+  PipelineVenueInfo,
+  ImportHistoryEntry,
+  VenueExtractionRun,
+} from '@/lib/hooks/usePipeline'
+import { formatShortDate, formatTimestamp } from '@/lib/utils/formatters'
 
 // `vi.hoisted` lets us share these handles between the hoisted vi.mock factory
 // and the test bodies below. Anything referenced inside `vi.mock` factories
 // MUST live in here, since `vi.mock` calls are hoisted above module-level
 // const declarations.
-const { mockResetMutate, mocks, venueFixture } = vi.hoisted(() => {
+const { mockResetMutate, mocks, venueFixture, runFixture, importFixture } =
+  vi.hoisted(() => {
   type MutateOpts = {
     onSuccess?: () => void
     onError?: (err: unknown) => void
@@ -20,19 +26,42 @@ const { mockResetMutate, mocks, venueFixture } = vi.hoisted(() => {
       mocks.lastResetMutateOpts = opts ?? null
     }
   )
+  const runFixture: VenueExtractionRun = {
+    id: 7,
+    venue_id: 42,
+    run_at: '2026-01-15T19:30:00Z',
+    render_method: 'static',
+    events_extracted: 12,
+    events_imported: 10,
+    duration_ms: 4200,
+    created_at: '2026-01-15T19:30:00Z',
+  }
   const venueFixture: PipelineVenueInfo = {
     venue_id: 42,
     venue_name: 'The Rebel Lounge',
     venue_slug: 'the-rebel-lounge',
     preferred_source: 'ai',
     render_method: 'static',
+    last_extracted_at: '2026-01-15T19:30:00Z',
     events_expected: 0,
     consecutive_failures: 0,
     strategy_locked: false,
     auto_approve: false,
-    total_runs: 0,
+    total_runs: 1,
+    last_run: runFixture,
   }
-  return { mockResetMutate, mocks, venueFixture }
+  const importFixture: ImportHistoryEntry = {
+    id: 99,
+    venue_id: 42,
+    venue_name: 'The Rebel Lounge',
+    venue_slug: 'the-rebel-lounge',
+    source_type: 'ai',
+    run_at: '2026-01-15T19:30:00Z',
+    events_extracted: 12,
+    events_imported: 10,
+    duration_ms: 4200,
+  }
+  return { mockResetMutate, mocks, venueFixture, runFixture, importFixture }
 })
 
 vi.mock('@/lib/hooks/usePipeline', () => ({
@@ -43,11 +72,11 @@ vi.mock('@/lib/hooks/usePipeline', () => ({
   }),
   useVenueRejectionStats: () => ({ data: null, isLoading: false }),
   useVenueExtractionRuns: () => ({
-    data: { runs: [], total: 0 },
+    data: { runs: [runFixture], total: 1 },
     isLoading: false,
   }),
   useImportHistory: () => ({
-    data: { imports: [], total: 0 },
+    data: { imports: [importFixture], total: 1 },
     isLoading: false,
     error: null,
   }),
@@ -147,5 +176,42 @@ describe('PipelineVenues — resetRenderMethod error banner', () => {
     expect(screen.queryByTestId('reset-render-method-error')).not.toBeInTheDocument()
 
     confirmSpy.mockRestore()
+  })
+})
+
+describe('PipelineVenues — explicit-locale timestamp formatting', () => {
+  // Timestamps must render through the canonical explicit-locale formatters
+  // (formatShortDate / formatTimestamp), not bare toLocaleString() whose output
+  // drifts with the viewer's browser/OS locale. Asserting against the helper's
+  // own output keeps these stable across ICU versions while still proving the
+  // component delegates to the canonical formatter rather than inlining a call.
+  const ISO = '2026-01-15T19:30:00Z'
+
+  it('renders the venue Last Run date via formatShortDate (date only, no time)', () => {
+    render(<PipelineVenues />)
+    const expected = formatShortDate(ISO)
+    expect(screen.getByText(`12 events, ${expected}`)).toBeInTheDocument()
+    expect(expected).not.toMatch(/\d{1,2}:\d{2}/)
+  })
+
+  it('renders the Last extracted date in the venue detail panel via formatShortDate', async () => {
+    const user = userEvent.setup()
+    render(<PipelineVenues />)
+    await user.click(screen.getByText('The Rebel Lounge'))
+
+    expect(screen.getByText('Last extracted:')).toBeInTheDocument()
+    // formatShortDate output appears in both the table row and the detail panel.
+    const expected = formatShortDate(ISO)
+    expect(screen.getAllByText(expected, { exact: false }).length).toBeGreaterThan(0)
+  })
+
+  it('renders Import History timestamps via formatTimestamp (date + time)', async () => {
+    const user = userEvent.setup()
+    render(<PipelineVenues />)
+    await user.click(screen.getByRole('button', { name: 'Import History' }))
+
+    const expected = formatTimestamp(ISO)
+    expect(screen.getByText(expected)).toBeInTheDocument()
+    expect(expected).toMatch(/\d{1,2}:\d{2}/)
   })
 })

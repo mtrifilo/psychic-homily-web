@@ -306,7 +306,7 @@ export function ShowForm({
     lastAppliedExtraction.current = initialExtraction
 
     // Use requestAnimationFrame to batch state updates and avoid cascading renders
-    requestAnimationFrame(() => {
+    const rafId = requestAnimationFrame(() => {
       // Set artists
       if (initialExtraction.artists.length > 0) {
         form.setFieldValue(
@@ -373,6 +373,11 @@ export function ShowForm({
         form.setFieldValue('description', initialExtraction.description)
       }
     })
+
+    // Cancel the pending frame if the component unmounts (or the effect
+    // re-runs) before it fires, so setFieldValue never touches an unmounted
+    // form — avoids a dev warning and a StrictMode double-schedule.
+    return () => cancelAnimationFrame(rafId)
   }, [initialExtraction, form])
 
   // Handle venue selection to auto-fill city/state and track selected venue

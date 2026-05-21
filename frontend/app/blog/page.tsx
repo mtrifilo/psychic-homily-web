@@ -3,6 +3,7 @@ import { getBlogSlugs, getBlogPost, MDXContent } from '@/features/blog'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateItemListSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { formatContentDate } from '@/lib/utils/formatters'
+import { getTextExcerpt } from '@/lib/utils/markdownExcerpt'
 
 export const metadata = {
   title: 'Blog',
@@ -16,26 +17,6 @@ export const metadata = {
     url: '/blog',
     type: 'website',
   },
-}
-
-/**
- * Extract a text-only summary from MDX content (for the excerpt after embed)
- */
-function getTextExcerpt(content: string, maxLength = 200): string {
-  // Remove MDX/JSX components
-  let text = content.replace(/<[^>]+\/>/g, '')
-  text = text.replace(/<[^>]+>[^<]*<\/[^>]+>/g, '')
-  // Remove markdown links but keep text
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-  // Remove markdown formatting
-  text = text.replace(/[#*_`]/g, '')
-  // Remove extra whitespace
-  text = text.replace(/\s+/g, ' ').trim()
-  // Truncate
-  if (text.length > maxLength) {
-    text = text.substring(0, maxLength).trim() + '...'
-  }
-  return text
 }
 
 /**
