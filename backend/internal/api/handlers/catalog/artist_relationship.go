@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // ArtistRelationshipHandler handles artist relationship API requests.
@@ -214,12 +215,12 @@ func (h *ArtistRelationshipHandler) CreateRelationshipHandler(ctx context.Contex
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "create_artist_relationship", "artist", req.Body.SourceArtistID, map[string]interface{}{
 				"target_artist_id": req.Body.TargetArtistID,
 				"type":             req.Body.Type,
 			})
-		}()
+		})
 	}
 
 	resp := &CreateRelationshipResponse{}
@@ -326,12 +327,12 @@ func (h *ArtistRelationshipHandler) DeleteRelationshipHandler(ctx context.Contex
 	}
 
 	if h.auditLog != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "delete_artist_relationship", "artist", uint(sourceID), map[string]interface{}{
 				"target_artist_id": uint(targetID),
 				"type":             req.Type,
 			})
-		}()
+		})
 	}
 
 	return nil, nil
@@ -372,12 +373,12 @@ func (h *ArtistRelationshipHandler) DeriveRelationshipsHandler(ctx context.Conte
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "derive_artist_relationships", "system", 0, map[string]interface{}{
 				"shared_bills_upserted":  billsCount,
 				"shared_labels_upserted": labelsCount,
 			})
-		}()
+		})
 	}
 
 	resp := &DeriveRelationshipsResponse{}

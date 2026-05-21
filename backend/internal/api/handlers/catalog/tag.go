@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/internal/logger"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // TagHandler handles tag-related API requests.
@@ -459,12 +460,12 @@ func (h *TagHandler) CreateTagHandler(ctx context.Context, req *CreateTagRequest
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "create_tag", "tag", tag.ID, map[string]interface{}{
 				"name":     tag.Name,
 				"category": tag.Category,
 			})
-		}()
+		})
 	}
 
 	// Re-fetch with preloads
@@ -515,9 +516,9 @@ func (h *TagHandler) UpdateTagHandler(ctx context.Context, req *UpdateTagRequest
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "update_tag", "tag", uint(id), nil)
-		}()
+		})
 	}
 
 	resp := buildTagResponse(tag)
@@ -551,9 +552,9 @@ func (h *TagHandler) DeleteTagHandler(ctx context.Context, req *DeleteTagRequest
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "delete_tag", "tag", uint(id), nil)
-		}()
+		})
 	}
 
 	return nil, nil
@@ -636,11 +637,11 @@ func (h *TagHandler) CreateAliasHandler(ctx context.Context, req *CreateAliasReq
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "create_tag_alias", "tag", uint(id), map[string]interface{}{
 				"alias": req.Body.Alias,
 			})
-		}()
+		})
 	}
 
 	resp := &contracts.TagAliasResponse{
@@ -676,11 +677,11 @@ func (h *TagHandler) DeleteAliasHandler(ctx context.Context, req *DeleteAliasReq
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
 		tagID, _ := strconv.ParseUint(req.TagID, 10, 32)
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "delete_tag_alias", "tag", uint(tagID), map[string]interface{}{
 				"alias_id": uint(aliasID),
 			})
-		}()
+		})
 	}
 
 	return nil, nil
@@ -829,12 +830,12 @@ func (h *TagHandler) BulkImportAliasesHandler(ctx context.Context, req *BulkImpo
 	if h.auditLog != nil {
 		imported := result.Imported
 		skipped := len(result.Skipped)
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "bulk_import_tag_aliases", "tag", 0, map[string]interface{}{
 				"imported": imported,
 				"skipped":  skipped,
 			})
-		}()
+		})
 	}
 
 	return &BulkImportAliasesResponse{Body: result}, nil
@@ -883,9 +884,9 @@ func (h *TagHandler) SnoozeTagHandler(ctx context.Context, req *SnoozeTagRequest
 	}
 
 	if h.auditLog != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "snooze_low_quality_tag", "tag", uint(id), nil)
-		}()
+		})
 	}
 
 	return nil, nil
@@ -935,7 +936,7 @@ func (h *TagHandler) BulkLowQualityTagsHandler(ctx context.Context, req *BulkLow
 		affected := result.Affected
 		notFound := result.NotFound
 		idsCopy := append([]uint(nil), req.Body.TagIDs...)
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "bulk_low_quality_tags", "tag", 0, map[string]interface{}{
 				"action":    actionCopy,
 				"requested": requested,
@@ -943,7 +944,7 @@ func (h *TagHandler) BulkLowQualityTagsHandler(ctx context.Context, req *BulkLow
 				"not_found": notFound,
 				"tag_ids":   idsCopy,
 			})
-		}()
+		})
 	}
 
 	return &BulkLowQualityTagsResponse{Body: result}, nil

@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // ============================================================================
@@ -123,11 +124,11 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_field_note", "show", fieldNote.ID, map[string]interface{}{
 				"show_id": uint(showID),
 			})
-		}()
+		})
 	}
 
 	return &CreateFieldNoteResponse{Body: fieldNote}, nil

@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -916,7 +917,9 @@ func (s *DiscoveryService) ImportEvents(events []contracts.DiscoveredEvent, dryR
 
 	// Fire-and-forget: queue newly imported shows for enrichment
 	if !dryRun && s.enrichmentService != nil && len(importedEventIDs) > 0 {
-		go s.queueImportedShowsForEnrichment(importedEventIDs)
+		shared.GoSafe(context.Background(), "queue_imported_shows_enrichment", func() {
+			s.queueImportedShowsForEnrichment(importedEventIDs)
+		})
 	}
 
 	return result, nil

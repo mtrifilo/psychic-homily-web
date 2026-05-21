@@ -15,6 +15,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // PendingEditHandler handles pending entity edit API endpoints.
@@ -432,9 +433,11 @@ func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context,
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		go h.auditLogService.LogAction(user.ID, "approve_edit_"+approved.EntityType, approved.EntityType, approved.EntityID, map[string]interface{}{
-			"edit_id":      approved.ID,
-			"submitted_by": approved.SubmittedBy,
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "approve_edit_"+approved.EntityType, approved.EntityType, approved.EntityID, map[string]interface{}{
+				"edit_id":      approved.ID,
+				"submitted_by": approved.SubmittedBy,
+			})
 		})
 	}
 
@@ -499,10 +502,12 @@ func (h *PendingEditHandler) AdminRejectPendingEditHandler(ctx context.Context, 
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		go h.auditLogService.LogAction(user.ID, "reject_edit_"+rejected.EntityType, rejected.EntityType, rejected.EntityID, map[string]interface{}{
-			"edit_id":      rejected.ID,
-			"submitted_by": rejected.SubmittedBy,
-			"reason":       reason,
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "reject_edit_"+rejected.EntityType, rejected.EntityType, rejected.EntityID, map[string]interface{}{
+				"edit_id":      rejected.ID,
+				"submitted_by": rejected.SubmittedBy,
+				"reason":       reason,
+			})
 		})
 	}
 

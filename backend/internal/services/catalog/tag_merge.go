@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -13,6 +14,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // AuditActionMergeTags is the action name recorded when an admin merges tags.
@@ -232,7 +234,9 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 	// Fire-and-forget audit log after the transaction commits, matching the
 	// convention used in neighboring admin services. Errors inside LogAction
 	// are logged but never bubble up.
-	go s.writeMergeAuditLog(actorUserID, sourceID, mergedTagID, sourceName, targetName, &result)
+	shared.GoSafe(context.Background(), "tag_merge_audit_log", func() {
+		s.writeMergeAuditLog(actorUserID, sourceID, mergedTagID, sourceName, targetName, &result)
+	})
 
 	return &result, nil
 }

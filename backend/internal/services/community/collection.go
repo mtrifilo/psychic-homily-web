@@ -1,6 +1,7 @@
 package community
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -584,18 +585,13 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 		collectionID := collection.ID
 		uid := viewerID
 		dbHandle := s.db
-		go func() {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Printf("warning: collection MarkVisited goroutine panicked for user %d collection %d: %v", uid, collectionID, r)
-				}
-			}()
+		shared.GoSafe(context.Background(), "collection_mark_visited", func() {
 			if err := dbHandle.Model(&communitym.CollectionSubscriber{}).
 				Where("collection_id = ? AND user_id = ?", collectionID, uid).
 				Update("last_visited_at", time.Now()).Error; err != nil {
 				log.Printf("warning: failed to bump last_visited_at for user %d collection %d: %v", uid, collectionID, err)
 			}
-		}()
+		})
 	}
 
 	// PSY-354: tag chips on the detail response. Empty slice (not nil) when

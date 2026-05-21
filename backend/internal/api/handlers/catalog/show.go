@@ -16,6 +16,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -940,7 +941,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 		oldShow := existingShow
 		newShow := show
 		summary := shared.Deref(req.Body.Summary)
-		go func() {
+		servicesshared.GoSafe(ctx, "record_revision", func() {
 			changes := revisiondiff.Compare(oldShow, newShow, revisiondiff.ShowFields)
 			if len(changes) > 0 {
 				if err := h.revisionService.RecordRevision("show", uint(showID), user.ID, changes, summary); err != nil {
@@ -950,7 +951,7 @@ func (h *ShowHandler) UpdateShowHandler(ctx context.Context, req *UpdateShowRequ
 					)
 				}
 			}
-		}()
+		})
 	}
 
 	return &UpdateShowResponse{Body: UpdateShowResponseBody{

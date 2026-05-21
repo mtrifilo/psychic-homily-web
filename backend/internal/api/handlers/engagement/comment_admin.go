@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // ============================================================================
@@ -79,11 +80,11 @@ func (h *CommentAdminHandler) AdminHideCommentHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "hide_comment", "comment", uint(commentID), map[string]interface{}{
 				"reason": reason,
 			})
-		}()
+		})
 	}
 
 	return nil, nil
@@ -122,9 +123,9 @@ func (h *CommentAdminHandler) AdminRestoreCommentHandler(ctx context.Context, re
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "restore_comment", "comment", uint(commentID), nil)
-		}()
+		})
 	}
 
 	return nil, nil
@@ -210,9 +211,9 @@ func (h *CommentAdminHandler) AdminApproveCommentHandler(ctx context.Context, re
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "approve_comment", "comment", uint(commentID), nil)
-		}()
+		})
 	}
 
 	return nil, nil
@@ -259,11 +260,11 @@ func (h *CommentAdminHandler) AdminRejectCommentHandler(ctx context.Context, req
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "reject_comment", "comment", uint(commentID), map[string]interface{}{
 				"reason": reason,
 			})
-		}()
+		})
 	}
 
 	return nil, nil
