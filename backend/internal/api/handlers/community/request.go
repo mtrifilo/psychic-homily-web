@@ -82,11 +82,11 @@ func (h *RequestHandler) CreateRequestHandler(ctx context.Context, req *CreateRe
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		shared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "create_request", "request", request.ID, map[string]interface{}{
 				"entity_type": req.Body.EntityType,
 			})
-		}()
+		})
 	}
 
 	resp := buildRequestResponse(request, nil)
@@ -232,9 +232,9 @@ func (h *RequestHandler) UpdateRequestHandler(ctx context.Context, req *UpdateRe
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		shared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "update_request", "request", uint(id), nil)
-		}()
+		})
 	}
 
 	resp := buildRequestResponse(request, nil)
@@ -273,9 +273,9 @@ func (h *RequestHandler) DeleteRequestHandler(ctx context.Context, req *DeleteRe
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		shared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "delete_request", "request", uint(id), nil)
-		}()
+		})
 	}
 
 	return nil, nil
@@ -385,9 +385,9 @@ func (h *RequestHandler) FulfillRequestHandler(ctx context.Context, req *Fulfill
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		shared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "fulfill_request", "request", uint(id), nil)
-		}()
+		})
 	}
 
 	return nil, nil
@@ -425,9 +425,9 @@ func (h *RequestHandler) CloseRequestHandler(ctx context.Context, req *CloseRequ
 
 	// Audit log (fire and forget)
 	if h.auditLog != nil {
-		go func() {
+		shared.GoSafe(ctx, "audit_log", func() {
 			h.auditLog.LogAction(user.ID, "close_request", "request", uint(id), nil)
-		}()
+		})
 	}
 
 	return nil, nil

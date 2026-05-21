@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // CollectionHandler handles collection-related API requests
@@ -232,9 +233,9 @@ func (h *CollectionHandler) CreateCollectionHandler(ctx context.Context, req *Cr
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_collection", "collection", collection.ID, nil)
-		}()
+		})
 	}
 
 	return &CreateCollectionHandlerResponse{Body: collection}, nil
@@ -304,9 +305,9 @@ func (h *CollectionHandler) UpdateCollectionHandler(ctx context.Context, req *Up
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_collection", "collection", collection.ID, nil)
-		}()
+		})
 	}
 
 	return &UpdateCollectionHandlerResponse{Body: collection}, nil
@@ -348,9 +349,9 @@ func (h *CollectionHandler) DeleteCollectionHandler(ctx context.Context, req *De
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_collection", "collection", 0, map[string]interface{}{"slug": req.Slug})
-		}()
+		})
 	}
 
 	return nil, nil
@@ -415,13 +416,13 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_collection_item", "collection", item.ID, map[string]interface{}{
 				"slug":        req.Slug,
 				"entity_type": req.Body.EntityType,
 				"entity_id":   req.Body.EntityID,
 			})
-		}()
+		})
 	}
 
 	return &AddItemHandlerResponse{Body: item}, nil
@@ -482,11 +483,11 @@ func (h *CollectionHandler) UpdateItemHandler(ctx context.Context, req *UpdateIt
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_collection_item", "collection", item.ID, map[string]interface{}{
 				"slug": req.Slug,
 			})
-		}()
+		})
 	}
 
 	return &UpdateItemHandlerResponse{Body: item}, nil
@@ -535,11 +536,11 @@ func (h *CollectionHandler) RemoveItemHandler(ctx context.Context, req *RemoveIt
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_collection_item", "collection", uint(itemID), map[string]interface{}{
 				"slug": req.Slug,
 			})
-		}()
+		})
 	}
 
 	return nil, nil
@@ -669,12 +670,12 @@ func (h *CollectionHandler) SetFeaturedHandler(ctx context.Context, req *SetFeat
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "set_collection_featured", "collection", 0, map[string]interface{}{
 				"slug":     req.Slug,
 				"featured": req.Body.Featured,
 			})
-		}()
+		})
 	}
 
 	return nil, nil
@@ -927,12 +928,12 @@ func (h *CollectionHandler) CloneCollectionHandler(ctx context.Context, req *Clo
 	// Audit log (fire and forget). The audit feed renders this as
 	// "collection_cloned" via mapActionToEventType in admin/stats.go.
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "clone_collection", "collection", clone.ID, map[string]interface{}{
 				"source_slug": req.Slug,
 				"source_id":   clone.ForkedFromCollectionID,
 			})
-		}()
+		})
 	}
 
 	return &CloneCollectionHandlerResponse{Body: clone}, nil
@@ -1010,13 +1011,13 @@ func (h *CollectionHandler) AddCollectionTagHandler(ctx context.Context, req *Ad
 	}
 
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_collection_tag", "collection", 0, map[string]interface{}{
 				"slug":     req.Slug,
 				"tag_id":   req.Body.TagID,
 				"tag_name": req.Body.TagName,
 			})
-		}()
+		})
 	}
 
 	return &AddCollectionTagHandlerResponse{Body: resp}, nil
@@ -1061,12 +1062,12 @@ func (h *CollectionHandler) RemoveCollectionTagHandler(ctx context.Context, req 
 	}
 
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_collection_tag", "collection", 0, map[string]interface{}{
 				"slug":   req.Slug,
 				"tag_id": tagID,
 			})
-		}()
+		})
 	}
 
 	return nil, nil

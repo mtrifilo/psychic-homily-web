@@ -16,6 +16,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -877,7 +878,7 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 
 	// Record revision (fire and forget)
 	if h.revisionService != nil && oldArtist != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "record_revision", func() {
 			changes := revisiondiff.Compare(oldArtist, artist, revisiondiff.ArtistFields)
 			if len(changes) > 0 {
 				summary := ""
@@ -891,7 +892,7 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 					)
 				}
 			}
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("admin_update_artist_success",

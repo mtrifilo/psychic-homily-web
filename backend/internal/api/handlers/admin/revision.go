@@ -16,6 +16,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // RevisionHandler handles revision history API endpoints.
@@ -119,7 +120,7 @@ func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 		// A local time.Time would otherwise be stamped with "Z" while still
 		// carrying the local clock reading, drifting relative-time renders by
 		// the local UTC offset (e.g. 7h on Phoenix MST).
-		CreatedAt:    r.CreatedAt.UTC().Format(time.RFC3339),
+		CreatedAt: r.CreatedAt.UTC().Format(time.RFC3339),
 	}
 
 	item.Summary = shared.Deref(r.Summary)
@@ -317,8 +318,10 @@ func (h *RevisionHandler) RollbackRevisionHandler(ctx context.Context, req *Roll
 
 	// Fire-and-forget audit log
 	if h.auditLogService != nil {
-		go h.auditLogService.LogAction(user.ID, "revision_rollback", "revision", uint(revisionID), map[string]interface{}{
-			"revision_id": revisionID,
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "revision_rollback", "revision", uint(revisionID), map[string]interface{}{
+				"revision_id": revisionID,
+			})
 		})
 	}
 

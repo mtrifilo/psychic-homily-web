@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
@@ -13,6 +14,7 @@ import (
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 const (
@@ -136,9 +138,9 @@ func (s *APITokenService) ValidateToken(plainToken string) (*authm.User, *adminm
 	}
 
 	// Update last used timestamp (async to not slow down requests)
-	go func() {
+	shared.GoSafe(context.Background(), "api_token_last_used", func() {
 		s.db.Model(&token).Update("last_used_at", time.Now())
-	}()
+	})
 
 	return &token.User, &token, nil
 }

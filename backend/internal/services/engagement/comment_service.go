@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -431,16 +432,16 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	// on the top of this method (e.g. reply-permission gate) don't conflict.
 	if s.notifier != nil && comment.Visibility == engagementm.CommentVisibilityVisible {
 		commentID := comment.ID
-		go func() {
+		shared.GoSafe(context.Background(), "comment_notify_subscribers", func() {
 			if nErr := s.notifier.NotifySubscribers(commentID); nErr != nil {
 				log.Printf("warning: comment notification (subscribers) failed for comment %d: %v", commentID, nErr)
 			}
-		}()
-		go func() {
+		})
+		shared.GoSafe(context.Background(), "comment_notify_mentioned", func() {
 			if nErr := s.notifier.NotifyMentioned(commentID); nErr != nil {
 				log.Printf("warning: comment notification (mentions) failed for comment %d: %v", commentID, nErr)
 			}
-		}()
+		})
 	}
 
 	return commentToResponse(comment), nil

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -11,6 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/shared"
 )
 
 // AuditActionSetTagParent is the action name recorded when an admin sets a
@@ -176,7 +178,9 @@ func (s *TagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) 
 		return fmt.Errorf("failed to set tag parent: %w", err)
 	}
 
-	go s.writeSetParentAuditLog(actorUserID, tag.ID, tag.Name, parentID, parentName)
+	shared.GoSafe(context.Background(), "tag_set_parent_audit_log", func() {
+		s.writeSetParentAuditLog(actorUserID, tag.ID, tag.Name, parentID, parentName)
+	})
 	return nil
 }
 

@@ -13,6 +13,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -248,9 +249,9 @@ func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *Create
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_festival", "festival", festival.ID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("festival_created",
@@ -351,14 +352,14 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 
 	// Audit log (fire and forget) — PSY-618: edits go to entity_edit_audit_logs
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogEntityEdit(user.ID, "festival", festivalID, nil)
-		}()
+		})
 	}
 
 	// Record revision (fire and forget)
 	if h.revisionService != nil && oldFestival != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "record_revision", func() {
 			changes := revisiondiff.Compare(oldFestival, festival, revisiondiff.FestivalFields)
 			if len(changes) > 0 {
 				summary := ""
@@ -372,7 +373,7 @@ func (h *FestivalHandler) UpdateFestivalHandler(ctx context.Context, req *Update
 					)
 				}
 			}
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("festival_updated",
@@ -422,9 +423,9 @@ func (h *FestivalHandler) DeleteFestivalHandler(ctx context.Context, req *Delete
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_festival", "festival", festivalID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("festival_deleted",
@@ -547,9 +548,9 @@ func (h *FestivalHandler) AddFestivalArtistHandler(ctx context.Context, req *Add
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_festival_artist", "festival", uint(festivalID), nil)
-		}()
+		})
 	}
 
 	return &AddFestivalArtistHandlerResponse{Body: artist}, nil
@@ -617,9 +618,9 @@ func (h *FestivalHandler) UpdateFestivalArtistHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "update_festival_artist", "festival", uint(festivalID), nil)
-		}()
+		})
 	}
 
 	return &UpdateFestivalArtistHandlerResponse{Body: artist}, nil
@@ -665,9 +666,9 @@ func (h *FestivalHandler) RemoveFestivalArtistHandler(ctx context.Context, req *
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_festival_artist", "festival", uint(festivalID), nil)
-		}()
+		})
 	}
 
 	return nil, nil
@@ -768,9 +769,9 @@ func (h *FestivalHandler) AddFestivalVenueHandler(ctx context.Context, req *AddF
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_festival_venue", "festival", uint(festivalID), nil)
-		}()
+		})
 	}
 
 	return &AddFestivalVenueHandlerResponse{Body: venue}, nil
@@ -816,9 +817,9 @@ func (h *FestivalHandler) RemoveFestivalVenueHandler(ctx context.Context, req *R
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "remove_festival_venue", "festival", uint(festivalID), nil)
-		}()
+		})
 	}
 
 	return nil, nil

@@ -2,6 +2,7 @@ package pipeline
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -11,6 +12,7 @@ import (
 	"github.com/getsentry/sentry-go"
 
 	"psychic-homily-backend/internal/config"
+	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -46,7 +48,9 @@ func (s *MusicDiscoveryService) DiscoverMusicForArtist(artistID uint, artistName
 		return
 	}
 
-	go s.triggerDiscovery(artistID, artistName)
+	shared.GoSafe(context.Background(), "music_discovery_trigger", func() {
+		s.triggerDiscovery(artistID, artistName)
+	})
 }
 
 // triggerDiscovery makes the HTTP call to the discovery endpoint

@@ -13,6 +13,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
 
@@ -226,9 +227,9 @@ func (h *LabelHandler) CreateLabelHandler(ctx context.Context, req *CreateLabelR
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "create_label", "label", label.ID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("label_created",
@@ -340,14 +341,14 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 
 	// Audit log (fire and forget) — PSY-618: edits go to entity_edit_audit_logs
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogEntityEdit(user.ID, "label", labelID, nil)
-		}()
+		})
 	}
 
 	// Record revision (fire and forget)
 	if h.revisionService != nil && oldLabel != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "record_revision", func() {
 			changes := revisiondiff.Compare(oldLabel, label, revisiondiff.LabelFields)
 			if len(changes) > 0 {
 				summary := ""
@@ -361,7 +362,7 @@ func (h *LabelHandler) UpdateLabelHandler(ctx context.Context, req *UpdateLabelR
 					)
 				}
 			}
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("label_updated",
@@ -412,9 +413,9 @@ func (h *LabelHandler) DeleteLabelHandler(ctx context.Context, req *DeleteLabelR
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "delete_label", "label", labelID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("label_deleted",
@@ -562,9 +563,9 @@ func (h *LabelHandler) AddArtistToLabelHandler(ctx context.Context, req *AddArti
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_artist_to_label", "label", labelID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("artist_added_to_label",
@@ -634,9 +635,9 @@ func (h *LabelHandler) AddReleaseToLabelHandler(ctx context.Context, req *AddRel
 
 	// Audit log (fire and forget)
 	if h.auditLogService != nil {
-		go func() {
+		servicesshared.GoSafe(ctx, "audit_log", func() {
 			h.auditLogService.LogAction(user.ID, "add_release_to_label", "label", labelID, nil)
-		}()
+		})
 	}
 
 	logger.FromContext(ctx).Info("release_added_to_label",
