@@ -4,6 +4,7 @@ import { getBlogSlugs, getBlogPost, getAllMixes, MDXContent, SoundCloud } from '
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'
 import { formatContentDate } from '@/lib/utils/formatters'
+import { getTextExcerpt } from '@/lib/utils/markdownExcerpt'
 
 export const metadata = {
   title: 'Psychic Homily | Arizona Music Community',
@@ -26,21 +27,6 @@ export const metadata = {
 function extractEmbed(content: string): string | null {
   const embedMatch = content.match(/<(Bandcamp|SoundCloud)[^>]+\/>/)
   return embedMatch ? embedMatch[0] : null
-}
-
-/**
- * Get text excerpt
- */
-function getTextExcerpt(content: string, maxLength = 200): string {
-  let text = content.replace(/<[^>]+\/>/g, '')
-  text = text.replace(/<[^>]+>[^<]*<\/[^>]+>/g, '')
-  text = text.replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')
-  text = text.replace(/[#*_`]/g, '')
-  text = text.replace(/\s+/g, ' ').trim()
-  if (text.length > maxLength) {
-    text = text.substring(0, maxLength).trim() + '...'
-  }
-  return text
 }
 
 export default function Home() {
