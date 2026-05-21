@@ -11,6 +11,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -111,6 +112,23 @@ func (suite *AttendanceServiceIntegrationTestSuite) createShowWithVenue(title st
 	return show, venue
 }
 
+// createShowWithVenues creates an approved upcoming show linked to venueCount
+// distinct venues via show_venues. Used to reproduce pagination drift, where a
+// multi-venue show fans out into multiple joined rows.
+func (suite *AttendanceServiceIntegrationTestSuite) createShowWithVenues(title string, userID uint, venueCount int) *catalogm.Show {
+	show := suite.createApprovedShow(title, userID)
+	for v := 0; v < venueCount; v++ {
+		venue := &catalogm.Venue{
+			Name:  fmt.Sprintf("%s venue %d", title, v),
+			City:  "Phoenix",
+			State: "AZ",
+		}
+		suite.Require().NoError(suite.db.Create(venue).Error)
+		suite.Require().NoError(suite.db.Create(&catalogm.ShowVenue{ShowID: show.ID, VenueID: venue.ID}).Error)
+	}
+	return show
+}
+
 // =============================================================================
 // Group 1: SetAttendance
 // =============================================================================
@@ -194,6 +212,71 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_ToggleInte
 			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing).
 		Count(&goingCount)
 	suite.Equal(int64(1), goingCount)
+}
+
+// TestSetAttendance_ToggleLeavesExactlyOneRow asserts the going-XOR-interested
+// invariant directly: after toggling going → interested, the user has exactly
+// ONE attendance row for the show (not one of each). Guards GetAttendanceCounts
+// against double-counting.
+func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_ToggleLeavesExactlyOneRow() {
+	user := suite.createTestUser()
+	show := suite.createApprovedShow("XOR Toggle Show", user.ID)
+
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show.ID, "interested"))
+
+	var total int64
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action IN ?",
+			user.ID, engagementm.BookmarkEntityShow, show.ID,
+			[]engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested}).
+		Count(&total)
+	suite.Equal(int64(1), total, "user must have exactly one attendance row after a toggle")
+}
+
+// TestSetAttendance_OppositeDeleteErrorRollsBack asserts the transaction rolls
+// back when the opposite-status DELETE fails. Before the fix the DELETE error
+// was discarded, so the upsert still ran and the user ended with BOTH going and
+// interested rows. A failing Delete callback simulates a lock timeout / FK
+// trigger / dropped connection on that statement.
+func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_OppositeDeleteErrorRollsBack() {
+	user := suite.createTestUser()
+	show := suite.createApprovedShow("Delete Error Show", user.ID)
+
+	// Seed the opposite status so the toggle has a row to delete.
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show.ID, "going"))
+
+	// Inject a DELETE failure scoped to user_bookmarks. Callbacks live on the
+	// shared connection processor, so remove it after the test for isolation.
+	const cbName = "test:fail_user_bookmarks_delete"
+	err := suite.db.Callback().Delete().Before("gorm:delete").Register(cbName, func(tx *gorm.DB) {
+		if tx.Statement != nil && tx.Statement.Table == "user_bookmarks" {
+			_ = tx.AddError(fmt.Errorf("simulated delete failure"))
+		}
+	})
+	suite.Require().NoError(err)
+	defer func() {
+		suite.Require().NoError(suite.db.Callback().Delete().Remove(cbName))
+	}()
+
+	// Toggling to interested must trigger the opposite (going) DELETE and fail.
+	setErr := suite.attendanceService.SetAttendance(user.ID, show.ID, "interested")
+	suite.Require().Error(setErr)
+	suite.Contains(setErr.Error(), "failed to remove opposite attendance")
+
+	// State unchanged: still exactly the original going row, no interested row.
+	// (These reads are SELECTs, so the registered DELETE-fail callback is inert.)
+	var goingCount, interestedCount int64
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing).
+		Count(&goingCount)
+	suite.db.Model(&engagementm.UserBookmark{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND action = ?",
+			user.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionInterested).
+		Count(&interestedCount)
+	suite.Equal(int64(1), goingCount, "original going row must survive the rolled-back toggle")
+	suite.Equal(int64(0), interestedCount, "interested row must not be created when DELETE fails")
 }
 
 func (suite *AttendanceServiceIntegrationTestSuite) TestSetAttendance_ClearWithEmptyString() {
@@ -530,6 +613,60 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_In
 	suite.Require().Len(shows, 1)
 	suite.Require().NotNil(shows[0].VenueName)
 	suite.Equal(venue.Name, *shows[0].VenueName)
+}
+
+// TestGetUserAttendingShows_PaginationWithMultiVenueShows reproduces the
+// pagination drift bug: 25 attending shows, 5 of which have 2 venues each.
+// Before the fix, LIMIT/OFFSET applied to the venue-joined row stream pulled
+// fewer than N distinct shows when multi-venue shows landed in a page. After
+// the fix, page 1 returns 20 distinct shows and page 2 returns the remaining
+// 5, with no show appearing on both pages.
+func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_PaginationWithMultiVenueShows() {
+	user := suite.createTestUser()
+
+	const totalShows = 25
+	const multiVenueShows = 5
+	for i := 0; i < totalShows; i++ {
+		var show *catalogm.Show
+		if i < multiVenueShows {
+			show = suite.createShowWithVenues(fmt.Sprintf("Multi Venue Show %02d", i), user.ID, 2)
+		} else {
+			show, _ = suite.createShowWithVenue(fmt.Sprintf("Single Venue Show %02d", i), user.ID)
+		}
+		suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show.ID, "going"))
+	}
+
+	page1, total, err := suite.attendanceService.GetUserAttendingShows(user.ID, "all", 20, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(totalShows), total)
+	suite.Require().Len(page1, 20, "page 1 must return 20 distinct shows despite multi-venue fan-out")
+	suite.assertDistinctShowIDs(page1)
+
+	page2, _, err := suite.attendanceService.GetUserAttendingShows(user.ID, "all", 20, 20)
+	suite.Require().NoError(err)
+	suite.Require().Len(page2, 5, "page 2 must return the remaining 5 distinct shows")
+	suite.assertDistinctShowIDs(page2)
+
+	// No show may appear on both pages.
+	page1IDs := make(map[uint]bool, len(page1))
+	for _, s := range page1 {
+		page1IDs[s.ShowID] = true
+	}
+	for _, s := range page2 {
+		suite.False(page1IDs[s.ShowID], "show %d appeared on both pages", s.ShowID)
+	}
+
+	// The two pages together cover all 25 distinct shows exactly once.
+	suite.Equal(totalShows, len(page1)+len(page2))
+}
+
+// assertDistinctShowIDs fails if any show ID repeats within a page.
+func (suite *AttendanceServiceIntegrationTestSuite) assertDistinctShowIDs(shows []*contracts.AttendingShowResponse) {
+	seen := make(map[uint]bool, len(shows))
+	for _, s := range shows {
+		suite.False(seen[s.ShowID], "duplicate show %d within a single page", s.ShowID)
+		seen[s.ShowID] = true
+	}
 }
 
 func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_Empty() {
