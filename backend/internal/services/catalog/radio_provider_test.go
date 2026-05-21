@@ -306,7 +306,7 @@ func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
 			"results": []map[string]interface{}{
 				{
 					"id":           5678,
-					"program_id":   42,
+					"program":      42,
 					"program_name": "The Morning Show",
 					"start_time":   "2026-01-15T06:00:00-08:00",
 					"end_time":     "2026-01-15T10:00:00-08:00",
@@ -334,6 +334,37 @@ func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
 	assert.Equal(t, 240, *episodes[0].DurationMinutes)
 }
 
+func TestKEXPProvider_FetchNewEpisodes_FiltersByProgram(t *testing.T) {
+	// The KEXP API ignores the program_id query param and returns broadcasts
+	// for ALL programs, so the provider filters client-side on each broadcast's
+	// `program` field. Regression: kexpShow was tagged json:"program_id" while
+	// the real field is `program`, so the filter dropped every broadcast (0
+	// episodes imported for every KEXP program).
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"next": nil, "count": 3,
+			"results": []map[string]interface{}{
+				{"id": 1, "program": 42, "program_name": "Wanted", "start_time": "2026-01-15T06:00:00-08:00"},
+				{"id": 2, "program": 99, "program_name": "Other", "start_time": "2026-01-15T08:00:00-08:00"},
+				{"id": 3, "program": 42, "program_name": "Wanted", "start_time": "2026-01-16T06:00:00-08:00"},
+			},
+		})
+	})
+	server := httptest.NewServer(mux)
+	defer server.Close()
+
+	provider := NewKEXPProviderWithClient(server.Client(), server.URL)
+	defer provider.Close()
+
+	since := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	episodes, err := provider.FetchNewEpisodes("42", since, time.Time{})
+	require.NoError(t, err)
+	require.Len(t, episodes, 2, "only program 42's broadcasts should pass the client-side filter")
+	assert.Equal(t, "1", episodes[0].ExternalID)
+	assert.Equal(t, "3", episodes[1].ExternalID)
+}
+
 func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	var playsRequestQuery string
 
@@ -343,7 +374,7 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	mux.HandleFunc("/v2/shows/5678/", func(w http.ResponseWriter, r *http.Request) {
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":           5678,
-			"program_id":   42,
+			"program":      42,
 			"program_name": "The Morning Show",
 			"start_time":   "2026-01-15T06:00:00-08:00",
 			"end_time":     "2026-01-15T10:00:00-08:00",
@@ -1096,7 +1127,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 		if r.URL.Path == "/v2/shows/100/" {
 			json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":           100,
-				"program_id":   42,
+				"program":      42,
 				"program_name": "The Morning Show",
 				"start_time":   "2026-01-15T06:00:00-08:00",
 				"end_time":     "2026-01-15T10:00:00-08:00",
@@ -1104,16 +1135,14 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 			return
 		}
 		// List endpoint serves both the PSY-509 host-map fetch and the
-		// FetchNewEpisodes filter. The host-map fetch wants `program` +
-		// `host_names`; FetchNewEpisodes wants `program_id` + start_time.
-		// Including both keys on the same record satisfies both readers.
+		// FetchNewEpisodes filter. Both read the same `program` int field
+		// (alongside `host_names`, which only the host map uses).
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 1,
 			"results": []map[string]interface{}{
 				{
 					"id":           100,
 					"program":      42,
-					"program_id":   42,
 					"program_name": "The Morning Show",
 					"host_names":   []string{"John Richards"},
 					"start_time":   "2026-01-15T06:00:00-08:00",

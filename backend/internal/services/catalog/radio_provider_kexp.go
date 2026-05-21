@@ -565,8 +565,11 @@ type kexpShowsResponse struct {
 }
 
 type kexpShow struct {
-	ID          int    `json:"id"`
-	ProgramID   int    `json:"program_id"`
+	ID int `json:"id"`
+	// The API names the program reference `program` (an int program ID), not
+	// `program_id`. The wrong tag left ProgramID at 0, so FetchNewEpisodes'
+	// client-side program filter dropped every broadcast.
+	ProgramID   int    `json:"program"`
 	ProgramName string `json:"program_name"`
 	StartTime   string `json:"start_time"`
 	EndTime     string `json:"end_time"`
