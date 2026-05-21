@@ -124,22 +124,15 @@ func (p *NTSProvider) FetchNewEpisodes(showExternalID string, since time.Time, u
 		for _, ntsEp := range page.Results {
 			ep := parseNTSEpisode(ntsEp, showExternalID)
 
-			// Filter by date range
-			if ntsEp.Broadcast != "" {
-				broadcastTime, err := time.Parse("2006-01-02T15:04:05Z", ntsEp.Broadcast)
-				if err != nil {
-					// Try date-only format
-					broadcastTime, err = time.Parse("2006-01-02", ntsEp.Broadcast)
+			// Filter by date range using the broadcast timestamp.
+			if broadcastTime, ok := parseNTSBroadcast(ntsEp.Broadcast); ok {
+				if broadcastTime.Before(since) {
+					reachedOldEpisodes = true
+					break
 				}
-				if err == nil {
-					if broadcastTime.Before(since) {
-						reachedOldEpisodes = true
-						break
-					}
-					// Skip episodes after until bound
-					if !until.IsZero() && broadcastTime.After(until) {
-						continue
-					}
+				// Skip episodes after the until bound
+				if !until.IsZero() && broadcastTime.After(until) {
+					continue
 				}
 			}
 
@@ -307,24 +300,15 @@ func parseNTSEpisode(ntsEp ntsEpisode, showExternalID string) RadioEpisodeImport
 		ShowExternalID: showExternalID,
 	}
 
-	// Parse broadcast date
-	if ntsEp.Broadcast != "" {
-		broadcastTime, err := time.Parse("2006-01-02T15:04:05Z", ntsEp.Broadcast)
-		if err != nil {
-			// Try date-only format
-			broadcastTime, err = time.Parse("2006-01-02", ntsEp.Broadcast)
-		}
-		if err == nil {
-			airDate := broadcastTime.Format("2006-01-02")
-			airTime := broadcastTime.Format("15:04:05")
-			ep.AirDate = airDate
-			ep.AirTime = &airTime
-		}
+	// Parse the broadcast timestamp for both air date and air time.
+	if t, ok := parseNTSBroadcast(ntsEp.Broadcast); ok {
+		ep.AirDate = t.Format("2006-01-02")
+		airTime := t.Format("15:04:05")
+		ep.AirTime = &airTime
 	}
 
-	// Older NTS episodes return no `broadcast`; the air date still lives in the
-	// episode alias (e.g. "anu-11th-july-2017"). Fall back to it so the episode
-	// imports instead of failing the air_date NOT NULL insert.
+	// Fallback for the rare episode with no `broadcast`: recover the date from
+	// the episode alias (e.g. "anu-11th-july-2017"). No air time is available.
 	if ep.AirDate == "" {
 		ep.AirDate = dateFromNTSAlias(ntsEp.EpisodeAlias)
 	}
@@ -347,6 +331,24 @@ func parseNTSEpisode(ntsEp ntsEpisode, showExternalID string) RadioEpisodeImport
 	}
 
 	return ep
+}
+
+// parseNTSBroadcast parses an NTS `broadcast` timestamp. NTS returns RFC3339
+// with a numeric offset (e.g. "2021-11-04T12:00:00+00:00"); a few records may
+// be date-only. Returns the parsed time and true on success. The literal-`Z`
+// layout the provider used before never matched the offset form, so every
+// episode's air date was silently dropped.
+func parseNTSBroadcast(broadcast string) (time.Time, bool) {
+	if broadcast == "" {
+		return time.Time{}, false
+	}
+	if t, err := time.Parse(time.RFC3339, broadcast); err == nil {
+		return t, true
+	}
+	if t, err := time.Parse("2006-01-02", broadcast); err == nil {
+		return t, true
+	}
+	return time.Time{}, false
 }
 
 // ntsAliasDateRegex captures a trailing "{day}{ordinal}-{month}-{year}" date in
