@@ -16,7 +16,8 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// MusicDiscoveryService handles automatic discovery of music platforms for new artists
+// MusicDiscoveryService discovers an artist's music-platform links (Bandcamp/Spotify)
+// via the discovery route. It is invoked explicitly, not automatically on artist creation.
 type MusicDiscoveryService struct {
 	internalSecret string
 	frontendURL    string

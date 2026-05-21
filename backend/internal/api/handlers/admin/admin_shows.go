@@ -597,13 +597,6 @@ func (h *AdminShowHandler) ImportShowConfirmHandler(ctx context.Context, req *Im
 	// Send Discord notification for new show
 	h.discordService.NotifyNewShow(show, "")
 
-	// Trigger music discovery for any newly created artists
-	for _, artist := range show.Artists {
-		if artist.IsNewArtist != nil && *artist.IsNewArtist {
-			h.musicDiscoveryService.DiscoverMusicForArtist(artist.ID, artist.Name)
-		}
-	}
-
 	return &ImportShowConfirmResponse{Body: *show}, nil
 }
 
@@ -957,13 +950,6 @@ func (h *AdminShowHandler) BulkImportConfirmHandler(ctx context.Context, req *Bu
 
 		// Send Discord notification for new show
 		h.discordService.NotifyNewShow(show, "")
-
-		// Trigger music discovery for any newly created artists
-		for _, artist := range show.Artists {
-			if artist.IsNewArtist != nil && *artist.IsNewArtist {
-				h.musicDiscoveryService.DiscoverMusicForArtist(artist.ID, artist.Name)
-			}
-		}
 	}
 
 	logger.FromContext(ctx).Info("admin_bulk_import_confirm_complete",
