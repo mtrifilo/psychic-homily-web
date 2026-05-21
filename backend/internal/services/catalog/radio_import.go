@@ -492,6 +492,14 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return nil, fmt.Errorf("checking existing episode: %w", err)
 	}
 
+	// air_date is NOT NULL; an episode with no recoverable date (no broadcast
+	// and no parseable alias date) can't be stored. Skip it rather than fail the
+	// whole import batch on a date NOT NULL violation — same posture as the
+	// dedup skip above.
+	if ep.AirDate == "" {
+		return &contracts.EpisodeImportResult{}, nil
+	}
+
 	// Create episode
 	episode := &catalogm.RadioEpisode{
 		ShowID:          showID,
