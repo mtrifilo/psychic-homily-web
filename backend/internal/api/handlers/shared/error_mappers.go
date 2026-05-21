@@ -101,3 +101,45 @@ func collectionLimitDetail(e *apperrors.CollectionError) *huma.ErrorDetail {
 		},
 	}
 }
+
+// MapFollowError converts a FollowError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.FollowError.
+//
+// PSY-761: replaces the 422-for-everything behaviour of the follow handlers.
+// Follow/unfollow are idempotent (no 404, no conflict) so the only mapped
+// conditions are an invalid entity type (422 semantic validation) and an
+// infrastructure fault (500). The handler still falls through to a generic
+// 500 for any unrecognised error.
+func MapFollowError(err error) error {
+	var followErr *apperrors.FollowError
+	if errors.As(err, &followErr) {
+		switch followErr.Code {
+		case apperrors.CodeFollowInvalidEntityType:
+			return huma.Error422UnprocessableEntity(followErr.Message)
+		case apperrors.CodeFollowInternal:
+			return huma.Error500InternalServerError(followErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapAttendanceError converts an AttendanceError to an appropriate Huma HTTP
+// error. Returns nil if err is not a *apperrors.AttendanceError.
+//
+// PSY-761: replaces the 422-for-everything behaviour of the attendance
+// handlers. Show-not-found → 404; invalid status → 422 (semantic validation);
+// infrastructure fault → 500. Idempotent set/clear has no conflict path.
+func MapAttendanceError(err error) error {
+	var attendanceErr *apperrors.AttendanceError
+	if errors.As(err, &attendanceErr) {
+		switch attendanceErr.Code {
+		case apperrors.CodeAttendanceShowNotFound:
+			return huma.Error404NotFound(attendanceErr.Message)
+		case apperrors.CodeAttendanceInvalidStatus:
+			return huma.Error422UnprocessableEntity(attendanceErr.Message)
+		case apperrors.CodeAttendanceInternal:
+			return huma.Error500InternalServerError(attendanceErr.Message)
+		}
+	}
+	return nil
+}

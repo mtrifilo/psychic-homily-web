@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -44,7 +45,7 @@ func NewFollowService(database *gorm.DB) *FollowService {
 // validateEntityType checks that entityType is a valid follow target.
 func validateEntityType(entityType string) error {
 	if !validFollowEntityTypes[entityType] {
-		return fmt.Errorf("invalid entity type for follow: %s", entityType)
+		return apperrors.ErrFollowInvalidEntityType(entityType)
 	}
 	return nil
 }
@@ -52,7 +53,7 @@ func validateEntityType(entityType string) error {
 // Follow creates a follow bookmark. Idempotent — if already following, no error.
 func (s *FollowService) Follow(userID uint, entityType string, entityID uint) error {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return apperrors.ErrFollowInternal(fmt.Errorf("database not initialized"))
 	}
 	if err := validateEntityType(entityType); err != nil {
 		return err
@@ -66,18 +67,21 @@ func (s *FollowService) Follow(userID uint, entityType string, entityID uint) er
 		CreatedAt:  time.Now().UTC(),
 	}
 
-	return s.db.Where(engagementm.UserBookmark{
+	if err := s.db.Where(engagementm.UserBookmark{
 		UserID:     userID,
 		EntityType: engagementm.BookmarkEntityType(entityType),
 		EntityID:   entityID,
 		Action:     engagementm.BookmarkActionFollow,
-	}).FirstOrCreate(&bookmark).Error
+	}).FirstOrCreate(&bookmark).Error; err != nil {
+		return apperrors.ErrFollowInternal(err)
+	}
+	return nil
 }
 
 // Unfollow removes a follow bookmark. Idempotent — if not following, no error.
 func (s *FollowService) Unfollow(userID uint, entityType string, entityID uint) error {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return apperrors.ErrFollowInternal(fmt.Errorf("database not initialized"))
 	}
 	if err := validateEntityType(entityType); err != nil {
 		return err
@@ -89,7 +93,7 @@ func (s *FollowService) Unfollow(userID uint, entityType string, entityID uint) 
 	).Delete(&engagementm.UserBookmark{})
 
 	if result.Error != nil {
-		return fmt.Errorf("failed to unfollow: %w", result.Error)
+		return apperrors.ErrFollowInternal(result.Error)
 	}
 	return nil
 }
