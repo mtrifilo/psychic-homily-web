@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -132,7 +133,7 @@ func (s *SceneService) GetSceneDetail(city, state string) (*contracts.SceneDetai
 		return nil, fmt.Errorf("failed to count venues: %w", err)
 	}
 	if venueCount < sceneMinVenues {
-		return nil, fmt.Errorf("scene not found: %s, %s", city, state)
+		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
 	// Upcoming show count
@@ -295,7 +296,7 @@ func (s *SceneService) GetActiveArtists(city, state string, periodDays, limit, o
 		return nil, 0, fmt.Errorf("failed to count venues: %w", err)
 	}
 	if venueCount < sceneMinVenues {
-		return nil, 0, fmt.Errorf("scene not found: %s, %s", city, state)
+		return nil, 0, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
 	cutoff := time.Now().UTC().AddDate(0, 0, -periodDays)
@@ -385,7 +386,7 @@ func (s *SceneService) ParseSceneSlug(slug string) (string, string, error) {
 		return "", "", fmt.Errorf("failed to resolve scene slug: %w", err)
 	}
 	if result.City == "" {
-		return "", "", fmt.Errorf("scene not found for slug: %s", slug)
+		return "", "", apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found for slug: %s", slug))
 	}
 
 	return result.City, result.State, nil
@@ -619,7 +620,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 		return nil, fmt.Errorf("failed to count venues: %w", err)
 	}
 	if venueCount < sceneMinVenues {
-		return nil, fmt.Errorf("scene not found: %s, %s", city, state)
+		return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 	}
 
 	// Whitelist + dedupe types. Empty input means "all allowed types"; an input

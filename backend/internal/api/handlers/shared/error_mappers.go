@@ -166,3 +166,101 @@ func MapNotificationFilterError(err error) error {
 	}
 	return nil
 }
+
+// MapArtistError converts an ArtistError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.ArtistError, leaving the caller free
+// to fall through to a generic 500.
+//
+// Not-found (artist or alias) → 404; name/alias collision and delete-blocked-
+// by-shows → 409 conflict; merge-into-self → 422 (semantic validation).
+// HasShows is 409 here — intentionally distinct from venue HasShows (422) —
+// to preserve each handler's pre-existing status contract.
+func MapArtistError(err error) error {
+	var artistErr *apperrors.ArtistError
+	if errors.As(err, &artistErr) {
+		switch artistErr.Code {
+		case apperrors.CodeArtistNotFound, apperrors.CodeArtistAliasNotFound:
+			return huma.Error404NotFound(artistErr.Message)
+		case apperrors.CodeArtistExists, apperrors.CodeArtistAliasExists, apperrors.CodeArtistHasShows:
+			return huma.Error409Conflict(artistErr.Message)
+		case apperrors.CodeArtistMergeSelf:
+			return huma.Error422UnprocessableEntity(artistErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapVenueError converts a VenueError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.VenueError.
+//
+// Not-found → 404; HasShows → 422 (the "cannot delete, associated with shows"
+// status — intentionally distinct from artist HasShows, which is 409).
+func MapVenueError(err error) error {
+	var venueErr *apperrors.VenueError
+	if errors.As(err, &venueErr) {
+		switch venueErr.Code {
+		case apperrors.CodeVenueNotFound:
+			return huma.Error404NotFound(venueErr.Message)
+		case apperrors.CodeVenueHasShows:
+			return huma.Error422UnprocessableEntity(venueErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapFestivalError converts a FestivalError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.FestivalError.
+//
+// Festival/artist/venue not-found (and not-in-lineup / not-in-festival) all
+// map to 404; an already-exists festival → 409.
+func MapFestivalError(err error) error {
+	var festivalErr *apperrors.FestivalError
+	if errors.As(err, &festivalErr) {
+		switch festivalErr.Code {
+		case apperrors.CodeFestivalNotFound,
+			apperrors.CodeFestivalArtistNotFound,
+			apperrors.CodeFestivalArtistNotInLineup,
+			apperrors.CodeFestivalVenueNotFound,
+			apperrors.CodeFestivalVenueNotInFestival:
+			return huma.Error404NotFound(festivalErr.Message)
+		case apperrors.CodeFestivalExists:
+			return huma.Error409Conflict(festivalErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapFestivalIntelligenceError converts a FestivalIntelligenceError to an
+// appropriate Huma HTTP error. Returns nil if err is not a
+// *apperrors.FestivalIntelligenceError.
+//
+// Referenced-entity / no-festivals-for-series → 404; too-few-years → 422
+// (semantic validation). Each typed error carries its own message so the
+// series-comparison handler's caller-supplied copy is surfaced verbatim.
+func MapFestivalIntelligenceError(err error) error {
+	var intelErr *apperrors.FestivalIntelligenceError
+	if errors.As(err, &intelErr) {
+		switch intelErr.Code {
+		case apperrors.CodeFestivalIntelNotFound, apperrors.CodeFestivalIntelNoFestivals:
+			return huma.Error404NotFound(intelErr.Message)
+		case apperrors.CodeFestivalIntelInsufficientYears:
+			return huma.Error422UnprocessableEntity(intelErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapSceneError converts a SceneError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.SceneError.
+//
+// Scene-not-found → 404; database faults fall through to the generic 500.
+func MapSceneError(err error) error {
+	var sceneErr *apperrors.SceneError
+	if errors.As(err, &sceneErr) {
+		switch sceneErr.Code {
+		case apperrors.CodeSceneNotFound:
+			return huma.Error404NotFound(sceneErr.Message)
+		}
+	}
+	return nil
+}

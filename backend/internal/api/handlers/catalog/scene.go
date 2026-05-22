@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -78,8 +79,8 @@ func (h *SceneHandler) GetSceneDetailHandler(ctx context.Context, req *GetSceneD
 
 	detail, err := h.sceneService.GetSceneDetail(city, state)
 	if err != nil {
-		if isSceneNotFoundErr(err) {
-			return nil, huma.Error404NotFound("Scene not found")
+		if mapped := shared.MapSceneError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to get scene detail", err)
 	}
@@ -125,8 +126,8 @@ func (h *SceneHandler) GetSceneActiveArtistsHandler(ctx context.Context, req *Ge
 
 	artists, total, err := h.sceneService.GetActiveArtists(city, state, period, limit, req.Offset)
 	if err != nil {
-		if isSceneNotFoundErr(err) {
-			return nil, huma.Error404NotFound("Scene not found")
+		if mapped := shared.MapSceneError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to get active artists", err)
 	}
@@ -215,8 +216,8 @@ func (h *SceneHandler) GetSceneGraphHandler(ctx context.Context, req *GetSceneGr
 
 	graph, err := h.sceneService.GetSceneGraph(city, state, parseTypesQueryParam(req.Types))
 	if err != nil {
-		if isSceneNotFoundErr(err) {
-			return nil, huma.Error404NotFound("Scene not found")
+		if mapped := shared.MapSceneError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to get scene graph", err)
 	}
@@ -239,13 +240,4 @@ func parseTypesQueryParam(raw string) []string {
 		}
 	}
 	return out
-}
-
-// isSceneNotFoundErr checks if an error indicates a scene was not found.
-func isSceneNotFoundErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return len(msg) >= 15 && msg[:15] == "scene not found"
 }
