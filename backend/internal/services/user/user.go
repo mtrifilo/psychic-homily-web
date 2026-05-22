@@ -3,6 +3,7 @@ package user
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/markbates/goth"
@@ -461,13 +462,13 @@ func (s *UserService) createNewUserOauthWithConsent(
 
 func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
 	if consent == nil {
-		return fmt.Errorf("terms acceptance required for OAuth signup")
+		return apperrors.ErrTermsAcceptanceRequired("terms acceptance required for OAuth signup")
 	}
 	if !consent.TermsAccepted {
-		return fmt.Errorf("terms acceptance required for OAuth signup")
+		return apperrors.ErrTermsAcceptanceRequired("terms acceptance required for OAuth signup")
 	}
 	if consent.TermsVersion == "" {
-		return fmt.Errorf("terms version is required for OAuth signup")
+		return apperrors.ErrTermsAcceptanceRequired("terms version is required for OAuth signup")
 	}
 	return nil
 }
@@ -607,10 +608,29 @@ func (s *UserService) UpdateUser(userID uint, updates map[string]any) (*authm.Us
 		Updates(updates)
 
 	if result.Error != nil {
+		// A unique-constraint violation on profile update means the chosen
+		// username is taken. Translate the driver error into a typed error
+		// here so handlers discriminate on a code rather than string-matching
+		// the Postgres message (the only volatile site for this check).
+		if isUniqueViolation(result.Error) {
+			return nil, apperrors.ErrUsernameTaken(result.Error)
+		}
 		return nil, fmt.Errorf("failed to update user: %w", result.Error)
 	}
 
 	return s.GetUserByID(userID)
+}
+
+// isUniqueViolation reports whether err is a Postgres unique-constraint
+// violation by matching the driver message text. This mirrors the boundary
+// detection used elsewhere in the codebase (e.g. admin/pending_edit.go) and
+// is isolated here so the volatile driver-string match has a single home.
+func isUniqueViolation(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique")
 }
 
 func (s *UserService) HashPassword(password string) (string, error) {
@@ -1115,7 +1135,7 @@ func (s *UserService) SetDefaultReplyPermission(userID uint, permission string) 
 		return fmt.Errorf("database not initialized")
 	}
 	if !engagementm.IsValidReplyPermission(permission) {
-		return fmt.Errorf("invalid reply_permission: %s", permission)
+		return apperrors.ErrInvalidReplyPermission(permission)
 	}
 
 	result := s.db.Model(&authm.UserPreferences{}).

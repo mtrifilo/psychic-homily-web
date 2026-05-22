@@ -31,6 +31,13 @@ const (
 	CodeAccountLocked = "ACCOUNT_LOCKED"
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
+	// CodeTermsAcceptanceRequired indicates an OAuth signup arrived without the
+	// required Terms of Service / Privacy Policy consent.
+	CodeTermsAcceptanceRequired = "TERMS_ACCEPTANCE_REQUIRED"
+	// CodeInvalidReplyPermission indicates an unrecognized default-reply-permission value.
+	CodeInvalidReplyPermission = "INVALID_REPLY_PERMISSION"
+	// CodeUsernameTaken indicates a username unique-constraint violation on profile update.
+	CodeUsernameTaken = "USERNAME_TAKEN"
 )
 
 // AuthError represents an authentication-related error with additional context.
@@ -140,6 +147,23 @@ func ErrAccountLockedWithMinutes(minutes int) *AuthError {
 // ErrNoPasswordSet creates an error for OAuth-only accounts that don't have a password.
 func ErrNoPasswordSet() *AuthError {
 	return NewAuthError(CodeNoPasswordSet, "Cannot change password for OAuth-only accounts", nil)
+}
+
+// ErrTermsAcceptanceRequired creates an OAuth-signup terms-not-accepted error.
+// The detail distinguishes "no consent / not accepted" from "version missing"
+// so logs keep the cause without the handler string-matching the message.
+func ErrTermsAcceptanceRequired(detail string) *AuthError {
+	return NewAuthError(CodeTermsAcceptanceRequired, "Please accept the Terms of Service and Privacy Policy before creating an account.", fmt.Errorf("%s", detail))
+}
+
+// ErrInvalidReplyPermission creates an invalid default-reply-permission error.
+func ErrInvalidReplyPermission(permission string) *AuthError {
+	return NewAuthError(CodeInvalidReplyPermission, "Invalid reply permission", fmt.Errorf("invalid reply_permission: %s", permission))
+}
+
+// ErrUsernameTaken creates a username unique-constraint-violation error.
+func ErrUsernameTaken(internal error) *AuthError {
+	return NewAuthError(CodeUsernameTaken, "Username is already taken", internal)
 }
 
 // ToExternalCode converts internal error codes to external (safe) codes.

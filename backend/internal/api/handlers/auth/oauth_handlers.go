@@ -5,14 +5,15 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"log"
 	"net/http"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
 	"psychic-homily-backend/internal/config"
+	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
 
 	"github.com/go-chi/chi/v5"
@@ -271,8 +272,9 @@ func (h *OAuthHTTPHandler) OAuthCallbackHTTPHandler(w http.ResponseWriter, r *ht
 	if err != nil {
 		log.Printf("OAuth callback failed: %v", err)
 		errorMessage := "authentication failed"
-		if strings.Contains(err.Error(), "terms acceptance required") || strings.Contains(err.Error(), "terms version is required") {
-			errorMessage = "Please accept the Terms of Service and Privacy Policy before creating an account."
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeTermsAcceptanceRequired {
+			errorMessage = authErr.UserMessage()
 		}
 
 		// Handle CLI callback error

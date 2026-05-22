@@ -2350,7 +2350,7 @@ func TestUpdateProfileHandler_Success(t *testing.T) {
 func TestUpdateProfileHandler_DuplicateUsername(t *testing.T) {
 	mock := &testhelpers.MockUserService{
 		UpdateUserFn: func(_ uint, _ map[string]any) (*authm.User, error) {
-			return nil, fmt.Errorf("ERROR: duplicate key value violates unique constraint")
+			return nil, autherrors.ErrUsernameTaken(fmt.Errorf("duplicate key value violates unique constraint"))
 		},
 	}
 	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())

@@ -254,6 +254,33 @@ func (s *OAuthHandlerIntegrationSuite) TestCallback_EmptyFrontendURL_Fallback() 
 		"expected fallback to localhost:3000, got %s", location)
 }
 
+// TestCallback_TermsNotAccepted_RedirectsWithTermsMessage: a new-user OAuth
+// callback that arrives without the signup-consent cookie surfaces a typed
+// CodeTermsAcceptanceRequired from the user service. PSY-792: the handler now
+// discriminates on the typed code (not a message substring) to pick the
+// terms-acceptance redirect message instead of the generic failure.
+func (s *OAuthHandlerIntegrationSuite) TestCallback_TermsNotAccepted_RedirectsWithTermsMessage() {
+	handler := s.newHandler(&mockOAuthCompleter{
+		user: goth.User{
+			Email:    "oauth-noterms@test.com",
+			Provider: "google",
+			UserID:   "google-noterms-789",
+			Name:     "No Terms User",
+		},
+	})
+
+	// No consent cookie → validateOAuthSignupConsent(nil) → terms error.
+	w, req := oauthCallbackRequest("google")
+	handler.OAuthCallbackHTTPHandler(w, req)
+
+	s.Equal(http.StatusTemporaryRedirect, w.Code)
+	location := w.Header().Get("Location")
+	s.True(strings.HasPrefix(location, "http://localhost:3000/auth?error="),
+		"expected redirect to frontend auth with error, got %s", location)
+	s.Contains(location, "Terms+of+Service",
+		"expected terms-acceptance message in redirect, got %s", location)
+}
+
 // --- OAuthCallbackHTTPHandler: success paths ---
 
 func (s *OAuthHandlerIntegrationSuite) TestCallback_Success_SetsCookieAndRedirects() {

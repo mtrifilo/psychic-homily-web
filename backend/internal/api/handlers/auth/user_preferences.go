@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
@@ -9,6 +10,7 @@ import (
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
+	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
@@ -229,11 +231,15 @@ func (h *UserPreferencesHandler) SetDefaultReplyPermissionHandler(ctx context.Co
 			"error", err.Error(),
 			"user_id", user.ID,
 		)
-		if strings.Contains(err.Error(), "invalid reply_permission") {
+		// Defence-in-depth: the handler already rejects unrecognized values
+		// above, but the service-layer enum check surfaces a typed
+		// CodeInvalidReplyPermission for the same 400 if it is ever reached.
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeInvalidReplyPermission {
 			return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
 		}
-		return nil, huma.Error422UnprocessableEntity(
-			fmt.Sprintf("Failed to update default reply permission: %s", err.Error()),
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to update default reply permission (request_id: %s)", logger.GetRequestID(ctx)),
 		)
 	}
 

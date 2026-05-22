@@ -15,6 +15,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
@@ -56,21 +57,21 @@ const maxFilterEmailsPerDay = 10
 // CreateFilter creates a new notification filter for a user.
 func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.CreateFilterInput) (*notificationm.NotificationFilter, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrFilterInternal(fmt.Errorf("database not initialized"))
 	}
 
 	// Validate at least one criteria is set
 	if !hasAnyCriteria(input) {
-		return nil, fmt.Errorf("at least one filter criteria is required")
+		return nil, apperrors.ErrFilterValidation("at least one filter criteria is required")
 	}
 
 	// Check filter count limit
 	var count int64
 	if err := s.db.Model(&notificationm.NotificationFilter{}).Where("user_id = ?", userID).Count(&count).Error; err != nil {
-		return nil, fmt.Errorf("failed to count filters: %w", err)
+		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to count filters: %w", err))
 	}
 	if count >= maxFiltersPerUser {
-		return nil, fmt.Errorf("maximum of %d filters per user", maxFiltersPerUser)
+		return nil, apperrors.ErrFilterValidation(fmt.Sprintf("maximum of %d filters per user", maxFiltersPerUser))
 	}
 
 	now := time.Now().UTC()
@@ -96,7 +97,7 @@ func (s *NotificationFilterService) CreateFilter(userID uint, input contracts.Cr
 	}
 
 	if err := s.db.Create(&filter).Error; err != nil {
-		return nil, fmt.Errorf("failed to create filter: %w", err)
+		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to create filter: %w", err))
 	}
 
 	return &filter, nil
@@ -111,9 +112,9 @@ func (s *NotificationFilterService) UpdateFilter(userID uint, filterID uint, inp
 	var filter notificationm.NotificationFilter
 	if err := s.db.Where("id = ? AND user_id = ?", filterID, userID).First(&filter).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("filter not found")
+			return nil, apperrors.ErrFilterNotFound()
 		}
-		return nil, fmt.Errorf("failed to get filter: %w", err)
+		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to get filter: %w", err))
 	}
 
 	updates := map[string]interface{}{
@@ -155,12 +156,12 @@ func (s *NotificationFilterService) UpdateFilter(userID uint, filterID uint, inp
 	}
 
 	if err := s.db.Model(&filter).Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("failed to update filter: %w", err)
+		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to update filter: %w", err))
 	}
 
 	// Reload
 	if err := s.db.First(&filter, filterID).Error; err != nil {
-		return nil, fmt.Errorf("failed to reload filter: %w", err)
+		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to reload filter: %w", err))
 	}
 
 	return &filter, nil
@@ -169,15 +170,15 @@ func (s *NotificationFilterService) UpdateFilter(userID uint, filterID uint, inp
 // DeleteFilter deletes a filter owned by the user.
 func (s *NotificationFilterService) DeleteFilter(userID uint, filterID uint) error {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return apperrors.ErrFilterInternal(fmt.Errorf("database not initialized"))
 	}
 
 	result := s.db.Where("id = ? AND user_id = ?", filterID, userID).Delete(&notificationm.NotificationFilter{})
 	if result.Error != nil {
-		return fmt.Errorf("failed to delete filter: %w", result.Error)
+		return apperrors.ErrFilterInternal(fmt.Errorf("failed to delete filter: %w", result.Error))
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("filter not found")
+		return apperrors.ErrFilterNotFound()
 	}
 	return nil
 }

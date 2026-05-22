@@ -202,3 +202,36 @@ func TestMapAttendanceError_NonAttendanceErrorReturnsNil(t *testing.T) {
 		t.Errorf("MapAttendanceError(unknown code) = %v, want nil", got)
 	}
 }
+
+func TestMapNotificationFilterError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.NotificationFilterError
+		status int
+	}{
+		{"not found", apperrors.ErrFilterNotFound(), 404},
+		{"validation", apperrors.ErrFilterValidation("at least one filter criteria is required"), 422},
+		{"internal", apperrors.ErrFilterInternal(stderrors.New("db down")), 500},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapNotificationFilterError(tc.err)
+			if got == nil {
+				t.Fatalf("MapNotificationFilterError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapNotificationFilterError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapNotificationFilterError_NonFilterErrorReturnsNil(t *testing.T) {
+	if got := MapNotificationFilterError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapNotificationFilterError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.NotificationFilterError{Code: "FILTER_NEW_CODE", Message: "x"}
+	if got := MapNotificationFilterError(unknown); got != nil {
+		t.Errorf("MapNotificationFilterError(unknown code) = %v, want nil", got)
+	}
+}
