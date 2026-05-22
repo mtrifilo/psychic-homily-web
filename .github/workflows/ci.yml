@@ -146,12 +146,12 @@ jobs:
           flags: backend
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  # PSY-771: the committed testhelpers/mocks_gen.go is generated. It drifted
-  # from its generator once already because the regen workflow has two steps
-  # (go run + gofmt) and a prior change committed only the raw `go run` output,
-  # leaving the file gofmt-noncompliant. There's no general gofmt/lint gate on
-  # CI, so nothing caught it. This job re-runs the documented two-step regen and
-  # fails if the committed file differs — cheap (no DB, just the generator).
+  # PSY-771/PSY-794: the committed testhelpers/mocks_gen.go is generated. It
+  # drifted from its generator once before, so this job re-runs the generator
+  # and fails if the committed file differs — cheap (no DB, just the generator).
+  # The generator is self-formatting (go/format) and writes the file itself via
+  # a cwd-independent `//go:generate` directive, so `go generate ./...` is the
+  # single source of truth (no separate gofmt step).
   mocks-gen-check:
     name: Mocks Generator Drift
     runs-on: ubuntu-latest
@@ -166,17 +166,15 @@ jobs:
       - name: Regenerate mocks and assert no drift
         working-directory: ./backend
         run: |
-          go run ./internal/api/handlers/gen/ > internal/api/handlers/shared/testhelpers/mocks_gen.go
-          gofmt -w internal/api/handlers/shared/testhelpers/mocks_gen.go
+          go generate ./...
           if ! git diff --exit-code -- internal/api/handlers/shared/testhelpers/mocks_gen.go; then
             echo ""
             echo "ERROR: mocks_gen.go is stale relative to its generator."
-            echo "Regenerate and commit the result (BOTH steps are required):"
-            echo "  cd backend && go run ./internal/api/handlers/gen/ > ./internal/api/handlers/shared/testhelpers/mocks_gen.go"
-            echo "  gofmt -w ./internal/api/handlers/shared/testhelpers/mocks_gen.go"
+            echo "Regenerate and commit the result:"
+            echo "  cd backend && go generate ./..."
             exit 1
           fi
-          echo "OK: mocks_gen.go matches go run + gofmt output"
+          echo "OK: mocks_gen.go matches go generate output"
 
   frontend-unit-tests:
     name: Frontend Unit Tests
