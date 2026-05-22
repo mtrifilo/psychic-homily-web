@@ -41,7 +41,7 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 	var existingArtist catalogm.Artist
 	err := s.db.Where("LOWER(name) = LOWER(?)", req.Name).First(&existingArtist).Error
 	if err == nil {
-		return nil, fmt.Errorf("artist with name '%s' already exists", req.Name)
+		return nil, apperrors.ErrArtistExists(req.Name)
 	} else if err != gorm.ErrRecordNotFound {
 		return nil, fmt.Errorf("failed to check existing artist: %w", err)
 	}
@@ -864,13 +864,13 @@ func (s *ArtistService) AddArtistAlias(artistID uint, alias string) (*contracts.
 	// Check for duplicate alias (case-insensitive)
 	var existing catalogm.ArtistAlias
 	if err := s.db.Where("LOWER(alias) = LOWER(?)", alias).First(&existing).Error; err == nil {
-		return nil, fmt.Errorf("alias '%s' already exists", alias)
+		return nil, apperrors.ErrArtistAliasExists(fmt.Sprintf("alias '%s' already exists", alias))
 	}
 
 	// Check if alias matches an existing artist name
 	var existingArtist catalogm.Artist
 	if err := s.db.Where("LOWER(name) = LOWER(?)", alias).First(&existingArtist).Error; err == nil {
-		return nil, fmt.Errorf("alias '%s' conflicts with existing artist name", alias)
+		return nil, apperrors.ErrArtistAliasExists(fmt.Sprintf("alias '%s' conflicts with existing artist name", alias))
 	}
 
 	artistAlias := &catalogm.ArtistAlias{
@@ -901,7 +901,7 @@ func (s *ArtistService) RemoveArtistAlias(aliasID uint) error {
 		return fmt.Errorf("failed to delete alias: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("alias not found")
+		return apperrors.ErrArtistAliasNotFound()
 	}
 
 	return nil
@@ -954,7 +954,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 	}
 
 	if canonicalID == mergeFromID {
-		return nil, fmt.Errorf("cannot merge an artist with itself")
+		return nil, apperrors.ErrArtistMergeSelf()
 	}
 
 	// Verify both artists exist

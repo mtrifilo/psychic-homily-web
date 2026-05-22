@@ -63,8 +63,8 @@ func (h *FestivalIntelligenceHandler) GetSimilarFestivalsHandler(ctx context.Con
 
 	similar, err := h.intelligenceService.GetSimilarFestivals(festivalID, limit)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Festival not found")
+		if mapped := shared.MapFestivalIntelligenceError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to compute similar festivals", err)
 	}
@@ -96,8 +96,8 @@ func (h *FestivalIntelligenceHandler) GetFestivalOverlapHandler(ctx context.Cont
 
 	overlap, err := h.intelligenceService.GetFestivalOverlap(festivalAID, festivalBID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Festival not found")
+		if mapped := shared.MapFestivalIntelligenceError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to compute festival overlap", err)
 	}
@@ -121,8 +121,8 @@ func (h *FestivalIntelligenceHandler) GetFestivalBreakoutsHandler(ctx context.Co
 
 	breakouts, err := h.intelligenceService.GetFestivalBreakouts(festivalID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Festival not found")
+		if mapped := shared.MapFestivalIntelligenceError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to compute breakouts", err)
 	}
@@ -146,8 +146,8 @@ func (h *FestivalIntelligenceHandler) GetArtistFestivalTrajectoryHandler(ctx con
 
 	trajectory, err := h.intelligenceService.GetArtistFestivalTrajectory(artistID)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Artist not found")
+		if mapped := shared.MapFestivalIntelligenceError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to compute trajectory", err)
 	}
@@ -190,11 +190,8 @@ func (h *FestivalIntelligenceHandler) GetSeriesComparisonHandler(ctx context.Con
 
 	comparison, err := h.intelligenceService.GetSeriesComparison(req.SeriesSlug, years)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") || strings.Contains(err.Error(), "no festivals found") {
-			return nil, huma.Error404NotFound(err.Error())
-		}
-		if strings.Contains(err.Error(), "at least 2 years") {
-			return nil, huma.Error422UnprocessableEntity(err.Error())
+		if mapped := shared.MapFestivalIntelligenceError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to compute series comparison", err)
 	}

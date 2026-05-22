@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -122,7 +123,7 @@ func TestGetSceneDetail_SceneNotFound(t *testing.T) {
 			return "Tiny", "XX", nil
 		},
 		GetSceneDetailFn: func(city, state string) (*contracts.SceneDetailResponse, error) {
-			return nil, fmt.Errorf("scene not found: %s, %s", city, state)
+			return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 		},
 	}
 	h := NewSceneHandler(mock)
@@ -196,7 +197,7 @@ func TestGetSceneActiveArtists_SceneNotFound(t *testing.T) {
 			return "Tiny", "XX", nil
 		},
 		GetActiveArtistsFn: func(city, state string, periodDays, limit, offset int) ([]*contracts.SceneArtistResponse, int64, error) {
-			return nil, 0, fmt.Errorf("scene not found: %s, %s", city, state)
+			return nil, 0, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 		},
 	}
 	h := NewSceneHandler(mock)
@@ -313,7 +314,7 @@ func TestGetSceneGraph_SceneNotFound(t *testing.T) {
 			return "Tiny", "XX", nil
 		},
 		GetSceneGraphFn: func(city, state string, _ []string) (*contracts.SceneGraphResponse, error) {
-			return nil, fmt.Errorf("scene not found: %s, %s", city, state)
+			return nil, apperrors.ErrSceneNotFound(fmt.Sprintf("scene not found: %s, %s", city, state))
 		},
 	}
 	h := NewSceneHandler(mock)
@@ -349,25 +350,6 @@ func TestParseTypesQueryParam(t *testing.T) {
 	got := parseTypesQueryParam(" similar , shared_bills ")
 	if len(got) != 2 || got[0] != "similar" || got[1] != "shared_bills" {
 		t.Errorf("parseTypesQueryParam = %v, want [similar shared_bills]", got)
-	}
-}
-
-// ============================================================================
-// isSceneNotFoundErr Tests
-// ============================================================================
-
-func TestIsSceneNotFoundErr(t *testing.T) {
-	if !isSceneNotFoundErr(fmt.Errorf("scene not found: Phoenix, AZ")) {
-		t.Error("expected true for scene not found error")
-	}
-	if !isSceneNotFoundErr(fmt.Errorf("scene not found for slug: phoenix-az")) {
-		t.Error("expected true for scene not found for slug")
-	}
-	if isSceneNotFoundErr(fmt.Errorf("database error")) {
-		t.Error("expected false for non-scene error")
-	}
-	if isSceneNotFoundErr(nil) {
-		t.Error("expected false for nil error")
 	}
 }
 

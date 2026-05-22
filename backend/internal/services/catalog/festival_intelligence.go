@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -136,7 +137,7 @@ func (s *FestivalIntelligenceService) GetSimilarFestivals(festivalID uint, limit
 	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("festival not found")
+			return nil, apperrors.ErrFestivalIntelNotFound("festival not found")
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)
 	}
@@ -376,10 +377,10 @@ func (s *FestivalIntelligenceService) GetFestivalOverlap(festivalAID, festivalBI
 	// Verify both festivals exist
 	var festA, festB catalogm.Festival
 	if err := s.db.First(&festA, festivalAID).Error; err != nil {
-		return nil, fmt.Errorf("festival A not found")
+		return nil, apperrors.ErrFestivalIntelNotFound("festival A not found")
 	}
 	if err := s.db.First(&festB, festivalBID).Error; err != nil {
-		return nil, fmt.Errorf("festival B not found")
+		return nil, apperrors.ErrFestivalIntelNotFound("festival B not found")
 	}
 
 	// Get artists for both festivals
@@ -490,7 +491,7 @@ func (s *FestivalIntelligenceService) GetFestivalBreakouts(festivalID uint) (*co
 	// Verify festival exists and get its info
 	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
-		return nil, fmt.Errorf("festival not found")
+		return nil, apperrors.ErrFestivalIntelNotFound("festival not found")
 	}
 
 	// Get artists at this festival
@@ -679,7 +680,7 @@ func (s *FestivalIntelligenceService) GetArtistFestivalTrajectory(artistID uint)
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		return nil, fmt.Errorf("artist not found")
+		return nil, apperrors.ErrFestivalIntelNotFound("artist not found")
 	}
 
 	artistSlug := ""
@@ -770,7 +771,7 @@ func (s *FestivalIntelligenceService) GetSeriesComparison(seriesSlug string, yea
 	}
 
 	if len(years) < 2 {
-		return nil, fmt.Errorf("at least 2 years required for comparison")
+		return nil, apperrors.ErrFestivalIntelInsufficientYears()
 	}
 
 	// Sort years ascending
@@ -785,7 +786,7 @@ func (s *FestivalIntelligenceService) GetSeriesComparison(seriesSlug string, yea
 	}
 
 	if len(festivals) == 0 {
-		return nil, fmt.Errorf("no festivals found for series '%s' in the requested years", seriesSlug)
+		return nil, apperrors.ErrFestivalIntelNoFestivals(seriesSlug)
 	}
 
 	// Get festival IDs and build editions

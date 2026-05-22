@@ -10,6 +10,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -343,7 +344,7 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 	// 1. Get center artist details
 	var centerArtist catalogm.Artist
 	if err := s.db.First(&centerArtist, artistID).Error; err != nil {
-		return nil, fmt.Errorf("artist not found: %w", err)
+		return nil, apperrors.ErrArtistNotFound(artistID)
 	}
 
 	centerSlug := ""
@@ -637,7 +638,7 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 	// 1. Center artist
 	var centerArtist catalogm.Artist
 	if err := s.db.First(&centerArtist, artistID).Error; err != nil {
-		return nil, fmt.Errorf("artist not found: %w", err)
+		return nil, apperrors.ErrArtistNotFound(artistID)
 	}
 
 	centerNode := buildArtistGraphNode(centerArtist, 0)

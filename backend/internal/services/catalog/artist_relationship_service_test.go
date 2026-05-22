@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -8,6 +9,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/testutil"
@@ -460,7 +462,9 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_E
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_ArtistNotFound() {
 	_, err := suite.svc.GetArtistGraph(99999, nil, 0)
 	suite.Assert().Error(err)
-	suite.Assert().Contains(err.Error(), "artist not found")
+	var artistErr *apperrors.ArtistError
+	suite.Require().True(errors.As(err, &artistErr), "expected *apperrors.ArtistError, got %T", err)
+	suite.Assert().Equal(apperrors.CodeArtistNotFound, artistErr.Code)
 }
 
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_UpcomingShowCounts() {

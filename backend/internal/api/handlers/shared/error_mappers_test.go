@@ -226,6 +226,35 @@ func TestMapNotificationFilterError_CodeToStatus(t *testing.T) {
 	}
 }
 
+func TestMapArtistError_CodeToStatus(t *testing.T) {
+	// Cover the whole switch so a future code added without a status mapping is
+	// caught. HasShows is 409 (preserves the artist delete handler's existing
+	// conflict status — intentionally distinct from venue HasShows, which is 422).
+	cases := []struct {
+		name   string
+		err    *apperrors.ArtistError
+		status int
+	}{
+		{"not found", apperrors.ErrArtistNotFound(7), 404},
+		{"alias not found", apperrors.ErrArtistAliasNotFound(), 404},
+		{"exists", apperrors.ErrArtistExists("Frozen Soul"), 409},
+		{"alias exists", apperrors.ErrArtistAliasExists("alias 'x' already exists"), 409},
+		{"has shows", apperrors.ErrArtistHasShows(7, 3), 409},
+		{"merge self", apperrors.ErrArtistMergeSelf(), 422},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapArtistError(tc.err)
+			if got == nil {
+				t.Fatalf("MapArtistError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapArtistError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
 func TestMapNotificationFilterError_NonFilterErrorReturnsNil(t *testing.T) {
 	if got := MapNotificationFilterError(stderrors.New("boom")); got != nil {
 		t.Errorf("MapNotificationFilterError(plain error) = %v, want nil", got)
@@ -233,5 +262,134 @@ func TestMapNotificationFilterError_NonFilterErrorReturnsNil(t *testing.T) {
 	unknown := &apperrors.NotificationFilterError{Code: "FILTER_NEW_CODE", Message: "x"}
 	if got := MapNotificationFilterError(unknown); got != nil {
 		t.Errorf("MapNotificationFilterError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapArtistError_NonArtistErrorReturnsNil(t *testing.T) {
+	if got := MapArtistError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapArtistError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.ArtistError{Code: "ARTIST_NEW_CODE", Message: "x"}
+	if got := MapArtistError(unknown); got != nil {
+		t.Errorf("MapArtistError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapVenueError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.VenueError
+		status int
+	}{
+		{"not found", apperrors.ErrVenueNotFound(7), 404},
+		{"has shows", apperrors.ErrVenueHasShows(7, 3), 422},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapVenueError(tc.err)
+			if got == nil {
+				t.Fatalf("MapVenueError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapVenueError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapVenueError_NonVenueErrorReturnsNil(t *testing.T) {
+	if got := MapVenueError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapVenueError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.VenueError{Code: "VENUE_NEW_CODE", Message: "x"}
+	if got := MapVenueError(unknown); got != nil {
+		t.Errorf("MapVenueError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapFestivalError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.FestivalError
+		status int
+	}{
+		{"not found", apperrors.ErrFestivalNotFound(7), 404},
+		{"artist not found", apperrors.ErrFestivalArtistNotFound(), 404},
+		{"artist not in lineup", apperrors.ErrFestivalArtistNotInLineup(), 404},
+		{"venue not found", apperrors.ErrFestivalVenueNotFound(), 404},
+		{"venue not in festival", apperrors.ErrFestivalVenueNotInFestival(), 404},
+		{"exists", apperrors.ErrFestivalExists("M3F 2026"), 409},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapFestivalError(tc.err)
+			if got == nil {
+				t.Fatalf("MapFestivalError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapFestivalError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapFestivalError_NonFestivalErrorReturnsNil(t *testing.T) {
+	if got := MapFestivalError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapFestivalError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.FestivalError{Code: "FESTIVAL_NEW_CODE", Message: "x"}
+	if got := MapFestivalError(unknown); got != nil {
+		t.Errorf("MapFestivalError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapFestivalIntelligenceError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.FestivalIntelligenceError
+		status int
+	}{
+		{"not found", apperrors.ErrFestivalIntelNotFound("festival A not found"), 404},
+		{"no festivals", apperrors.ErrFestivalIntelNoFestivals("m3f"), 404},
+		{"insufficient years", apperrors.ErrFestivalIntelInsufficientYears(), 422},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapFestivalIntelligenceError(tc.err)
+			if got == nil {
+				t.Fatalf("MapFestivalIntelligenceError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapFestivalIntelligenceError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapFestivalIntelligenceError_NonIntelErrorReturnsNil(t *testing.T) {
+	if got := MapFestivalIntelligenceError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapFestivalIntelligenceError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.FestivalIntelligenceError{Code: "FESTIVAL_INTEL_NEW_CODE", Message: "x"}
+	if got := MapFestivalIntelligenceError(unknown); got != nil {
+		t.Errorf("MapFestivalIntelligenceError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapSceneError_CodeToStatus(t *testing.T) {
+	if got := MapSceneError(apperrors.ErrSceneNotFound("scene not found: Phoenix, AZ")); got == nil {
+		t.Fatal("MapSceneError(scene not found) = nil, want 404")
+	} else if s := statusOf(t, got); s != 404 {
+		t.Errorf("scene-not-found status = %d, want 404", s)
+	}
+}
+
+func TestMapSceneError_NonSceneErrorReturnsNil(t *testing.T) {
+	if got := MapSceneError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapSceneError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.SceneError{Code: "SCENE_NEW_CODE", Message: "x"}
+	if got := MapSceneError(unknown); got != nil {
+		t.Errorf("MapSceneError(unknown code) = %v, want nil", got)
 	}
 }

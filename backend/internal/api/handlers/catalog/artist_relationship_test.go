@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -295,8 +296,8 @@ func TestGetArtistBillComposition_NotFound(t *testing.T) {
 	h := NewArtistRelationshipHandler(
 		&testhelpers.MockArtistRelationshipService{
 			GetArtistBillCompositionFn: func(_ uint, _ int) (*contracts.ArtistBillComposition, error) {
-				// Handler maps an "artist not found"-prefixed error to 404.
-				return nil, fmt.Errorf("artist not found: 99")
+				// Handler maps the typed ArtistError (not-found) to 404.
+				return nil, apperrors.ErrArtistNotFound(99)
 			},
 		},
 		nil,
