@@ -171,19 +171,17 @@ func MapNotificationFilterError(err error) error {
 // Returns nil if err is not a *apperrors.ArtistError, leaving the caller free
 // to fall through to a generic 500.
 //
-// PSY-791: replaces the strings.Contains(err.Error(), ...) discrimination in
-// the artist catalog handlers. Not-found (artist or alias) → 404; name/alias
-// collision → 409 conflict; merge-into-self → 422 (semantic validation).
-// HasShows preserves the artist handler's existing 409 (conflict on delete).
+// Not-found (artist or alias) → 404; name/alias collision and delete-blocked-
+// by-shows → 409 conflict; merge-into-self → 422 (semantic validation).
+// HasShows is 409 here — intentionally distinct from venue HasShows (422) —
+// to preserve each handler's pre-existing status contract.
 func MapArtistError(err error) error {
 	var artistErr *apperrors.ArtistError
 	if errors.As(err, &artistErr) {
 		switch artistErr.Code {
 		case apperrors.CodeArtistNotFound, apperrors.CodeArtistAliasNotFound:
 			return huma.Error404NotFound(artistErr.Message)
-		case apperrors.CodeArtistExists, apperrors.CodeArtistAliasExists:
-			return huma.Error409Conflict(artistErr.Message)
-		case apperrors.CodeArtistHasShows:
+		case apperrors.CodeArtistExists, apperrors.CodeArtistAliasExists, apperrors.CodeArtistHasShows:
 			return huma.Error409Conflict(artistErr.Message)
 		case apperrors.CodeArtistMergeSelf:
 			return huma.Error422UnprocessableEntity(artistErr.Message)
@@ -195,10 +193,8 @@ func MapArtistError(err error) error {
 // MapVenueError converts a VenueError to an appropriate Huma HTTP error.
 // Returns nil if err is not a *apperrors.VenueError.
 //
-// PSY-791: centralises the venue handler's inline errors.As discrimination.
-// Not-found → 404; HasShows → 422 (preserves the venue handler's existing
-// "cannot delete, associated with shows" status — note this intentionally
-// differs from artist HasShows, which is 409).
+// Not-found → 404; HasShows → 422 (the "cannot delete, associated with shows"
+// status — intentionally distinct from artist HasShows, which is 409).
 func MapVenueError(err error) error {
 	var venueErr *apperrors.VenueError
 	if errors.As(err, &venueErr) {
@@ -215,9 +211,8 @@ func MapVenueError(err error) error {
 // MapFestivalError converts a FestivalError to an appropriate Huma HTTP error.
 // Returns nil if err is not a *apperrors.FestivalError.
 //
-// PSY-791: replaces the err.Error() == "..." discrimination in the festival
-// catalog handlers. Festival/artist/venue not-found (and not-in-lineup /
-// not-in-festival) all map to 404; an already-exists festival → 409.
+// Festival/artist/venue not-found (and not-in-lineup / not-in-festival) all
+// map to 404; an already-exists festival → 409.
 func MapFestivalError(err error) error {
 	var festivalErr *apperrors.FestivalError
 	if errors.As(err, &festivalErr) {
@@ -239,11 +234,9 @@ func MapFestivalError(err error) error {
 // appropriate Huma HTTP error. Returns nil if err is not a
 // *apperrors.FestivalIntelligenceError.
 //
-// PSY-791: replaces the strings.Contains(err.Error(), ...) discrimination in
-// festival_intelligence.go. Referenced-entity / no-festivals-for-series →
-// 404; too-few-years → 422 (semantic validation). The not-found and
-// no-festivals messages are preserved so the series-comparison handler's
-// err.Error()-as-message behaviour is unchanged.
+// Referenced-entity / no-festivals-for-series → 404; too-few-years → 422
+// (semantic validation). Each typed error carries its own message so the
+// series-comparison handler's caller-supplied copy is surfaced verbatim.
 func MapFestivalIntelligenceError(err error) error {
 	var intelErr *apperrors.FestivalIntelligenceError
 	if errors.As(err, &intelErr) {
@@ -260,7 +253,6 @@ func MapFestivalIntelligenceError(err error) error {
 // MapSceneError converts a SceneError to an appropriate Huma HTTP error.
 // Returns nil if err is not a *apperrors.SceneError.
 //
-// PSY-791: replaces the isSceneNotFoundErr string-prefix helper in scene.go.
 // Scene-not-found → 404; database faults fall through to the generic 500.
 func MapSceneError(err error) error {
 	var sceneErr *apperrors.SceneError
