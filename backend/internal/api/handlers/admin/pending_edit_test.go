@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -294,7 +295,7 @@ func TestSuggestEdit_EntityNotFound(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
 			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
-				return nil, fmt.Errorf("entity not found: artist 99999")
+				return nil, apperrors.ErrPendingEditEntityNotFound("artist", 99999)
 			},
 		},
 		nil,
@@ -312,7 +313,7 @@ func TestSuggestEdit_DuplicatePending(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
 			CreatePendingEditFn: func(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
-				return nil, fmt.Errorf("failed to create pending edit: duplicate key value violates unique constraint")
+				return nil, apperrors.ErrPendingEditDuplicate(fmt.Errorf("duplicate key value violates unique constraint"))
 			},
 		},
 		nil,
@@ -404,7 +405,7 @@ func TestCancelMyPendingEdit_NotFound(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
 			CancelPendingEditFn: func(editID, userID uint) error {
-				return fmt.Errorf("pending edit not found")
+				return apperrors.ErrPendingEditNotFound()
 			},
 		},
 		nil,
@@ -418,7 +419,7 @@ func TestCancelMyPendingEdit_WrongUser(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
 			CancelPendingEditFn: func(editID, userID uint) error {
-				return fmt.Errorf("only the submitter can cancel")
+				return apperrors.ErrPendingEditNotSubmitter()
 			},
 		},
 		nil,
@@ -533,7 +534,7 @@ func TestAdminApprove_NotFound(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
 			ApprovePendingEditFn: func(editID, rID uint) (*contracts.PendingEditResponse, error) {
-				return nil, fmt.Errorf("pending edit not found")
+				return nil, apperrors.ErrPendingEditNotFound()
 			},
 		},
 		nil,
@@ -547,7 +548,7 @@ func TestAdminApprove_AlreadyReviewed(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
 			ApprovePendingEditFn: func(editID, rID uint) (*contracts.PendingEditResponse, error) {
-				return nil, fmt.Errorf("edit is not pending (status: approved)")
+				return nil, apperrors.ErrPendingEditNotPending("approved")
 			},
 		},
 		nil,
@@ -606,7 +607,7 @@ func TestAdminReject_NotFound(t *testing.T) {
 	h := NewPendingEditHandler(
 		&testhelpers.MockPendingEditService{
 			RejectPendingEditFn: func(editID, rID uint, r string) (*contracts.PendingEditResponse, error) {
-				return nil, fmt.Errorf("pending edit not found")
+				return nil, apperrors.ErrPendingEditNotFound()
 			},
 		},
 		nil,

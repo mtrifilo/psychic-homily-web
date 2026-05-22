@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -97,8 +98,8 @@ func TestEvaluateUserHandler_Success(t *testing.T) {
 func TestEvaluateUserHandler_NotFound(t *testing.T) {
 	mock := &testhelpers.MockAutoPromotionService{
 		EvaluateUserFn: func(_ uint) (*contracts.UserEvaluationResult, error) {
-			// The handler matches on this exact message to return 404.
-			return nil, fmt.Errorf("user not found")
+			// The handler maps the typed user-not-found error to 404.
+			return nil, apperrors.ErrAutoPromotionUserNotFound()
 		},
 	}
 	h := NewAutoPromotionHandler(mock)

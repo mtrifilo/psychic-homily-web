@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -107,8 +108,8 @@ func TestGetLeaderboard_UserRankErrorIsNonFatal(t *testing.T) {
 func TestGetLeaderboard_InvalidDimension(t *testing.T) {
 	mock := &testhelpers.MockLeaderboardService{
 		GetLeaderboardFn: func(dimension, _ string, _ int) ([]contracts.LeaderboardEntry, error) {
-			// Handler maps this exact message to 422.
-			return nil, fmt.Errorf("invalid dimension: %s", dimension)
+			// Handler maps the typed invalid-dimension error to 422.
+			return nil, apperrors.ErrLeaderboardInvalidDimension(dimension)
 		},
 	}
 	h := NewLeaderboardHandler(mock)

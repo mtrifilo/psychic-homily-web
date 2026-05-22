@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	communitym "psychic-homily-backend/internal/models/community"
@@ -110,11 +111,8 @@ func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType strin
 		Details:    req.Body.Details,
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "entity not found") {
-			return nil, huma.Error404NotFound(err.Error())
-		}
-		if strings.Contains(err.Error(), "already have a pending report") {
-			return nil, huma.Error409Conflict(err.Error())
+		if mapped := shared.MapEntityReportError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("entity_report_create_failed",
 			"user_id", user.ID,
@@ -240,11 +238,8 @@ func (h *EntityReportHandler) AdminResolveEntityReportHandler(ctx context.Contex
 
 	resolved, err := h.entityReportService.ResolveEntityReport(uint(reportID), user.ID, notes)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Report not found")
-		}
-		if strings.Contains(err.Error(), "already been reviewed") {
-			return nil, huma.Error409Conflict(err.Error())
+		if mapped := shared.MapEntityReportError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("entity_report_resolve_failed",
 			"report_id", reportID,
@@ -305,11 +300,8 @@ func (h *EntityReportHandler) AdminDismissEntityReportHandler(ctx context.Contex
 
 	dismissed, err := h.entityReportService.DismissEntityReport(uint(reportID), user.ID, notes)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Report not found")
-		}
-		if strings.Contains(err.Error(), "already been reviewed") {
-			return nil, huma.Error409Conflict(err.Error())
+		if mapped := shared.MapEntityReportError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("entity_report_dismiss_failed",
 			"report_id", reportID,

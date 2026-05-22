@@ -160,11 +160,8 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 		Summary:    summary,
 	})
 	if err != nil {
-		if strings.Contains(err.Error(), "entity not found") {
-			return nil, huma.Error404NotFound(err.Error())
-		}
-		if strings.Contains(err.Error(), "duplicate key") || strings.Contains(err.Error(), "unique constraint") {
-			return nil, huma.Error409Conflict("You already have a pending edit for this entity")
+		if mapped := shared.MapPendingEditError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("pending_edit_create_failed",
 			"user_id", user.ID,
@@ -283,14 +280,8 @@ func (h *PendingEditHandler) CancelMyPendingEditHandler(ctx context.Context, req
 	}
 
 	if err := h.pendingEditService.CancelPendingEdit(uint(editID), user.ID); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Pending edit not found")
-		}
-		if strings.Contains(err.Error(), "only the submitter") {
-			return nil, huma.Error403Forbidden("You can only cancel your own pending edits")
-		}
-		if strings.Contains(err.Error(), "not pending") {
-			return nil, huma.Error409Conflict("This edit has already been reviewed")
+		if mapped := shared.MapPendingEditError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("pending_edit_cancel_failed",
 			"user_id", user.ID,
@@ -399,7 +390,9 @@ func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context,
 		// PSY-572: pending_edit carried fields not on the per-entity allowlist.
 		// The service has already auto-marked the row 'rejected' and logged
 		// the rejected fields with the edit ID + admin user ID; surface a 400
-		// so the admin UI can show which fields blocked the approval.
+		// so the admin UI can show which fields blocked the approval. This is a
+		// distinct sentinel (not a PendingEditError), so it is checked before
+		// the typed mapper.
 		if errors.Is(err, adminm.ErrPendingEditDisallowedFields) {
 			rejected := strings.TrimPrefix(err.Error(), adminm.ErrPendingEditDisallowedFields.Error()+": ")
 			return nil, huma.Error400BadRequest(fmt.Sprintf(
@@ -407,14 +400,8 @@ func (h *PendingEditHandler) AdminApprovePendingEditHandler(ctx context.Context,
 				rejected,
 			))
 		}
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Pending edit not found")
-		}
-		if strings.Contains(err.Error(), "not pending") {
-			return nil, huma.Error409Conflict(err.Error())
-		}
-		if strings.Contains(err.Error(), "entity not found") {
-			return nil, huma.Error422UnprocessableEntity("Entity no longer exists — cannot apply edit")
+		if mapped := shared.MapPendingEditError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("pending_edit_approve_failed",
 			"edit_id", editID,
@@ -480,11 +467,8 @@ func (h *PendingEditHandler) AdminRejectPendingEditHandler(ctx context.Context, 
 
 	rejected, err := h.pendingEditService.RejectPendingEdit(uint(editID), user.ID, reason)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Pending edit not found")
-		}
-		if strings.Contains(err.Error(), "not pending") {
-			return nil, huma.Error409Conflict(err.Error())
+		if mapped := shared.MapPendingEditError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("pending_edit_reject_failed",
 			"edit_id", editID,

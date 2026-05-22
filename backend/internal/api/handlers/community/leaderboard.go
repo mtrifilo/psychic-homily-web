@@ -5,6 +5,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -72,11 +73,8 @@ func (h *LeaderboardHandler) GetLeaderboardHandler(ctx context.Context, req *Get
 
 	entries, err := h.leaderboardService.GetLeaderboard(dimension, period, limit)
 	if err != nil {
-		if err.Error() == "invalid dimension: "+dimension {
-			return nil, huma.Error422UnprocessableEntity("Invalid dimension: " + dimension)
-		}
-		if err.Error() == "invalid period: "+period {
-			return nil, huma.Error422UnprocessableEntity("Invalid period: " + period)
+		if mapped := shared.MapLeaderboardError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("leaderboard_failed", "error", err.Error())
 		return nil, huma.Error500InternalServerError("Failed to get leaderboard")

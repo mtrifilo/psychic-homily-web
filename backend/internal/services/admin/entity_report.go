@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
@@ -28,14 +29,14 @@ func NewEntityReportService(database *gorm.DB) *EntityReportService {
 // CreateEntityReport submits a new report for an entity.
 func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("database not initialized"))
 	}
 
 	if !communitym.IsValidEntityReportEntityType(req.EntityType) {
-		return nil, fmt.Errorf("invalid entity type: %s", req.EntityType)
+		return nil, apperrors.ErrEntityReportInvalidEntityType(req.EntityType)
 	}
 	if !communitym.IsValidReportType(req.EntityType, req.ReportType) {
-		return nil, fmt.Errorf("invalid report type '%s' for entity type '%s'", req.ReportType, req.EntityType)
+		return nil, apperrors.ErrEntityReportInvalidReportType(req.ReportType, req.EntityType)
 	}
 
 	// Verify the entity exists
@@ -46,10 +47,10 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	}
 	var count int64
 	if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
-		return nil, fmt.Errorf("failed to verify entity: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to verify entity: %w", err))
 	}
 	if count == 0 {
-		return nil, fmt.Errorf("entity not found: %s %d", req.EntityType, req.EntityID)
+		return nil, apperrors.ErrEntityReportEntityNotFound(req.EntityType, req.EntityID)
 	}
 
 	// Check for existing pending report from this user for this entity
@@ -58,10 +59,10 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 		Where("entity_type = ? AND entity_id = ? AND reported_by = ? AND status = ?",
 			req.EntityType, req.EntityID, req.UserID, communitym.EntityReportStatusPending).
 		Count(&existingCount).Error; err != nil {
-		return nil, fmt.Errorf("failed to check existing report: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to check existing report: %w", err))
 	}
 	if existingCount > 0 {
-		return nil, fmt.Errorf("you already have a pending report for this entity")
+		return nil, apperrors.ErrEntityReportDuplicatePending()
 	}
 
 	report := &communitym.EntityReport{
@@ -74,7 +75,7 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 	}
 
 	if err := s.db.Create(report).Error; err != nil {
-		return nil, fmt.Errorf("failed to create entity report: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to create entity report: %w", err))
 	}
 
 	// Auto-hide comments with 3+ reports
@@ -101,7 +102,7 @@ func (s *EntityReportService) CreateEntityReport(req *contracts.CreateEntityRepo
 // GetEntityReport returns a single report by ID.
 func (s *EntityReportService) GetEntityReport(reportID uint) (*contracts.EntityReportResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var report communitym.EntityReport
@@ -110,7 +111,7 @@ func (s *EntityReportService) GetEntityReport(reportID uint) (*contracts.EntityR
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to get entity report: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to get entity report: %w", err))
 	}
 
 	return s.toResponse(&report), nil
@@ -119,7 +120,7 @@ func (s *EntityReportService) GetEntityReport(reportID uint) (*contracts.EntityR
 // GetEntityReports returns all reports for a specific entity.
 func (s *EntityReportService) GetEntityReports(entityType string, entityID uint) ([]contracts.EntityReportResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var reports []communitym.EntityReport
@@ -129,7 +130,7 @@ func (s *EntityReportService) GetEntityReports(entityType string, entityID uint)
 		Order("created_at DESC").
 		Find(&reports).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to get entity reports: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to get entity reports: %w", err))
 	}
 
 	return s.toResponses(reports), nil
@@ -138,7 +139,7 @@ func (s *EntityReportService) GetEntityReports(entityType string, entityID uint)
 // ListEntityReports returns reports for the admin review queue.
 func (s *EntityReportService) ListEntityReports(filters *contracts.EntityReportFilters) ([]contracts.EntityReportResponse, int64, error) {
 	if s.db == nil {
-		return nil, 0, fmt.Errorf("database not initialized")
+		return nil, 0, apperrors.ErrEntityReportInternal(fmt.Errorf("database not initialized"))
 	}
 
 	limit := 20
@@ -175,7 +176,7 @@ func (s *EntityReportService) ListEntityReports(filters *contracts.EntityReportF
 		Offset(offset).
 		Find(&reports).Error
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list entity reports: %w", err)
+		return nil, 0, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to list entity reports: %w", err))
 	}
 
 	return s.toResponses(reports), total, nil
@@ -184,19 +185,19 @@ func (s *EntityReportService) ListEntityReports(filters *contracts.EntityReportF
 // ResolveEntityReport marks a report as resolved (action was taken).
 func (s *EntityReportService) ResolveEntityReport(reportID uint, reviewerID uint, notes string) (*contracts.EntityReportResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var report communitym.EntityReport
 	if err := s.db.First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("report not found")
+			return nil, apperrors.ErrEntityReportNotFound()
 		}
-		return nil, fmt.Errorf("failed to get report: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to get report: %w", err))
 	}
 
 	if report.Status != communitym.EntityReportStatusPending {
-		return nil, fmt.Errorf("report has already been reviewed (status: %s)", report.Status)
+		return nil, apperrors.ErrEntityReportAlreadyReviewed(string(report.Status))
 	}
 
 	now := time.Now()
@@ -210,7 +211,7 @@ func (s *EntityReportService) ResolveEntityReport(reportID uint, reviewerID uint
 	}
 
 	if err := s.db.Model(&report).Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("failed to resolve report: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to resolve report: %w", err))
 	}
 
 	return s.GetEntityReport(reportID)
@@ -219,19 +220,19 @@ func (s *EntityReportService) ResolveEntityReport(reportID uint, reviewerID uint
 // DismissEntityReport marks a report as dismissed (spam/invalid).
 func (s *EntityReportService) DismissEntityReport(reportID uint, reviewerID uint, notes string) (*contracts.EntityReportResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var report communitym.EntityReport
 	if err := s.db.First(&report, reportID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("report not found")
+			return nil, apperrors.ErrEntityReportNotFound()
 		}
-		return nil, fmt.Errorf("failed to get report: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to get report: %w", err))
 	}
 
 	if report.Status != communitym.EntityReportStatusPending {
-		return nil, fmt.Errorf("report has already been reviewed (status: %s)", report.Status)
+		return nil, apperrors.ErrEntityReportAlreadyReviewed(string(report.Status))
 	}
 
 	now := time.Now()
@@ -245,7 +246,7 @@ func (s *EntityReportService) DismissEntityReport(reportID uint, reviewerID uint
 	}
 
 	if err := s.db.Model(&report).Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("failed to dismiss report: %w", err)
+		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to dismiss report: %w", err))
 	}
 
 	return s.GetEntityReport(reportID)

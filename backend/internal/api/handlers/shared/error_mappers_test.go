@@ -393,3 +393,187 @@ func TestMapSceneError_NonSceneErrorReturnsNil(t *testing.T) {
 		t.Errorf("MapSceneError(unknown code) = %v, want nil", got)
 	}
 }
+
+func TestMapEntityReportError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.EntityReportError
+		status int
+	}{
+		{"entity not found", apperrors.ErrEntityReportEntityNotFound("artist", 9), 404},
+		{"report not found", apperrors.ErrEntityReportNotFound(), 404},
+		{"duplicate pending", apperrors.ErrEntityReportDuplicatePending(), 409},
+		{"already reviewed", apperrors.ErrEntityReportAlreadyReviewed("resolved"), 409},
+		{"invalid entity type", apperrors.ErrEntityReportInvalidEntityType("planet"), 422},
+		{"invalid report type", apperrors.ErrEntityReportInvalidReportType("nope", "artist"), 422},
+		{"internal", apperrors.ErrEntityReportInternal(stderrors.New("db down")), 500},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapEntityReportError(tc.err)
+			if got == nil {
+				t.Fatalf("MapEntityReportError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapEntityReportError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapEntityReportError_NonEntityReportErrorReturnsNil(t *testing.T) {
+	if got := MapEntityReportError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapEntityReportError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.EntityReportError{Code: "ENTITY_REPORT_NEW_CODE", Message: "x"}
+	if got := MapEntityReportError(unknown); got != nil {
+		t.Errorf("MapEntityReportError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapLeaderboardError_CodeToStatus(t *testing.T) {
+	if got := MapLeaderboardError(apperrors.ErrLeaderboardInvalidDimension("bogus")); got == nil {
+		t.Fatal("MapLeaderboardError(invalid dimension) = nil, want 422")
+	} else if s := statusOf(t, got); s != 422 {
+		t.Errorf("invalid-dimension status = %d, want 422", s)
+	}
+
+	if got := MapLeaderboardError(apperrors.ErrLeaderboardInvalidPeriod("decade")); got == nil {
+		t.Fatal("MapLeaderboardError(invalid period) = nil, want 422")
+	} else if s := statusOf(t, got); s != 422 {
+		t.Errorf("invalid-period status = %d, want 422", s)
+	}
+
+	if got := MapLeaderboardError(apperrors.ErrLeaderboardInternal(stderrors.New("db down"))); got == nil {
+		t.Fatal("MapLeaderboardError(internal) = nil, want 500")
+	} else if s := statusOf(t, got); s != 500 {
+		t.Errorf("internal status = %d, want 500", s)
+	}
+}
+
+func TestMapLeaderboardError_NonLeaderboardErrorReturnsNil(t *testing.T) {
+	if got := MapLeaderboardError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapLeaderboardError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.LeaderboardError{Code: "LEADERBOARD_NEW_CODE", Message: "x"}
+	if got := MapLeaderboardError(unknown); got != nil {
+		t.Errorf("MapLeaderboardError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapDataQualityError_CodeToStatus(t *testing.T) {
+	if got := MapDataQualityError(apperrors.ErrDataQualityUnknownCategory("nope")); got == nil {
+		t.Fatal("MapDataQualityError(unknown category) = nil, want 422")
+	} else if s := statusOf(t, got); s != 422 {
+		t.Errorf("unknown-category status = %d, want 422", s)
+	}
+
+	if got := MapDataQualityError(apperrors.ErrDataQualityInternal(stderrors.New("db down"))); got == nil {
+		t.Fatal("MapDataQualityError(internal) = nil, want 500")
+	} else if s := statusOf(t, got); s != 500 {
+		t.Errorf("internal status = %d, want 500", s)
+	}
+}
+
+func TestMapDataQualityError_NonDataQualityErrorReturnsNil(t *testing.T) {
+	if got := MapDataQualityError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapDataQualityError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.DataQualityError{Code: "DATA_QUALITY_NEW_CODE", Message: "x"}
+	if got := MapDataQualityError(unknown); got != nil {
+		t.Errorf("MapDataQualityError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapAutoPromotionError_CodeToStatus(t *testing.T) {
+	if got := MapAutoPromotionError(apperrors.ErrAutoPromotionUserNotFound()); got == nil {
+		t.Fatal("MapAutoPromotionError(user not found) = nil, want 404")
+	} else if s := statusOf(t, got); s != 404 {
+		t.Errorf("user-not-found status = %d, want 404", s)
+	}
+
+	if got := MapAutoPromotionError(apperrors.ErrAutoPromotionInternal(stderrors.New("db down"))); got == nil {
+		t.Fatal("MapAutoPromotionError(internal) = nil, want 500")
+	} else if s := statusOf(t, got); s != 500 {
+		t.Errorf("internal status = %d, want 500", s)
+	}
+}
+
+func TestMapAutoPromotionError_NonAutoPromotionErrorReturnsNil(t *testing.T) {
+	if got := MapAutoPromotionError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapAutoPromotionError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.AutoPromotionError{Code: "AUTO_PROMOTION_NEW_CODE", Message: "x"}
+	if got := MapAutoPromotionError(unknown); got != nil {
+		t.Errorf("MapAutoPromotionError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapProfileError_CodeToStatus(t *testing.T) {
+	if got := MapProfileError(apperrors.ErrProfileSectionNotFound()); got == nil {
+		t.Fatal("MapProfileError(section not found) = nil, want 404")
+	} else if s := statusOf(t, got); s != 404 {
+		t.Errorf("section-not-found status = %d, want 404", s)
+	}
+
+	if got := MapProfileError(apperrors.ErrProfileSectionInvalid("title too long")); got == nil {
+		t.Fatal("MapProfileError(section invalid) = nil, want 422")
+	} else if s := statusOf(t, got); s != 422 {
+		t.Errorf("section-invalid status = %d, want 422", s)
+	}
+
+	if got := MapProfileError(apperrors.ErrProfileInternal(stderrors.New("db down"))); got == nil {
+		t.Fatal("MapProfileError(internal) = nil, want 500")
+	} else if s := statusOf(t, got); s != 500 {
+		t.Errorf("internal status = %d, want 500", s)
+	}
+}
+
+func TestMapProfileError_NonProfileErrorReturnsNil(t *testing.T) {
+	if got := MapProfileError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapProfileError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.ProfileError{Code: "PROFILE_NEW_CODE", Message: "x"}
+	if got := MapProfileError(unknown); got != nil {
+		t.Errorf("MapProfileError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapPendingEditError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.PendingEditError
+		status int
+	}{
+		{"entity not found (create)", apperrors.ErrPendingEditEntityNotFound("artist", 9), 404},
+		{"entity gone (approve)", apperrors.ErrPendingEditEntityGone("artist", 9), 422},
+		{"edit not found", apperrors.ErrPendingEditNotFound(), 404},
+		{"not pending", apperrors.ErrPendingEditNotPending("approved"), 409},
+		{"duplicate", apperrors.ErrPendingEditDuplicate(stderrors.New("unique constraint")), 409},
+		{"not submitter", apperrors.ErrPendingEditNotSubmitter(), 403},
+		{"invalid entity type", apperrors.ErrPendingEditInvalidEntityType("show"), 422},
+		{"invalid request", apperrors.ErrPendingEditInvalidRequest("no changes provided"), 422},
+		{"internal", apperrors.ErrPendingEditInternal(stderrors.New("db down")), 500},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapPendingEditError(tc.err)
+			if got == nil {
+				t.Fatalf("MapPendingEditError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapPendingEditError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapPendingEditError_NonPendingEditErrorReturnsNil(t *testing.T) {
+	if got := MapPendingEditError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapPendingEditError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.PendingEditError{Code: "PENDING_EDIT_NEW_CODE", Message: "x"}
+	if got := MapPendingEditError(unknown); got != nil {
+		t.Errorf("MapPendingEditError(unknown code) = %v, want nil", got)
+	}
+}

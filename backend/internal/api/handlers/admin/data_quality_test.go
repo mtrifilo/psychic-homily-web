@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -164,7 +165,7 @@ func TestDataQualityHandler_Category_Success(t *testing.T) {
 func TestDataQualityHandler_Category_InvalidCategory(t *testing.T) {
 	h := NewDataQualityHandler(&testhelpers.MockDataQualityService{
 		GetCategoryItemsFn: func(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
-			return nil, 0, fmt.Errorf("unknown category: %s", category)
+			return nil, 0, apperrors.ErrDataQualityUnknownCategory(category)
 		},
 	})
 
