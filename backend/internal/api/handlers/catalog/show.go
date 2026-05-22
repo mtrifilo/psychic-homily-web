@@ -451,13 +451,6 @@ func (h *ShowHandler) CreateShowHandler(ctx context.Context, req *CreateShowRequ
 	}
 	h.discordService.NotifyNewShow(show, submitterEmail)
 
-	// Trigger music discovery for any newly created artists
-	for _, artist := range show.Artists {
-		if shared.Deref(artist.IsNewArtist) {
-			h.musicDiscoveryService.DiscoverMusicForArtist(artist.ID, artist.Name)
-		}
-	}
-
 	// Notify about any newly created unverified venues
 	for _, venue := range show.Venues {
 		if shared.Deref(venue.IsNewVenue) && !venue.Verified {
