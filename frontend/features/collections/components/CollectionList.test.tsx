@@ -4,8 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { CollectionList } from './CollectionList'
 import type { Collection } from '../types'
 
-// Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
+// Mock AuthContext — typed return so individual tests can hand in a
+// non-null user shape without tripping strictNullChecks (PSY-790 ratchet).
+type MockAuthValue = {
+  user: { id: string } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthValue>(() => ({
   user: null,
   isAuthenticated: false,
   isLoading: false,
