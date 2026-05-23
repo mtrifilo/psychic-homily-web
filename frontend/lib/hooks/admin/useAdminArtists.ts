@@ -18,32 +18,26 @@ import type { Artist, ArtistEditRequest, ArtistAliasesResponse, ArtistAlias, Mer
 export type MusicPlatform = 'bandcamp' | 'spotify'
 
 /**
- * Response from music discovery endpoint
+ * One candidate streaming-link result for a single platform.
  */
-export interface DiscoverMusicResponse {
-  success: boolean
-  platform?: MusicPlatform
-  url?: string
-  artist?: Artist
-  error?: string
-  message?: string
-  discovered_url?: string
-  platforms?: {
-    bandcamp: { found: boolean; url?: string; error?: string }
-    spotify: { found: boolean; url?: string; error?: string }
-  }
+export interface DiscoveryCandidate {
+  url: string
+  name_as_listed: string | null
+  location: string | null
+  notable_release: string | null
+  genres: string | null
+  popularity: string | null
+  confidence: 'high' | 'medium' | 'low'
+  why_might_match: string | null
 }
 
 /**
- * Response from Bandcamp discovery endpoint (legacy alias)
+ * Response from music discovery endpoint. Discovery returns CANDIDATES only;
+ * the admin reviews and picks before any save happens.
  */
-export interface DiscoverBandcampResponse {
-  success: boolean
-  bandcamp_url?: string
-  artist?: Artist
-  error?: string
-  message?: string
-  discovered_url?: string
+export interface DiscoverMusicResponse {
+  bandcamp: DiscoveryCandidate[]
+  spotify: DiscoveryCandidate[]
 }
 
 /**
@@ -65,26 +59,12 @@ export interface UpdateSpotifyResponse {
 }
 
 /**
- * Hook for AI-powered music discovery (admin only)
- * Searches Bandcamp and Spotify in parallel, saves both when found
- *
- * Usage:
- * ```tsx
- * const { mutate: discoverMusic, isPending } = useDiscoverMusic()
- *
- * discoverMusic(artistId, {
- *   onSuccess: (data) => {
- *     toast.success(`Found on ${data.platform}: ${data.url}`)
- *   },
- *   onError: (error) => {
- *     toast.error(error.message)
- *   }
- * })
- * ```
+ * Hook for AI-powered music discovery (admin only). Returns candidate
+ * Bandcamp + Spotify links for the admin to review and pick from; nothing
+ * is saved by this call. Save happens via useUpdateArtistBandcamp /
+ * useUpdateArtistSpotify after the admin picks a candidate.
  */
 export function useDiscoverMusic() {
-  const queryClient = useQueryClient()
-
   return useMutation({
     mutationFn: async (artistId: number): Promise<DiscoverMusicResponse> => {
       const response = await fetch(
@@ -102,60 +82,6 @@ export function useDiscoverMusic() {
       }
 
       return data
-    },
-    onSuccess: (data, artistId) => {
-      // Invalidate artist query to refresh the embed
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(artistId),
-      })
-    },
-  })
-}
-
-/**
- * Hook for AI-powered Bandcamp album discovery (admin only)
- * @deprecated Use useDiscoverMusic instead for cascading discovery
- *
- * Usage:
- * ```tsx
- * const { mutate: discoverBandcamp, isPending } = useDiscoverBandcamp()
- *
- * discoverBandcamp(artistId, {
- *   onSuccess: (data) => {
- *     toast.success(`Found: ${data.bandcamp_url}`)
- *   },
- *   onError: (error) => {
- *     toast.error(error.message)
- *   }
- * })
- * ```
- */
-export function useDiscoverBandcamp() {
-  const queryClient = useQueryClient()
-
-  return useMutation({
-    mutationFn: async (artistId: number): Promise<DiscoverBandcampResponse> => {
-      const response = await fetch(
-        `/api/admin/artists/${artistId}/discover-bandcamp`,
-        {
-          method: 'POST',
-          credentials: 'include',
-        }
-      )
-
-      const data = await response.json()
-
-      if (!response.ok) {
-        throw new Error(data.message || data.error || 'Discovery failed')
-      }
-
-      return data
-    },
-    onSuccess: (data, artistId) => {
-      // Invalidate artist query to refresh the embed
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.artists.detail(artistId),
-      })
     },
   })
 }
