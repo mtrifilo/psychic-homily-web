@@ -898,14 +898,6 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	return &AdminUpdateArtistResponse{Body: artist}, nil
 }
 
-// ptrToStr safely dereferences a *string, returning "" if nil.
-func ptrToStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
 // ============================================================================
 // Artist Aliases
 // ============================================================================
