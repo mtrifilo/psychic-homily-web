@@ -336,16 +336,6 @@ type ExtractionServiceInterface interface {
 }
 
 // ──────────────────────────────────────────────
-// Music Discovery Service Interface
-// ──────────────────────────────────────────────
-
-// MusicDiscoveryServiceInterface defines the contract for music discovery operations.
-type MusicDiscoveryServiceInterface interface {
-	IsConfigured() bool
-	DiscoverMusicForArtist(artistID uint, artistName string)
-}
-
-// ──────────────────────────────────────────────
 // Discovery Service Interface
 // ──────────────────────────────────────────────
 

@@ -35,7 +35,6 @@ type IntegrationDeps struct {
 	UserService               *usersvc.UserService
 	AuditLogService           *adminsvc.AuditLogService
 	DiscordService            *notification.DiscordService
-	MusicDiscoveryService     *pipeline.MusicDiscoveryService
 	ExtractionService         *pipeline.ExtractionService
 	APITokenService           *adminsvc.APITokenService
 	DataSyncService           *adminsvc.DataSyncService
@@ -75,7 +74,6 @@ func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 		UserService:               usersvc.NewUserService(db),
 		AuditLogService:           adminsvc.NewAuditLogService(db),
 		DiscordService:            notification.NewDiscordService(emptyCfg),
-		MusicDiscoveryService:     pipeline.NewMusicDiscoveryService(emptyCfg),
 		ExtractionService:         pipeline.NewExtractionService(db, emptyCfg, catalog.NewArtistService(db), catalog.NewVenueService(db)),
 		APITokenService:           adminsvc.NewAPITokenService(db),
 		DataSyncService:           adminsvc.NewDataSyncService(db),

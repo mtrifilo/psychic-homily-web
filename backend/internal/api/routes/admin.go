@@ -18,7 +18,6 @@ func setupAdminRoutes(rc RouteContext) {
 	statsHandler := adminh.NewAdminStatsHandler(rc.SC.AdminStats)
 	showHandler := adminh.NewAdminShowHandler(
 		rc.SC.Show, rc.SC.Show, rc.SC.Show, rc.SC.Discord, rc.SC.AuditLog, rc.SC.NotificationFilter,
-		rc.SC.MusicDiscovery,
 	)
 	venueHandler := adminh.NewAdminVenueHandler(rc.SC.Venue, rc.SC.AuditLog)
 	userHandler := adminh.NewAdminUserHandler(rc.SC.User)
