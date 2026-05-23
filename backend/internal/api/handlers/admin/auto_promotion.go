@@ -6,6 +6,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -93,8 +94,8 @@ func (h *AutoPromotionHandler) EvaluateUserHandler(ctx context.Context, req *Eva
 			"request_id", requestID,
 			"target_user_id", req.UserID,
 		)
-		if err.Error() == "user not found" {
-			return nil, huma.Error404NotFound("User not found")
+		if mapped := shared.MapAutoPromotionError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to evaluate user (request_id: %s)", requestID),

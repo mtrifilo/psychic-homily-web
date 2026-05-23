@@ -8,6 +8,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -624,24 +625,24 @@ func (s *ContributorProfileService) GetOwnSections(userID uint) ([]*contracts.Pr
 // CreateSection creates a new profile section. Returns error if user already has max sections.
 func (s *ContributorProfileService) CreateSection(userID uint, title string, content string, position int) (*contracts.ProfileSectionResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrProfileInternal(fmt.Errorf("database not initialized"))
 	}
 
 	if len(title) == 0 || len(title) > 255 {
-		return nil, fmt.Errorf("title must be between 1 and 255 characters")
+		return nil, apperrors.ErrProfileSectionInvalid("title must be between 1 and 255 characters")
 	}
 	if len(content) > 10000 {
-		return nil, fmt.Errorf("content must be at most 10000 characters")
+		return nil, apperrors.ErrProfileSectionInvalid("content must be at most 10000 characters")
 	}
 	if position < 0 || position >= maxProfileSections {
-		return nil, fmt.Errorf("position must be between 0 and %d", maxProfileSections-1)
+		return nil, apperrors.ErrProfileSectionInvalid(fmt.Sprintf("position must be between 0 and %d", maxProfileSections-1))
 	}
 
 	// Check section count
 	var count int64
 	s.db.Model(&authm.UserProfileSection{}).Where("user_id = ?", userID).Count(&count)
 	if count >= int64(maxProfileSections) {
-		return nil, fmt.Errorf("maximum %d profile sections allowed", maxProfileSections)
+		return nil, apperrors.ErrProfileSectionInvalid(fmt.Sprintf("maximum %d profile sections allowed", maxProfileSections))
 	}
 
 	section := authm.UserProfileSection{
@@ -653,7 +654,7 @@ func (s *ContributorProfileService) CreateSection(userID uint, title string, con
 	}
 
 	if err := s.db.Create(&section).Error; err != nil {
-		return nil, fmt.Errorf("failed to create profile section: %w", err)
+		return nil, apperrors.ErrProfileInternal(fmt.Errorf("failed to create profile section: %w", err))
 	}
 
 	return buildSectionResponse(&section), nil
@@ -662,40 +663,40 @@ func (s *ContributorProfileService) CreateSection(userID uint, title string, con
 // UpdateSection updates a profile section owned by the user.
 func (s *ContributorProfileService) UpdateSection(userID uint, sectionID uint, updates map[string]interface{}) (*contracts.ProfileSectionResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrProfileInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var section authm.UserProfileSection
 	err := s.db.Where("id = ? AND user_id = ?", sectionID, userID).First(&section).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("profile section not found")
+			return nil, apperrors.ErrProfileSectionNotFound()
 		}
-		return nil, fmt.Errorf("failed to find profile section: %w", err)
+		return nil, apperrors.ErrProfileInternal(fmt.Errorf("failed to find profile section: %w", err))
 	}
 
 	// Validate updates
 	if title, ok := updates["title"]; ok {
 		t := title.(string)
 		if len(t) == 0 || len(t) > 255 {
-			return nil, fmt.Errorf("title must be between 1 and 255 characters")
+			return nil, apperrors.ErrProfileSectionInvalid("title must be between 1 and 255 characters")
 		}
 	}
 	if content, ok := updates["content"]; ok {
 		c := content.(string)
 		if len(c) > 10000 {
-			return nil, fmt.Errorf("content must be at most 10000 characters")
+			return nil, apperrors.ErrProfileSectionInvalid("content must be at most 10000 characters")
 		}
 	}
 	if position, ok := updates["position"]; ok {
 		p := position.(int)
 		if p < 0 || p >= maxProfileSections {
-			return nil, fmt.Errorf("position must be between 0 and %d", maxProfileSections-1)
+			return nil, apperrors.ErrProfileSectionInvalid(fmt.Sprintf("position must be between 0 and %d", maxProfileSections-1))
 		}
 	}
 
 	if err := s.db.Model(&section).Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("failed to update profile section: %w", err)
+		return nil, apperrors.ErrProfileInternal(fmt.Errorf("failed to update profile section: %w", err))
 	}
 
 	// Reload after update
@@ -707,15 +708,15 @@ func (s *ContributorProfileService) UpdateSection(userID uint, sectionID uint, u
 // DeleteSection deletes a profile section owned by the user.
 func (s *ContributorProfileService) DeleteSection(userID uint, sectionID uint) error {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return apperrors.ErrProfileInternal(fmt.Errorf("database not initialized"))
 	}
 
 	result := s.db.Where("id = ? AND user_id = ?", sectionID, userID).Delete(&authm.UserProfileSection{})
 	if result.Error != nil {
-		return fmt.Errorf("failed to delete profile section: %w", result.Error)
+		return apperrors.ErrProfileInternal(fmt.Errorf("failed to delete profile section: %w", result.Error))
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("profile section not found")
+		return apperrors.ErrProfileSectionNotFound()
 	}
 
 	return nil

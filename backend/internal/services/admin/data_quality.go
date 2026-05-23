@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -110,7 +111,7 @@ func (s *DataQualityService) GetSummary() (*contracts.DataQualitySummary, error)
 // GetCategoryItems returns paginated items for a specific data quality category.
 func (s *DataQualityService) GetCategoryItems(category string, limit, offset int) ([]*contracts.DataQualityItem, int64, error) {
 	if _, ok := categoryDefinitions[category]; !ok {
-		return nil, 0, fmt.Errorf("unknown category: %s", category)
+		return nil, 0, apperrors.ErrDataQualityUnknownCategory(category)
 	}
 
 	if limit <= 0 {
@@ -138,7 +139,7 @@ func (s *DataQualityService) GetCategoryItems(category string, limit, offset int
 	case "releases_missing_year":
 		return s.getReleasesMissingYear(limit, offset)
 	default:
-		return nil, 0, fmt.Errorf("unknown category: %s", category)
+		return nil, 0, apperrors.ErrDataQualityUnknownCategory(category)
 	}
 }
 

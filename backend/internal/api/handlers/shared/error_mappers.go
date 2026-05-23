@@ -264,3 +264,131 @@ func MapSceneError(err error) error {
 	}
 	return nil
 }
+
+// MapEntityReportError converts an EntityReportError to an appropriate Huma
+// HTTP error. Returns nil if err is not a *apperrors.EntityReportError.
+//
+// Reported-entity-not-found / report-not-found → 404; duplicate-pending /
+// already-reviewed → 409; invalid entity/report type → 422 (semantic
+// validation); infrastructure fault → 500.
+func MapEntityReportError(err error) error {
+	var reportErr *apperrors.EntityReportError
+	if errors.As(err, &reportErr) {
+		switch reportErr.Code {
+		case apperrors.CodeEntityReportEntityNotFound, apperrors.CodeEntityReportNotFound:
+			return huma.Error404NotFound(reportErr.Message)
+		case apperrors.CodeEntityReportDuplicatePending, apperrors.CodeEntityReportAlreadyReviewed:
+			return huma.Error409Conflict(reportErr.Message)
+		case apperrors.CodeEntityReportInvalidEntityType, apperrors.CodeEntityReportInvalidReportType:
+			return huma.Error422UnprocessableEntity(reportErr.Message)
+		case apperrors.CodeEntityReportInternal:
+			return huma.Error500InternalServerError(reportErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapLeaderboardError converts a LeaderboardError to an appropriate Huma HTTP
+// error. Returns nil if err is not a *apperrors.LeaderboardError.
+//
+// Invalid dimension / period → 422 (semantic validation); infra fault → 500.
+// There is no not-found path (an empty board is a 200).
+func MapLeaderboardError(err error) error {
+	var lbErr *apperrors.LeaderboardError
+	if errors.As(err, &lbErr) {
+		switch lbErr.Code {
+		case apperrors.CodeLeaderboardInvalidDimension, apperrors.CodeLeaderboardInvalidPeriod:
+			return huma.Error422UnprocessableEntity(lbErr.Message)
+		case apperrors.CodeLeaderboardInternal:
+			return huma.Error500InternalServerError(lbErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapDataQualityError converts a DataQualityError to an appropriate Huma HTTP
+// error. Returns nil if err is not a *apperrors.DataQualityError.
+//
+// Unknown category → 422 (semantic validation); infra fault → 500. Shared by
+// the admin data-quality dashboard and the public contribute surface, which
+// both consume DataQualityService.
+func MapDataQualityError(err error) error {
+	var dqErr *apperrors.DataQualityError
+	if errors.As(err, &dqErr) {
+		switch dqErr.Code {
+		case apperrors.CodeDataQualityUnknownCategory:
+			return huma.Error422UnprocessableEntity(dqErr.Message)
+		case apperrors.CodeDataQualityInternal:
+			return huma.Error500InternalServerError(dqErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapAutoPromotionError converts an AutoPromotionError to an appropriate Huma
+// HTTP error. Returns nil if err is not a *apperrors.AutoPromotionError.
+//
+// User-not-found → 404; infra fault → 500.
+func MapAutoPromotionError(err error) error {
+	var apErr *apperrors.AutoPromotionError
+	if errors.As(err, &apErr) {
+		switch apErr.Code {
+		case apperrors.CodeAutoPromotionUserNotFound:
+			return huma.Error404NotFound(apErr.Message)
+		case apperrors.CodeAutoPromotionInternal:
+			return huma.Error500InternalServerError(apErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapProfileError converts a ProfileError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.ProfileError.
+//
+// Section-not-found → 404; section-validation → 422 (the message is
+// user-facing and surfaced verbatim); infra fault → 500.
+func MapProfileError(err error) error {
+	var profileErr *apperrors.ProfileError
+	if errors.As(err, &profileErr) {
+		switch profileErr.Code {
+		case apperrors.CodeProfileSectionNotFound:
+			return huma.Error404NotFound(profileErr.Message)
+		case apperrors.CodeProfileSectionInvalid:
+			return huma.Error422UnprocessableEntity(profileErr.Message)
+		case apperrors.CodeProfileInternal:
+			return huma.Error500InternalServerError(profileErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapPendingEditError converts a PendingEditError to an appropriate Huma HTTP
+// error. Returns nil if err is not a *apperrors.PendingEditError.
+//
+// Entity-not-found (create) → 404; entity-gone (approve) → 422; edit-not-found
+// → 404; not-pending / duplicate → 409; not-submitter → 403 (cancel only);
+// invalid entity type / malformed request → 422; infra fault → 500.
+//
+// The disallowed-fields auto-rejection is a separate sentinel
+// (adminm.ErrPendingEditDisallowedFields → 400) handled by the approve
+// handler before this mapper runs.
+func MapPendingEditError(err error) error {
+	var editErr *apperrors.PendingEditError
+	if errors.As(err, &editErr) {
+		switch editErr.Code {
+		case apperrors.CodePendingEditEntityNotFound, apperrors.CodePendingEditNotFound:
+			return huma.Error404NotFound(editErr.Message)
+		case apperrors.CodePendingEditNotPending, apperrors.CodePendingEditDuplicate:
+			return huma.Error409Conflict(editErr.Message)
+		case apperrors.CodePendingEditNotSubmitter:
+			return huma.Error403Forbidden(editErr.Message)
+		case apperrors.CodePendingEditEntityGone,
+			apperrors.CodePendingEditInvalidEntityType,
+			apperrors.CodePendingEditInvalidRequest:
+			return huma.Error422UnprocessableEntity(editErr.Message)
+		case apperrors.CodePendingEditInternal:
+			return huma.Error500InternalServerError(editErr.Message)
+		}
+	}
+	return nil
+}

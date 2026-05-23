@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -263,7 +264,7 @@ func TestReportEntity_EntityNotFound(t *testing.T) {
 	h := NewEntityReportHandler(
 		&testhelpers.MockEntityReportService{
 			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
-				return nil, fmt.Errorf("entity not found: artist 99999")
+				return nil, apperrors.ErrEntityReportEntityNotFound("artist", 99999)
 			},
 		},
 		nil,
@@ -280,7 +281,7 @@ func TestReportEntity_DuplicatePending(t *testing.T) {
 	h := NewEntityReportHandler(
 		&testhelpers.MockEntityReportService{
 			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
-				return nil, fmt.Errorf("you already have a pending report for this entity")
+				return nil, apperrors.ErrEntityReportDuplicatePending()
 			},
 		},
 		nil,
@@ -463,7 +464,7 @@ func TestAdminResolveEntityReport_NotFound(t *testing.T) {
 	h := NewEntityReportHandler(
 		&testhelpers.MockEntityReportService{
 			ResolveEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
-				return nil, fmt.Errorf("report not found")
+				return nil, apperrors.ErrEntityReportNotFound()
 			},
 		},
 		nil,
@@ -477,7 +478,7 @@ func TestAdminResolveEntityReport_AlreadyReviewed(t *testing.T) {
 	h := NewEntityReportHandler(
 		&testhelpers.MockEntityReportService{
 			ResolveEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
-				return nil, fmt.Errorf("report has already been reviewed (status: resolved)")
+				return nil, apperrors.ErrEntityReportAlreadyReviewed("resolved")
 			},
 		},
 		nil,
@@ -533,7 +534,7 @@ func TestAdminDismissEntityReport_NotFound(t *testing.T) {
 	h := NewEntityReportHandler(
 		&testhelpers.MockEntityReportService{
 			DismissEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
-				return nil, fmt.Errorf("report not found")
+				return nil, apperrors.ErrEntityReportNotFound()
 			},
 		},
 		nil,
@@ -547,7 +548,7 @@ func TestAdminDismissEntityReport_AlreadyReviewed(t *testing.T) {
 	h := NewEntityReportHandler(
 		&testhelpers.MockEntityReportService{
 			DismissEntityReportFn: func(reportID, rID uint, n string) (*contracts.EntityReportResponse, error) {
-				return nil, fmt.Errorf("report has already been reviewed (status: dismissed)")
+				return nil, apperrors.ErrEntityReportAlreadyReviewed("dismissed")
 			},
 		},
 		nil,

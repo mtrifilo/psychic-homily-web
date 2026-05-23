@@ -6,6 +6,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/admin"
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -89,9 +90,8 @@ func (h *ContributeHandler) GetOpportunityCategoryHandler(ctx context.Context, r
 
 	items, total, err := h.dataQualityService.GetCategoryItems(req.Category, limit, req.Offset)
 	if err != nil {
-		// Check if it's an unknown category error
-		if err.Error() == "unknown category: "+req.Category {
-			return nil, huma.Error422UnprocessableEntity("Unknown contribution category: " + req.Category)
+		if mapped := shared.MapDataQualityError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("contribute_category_failed",
 			"category", req.Category,
