@@ -165,29 +165,24 @@ const mockAddItemMutate = vi.fn()
 const mockLikeMutate = vi.fn()
 const mockUnlikeMutate = vi.fn()
 const mockCloneMutate = vi.fn()
-type MockCloneMutationValue = {
-  mutate: typeof mockCloneMutate
-  isPending: boolean
-  isError: boolean
-  error: Error | null
-}
-const mockCloneMutation = vi.fn<() => MockCloneMutationValue>(() => ({
-  mutate: mockCloneMutate,
-  isPending: false,
-  isError: false,
-  error: null,
-}))
 
-// PSY-609: factories for the mutation hooks that need configurable
+// Factories for the mutation hooks that need configurable
 // isError / error state per-test so we can render the new inline error
-// banners. Default state is "idle, no error" — individual tests use
-// `mockReturnValueOnce` (or a helper) to flip into the error state.
+// banners (PSY-609). Default state is "idle, no error" — individual
+// tests use `mockReturnValueOnce` (or a helper) to flip into the
+// error state.
 type MutationStub = {
   mutate: ReturnType<typeof vi.fn>
   isPending: boolean
   isError: boolean
   error: Error | null
 }
+const mockCloneMutation = vi.fn<() => MutationStub>(() => ({
+  mutate: mockCloneMutate,
+  isPending: false,
+  isError: false,
+  error: null,
+}))
 const idleMutation = (): MutationStub => ({
   mutate: vi.fn(),
   isPending: false,
