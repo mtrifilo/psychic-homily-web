@@ -31,7 +31,6 @@ vi.mock('../../queryClient', () => ({
 // Import hooks after mocks are set up
 import {
   useDiscoverMusic,
-  useDiscoverBandcamp,
   useUpdateArtistBandcamp,
   useClearArtistBandcamp,
   useUpdateArtistSpotify,
@@ -64,15 +63,34 @@ describe('useAdminArtists', () => {
   })
 
   describe('useDiscoverMusic', () => {
-    it('discovers music and returns both Bandcamp and Spotify', async () => {
+    it('POSTs to discover-music and returns candidates per platform', async () => {
+      // Response is { bandcamp: [...], spotify: [...] } with disambiguation
+      // metadata per candidate; nothing is saved by this call.
       const mockResponse = {
-        success: true,
-        platform: 'bandcamp',
-        url: 'https://artist.bandcamp.com/album/test',
-        platforms: {
-          bandcamp: { found: true, url: 'https://artist.bandcamp.com/album/test' },
-          spotify: { found: true, url: 'https://open.spotify.com/artist/abc123' },
-        },
+        bandcamp: [
+          {
+            url: 'https://wednesdayband.bandcamp.com/album/bleeds',
+            name_as_listed: 'Wednesday',
+            location: 'Asheville, NC',
+            notable_release: 'Bleeds (2025)',
+            genres: 'shoegaze, indie',
+            popularity: null,
+            confidence: 'high',
+            why_might_match: 'Primary Asheville band.',
+          },
+        ],
+        spotify: [
+          {
+            url: 'https://open.spotify.com/artist/5IjZr8fAPiOAr7NQj5wZaQ',
+            name_as_listed: 'Wednesday',
+            location: 'Asheville, NC',
+            notable_release: null,
+            genres: null,
+            popularity: '3K monthly listeners',
+            confidence: 'high',
+            why_might_match: null,
+          },
+        ],
       }
       mockFetchResponse(mockResponse)
 
@@ -93,31 +111,12 @@ describe('useAdminArtists', () => {
           credentials: 'include',
         })
       )
-    })
-
-    it('invalidates artist query on success', async () => {
-      mockFetchResponse({ success: true, platform: 'bandcamp' })
-
-      const queryClient = createTestQueryClient()
-      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-
-      const { result } = renderHook(() => useDiscoverMusic(), {
-        wrapper: createWrapperWithClient(queryClient),
-      })
-
-      await act(async () => {
-        result.current.mutate(789)
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 789],
-      })
+      expect(result.current.data?.bandcamp).toHaveLength(1)
+      expect(result.current.data?.spotify).toHaveLength(1)
     })
 
     it('handles discovery failure', async () => {
-      mockFetchError('Artist not found on any platform', 404)
+      mockFetchError('Discovery is rate-limited right now — try again in about a minute.', 429)
 
       const { result } = renderHook(() => useDiscoverMusic(), {
         wrapper: createWrapper(),
@@ -130,73 +129,8 @@ describe('useAdminArtists', () => {
       await waitFor(() => expect(result.current.isError).toBe(true))
 
       expect((result.current.error as Error).message).toBe(
-        'Artist not found on any platform'
+        'Discovery is rate-limited right now — try again in about a minute.'
       )
-    })
-
-  })
-
-  describe('useDiscoverBandcamp', () => {
-    it('discovers Bandcamp for an artist', async () => {
-      const mockResponse = {
-        success: true,
-        bandcamp_url: 'https://artist.bandcamp.com/album/test',
-        discovered_url: 'https://artist.bandcamp.com/album/test',
-      }
-      mockFetchResponse(mockResponse)
-
-      const { result } = renderHook(() => useDiscoverBandcamp(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate(123)
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(mockFetch).toHaveBeenCalledWith(
-        '/api/admin/artists/123/discover-bandcamp',
-        expect.objectContaining({
-          method: 'POST',
-          credentials: 'include',
-        })
-      )
-    })
-
-    it('invalidates artist query on success', async () => {
-      mockFetchResponse({ success: true })
-
-      const queryClient = createTestQueryClient()
-      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-
-      const { result } = renderHook(() => useDiscoverBandcamp(), {
-        wrapper: createWrapperWithClient(queryClient),
-      })
-
-      await act(async () => {
-        result.current.mutate(456)
-      })
-
-      await waitFor(() => expect(result.current.isSuccess).toBe(true))
-
-      expect(invalidateSpy).toHaveBeenCalledWith({
-        queryKey: ['artists', 'detail', 456],
-      })
-    })
-
-    it('handles discovery failure', async () => {
-      mockFetchError('No Bandcamp found', 404)
-
-      const { result } = renderHook(() => useDiscoverBandcamp(), {
-        wrapper: createWrapper(),
-      })
-
-      await act(async () => {
-        result.current.mutate(999)
-      })
-
-      await waitFor(() => expect(result.current.isError).toBe(true))
     })
   })
 

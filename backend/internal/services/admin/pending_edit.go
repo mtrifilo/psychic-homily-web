@@ -78,19 +78,6 @@ func (s *PendingEditService) renderRejectionReason(reason *string) string {
 	return s.renderMarkdown(*reason)
 }
 
-// isDuplicateKeyErr reports whether err is a Postgres unique-constraint
-// violation. The GORM connection does not enable TranslateError, so the
-// underlying pq error surfaces as a raw string; we match on the stable
-// substrings the driver emits. This is the single place that interprets that
-// string — callers receive a typed conflict instead.
-func isDuplicateKeyErr(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique constraint")
-}
-
 // CreatePendingEdit submits a new pending edit for an entity.
 func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
 	if s.db == nil {
@@ -142,7 +129,7 @@ func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditR
 	if err := s.db.Create(edit).Error; err != nil {
 		// A unique-constraint violation means the submitter already has a
 		// pending edit for this entity — a conflict, not an internal fault.
-		if isDuplicateKeyErr(err) {
+		if shared.IsDuplicateKey(err) {
 			return nil, apperrors.ErrPendingEditDuplicate(err)
 		}
 		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to create pending edit: %w", err))

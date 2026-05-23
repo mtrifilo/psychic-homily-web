@@ -1700,28 +1700,6 @@ func TestUserService_SetDefaultReplyPermission_InvalidValue(t *testing.T) {
 	}
 }
 
-// isUniqueViolation backs UpdateUser's translation of a Postgres
-// unique-constraint violation into a typed CodeUsernameTaken error. PSY-792.
-func TestIsUniqueViolation(t *testing.T) {
-	cases := []struct {
-		name string
-		err  error
-		want bool
-	}{
-		{"nil", nil, false},
-		{"duplicate key", fmt.Errorf("ERROR: duplicate key value violates unique constraint \"users_username_key\""), true},
-		{"unique substring", fmt.Errorf("violates unique constraint"), true},
-		{"unrelated", fmt.Errorf("connection refused"), false},
-	}
-	for _, tc := range cases {
-		t.Run(tc.name, func(t *testing.T) {
-			if got := isUniqueViolation(tc.err); got != tc.want {
-				t.Errorf("isUniqueViolation(%v) = %v, want %v", tc.err, got, tc.want)
-			}
-		})
-	}
-}
-
 func (suite *UserServiceIntegrationTestSuite) TestSetDefaultReplyPermission_CreatesRowWhenMissing() {
 	user, err := suite.userService.CreateUserWithPassword(
 		"rp-prefs-create@example.com", "Pass123!", "RP", "Prefs",

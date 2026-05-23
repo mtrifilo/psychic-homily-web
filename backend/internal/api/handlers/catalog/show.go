@@ -1340,20 +1340,6 @@ type ExportShowRequest struct {
 	ShowID string `path:"show_id" validate:"required" doc:"Show ID to export"`
 }
 
-// ExportShowResponse represents the HTTP response for exporting a show
-// This is a raw response with custom content type
-type ExportShowResponse struct {
-	ContentType        string
-	ContentDisposition string
-	Body               []byte
-}
-
-// SetHeader sets custom headers for the response
-func (r *ExportShowResponse) SetContentType(w huma.Context) {
-	w.SetHeader("Content-Type", r.ContentType)
-	w.SetHeader("Content-Disposition", r.ContentDisposition)
-}
-
 // ExportShowHandler handles GET /shows/{show_id}/export
 // This endpoint is only available in development environment
 func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequest) (*huma.StreamResponse, error) {

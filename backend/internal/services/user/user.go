@@ -3,7 +3,6 @@ package user
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 
 	"github.com/markbates/goth"
@@ -609,28 +608,16 @@ func (s *UserService) UpdateUser(userID uint, updates map[string]any) (*authm.Us
 
 	if result.Error != nil {
 		// A unique-constraint violation on profile update means the chosen
-		// username is taken. Translate the driver error into a typed error
-		// here so handlers discriminate on a code rather than string-matching
-		// the Postgres message (the only volatile site for this check).
-		if isUniqueViolation(result.Error) {
+		// username is taken. Translate the typed DB error into the user-facing
+		// CodeUsernameTaken so handlers discriminate on a code instead of the
+		// raw driver message.
+		if shared.IsDuplicateKey(result.Error) {
 			return nil, apperrors.ErrUsernameTaken(result.Error)
 		}
 		return nil, fmt.Errorf("failed to update user: %w", result.Error)
 	}
 
 	return s.GetUserByID(userID)
-}
-
-// isUniqueViolation reports whether err is a Postgres unique-constraint
-// violation by matching the driver message text. This mirrors the boundary
-// detection used elsewhere in the codebase (e.g. admin/pending_edit.go) and
-// is isolated here so the volatile driver-string match has a single home.
-func isUniqueViolation(err error) bool {
-	if err == nil {
-		return false
-	}
-	msg := err.Error()
-	return strings.Contains(msg, "duplicate key") || strings.Contains(msg, "unique")
 }
 
 func (s *UserService) HashPassword(password string) (string, error) {
