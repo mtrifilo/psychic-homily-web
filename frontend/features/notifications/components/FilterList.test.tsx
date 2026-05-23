@@ -22,7 +22,7 @@ vi.mock('../hooks', () => ({
   useCreateFilter: () => ({
     mutate: vi.fn(),
     isPending: false,
-    error: null,
+    error: null as Error | null,
   }),
 }))
 

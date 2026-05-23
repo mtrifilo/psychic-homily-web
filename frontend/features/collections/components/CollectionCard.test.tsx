@@ -33,7 +33,7 @@ const mockUnlikeMutateAsync = vi.fn().mockResolvedValue(undefined)
 let mockIsLikePending = false
 
 vi.mock('@/lib/context/AuthContext', () => ({
-  useAuthContext: () => ({ isAuthenticated: mockIsAuthenticated, user: null }),
+  useAuthContext: () => ({ isAuthenticated: mockIsAuthenticated, user: null as unknown }),
 }))
 
 vi.mock('../hooks', () => ({
@@ -134,7 +134,7 @@ describe('CollectionCard', () => {
   })
 
   it('does not link creator name when creator_username is null', () => {
-    const collection = { ...baseCollection, creator_username: null }
+    const collection: Collection = { ...baseCollection, creator_username: null }
     render(<CollectionCard collection={collection} />)
 
     expect(

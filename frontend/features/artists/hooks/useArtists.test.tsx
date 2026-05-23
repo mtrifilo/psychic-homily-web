@@ -45,7 +45,7 @@ describe('useArtists', () => {
         name: 'Test Artist',
         social: {
           bandcamp: 'https://testartist.bandcamp.com',
-          spotify: null,
+          spotify: null as string | null,
         },
       }
       mockApiRequest.mockResolvedValueOnce(mockArtist)

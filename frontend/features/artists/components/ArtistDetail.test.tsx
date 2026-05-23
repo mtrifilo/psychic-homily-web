@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { Artist } from '../types'
+import type { Artist, ArtistShow, ArtistAlias } from '../types'
 
 // Mock next/link
 vi.mock('next/link', () => ({
@@ -25,9 +25,9 @@ const mockUseArtist = vi.fn()
 vi.mock('../hooks/useArtists', () => ({
   useArtist: (opts: unknown) => mockUseArtist(opts),
   useArtistShows: () => ({
-    data: { shows: [], total: 0 },
+    data: { shows: [] as ArtistShow[], total: 0 },
     isLoading: false,
-    error: null,
+    error: null as Error | null,
   }),
 }))
 
@@ -39,14 +39,14 @@ vi.mock('@/features/auth', () => ({
 const mockUseArtistLabels = vi.fn()
 vi.mock('@/features/labels/hooks/useLabels', () => ({
   useArtistLabels: (opts: unknown) => mockUseArtistLabels(opts),
-  useLabelRoster: () => ({ data: null }),
+  useLabelRoster: () => ({ data: null as unknown }),
 }))
 
 vi.mock('@/features/releases/hooks/useReleases', () => ({
   useArtistReleases: () => ({
-    data: null,
+    data: null as unknown,
     isLoading: false,
-    error: null,
+    error: null as Error | null,
   }),
 }))
 
@@ -57,7 +57,7 @@ vi.mock('@/lib/hooks/admin/useAdminArtists', () => ({
   useUpdateArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
   useClearArtistSpotify: () => ({ mutate: vi.fn(), isPending: false }),
   useArtistUpdate: () => ({ mutate: vi.fn(), isPending: false }),
-  useArtistAliases: () => ({ data: { aliases: [] }, isLoading: false }),
+  useArtistAliases: () => ({ data: { aliases: [] as ArtistAlias[] }, isLoading: false }),
 }))
 
 // Mock child components
@@ -76,10 +76,10 @@ vi.mock('@/features/contributions', () => ({
     isVisible: false,
     handleSaveSuccess: vi.fn(),
   }),
-  AttributionLine: () => null,
+  AttributionLine: (): null => null,
   ReportEntityDialog: ({ open, entityName }: { open: boolean; entityName: string }) =>
     open ? <div data-testid="report-dialog">Report {entityName}</div> : null,
-  ContributionPrompt: () => null,
+  ContributionPrompt: (): null => null,
   useSuggestEdit: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
@@ -106,7 +106,7 @@ vi.mock('@/features/notifications', () => ({
 // PSY-364: ArtistDetail mounts <BillComposition>, which fires its own fetch.
 // Stub it out so this suite doesn't need bill-composition fixtures.
 vi.mock('./BillComposition', () => ({
-  BillComposition: () => null,
+  BillComposition: (): null => null,
 }))
 
 // PSY-641: ArtistDetail is now a flat two-column layout — no page-level tabs.

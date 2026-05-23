@@ -42,7 +42,7 @@ describe('useShows', () => {
           { id: 2, title: 'Show 2' },
         ],
         has_more: false,
-        next_cursor: null,
+        next_cursor: null as string | null,
       }
       mockApiRequest.mockResolvedValueOnce(mockResponse)
 

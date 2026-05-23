@@ -131,7 +131,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
     user: mockAuthUser,
     isAuthenticated: Boolean(mockAuthUser),
     isLoading: false,
-    error: null,
+    error: null as Error | null,
     setUser: vi.fn(),
     setError: vi.fn(),
     clearError: vi.fn(),

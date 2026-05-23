@@ -14,7 +14,7 @@ vi.mock('../hooks/useReleases', () => ({
 
 // Artist search inside the create-form ArtistPicker.
 vi.mock('@/features/artists', () => ({
-  useArtistSearch: () => ({ data: { artists: [] }, isLoading: false }),
+  useArtistSearch: () => ({ data: { artists: [] as unknown[] }, isLoading: false }),
 }))
 
 // Admin mutations. Capture the create/update/delete spies so dialog flows can

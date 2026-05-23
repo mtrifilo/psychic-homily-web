@@ -478,7 +478,7 @@ function AdminMusicControls({
       // Auto-close the panel once both platforms have been resolved.
       setCandidates(prev => {
         if (!prev) return null
-        const next = { ...prev, [platform]: [] }
+        const next: DiscoverMusicResponse = { ...prev, [platform]: [] }
         return next.bandcamp.length === 0 && next.spotify.length === 0
           ? null
           : next

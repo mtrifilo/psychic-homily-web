@@ -13,7 +13,7 @@ vi.mock('@sentry/nextjs', () => ({
 // Stub the heavy artists feature module so invoking generateMetadata doesn't
 // pull in the real ArtistDetail render path.
 vi.mock('@/features/artists', () => ({
-  ArtistDetail: () => null,
+  ArtistDetail: (): null => null,
 }))
 
 import { generateMetadata } from './page'

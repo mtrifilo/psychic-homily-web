@@ -27,7 +27,7 @@ vi.mock('../hooks', async () => {
     useDeleteComment: () => defaultMutationReturn,
     useVoteComment: () => defaultMutationReturn,
     useUnvoteComment: () => defaultMutationReturn,
-    useCommentThread: () => ({ data: undefined }),
+    useCommentThread: () => ({ data: undefined as unknown }),
     useAutoDismissError: actual.useAutoDismissError,
     formatCommentSubmissionError: actual.formatCommentSubmissionError,
   }

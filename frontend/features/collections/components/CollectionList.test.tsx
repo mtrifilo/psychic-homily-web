@@ -42,7 +42,7 @@ vi.mock('../hooks', () => ({
   useCreateCollection: () => ({
     mutate: mockCreateMutate,
     isPending: false,
-    error: null,
+    error: null as Error | null,
   }),
 }))
 

@@ -128,7 +128,7 @@ function listResult(
   return {
     data: { requests: [], total: 0 } as RequestListResponse,
     isLoading: false,
-    error: null,
+    error: null as Error | null,
     refetch: mockRefetch,
     ...overrides,
   }

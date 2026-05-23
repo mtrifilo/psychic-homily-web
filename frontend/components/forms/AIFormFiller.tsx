@@ -15,6 +15,7 @@ import {
 import { useShowExtraction } from '@/features/shows'
 import type {
   ExtractedShowData,
+  ExtractedVenue,
   MatchSuggestion,
   VenueMatchSuggestion,
 } from '@/lib/types/extraction'
@@ -236,7 +237,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
 
   const acceptVenueSuggestion = (suggestion: VenueMatchSuggestion) => {
     if (!extractionResult?.venue) return
-    const updatedVenue = {
+    const updatedVenue: ExtractedVenue = {
       ...extractionResult.venue,
       matched_id: suggestion.id,
       matched_name: suggestion.name,
@@ -260,9 +261,13 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
       const updated = { ...extractionResult, artists: updatedArtists }
       setExtractionResult(updated)
     } else if (type === 'venue' && extractionResult.venue) {
+      const updatedVenue: ExtractedVenue = {
+        ...extractionResult.venue,
+        suggestions: undefined,
+      }
       const updated = {
         ...extractionResult,
-        venue: { ...extractionResult.venue, suggestions: undefined },
+        venue: updatedVenue,
       }
       setExtractionResult(updated)
     }

@@ -47,7 +47,7 @@ vi.mock('@/lib/errors', () => ({
     fromUnknown: (error: unknown) => ({
       code: 'UNKNOWN',
       message: error instanceof Error ? error.message : String(error),
-      requestId: undefined,
+      requestId: undefined as string | undefined,
     }),
   },
   ShowErrorCode: {

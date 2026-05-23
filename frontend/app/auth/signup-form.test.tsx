@@ -18,12 +18,12 @@ vi.mock('@/features/auth', () => ({
   useRegister: () => ({
     mutate: mockRegisterMutate,
     isPending: false,
-    error: null,
+    error: null as Error | null,
   }),
   useLogin: () => ({
     mutate: vi.fn(),
     isPending: false,
-    error: null,
+    error: null as Error | null,
   }),
   useSendMagicLink: () => ({
     mutate: vi.fn(),
@@ -40,15 +40,15 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 vi.mock('@/app/auth/_components/passkey-login', () => ({
-  PasskeyLoginButton: () => null,
+  PasskeyLoginButton: (): null => null,
 }))
 
 vi.mock('@/app/auth/_components/passkey-signup', () => ({
-  PasskeySignupButton: () => null,
+  PasskeySignupButton: (): null => null,
 }))
 
 vi.mock('@/app/auth/_components/google-oauth-button', () => ({
-  GoogleOAuthButton: () => null,
+  GoogleOAuthButton: (): null => null,
 }))
 
 // --- Helpers ---

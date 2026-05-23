@@ -63,8 +63,8 @@ const mockStats = {
 }
 
 vi.mock('@/lib/hooks/admin/useAdminStats', () => ({
-  useAdminStats: () => ({ data: mockStats, isLoading: false, error: null }),
-  useAdminActivity: () => ({ data: { events: [] }, isLoading: false, error: null }),
+  useAdminStats: () => ({ data: mockStats, isLoading: false, error: null as Error | null }),
+  useAdminActivity: () => ({ data: { events: [] as unknown[] }, isLoading: false, error: null as Error | null }),
 }))
 
 const mockReplace = vi.fn()
@@ -84,7 +84,7 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 // Badge-count hooks — the shell sums these into the moderation/reports badges.
-const emptyQuery = { data: undefined }
+const emptyQuery = { data: undefined as unknown }
 
 vi.mock('@/lib/hooks/admin/useAdminVenues', () => ({
   useUnverifiedVenues: () => emptyQuery,

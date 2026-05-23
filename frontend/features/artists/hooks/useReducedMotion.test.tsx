@@ -14,7 +14,7 @@ function setupMatchMediaMock(initialReduced: boolean) {
       return matches
     },
     media: '(prefers-reduced-motion: reduce)',
-    onchange: null,
+    onchange: null as ((this: MediaQueryList, ev: MediaQueryListEvent) => unknown) | null,
     addEventListener: vi.fn((_event: string, handler: (ev: MediaQueryListEvent) => void) => {
       listeners.push(handler)
     }),

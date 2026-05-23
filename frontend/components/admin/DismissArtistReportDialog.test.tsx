@@ -11,7 +11,7 @@ vi.mock('@/lib/hooks/admin/useAdminArtistReports', () => ({
     mutate: mockMutate,
     isPending: false,
     isError: false,
-    error: null,
+    error: null as Error | null,
   }),
 }))
 
@@ -144,7 +144,7 @@ describe('DismissArtistReportDialog', () => {
   })
 
   it('shows unknown artist when artist info is missing', () => {
-    const reportNoArtist = { ...baseReport, artist: undefined }
+    const reportNoArtist: ArtistReportResponse = { ...baseReport, artist: undefined }
     render(
       <DismissArtistReportDialog
         report={reportNoArtist}

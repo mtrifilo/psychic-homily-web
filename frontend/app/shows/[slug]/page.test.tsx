@@ -23,7 +23,7 @@ vi.mock('@sentry/nextjs', () => ({
 // in the real ShowDetail render path — this ticket exercises the page-level
 // metadata + JSON-LD + notFound wiring, not ShowDetail.
 vi.mock('@/features/shows', () => ({
-  ShowDetail: () => null,
+  ShowDetail: (): null => null,
 }))
 
 import ShowPage, { generateMetadata } from './page'
@@ -34,7 +34,7 @@ function buildShow(overrides: Record<string, unknown> = {}) {
     title: 'Test Show',
     event_date: '2026-03-15T20:00:00Z',
     slug: 'test-show',
-    description: null,
+    description: null as string | null,
     is_sold_out: false,
     is_cancelled: false,
     venues: [{ name: 'The Rebel Lounge', slug: 'the-rebel-lounge', city: 'Phoenix', state: 'AZ' }],

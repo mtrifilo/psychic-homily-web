@@ -13,7 +13,7 @@ const getBlogPostMock = vi.fn()
 vi.mock('@/features/blog', () => ({
   getBlogPost: (slug: string) => getBlogPostMock(slug),
   getBlogSlugs: vi.fn(() => []),
-  MDXContent: () => null,
+  MDXContent: (): null => null,
 }))
 
 import { generateMetadata } from './page'

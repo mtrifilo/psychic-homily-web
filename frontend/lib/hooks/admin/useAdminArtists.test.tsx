@@ -35,6 +35,7 @@ import {
   useClearArtistBandcamp,
   useUpdateArtistSpotify,
   useClearArtistSpotify,
+  type DiscoverMusicResponse,
 } from './useAdminArtists'
 
 
@@ -66,7 +67,7 @@ describe('useAdminArtists', () => {
     it('POSTs to discover-music and returns candidates per platform', async () => {
       // Response is { bandcamp: [...], spotify: [...] } with disambiguation
       // metadata per candidate; nothing is saved by this call.
-      const mockResponse = {
+      const mockResponse: DiscoverMusicResponse = {
         bandcamp: [
           {
             url: 'https://wednesdayband.bandcamp.com/album/bleeds',
@@ -216,7 +217,7 @@ describe('useAdminArtists', () => {
     it('clears artist Bandcamp URL', async () => {
       const mockResponse = {
         success: true,
-        artist: { id: 123, bandcamp_url: null },
+        artist: { id: 123, bandcamp_url: null as string | null },
       }
       mockFetchResponse(mockResponse)
 
@@ -362,7 +363,7 @@ describe('useAdminArtists', () => {
     it('clears artist Spotify URL', async () => {
       const mockResponse = {
         success: true,
-        artist: { id: 123, spotify_url: null },
+        artist: { id: 123, spotify_url: null as string | null },
       }
       mockFetchResponse(mockResponse)
 

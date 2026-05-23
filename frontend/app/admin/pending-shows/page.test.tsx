@@ -38,7 +38,7 @@ vi.mock('@/components/admin', () => ({
 }))
 
 vi.mock('@/components/admin/BatchRejectDialog', () => ({
-  BatchRejectDialog: () => null,
+  BatchRejectDialog: (): null => null,
 }))
 
 describe('PendingShowsPage (app/admin/pending-shows)', () => {

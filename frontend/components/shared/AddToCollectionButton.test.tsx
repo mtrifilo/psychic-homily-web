@@ -45,7 +45,7 @@ vi.mock('@/features/collections/hooks', () => ({
     mutateAsync: mockMutateAsync,
     isPending: false,
     isError: false,
-    error: null,
+    error: null as Error | null,
   }),
 }))
 

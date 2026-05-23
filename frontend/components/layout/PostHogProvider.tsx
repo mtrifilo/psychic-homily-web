@@ -12,7 +12,7 @@ import {
 } from '@/lib/posthog'
 
 // Separate component for search params tracking to allow Suspense boundary
-function PostHogPageView() {
+function PostHogPageView(): null {
   const pathname = usePathname()
   const searchParams = useSearchParams()
   const { canUseAnalytics } = useCookieConsent()

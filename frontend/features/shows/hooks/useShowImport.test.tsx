@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
+import type { ImportPreviewResponse } from './useShowImport'
 
 // Create mocks
 const mockApiRequest = vi.fn()
@@ -41,7 +42,7 @@ describe('useShowImport', () => {
 
   describe('useShowImportPreview', () => {
     it('previews a show import with base64-encoded content', async () => {
-      const mockResponse = {
+      const mockResponse: ImportPreviewResponse = {
         show: {
           title: 'Imported Show',
           event_date: '2025-04-15T20:00:00Z',
@@ -63,7 +64,6 @@ describe('useShowImport', () => {
             name: 'Test Artist',
             position: 1,
             set_type: 'headliner',
-            existing_id: null,
             will_create: true,
           },
         ],

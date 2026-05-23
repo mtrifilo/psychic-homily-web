@@ -119,7 +119,7 @@ describe('Collection query hooks', () => {
 
   describe('useCollection', () => {
     it('fetches a single collection by slug', async () => {
-      const mockDetail = { id: 1, title: 'My Collection', slug: 'my-collection', items: [] }
+      const mockDetail = { id: 1, title: 'My Collection', slug: 'my-collection', items: [] as unknown[] }
       mockApiRequest.mockResolvedValueOnce(mockDetail)
 
       const { result } = renderHook(() => useCollection('my-collection'), {

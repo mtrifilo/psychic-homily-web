@@ -2,7 +2,10 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CollectionDetail } from './CollectionDetail'
-import type { CollectionDetail as CollectionDetailType } from '../types'
+import type {
+  CollectionDetail as CollectionDetailType,
+  CollectionItem,
+} from '../types'
 
 // Mock AuthContext
 type MockAuthUser = { id: string; is_admin?: boolean } | null
@@ -209,12 +212,12 @@ const mockRemoveMutation = vi.fn(idleMutation)
 
 vi.mock('../hooks', () => ({
   useCollection: (...args: unknown[]) => mockCollection(...args),
-  useUpdateCollection: () => ({
+  useUpdateCollection: (): Omit<MutationStub, 'isError'> => ({
     mutate: mockUpdateMutate,
     isPending: false,
     error: null,
   }),
-  useAddCollectionItem: () => ({
+  useAddCollectionItem: (): MutationStub => ({
     mutate: mockAddItemMutate,
     isPending: false,
     isError: false,
@@ -222,7 +225,7 @@ vi.mock('../hooks', () => ({
   }),
   useRemoveCollectionItem: () => mockRemoveMutation(),
   useReorderCollectionItems: () => mockReorderMutation(),
-  useUpdateCollectionItem: () => ({
+  useUpdateCollectionItem: (): MutationStub => ({
     mutate: vi.fn(),
     isPending: false,
     isError: false,
@@ -266,7 +269,7 @@ vi.mock('@/features/tags', () => ({
 // mount time. CollectionDetail tests don't exercise the dialog content
 // so a no-op stub keeps the non-creator render path lean.
 vi.mock('@/features/contributions', () => ({
-  ReportEntityDialog: () => null,
+  ReportEntityDialog: (): null => null,
 }))
 
 // Mock useEntitySearch
@@ -952,7 +955,7 @@ describe('CollectionDetail', () => {
       window.localStorage.setItem('ph-collection-items-view-mode', 'list')
     })
 
-    const sampleItems = [
+    const sampleItems: CollectionItem[] = [
       {
         id: 11,
         entity_type: 'artist',
@@ -1788,7 +1791,7 @@ describe('CollectionDetail', () => {
 
   describe('PSY-581 Add Items default-open on empty collections', () => {
     /** Sample item used to drop the collection out of the empty state. */
-    const sampleItem = {
+    const sampleItem: CollectionItem = {
       id: 100,
       entity_type: 'artist',
       entity_id: 1,
@@ -1894,7 +1897,7 @@ describe('CollectionDetail', () => {
   // ──────────────────────────────────────────────
 
   describe('PSY-360 grid view + view-mode toggle', () => {
-    const sampleItems = [
+    const sampleItems: CollectionItem[] = [
       {
         id: 21,
         entity_type: 'release',
@@ -2104,7 +2107,7 @@ describe('CollectionDetail', () => {
   // PSY-348 drag tests force list mode via beforeEach; these exercise
   // the grid-mode path that was non-functional pre-PSY-527.
   describe('PSY-527: grid + ranked reorder', () => {
-    const sampleItems = [
+    const sampleItems: CollectionItem[] = [
       {
         id: 31,
         entity_type: 'release',

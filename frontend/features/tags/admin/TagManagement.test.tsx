@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
-import type { TagListItem } from '../types'
+import type { TagListItem, TagAlias, TagAliasListing } from '../types'
 
 const mockUseTags = vi.fn()
 vi.mock('../hooks', () => ({
@@ -10,25 +10,25 @@ vi.mock('../hooks', () => ({
   useTag: vi.fn(),
   // MergeTagDialog (mounted inside TagManagement) pulls these in even when
   // the merge dialog is closed, so they have to exist in the mock.
-  useSearchTags: () => ({ data: { tags: [] }, isLoading: false }),
-  useTagAliases: () => ({ data: { aliases: [] }, isLoading: false }),
+  useSearchTags: () => ({ data: { tags: [] as TagListItem[] }, isLoading: false }),
+  useTagAliases: () => ({ data: { aliases: [] as TagAlias[] }, isLoading: false }),
 }))
 
 vi.mock('./useAdminTags', () => ({
   useCreateTag: () => ({ mutate: vi.fn(), isPending: false }),
   useUpdateTag: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteTag: () => ({ mutate: vi.fn(), isPending: false }),
-  useTagAliases: () => ({ data: { aliases: [] }, isLoading: false }),
+  useTagAliases: () => ({ data: { aliases: [] as TagAlias[] }, isLoading: false }),
   useCreateAlias: () => ({ mutate: vi.fn(), isPending: false }),
   useDeleteAlias: () => ({ mutate: vi.fn(), isPending: false }),
-  useAllTagAliases: () => ({ data: { aliases: [], total: 0 }, isLoading: false, error: null }),
+  useAllTagAliases: () => ({ data: { aliases: [] as TagAliasListing[], total: 0 }, isLoading: false, error: null as Error | null }),
   useBulkImportAliases: () => ({ mutate: vi.fn(), isPending: false }),
   useMergeTags: () => ({ mutate: vi.fn(), isPending: false }),
-  useMergeTagsPreview: () => ({ data: null, isLoading: false, error: null }),
-  useLowQualityTagQueue: () => ({ data: { tags: [], total: 0 }, isLoading: false, error: null }),
-  useSnoozeTag: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useMarkTagOfficial: () => ({ mutate: vi.fn(), isPending: false, variables: undefined }),
-  useGenreHierarchy: () => ({ data: { tags: [] }, isLoading: false, error: null }),
+  useMergeTagsPreview: () => ({ data: null as unknown, isLoading: false, error: null as Error | null }),
+  useLowQualityTagQueue: () => ({ data: { tags: [] as TagListItem[], total: 0 }, isLoading: false, error: null as Error | null }),
+  useSnoozeTag: () => ({ mutate: vi.fn(), isPending: false, variables: undefined as unknown }),
+  useMarkTagOfficial: () => ({ mutate: vi.fn(), isPending: false, variables: undefined as unknown }),
+  useGenreHierarchy: () => ({ data: { tags: [] as TagListItem[] }, isLoading: false, error: null as Error | null }),
   useSetTagParent: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 

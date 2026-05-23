@@ -136,10 +136,10 @@ vi.mock('@/features/contributions', () => ({
     isVisible: false,
     handleSaveSuccess: vi.fn(),
   }),
-  AttributionLine: () => null,
+  AttributionLine: (): null => null,
   ReportEntityDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="report-dialog">Report Dialog</div> : null,
-  ContributionPrompt: () => null,
+  ContributionPrompt: (): null => null,
 }))
 
 vi.mock('./DeleteVenueDialog', () => ({

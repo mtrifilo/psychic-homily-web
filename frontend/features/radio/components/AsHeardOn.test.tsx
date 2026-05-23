@@ -39,8 +39,8 @@ function response(): RadioAsHeardOnResponse {
   }
 }
 
-const empty = () => ({ data: { stations: [], count: 0 }, isLoading: false })
-const loading = () => ({ data: undefined, isLoading: true })
+const empty = () => ({ data: { stations: [] as unknown[], count: 0 }, isLoading: false })
+const loading = () => ({ data: undefined as unknown, isLoading: true })
 
 describe('AsHeardOn', () => {
   beforeEach(() => {

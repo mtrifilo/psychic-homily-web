@@ -22,7 +22,7 @@ vi.mock('@sentry/nextjs', () => ({
 // Stub the heavy collections feature module so invoking generateMetadata
 // doesn't pull in the real CollectionDetail render path.
 vi.mock('@/features/collections/components', () => ({
-  CollectionDetail: () => null,
+  CollectionDetail: (): null => null,
 }))
 
 import { generateMetadata } from './page'

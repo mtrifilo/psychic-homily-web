@@ -37,7 +37,7 @@ vi.mock('../hooks', async () => {
     useDeleteComment: () => defaultMutationReturn,
     useVoteComment: () => defaultMutationReturn,
     useUnvoteComment: () => defaultMutationReturn,
-    useCommentThread: () => ({ data: undefined }),
+    useCommentThread: () => ({ data: undefined as unknown }),
     useAutoDismissError: actual.useAutoDismissError,
     formatCommentSubmissionError: actual.formatCommentSubmissionError,
   }
@@ -53,13 +53,13 @@ vi.mock('@/features/shows/hooks', () => ({
 }))
 
 vi.mock('@/features/contributions', () => ({
-  ReportEntityDialog: () => null,
+  ReportEntityDialog: (): null => null,
 }))
 
 // PSY-590: stub the admin edit-history dialog so the section renders even when
 // authenticated as admin (cards may try to lazy-mount the dialog).
 vi.mock('./CommentEditHistory', () => ({
-  CommentEditHistory: () => null,
+  CommentEditHistory: (): null => null,
 }))
 
 const pastDate = '2025-01-15T20:00:00Z'

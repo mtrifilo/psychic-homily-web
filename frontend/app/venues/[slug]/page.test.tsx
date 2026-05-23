@@ -13,7 +13,7 @@ vi.mock('@sentry/nextjs', () => ({
 // Stub the heavy venues feature module so invoking generateMetadata doesn't
 // pull in the real VenueDetail render path.
 vi.mock('@/features/venues', () => ({
-  VenueDetail: () => null,
+  VenueDetail: (): null => null,
 }))
 
 import { generateMetadata } from './page'

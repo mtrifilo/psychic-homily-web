@@ -157,7 +157,7 @@ function queryResult(
   return {
     data: makeRequest(),
     isLoading: false,
-    error: null,
+    error: null as Error | null,
     ...overrides,
   }
 }

@@ -71,7 +71,7 @@ describe('useSetFavoriteCities', () => {
     const mockResponse = {
       success: true,
       message: 'Favorite cities cleared',
-      cities: [],
+      cities: [] as unknown[],
     }
     mockApiRequest.mockResolvedValueOnce(mockResponse)
 

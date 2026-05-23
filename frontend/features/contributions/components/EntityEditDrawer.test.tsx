@@ -17,8 +17,8 @@ vi.mock('../hooks/useSuggestEdit', () => ({
     isPending: false,
     isSuccess: false,
     isError: false,
-    data: undefined,
-    error: null,
+    data: undefined as unknown,
+    error: null as Error | null,
   }),
 }))
 
