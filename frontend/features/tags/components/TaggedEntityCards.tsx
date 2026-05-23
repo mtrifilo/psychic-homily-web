@@ -17,9 +17,13 @@
 import Link from 'next/link'
 import { BadgeCheck, Library, MapPin } from 'lucide-react'
 import { ArtistCard } from '@/features/artists'
+import type { ArtistListItem } from '@/features/artists/types'
 import { FestivalCard } from '@/features/festivals'
+import type { FestivalListItem } from '@/features/festivals/types'
 import { LabelCard } from '@/features/labels'
+import type { LabelListItem } from '@/features/labels/types'
 import { ReleaseCard } from '@/features/releases'
+import type { ReleaseListItem } from '@/features/releases/types'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import type { TaggedEntityItem } from '../types'
 import { getEntityUrl } from '../types'
@@ -32,7 +36,7 @@ function TaggedArtistCard({ item }: { item: TaggedEntityItem }) {
   // Adapt to ArtistListItem. ArtistCard only reads name, slug, city, state,
   // and upcoming_show_count, so we can pass a minimal shape with the rest
   // stubbed out.
-  const artist = {
+  const artist: ArtistListItem = {
     id: item.entity_id,
     slug: item.slug,
     name: item.name,
@@ -60,7 +64,7 @@ function TaggedArtistCard({ item }: { item: TaggedEntityItem }) {
 function TaggedFestivalCard({ item }: { item: TaggedEntityItem }) {
   // Adapt to FestivalListItem. The card reads name, slug, city, state,
   // edition_year, start_date, end_date, status, artist_count, venue_count.
-  const festival = {
+  const festival: FestivalListItem = {
     id: item.entity_id,
     name: item.name,
     slug: item.slug,
@@ -78,7 +82,7 @@ function TaggedFestivalCard({ item }: { item: TaggedEntityItem }) {
 }
 
 function TaggedLabelCard({ item }: { item: TaggedEntityItem }) {
-  const label = {
+  const label: LabelListItem = {
     id: item.entity_id,
     name: item.name,
     slug: item.slug,
@@ -96,7 +100,7 @@ function TaggedReleaseCard({ item }: { item: TaggedEntityItem }) {
   // detail endpoint doesn't return per-release artist credits (would require
   // an extra JOIN per row), so we render an empty artists array — the card
   // gracefully handles that case (no artist line when the array is empty).
-  const release = {
+  const release: ReleaseListItem = {
     id: item.entity_id,
     title: item.name,
     slug: item.slug,

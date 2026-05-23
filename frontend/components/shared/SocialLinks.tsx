@@ -66,7 +66,12 @@ function SoundCloudIcon({ className }: { className?: string }) {
   )
 }
 
-const socialLinks = [
+const socialLinks: ReadonlyArray<{
+  key: keyof NonNullable<SocialLinksProps['social']>
+  icon: React.ComponentType<{ className?: string }>
+  label: string
+  baseUrl: string | null
+}> = [
   { key: 'website', icon: Globe, label: 'Website', baseUrl: null },
   { key: 'instagram', icon: Instagram, label: 'Instagram', baseUrl: 'https://instagram.com/' },
   { key: 'facebook', icon: Facebook, label: 'Facebook', baseUrl: 'https://facebook.com/' },
@@ -75,7 +80,7 @@ const socialLinks = [
   { key: 'spotify', icon: SpotifyIcon, label: 'Spotify', baseUrl: 'https://open.spotify.com/' },
   { key: 'bandcamp', icon: BandcampIcon, label: 'Bandcamp', baseUrl: null }, // Format varies: username.bandcamp.com
   { key: 'soundcloud', icon: SoundCloudIcon, label: 'SoundCloud', baseUrl: 'https://soundcloud.com/' },
-] as const
+]
 
 /**
  * Normalize a social link value to a full URL.
