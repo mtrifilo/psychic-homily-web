@@ -66,7 +66,9 @@ func SetupTestPostgres(t *testing.T) *TestDatabase {
 	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable",
 		host, port.Port())
 
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	// Match production db.Connect: TranslateError so integration tests see the
+	// same wrapped sentinels (gorm.ErrDuplicatedKey, etc.).
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{TranslateError: true})
 	if err != nil {
 		t.Fatalf("failed to connect to test database: %v", err)
 	}

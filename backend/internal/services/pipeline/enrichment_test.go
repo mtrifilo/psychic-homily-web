@@ -166,7 +166,9 @@ func (s *EnrichmentIntegrationTestSuite) SetupSuite() {
 	port, _ := container.MappedPort(s.ctx, "5432")
 
 	dsn := fmt.Sprintf("host=%s port=%s user=test_user password=test_password dbname=test_db sslmode=disable", host, port.Port())
-	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{})
+	// Match production: TranslateError so duplicate-key checks behave the same
+	// in tests as in production.
+	db, err := gorm.Open(postgres.Open(dsn), &gorm.Config{TranslateError: true})
 	s.Require().NoError(err)
 	s.db = db
 

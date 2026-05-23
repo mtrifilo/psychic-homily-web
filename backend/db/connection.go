@@ -32,9 +32,17 @@ func Connect(cfg *config.Config) error {
 		gormLogger = gormLogger.LogMode(logger.Info)
 	}
 
-	// Connect to database
+	// Connect to database.
+	//
+	// TranslateError maps driver errors to GORM sentinel errors (e.g. Postgres
+	// 23505 unique violations → gorm.ErrDuplicatedKey, 23503 FK violations →
+	// gorm.ErrForeignKeyViolated). This lets the service layer discriminate on
+	// errors.Is(err, gorm.ErrDuplicatedKey) instead of fragile substring
+	// matching on the raw driver message. See services/shared/db_errors.go for
+	// the canonical helper.
 	DB, err = gorm.Open(postgres.Open(cfg.Database.URL), &gorm.Config{
-		Logger: gormLogger,
+		Logger:         gormLogger,
+		TranslateError: true,
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},
