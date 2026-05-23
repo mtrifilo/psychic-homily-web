@@ -64,7 +64,6 @@ describe('useShowImport', () => {
             name: 'Test Artist',
             position: 1,
             set_type: 'headliner',
-            existing_id: null,
             will_create: true,
           },
         ],
