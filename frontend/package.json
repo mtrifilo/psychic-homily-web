@@ -8,6 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
+    "typecheck:future": "bash scripts/typecheck-future.sh",
     "test": "vitest",
     "test:run": "vitest run",
     "test:coverage": "vitest run --coverage",
