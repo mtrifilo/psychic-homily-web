@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -69,8 +70,11 @@ func (h *CommentAdminHandler) AdminHideCommentHandler(ctx context.Context, req *
 	}
 
 	if err := h.admin.HideComment(user.ID, uint(commentID), reason); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
+		}
+		if mapped := shared.MapCommentAdminError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -109,11 +113,11 @@ func (h *CommentAdminHandler) AdminRestoreCommentHandler(ctx context.Context, re
 	}
 
 	if err := h.admin.RestoreComment(user.ID, uint(commentID)); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
-		if strings.Contains(err.Error(), "already visible") {
-			return nil, huma.Error409Conflict("Comment is already visible")
+		if mapped := shared.MapCommentAdminError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -197,11 +201,11 @@ func (h *CommentAdminHandler) AdminApproveCommentHandler(ctx context.Context, re
 	}
 
 	if err := h.admin.ApproveComment(user.ID, uint(commentID)); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
-		if strings.Contains(err.Error(), "not pending review") {
-			return nil, huma.Error409Conflict("Comment is not pending review")
+		if mapped := shared.MapCommentAdminError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -246,11 +250,11 @@ func (h *CommentAdminHandler) AdminRejectCommentHandler(ctx context.Context, req
 	}
 
 	if err := h.admin.RejectComment(user.ID, uint(commentID), reason); err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
-		if strings.Contains(err.Error(), "not pending review") {
-			return nil, huma.Error409Conflict("Comment is not pending review")
+		if mapped := shared.MapCommentAdminError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -296,11 +300,11 @@ func (h *CommentAdminHandler) AdminGetCommentEditHistoryHandler(ctx context.Cont
 
 	history, err := h.admin.GetCommentEditHistory(user.ID, uint(commentID))
 	if err != nil {
-		if strings.Contains(err.Error(), "admin access required") {
-			return nil, huma.Error403Forbidden("Admin access required")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
+		if mapped := shared.MapCommentAdminError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

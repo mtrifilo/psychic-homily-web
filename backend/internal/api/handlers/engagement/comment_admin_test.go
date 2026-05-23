@@ -10,6 +10,7 @@ import (
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -69,7 +70,7 @@ func TestAdminHideComment_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			HideCommentFn: func(adminUserID, commentID uint, reason string) error {
-				return fmt.Errorf("comment not found")
+				return apperrors.ErrCommentNotFound()
 			},
 		},
 		nil,
@@ -114,7 +115,7 @@ func TestAdminRestoreComment_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			RestoreCommentFn: func(adminUserID, commentID uint) error {
-				return fmt.Errorf("comment not found")
+				return apperrors.ErrCommentNotFound()
 			},
 		},
 		nil,
@@ -127,7 +128,7 @@ func TestAdminRestoreComment_AlreadyVisible(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			RestoreCommentFn: func(adminUserID, commentID uint) error {
-				return fmt.Errorf("comment is already visible")
+				return apperrors.ErrCommentAdminAlreadyVisible()
 			},
 		},
 		nil,
@@ -222,7 +223,7 @@ func TestAdminApproveComment_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			ApproveCommentFn: func(adminUserID, commentID uint) error {
-				return fmt.Errorf("comment not found")
+				return apperrors.ErrCommentNotFound()
 			},
 		},
 		nil,
@@ -235,7 +236,7 @@ func TestAdminApproveComment_NotPending(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			ApproveCommentFn: func(adminUserID, commentID uint) error {
-				return fmt.Errorf("comment is not pending review")
+				return apperrors.ErrCommentAdminNotPending()
 			},
 		},
 		nil,
@@ -286,7 +287,7 @@ func TestAdminRejectComment_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			RejectCommentFn: func(adminUserID, commentID uint, reason string) error {
-				return fmt.Errorf("comment not found")
+				return apperrors.ErrCommentNotFound()
 			},
 		},
 		nil,
@@ -301,7 +302,7 @@ func TestAdminRejectComment_NotPending(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			RejectCommentFn: func(adminUserID, commentID uint, reason string) error {
-				return fmt.Errorf("comment is not pending review")
+				return apperrors.ErrCommentAdminNotPending()
 			},
 		},
 		nil,
@@ -339,7 +340,7 @@ func TestAdminRejectComment_Success(t *testing.T) {
 func TestCreateComment_RateLimitError(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("Please wait 60 seconds between comments on the same entity")
+			return nil, apperrors.ErrCommentRateLimitedEntity()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -353,7 +354,7 @@ func TestCreateComment_RateLimitError(t *testing.T) {
 func TestCreateComment_HourlyLimitError(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("you've reached your hourly comment limit (5/hour for new users)")
+			return nil, apperrors.ErrCommentRateLimitedHourly(5, "new")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -372,7 +373,7 @@ func TestCreateReply_RateLimitError_HasRetryAfter(t *testing.T) {
 			return makeCommentResponse(id, "show", 1, 99), nil
 		},
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("Please wait 60 seconds between comments on the same entity")
+			return nil, apperrors.ErrCommentRateLimitedEntity()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -397,7 +398,7 @@ func TestAdminGetCommentEditHistory_NotFound(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			GetCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
-				return nil, fmt.Errorf("comment not found")
+				return nil, apperrors.ErrCommentNotFound()
 			},
 		},
 		nil,
@@ -411,7 +412,7 @@ func TestAdminGetCommentEditHistory_ServiceAdminRejection(t *testing.T) {
 	h := NewCommentAdminHandler(
 		&testhelpers.MockCommentAdminService{
 			GetCommentEditHistoryFn: func(requesterID, commentID uint) (*contracts.CommentEditHistoryResponse, error) {
-				return nil, fmt.Errorf("admin access required")
+				return nil, apperrors.ErrCommentAdminAccessRequired()
 			},
 		},
 		nil,

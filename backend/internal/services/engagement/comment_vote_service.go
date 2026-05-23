@@ -7,6 +7,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/scoring"
 )
@@ -34,14 +35,14 @@ func (s *CommentVoteService) Vote(userID uint, commentID uint, direction int) er
 	}
 
 	if direction != 1 && direction != -1 {
-		return fmt.Errorf("invalid vote direction: must be 1 or -1")
+		return apperrors.ErrCommentVoteInvalidDirection()
 	}
 
 	// Verify comment exists
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("comment not found")
+			return apperrors.ErrCommentVoteCommentNotFound()
 		}
 		return fmt.Errorf("failed to get comment: %w", err)
 	}
@@ -50,7 +51,7 @@ func (s *CommentVoteService) Vote(userID uint, commentID uint, direction int) er
 	// convention). The frontend hides the buttons; this guard is defensive
 	// insurance against a stale UI or a direct API call.
 	if comment.UserID == userID {
-		return fmt.Errorf("cannot vote on your own comment")
+		return apperrors.ErrCommentVoteSelfVote()
 	}
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
@@ -93,7 +94,7 @@ func (s *CommentVoteService) Unvote(userID uint, commentID uint) error {
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("comment not found")
+			return apperrors.ErrCommentVoteCommentNotFound()
 		}
 		return fmt.Errorf("failed to get comment: %w", err)
 	}

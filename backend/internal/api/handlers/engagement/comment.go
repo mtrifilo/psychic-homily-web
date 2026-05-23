@@ -3,7 +3,6 @@ package engagement
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"strconv"
 	"strings"
 
@@ -17,23 +16,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 )
-
-// rateLimited429 wraps a 429 service-layer error with a `Retry-After` header
-// per RFC 7231 §7.1.3 so clients can populate countdown copy without parsing
-// the body. The per-entity cooldown is 60s; the global hourly cap is bounded
-// by 3600s (clients should treat the hourly variant as a soft upper bound).
-// Both branches share the same handler wrapping so reply/top-level/field-note
-// surfaces stay consistent.
-func rateLimited429(err error) error {
-	retryAfter := "60"
-	if strings.Contains(err.Error(), "hourly comment limit") {
-		retryAfter = "3600"
-	}
-	return huma.ErrorWithHeaders(
-		huma.Error429TooManyRequests(err.Error()),
-		http.Header{"Retry-After": []string{retryAfter}},
-	)
-}
 
 // ============================================================================
 // Focused interfaces for dependency injection
@@ -160,8 +142,8 @@ func (h *CommentHandler) ListCommentsHandler(ctx context.Context, req *ListComme
 
 	result, err := h.reader.ListCommentsForEntity(req.EntityType, uint(entityID), filters)
 	if err != nil {
-		if strings.Contains(err.Error(), "unsupported entity type") {
-			return nil, huma.Error400BadRequest(err.Error())
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch comments")
 	}
@@ -196,8 +178,8 @@ func (h *CommentHandler) GetCommentHandler(ctx context.Context, req *GetCommentR
 
 	comment, err := h.reader.GetComment(uint(commentID))
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch comment")
 	}
@@ -232,11 +214,8 @@ func (h *CommentHandler) GetThreadHandler(ctx context.Context, req *GetThreadReq
 
 	comments, err := h.reader.GetThread(uint(commentID))
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Thread not found")
-		}
-		if strings.Contains(err.Error(), "not a thread root") {
-			return nil, huma.Error400BadRequest("Comment is not a thread root")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch thread")
 	}
@@ -292,20 +271,8 @@ func (h *CommentHandler) CreateCommentHandler(ctx context.Context, req *CreateCo
 
 	comment, err := h.writer.CreateComment(user.ID, serviceReq)
 	if err != nil {
-		if strings.Contains(err.Error(), "unsupported entity type") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "invalid reply_permission") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound(err.Error())
-		}
-		if strings.Contains(err.Error(), "body is required") || strings.Contains(err.Error(), "exceeds maximum length") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "Please wait") || strings.Contains(err.Error(), "hourly comment limit") {
-			return nil, rateLimited429(err)
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -362,8 +329,8 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 	// Look up parent comment to get entity_type and entity_id
 	parent, err := h.reader.GetComment(uint(parentID))
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Parent comment not found")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to fetch parent comment")
 	}
@@ -379,29 +346,8 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 
 	comment, err := h.writer.CreateComment(user.ID, serviceReq)
 	if err != nil {
-		if strings.Contains(err.Error(), "maximum reply depth") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "invalid reply_permission") ||
-			strings.Contains(err.Error(), "unsupported reply_permission") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		// PSY-296: reply-permission gate rejections.
-		if strings.Contains(err.Error(), "replies to this comment are disabled") ||
-			strings.Contains(err.Error(), "only followers of the author can reply") {
-			return nil, huma.Error403Forbidden(err.Error())
-		}
-		if strings.Contains(err.Error(), "body is required") || strings.Contains(err.Error(), "exceeds maximum length") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "parent comment belongs to a different entity") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "parent comment not found") {
-			return nil, huma.Error404NotFound(err.Error())
-		}
-		if strings.Contains(err.Error(), "Please wait") || strings.Contains(err.Error(), "hourly comment limit") {
-			return nil, rateLimited429(err)
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -468,23 +414,12 @@ func (h *CommentHandler) UpdateCommentHandler(ctx context.Context, req *UpdateCo
 
 	comment, err := h.writer.UpdateComment(user.ID, uint(commentID), serviceReq)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
-		}
-		if strings.Contains(err.Error(), "only the comment author") {
-			return nil, huma.Error403Forbidden("You can only edit your own comments")
-		}
-		// PSY-567: field-note 30-min edit window. 403 lets the frontend
-		// reflect "no longer editable" without needing a separate state
-		// flag — the same status it already handles for not-author edits.
-		if strings.Contains(err.Error(), "field note edit window has expired") {
-			return nil, huma.Error403Forbidden(err.Error())
-		}
-		if strings.Contains(err.Error(), "body is required") || strings.Contains(err.Error(), "exceeds maximum length") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "sound_quality must be") || strings.Contains(err.Error(), "crowd_energy must be") {
-			return nil, huma.Error400BadRequest(err.Error())
+		// Field-note 30-min edit window surfaces as CodeCommentForbidden
+		// (403) — the same status the frontend already handles for
+		// not-author edits, so the inline "no longer editable" copy needs
+		// no separate state flag.
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -544,14 +479,8 @@ func (h *CommentHandler) UpdateReplyPermissionHandler(ctx context.Context, req *
 
 	comment, err := h.writer.UpdateReplyPermission(user.ID, uint(commentID), perm)
 	if err != nil {
-		if strings.Contains(err.Error(), "invalid reply_permission") {
-			return nil, huma.Error400BadRequest(shared.InvalidReplyPermissionMessage)
-		}
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
-		}
-		if strings.Contains(err.Error(), "only the comment author") {
-			return nil, huma.Error403Forbidden("Only the comment author can change reply permission")
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -593,17 +522,12 @@ func (h *CommentHandler) DeleteCommentHandler(ctx context.Context, req *DeleteCo
 
 	err = h.writer.DeleteComment(user.ID, uint(commentID), user.IsAdmin)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Comment not found")
-		}
-		if strings.Contains(err.Error(), "only the comment author or an admin") {
-			return nil, huma.Error403Forbidden("You can only delete your own comments")
-		}
-		// PSY-567: 30-min field-note self-delete window. After expiry the
-		// row is immutable to the author; admin moderation (and the
-		// Report flow) are the out-of-window retraction paths.
-		if strings.Contains(err.Error(), "field note edit window has expired") {
-			return nil, huma.Error403Forbidden(err.Error())
+		// Out-of-window field-note self-delete surfaces as
+		// CodeCommentForbidden (403). After expiry the row is immutable
+		// to the author; admin moderation and the Report flow are the
+		// out-of-window retraction paths.
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

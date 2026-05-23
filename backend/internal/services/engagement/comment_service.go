@@ -14,6 +14,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
@@ -130,7 +131,7 @@ func withinFieldNoteEditWindow(createdAt time.Time) bool {
 func validateCommentEntityType(entityType string) (engagementm.CommentEntityType, error) {
 	ct := engagementm.CommentEntityType(entityType)
 	if _, ok := engagementm.ValidCommentEntityTypes[ct]; !ok {
-		return "", fmt.Errorf("unsupported entity type: %s", entityType)
+		return "", apperrors.ErrCommentInvalidEntityType(entityType)
 	}
 	return ct, nil
 }
@@ -139,7 +140,7 @@ func validateCommentEntityType(entityType string) (engagementm.CommentEntityType
 func (s *CommentService) validateEntityExists(entityType engagementm.CommentEntityType, entityID uint) error {
 	tableName, ok := engagementm.ValidCommentEntityTypes[entityType]
 	if !ok {
-		return fmt.Errorf("unsupported entity type: %s", entityType)
+		return apperrors.ErrCommentInvalidEntityType(string(entityType))
 	}
 
 	var count int64
@@ -148,7 +149,7 @@ func (s *CommentService) validateEntityExists(entityType engagementm.CommentEnti
 		return fmt.Errorf("failed to validate entity existence: %w", result.Error)
 	}
 	if count == 0 {
-		return fmt.Errorf("%s with ID %d not found", entityType, entityID)
+		return apperrors.ErrCommentEntityNotFound(string(entityType), entityID)
 	}
 	return nil
 }
@@ -227,45 +228,47 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 		if err := s.db.Select("id, user_id, reply_permission").
 			First(&parentPerm, *req.ParentID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, errors.New("parent comment not found")
+				return nil, apperrors.ErrCommentParentNotFound()
 			}
 			return nil, fmt.Errorf("failed to load parent comment: %w", err)
 		}
 		switch parentPerm.ReplyPermission {
 		case engagementm.ReplyPermissionAuthorOnly:
 			if parentPerm.UserID != userID {
-				return nil, errors.New("replies to this comment are disabled")
+				return nil, apperrors.ErrCommentForbidden("replies to this comment are disabled")
 			}
 		case engagementm.ReplyPermissionFollowers:
 			// Author can always reply to their own comment; otherwise the
 			// replier must follow the parent author.
 			if parentPerm.UserID != userID {
 				if s.followChecker == nil {
-					return nil, errors.New("follow state unavailable; cannot verify followers-only reply permission")
+					return nil, apperrors.ErrCommentForbidden("follow state unavailable; cannot verify followers-only reply permission")
 				}
 				isFollowing, err := s.followChecker.IsFollowing(userID, FollowEntityUser, parentPerm.UserID)
 				if err != nil {
 					return nil, fmt.Errorf("failed to check follower status: %w", err)
 				}
 				if !isFollowing {
-					return nil, errors.New("only followers of the author can reply to this comment")
+					return nil, apperrors.ErrCommentForbidden("only followers of the author can reply to this comment")
 				}
 			}
 		case engagementm.ReplyPermissionAnyone, "":
 			// allow
 		default:
 			// Unrecognized value stored on the parent — fail closed to be safe.
-			return nil, fmt.Errorf("unsupported reply_permission on parent: %s", parentPerm.ReplyPermission)
+			return nil, apperrors.ErrCommentUnsupportedReplyPermission(string(parentPerm.ReplyPermission))
 		}
 	}
 
 	// Validate body length
 	body := strings.TrimSpace(req.Body)
 	if len(body) < engagementm.MinCommentBodyLength {
-		return nil, errors.New("comment body is required")
+		return nil, apperrors.ErrCommentBodyRequired("comment body is required")
 	}
 	if len(body) > engagementm.MaxCommentBodyLength {
-		return nil, fmt.Errorf("comment body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength)
+		return nil, apperrors.ErrCommentBodyTooLong(
+			fmt.Sprintf("comment body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength),
+		)
 	}
 
 	// Validate entity type
@@ -283,7 +286,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("user not found")
+			return nil, apperrors.ErrCommentUserNotFound()
 		}
 		return nil, fmt.Errorf("failed to look up user: %w", err)
 	}
@@ -297,7 +300,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 		return nil, fmt.Errorf("failed to check rate limit: %w", err)
 	}
 	if recentEntityCount > 0 {
-		return nil, errors.New("Please wait 60 seconds between comments on the same entity")
+		return nil, apperrors.ErrCommentRateLimitedEntity()
 	}
 
 	// Rate limiting: global hourly limit based on trust tier
@@ -310,13 +313,11 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 			return nil, fmt.Errorf("failed to check hourly rate limit: %w", err)
 		}
 		if int(hourlyCount) >= hourlyLimit {
-			return nil, fmt.Errorf("you've reached your hourly comment limit (%d/hour for %s users)",
-				hourlyLimit, func() string {
-					if user.UserTier == "" {
-						return "new"
-					}
-					return strings.ReplaceAll(user.UserTier, "_", " ")
-				}())
+			tier := "new"
+			if user.UserTier != "" {
+				tier = strings.ReplaceAll(user.UserTier, "_", " ")
+			}
+			return nil, apperrors.ErrCommentRateLimitedHourly(hourlyLimit, tier)
 		}
 	}
 
@@ -334,7 +335,7 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 	replyPerm := engagementm.ReplyPermissionAnyone
 	if req.ReplyPermission != "" {
 		if !engagementm.IsValidReplyPermission(req.ReplyPermission) {
-			return nil, fmt.Errorf("invalid reply_permission: %s", req.ReplyPermission)
+			return nil, apperrors.ErrCommentInvalidReplyPermission(req.ReplyPermission)
 		}
 		replyPerm = engagementm.ReplyPermission(req.ReplyPermission)
 	} else if req.ParentID == nil || *req.ParentID == 0 {
@@ -358,20 +359,20 @@ func (s *CommentService) CreateComment(userID uint, req *contracts.CreateComment
 		var parent engagementm.Comment
 		if err := s.db.First(&parent, *req.ParentID).Error; err != nil {
 			if errors.Is(err, gorm.ErrRecordNotFound) {
-				return nil, errors.New("parent comment not found")
+				return nil, apperrors.ErrCommentParentNotFound()
 			}
 			return nil, fmt.Errorf("failed to fetch parent comment: %w", err)
 		}
 
 		// Parent must be on the same entity
 		if parent.EntityType != entityType || parent.EntityID != req.EntityID {
-			return nil, errors.New("parent comment belongs to a different entity")
+			return nil, apperrors.ErrCommentParentMismatch()
 		}
 
 		// Enforce max depth
 		depth = parent.Depth + 1
 		if depth > engagementm.MaxCommentDepth {
-			return nil, fmt.Errorf("maximum reply depth of %d exceeded", engagementm.MaxCommentDepth)
+			return nil, apperrors.ErrCommentMaxDepthExceeded(engagementm.MaxCommentDepth)
 		}
 
 		parentID = req.ParentID
@@ -456,7 +457,7 @@ func (s *CommentService) GetComment(commentID uint) (*contracts.CommentResponse,
 	var comment engagementm.Comment
 	if err := s.db.Preload("User").First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("comment not found")
+			return nil, apperrors.ErrCommentNotFound()
 		}
 		return nil, fmt.Errorf("failed to fetch comment: %w", err)
 	}
@@ -581,14 +582,14 @@ func (s *CommentService) GetThread(rootID uint) ([]*contracts.CommentResponse, e
 	var root engagementm.Comment
 	if err := s.db.First(&root, rootID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("thread root comment not found")
+			return nil, apperrors.ErrCommentThreadRootNotFound()
 		}
 		return nil, fmt.Errorf("failed to fetch thread root: %w", err)
 	}
 
 	// The root comment must be a top-level comment (no parent)
 	if root.ParentID != nil {
-		return nil, errors.New("comment is not a thread root")
+		return nil, apperrors.ErrCommentNotThreadRoot()
 	}
 
 	// Load root + all descendants
@@ -625,23 +626,25 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 	// Validate body
 	body := strings.TrimSpace(req.Body)
 	if len(body) < engagementm.MinCommentBodyLength {
-		return nil, errors.New("comment body is required")
+		return nil, apperrors.ErrCommentBodyRequired("comment body is required")
 	}
 	if len(body) > engagementm.MaxCommentBodyLength {
-		return nil, fmt.Errorf("comment body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength)
+		return nil, apperrors.ErrCommentBodyTooLong(
+			fmt.Sprintf("comment body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength),
+		)
 	}
 
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("comment not found")
+			return nil, apperrors.ErrCommentNotFound()
 		}
 		return nil, fmt.Errorf("failed to fetch comment: %w", err)
 	}
 
 	// Only the author can edit
 	if comment.UserID != userID {
-		return nil, errors.New("only the comment author can edit this comment")
+		return nil, apperrors.ErrCommentForbidden("only the comment author can edit this comment")
 	}
 
 	// PSY-567: field notes have a 30-minute author-edit window. Regular
@@ -651,7 +654,7 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 	// out-of-window retraction path.
 	isFieldNote := comment.Kind == engagementm.CommentKindFieldNote
 	if isFieldNote && !withinFieldNoteEditWindow(comment.CreatedAt) {
-		return nil, errors.New("field note edit window has expired")
+		return nil, apperrors.ErrCommentForbidden("field note edit window has expired")
 	}
 
 	// Validate + serialise structured-data update (field notes only). On
@@ -662,10 +665,10 @@ func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contrac
 	if isFieldNote && req.StructuredData != nil {
 		sd := req.StructuredData
 		if sd.SoundQuality != nil && (*sd.SoundQuality < 1 || *sd.SoundQuality > 5) {
-			return nil, errors.New("sound_quality must be between 1 and 5")
+			return nil, apperrors.ErrCommentFieldValidation("sound_quality must be between 1 and 5")
 		}
 		if sd.CrowdEnergy != nil && (*sd.CrowdEnergy < 1 || *sd.CrowdEnergy > 5) {
-			return nil, errors.New("crowd_energy must be between 1 and 5")
+			return nil, apperrors.ErrCommentFieldValidation("crowd_energy must be between 1 and 5")
 		}
 		sdJSON, err := json.Marshal(sd)
 		if err != nil {
@@ -731,18 +734,18 @@ func (s *CommentService) UpdateReplyPermission(userID uint, commentID uint, perm
 		return nil, errors.New("database not initialized")
 	}
 	if !engagementm.IsValidReplyPermission(permission) {
-		return nil, fmt.Errorf("invalid reply_permission: %s", permission)
+		return nil, apperrors.ErrCommentInvalidReplyPermission(permission)
 	}
 
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("comment not found")
+			return nil, apperrors.ErrCommentNotFound()
 		}
 		return nil, fmt.Errorf("failed to fetch comment: %w", err)
 	}
 	if comment.UserID != userID {
-		return nil, errors.New("only the comment author can change reply permission")
+		return nil, apperrors.ErrCommentForbidden("only the comment author can change reply permission")
 	}
 
 	if err := s.db.Model(&comment).Updates(map[string]interface{}{
@@ -772,19 +775,19 @@ func (s *CommentService) GetCommentEditHistory(requesterID uint, commentID uint)
 	var requester authm.User
 	if err := s.db.First(&requester, requesterID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("admin access required")
+			return nil, apperrors.ErrCommentAdminAccessRequired()
 		}
 		return nil, fmt.Errorf("failed to look up requester: %w", err)
 	}
 	if !requester.IsAdmin {
-		return nil, errors.New("admin access required")
+		return nil, apperrors.ErrCommentAdminAccessRequired()
 	}
 
 	// Fetch the comment (we need the current body + to verify it exists).
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("comment not found")
+			return nil, apperrors.ErrCommentNotFound()
 		}
 		return nil, fmt.Errorf("failed to fetch comment: %w", err)
 	}
@@ -843,14 +846,14 @@ func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("comment not found")
+			return apperrors.ErrCommentNotFound()
 		}
 		return fmt.Errorf("failed to fetch comment: %w", err)
 	}
 
 	// Non-admin users can only delete their own comments
 	if !isAdmin && comment.UserID != userID {
-		return errors.New("only the comment author or an admin can delete this comment")
+		return apperrors.ErrCommentForbidden("only the comment author or an admin can delete this comment")
 	}
 
 	// PSY-567: field-note window applies to author self-deletes (incl.
@@ -860,7 +863,7 @@ func (s *CommentService) DeleteComment(userID uint, commentID uint, isAdmin bool
 	if comment.Kind == engagementm.CommentKindFieldNote &&
 		comment.UserID == userID &&
 		!withinFieldNoteEditWindow(comment.CreatedAt) {
-		return errors.New("field note edit window has expired")
+		return apperrors.ErrCommentForbidden("field note edit window has expired")
 	}
 
 	visibility := engagementm.CommentVisibilityHiddenByUser
@@ -892,33 +895,35 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 	// Validate body
 	body := strings.TrimSpace(req.Body)
 	if len(body) < engagementm.MinCommentBodyLength {
-		return nil, errors.New("field note body is required")
+		return nil, apperrors.ErrCommentBodyRequired("field note body is required")
 	}
 	if len(body) > engagementm.MaxCommentBodyLength {
-		return nil, fmt.Errorf("field note body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength)
+		return nil, apperrors.ErrCommentBodyTooLong(
+			fmt.Sprintf("field note body exceeds maximum length of %d characters", engagementm.MaxCommentBodyLength),
+		)
 	}
 
 	// Validate sound_quality range (1-5)
 	if req.SoundQuality != nil && (*req.SoundQuality < 1 || *req.SoundQuality > 5) {
-		return nil, errors.New("sound_quality must be between 1 and 5")
+		return nil, apperrors.ErrCommentFieldValidation("sound_quality must be between 1 and 5")
 	}
 
 	// Validate crowd_energy range (1-5)
 	if req.CrowdEnergy != nil && (*req.CrowdEnergy < 1 || *req.CrowdEnergy > 5) {
-		return nil, errors.New("crowd_energy must be between 1 and 5")
+		return nil, apperrors.ErrCommentFieldValidation("crowd_energy must be between 1 and 5")
 	}
 
 	// Look up the show and verify it's in the past
 	var show catalogm.Show
 	if err := s.db.First(&show, req.ShowID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("show not found")
+			return nil, apperrors.ErrFieldNoteShowNotFound()
 		}
 		return nil, fmt.Errorf("failed to look up show: %w", err)
 	}
 
 	if show.EventDate.After(time.Now()) {
-		return nil, errors.New("field notes can only be added to past shows")
+		return nil, apperrors.ErrFieldNoteShowFuture()
 	}
 
 	// Validate show_artist_id belongs to this show (if provided)
@@ -930,7 +935,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 			return nil, fmt.Errorf("failed to validate show artist: %w", err)
 		}
 		if count == 0 {
-			return nil, errors.New("artist is not on this show's bill")
+			return nil, apperrors.ErrFieldNoteArtistNotOnBill()
 		}
 	}
 
@@ -938,7 +943,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, errors.New("user not found")
+			return nil, apperrors.ErrCommentUserNotFound()
 		}
 		return nil, fmt.Errorf("failed to look up user: %w", err)
 	}
@@ -952,7 +957,7 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 		return nil, fmt.Errorf("failed to check rate limit: %w", err)
 	}
 	if recentEntityCount > 0 {
-		return nil, errors.New("Please wait 60 seconds between comments on the same entity")
+		return nil, apperrors.ErrCommentRateLimitedEntity()
 	}
 
 	// Rate limiting: global hourly limit based on trust tier
@@ -965,13 +970,11 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 			return nil, fmt.Errorf("failed to check hourly rate limit: %w", err)
 		}
 		if int(hourlyCount) >= hourlyLimit {
-			return nil, fmt.Errorf("you've reached your hourly comment limit (%d/hour for %s users)",
-				hourlyLimit, func() string {
-					if user.UserTier == "" {
-						return "new"
-					}
-					return strings.ReplaceAll(user.UserTier, "_", " ")
-				}())
+			tier := "new"
+			if user.UserTier != "" {
+				tier = strings.ReplaceAll(user.UserTier, "_", " ")
+			}
+			return nil, apperrors.ErrCommentRateLimitedHourly(hourlyLimit, tier)
 		}
 	}
 
@@ -1099,7 +1102,7 @@ func (s *CommentService) HideComment(adminUserID uint, commentID uint, reason st
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("comment not found")
+			return apperrors.ErrCommentNotFound()
 		}
 		return fmt.Errorf("failed to fetch comment: %w", err)
 	}
@@ -1127,13 +1130,13 @@ func (s *CommentService) RestoreComment(adminUserID uint, commentID uint) error 
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("comment not found")
+			return apperrors.ErrCommentNotFound()
 		}
 		return fmt.Errorf("failed to fetch comment: %w", err)
 	}
 
 	if comment.Visibility == engagementm.CommentVisibilityVisible {
-		return errors.New("comment is already visible")
+		return apperrors.ErrCommentAdminAlreadyVisible()
 	}
 
 	if err := s.db.Model(&comment).Updates(map[string]interface{}{
@@ -1196,13 +1199,13 @@ func (s *CommentService) ApproveComment(adminUserID uint, commentID uint) error 
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("comment not found")
+			return apperrors.ErrCommentNotFound()
 		}
 		return fmt.Errorf("failed to fetch comment: %w", err)
 	}
 
 	if comment.Visibility != engagementm.CommentVisibilityPendingReview {
-		return errors.New("comment is not pending review")
+		return apperrors.ErrCommentAdminNotPending()
 	}
 
 	if err := s.db.Model(&comment).Updates(map[string]interface{}{
@@ -1224,13 +1227,13 @@ func (s *CommentService) RejectComment(adminUserID uint, commentID uint, reason 
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return errors.New("comment not found")
+			return apperrors.ErrCommentNotFound()
 		}
 		return fmt.Errorf("failed to fetch comment: %w", err)
 	}
 
 	if comment.Visibility != engagementm.CommentVisibilityPendingReview {
-		return errors.New("comment is not pending review")
+		return apperrors.ErrCommentAdminNotPending()
 	}
 
 	now := time.Now()

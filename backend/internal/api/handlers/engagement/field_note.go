@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -98,23 +99,15 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 
 	fieldNote, err := h.writer.CreateFieldNote(user.ID, serviceReq)
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound(err.Error())
+		// Field-note creation can fail with either a field-note-specific
+		// error (show / past-show / artist-on-bill gates) or a shared
+		// CommentError (body validation, sound_quality / crowd_energy,
+		// rate limits, user-not-found).
+		if mapped := shared.MapFieldNoteError(err); mapped != nil {
+			return nil, mapped
 		}
-		if strings.Contains(err.Error(), "body is required") || strings.Contains(err.Error(), "exceeds maximum length") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "field notes can only be added to past shows") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "sound_quality must be") || strings.Contains(err.Error(), "crowd_energy must be") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "artist is not on this show") {
-			return nil, huma.Error400BadRequest(err.Error())
-		}
-		if strings.Contains(err.Error(), "Please wait") || strings.Contains(err.Error(), "hourly comment limit") {
-			return nil, rateLimited429(err)
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

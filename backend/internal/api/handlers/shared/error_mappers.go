@@ -2,6 +2,7 @@ package shared
 
 import (
 	"errors"
+	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -357,6 +358,131 @@ func MapProfileError(err error) error {
 			return huma.Error422UnprocessableEntity(profileErr.Message)
 		case apperrors.CodeProfileInternal:
 			return huma.Error500InternalServerError(profileErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapCommentError converts a CommentError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.CommentError.
+//
+// Status semantics:
+//   - NotFound / ParentNotFound / EntityNotFound      → 404
+//   - Forbidden (author-only, edit window, replies-
+//     disabled, followers-only-denied)                → 403
+//   - InvalidEntityType / InvalidReplyPermission /
+//     BodyRequired / BodyTooLong / MaxDepthExceeded /
+//     ParentMismatch / NotThreadRoot / FieldValidation → 400
+//   - RateLimitedEntity / RateLimitedHourly           → 429 with Retry-After
+//     (60 / 3600 respectively, RFC 7231 §7.1.3)
+//   - Internal                                         → 500
+//
+// 429 responses MUST carry a Retry-After header so the inline comment /
+// reply / field-note rate-limit banners can populate countdown copy
+// without parsing the body.
+func MapCommentError(err error) error {
+	var commentErr *apperrors.CommentError
+	if errors.As(err, &commentErr) {
+		switch commentErr.Code {
+		case apperrors.CodeCommentNotFound,
+			apperrors.CodeCommentParentNotFound,
+			apperrors.CodeCommentEntityNotFound:
+			return huma.Error404NotFound(commentErr.Message)
+		case apperrors.CodeCommentForbidden:
+			return huma.Error403Forbidden(commentErr.Message)
+		case apperrors.CodeCommentInvalidEntityType,
+			apperrors.CodeCommentInvalidReplyPermission,
+			apperrors.CodeCommentBodyRequired,
+			apperrors.CodeCommentBodyTooLong,
+			apperrors.CodeCommentMaxDepthExceeded,
+			apperrors.CodeCommentParentMismatch,
+			apperrors.CodeCommentNotThreadRoot,
+			apperrors.CodeCommentFieldValidation:
+			return huma.Error400BadRequest(commentErr.Message)
+		case apperrors.CodeCommentRateLimitedEntity:
+			return huma.ErrorWithHeaders(
+				huma.Error429TooManyRequests(commentErr.Message),
+				http.Header{"Retry-After": []string{"60"}},
+			)
+		case apperrors.CodeCommentRateLimitedHourly:
+			return huma.ErrorWithHeaders(
+				huma.Error429TooManyRequests(commentErr.Message),
+				http.Header{"Retry-After": []string{"3600"}},
+			)
+		case apperrors.CodeCommentInternal:
+			return huma.Error500InternalServerError(commentErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapCommentAdminError converts a CommentAdminError to an appropriate Huma
+// HTTP error. Returns nil if err is not a *apperrors.CommentAdminError.
+//
+// Comment-admin paths (Hide / Restore / Approve / Reject / edit-history)
+// discriminate state-transition failures here. The comment-not-found path
+// stays on CommentError since the underlying row lookup is the same.
+//
+//   - AlreadyVisible    → 409 (Restore on already-visible comment)
+//   - NotPending        → 409 (Approve / Reject on non-pending comment)
+//   - AccessRequired    → 403 (non-admin requesting edit history)
+func MapCommentAdminError(err error) error {
+	var adminErr *apperrors.CommentAdminError
+	if errors.As(err, &adminErr) {
+		switch adminErr.Code {
+		case apperrors.CodeCommentAdminAlreadyVisible,
+			apperrors.CodeCommentAdminNotPending:
+			return huma.Error409Conflict(adminErr.Message)
+		case apperrors.CodeCommentAdminAccessRequired:
+			return huma.Error403Forbidden(adminErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapFieldNoteError converts a FieldNoteError to an appropriate Huma HTTP
+// error. Returns nil if err is not a *apperrors.FieldNoteError.
+//
+// Covers the show / past-show / artist-on-bill gates unique to field-note
+// creation. Body / sound_quality / crowd_energy / rate-limit codes stay on
+// CommentError and flow through MapCommentError.
+//
+//   - ShowNotFound     → 404
+//   - ShowFuture       → 400 (semantic 400, NOT 422, to match the
+//     pre-typed-error client contract)
+//   - ArtistNotOnBill  → 400 (ditto)
+func MapFieldNoteError(err error) error {
+	var fnErr *apperrors.FieldNoteError
+	if errors.As(err, &fnErr) {
+		switch fnErr.Code {
+		case apperrors.CodeFieldNoteShowNotFound:
+			return huma.Error404NotFound(fnErr.Message)
+		case apperrors.CodeFieldNoteShowFuture,
+			apperrors.CodeFieldNoteArtistNotOnBill:
+			return huma.Error400BadRequest(fnErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapCommentVoteError converts a CommentVoteError to an appropriate Huma HTTP
+// error. Returns nil if err is not a *apperrors.CommentVoteError.
+//
+// Self-vote rejection (HN/Lobsters convention) stays 403 — the caller is
+// authenticated but cannot perform this specific action on their own
+// content. Comment-not-found is 404. InvalidDirection is 400.
+func MapCommentVoteError(err error) error {
+	var voteErr *apperrors.CommentVoteError
+	if errors.As(err, &voteErr) {
+		switch voteErr.Code {
+		case apperrors.CodeCommentVoteCommentNotFound:
+			return huma.Error404NotFound(voteErr.Message)
+		case apperrors.CodeCommentVoteSelfVote:
+			return huma.Error403Forbidden(voteErr.Message)
+		case apperrors.CodeCommentVoteInvalidDirection:
+			return huma.Error400BadRequest(voteErr.Message)
+		case apperrors.CodeCommentVoteInternal:
+			return huma.Error500InternalServerError(voteErr.Message)
 		}
 	}
 	return nil
