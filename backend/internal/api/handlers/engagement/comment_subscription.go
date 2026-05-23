@@ -4,10 +4,10 @@ import (
 	"context"
 	"fmt"
 	"strconv"
-	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -62,8 +62,11 @@ func (h *CommentSubscriptionHandler) SubscribeHandler(ctx context.Context, req *
 
 	err = h.subscriptionService.Subscribe(user.ID, req.EntityType, uint(entityID))
 	if err != nil {
-		if strings.Contains(err.Error(), "unsupported entity type") {
-			return nil, huma.Error400BadRequest(err.Error())
+		// validateCommentEntityType (shared with CommentService) emits
+		// the only typed error on this path; database faults fall
+		// through to the generic 500.
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -107,8 +110,8 @@ func (h *CommentSubscriptionHandler) UnsubscribeHandler(ctx context.Context, req
 
 	err = h.subscriptionService.Unsubscribe(user.ID, req.EntityType, uint(entityID))
 	if err != nil {
-		if strings.Contains(err.Error(), "unsupported entity type") {
-			return nil, huma.Error400BadRequest(err.Error())
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(
@@ -155,8 +158,8 @@ func (h *CommentSubscriptionHandler) SubscriptionStatusHandler(ctx context.Conte
 
 	subscribed, err := h.subscriptionService.IsSubscribed(user.ID, req.EntityType, uint(entityID))
 	if err != nil {
-		if strings.Contains(err.Error(), "unsupported entity type") {
-			return nil, huma.Error400BadRequest(err.Error())
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to check subscription status")
 	}
@@ -203,8 +206,8 @@ func (h *CommentSubscriptionHandler) MarkReadHandler(ctx context.Context, req *M
 
 	err = h.subscriptionService.MarkRead(user.ID, req.EntityType, uint(entityID))
 	if err != nil {
-		if strings.Contains(err.Error(), "unsupported entity type") {
-			return nil, huma.Error400BadRequest(err.Error())
+		if mapped := shared.MapCommentError(err); mapped != nil {
+			return nil, mapped
 		}
 		requestID := logger.GetRequestID(ctx)
 		return nil, huma.Error500InternalServerError(

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
@@ -40,7 +41,7 @@ func TestSubscribe_InvalidEntityID(t *testing.T) {
 func TestSubscribe_InvalidEntityType(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		SubscribeFn: func(userID uint, entityType string, entityID uint) error {
-			return fmt.Errorf("unsupported entity type: %s", entityType)
+			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
@@ -135,7 +136,7 @@ func TestUnsubscribe_InvalidEntityID(t *testing.T) {
 func TestUnsubscribe_InvalidEntityType(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		UnsubscribeFn: func(userID uint, entityType string, entityID uint) error {
-			return fmt.Errorf("unsupported entity type: %s", entityType)
+			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
@@ -202,7 +203,7 @@ func TestSubscriptionStatus_InvalidEntityID(t *testing.T) {
 func TestSubscriptionStatus_InvalidEntityType(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		IsSubscribedFn: func(userID uint, entityType string, entityID uint) (bool, error) {
-			return false, fmt.Errorf("unsupported entity type: %s", entityType)
+			return false, apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
@@ -297,7 +298,7 @@ func TestMarkRead_InvalidEntityID(t *testing.T) {
 func TestMarkRead_InvalidEntityType(t *testing.T) {
 	h := NewCommentSubscriptionHandler(&testhelpers.MockCommentSubscriptionService{
 		MarkReadFn: func(userID uint, entityType string, entityID uint) error {
-			return fmt.Errorf("unsupported entity type: %s", entityType)
+			return apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}, nil)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
