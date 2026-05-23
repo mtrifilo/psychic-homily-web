@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -541,6 +542,9 @@ func (h *ContributorProfileHandler) CreateSectionHandler(ctx context.Context, re
 			"error", err.Error(),
 			"request_id", requestID,
 		)
+		if mapped := shared.MapProfileError(err); mapped != nil {
+			return nil, mapped
+		}
 		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
 
@@ -592,8 +596,8 @@ func (h *ContributorProfileHandler) UpdateSectionHandler(ctx context.Context, re
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		if err.Error() == "profile section not found" {
-			return nil, huma.Error404NotFound("Profile section not found")
+		if mapped := shared.MapProfileError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error422UnprocessableEntity(err.Error())
 	}
@@ -684,8 +688,8 @@ func (h *ContributorProfileHandler) DeleteSectionHandler(ctx context.Context, re
 			"error", err.Error(),
 			"request_id", requestID,
 		)
-		if err.Error() == "profile section not found" {
-			return nil, huma.Error404NotFound("Profile section not found")
+		if mapped := shared.MapProfileError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError(
 			fmt.Sprintf("Failed to delete section (request_id: %s)", requestID),

@@ -13,6 +13,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -338,15 +339,15 @@ func (s *AutoPromotionService) writeTierChangeAuditLog(user *authm.User, change 
 // EvaluateUser checks a single user for promotion/demotion eligibility.
 func (s *AutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEvaluationResult, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrAutoPromotionInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("user not found")
+			return nil, apperrors.ErrAutoPromotionUserNotFound()
 		}
-		return nil, fmt.Errorf("failed to get user: %w", err)
+		return nil, apperrors.ErrAutoPromotionInternal(fmt.Errorf("failed to get user: %w", err))
 	}
 
 	return s.evaluateUserInternal(&user)

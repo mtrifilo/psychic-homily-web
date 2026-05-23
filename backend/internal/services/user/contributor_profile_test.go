@@ -2,6 +2,7 @@ package user
 
 import (
 	"encoding/json"
+	stderrors "errors"
 	"fmt"
 	"testing"
 	"time"
@@ -10,6 +11,7 @@ import (
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
 
+	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
@@ -19,6 +21,16 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
+
+// assertProfileSectionNotFound asserts err is the typed section-not-found
+// error. Wrong-owner is surfaced as not-found so we don't leak existence of
+// another user's section.
+func (suite *ContributorProfileServiceIntegrationTestSuite) assertProfileSectionNotFound(err error) {
+	suite.Require().Error(err)
+	var profileErr *apperrors.ProfileError
+	suite.Require().True(stderrors.As(err, &profileErr), "expected *apperrors.ProfileError, got %T", err)
+	suite.Equal(apperrors.CodeProfileSectionNotFound, profileErr.Code)
+}
 
 // =============================================================================
 // UNIT TESTS (No Database Required)
@@ -1358,9 +1370,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdateSection_No
 		"title": "Nope",
 	})
 
-	suite.Error(err)
 	suite.Nil(section)
-	suite.Equal("profile section not found", err.Error())
+	suite.assertProfileSectionNotFound(err)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdateSection_WrongOwner() {
@@ -1375,9 +1386,8 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestUpdateSection_Wr
 		"title": "Hijacked",
 	})
 
-	suite.Error(err)
 	suite.Nil(result)
-	suite.Equal("profile section not found", err.Error())
+	suite.assertProfileSectionNotFound(err)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestDeleteSection_Success() {
@@ -1401,8 +1411,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestDeleteSection_No
 
 	err := suite.profileService.DeleteSection(user.ID, 99999)
 
-	suite.Error(err)
-	suite.Equal("profile section not found", err.Error())
+	suite.assertProfileSectionNotFound(err)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestDeleteSection_WrongOwner() {
@@ -1414,8 +1423,7 @@ func (suite *ContributorProfileServiceIntegrationTestSuite) TestDeleteSection_Wr
 
 	err = suite.profileService.DeleteSection(user2.ID, section.ID)
 
-	suite.Error(err)
-	suite.Equal("profile section not found", err.Error())
+	suite.assertProfileSectionNotFound(err)
 }
 
 func (suite *ContributorProfileServiceIntegrationTestSuite) TestGetPublicProfile_IncludesSections() {

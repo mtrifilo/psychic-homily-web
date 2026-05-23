@@ -6,6 +6,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -53,14 +54,14 @@ var dimensionWeights = map[string]int{
 // GetLeaderboard returns ranked contributor entries for a given dimension and period.
 func (s *LeaderboardService) GetLeaderboard(dimension string, period string, limit int) ([]contracts.LeaderboardEntry, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrLeaderboardInternal(fmt.Errorf("database not initialized"))
 	}
 
 	if !validDimensions[dimension] {
-		return nil, fmt.Errorf("invalid dimension: %s", dimension)
+		return nil, apperrors.ErrLeaderboardInvalidDimension(dimension)
 	}
 	if !validPeriods[period] {
-		return nil, fmt.Errorf("invalid period: %s", period)
+		return nil, apperrors.ErrLeaderboardInvalidPeriod(period)
 	}
 
 	if limit <= 0 {
@@ -82,7 +83,7 @@ func (s *LeaderboardService) GetLeaderboard(dimension string, period string, lim
 
 	var rows []leaderboardRow
 	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to get leaderboard: %w", err)
+		return nil, apperrors.ErrLeaderboardInternal(err)
 	}
 
 	entries := make([]contracts.LeaderboardEntry, len(rows))
@@ -104,14 +105,14 @@ func (s *LeaderboardService) GetLeaderboard(dimension string, period string, lim
 // Returns nil if the user has no contributions or their contributions are hidden.
 func (s *LeaderboardService) GetUserRank(userID uint, dimension string, period string) (*int, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrLeaderboardInternal(fmt.Errorf("database not initialized"))
 	}
 
 	if !validDimensions[dimension] {
-		return nil, fmt.Errorf("invalid dimension: %s", dimension)
+		return nil, apperrors.ErrLeaderboardInvalidDimension(dimension)
 	}
 	if !validPeriods[period] {
-		return nil, fmt.Errorf("invalid period: %s", period)
+		return nil, apperrors.ErrLeaderboardInvalidPeriod(period)
 	}
 
 	// Get the full leaderboard (uncapped) to find the user's position
@@ -124,7 +125,7 @@ func (s *LeaderboardService) GetUserRank(userID uint, dimension string, period s
 
 	var rows []rankRow
 	if err := s.db.Raw(query, args...).Scan(&rows).Error; err != nil {
-		return nil, fmt.Errorf("failed to compute user rank: %w", err)
+		return nil, apperrors.ErrLeaderboardInternal(err)
 	}
 
 	for i, row := range rows {

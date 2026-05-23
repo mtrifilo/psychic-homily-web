@@ -11,6 +11,7 @@ import (
 	"gorm.io/gorm"
 
 	"psychic-homily-backend/db"
+	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
@@ -80,39 +81,39 @@ func (s *PendingEditService) renderRejectionReason(reason *string) string {
 // CreatePendingEdit submits a new pending edit for an entity.
 func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditRequest) (*contracts.PendingEditResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
 
 	if !adminm.IsValidPendingEditEntityType(req.EntityType) {
-		return nil, fmt.Errorf("invalid entity type: %s", req.EntityType)
+		return nil, apperrors.ErrPendingEditInvalidEntityType(req.EntityType)
 	}
 	if len(req.Changes) == 0 {
-		return nil, fmt.Errorf("no changes provided")
+		return nil, apperrors.ErrPendingEditInvalidRequest("no changes provided")
 	}
 	if req.Summary == "" {
-		return nil, fmt.Errorf("summary is required")
+		return nil, apperrors.ErrPendingEditInvalidRequest("summary is required")
 	}
 	// PSY-605: cap the markdown source at the same length comments and
 	// collection descriptions use, so the rendered output is bounded and the
 	// renderer's allocation profile stays consistent with the rest of the
 	// markdown surfaces.
 	if len(req.Summary) > contracts.MaxPendingEditSummaryLength {
-		return nil, fmt.Errorf("summary exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength)
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("summary exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength))
 	}
 
 	// Verify the entity exists
 	tableName := req.EntityType + "s"
 	var count int64
 	if err := s.db.Table(tableName).Where("id = ?", req.EntityID).Count(&count).Error; err != nil {
-		return nil, fmt.Errorf("failed to verify entity: %w", err)
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to verify entity: %w", err))
 	}
 	if count == 0 {
-		return nil, fmt.Errorf("entity not found: %s %d", req.EntityType, req.EntityID)
+		return nil, apperrors.ErrPendingEditEntityNotFound(req.EntityType, req.EntityID)
 	}
 
 	changesJSON, err := json.Marshal(req.Changes)
 	if err != nil {
-		return nil, fmt.Errorf("failed to marshal changes: %w", err)
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to marshal changes: %w", err))
 	}
 	raw := json.RawMessage(changesJSON)
 
@@ -126,7 +127,12 @@ func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditR
 	}
 
 	if err := s.db.Create(edit).Error; err != nil {
-		return nil, fmt.Errorf("failed to create pending edit: %w", err)
+		// A unique-constraint violation means the submitter already has a
+		// pending edit for this entity — a conflict, not an internal fault.
+		if shared.IsDuplicateKey(err) {
+			return nil, apperrors.ErrPendingEditDuplicate(err)
+		}
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to create pending edit: %w", err))
 	}
 
 	// Reload with relationships
@@ -136,7 +142,7 @@ func (s *PendingEditService) CreatePendingEdit(req *contracts.CreatePendingEditR
 // GetPendingEdit returns a single pending edit by ID.
 func (s *PendingEditService) GetPendingEdit(editID uint) (*contracts.PendingEditResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var edit adminm.PendingEntityEdit
@@ -145,7 +151,7 @@ func (s *PendingEditService) GetPendingEdit(editID uint) (*contracts.PendingEdit
 		if err == gorm.ErrRecordNotFound {
 			return nil, nil
 		}
-		return nil, fmt.Errorf("failed to get pending edit: %w", err)
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edit: %w", err))
 	}
 
 	return s.toResponse(&edit), nil
@@ -154,7 +160,7 @@ func (s *PendingEditService) GetPendingEdit(editID uint) (*contracts.PendingEdit
 // GetPendingEditsForEntity returns all pending edits for a specific entity.
 func (s *PendingEditService) GetPendingEditsForEntity(entityType string, entityID uint) ([]contracts.PendingEditResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var edits []adminm.PendingEntityEdit
@@ -163,7 +169,7 @@ func (s *PendingEditService) GetPendingEditsForEntity(entityType string, entityI
 		Order("created_at ASC").
 		Find(&edits).Error
 	if err != nil {
-		return nil, fmt.Errorf("failed to get pending edits for entity: %w", err)
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edits for entity: %w", err))
 	}
 
 	return s.toResponses(edits), nil
@@ -172,7 +178,7 @@ func (s *PendingEditService) GetPendingEditsForEntity(entityType string, entityI
 // GetUserPendingEdits returns all pending edits submitted by a user.
 func (s *PendingEditService) GetUserPendingEdits(userID uint, limit, offset int) ([]contracts.PendingEditResponse, int64, error) {
 	if s.db == nil {
-		return nil, 0, fmt.Errorf("database not initialized")
+		return nil, 0, apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
 
 	if limit <= 0 {
@@ -194,7 +200,7 @@ func (s *PendingEditService) GetUserPendingEdits(userID uint, limit, offset int)
 		Offset(offset).
 		Find(&edits).Error
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to get user pending edits: %w", err)
+		return nil, 0, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get user pending edits: %w", err))
 	}
 
 	return s.toResponses(edits), total, nil
@@ -203,7 +209,7 @@ func (s *PendingEditService) GetUserPendingEdits(userID uint, limit, offset int)
 // ListPendingEdits returns pending edits for the admin review queue.
 func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilters) ([]contracts.PendingEditResponse, int64, error) {
 	if s.db == nil {
-		return nil, 0, fmt.Errorf("database not initialized")
+		return nil, 0, apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
 
 	limit := 20
@@ -240,7 +246,7 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 		Offset(offset).
 		Find(&edits).Error
 	if err != nil {
-		return nil, 0, fmt.Errorf("failed to list pending edits: %w", err)
+		return nil, 0, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to list pending edits: %w", err))
 	}
 
 	return s.toResponses(edits), total, nil
@@ -250,25 +256,25 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 // and recording a revision.
 func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*contracts.PendingEditResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("pending edit not found")
+			return nil, apperrors.ErrPendingEditNotFound()
 		}
-		return nil, fmt.Errorf("failed to get pending edit: %w", err)
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edit: %w", err))
 	}
 
 	if edit.Status != adminm.PendingEditStatusPending {
-		return nil, fmt.Errorf("edit is not pending (status: %s)", edit.Status)
+		return nil, apperrors.ErrPendingEditNotPending(string(edit.Status))
 	}
 
 	// Parse field changes
 	var changes []adminm.FieldChange
 	if err := json.Unmarshal(*edit.FieldChanges, &changes); err != nil {
-		return nil, fmt.Errorf("failed to parse field changes: %w", err)
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to parse field changes: %w", err))
 	}
 
 	// PSY-572: per-entity allowlist gate. Defence in depth — even though the
@@ -303,8 +309,10 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 			"rejection_reason": reason,
 			"updated_at":       now,
 		}).Error; err != nil {
-			return nil, fmt.Errorf("failed to auto-reject pending edit with disallowed fields: %w", err)
+			return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to auto-reject pending edit with disallowed fields: %w", err))
 		}
+		// Sentinel (NOT a PendingEditError): the approve handler maps this via
+		// errors.Is to a 400 with the rejected field list. Keep it as-is.
 		return nil, fmt.Errorf("%w: %s", adminm.ErrPendingEditDisallowedFields, joined)
 	}
 
@@ -315,15 +323,16 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 	}
 	updates["updated_at"] = time.Now()
 
-	// Apply changes to entity within a transaction
+	// The closure returns typed errors directly: a vanished entity is a 422
+	// (the edit can no longer be applied), everything else is a 500.
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		tableName := edit.EntityType + "s"
 		result := tx.Table(tableName).Where("id = ?", edit.EntityID).Updates(updates)
 		if result.Error != nil {
-			return fmt.Errorf("failed to apply changes: %w", result.Error)
+			return apperrors.ErrPendingEditInternal(fmt.Errorf("failed to apply changes: %w", result.Error))
 		}
 		if result.RowsAffected == 0 {
-			return fmt.Errorf("entity not found: %s %d", edit.EntityType, edit.EntityID)
+			return apperrors.ErrPendingEditEntityGone(edit.EntityType, edit.EntityID)
 		}
 
 		// Mark edit as approved
@@ -334,7 +343,7 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 			"reviewed_at": now,
 			"updated_at":  now,
 		}).Error; err != nil {
-			return fmt.Errorf("failed to update edit status: %w", err)
+			return apperrors.ErrPendingEditInternal(fmt.Errorf("failed to update edit status: %w", err))
 		}
 
 		return nil
@@ -357,28 +366,28 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 // RejectPendingEdit rejects a pending edit with a reason.
 func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, reason string) (*contracts.PendingEditResponse, error) {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
 
 	if reason == "" {
-		return nil, fmt.Errorf("rejection reason is required")
+		return nil, apperrors.ErrPendingEditInvalidRequest("rejection reason is required")
 	}
 	// PSY-605: rejection_reason mirrors summary's markdown stack and limit so
 	// the contributor-side render (PSY-600 surface, when it ships) is bounded.
 	if len(reason) > contracts.MaxPendingEditSummaryLength {
-		return nil, fmt.Errorf("rejection reason exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength)
+		return nil, apperrors.ErrPendingEditInvalidRequest(fmt.Sprintf("rejection reason exceeds maximum length of %d characters", contracts.MaxPendingEditSummaryLength))
 	}
 
 	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("pending edit not found")
+			return nil, apperrors.ErrPendingEditNotFound()
 		}
-		return nil, fmt.Errorf("failed to get pending edit: %w", err)
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edit: %w", err))
 	}
 
 	if edit.Status != adminm.PendingEditStatusPending {
-		return nil, fmt.Errorf("edit is not pending (status: %s)", edit.Status)
+		return nil, apperrors.ErrPendingEditNotPending(string(edit.Status))
 	}
 
 	now := time.Now()
@@ -389,7 +398,7 @@ func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, rea
 		"rejection_reason": reason,
 		"updated_at":       now,
 	}).Error; err != nil {
-		return nil, fmt.Errorf("failed to reject pending edit: %w", err)
+		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to reject pending edit: %w", err))
 	}
 
 	// Send rejection notification email (fire-and-forget)
@@ -401,26 +410,29 @@ func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, rea
 // CancelPendingEdit allows the submitter to cancel their own pending edit.
 func (s *PendingEditService) CancelPendingEdit(editID uint, userID uint) error {
 	if s.db == nil {
-		return fmt.Errorf("database not initialized")
+		return apperrors.ErrPendingEditInternal(fmt.Errorf("database not initialized"))
 	}
 
 	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return fmt.Errorf("pending edit not found")
+			return apperrors.ErrPendingEditNotFound()
 		}
-		return fmt.Errorf("failed to get pending edit: %w", err)
+		return apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edit: %w", err))
 	}
 
 	if edit.SubmittedBy != userID {
-		return fmt.Errorf("only the submitter can cancel their own edit")
+		return apperrors.ErrPendingEditNotSubmitter()
 	}
 
 	if edit.Status != adminm.PendingEditStatusPending {
-		return fmt.Errorf("edit is not pending (status: %s)", edit.Status)
+		return apperrors.ErrPendingEditNotPending(string(edit.Status))
 	}
 
-	return s.db.Delete(&edit).Error
+	if err := s.db.Delete(&edit).Error; err != nil {
+		return apperrors.ErrPendingEditInternal(fmt.Errorf("failed to delete pending edit: %w", err))
+	}
+	return nil
 }
 
 // toResponse converts a PendingEntityEdit model to a response DTO.

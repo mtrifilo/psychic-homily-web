@@ -8,6 +8,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
@@ -69,8 +70,8 @@ func (h *ArtistRelationshipHandler) GetArtistGraphHandler(ctx context.Context, r
 
 	graph, err := h.relService.GetArtistGraph(uint(id), types, userID)
 	if err != nil {
-		if err.Error() == "artist not found" || (len(err.Error()) > 16 && err.Error()[:16] == "artist not found") {
-			return nil, huma.Error404NotFound("Artist not found")
+		if mapped := shared.MapArtistError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to get artist graph")
 	}
@@ -105,8 +106,8 @@ func (h *ArtistRelationshipHandler) GetArtistBillCompositionHandler(ctx context.
 
 	bc, err := h.relService.GetArtistBillComposition(uint(id), req.Months)
 	if err != nil {
-		if strings.HasPrefix(err.Error(), "artist not found") {
-			return nil, huma.Error404NotFound("Artist not found")
+		if mapped := shared.MapArtistError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError("Failed to get bill composition")
 	}

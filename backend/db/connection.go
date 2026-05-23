@@ -3,6 +3,7 @@ package db
 import (
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -19,15 +20,29 @@ var (
 func Connect(cfg *config.Config) error {
 	var err error
 
-	// Configure GORM logger
-	gormLogger := logger.Default
+	// ErrRecordNotFound is application-level branching (lookup-or-create, radio
+	// matching against unmatched plays), not an error worth surfacing.
+	gormLogger := logger.New(log.New(os.Stdout, "", log.LstdFlags), logger.Config{
+		SlowThreshold:             200 * time.Millisecond,
+		LogLevel:                  logger.Warn,
+		IgnoreRecordNotFoundError: true,
+		Colorful:                  cfg.Server.LogLevel == "debug",
+	})
 	if cfg.Server.LogLevel == "debug" {
-		gormLogger = logger.Default.LogMode(logger.Info)
+		gormLogger = gormLogger.LogMode(logger.Info)
 	}
 
-	// Connect to database
+	// Connect to database.
+	//
+	// TranslateError maps driver errors to GORM sentinel errors (e.g. Postgres
+	// 23505 unique violations → gorm.ErrDuplicatedKey, 23503 FK violations →
+	// gorm.ErrForeignKeyViolated). This lets the service layer discriminate on
+	// errors.Is(err, gorm.ErrDuplicatedKey) instead of fragile substring
+	// matching on the raw driver message. See services/shared/db_errors.go for
+	// the canonical helper.
 	DB, err = gorm.Open(postgres.Open(cfg.Database.URL), &gorm.Config{
-		Logger: gormLogger,
+		Logger:         gormLogger,
+		TranslateError: true,
 		NowFunc: func() time.Time {
 			return time.Now().UTC()
 		},

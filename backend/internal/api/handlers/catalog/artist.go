@@ -401,8 +401,8 @@ func (h *ArtistHandler) AdminCreateArtistHandler(ctx context.Context, req *Admin
 
 	artist, err := h.artistService.CreateArtist(createReq)
 	if err != nil {
-		if strings.Contains(err.Error(), "already exists") {
-			return nil, huma.Error409Conflict(err.Error())
+		if mapped := shared.MapArtistError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("admin_create_artist_failed",
 			"error", err.Error(),
@@ -713,14 +713,8 @@ func (h *ArtistHandler) DeleteArtistHandler(ctx context.Context, req *DeleteArti
 
 	err = h.artistService.DeleteArtist(uint(artistID))
 	if err != nil {
-		var artistErr *apperrors.ArtistError
-		if errors.As(err, &artistErr) {
-			switch artistErr.Code {
-			case apperrors.CodeArtistNotFound:
-				return nil, huma.Error404NotFound("Artist not found")
-			case apperrors.CodeArtistHasShows:
-				return nil, huma.Error409Conflict(artistErr.Message)
-			}
+		if mapped := shared.MapArtistError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("delete_artist_failed",
 			"artist_id", artistID,
@@ -904,14 +898,6 @@ func (h *ArtistHandler) AdminUpdateArtistHandler(ctx context.Context, req *Admin
 	return &AdminUpdateArtistResponse{Body: artist}, nil
 }
 
-// ptrToStr safely dereferences a *string, returning "" if nil.
-func ptrToStr(s *string) string {
-	if s == nil {
-		return ""
-	}
-	return *s
-}
-
 // ============================================================================
 // Artist Aliases
 // ============================================================================
@@ -982,12 +968,8 @@ func (h *ArtistHandler) AddArtistAliasHandler(ctx context.Context, req *AddArtis
 
 	alias, err := h.artistService.AddArtistAlias(uint(artistID), req.Body.Alias)
 	if err != nil {
-		var artistErr *apperrors.ArtistError
-		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
-			return nil, huma.Error404NotFound("Artist not found")
-		}
-		if strings.Contains(err.Error(), "already exists") || strings.Contains(err.Error(), "conflicts with") {
-			return nil, huma.Error409Conflict(err.Error())
+		if mapped := shared.MapArtistError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("add_artist_alias_failed",
 			"artist_id", artistID,
@@ -1028,8 +1010,8 @@ func (h *ArtistHandler) DeleteArtistAliasHandler(ctx context.Context, req *Delet
 
 	err = h.artistService.RemoveArtistAlias(uint(aliasID))
 	if err != nil {
-		if strings.Contains(err.Error(), "not found") {
-			return nil, huma.Error404NotFound("Alias not found")
+		if mapped := shared.MapArtistError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("delete_artist_alias_failed",
 			"alias_id", aliasID,
@@ -1081,12 +1063,8 @@ func (h *ArtistHandler) MergeArtistsHandler(ctx context.Context, req *MergeArtis
 
 	result, err := h.artistService.MergeArtists(req.Body.CanonicalArtistID, req.Body.MergeFromArtistID)
 	if err != nil {
-		var artistErr *apperrors.ArtistError
-		if errors.As(err, &artistErr) && artistErr.Code == apperrors.CodeArtistNotFound {
-			return nil, huma.Error404NotFound("Artist not found")
-		}
-		if strings.Contains(err.Error(), "cannot merge an artist with itself") {
-			return nil, huma.Error422UnprocessableEntity("Cannot merge an artist with itself")
+		if mapped := shared.MapArtistError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("merge_artists_failed",
 			"canonical_id", req.Body.CanonicalArtistID,

@@ -971,7 +971,7 @@ func TestAddArtistAlias_Success(t *testing.T) {
 func TestAddArtistAlias_Conflict(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
 		AddArtistAliasFn: func(artistID uint, alias string) (*contracts.ArtistAliasResponse, error) {
-			return nil, fmt.Errorf("alias 'Test' already exists")
+			return nil, apperrors.ErrArtistAliasExists("alias 'Test' already exists")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
@@ -1011,7 +1011,7 @@ func TestDeleteArtistAlias_Success(t *testing.T) {
 func TestDeleteArtistAlias_NotFound(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
 		RemoveArtistAliasFn: func(aliasID uint) error {
-			return fmt.Errorf("alias not found")
+			return apperrors.ErrArtistAliasNotFound()
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
@@ -1035,7 +1035,7 @@ func TestMergeArtists_MissingIDs(t *testing.T) {
 func TestMergeArtists_SelfMerge(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
 		MergeArtistsFn: func(canonicalID, mergeFromID uint) (*contracts.MergeArtistResult, error) {
-			return nil, fmt.Errorf("cannot merge an artist with itself")
+			return nil, apperrors.ErrArtistMergeSelf()
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)
@@ -1186,7 +1186,7 @@ func TestAdminCreateArtist_WithSocials(t *testing.T) {
 func TestAdminCreateArtist_Conflict(t *testing.T) {
 	mock := &testhelpers.MockArtistService{
 		CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
-			return nil, fmt.Errorf("artist with name 'Existing' already exists")
+			return nil, apperrors.ErrArtistExists("Existing")
 		},
 	}
 	h := NewArtistHandler(mock, nil, nil, nil)

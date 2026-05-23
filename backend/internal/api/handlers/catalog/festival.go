@@ -529,12 +529,8 @@ func (h *FestivalHandler) AddFestivalArtistHandler(ctx context.Context, req *Add
 
 	artist, err := h.festivalService.AddFestivalArtist(uint(festivalID), serviceReq)
 	if err != nil {
-		var festivalErr *apperrors.FestivalError
-		if errors.As(err, &festivalErr) && festivalErr.Code == apperrors.CodeFestivalNotFound {
-			return nil, huma.Error404NotFound("Festival not found")
-		}
-		if err.Error() == "artist not found" {
-			return nil, huma.Error404NotFound("Artist not found")
+		if mapped := shared.MapFestivalError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("add_festival_artist_failed",
 			"festival_id", festivalID,
@@ -602,8 +598,8 @@ func (h *FestivalHandler) UpdateFestivalArtistHandler(ctx context.Context, req *
 
 	artist, err := h.festivalService.UpdateFestivalArtist(uint(festivalID), uint(artistID), serviceReq)
 	if err != nil {
-		if err.Error() == "artist not found in festival lineup" {
-			return nil, huma.Error404NotFound("Artist not found in festival lineup")
+		if mapped := shared.MapFestivalError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("update_festival_artist_failed",
 			"festival_id", festivalID,
@@ -650,8 +646,8 @@ func (h *FestivalHandler) RemoveFestivalArtistHandler(ctx context.Context, req *
 
 	err = h.festivalService.RemoveFestivalArtist(uint(festivalID), uint(artistID))
 	if err != nil {
-		if err.Error() == "artist not found in festival lineup" {
-			return nil, huma.Error404NotFound("Artist not found in festival lineup")
+		if mapped := shared.MapFestivalError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("remove_festival_artist_failed",
 			"festival_id", festivalID,
@@ -750,12 +746,8 @@ func (h *FestivalHandler) AddFestivalVenueHandler(ctx context.Context, req *AddF
 
 	venue, err := h.festivalService.AddFestivalVenue(uint(festivalID), serviceReq)
 	if err != nil {
-		var festivalErr *apperrors.FestivalError
-		if errors.As(err, &festivalErr) && festivalErr.Code == apperrors.CodeFestivalNotFound {
-			return nil, huma.Error404NotFound("Festival not found")
-		}
-		if err.Error() == "venue not found" {
-			return nil, huma.Error404NotFound("Venue not found")
+		if mapped := shared.MapFestivalError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("add_festival_venue_failed",
 			"festival_id", festivalID,
@@ -801,8 +793,8 @@ func (h *FestivalHandler) RemoveFestivalVenueHandler(ctx context.Context, req *R
 
 	err = h.festivalService.RemoveFestivalVenue(uint(festivalID), uint(venueID))
 	if err != nil {
-		if err.Error() == "venue not found in festival" {
-			return nil, huma.Error404NotFound("Venue not found in festival")
+		if mapped := shared.MapFestivalError(err); mapped != nil {
+			return nil, mapped
 		}
 		logger.FromContext(ctx).Error("remove_festival_venue_failed",
 			"festival_id", festivalID,

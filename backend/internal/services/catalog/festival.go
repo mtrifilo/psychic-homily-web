@@ -521,7 +521,7 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, req.ArtistID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("artist not found")
+			return nil, apperrors.ErrFestivalArtistNotFound()
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
 	}
@@ -576,7 +576,7 @@ func (s *FestivalService) UpdateFestivalArtist(festivalID, artistID uint, req *c
 	err := s.db.Where("festival_id = ? AND artist_id = ?", festivalID, artistID).First(&fa).Error
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("artist not found in festival lineup")
+			return nil, apperrors.ErrFestivalArtistNotInLineup()
 		}
 		return nil, fmt.Errorf("failed to get festival artist: %w", err)
 	}
@@ -644,7 +644,7 @@ func (s *FestivalService) RemoveFestivalArtist(festivalID, artistID uint) error 
 		return fmt.Errorf("failed to remove artist from festival: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("artist not found in festival lineup")
+		return apperrors.ErrFestivalArtistNotInLineup()
 	}
 
 	return nil
@@ -732,7 +732,7 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 	var venue catalogm.Venue
 	if err := s.db.First(&venue, req.VenueID).Error; err != nil {
 		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("venue not found")
+			return nil, apperrors.ErrFestivalVenueNotFound()
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
 	}
@@ -774,7 +774,7 @@ func (s *FestivalService) RemoveFestivalVenue(festivalID, venueID uint) error {
 		return fmt.Errorf("failed to remove venue from festival: %w", result.Error)
 	}
 	if result.RowsAffected == 0 {
-		return fmt.Errorf("venue not found in festival")
+		return apperrors.ErrFestivalVenueNotInFestival()
 	}
 
 	return nil
