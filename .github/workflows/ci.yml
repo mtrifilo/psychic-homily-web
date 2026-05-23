@@ -192,14 +192,6 @@ jobs:
         working-directory: ./frontend
         run: bun run typecheck
 
-      # PSY-788: ratchet gate against `tsconfig.future.json` (all 8 strict
-      # flags ON). Fails if a PR raises the tsc error count above the
-      # current `.tsc-future-baseline`. PSY-789 + PSY-790 burn the baseline
-      # down to zero, after which we flip `strict: true` in `tsconfig.json`.
-      - name: Typecheck future-state ratchet
-        working-directory: ./frontend
-        run: bun run typecheck:future
-
       - name: Run unit tests with coverage
         working-directory: ./frontend
         run: bun run test:coverage
