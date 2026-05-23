@@ -212,7 +212,7 @@ const mockRemoveMutation = vi.fn(idleMutation)
 
 vi.mock('../hooks', () => ({
   useCollection: (...args: unknown[]) => mockCollection(...args),
-  useUpdateCollection: (): { mutate: ReturnType<typeof vi.fn>; isPending: boolean; error: Error | null } => ({
+  useUpdateCollection: (): Omit<MutationStub, 'isError'> => ({
     mutate: mockUpdateMutate,
     isPending: false,
     error: null,
