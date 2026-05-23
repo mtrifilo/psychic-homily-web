@@ -7,6 +7,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -60,11 +61,8 @@ func (h *CommentVoteHandler) VoteCommentHandler(ctx context.Context, req *VoteCo
 
 	err = h.voteService.Vote(user.ID, uint(commentID), req.Body.Direction)
 	if err != nil {
-		if err.Error() == "comment not found" {
-			return nil, huma.Error404NotFound("Comment not found")
-		}
-		if err.Error() == "cannot vote on your own comment" {
-			return nil, huma.Error403Forbidden("Cannot vote on your own comment")
+		if mapped := shared.MapCommentVoteError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError(fmt.Sprintf("Failed to vote: %v", err))
 	}
@@ -100,8 +98,8 @@ func (h *CommentVoteHandler) UnvoteCommentHandler(ctx context.Context, req *Unvo
 
 	err = h.voteService.Unvote(user.ID, uint(commentID))
 	if err != nil {
-		if err.Error() == "comment not found" {
-			return nil, huma.Error404NotFound("Comment not found")
+		if mapped := shared.MapCommentVoteError(err); mapped != nil {
+			return nil, mapped
 		}
 		return nil, huma.Error500InternalServerError(fmt.Sprintf("Failed to remove vote: %v", err))
 	}

@@ -577,3 +577,186 @@ func TestMapPendingEditError_NonPendingEditErrorReturnsNil(t *testing.T) {
 		t.Errorf("MapPendingEditError(unknown code) = %v, want nil", got)
 	}
 }
+
+func TestMapCommentError_CodeToStatus(t *testing.T) {
+	// Cover every CommentError code so adding a code without a status mapping
+	// is caught. The 429 + Retry-After paths have a dedicated test below
+	// (TestMapCommentError_RateLimitedCarriesRetryAfter) because the
+	// assertion is more involved than a status check.
+	cases := []struct {
+		name   string
+		err    *apperrors.CommentError
+		status int
+	}{
+		{"not found", apperrors.ErrCommentNotFound(), 404},
+		{"parent not found", apperrors.ErrCommentParentNotFound(), 404},
+		{"entity not found", apperrors.ErrCommentEntityNotFound("show", 7), 404},
+		{"user not found", apperrors.ErrCommentUserNotFound(), 404},
+		{"thread root not found", apperrors.ErrCommentThreadRootNotFound(), 404},
+		{"forbidden", apperrors.ErrCommentForbidden("only the comment author"), 403},
+		{"invalid entity type", apperrors.ErrCommentInvalidEntityType("nope"), 400},
+		{"invalid reply permission", apperrors.ErrCommentInvalidReplyPermission("blorp"), 400},
+		{"unsupported reply permission on parent", apperrors.ErrCommentUnsupportedReplyPermission("legacy"), 400},
+		{"body required", apperrors.ErrCommentBodyRequired("comment body is required"), 400},
+		{"body too long", apperrors.ErrCommentBodyTooLong("exceeds max"), 400},
+		{"max depth", apperrors.ErrCommentMaxDepthExceeded(2), 400},
+		{"parent mismatch", apperrors.ErrCommentParentMismatch(), 400},
+		{"not thread root", apperrors.ErrCommentNotThreadRoot(), 400},
+		{"field validation", apperrors.ErrCommentFieldValidation("sound_quality must be between 1 and 5"), 400},
+		{"internal", apperrors.ErrCommentInternal("failed to load comment", stderrors.New("db down")), 500},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapCommentError(tc.err)
+			if got == nil {
+				t.Fatalf("MapCommentError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapCommentError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+// 429 must carry Retry-After so the inline comment / reply / field-note
+// rate-limit banners populate countdown copy without parsing the body.
+// 60s for the per-entity cooldown, 3600s for the tier-based hourly cap.
+func TestMapCommentError_RateLimitedCarriesRetryAfter(t *testing.T) {
+	cases := []struct {
+		name       string
+		err        *apperrors.CommentError
+		wantStatus int
+		wantHeader string
+	}{
+		{"entity cooldown", apperrors.ErrCommentRateLimitedEntity(), 429, "60"},
+		{"hourly cap", apperrors.ErrCommentRateLimitedHourly(5, "new"), 429, "3600"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapCommentError(tc.err)
+			if got == nil {
+				t.Fatalf("MapCommentError(%v) = nil, want %d", tc.err, tc.wantStatus)
+			}
+			if s := statusOf(t, got); s != tc.wantStatus {
+				t.Errorf("status = %d, want %d", s, tc.wantStatus)
+			}
+			var he huma.HeadersError
+			if !stderrors.As(got, &he) {
+				t.Fatalf("expected huma.HeadersError, got %T", got)
+			}
+			if v := he.GetHeaders().Get("Retry-After"); v != tc.wantHeader {
+				t.Errorf("Retry-After = %q, want %q", v, tc.wantHeader)
+			}
+		})
+	}
+}
+
+func TestMapCommentError_NonCommentErrorReturnsNil(t *testing.T) {
+	if got := MapCommentError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapCommentError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.CommentError{Code: "COMMENT_NEW_CODE", Message: "x"}
+	if got := MapCommentError(unknown); got != nil {
+		t.Errorf("MapCommentError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapCommentAdminError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.CommentAdminError
+		status int
+	}{
+		{"already visible", apperrors.ErrCommentAdminAlreadyVisible(), 409},
+		{"not pending", apperrors.ErrCommentAdminNotPending(), 409},
+		{"access required", apperrors.ErrCommentAdminAccessRequired(), 403},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapCommentAdminError(tc.err)
+			if got == nil {
+				t.Fatalf("MapCommentAdminError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapCommentAdminError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapCommentAdminError_NonCommentAdminErrorReturnsNil(t *testing.T) {
+	if got := MapCommentAdminError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapCommentAdminError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.CommentAdminError{Code: "COMMENT_ADMIN_NEW_CODE", Message: "x"}
+	if got := MapCommentAdminError(unknown); got != nil {
+		t.Errorf("MapCommentAdminError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapFieldNoteError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.FieldNoteError
+		status int
+	}{
+		{"show not found", apperrors.ErrFieldNoteShowNotFound(), 404},
+		{"show future", apperrors.ErrFieldNoteShowFuture(), 400},
+		{"artist not on bill", apperrors.ErrFieldNoteArtistNotOnBill(), 400},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapFieldNoteError(tc.err)
+			if got == nil {
+				t.Fatalf("MapFieldNoteError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapFieldNoteError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapFieldNoteError_NonFieldNoteErrorReturnsNil(t *testing.T) {
+	if got := MapFieldNoteError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapFieldNoteError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.FieldNoteError{Code: "FIELD_NOTE_NEW_CODE", Message: "x"}
+	if got := MapFieldNoteError(unknown); got != nil {
+		t.Errorf("MapFieldNoteError(unknown code) = %v, want nil", got)
+	}
+}
+
+func TestMapCommentVoteError_CodeToStatus(t *testing.T) {
+	cases := []struct {
+		name   string
+		err    *apperrors.CommentVoteError
+		status int
+	}{
+		{"comment not found", apperrors.ErrCommentVoteCommentNotFound(), 404},
+		{"self vote", apperrors.ErrCommentVoteSelfVote(), 403},
+		{"invalid direction", apperrors.ErrCommentVoteInvalidDirection(), 400},
+		{"internal", apperrors.ErrCommentVoteInternal("failed to vote", stderrors.New("db down")), 500},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := MapCommentVoteError(tc.err)
+			if got == nil {
+				t.Fatalf("MapCommentVoteError(%v) = nil, want status %d", tc.err, tc.status)
+			}
+			if s := statusOf(t, got); s != tc.status {
+				t.Errorf("MapCommentVoteError(%v) status = %d, want %d", tc.err, s, tc.status)
+			}
+		})
+	}
+}
+
+func TestMapCommentVoteError_NonCommentVoteErrorReturnsNil(t *testing.T) {
+	if got := MapCommentVoteError(stderrors.New("boom")); got != nil {
+		t.Errorf("MapCommentVoteError(plain error) = %v, want nil", got)
+	}
+	unknown := &apperrors.CommentVoteError{Code: "COMMENT_VOTE_NEW_CODE", Message: "x"}
+	if got := MapCommentVoteError(unknown); got != nil {
+		t.Errorf("MapCommentVoteError(unknown code) = %v, want nil", got)
+	}
+}

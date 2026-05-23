@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
@@ -98,7 +99,7 @@ func TestVoteComment_Success(t *testing.T) {
 func TestVoteComment_CommentNotFound(t *testing.T) {
 	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
 		VoteFn: func(userID uint, commentID uint, direction int) error {
-			return fmt.Errorf("comment not found")
+			return apperrors.ErrCommentVoteCommentNotFound()
 		},
 	})
 
@@ -130,7 +131,7 @@ func TestVoteComment_ServiceError(t *testing.T) {
 func TestVoteComment_SelfVoteUpForbidden(t *testing.T) {
 	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
 		VoteFn: func(userID uint, commentID uint, direction int) error {
-			return fmt.Errorf("cannot vote on your own comment")
+			return apperrors.ErrCommentVoteSelfVote()
 		},
 	})
 
@@ -145,7 +146,7 @@ func TestVoteComment_SelfVoteUpForbidden(t *testing.T) {
 func TestVoteComment_SelfVoteDownForbidden(t *testing.T) {
 	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
 		VoteFn: func(userID uint, commentID uint, direction int) error {
-			return fmt.Errorf("cannot vote on your own comment")
+			return apperrors.ErrCommentVoteSelfVote()
 		},
 	})
 
@@ -207,7 +208,7 @@ func TestUnvoteComment_Success(t *testing.T) {
 func TestUnvoteComment_CommentNotFound(t *testing.T) {
 	h := NewCommentVoteHandler(&testhelpers.MockCommentVoteService{
 		UnvoteFn: func(userID uint, commentID uint) error {
-			return fmt.Errorf("comment not found")
+			return apperrors.ErrCommentVoteCommentNotFound()
 		},
 	})
 

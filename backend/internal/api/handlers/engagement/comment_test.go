@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -71,7 +72,7 @@ func TestListComments_InvalidEntityID(t *testing.T) {
 func TestListComments_UnsupportedEntityType(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		ListCommentsForEntityFn: func(entityType string, entityID uint, filters contracts.CommentListFilters) (*contracts.CommentListResponse, error) {
-			return nil, fmt.Errorf("unsupported entity type: %s", entityType)
+			return nil, apperrors.ErrCommentInvalidEntityType(entityType)
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -286,7 +287,7 @@ func TestGetComment_InvalidID(t *testing.T) {
 func TestGetComment_NotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("comment not found")
+			return nil, apperrors.ErrCommentNotFound()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -327,7 +328,7 @@ func TestGetThread_InvalidID(t *testing.T) {
 func TestGetThread_NotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		GetThreadFn: func(rootID uint) ([]*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("thread root comment not found")
+			return nil, apperrors.ErrCommentThreadRootNotFound()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -338,7 +339,7 @@ func TestGetThread_NotFound(t *testing.T) {
 func TestGetThread_NotARoot(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		GetThreadFn: func(rootID uint) ([]*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("comment is not a thread root")
+			return nil, apperrors.ErrCommentNotThreadRoot()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -400,7 +401,7 @@ func TestCreateComment_EmptyBody(t *testing.T) {
 func TestCreateComment_UnsupportedEntityType(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("unsupported entity type: nope")
+			return nil, apperrors.ErrCommentInvalidEntityType("nope")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -413,7 +414,7 @@ func TestCreateComment_UnsupportedEntityType(t *testing.T) {
 func TestCreateComment_EntityNotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("show with ID 999 not found")
+			return nil, apperrors.ErrCommentEntityNotFound("show", 999)
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -510,7 +511,7 @@ func TestCreateReply_EmptyBody(t *testing.T) {
 func TestCreateReply_ParentNotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		GetCommentFn: func(commentID uint) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("comment not found")
+			return nil, apperrors.ErrCommentNotFound()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -527,7 +528,7 @@ func TestCreateReply_MaxDepthExceeded(t *testing.T) {
 			return parent, nil
 		},
 		CreateCommentFn: func(userID uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("maximum reply depth of 2 exceeded")
+			return nil, apperrors.ErrCommentMaxDepthExceeded(2)
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -596,7 +597,7 @@ func TestUpdateComment_EmptyBody(t *testing.T) {
 func TestUpdateComment_NotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		UpdateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("comment not found")
+			return nil, apperrors.ErrCommentNotFound()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -609,7 +610,7 @@ func TestUpdateComment_NotFound(t *testing.T) {
 func TestUpdateComment_ForbiddenNotAuthor(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		UpdateCommentFn: func(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("only the comment author can edit this comment")
+			return nil, apperrors.ErrCommentForbidden("only the comment author can edit this comment")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -672,7 +673,7 @@ func TestDeleteComment_InvalidID(t *testing.T) {
 func TestDeleteComment_NotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
-			return fmt.Errorf("comment not found")
+			return apperrors.ErrCommentNotFound()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -683,7 +684,7 @@ func TestDeleteComment_NotFound(t *testing.T) {
 func TestDeleteComment_ForbiddenNotAuthorOrAdmin(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		DeleteCommentFn: func(userID uint, commentID uint, isAdmin bool) error {
-			return fmt.Errorf("only the comment author or an admin can delete this comment")
+			return apperrors.ErrCommentForbidden("only the comment author or an admin can delete this comment")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -790,7 +791,7 @@ func TestUpdateReplyPermission_InvalidEnum(t *testing.T) {
 func TestUpdateReplyPermission_Forbidden(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("only the comment author can change reply permission")
+			return nil, apperrors.ErrCommentForbidden("only the comment author can change reply permission")
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -803,7 +804,7 @@ func TestUpdateReplyPermission_Forbidden(t *testing.T) {
 func TestUpdateReplyPermission_NotFound(t *testing.T) {
 	mock := &testhelpers.MockCommentService{
 		UpdateReplyPermissionFn: func(userID, commentID uint, permission string) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("comment not found")
+			return nil, apperrors.ErrCommentNotFound()
 		},
 	}
 	h := NewCommentHandler(mock, mock, nil, nil)
@@ -885,7 +886,7 @@ func TestCreateReply_RepliesDisabled(t *testing.T) {
 	}
 	writer := &testhelpers.MockCommentService{
 		CreateCommentFn: func(uid uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("replies to this comment are disabled")
+			return nil, apperrors.ErrCommentForbidden("replies to this comment are disabled")
 		},
 	}
 	h := NewCommentHandler(reader, writer, nil, nil)
@@ -903,7 +904,7 @@ func TestCreateReply_FollowersOnlyRejected(t *testing.T) {
 	}
 	writer := &testhelpers.MockCommentService{
 		CreateCommentFn: func(uid uint, req *contracts.CreateCommentRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("only followers of the author can reply to this comment")
+			return nil, apperrors.ErrCommentForbidden("only followers of the author can reply to this comment")
 		},
 	}
 	h := NewCommentHandler(reader, writer, nil, nil)

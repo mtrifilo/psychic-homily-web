@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -79,7 +80,7 @@ func TestCreateFieldNote_EmptyBody(t *testing.T) {
 func TestCreateFieldNote_ShowNotFound(t *testing.T) {
 	mock := &testhelpers.MockFieldNoteService{
 		CreateFieldNoteFn: func(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("show not found")
+			return nil, apperrors.ErrFieldNoteShowNotFound()
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
@@ -93,7 +94,7 @@ func TestCreateFieldNote_ShowNotFound(t *testing.T) {
 func TestCreateFieldNote_FutureShow(t *testing.T) {
 	mock := &testhelpers.MockFieldNoteService{
 		CreateFieldNoteFn: func(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("field notes can only be added to past shows")
+			return nil, apperrors.ErrFieldNoteShowFuture()
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
@@ -107,7 +108,7 @@ func TestCreateFieldNote_FutureShow(t *testing.T) {
 func TestCreateFieldNote_SoundQualityInvalid(t *testing.T) {
 	mock := &testhelpers.MockFieldNoteService{
 		CreateFieldNoteFn: func(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("sound_quality must be between 1 and 5")
+			return nil, apperrors.ErrCommentFieldValidation("sound_quality must be between 1 and 5")
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
@@ -123,7 +124,7 @@ func TestCreateFieldNote_SoundQualityInvalid(t *testing.T) {
 func TestCreateFieldNote_CrowdEnergyInvalid(t *testing.T) {
 	mock := &testhelpers.MockFieldNoteService{
 		CreateFieldNoteFn: func(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("crowd_energy must be between 1 and 5")
+			return nil, apperrors.ErrCommentFieldValidation("crowd_energy must be between 1 and 5")
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
@@ -139,7 +140,7 @@ func TestCreateFieldNote_CrowdEnergyInvalid(t *testing.T) {
 func TestCreateFieldNote_ArtistNotOnShow(t *testing.T) {
 	mock := &testhelpers.MockFieldNoteService{
 		CreateFieldNoteFn: func(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("artist is not on this show's bill")
+			return nil, apperrors.ErrFieldNoteArtistNotOnBill()
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
@@ -155,7 +156,7 @@ func TestCreateFieldNote_ArtistNotOnShow(t *testing.T) {
 func TestCreateFieldNote_RateLimited(t *testing.T) {
 	mock := &testhelpers.MockFieldNoteService{
 		CreateFieldNoteFn: func(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
-			return nil, fmt.Errorf("Please wait 60 seconds between comments on the same entity")
+			return nil, apperrors.ErrCommentRateLimitedEntity()
 		},
 	}
 	h := NewFieldNoteHandler(mock, mock, nil)
