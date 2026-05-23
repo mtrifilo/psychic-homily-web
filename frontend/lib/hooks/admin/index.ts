@@ -6,12 +6,11 @@ export {
 
 export {
   type MusicPlatform,
+  type DiscoveryCandidate,
   type DiscoverMusicResponse,
-  type DiscoverBandcampResponse,
   type UpdateBandcampResponse,
   type UpdateSpotifyResponse,
   useDiscoverMusic,
-  useDiscoverBandcamp,
   useUpdateArtistBandcamp,
   useClearArtistBandcamp,
   useUpdateArtistSpotify,

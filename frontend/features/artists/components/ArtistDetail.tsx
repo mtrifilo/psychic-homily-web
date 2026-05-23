@@ -29,6 +29,8 @@ import {
   useClearArtistSpotify,
   useArtistUpdate,
   type MusicPlatform,
+  type DiscoverMusicResponse,
+  type DiscoveryCandidate,
 } from '@/lib/hooks/admin/useAdminArtists'
 import {
   SocialLinks,
@@ -419,6 +421,14 @@ function AdminMusicControls({
     type: 'success' | 'error'
     message: string
   } | null>(null)
+  const [candidates, setCandidates] = useState<DiscoverMusicResponse | null>(
+    null
+  )
+  // The in-flight URL (not a bool) so peer candidate cards stay enabled
+  // without spinners while one is saving.
+  const [savingCandidateUrl, setSavingCandidateUrl] = useState<string | null>(
+    null
+  )
 
   const discoverMusic = useDiscoverMusic()
   const updateBandcamp = useUpdateArtistBandcamp()
@@ -433,54 +443,66 @@ function AdminMusicControls({
     updateSpotify.isPending ||
     clearSpotify.isPending
 
-  const formatPlatformName = (platform: MusicPlatform): string => {
-    return platform === 'bandcamp' ? 'Bandcamp' : 'Spotify'
-  }
-
   const handleDiscover = () => {
     setFeedback(null)
+    setCandidates(null)
     discoverMusic.mutate(artist.id, {
       onSuccess: data => {
-        queryClient.invalidateQueries({
-          queryKey: queryKeys.artists.detail(artistId),
-        })
-
-        let message: string
-        if (data.platforms) {
-          const found: string[] = []
-          if (data.platforms.bandcamp?.found) found.push('Bandcamp')
-          if (data.platforms.spotify?.found) found.push('Spotify')
-          message =
-            found.length > 0
-              ? `Found ${found.join(' and ')}`
-              : `Found ${data.platform ? formatPlatformName(data.platform) : 'music'}: ${data.url}`
-        } else {
-          const platformName = data.platform
-            ? formatPlatformName(data.platform)
-            : 'music'
-          message = `Found ${platformName}: ${data.url}`
-        }
-
-        setFeedback({ type: 'success', message })
+        setCandidates(data)
         setShowManualInput(null)
       },
       onError: err => {
+        // The route already returns user-friendly messages for the known
+        // error classes (PARSE_FAILED, RATE_LIMIT, API_CREDITS_EXHAUSTED);
+        // pass them through.
         const message = err instanceof Error ? err.message : 'Discovery failed'
-        let displayMessage: string
-        if (message.includes('credits') || message.includes('Credits')) {
-          displayMessage =
-            'AI discovery unavailable: API credits exhausted. Use manual entry.'
-        } else if (
-          message.includes('NOT_FOUND') ||
-          message.includes('Could not find')
-        ) {
-          displayMessage = `No music found for this artist on Bandcamp or Spotify. Try manual entry.`
-        } else {
-          displayMessage = message
-        }
-        setFeedback({ type: 'error', message: displayMessage })
+        setFeedback({ type: 'error', message })
       },
     })
+  }
+
+  const handlePickCandidate = (
+    platform: MusicPlatform,
+    candidate: DiscoveryCandidate
+  ) => {
+    setFeedback(null)
+    setSavingCandidateUrl(candidate.url)
+    const onSuccess = () => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.artists.detail(artistId),
+      })
+      setFeedback({
+        type: 'success',
+        message: `${platform === 'bandcamp' ? 'Bandcamp' : 'Spotify'} URL saved`,
+      })
+      // Auto-close the panel once both platforms have been resolved.
+      setCandidates(prev => {
+        if (!prev) return null
+        const next = { ...prev, [platform]: [] }
+        return next.bandcamp.length === 0 && next.spotify.length === 0
+          ? null
+          : next
+      })
+      setSavingCandidateUrl(null)
+    }
+    const onError = (err: Error) => {
+      setFeedback({
+        type: 'error',
+        message: err instanceof Error ? err.message : 'Failed to save URL',
+      })
+      setSavingCandidateUrl(null)
+    }
+    if (platform === 'bandcamp') {
+      updateBandcamp.mutate(
+        { artistId: artist.id, bandcampUrl: candidate.url },
+        { onSuccess, onError }
+      )
+    } else {
+      updateSpotify.mutate(
+        { artistId: artist.id, spotifyUrl: candidate.url },
+        { onSuccess, onError }
+      )
+    }
   }
 
   const handleManualSaveBandcamp = () => {
@@ -592,7 +614,7 @@ function AdminMusicControls({
         </Alert>
       )}
 
-      {!hasAnyEmbed && !showManualInput && (
+      {!hasAnyEmbed && !showManualInput && !candidates && (
         <div className="p-4 rounded-lg border border-dashed border-muted-foreground/25 bg-muted/30">
           <p className="text-sm text-muted-foreground mb-3">
             No music embed configured
@@ -637,7 +659,7 @@ function AdminMusicControls({
         </div>
       )}
 
-      {hasAnyEmbed && !showManualInput && (
+      {hasAnyEmbed && !showManualInput && !candidates && (
         <div className="flex flex-wrap gap-2">
           {hasBandcamp && (
             <Button
@@ -694,7 +716,7 @@ function AdminMusicControls({
         </div>
       )}
 
-      {showManualInput === 'bandcamp' && (
+      {showManualInput === 'bandcamp' && !candidates && (
         <div className="p-4 rounded-lg border border-muted-foreground/25 bg-muted/30">
           <label
             htmlFor="bandcamp-url"
@@ -753,7 +775,7 @@ function AdminMusicControls({
         </div>
       )}
 
-      {showManualInput === 'spotify' && (
+      {showManualInput === 'spotify' && !candidates && (
         <div className="p-4 rounded-lg border border-muted-foreground/25 bg-muted/30">
           <label
             htmlFor="spotify-url"
@@ -811,6 +833,142 @@ function AdminMusicControls({
           )}
         </div>
       )}
+      {candidates && (
+        <div className="space-y-3">
+          <div className="flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold">
+              Pick streaming links for this artist
+            </h3>
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => {
+                setCandidates(null)
+                setSavingCandidateUrl(null)
+              }}
+              disabled={savingCandidateUrl !== null}
+            >
+              Done
+            </Button>
+          </div>
+
+          {candidates.bandcamp.length === 0 && candidates.spotify.length === 0 ? (
+            <Alert>
+              <AlertCircle className="h-4 w-4" />
+              <AlertDescription>
+                No streaming-link candidates found for this artist. Click Done
+                and use manual entry if you have a URL.
+              </AlertDescription>
+            </Alert>
+          ) : (
+            <>
+              {candidates.bandcamp.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                    Bandcamp candidates
+                  </h4>
+                  <div className="space-y-2">
+                    {candidates.bandcamp.map(c => (
+                      <DiscoveryCandidateCard
+                        key={c.url}
+                        candidate={c}
+                        saving={savingCandidateUrl === c.url}
+                        disabled={savingCandidateUrl !== null}
+                        onPick={() => handlePickCandidate('bandcamp', c)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+              {candidates.spotify.length > 0 && (
+                <section>
+                  <h4 className="text-xs font-semibold text-muted-foreground mb-2 uppercase tracking-wide">
+                    Spotify candidates
+                  </h4>
+                  <div className="space-y-2">
+                    {candidates.spotify.map(c => (
+                      <DiscoveryCandidateCard
+                        key={c.url}
+                        candidate={c}
+                        saving={savingCandidateUrl === c.url}
+                        disabled={savingCandidateUrl !== null}
+                        onPick={() => handlePickCandidate('spotify', c)}
+                      />
+                    ))}
+                  </div>
+                </section>
+              )}
+            </>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function DiscoveryCandidateCard({
+  candidate,
+  saving,
+  disabled,
+  onPick,
+}: {
+  candidate: DiscoveryCandidate
+  saving: boolean
+  disabled: boolean
+  onPick: () => void
+}) {
+  const confidenceClass =
+    candidate.confidence === 'high'
+      ? 'text-green-600 dark:text-green-400'
+      : candidate.confidence === 'medium'
+        ? 'text-amber-600 dark:text-amber-400'
+        : 'text-muted-foreground'
+  const facts = [
+    candidate.location,
+    candidate.genres,
+    candidate.notable_release,
+    candidate.popularity,
+  ].filter((v): v is string => typeof v === 'string' && v.length > 0)
+
+  return (
+    <div className="p-3 border rounded-md bg-card">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0 flex-1 space-y-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-medium">
+              {candidate.name_as_listed || 'Unknown name'}
+            </span>
+            <span className={`text-xs ${confidenceClass}`}>
+              [{candidate.confidence} confidence]
+            </span>
+          </div>
+          <a
+            href={candidate.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-muted-foreground hover:underline break-all block"
+          >
+            {candidate.url}
+          </a>
+          {facts.length > 0 && (
+            <div className="text-xs text-muted-foreground">
+              {facts.join(' · ')}
+            </div>
+          )}
+          {candidate.why_might_match && (
+            <p className="text-xs italic text-muted-foreground">
+              {candidate.why_might_match}
+            </p>
+          )}
+        </div>
+        <Button size="sm" onClick={onPick} disabled={disabled}>
+          {saving ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : (
+            'Use this'
+          )}
+        </Button>
+      </div>
     </div>
   )
 }
