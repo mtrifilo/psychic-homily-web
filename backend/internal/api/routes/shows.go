@@ -15,7 +15,7 @@ import (
 
 // setupShowRoutes configures all show-related endpoints
 func setupShowRoutes(rc RouteContext) {
-	showHandler := catalogh.NewShowHandler(rc.SC.Show, rc.SC.Show, rc.SC.Show, rc.SC.SavedShow, rc.SC.Discord, rc.SC.MusicDiscovery, rc.SC.Extraction, rc.SC.Revision)
+	showHandler := catalogh.NewShowHandler(rc.SC.Show, rc.SC.Show, rc.SC.Show, rc.SC.SavedShow, rc.SC.Discord, rc.SC.Extraction, rc.SC.Revision)
 
 	// Public show endpoints - registered on main API without middleware
 	// Note: Static routes must come before parameterized routes

@@ -24,7 +24,6 @@ type AdminShowHandler struct {
 	discordService            contracts.DiscordServiceInterface
 	auditLogService           contracts.AuditLogServiceInterface
 	notificationFilterService contracts.NotificationFilterServiceInterface
-	musicDiscoveryService     contracts.MusicDiscoveryServiceInterface
 }
 
 // NewAdminShowHandler creates a new admin show handler
@@ -35,7 +34,6 @@ func NewAdminShowHandler(
 	discordService contracts.DiscordServiceInterface,
 	auditLogService contracts.AuditLogServiceInterface,
 	notificationFilterService contracts.NotificationFilterServiceInterface,
-	musicDiscoveryService contracts.MusicDiscoveryServiceInterface,
 ) *AdminShowHandler {
 	return &AdminShowHandler{
 		showService:               showService,
@@ -44,7 +42,6 @@ func NewAdminShowHandler(
 		discordService:            discordService,
 		auditLogService:           auditLogService,
 		notificationFilterService: notificationFilterService,
-		musicDiscoveryService:     musicDiscoveryService,
 	}
 }
 

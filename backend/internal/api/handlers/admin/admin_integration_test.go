@@ -32,7 +32,6 @@ func (s *AdminHandlerIntegrationSuite) SetupSuite() {
 		s.deps.DiscordService,
 		s.deps.AuditLogService,
 		nil, // notificationFilterService
-		s.deps.MusicDiscoveryService,
 	)
 	s.venueHandler = NewAdminVenueHandler(
 		s.deps.VenueService,
