@@ -15,7 +15,20 @@ const mockUseSetTagParent = vi.fn(() => ({
   mutate: mockSetTagParentMutate,
   isPending: false,
 }))
-const mockUseSearchTags = vi.fn(() => ({
+type MockSearchTag = {
+  id: number
+  name: string
+  slug: string
+  category: string
+  is_official: boolean
+  usage_count: number
+  created_at: string
+}
+type MockUseSearchTagsValue = {
+  data: { tags: MockSearchTag[] }
+  isLoading: boolean
+}
+const mockUseSearchTags = vi.fn<() => MockUseSearchTagsValue>(() => ({
   data: { tags: [] },
   isLoading: false,
 }))

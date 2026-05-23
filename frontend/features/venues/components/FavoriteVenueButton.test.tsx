@@ -3,8 +3,16 @@ import { render, screen, act, fireEvent, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 
-// Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
+// Mock AuthContext.
+// Return type widened so individual tests can override `user`/`isAuthenticated`
+// without TS narrowing from the default literal.
+type MockAuthContextValue = {
+  user: { id: string } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: { id: '1' },
   isAuthenticated: true,
   isLoading: false,
@@ -16,12 +24,20 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 // Mock useFavoriteVenueToggle
 const mockToggle = vi.fn()
-const mockFavoriteHook = vi.fn((..._args: unknown[]) => ({
-  isFavorited: false,
-  isLoading: false,
-  toggle: mockToggle,
-  error: null,
-}))
+type MockFavoriteHookValue = {
+  isFavorited: boolean
+  isLoading: boolean
+  toggle: typeof mockToggle
+  error: Error | null
+}
+const mockFavoriteHook = vi.fn<(..._args: unknown[]) => MockFavoriteHookValue>(
+  () => ({
+    isFavorited: false,
+    isLoading: false,
+    toggle: mockToggle,
+    error: null,
+  })
+)
 vi.mock('@/features/auth', () => ({
   useFavoriteVenueToggle: (...args: unknown[]) => mockFavoriteHook(...args),
 }))

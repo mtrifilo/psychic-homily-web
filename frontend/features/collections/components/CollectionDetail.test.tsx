@@ -141,7 +141,13 @@ vi.mock('@/components/shared', () => ({
 // Mock hooks
 const mockCollection = vi.fn()
 const mockDeleteMutate = vi.fn()
-const mockDeleteMutation = vi.fn(() => ({
+type MockDeleteMutationValue = {
+  mutate: typeof mockDeleteMutate
+  isPending: boolean
+  isError: boolean
+  error: { message?: string } | null
+}
+const mockDeleteMutation = vi.fn<() => MockDeleteMutationValue>(() => ({
   mutate: mockDeleteMutate,
   isPending: false,
   isError: false,
@@ -159,7 +165,13 @@ const mockAddItemMutate = vi.fn()
 const mockLikeMutate = vi.fn()
 const mockUnlikeMutate = vi.fn()
 const mockCloneMutate = vi.fn()
-const mockCloneMutation = vi.fn(() => ({
+type MockCloneMutationValue = {
+  mutate: typeof mockCloneMutate
+  isPending: boolean
+  isError: boolean
+  error: Error | null
+}
+const mockCloneMutation = vi.fn<() => MockCloneMutationValue>(() => ({
   mutate: mockCloneMutate,
   isPending: false,
   isError: false,

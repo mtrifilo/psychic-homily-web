@@ -62,8 +62,10 @@ describe('usePrefetchRoutes', () => {
   })
 
   it('falls back to setTimeout when requestIdleCallback is not available', () => {
-    // Remove requestIdleCallback from window
-    delete window.requestIdleCallback
+    // Remove requestIdleCallback from window. `requestIdleCallback` is a
+    // required field on the Window type, so we cast to `unknown` to
+    // satisfy `delete`'s optional-operand constraint.
+    delete (window as unknown as { requestIdleCallback?: unknown }).requestIdleCallback
 
     vi.useFakeTimers()
 

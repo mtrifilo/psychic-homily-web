@@ -28,11 +28,18 @@ const mockGraphData: ArtistGraph = {
   user_votes: { '1-2-similar': 'up' },
 }
 
-const mockUseArtistGraph = vi.fn((_opts?: unknown) => ({
-  data: mockGraphData,
-  isLoading: false,
-  error: null,
-}))
+type MockUseArtistGraphValue = {
+  data: ArtistGraph | undefined
+  isLoading: boolean
+  error: Error | null
+}
+const mockUseArtistGraph = vi.fn<(_opts?: unknown) => MockUseArtistGraphValue>(
+  () => ({
+    data: mockGraphData,
+    isLoading: false,
+    error: null,
+  })
+)
 
 vi.mock('../hooks/useArtistGraph', () => ({
   useArtistGraph: (opts: unknown) => mockUseArtistGraph(opts),
@@ -40,7 +47,11 @@ vi.mock('../hooks/useArtistGraph', () => ({
   useCreateArtistRelationship: vi.fn(() => ({ mutate: vi.fn(), isPending: false })),
 }))
 
-const mockUseIsAuthenticated = vi.fn(() => ({
+type MockUseIsAuthenticatedValue = {
+  user: { id: number; is_admin: boolean } | null
+  isAuthenticated: boolean
+}
+const mockUseIsAuthenticated = vi.fn<() => MockUseIsAuthenticatedValue>(() => ({
   user: { id: 1, is_admin: false },
   isAuthenticated: true,
 }))
