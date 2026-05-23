@@ -273,7 +273,9 @@ export function ArtistGraphVisualization({
   const graphRef = useRef<any>(null) // eslint-disable-line @typescript-eslint/no-explicit-any
   const containerRef = useRef<HTMLDivElement>(null)
   const [hoveredNode, setHoveredNode] = useState<GraphNode | null>(null)
-  const [tooltipPos, setTooltipPos] = useState({ x: 0, y: 0 })
+  // The hover handler currently never repositions the tooltip — see the note on
+  // `handleNodeHover` below. Pinned to origin until that's fixed.
+  const [tooltipPos] = useState({ x: 0, y: 0 })
   const reducedMotion = useReducedMotion()
 
   const graphHeight = containerWidth < 768 ? 350 : 500
@@ -411,9 +413,8 @@ export function ArtistGraphVisualization({
 
   // react-force-graph-2d invokes `onNodeHover` with `(node, previousNode)` —
   // there's no MouseEvent in the signature (see `force-graph` `force-graph.js`
-  // line ~633: `fn(obj.d, prevObj.d)`). The previous-node arg is unused here;
-  // tooltip positioning is currently pinned to `{x:0,y:0}` (initial state) —
-  // a separate bug not in PSY-788's scope.
+  // line ~633: `fn(obj.d, prevObj.d)`). The previous-node arg is unused; the
+  // tooltip is pinned at origin until a follow-up adds pointer-based positioning.
   const handleNodeHover = useCallback((node: GraphNode | null) => {
     setHoveredNode(node)
   }, [])
