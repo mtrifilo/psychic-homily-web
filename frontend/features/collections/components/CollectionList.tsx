@@ -10,6 +10,8 @@ import { MarkdownEditor } from './MarkdownEditor'
 import {
   MAX_COLLECTION_MARKDOWN_LENGTH,
   MAX_COVER_IMAGE_URL_LENGTH,
+  MIN_PUBLIC_COLLECTION_ITEMS,
+  MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS,
   validateCoverImageUrl,
 } from '../types'
 import { LoadingSpinner } from '@/components/shared'
@@ -499,7 +501,9 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
 
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
-  const [isPublic, setIsPublic] = useState(true)
+  // Default off so the create flow doesn't trip the publish gate
+  // (≥3 items + ≥50-char description) before items can be added.
+  const [isPublic, setIsPublic] = useState(false)
   const [collaborative, setCollaborative] = useState(false)
   // PSY-585: cover image URL on create — mirrors the Edit form's field
   // shape (validation, preview, clear button) so users can set the cover
@@ -695,26 +699,36 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
         )}
       </div>
 
-      <div className="flex items-center gap-6">
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={isPublic}
-            onChange={e => setIsPublic(e.target.checked)}
-            className="rounded border-border"
-          />
-          Public
-        </label>
+      <div>
+        <div className="flex items-center gap-6">
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={isPublic}
+              onChange={e => setIsPublic(e.target.checked)}
+              className="rounded border-border"
+            />
+            Public
+          </label>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
-            checked={collaborative}
-            onChange={e => setCollaborative(e.target.checked)}
-            className="rounded border-border"
-          />
-          Collaborative
-        </label>
+          <label className="flex items-center gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={collaborative}
+              onChange={e => setCollaborative(e.target.checked)}
+              className="rounded border-border"
+            />
+            Collaborative
+          </label>
+        </div>
+        <p
+          className="text-xs text-muted-foreground mt-1.5"
+          data-testid="create-public-gate-help"
+        >
+          Public collections need at least {MIN_PUBLIC_COLLECTION_ITEMS} items
+          and a {MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS}+ character description
+          — you can publish after adding them.
+        </p>
       </div>
 
       {createMutation.error && (

@@ -483,7 +483,9 @@ describe('CollectionList', () => {
       expect(screen.getByLabelText('Description (optional)')).toBeInTheDocument()
     })
 
-    it('renders create form with Public checkbox checked by default', () => {
+    it('renders create form with Public checkbox unchecked by default', () => {
+      // PSY-822: Public defaults off so the create flow does not trip the
+      // publish gate (≥3 items + ≥50-char description) before items exist.
       mockAuthContext.mockReturnValue({
         user: { id: '1' },
         isAuthenticated: true,
@@ -498,7 +500,29 @@ describe('CollectionList', () => {
       })
       render(<CollectionList />)
       const publicCheckbox = screen.getByLabelText('Public') as HTMLInputElement
-      expect(publicCheckbox.checked).toBe(true)
+      expect(publicCheckbox.checked).toBe(false)
+    })
+
+    it('renders the publish-gate hint under the Public checkbox', () => {
+      // PSY-822: helper copy proactively explains the publish gate so users
+      // know what unchecking/checking Public means before they try.
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<CollectionList />)
+      const hint = screen.getByTestId('create-public-gate-help')
+      expect(hint).toBeInTheDocument()
+      expect(hint.textContent).toMatch(/3 items/)
+      expect(hint.textContent).toMatch(/50/)
     })
 
     it('renders create form with Collaborative checkbox unchecked by default', () => {
@@ -580,7 +604,7 @@ describe('CollectionList', () => {
       const payload = callArgs[0] as Record<string, unknown>
       expect(payload).toMatchObject({
         title: 'My Picks',
-        is_public: true,
+        is_public: false,
         collaborative: false,
         cover_image_url: 'https://example.com/cover.jpg',
       })
@@ -608,7 +632,7 @@ describe('CollectionList', () => {
       expect(payload.cover_image_url).toBeUndefined()
       expect(payload).toMatchObject({
         title: 'No Cover',
-        is_public: true,
+        is_public: false,
         collaborative: false,
       })
     })
