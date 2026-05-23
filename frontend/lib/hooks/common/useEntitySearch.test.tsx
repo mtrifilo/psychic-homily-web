@@ -401,8 +401,8 @@ describe('useEntitySearch', () => {
       id: i + 1,
       slug: `artist-${i + 1}`,
       name: `Artist ${i + 1}`,
-      city: null,
-      state: null,
+      city: null as string | null,
+      state: null as string | null,
     }))
 
     mockApiRequest.mockImplementation((url: string) => {

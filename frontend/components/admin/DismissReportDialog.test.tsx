@@ -11,7 +11,7 @@ vi.mock('@/lib/hooks/admin/useAdminReports', () => ({
     mutate: mockMutate,
     isPending: false,
     isError: false,
-    error: null,
+    error: null as Error | null,
   }),
 }))
 
@@ -155,7 +155,7 @@ describe('DismissReportDialog', () => {
   })
 
   it('shows unknown show when show info is missing', () => {
-    const reportNoShow = { ...baseReport, show: undefined }
+    const reportNoShow: ShowReportResponse = { ...baseReport, show: undefined }
     render(
       <DismissReportDialog
         report={reportNoShow}

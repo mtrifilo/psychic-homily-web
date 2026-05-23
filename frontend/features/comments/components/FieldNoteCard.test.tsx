@@ -31,7 +31,7 @@ vi.mock('../hooks', async () => {
     useDeleteComment: () => mockUseDeleteComment(),
     useVoteComment: () => mockUseVoteComment(),
     useUnvoteComment: () => mockUseUnvoteComment(),
-    useCommentThread: () => ({ data: undefined }),
+    useCommentThread: () => ({ data: undefined as unknown }),
     useAutoDismissError: actual.useAutoDismissError,
     formatCommentSubmissionError: actual.formatCommentSubmissionError,
   }
@@ -46,7 +46,7 @@ function resetFieldNoteCardMocks() {
 }
 
 vi.mock('@/features/contributions', () => ({
-  ReportEntityDialog: () => null,
+  ReportEntityDialog: (): null => null,
 }))
 
 // PSY-590: stub the edit history dialog — only its render condition matters here.

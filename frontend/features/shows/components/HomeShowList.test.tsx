@@ -32,7 +32,7 @@ vi.mock('../hooks/useAttendance', () => ({
 
 // Mock profile hooks
 vi.mock('@/features/auth', () => ({
-  useProfile: () => ({ data: null }),
+  useProfile: () => ({ data: null as unknown }),
   useSetFavoriteCities: () => ({ mutate: vi.fn() }),
 }))
 

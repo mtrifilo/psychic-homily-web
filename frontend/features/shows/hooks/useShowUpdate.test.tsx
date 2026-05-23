@@ -48,7 +48,7 @@ vi.mock('@/lib/errors', () => ({
     fromUnknown: (error: unknown) => ({
       code: 'UNKNOWN',
       message: error instanceof Error ? error.message : String(error),
-      requestId: undefined,
+      requestId: undefined as string | undefined,
     }),
   },
   ShowErrorCode: {
@@ -77,8 +77,8 @@ describe('useShowUpdate', () => {
       title: 'Updated Title',
       event_date: '2025-06-15T20:00:00Z',
       status: 'approved',
-      venues: [],
-      artists: [],
+      venues: [] as unknown[],
+      artists: [] as unknown[],
       created_at: '2025-01-01T00:00:00Z',
       updated_at: '2025-01-02T00:00:00Z',
       is_sold_out: false,

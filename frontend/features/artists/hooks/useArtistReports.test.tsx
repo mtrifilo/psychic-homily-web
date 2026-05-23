@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
 import { createWrapper } from '@/test/utils'
+import type { ArtistReportResponse } from '@/features/artists'
 
 // Create mocks
 const mockApiRequest = vi.fn()
@@ -169,7 +170,7 @@ describe('useReportArtist', () => {
   })
 
   it('creates a report without details', async () => {
-    const mockResponse = {
+    const mockResponse: ArtistReportResponse = {
       id: 11,
       artist_id: 42,
       report_type: 'removal_request',
@@ -227,7 +228,7 @@ describe('useReportArtist', () => {
   })
 
   it('handles empty string details as null', async () => {
-    const mockResponse = {
+    const mockResponse: ArtistReportResponse = {
       id: 12,
       artist_id: 42,
       report_type: 'inaccurate',

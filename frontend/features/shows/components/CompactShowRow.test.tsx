@@ -177,7 +177,7 @@ describe('CompactShowRow', () => {
 
   it('uses default secondaryArtistsPrefix of w/', () => {
     const secondaryArtists = [
-      { id: 10, name: 'Opener Act', slug: null },
+      { id: 10, name: 'Opener Act', slug: null as string | null },
     ]
     render(
       <CompactShowRow

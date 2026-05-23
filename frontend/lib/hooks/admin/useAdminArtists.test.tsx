@@ -216,7 +216,7 @@ describe('useAdminArtists', () => {
     it('clears artist Bandcamp URL', async () => {
       const mockResponse = {
         success: true,
-        artist: { id: 123, bandcamp_url: null },
+        artist: { id: 123, bandcamp_url: null as string | null },
       }
       mockFetchResponse(mockResponse)
 
@@ -362,7 +362,7 @@ describe('useAdminArtists', () => {
     it('clears artist Spotify URL', async () => {
       const mockResponse = {
         success: true,
-        artist: { id: 123, spotify_url: null },
+        artist: { id: 123, spotify_url: null as string | null },
       }
       mockFetchResponse(mockResponse)
 

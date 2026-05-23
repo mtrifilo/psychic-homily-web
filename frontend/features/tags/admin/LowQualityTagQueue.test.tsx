@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
-import type { LowQualityTagQueueItem } from '../types'
+import type { LowQualityTagQueueItem, TagAlias, TagListItem } from '../types'
 
 const mockUseLowQualityTagQueue = vi.fn()
 const mockSnooze = vi.fn()
@@ -16,12 +16,12 @@ vi.mock('./useAdminTags', () => ({
   useSnoozeTag: () => ({
     mutate: mockSnooze,
     isPending: false,
-    variables: undefined,
+    variables: undefined as unknown,
   }),
   useMarkTagOfficial: () => ({
     mutate: mockMarkOfficial,
     isPending: false,
-    variables: undefined,
+    variables: undefined as unknown,
   }),
   useDeleteTag: () => ({
     mutate: mockDelete,
@@ -33,12 +33,12 @@ vi.mock('./useAdminTags', () => ({
   }),
   // MergeTagDialog transitively needs these.
   useMergeTags: () => ({ mutate: vi.fn(), isPending: false }),
-  useMergeTagsPreview: () => ({ data: null, isLoading: false, error: null }),
-  useTagAliases: () => ({ data: { aliases: [] }, isLoading: false }),
+  useMergeTagsPreview: () => ({ data: null as unknown, isLoading: false, error: null as Error | null }),
+  useTagAliases: () => ({ data: { aliases: [] as TagAlias[] }, isLoading: false }),
 }))
 
 vi.mock('../hooks', () => ({
-  useSearchTags: () => ({ data: { tags: [] }, isLoading: false }),
+  useSearchTags: () => ({ data: { tags: [] as TagListItem[] }, isLoading: false }),
 }))
 
 import { LowQualityTagQueue } from './LowQualityTagQueue'

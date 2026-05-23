@@ -28,7 +28,7 @@ const mockAuthContext = {
   user: null as { id: string; email: string; is_admin?: boolean } | null,
   isAuthenticated: false,
   isLoading: false,
-  error: null,
+  error: null as Error | null,
   setUser: vi.fn(),
   setError: vi.fn(),
   clearError: vi.fn(),

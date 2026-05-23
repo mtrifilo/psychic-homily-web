@@ -68,9 +68,9 @@ vi.mock('@/lib/hooks/usePipeline', () => ({
   usePipelineVenues: () => ({
     data: { venues: [venueFixture], total: 1 },
     isLoading: false,
-    error: null,
+    error: null as Error | null,
   }),
-  useVenueRejectionStats: () => ({ data: null, isLoading: false }),
+  useVenueRejectionStats: () => ({ data: null as unknown, isLoading: false }),
   useVenueExtractionRuns: () => ({
     data: { runs: [runFixture], total: 1 },
     isLoading: false,
@@ -78,18 +78,18 @@ vi.mock('@/lib/hooks/usePipeline', () => ({
   useImportHistory: () => ({
     data: { imports: [importFixture], total: 1 },
     isLoading: false,
-    error: null,
+    error: null as Error | null,
   }),
   useUpdateVenueConfig: () => ({
     mutate: vi.fn(),
     isPending: false,
-    error: null,
+    error: null as Error | null,
   }),
   useExtractVenue: () => ({
     mutate: vi.fn(),
     isPending: false,
-    data: undefined,
-    error: null,
+    data: undefined as unknown,
+    error: null as Error | null,
   }),
   useResetRenderMethod: () => ({
     mutate: mockResetMutate,
@@ -98,7 +98,7 @@ vi.mock('@/lib/hooks/usePipeline', () => ({
 }))
 
 vi.mock('@/features/venues', () => ({
-  useVenueSearch: () => ({ data: { venues: [] } }),
+  useVenueSearch: () => ({ data: { venues: [] as unknown[] } }),
 }))
 
 import { PipelineVenues } from './PipelineVenues'

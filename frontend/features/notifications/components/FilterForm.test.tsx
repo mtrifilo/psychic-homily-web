@@ -24,21 +24,21 @@ vi.mock('../hooks', () => ({
 // Mock search hooks used by MultiSelectSearch
 vi.mock('@/features/artists/hooks/useArtistSearch', () => ({
   useArtistSearch: () => ({
-    data: { artists: [] },
+    data: { artists: [] as unknown[] },
     isLoading: false,
   }),
 }))
 
 vi.mock('@/features/venues/hooks/useVenueSearch', () => ({
   useVenueSearch: () => ({
-    data: { venues: [] },
+    data: { venues: [] as unknown[] },
     isLoading: false,
   }),
 }))
 
 vi.mock('@/features/tags/hooks', () => ({
   useSearchTags: () => ({
-    data: { tags: [] },
+    data: { tags: [] as unknown[] },
     isLoading: false,
   }),
 }))

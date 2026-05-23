@@ -1,10 +1,13 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { act, fireEvent, render, screen, within } from '@testing-library/react'
 import { ModerationQueue } from './ModerationQueue'
+import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
+import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
+import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
 
 // --- Mock data ---
 
-const mockPendingEdit = {
+const mockPendingEdit: PendingEditResponse = {
   id: 1,
   entity_type: 'artist',
   entity_id: 10,
@@ -20,7 +23,7 @@ const mockPendingEdit = {
   updated_at: '2026-04-01T00:00:00Z',
 }
 
-const mockEntityReport = {
+const mockEntityReport: EntityReportResponse = {
   id: 2,
   entity_type: 'venue',
   entity_id: 20,
@@ -34,7 +37,7 @@ const mockEntityReport = {
   created_at: '2026-04-02T00:00:00Z',
 }
 
-const mockPendingComment = {
+const mockPendingComment: PendingComment = {
   id: 3,
   entity_type: 'artist',
   entity_id: 10,
@@ -52,7 +55,7 @@ const mockPendingComment = {
   updated_at: '2026-04-03T00:00:00Z',
 }
 
-const mockCommentReport = {
+const mockCommentReport: EntityReportResponse = {
   id: 4,
   entity_type: 'comment',
   entity_id: 50,
@@ -69,7 +72,7 @@ const mockCommentReport = {
 // PSY-357: collection-typed report payload. Includes entity_slug because
 // the moderation card uses it to deep-link to the public collection page
 // and to call the admin hide endpoint.
-const mockCollectionReport = {
+const mockCollectionReport: EntityReportResponse = {
   id: 5,
   entity_type: 'collection',
   entity_id: 60,
@@ -98,7 +101,7 @@ const mockUseAdminApproveComment = vi.fn()
 const mockUseAdminRejectComment = vi.fn()
 const mockUseAdminHideComment = vi.fn()
 
-const defaultMutationReturn = { mutate: vi.fn(), isPending: false, isError: false, error: null }
+const defaultMutationReturn = { mutate: vi.fn(), isPending: false, isError: false, error: null as Error | null }
 
 vi.mock('@/lib/hooks/admin/useAdminPendingEdits', () => ({
   useAdminPendingEdits: (...args: unknown[]) => mockUseAdminPendingEdits(...args),
@@ -119,7 +122,7 @@ vi.mock('@/lib/hooks/admin/useAdminComments', () => ({
   useAdminApproveComment: () => mockUseAdminApproveComment(),
   useAdminRejectComment: () => mockUseAdminRejectComment(),
   useAdminHideComment: () => mockUseAdminHideComment(),
-  useAdminCommentEditHistory: () => ({ data: undefined, isLoading: false, error: null }),
+  useAdminCommentEditHistory: () => ({ data: undefined as unknown, isLoading: false, error: null as Error | null }),
 }))
 
 // PSY-297: stub the edit-history dialog so the badge interaction test doesn't

@@ -27,8 +27,8 @@ const mockDeleteMutate = vi.fn()
 
 vi.mock('@/features/collections', () => ({
   useCollections: () => mockUseCollections(),
-  useCollection: () => ({ data: undefined, isLoading: false }),
-  useCollectionStats: () => ({ data: undefined, isLoading: false }),
+  useCollection: () => ({ data: undefined as unknown, isLoading: false }),
+  useCollectionStats: () => ({ data: undefined as unknown, isLoading: false }),
   useSetFeatured: () => ({
     mutate: mockSetFeaturedMutate,
     isPending: false,
@@ -36,7 +36,7 @@ vi.mock('@/features/collections', () => ({
   useDeleteCollection: () => ({
     mutate: mockDeleteMutate,
     isPending: false,
-    error: null,
+    error: null as Error | null,
   }),
 }))
 

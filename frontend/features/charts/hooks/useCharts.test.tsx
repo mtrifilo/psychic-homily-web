@@ -93,7 +93,7 @@ describe('useCharts hooks', () => {
     })
 
     it('fetches trending shows with limit', async () => {
-      const mockData = { shows: [] }
+      const mockData = { shows: [] as unknown[] }
       mockApiRequest.mockResolvedValueOnce(mockData)
 
       const { result } = renderHook(() => useTrendingShows(10), {

@@ -29,8 +29,9 @@ vi.mock('@/features/artists/api', () => ({
 
 // Import hooks after mocks are set up
 import { useArtistBillComposition } from './useArtistBillComposition'
+import type { ArtistBillComposition } from '../types'
 
-const mockComposition = {
+const mockComposition: ArtistBillComposition = {
   artist: {
     id: 1,
     name: 'Center Artist',

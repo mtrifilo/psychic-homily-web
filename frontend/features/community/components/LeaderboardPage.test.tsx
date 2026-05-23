@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
+import type { LeaderboardEntry, LeaderboardResponse } from '../types'
 
 const mockApiRequest = vi.fn()
 
@@ -40,13 +41,13 @@ vi.mock('next/navigation', () => ({
 
 import { LeaderboardPage } from './LeaderboardPage'
 
-const mockLeaderboardData = {
+const mockLeaderboardData: LeaderboardResponse = {
   entries: [
     {
       rank: 1,
       user_id: 2,
       username: 'alice',
-      avatar_url: null,
+      avatar_url: undefined,
       user_tier: 'trusted_contributor',
       count: 150,
     },
@@ -54,7 +55,7 @@ const mockLeaderboardData = {
       rank: 2,
       user_id: 1,
       username: 'currentuser',
-      avatar_url: null,
+      avatar_url: undefined,
       user_tier: 'contributor',
       count: 100,
     },
@@ -62,7 +63,7 @@ const mockLeaderboardData = {
       rank: 3,
       user_id: 3,
       username: 'bob',
-      avatar_url: null,
+      avatar_url: undefined,
       user_tier: 'new_user',
       count: 50,
     },

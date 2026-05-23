@@ -36,14 +36,14 @@ vi.mock('../hooks', async () => {
     useDeleteComment: () => mockUseDeleteComment(),
     useVoteComment: () => mockUseVoteComment(),
     useUnvoteComment: () => mockUseUnvoteComment(),
-    useCommentThread: () => ({ data: undefined }),
+    useCommentThread: () => ({ data: undefined as unknown }),
     useAutoDismissError: actual.useAutoDismissError,
     formatCommentSubmissionError: actual.formatCommentSubmissionError,
   }
 })
 
 vi.mock('@/features/contributions', () => ({
-  ReportEntityDialog: () => null,
+  ReportEntityDialog: (): null => null,
 }))
 
 // Stub the edit history dialog — we only care about its render condition.

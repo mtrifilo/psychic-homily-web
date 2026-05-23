@@ -21,8 +21,8 @@ vi.mock('@/lib/context/AuthContext', () => ({
 }))
 
 vi.mock('@/features/shows', () => ({
-  useShowSubmit: () => ({ mutate: vi.fn(), isPending: false, error: null, reset: vi.fn() }),
-  useShowUpdate: () => ({ mutate: vi.fn(), isPending: false, error: null, reset: vi.fn() }),
+  useShowSubmit: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null, reset: vi.fn() }),
+  useShowUpdate: () => ({ mutate: vi.fn(), isPending: false, error: null as Error | null, reset: vi.fn() }),
 }))
 
 // Return at least one search result so ArtistInput's dropdown can transition
@@ -38,7 +38,7 @@ vi.mock('@/features/artists', () => ({
 }))
 
 vi.mock('@/features/venues', () => ({
-  useVenueSearch: () => ({ data: undefined, isLoading: false }),
+  useVenueSearch: () => ({ data: undefined as unknown, isLoading: false }),
   getVenueLocation: () => '',
 }))
 

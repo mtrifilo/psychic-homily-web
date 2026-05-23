@@ -308,7 +308,7 @@ describe('useAdminShows', () => {
 
   describe('useBatchApproveShows', () => {
     it('batch approves shows', async () => {
-      const mockResponse = { approved: 3, errors: [] }
+      const mockResponse = { approved: 3, errors: [] as unknown[] }
       mockApiRequest.mockResolvedValueOnce(mockResponse)
 
       const { result } = renderHook(() => useBatchApproveShows(), {
@@ -359,7 +359,7 @@ describe('useAdminShows', () => {
 
   describe('useBatchRejectShows', () => {
     it('batch rejects shows with reason and category', async () => {
-      const mockResponse = { rejected: 2, errors: [] }
+      const mockResponse = { rejected: 2, errors: [] as unknown[] }
       mockApiRequest.mockResolvedValueOnce(mockResponse)
 
       const { result } = renderHook(() => useBatchRejectShows(), {

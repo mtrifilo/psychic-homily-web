@@ -58,7 +58,7 @@ vi.mock('@/features/auth', () => ({
     mutateAsync: mockGenerateCLITokenMutateAsync,
     ...mockGenerateCLITokenState,
   }),
-  useProfile: () => ({ data: null }),
+  useProfile: () => ({ data: null as unknown }),
 }))
 
 // Mock sub-components to isolate SettingsPanel tests
