@@ -1,9 +1,10 @@
 'use client'
 
-import { useCallback, useMemo, useRef, useEffect, useState } from 'react'
+import { useCallback, useMemo, useRef, useEffect, useState, type ComponentType, type MutableRefObject } from 'react'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
+import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '../hooks/useReducedMotion'
 import type { ArtistGraph as ArtistGraphData, ArtistGraphNode, ArtistGraphLink } from '../types'
 
@@ -18,10 +19,20 @@ function GraphSkeleton() {
   )
 }
 
+// `next/dynamic` strips the upstream component's generic parameters (see
+// react-force-graph-2d's `FCwithRef = <NodeType, LinkType>(...)`), so under
+// `strictFunctionTypes` the callback props default to the library's loose
+// `NodeObject<{}>` / `LinkObject<{}>` and our local GraphNode/GraphLink
+// signatures fail variance checks. Pin the generics with an as-unknown-as
+// cast — runtime behaviour is unchanged.
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false,
   loading: () => <GraphSkeleton />,
-})
+}) as unknown as ComponentType<
+  ForceGraphProps<GraphNode, GraphLink> & {
+    ref?: MutableRefObject<ForceGraphMethods<GraphNode, GraphLink> | undefined>
+  }
+>
 
 // PSY-362: Canonical visual style map for typed edges. Keep this co-located here so
 // future graph surfaces (scene-scale, venue, festival) can reuse the same grammar.
@@ -398,15 +409,14 @@ export function ArtistGraphVisualization({
     [onRecenter]
   )
 
-  const handleNodeHover = useCallback(
-    (node: GraphNode | null, event?: MouseEvent) => {
-      setHoveredNode(node)
-      if (node && event) {
-        setTooltipPos({ x: event.clientX, y: event.clientY })
-      }
-    },
-    []
-  )
+  // react-force-graph-2d invokes `onNodeHover` with `(node, previousNode)` —
+  // there's no MouseEvent in the signature (see `force-graph` `force-graph.js`
+  // line ~633: `fn(obj.d, prevObj.d)`). The previous-node arg is unused here;
+  // tooltip positioning is currently pinned to `{x:0,y:0}` (initial state) —
+  // a separate bug not in PSY-788's scope.
+  const handleNodeHover = useCallback((node: GraphNode | null) => {
+    setHoveredNode(node)
+  }, [])
 
   const nodeCanvasObject = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {

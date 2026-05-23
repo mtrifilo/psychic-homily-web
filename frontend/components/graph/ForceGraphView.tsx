@@ -36,10 +36,11 @@
  *     upcoming show count
  */
 
-import { useCallback, useMemo, useRef, useEffect, useState } from 'react'
+import { useCallback, useMemo, useRef, useEffect, useState, type ComponentType, type MutableRefObject } from 'react'
 import dynamic from 'next/dynamic'
 import { Loader2 } from 'lucide-react'
 import { polygonHull } from 'd3-polygon'
+import type { ForceGraphMethods, ForceGraphProps } from 'react-force-graph-2d'
 import { useReducedMotion } from '@/features/artists/hooks/useReducedMotion'
 
 // ──────────────────────────────────────────────
@@ -153,10 +154,20 @@ function GraphSkeleton() {
   )
 }
 
+// `next/dynamic` strips the upstream component's generic parameters (see
+// react-force-graph-2d's `FCwithRef = <NodeType, LinkType>(...)`), so under
+// `strictFunctionTypes` the callback props default to the library's loose
+// `NodeObject<{}>` / `LinkObject<{}>` and our richer RenderNode/RenderLink
+// signatures fail variance checks. Pin the generics with an as-unknown-as
+// cast — runtime behaviour is unchanged.
 const ForceGraph2D = dynamic(() => import('react-force-graph-2d'), {
   ssr: false,
   loading: () => <GraphSkeleton />,
-})
+}) as unknown as ComponentType<
+  ForceGraphProps<RenderNode, RenderLink> & {
+    ref?: MutableRefObject<ForceGraphMethods<RenderNode, RenderLink> | undefined>
+  }
+>
 
 // computeCentroids arranges visible cluster centroids on a circle around
 // origin; radius scales with the smaller viewport dimension so clusters
@@ -372,15 +383,14 @@ export function ForceGraphView({
     [onNodeClick],
   )
 
-  const handleNodeHover = useCallback(
-    (node: RenderNode | null, event?: MouseEvent) => {
-      setHoveredNode(node)
-      if (node && event) {
-        setTooltipPos({ x: event.clientX, y: event.clientY })
-      }
-    },
-    [],
-  )
+  // react-force-graph-2d invokes `onNodeHover` with `(node, previousNode)` —
+  // there's no MouseEvent in the signature (see `force-graph` `force-graph.js`
+  // line ~633: `fn(obj.d, prevObj.d)`). The previous-node arg is unused here;
+  // tooltip positioning is currently pinned to `{x:0,y:0}` (initial state) —
+  // a separate bug not in PSY-788's scope.
+  const handleNodeHover = useCallback((node: RenderNode | null) => {
+    setHoveredNode(node)
+  }, [])
 
   // Per-cluster fill from the Okabe-Ito palette with 70% alpha so cross-cluster
   // edges drawn on top remain visible.
