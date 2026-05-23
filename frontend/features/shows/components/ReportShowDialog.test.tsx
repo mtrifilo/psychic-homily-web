@@ -4,7 +4,13 @@ import userEvent from '@testing-library/user-event'
 import { ReportShowDialog } from './ReportShowDialog'
 
 const mockMutate = vi.fn()
-const mockReportHook = vi.fn(() => ({
+type MockReportHookValue = {
+  mutate: typeof mockMutate
+  isPending: boolean
+  isError: boolean
+  error: { message?: string } | null
+}
+const mockReportHook = vi.fn<() => MockReportHookValue>(() => ({
   mutate: mockMutate,
   isPending: false,
   isError: false,

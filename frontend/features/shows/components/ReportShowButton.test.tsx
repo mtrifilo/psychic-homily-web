@@ -7,7 +7,15 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/shows/test-show',
 }))
 
-const mockAuthContext = vi.fn(() => ({
+// Return type widened so individual tests can override `user`/`isAuthenticated`
+// without TS narrowing from the default-null literal.
+type MockAuthContextValue = {
+  user: { id: string; is_admin: boolean } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: null,
   isAuthenticated: false,
   isLoading: false,
@@ -17,10 +25,16 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
-const mockMyShowReport = vi.fn((..._args: unknown[]) => ({
-  data: { report: null },
-  isLoading: false,
-}))
+type MockMyShowReportValue = {
+  data: { report: { id: number; report_type: string } | null } | undefined
+  isLoading: boolean
+}
+const mockMyShowReport = vi.fn<(..._args: unknown[]) => MockMyShowReportValue>(
+  () => ({
+    data: { report: null },
+    isLoading: false,
+  })
+)
 vi.mock('../hooks/useShowReports', () => ({
   useMyShowReport: (...args: unknown[]) => mockMyShowReport(...args),
 }))

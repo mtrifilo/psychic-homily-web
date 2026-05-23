@@ -22,7 +22,14 @@ const baseProfile = {
   privacy_settings: { ...basePrivacySettings },
 }
 
-const mockUseOwnContributorProfile = vi.fn(() => ({
+type MockProfile = typeof baseProfile
+type MockUseOwnContributorProfileValue = {
+  data: MockProfile | null
+  isLoading: boolean
+}
+const mockUseOwnContributorProfile = vi.fn<
+  () => MockUseOwnContributorProfileValue
+>(() => ({
   data: baseProfile,
   isLoading: false,
 }))

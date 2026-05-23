@@ -4,8 +4,16 @@ import userEvent from '@testing-library/user-event'
 import { VenueCard } from './VenueCard'
 import type { VenueWithShowCount } from '../types'
 
-// Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
+// Mock AuthContext.
+// Return type widened so individual tests can override `user`/`isAuthenticated`
+// without TS narrowing from the default-null literal.
+type MockAuthContextValue = {
+  user: { id: string; is_admin: boolean } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: null,
   isAuthenticated: false,
   isLoading: false,
@@ -23,11 +31,29 @@ vi.mock('next/link', () => ({
 }))
 
 // Mock useVenueShows hook
-const mockUseVenueShows = vi.fn((..._args: unknown[]) => ({
-  data: undefined,
-  error: null,
-  refetch: vi.fn(),
-}))
+type MockUseVenueShowsValue = {
+  data:
+    | {
+        shows: Array<{
+          id: number
+          slug: string
+          title: string
+          event_date: string
+          artists: unknown[]
+        }>
+        total: number
+      }
+    | undefined
+  error: Error | null
+  refetch: () => void
+}
+const mockUseVenueShows = vi.fn<(..._args: unknown[]) => MockUseVenueShowsValue>(
+  () => ({
+    data: undefined,
+    error: null,
+    refetch: vi.fn(),
+  })
+)
 vi.mock('../hooks/useVenues', () => ({
   useVenueShows: (...args: unknown[]) => mockUseVenueShows(...args),
 }))

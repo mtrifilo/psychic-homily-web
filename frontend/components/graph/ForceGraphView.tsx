@@ -508,7 +508,13 @@ export function ForceGraphView({
     >
       <ForceGraph2D
         ref={graphRef}
-        graphData={renderData}
+        // `fx`/`fy` on `RenderNode` are `number | null | undefined`
+        // because we intentionally re-release a pinned position by
+        // setting them to `null` (d3-force's documented convention
+        // for "unfix this node"). The lib's `GraphData` types
+        // model these as `number | undefined`, so we cast through
+        // the prop boundary. Runtime behaviour is unchanged.
+        graphData={renderData as unknown as React.ComponentProps<typeof ForceGraph2D>['graphData']}
         width={containerWidth}
         height={graphHeight}
         nodeId="id"

@@ -4,8 +4,16 @@ import userEvent from '@testing-library/user-event'
 import { AttendanceButton } from './AttendanceButton'
 import type { AttendanceCounts } from '../types'
 
-// Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
+// Mock AuthContext.
+// Return type widened so individual tests can override `user`/`isAuthenticated`
+// without TS narrowing from the default-null literal.
+type MockAuthContextValue = {
+  user: { id: string } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   isAuthenticated: false,
   user: null,
   isLoading: false,

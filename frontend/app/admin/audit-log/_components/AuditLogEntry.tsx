@@ -107,12 +107,14 @@ export function AuditLogEntry({ entry }: AuditLogEntryProps) {
         </div>
         {entry.metadata && Object.keys(entry.metadata).length > 0 && (
           <div className="mt-1.5 text-xs text-muted-foreground">
-            {entry.metadata.reason && (
+            {/* metadata fields are `unknown`; the `Boolean(...)` guards
+                keep the JSX expression's type narrowed to ReactNode. */}
+            {Boolean(entry.metadata.reason) && (
               <span>
                 Reason: {String(entry.metadata.reason)}
               </span>
             )}
-            {entry.metadata.notes && (
+            {Boolean(entry.metadata.notes) && (
               <span>
                 Notes: {String(entry.metadata.notes)}
               </span>

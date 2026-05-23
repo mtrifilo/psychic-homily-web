@@ -3,8 +3,16 @@ import { render, screen } from '@testing-library/react'
 import { HomeShowList } from './HomeShowList'
 import type { ShowResponse } from '../types'
 
-// Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
+// Mock AuthContext.
+// Return type widened so individual tests can override `user`/`isAuthenticated`
+// without TS narrowing from the default-null literal.
+type MockAuthContextValue = {
+  user: { id: string } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: null,
   isAuthenticated: false,
   isLoading: false,

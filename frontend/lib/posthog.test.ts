@@ -38,8 +38,9 @@ describe('posthog', () => {
   describe('initPostHog', () => {
     it('does not initialize when window is undefined (SSR)', async () => {
       const windowSpy = vi.spyOn(globalThis, 'window', 'get')
-      // Simulating SSR where window is undefined.
-      windowSpy.mockReturnValue(undefined)
+      // Simulating SSR where window is undefined. The TS cast is needed
+      // because the getter's declared return type is non-nullable.
+      windowSpy.mockReturnValue(undefined as unknown as Window & typeof globalThis)
 
       const { initPostHog } = await import('./posthog')
       initPostHog()
