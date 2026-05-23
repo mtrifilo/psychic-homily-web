@@ -67,7 +67,6 @@ type ServiceContainer struct {
 	Discord            *notification.DiscordService
 	Email              *notification.EmailService
 	NotificationFilter *notification.NotificationFilterService
-	MusicDiscovery     *pipeline.MusicDiscoveryService
 
 	// No-param services
 	Fetcher           *pipeline.FetcherService
@@ -199,7 +198,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Discord:            discord,
 		Email:              email,
 		NotificationFilter: notification.NewNotificationFilterService(database, email, cfg.JWT.SecretKey, cfg.Email.FrontendURL),
-		MusicDiscovery:     pipeline.NewMusicDiscoveryService(cfg),
 
 		// No-param services
 		Fetcher:           fetcher,

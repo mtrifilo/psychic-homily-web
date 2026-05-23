@@ -22,13 +22,12 @@ import (
 
 // ShowHandler handles show-related HTTP requests
 type ShowHandler struct {
-	showService           contracts.ShowServiceInterface
-	showStateService      contracts.ShowStateServiceInterface
-	showImportService     contracts.ShowImportServiceInterface
-	savedShowService      contracts.SavedShowServiceInterface
-	discordService        contracts.DiscordServiceInterface
-	musicDiscoveryService contracts.MusicDiscoveryServiceInterface
-	extractionService     contracts.ExtractionServiceInterface
+	showService       contracts.ShowServiceInterface
+	showStateService  contracts.ShowStateServiceInterface
+	showImportService contracts.ShowImportServiceInterface
+	savedShowService  contracts.SavedShowServiceInterface
+	discordService    contracts.DiscordServiceInterface
+	extractionService contracts.ExtractionServiceInterface
 	// revisionService records field-level edit history on the direct-save
 	// path (PSY-563). May be nil in tests; production wiring lives in
 	// routes/shows.go and admin/shows.go.
@@ -42,19 +41,17 @@ func NewShowHandler(
 	showImportService contracts.ShowImportServiceInterface,
 	savedShowService contracts.SavedShowServiceInterface,
 	discordService contracts.DiscordServiceInterface,
-	musicDiscoveryService contracts.MusicDiscoveryServiceInterface,
 	extractionService contracts.ExtractionServiceInterface,
 	revisionService contracts.RevisionServiceInterface,
 ) *ShowHandler {
 	return &ShowHandler{
-		showService:           showService,
-		showStateService:      showStateService,
-		showImportService:     showImportService,
-		savedShowService:      savedShowService,
-		discordService:        discordService,
-		musicDiscoveryService: musicDiscoveryService,
-		extractionService:     extractionService,
-		revisionService:       revisionService,
+		showService:       showService,
+		showStateService:  showStateService,
+		showImportService: showImportService,
+		savedShowService:  savedShowService,
+		discordService:    discordService,
+		extractionService: extractionService,
+		revisionService:   revisionService,
 	}
 }
 

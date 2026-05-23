@@ -19,7 +19,7 @@ import (
 // ============================================================================
 
 func testAdminShowHandler() *AdminShowHandler {
-	return NewAdminShowHandler(nil, nil, nil, nil, nil, nil, nil)
+	return NewAdminShowHandler(nil, nil, nil, nil, nil, nil)
 }
 
 func testAdminDiscoveryHandler() *pipeline.AdminDiscoveryHandler {
@@ -235,7 +235,6 @@ func adminShowHandler(opts ...func(*AdminShowHandler)) *AdminShowHandler {
 	h := &AdminShowHandler{
 		discordService:        &testhelpers.MockDiscordService{},
 		auditLogService:       &testhelpers.MockAuditLogService{},
-		musicDiscoveryService: &testhelpers.MockMusicDiscoveryService{},
 	}
 	for _, opt := range opts {
 		opt(h)

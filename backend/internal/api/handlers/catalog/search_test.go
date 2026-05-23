@@ -199,7 +199,7 @@ func TestSearchFestivals_ServiceError(t *testing.T) {
 // only touches showService. Mirrors the minimal setup used in
 // TestSearchReleases_* etc.
 func newShowHandlerWithSearchMock(mock *testhelpers.MockShowService) *ShowHandler {
-	return NewShowHandler(mock, nil, nil, nil, nil, nil, nil, nil)
+	return NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
 }
 
 func TestSearchShows_Success(t *testing.T) {

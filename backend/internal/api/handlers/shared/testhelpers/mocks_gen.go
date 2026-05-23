@@ -2034,27 +2034,6 @@ func (m *MockLeaderboardService) GetUserRank(userID uint, dimension string, peri
 }
 
 // ============================================================================
-// Mock: MusicDiscoveryServiceInterface
-// ============================================================================
-
-type MockMusicDiscoveryService struct {
-	IsConfiguredFn           func() bool
-	DiscoverMusicForArtistFn func(uint, string)
-}
-
-func (m *MockMusicDiscoveryService) IsConfigured() bool {
-	if m.IsConfiguredFn != nil {
-		return m.IsConfiguredFn()
-	}
-	return false
-}
-func (m *MockMusicDiscoveryService) DiscoverMusicForArtist(artistID uint, artistName string) {
-	if m.DiscoverMusicForArtistFn != nil {
-		m.DiscoverMusicForArtistFn(artistID, artistName)
-	}
-}
-
-// ============================================================================
 // Mock: NotificationFilterServiceInterface
 // ============================================================================
 
@@ -4048,7 +4027,6 @@ var _ contracts.FollowServiceInterface = (*MockFollowService)(nil)
 var _ contracts.JWTServiceInterface = (*MockJWTService)(nil)
 var _ contracts.LabelServiceInterface = (*MockLabelService)(nil)
 var _ contracts.LeaderboardServiceInterface = (*MockLeaderboardService)(nil)
-var _ contracts.MusicDiscoveryServiceInterface = (*MockMusicDiscoveryService)(nil)
 var _ contracts.NotificationFilterServiceInterface = (*MockNotificationFilterService)(nil)
 var _ contracts.PasswordValidatorInterface = (*MockPasswordValidator)(nil)
 var _ contracts.PendingEditServiceInterface = (*MockPendingEditService)(nil)
