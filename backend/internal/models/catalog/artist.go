@@ -2,6 +2,21 @@ package catalog
 
 import "time"
 
+// StreamingDiscoveryStatus tracks where each artist sits in the admin
+// worklist that walks artists missing music-platform links (spotify /
+// bandcamp / youtube / soundcloud). Values are CHECK-constrained at the DB
+// — keep this list in sync with the streaming_discovery_status column
+// constraint.
+type StreamingDiscoveryStatus string
+
+const (
+	StreamingDiscoveryStatusUnreviewed        StreamingDiscoveryStatus = "unreviewed"
+	StreamingDiscoveryStatusCandidatesPending StreamingDiscoveryStatus = "candidates_pending"
+	StreamingDiscoveryStatusLinked            StreamingDiscoveryStatus = "linked"
+	StreamingDiscoveryStatusNoLinksFound      StreamingDiscoveryStatus = "no_links_found"
+	StreamingDiscoveryStatusSkipped           StreamingDiscoveryStatus = "skipped"
+)
+
 type Artist struct {
 	ID               uint    `gorm:"primaryKey"`
 	Name             string  `gorm:"uniqueIndex"`
@@ -18,6 +33,11 @@ type Artist struct {
 	DataSource       *string    `json:"data_source,omitempty" gorm:"column:data_source;size:50"`
 	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`
 	LastVerifiedAt   *time.Time `json:"last_verified_at,omitempty" gorm:"column:last_verified_at"`
+
+	// Streaming-discovery review state — see StreamingDiscoveryStatus const block.
+	// Reason holds the admin's optional note on no_links_found / skipped outcomes.
+	StreamingDiscoveryStatus StreamingDiscoveryStatus `json:"streaming_discovery_status" gorm:"column:streaming_discovery_status;size:32;not null;default:unreviewed"`
+	StreamingDiscoveryReason *string                  `json:"streaming_discovery_reason,omitempty" gorm:"column:streaming_discovery_reason;type:text"`
 
 	CreatedAt time.Time `gorm:"not null"`
 	UpdatedAt time.Time `gorm:"not null"`
