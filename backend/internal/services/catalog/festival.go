@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -83,7 +84,7 @@ func (s *FestivalService) GetFestival(festivalID uint) (*contracts.FestivalDetai
 	var festival catalogm.Festival
 	err := s.db.First(&festival, festivalID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)
@@ -101,7 +102,7 @@ func (s *FestivalService) GetFestivalBySlug(slug string) (*contracts.FestivalDet
 	var festival catalogm.Festival
 	err := s.db.Where("slug = ?", slug).First(&festival).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)
@@ -320,7 +321,7 @@ func (s *FestivalService) UpdateFestival(festivalID uint, req *contracts.UpdateF
 	var festival catalogm.Festival
 	err := s.db.First(&festival, festivalID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)
@@ -402,7 +403,7 @@ func (s *FestivalService) DeleteFestival(festivalID uint) error {
 	var festival catalogm.Festival
 	err := s.db.First(&festival, festivalID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrFestivalNotFound(festivalID)
 		}
 		return fmt.Errorf("failed to get festival: %w", err)
@@ -426,7 +427,7 @@ func (s *FestivalService) GetFestivalArtists(festivalID uint, dayDate *string) (
 	// Verify festival exists
 	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)
@@ -511,7 +512,7 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 	// Verify festival exists
 	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)
@@ -520,7 +521,7 @@ func (s *FestivalService) AddFestivalArtist(festivalID uint, req *contracts.AddF
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, req.ArtistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalArtistNotFound()
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -575,7 +576,7 @@ func (s *FestivalService) UpdateFestivalArtist(festivalID, artistID uint, req *c
 	var fa catalogm.FestivalArtist
 	err := s.db.Where("festival_id = ? AND artist_id = ?", festivalID, artistID).First(&fa).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalArtistNotInLineup()
 		}
 		return nil, fmt.Errorf("failed to get festival artist: %w", err)
@@ -659,7 +660,7 @@ func (s *FestivalService) GetFestivalVenues(festivalID uint) ([]*contracts.Festi
 	// Verify festival exists
 	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)
@@ -722,7 +723,7 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 	// Verify festival exists
 	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalNotFound(festivalID)
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)
@@ -731,7 +732,7 @@ func (s *FestivalService) AddFestivalVenue(festivalID uint, req *contracts.AddFe
 	// Verify venue exists
 	var venue catalogm.Venue
 	if err := s.db.First(&venue, req.VenueID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalVenueNotFound()
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
@@ -789,7 +790,7 @@ func (s *FestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts.Art
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)

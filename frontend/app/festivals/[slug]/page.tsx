@@ -1,31 +1,26 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { FestivalDetail } from '@/features/festivals/components'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
+import type { FestivalDetail as FestivalDetailData } from '@/features/festivals/types'
+import { API_BASE_URL } from '@/lib/api-base'
+import { queryKeys } from '@/lib/queryClient'
+import { prefetchEntity } from '@/lib/query-hydration'
 
 interface FestivalPageProps {
   params: Promise<{ slug: string }>
 }
 
-interface FestivalData {
-  name: string
-  slug?: string
-  city?: string | null
-  state?: string | null
-  start_date?: string
-  end_date?: string
-  status?: string
-}
-
-async function getFestival(slug: string): Promise<FestivalData | null> {
+/**
+ * Wrapped with `React.cache()` so `generateMetadata` and the page body
+ * share ONE backend fetch per request instead of two. The result also
+ * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
+ * the client-side refetch on first paint.
+ */
+const getFestival = cache(async (slug: string): Promise<FestivalDetailData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/festivals/${slug}`, {
       next: { revalidate: 3600 },
@@ -48,7 +43,7 @@ async function getFestival(slug: string): Promise<FestivalData | null> {
     })
   }
   return null
-}
+})
 
 export async function generateMetadata({
   params,
@@ -101,9 +96,16 @@ export default async function FestivalPage({ params }: FestivalPageProps) {
     notFound()
   }
 
+  const dehydratedState = await prefetchEntity(
+    queryKeys.festivals.detail(slug),
+    festivalData,
+  )
+
   return (
-    <Suspense fallback={<FestivalLoadingFallback />}>
-      <FestivalDetail idOrSlug={slug} />
-    </Suspense>
+    <HydrationBoundary state={dehydratedState}>
+      <Suspense fallback={<FestivalLoadingFallback />}>
+        <FestivalDetail idOrSlug={slug} />
+      </Suspense>
+    </HydrationBoundary>
   )
 }

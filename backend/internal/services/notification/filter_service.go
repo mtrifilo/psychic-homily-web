@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -111,7 +112,7 @@ func (s *NotificationFilterService) UpdateFilter(userID uint, filterID uint, inp
 
 	var filter notificationm.NotificationFilter
 	if err := s.db.Where("id = ? AND user_id = ?", filterID, userID).First(&filter).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFilterNotFound()
 		}
 		return nil, apperrors.ErrFilterInternal(fmt.Errorf("failed to get filter: %w", err))
@@ -204,7 +205,7 @@ func (s *NotificationFilterService) GetFilter(userID uint, filterID uint) (*noti
 
 	var filter notificationm.NotificationFilter
 	if err := s.db.Where("id = ? AND user_id = ?", filterID, userID).First(&filter).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("filter not found")
 		}
 		return nil, fmt.Errorf("failed to get filter: %w", err)

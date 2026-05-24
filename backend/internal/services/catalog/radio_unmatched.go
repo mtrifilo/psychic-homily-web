@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -350,7 +351,7 @@ func (s *RadioService) SyncAffinityToRelationships() (*contracts.SyncAffinityRes
 			First(&existing).Error
 
 		switch {
-		case err == gorm.ErrRecordNotFound:
+		case errors.Is(err, gorm.ErrRecordNotFound):
 			rel := &catalogm.ArtistRelationship{
 				SourceArtistID:   aff.ArtistAID,
 				TargetArtistID:   aff.ArtistBID,

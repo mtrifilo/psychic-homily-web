@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -115,7 +116,7 @@ func (s *CalendarService) GetTokenStatus(userID uint) (*contracts.CalendarTokenS
 	var token engagementm.CalendarToken
 	err := s.db.Where("user_id = ?", userID).First(&token).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return &contracts.CalendarTokenStatusResponse{HasToken: false}, nil
 		}
 		return nil, fmt.Errorf("failed to check token status: %w", err)
@@ -154,7 +155,7 @@ func (s *CalendarService) ValidateCalendarToken(plainToken string) (*authm.User,
 	var token engagementm.CalendarToken
 	err := s.db.Preload("User").Where("token_hash = ?", tokenHash).First(&token).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("invalid calendar token")
 		}
 		return nil, fmt.Errorf("failed to validate token: %w", err)

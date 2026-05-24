@@ -233,8 +233,8 @@ func TestExportShowsHandler_InvalidDate(t *testing.T) {
 
 func adminShowHandler(opts ...func(*AdminShowHandler)) *AdminShowHandler {
 	h := &AdminShowHandler{
-		discordService:        &testhelpers.MockDiscordService{},
-		auditLogService:       &testhelpers.MockAuditLogService{},
+		discordService:  &testhelpers.MockDiscordService{},
+		auditLogService: &testhelpers.MockAuditLogService{},
 	}
 	for _, opt := range opts {
 		opt(h)

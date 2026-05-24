@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"bytes"
 	"encoding/base64"
+	"errors"
 	"fmt"
 	"hash/fnv"
 	"log"
@@ -272,7 +273,7 @@ func (s *ShowService) GetShow(showID uint) (*contracts.ShowResponse, error) {
 	var show catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to get show: %w", err)
@@ -290,7 +291,7 @@ func (s *ShowService) GetShowBySlug(slug string) (*contracts.ShowResponse, error
 	var show catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").Where("slug = ?", slug).First(&show).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrShowNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get show: %w", err)
@@ -526,7 +527,7 @@ func (s *ShowService) UpdateShowWithRelations(
 func (s *ShowService) updateShowFields(tx *gorm.DB, showID uint, updates map[string]interface{}) (*catalogm.Show, error) {
 	var show catalogm.Show
 	if err := tx.First(&show, showID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to find show: %w", err)
@@ -1287,7 +1288,7 @@ func (s *ShowService) ApproveShow(showID uint, verifyVenues bool) (*contracts.Sh
 		// Get the show
 		var show catalogm.Show
 		if err := tx.Preload("Venues").First(&show, showID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
@@ -1345,7 +1346,7 @@ func (s *ShowService) RejectShow(showID uint, reason string) (*contracts.ShowRes
 		// Get the show
 		var show catalogm.Show
 		if err := tx.First(&show, showID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
@@ -1443,7 +1444,7 @@ func (s *ShowService) UnpublishShow(showID uint, userID uint, isAdmin bool) (*co
 		// Get the show
 		var show catalogm.Show
 		if err := tx.First(&show, showID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
@@ -1494,7 +1495,7 @@ func (s *ShowService) MakePrivateShow(showID uint, userID uint, isAdmin bool) (*
 		// Get the show
 		var show catalogm.Show
 		if err := tx.First(&show, showID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
@@ -1547,7 +1548,7 @@ func (s *ShowService) PublishShow(showID uint, userID uint, isAdmin bool) (*cont
 		// Get the show with venues preloaded
 		var show catalogm.Show
 		if err := tx.Preload("Venues").First(&show, showID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return apperrors.ErrShowNotFound(showID)
 			}
 			return fmt.Errorf("failed to get show: %w", err)
@@ -1604,7 +1605,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 		if requestVenue.ID != nil {
 			var venueModel catalogm.Venue
 			err = tx.First(&venueModel, *requestVenue.ID).Error
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, fmt.Errorf("venue with ID %d not found", *requestVenue.ID)
 			} else if err != nil {
 				return nil, fmt.Errorf("failed to find venue with ID %d: %w", *requestVenue.ID, err)
@@ -1679,7 +1680,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 		// If ID is provided, try to find existing artist by ID
 		if requestArtist.ID != nil {
 			err = tx.First(&artist, *requestArtist.ID).Error
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, fmt.Errorf("artist with ID %d not found", *requestArtist.ID)
 			} else if err != nil {
 				return nil, fmt.Errorf("failed to find artist with ID %d: %w", *requestArtist.ID, err)
@@ -1691,7 +1692,7 @@ func (s *ShowService) associateArtists(tx *gorm.DB, showID uint, requestArtists 
 			}
 
 			err = tx.Where("LOWER(name) = LOWER(?)", requestArtist.Name).First(&artist).Error
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				// Create new artist
 				artist = catalogm.Artist{
 					Name: requestArtist.Name,
@@ -1918,7 +1919,7 @@ func (s *ShowService) ExportShowToMarkdown(showID uint) ([]byte, string, error) 
 	var show catalogm.Show
 	err := s.db.Preload("Venues").Preload("Artists").First(&show, showID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, "", apperrors.ErrShowNotFound(showID)
 		}
 		return nil, "", fmt.Errorf("failed to get show: %w", err)
@@ -2192,7 +2193,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 		if err == nil {
 			result.ExistingID = &venue.ID
 			result.WillCreate = false
-		} else if err == gorm.ErrRecordNotFound {
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
 			result.WillCreate = true
 		} else {
 			return nil, fmt.Errorf("failed to check venue: %w", err)
@@ -2216,7 +2217,7 @@ func (s *ShowService) PreviewShowImport(content []byte) (*contracts.ImportPrevie
 		if err == nil {
 			result.ExistingID = &artist.ID
 			result.WillCreate = false
-		} else if err == gorm.ErrRecordNotFound {
+		} else if errors.Is(err, gorm.ErrRecordNotFound) {
 			result.WillCreate = true
 		} else {
 			return nil, fmt.Errorf("failed to check artist: %w", err)
@@ -2409,7 +2410,7 @@ func (s *ShowService) SetShowSoldOut(showID uint, isSoldOut bool) (*contracts.Sh
 
 	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to find show: %w", err)
@@ -2430,7 +2431,7 @@ func (s *ShowService) SetShowCancelled(showID uint, isCancelled bool) (*contract
 
 	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to find show: %w", err)

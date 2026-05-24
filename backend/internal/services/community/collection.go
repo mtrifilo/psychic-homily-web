@@ -3,6 +3,7 @@ package community
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strconv"
@@ -124,7 +125,7 @@ func (s *CollectionService) loadUserForLimitCheck(userID uint) (*authm.User, err
 		Where("id = ?", userID).
 		First(&u).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to load user for limit check: %w", err)
@@ -337,7 +338,7 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 	// Load source.
 	var src communitym.Collection
 	if err := s.db.Where("slug = ?", srcSlug).First(&src).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(srcSlug)
 		}
 		return nil, fmt.Errorf("failed to load source collection: %w", err)
@@ -439,7 +440,7 @@ func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.Co
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
@@ -787,12 +788,12 @@ func applyCollectionSort(query *gorm.DB, sort string) *gorm.DB {
 // applyCollectionSearchWhere appends the PSY-355 expanded-search OR clause
 // to the query, matching across:
 //
-//	1. collections.title           (exact field on the row)
-//	2. collections.description     (raw markdown source on the row)
-//	3. any item's notes            (correlated EXISTS over collection_items)
-//	4. any applied tag name/alias  (correlated EXISTS over entity_tags +
-//	                               tags + tag_aliases for the polymorphic
-//	                               collection entity)
+//  1. collections.title           (exact field on the row)
+//  2. collections.description     (raw markdown source on the row)
+//  3. any item's notes            (correlated EXISTS over collection_items)
+//  4. any applied tag name/alias  (correlated EXISTS over entity_tags +
+//     tags + tag_aliases for the polymorphic
+//     collection entity)
 //
 // Caller is responsible for trimming whitespace and short-circuiting the
 // empty case BEFORE invoking this helper — passing an empty searchTerm
@@ -871,7 +872,7 @@ func (s *CollectionService) UpdateCollection(slug string, userID uint, isAdmin b
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
@@ -944,7 +945,7 @@ func (s *CollectionService) DeleteCollection(slug string, userID uint, isAdmin b
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
@@ -972,7 +973,7 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
@@ -1055,7 +1056,7 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
@@ -1064,7 +1065,7 @@ func (s *CollectionService) UpdateItem(slug string, itemID uint, userID uint, is
 	var item communitym.CollectionItem
 	err = s.db.Where("id = ? AND collection_id = ?", itemID, collection.ID).First(&item).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionItemNotFound(itemID)
 		}
 		return nil, fmt.Errorf("failed to get collection item: %w", err)
@@ -1117,7 +1118,7 @@ func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, is
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
@@ -1126,7 +1127,7 @@ func (s *CollectionService) RemoveItem(slug string, itemID uint, userID uint, is
 	var item communitym.CollectionItem
 	err = s.db.Where("id = ? AND collection_id = ?", itemID, collection.ID).First(&item).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionItemNotFound(itemID)
 		}
 		return fmt.Errorf("failed to get collection item: %w", err)
@@ -1153,7 +1154,7 @@ func (s *CollectionService) ReorderItems(slug string, userID uint, req *contract
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
@@ -1187,7 +1188,7 @@ func (s *CollectionService) Subscribe(slug string, userID uint) error {
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
@@ -1226,7 +1227,7 @@ func (s *CollectionService) Unsubscribe(slug string, userID uint) error {
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
@@ -1257,7 +1258,7 @@ func (s *CollectionService) Like(slug string, userID uint) (*contracts.Collectio
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
@@ -1291,7 +1292,7 @@ func (s *CollectionService) Unlike(slug string, userID uint) (*contracts.Collect
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
@@ -1343,7 +1344,7 @@ func (s *CollectionService) MarkVisited(slug string, userID uint) error {
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
@@ -1369,7 +1370,7 @@ func (s *CollectionService) GetStats(slug string) (*contracts.CollectionStatsRes
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
@@ -1790,7 +1791,7 @@ func (s *CollectionService) SetFeatured(slug string, featured bool) error {
 	var collection communitym.Collection
 	err := s.db.Where("slug = ?", slug).First(&collection).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
@@ -2331,7 +2332,7 @@ func (s *CollectionService) AddTagToCollection(slug string, userID uint, req *co
 
 	var collection communitym.Collection
 	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)
@@ -2386,7 +2387,7 @@ func (s *CollectionService) RemoveTagFromCollection(slug string, tagID uint, use
 
 	var collection communitym.Collection
 	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCollectionNotFound(slug)
 		}
 		return fmt.Errorf("failed to get collection: %w", err)
@@ -2628,7 +2629,7 @@ func (s *CollectionService) GetCollectionGraph(slug string, viewerID uint, types
 
 	var collection communitym.Collection
 	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrCollectionNotFound(slug)
 		}
 		return nil, fmt.Errorf("failed to get collection: %w", err)

@@ -8,9 +8,10 @@ import (
 	"testing"
 	"time"
 
+	catalogm "psychic-homily-backend/internal/models/catalog"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	catalogm "psychic-homily-backend/internal/models/catalog"
 )
 
 // =============================================================================

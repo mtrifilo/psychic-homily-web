@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -87,7 +88,7 @@ func (s *RadioService) GetStation(stationID uint) (*contracts.RadioStationDetail
 	var station catalogm.RadioStation
 	err := s.db.Preload("Network").First(&station, stationID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
 		}
 		return nil, fmt.Errorf("failed to get radio station: %w", err)
@@ -105,7 +106,7 @@ func (s *RadioService) GetStationBySlug(slug string) (*contracts.RadioStationDet
 	var station catalogm.RadioStation
 	err := s.db.Preload("Network").Where("slug = ?", slug).First(&station).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioStationNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get radio station: %w", err)
@@ -225,7 +226,7 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 
 	var station catalogm.RadioStation
 	if err := s.db.First(&station, stationID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
 		}
 		return nil, fmt.Errorf("failed to get radio station: %w", err)
@@ -328,7 +329,7 @@ func (s *RadioService) CreateShow(stationID uint, req *contracts.CreateRadioShow
 	// Verify station exists
 	var station catalogm.RadioStation
 	if err := s.db.First(&station, stationID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioStationNotFound(stationID)
 		}
 		return nil, fmt.Errorf("failed to get radio station: %w", err)
@@ -374,7 +375,7 @@ func (s *RadioService) GetShow(showID uint) (*contracts.RadioShowDetailResponse,
 	var show catalogm.RadioShow
 	err := s.db.Preload("Station").First(&show, showID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to get radio show: %w", err)
@@ -392,7 +393,7 @@ func (s *RadioService) GetShowBySlug(slug string) (*contracts.RadioShowDetailRes
 	var show catalogm.RadioShow
 	err := s.db.Preload("Station").Where("slug = ?", slug).First(&show).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioShowNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get radio show: %w", err)
@@ -467,7 +468,7 @@ func (s *RadioService) UpdateShow(showID uint, req *contracts.UpdateRadioShowReq
 
 	var show catalogm.RadioShow
 	if err := s.db.First(&show, showID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioShowNotFound(showID)
 		}
 		return nil, fmt.Errorf("failed to get radio show: %w", err)
@@ -579,7 +580,7 @@ func (s *RadioService) GetEpisodeByShowAndDate(showID uint, airDate string) (*co
 		Where("show_id = ? AND air_date = ?", showID, airDate).
 		First(&episode).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioEpisodeNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get episode: %w", err)
@@ -597,7 +598,7 @@ func (s *RadioService) GetEpisodeDetail(episodeID uint) (*contracts.RadioEpisode
 	var episode catalogm.RadioEpisode
 	err := s.db.Preload("Show.Station").First(&episode, episodeID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRadioEpisodeNotFound(episodeID)
 		}
 		return nil, fmt.Errorf("failed to get episode: %w", err)

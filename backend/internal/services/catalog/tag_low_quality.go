@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -242,7 +243,7 @@ func (s *TagService) SnoozeLowQualityTag(tagID uint, actorUserID uint) error {
 
 	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrTagNotFound(tagID)
 		}
 		return fmt.Errorf("failed to get tag: %w", err)

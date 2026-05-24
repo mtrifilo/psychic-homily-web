@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import localFont from 'next/font/local'
 import { Space_Mono } from 'next/font/google'
+import { Suspense } from 'react'
 import './globals.css'
 
 /* PSY-647 editorial type system — Fontshare (ITF License, self-hosted) + Google Fonts.
@@ -41,6 +42,7 @@ import {
   CookieConsentBanner,
   PostHogProvider,
   SidebarLayout,
+  AuthHydrator,
 } from '@/components/layout'
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
 import { JsonLd } from '@/components/seo/JsonLd'
@@ -107,10 +109,14 @@ export default function RootLayout({
           >
             <CookieConsentProvider>
               <PostHogProvider>
-                <SidebarLayout>
-                  <main className="flex-1">{children}</main>
-                  <Footer />
-                </SidebarLayout>
+                <Suspense fallback={null}>
+                  <AuthHydrator>
+                    <SidebarLayout>
+                      <main className="flex-1">{children}</main>
+                      <Footer />
+                    </SidebarLayout>
+                  </AuthHydrator>
+                </Suspense>
                 <CookieConsentBanner />
                 <Analytics />
                 <SpeedInsights />

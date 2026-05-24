@@ -1,55 +1,28 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { ShowDetail } from '@/features/shows'
+import type { ShowResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
+import { API_BASE_URL } from '@/lib/api-base'
+import { queryKeys } from '@/lib/queryClient'
+import { prefetchEntity } from '@/lib/query-hydration'
 
 interface ShowPageProps {
   params: Promise<{ slug: string }>
 }
 
-interface ShowData {
-  title?: string
-  event_date: string
-  slug?: string
-  description?: string | null
-  price?: number
-  is_sold_out: boolean
-  is_cancelled: boolean
-  venues: Array<{
-    name: string
-    slug: string
-    address?: string | null
-    city: string
-    state: string
-  }>
-  artists: Array<{
-    name: string
-    slug: string
-    is_headliner?: boolean | null
-    socials: {
-      instagram?: string | null
-      facebook?: string | null
-      twitter?: string | null
-      youtube?: string | null
-      spotify?: string | null
-      soundcloud?: string | null
-      bandcamp?: string | null
-      website?: string | null
-    }
-  }>
-}
-
-async function getShow(slug: string): Promise<ShowData | null> {
+/**
+ * Wrapped with `React.cache()` so `generateMetadata` and the page body
+ * share ONE backend fetch per request instead of two. The result also
+ * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
+ * the client-side refetch on first paint.
+ */
+const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/shows/${slug}`, {
       next: { revalidate: 3600 },
@@ -73,7 +46,7 @@ async function getShow(slug: string): Promise<ShowData | null> {
     })
   }
   return null
-}
+})
 
 function formatShowDate(dateString: string): string {
   const date = new Date(dateString)
@@ -141,6 +114,11 @@ export default async function ShowPage({ params }: ShowPageProps) {
     notFound()
   }
 
+  const dehydratedState = await prefetchEntity(
+    queryKeys.shows.detail(slug),
+    showData,
+  )
+
   const headliner = showData.artists?.find(a => a.is_headliner)?.name || showData.artists?.[0]?.name || 'Live Music'
   const showName = showData.title || `${headliner} at ${showData.venues?.[0]?.name || 'TBA'}`
 
@@ -163,9 +141,12 @@ export default async function ShowPage({ params }: ShowPageProps) {
           name: a.name,
           slug: a.slug,
           is_headliner: a.is_headliner ?? undefined,
-          socials: a.socials,
+          // `ShowArtistSocials` is a struct of named optional fields; spread into a
+          // plain object so it satisfies the schema helper's index-signature parameter
+          // type without changing the cross-feature type.
+          socials: { ...a.socials },
         })),
-        price: showData.price,
+        price: showData.price ?? undefined,
         slug: showData.slug,
       })} />
       <JsonLd data={generateBreadcrumbSchema([
@@ -173,9 +154,11 @@ export default async function ShowPage({ params }: ShowPageProps) {
         { name: 'Shows', url: 'https://psychichomily.com/shows' },
         { name: showName, url: `https://psychichomily.com/shows/${slug}` },
       ])} />
-      <Suspense fallback={<ShowLoadingFallback />}>
-        <ShowDetail showId={slug} />
-      </Suspense>
+      <HydrationBoundary state={dehydratedState}>
+        <Suspense fallback={<ShowLoadingFallback />}>
+          <ShowDetail showId={slug} />
+        </Suspense>
+      </HydrationBoundary>
     </>
   )
 }

@@ -107,8 +107,8 @@ func TestMapCollectionError_LimitExceededCarriesStructuredDetail(t *testing.T) {
 		t.Errorf("limit-exceeded status = %d, want 403", s)
 	}
 
-	model, ok := got.(*huma.ErrorModel)
-	if !ok {
+	var model *huma.ErrorModel
+	if !stderrors.As(got, &model) {
 		t.Fatalf("expected *huma.ErrorModel, got %T", got)
 	}
 	if len(model.Errors) != 1 {

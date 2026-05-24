@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -318,7 +319,7 @@ func (v *testVenueFinderCreator) FindOrCreateVenue(name, city, state string, add
 			query.Model(&venue).Update("slug", slug)
 		}
 		return &venue, false, nil
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, false, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
