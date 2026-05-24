@@ -946,8 +946,8 @@ interface RequestAccountRecoveryRequest {
   email: string
 }
 
-// RequestAccountRecoveryResponse — PSY-774 enumeration-safe. The backend
-// no longer returns `has_password` or `days_remaining`: those fields leaked
+// RequestAccountRecoveryResponse — enumeration-safe. The backend never
+// returns `has_password` or `days_remaining` here: those fields would leak
 // account state pre-token-confirmation. Treat the response as a single
 // generic "if eligible, sent" acknowledgement.
 interface RequestAccountRecoveryResponse {
@@ -1048,7 +1048,7 @@ export const useRequestAccountRecovery = () => {
         }
       )
 
-      // PSY-774: response is enumeration-safe — the body is the same generic
+      // Response is enumeration-safe — the body is the same generic
       // "if eligible, sent" acknowledgement regardless of account state.
       return response
     },

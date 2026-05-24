@@ -1297,12 +1297,11 @@ type RequestAccountRecoveryRequest struct {
 	}
 }
 
-// RequestAccountRecoveryResponse represents the response for requesting recovery.
-//
-// PSY-774: enumeration-safe. The body is identical regardless of whether the
-// email is unregistered, registered-active, registered-recoverable, or
-// registered-expired. Fields like HasPassword and DaysRemaining were removed
-// because they leaked account state pre-token-confirmation.
+// RequestAccountRecoveryResponse is the enumeration-safe response for a
+// recovery request. The body is identical regardless of whether the email
+// is unregistered, registered-active, registered-recoverable, or
+// registered-expired — distinguishing any of those would let the endpoint
+// be used as an account-existence/recoverability oracle.
 type RequestAccountRecoveryResponse struct {
 	Body struct {
 		Success   bool   `json:"success" example:"true" doc:"Success status. Always true for any well-formed request — the response never reveals whether the email is registered or in a recoverable state."`
@@ -1373,13 +1372,13 @@ func (h *AuthHandler) ExportDataHandler(ctx context.Context, input *struct{}) (*
 	return resp, nil
 }
 
-// RecoverAccountHandler handles password-based account recovery
-// for users who have a password set and remember it.
+// RecoverAccountHandler handles password-based account recovery for users
+// who have a password set and remember it.
 //
-// PSY-774: enumeration-safe. The pre-success failure response is the same
-// "Invalid credentials" body whether the email is unknown, the account is
-// active, the recovery window has expired, the account has no password, or
-// the password is wrong. Per-state detail surfaces only in server logs;
+// Enumeration-safe: the pre-success failure response is the same "Invalid
+// credentials" body whether the email is unknown, the account is active,
+// the recovery window has expired, the account has no password, or the
+// password is wrong. Per-state detail surfaces only in server logs;
 // otherwise the endpoint becomes an account-state oracle.
 func (h *AuthHandler) RecoverAccountHandler(ctx context.Context, input *RecoverAccountRequest) (*RecoverAccountResponse, error) {
 	resp := &RecoverAccountResponse{}
@@ -1506,13 +1505,13 @@ func (h *AuthHandler) RecoverAccountHandler(ctx context.Context, input *RecoverA
 // RequestAccountRecoveryHandler handles requests to send a recovery email
 // for soft-deleted accounts.
 //
-// PSY-774: enumeration-safe. The response body is byte-identical regardless
-// of whether the email is unknown, registered-active, registered-recoverable,
+// Enumeration-safe: the response body is byte-identical regardless of
+// whether the email is unknown, registered-active, registered-recoverable,
 // or registered-expired. Any per-user-state branch (lookup failure, account
-// state, token/send failure for a known account) must surface only in server
-// logs, or the response becomes an account-existence/recoverability oracle.
-// Only pre-lookup validation and email-service-config errors still set an
-// ErrorCode — those fire for any caller.
+// state, token/send failure for a known account) must surface only in
+// server logs, or the response becomes an account-existence/recoverability
+// oracle. Only pre-lookup validation and email-service-config errors still
+// set an ErrorCode — those fire for any caller.
 func (h *AuthHandler) RequestAccountRecoveryHandler(ctx context.Context, input *RequestAccountRecoveryRequest) (*RequestAccountRecoveryResponse, error) {
 	resp := &RequestAccountRecoveryResponse{}
 	requestID := logger.GetRequestID(ctx)

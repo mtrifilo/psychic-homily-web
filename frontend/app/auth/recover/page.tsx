@@ -104,9 +104,10 @@ function EmailForm({ onSubmit, isLoading }: {
   )
 }
 
-// Recovery email sent confirmation. PSY-774: shown for every well-formed
-// email submission — the response is generic, so the UI is too. Recovery
-// detail (days remaining, eligibility) moves behind token confirmation.
+// Recovery email sent confirmation. Shown for every well-formed email
+// submission — the backend response is enumeration-safe (generic), so the
+// UI is too. Recovery detail (days remaining, eligibility) is surfaced
+// only after the user proves email ownership via the recovery link.
 function RecoveryEmailSent({ email, onBack }: {
   email: string
   onBack: () => void
@@ -212,9 +213,9 @@ function RecoverAccountPageContent() {
     }
   }, [isAuthenticated, isLoading, router, token])
 
-  // Handle email submission. PSY-774: the response is enumeration-safe, so
-  // we always show the same "sent" confirmation on a successful API call —
-  // the backend logs per-state detail; the UI never branches on it.
+  // The backend response is enumeration-safe, so we always show the same
+  // "sent" confirmation on a successful API call — per-state detail surfaces
+  // only in server logs and the UI never branches on it.
   const handleEmailSubmit = async (submittedEmail: string) => {
     setError(null)
     setEmail(submittedEmail)
@@ -222,8 +223,8 @@ function RecoverAccountPageContent() {
     requestRecoveryMutation.mutate({ email: submittedEmail }, {
       onSuccess: data => {
         if (!data.success && data.error_code) {
-          // Only pre-lookup errors (validation, email-service-config) set
-          // an error code post-PSY-774; surface them verbatim.
+          // Only pre-lookup errors (validation, email-service-config) still
+          // set an error code; surface them verbatim.
           setError(data.message)
           return
         }
