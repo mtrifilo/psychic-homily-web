@@ -233,9 +233,14 @@ async function loginAs(
   await page.locator('#password').fill(password)
   await page.getByRole('button', { name: 'Sign in', exact: true }).click()
 
-  // Wait for redirect away from /auth (successful login)
+  // Wait for redirect away from /auth (successful login).
+  // CI dev-mode timing window: Turbopack cold-compiles the post-login
+  // destination route AND the root layout now awaits `prefetchAuthProfile`
+  // (PSY-834). Combined wall time has been observed at ~11s in CI runners
+  // for a fresh worker (passes immediately when the dev server is warm,
+  // including local). 30s gives headroom without masking a real regression.
   await page.waitForURL((url) => !url.pathname.startsWith('/auth'), {
-    timeout: 15_000,
+    timeout: 30_000,
   })
 }
 
