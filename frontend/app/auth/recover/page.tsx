@@ -5,8 +5,8 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
-import { AlertCircle, Loader2, Mail, Lock, Eye, EyeOff, CheckCircle2, RefreshCw, ArrowLeft } from 'lucide-react'
-import { useRecoverAccount, useRequestAccountRecovery, useConfirmAccountRecovery } from '@/features/auth'
+import { AlertCircle, Loader2, Mail, CheckCircle2, RefreshCw, ArrowLeft } from 'lucide-react'
+import { useRequestAccountRecovery, useConfirmAccountRecovery } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 import { Button } from '@/components/ui/button'
@@ -21,18 +21,12 @@ import {
   CardTitle,
 } from '@/components/ui/card'
 
-// Validation schemas
+// Validation schema
 const emailSchema = z.object({
   email: z.string().email('Please enter a valid email address'),
 })
 
-const passwordRecoverySchema = z.object({
-  email: z.string().email('Please enter a valid email address'),
-  password: z.string().min(1, 'Password is required'),
-})
-
 type EmailFormData = z.infer<typeof emailSchema>
-type PasswordRecoveryFormData = z.infer<typeof passwordRecoverySchema>
 
 // Step 1: Email entry form
 function EmailForm({ onSubmit, isLoading }: {
@@ -98,10 +92,10 @@ function EmailForm({ onSubmit, isLoading }: {
             {isSubmitting || isLoading ? (
               <>
                 <Loader2 className="h-4 w-4 animate-spin" />
-                Checking...
+                Sending...
               </>
             ) : (
-              'Continue'
+              'Send Recovery Email'
             )}
           </Button>
         )}
@@ -110,169 +104,18 @@ function EmailForm({ onSubmit, isLoading }: {
   )
 }
 
-// Step 2: Password recovery form (for users with passwords)
-function PasswordRecoveryForm({
-  email,
-  daysRemaining,
-  onBack
-}: {
+// Recovery email sent confirmation. PSY-774: shown for every well-formed
+// email submission — the response is generic, so the UI is too. Recovery
+// detail (days remaining, eligibility) moves behind token confirmation.
+function RecoveryEmailSent({ email, onBack }: {
   email: string
-  daysRemaining: number
-  onBack: () => void
-}) {
-  const router = useRouter()
-  const recoverMutation = useRecoverAccount()
-  const { setUser } = useAuthContext()
-  const [showPassword, setShowPassword] = useState(false)
-
-  const form = useForm({
-    defaultValues: {
-      email,
-      password: '',
-    } as PasswordRecoveryFormData,
-    onSubmit: async ({ value }) => {
-      recoverMutation.mutate(value, {
-        onSuccess: data => {
-          if (data.user) {
-            setUser({
-              id: data.user.id,
-              email: data.user.email,
-              first_name: data.user.first_name,
-              last_name: data.user.last_name,
-              email_verified: false,
-            })
-          }
-          router.push('/')
-        },
-      })
-    },
-    validators: {
-      onSubmit: passwordRecoverySchema,
-    },
-  })
-
-  return (
-    <div className="space-y-4">
-      <div className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-        <p>Your account is scheduled for deletion. You have <strong>{daysRemaining} days</strong> to recover it.</p>
-      </div>
-
-      <form
-        onSubmit={e => {
-          e.preventDefault()
-          e.stopPropagation()
-          form.handleSubmit()
-        }}
-        className="space-y-4"
-      >
-        {recoverMutation.error && (
-          <Alert variant="destructive">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>{recoverMutation.error.message}</AlertDescription>
-          </Alert>
-        )}
-
-        <div className="space-y-2">
-          <Label>Email</Label>
-          <div className="relative">
-            <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="email"
-              value={email}
-              disabled
-              className="pl-10 bg-muted"
-            />
-          </div>
-        </div>
-
-        <form.Field name="password">
-          {field => (
-            <div className="space-y-2">
-              <Label htmlFor={field.name}>Password</Label>
-              <div className="relative">
-                <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id={field.name}
-                  name={field.name}
-                  type={showPassword ? 'text' : 'password'}
-                  placeholder="Enter your password"
-                  value={field.state.value}
-                  onBlur={field.handleBlur}
-                  onChange={e => field.handleChange(e.target.value)}
-                  className="pl-10 pr-10"
-                  aria-invalid={field.state.meta.errors.length > 0}
-                  autoFocus
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 rounded-sm"
-                  aria-label={showPassword ? 'Hide password' : 'Show password'}
-                  aria-pressed={showPassword}
-                >
-                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                </button>
-              </div>
-              {field.state.meta.errors.length > 0 && (
-                <p role="alert" className="text-sm text-destructive">
-                  {getUniqueErrors(field.state.meta.errors)}
-                </p>
-              )}
-            </div>
-          )}
-        </form.Field>
-
-        <form.Subscribe selector={state => [state.canSubmit, state.isSubmitting]}>
-          {([canSubmit, isSubmitting]) => (
-            <Button
-              type="submit"
-              className="w-full"
-              disabled={!canSubmit || isSubmitting || recoverMutation.isPending}
-            >
-              {isSubmitting || recoverMutation.isPending ? (
-                <>
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                  Recovering account...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="h-4 w-4" />
-                  Recover Account
-                </>
-              )}
-            </Button>
-          )}
-        </form.Subscribe>
-
-        <Button
-          type="button"
-          variant="ghost"
-          className="w-full"
-          onClick={onBack}
-        >
-          <ArrowLeft className="h-4 w-4" />
-          Use a different email
-        </Button>
-      </form>
-    </div>
-  )
-}
-
-// Magic link sent confirmation
-function MagicLinkSent({ email, daysRemaining, onBack }: {
-  email: string
-  daysRemaining: number
   onBack: () => void
 }) {
   return (
     <div className="space-y-4">
       <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
         <CheckCircle2 className="h-4 w-4 shrink-0" />
-        <span>Recovery email sent to <strong>{email}</strong></span>
-      </div>
-
-      <div className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
-        <p>You have <strong>{daysRemaining} days</strong> to recover your account before it is permanently deleted.</p>
+        <span>If an account exists for <strong>{email}</strong> and is eligible for recovery, a recovery email has been sent.</span>
       </div>
 
       <p className="text-sm text-muted-foreground">
@@ -355,10 +198,8 @@ function RecoverAccountPageContent() {
   const { isAuthenticated, isLoading } = useAuthContext()
   const requestRecoveryMutation = useRequestAccountRecovery()
 
-  const [step, setStep] = useState<'email' | 'password' | 'magic-link-sent'>('email')
+  const [step, setStep] = useState<'email' | 'sent'>('email')
   const [email, setEmail] = useState('')
-  const [hasPassword, setHasPassword] = useState(false)
-  const [daysRemaining, setDaysRemaining] = useState(30)
   const [error, setError] = useState<string | null>(null)
 
   // Check for token in URL (magic link callback)
@@ -371,40 +212,22 @@ function RecoverAccountPageContent() {
     }
   }, [isAuthenticated, isLoading, router, token])
 
-  // Handle email submission
+  // Handle email submission. PSY-774: the response is enumeration-safe, so
+  // we always show the same "sent" confirmation on a successful API call —
+  // the backend logs per-state detail; the UI never branches on it.
   const handleEmailSubmit = async (submittedEmail: string) => {
     setError(null)
     setEmail(submittedEmail)
 
     requestRecoveryMutation.mutate({ email: submittedEmail }, {
       onSuccess: data => {
-        if (data.error_code === 'ACCOUNT_ACTIVE') {
-          // Account is active, redirect to login
-          router.push('/auth?error=' + encodeURIComponent('Your account is active. Please log in normally.'))
-          return
-        }
-
-        if (data.error_code === 'ACCOUNT_NOT_RECOVERABLE') {
-          setError(data.message)
-          return
-        }
-
         if (!data.success && data.error_code) {
+          // Only pre-lookup errors (validation, email-service-config) set
+          // an error code post-PSY-774; surface them verbatim.
           setError(data.message)
           return
         }
-
-        // Set state from response
-        setHasPassword(data.has_password || false)
-        setDaysRemaining(data.days_remaining || 30)
-
-        if (data.has_password) {
-          // User has a password, show password form
-          setStep('password')
-        } else {
-          // OAuth-only user, magic link was sent
-          setStep('magic-link-sent')
-        }
+        setStep('sent')
       },
       onError: err => {
         setError(err.message)
@@ -457,17 +280,13 @@ function RecoverAccountPageContent() {
                 ? 'Account Recovery'
                 : step === 'email'
                   ? 'Enter your email'
-                  : step === 'password'
-                    ? 'Verify your identity'
-                    : 'Check your email'}
+                  : 'Check your email'}
             </CardTitle>
             {!token && (
               <CardDescription>
                 {step === 'email'
                   ? 'Enter the email address of the account you want to recover'
-                  : step === 'password'
-                    ? 'Enter your password to recover your account'
-                    : 'We sent you a recovery link'}
+                  : 'We sent you a recovery link if your account is eligible'}
               </CardDescription>
             )}
           </CardHeader>
@@ -494,20 +313,10 @@ function RecoverAccountPageContent() {
                   />
                 )}
 
-                {/* Step 2a: Password form */}
-                {step === 'password' && (
-                  <PasswordRecoveryForm
+                {/* Step 2: Recovery email sent */}
+                {step === 'sent' && (
+                  <RecoveryEmailSent
                     email={email}
-                    daysRemaining={daysRemaining}
-                    onBack={handleBack}
-                  />
-                )}
-
-                {/* Step 2b: Magic link sent */}
-                {step === 'magic-link-sent' && (
-                  <MagicLinkSent
-                    email={email}
-                    daysRemaining={daysRemaining}
                     onBack={handleBack}
                   />
                 )}
