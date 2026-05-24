@@ -17,7 +17,7 @@ import (
 // DELETE retire behaviour from the handler's perspective.
 type FeaturedSlotHandlerIntegrationSuite struct {
 	suite.Suite
-	deps               *testhelpers.IntegrationDeps
+	deps                *testhelpers.IntegrationDeps
 	featuredSlotHandler *FeaturedSlotHandler
 }
 
@@ -69,23 +69,19 @@ func (s *FeaturedSlotHandlerIntegrationSuite) TestList_AfterSetIncludesActiveAnd
 
 	// Two bill picks → most-recent active, one in history.
 	note1 := "first"
-	_, err := s.featuredSlotHandler.SetFeaturedSlotHandler(ctx, &SetFeaturedSlotRequest{
-		Body: struct {
-			SlotType    string  `json:"slot_type" doc:"One of 'bill' or 'collection'"`
-			EntityID    uint    `json:"entity_id" doc:"Show ID (for bill) or Collection ID (for collection)"`
-			CuratorNote *string `json:"curator_note,omitempty" doc:"Optional markdown curator note"`
-		}{SlotType: adminm.FeaturedSlotTypeBill, EntityID: 1, CuratorNote: &note1},
-	})
+	first := &SetFeaturedSlotRequest{}
+	first.Body.SlotType = adminm.FeaturedSlotTypeBill
+	first.Body.EntityID = 1
+	first.Body.CuratorNote = &note1
+	_, err := s.featuredSlotHandler.SetFeaturedSlotHandler(ctx, first)
 	s.Require().NoError(err)
 
 	note2 := "second"
-	_, err = s.featuredSlotHandler.SetFeaturedSlotHandler(ctx, &SetFeaturedSlotRequest{
-		Body: struct {
-			SlotType    string  `json:"slot_type" doc:"One of 'bill' or 'collection'"`
-			EntityID    uint    `json:"entity_id" doc:"Show ID (for bill) or Collection ID (for collection)"`
-			CuratorNote *string `json:"curator_note,omitempty" doc:"Optional markdown curator note"`
-		}{SlotType: adminm.FeaturedSlotTypeBill, EntityID: 2, CuratorNote: &note2},
-	})
+	second := &SetFeaturedSlotRequest{}
+	second.Body.SlotType = adminm.FeaturedSlotTypeBill
+	second.Body.EntityID = 2
+	second.Body.CuratorNote = &note2
+	_, err = s.featuredSlotHandler.SetFeaturedSlotHandler(ctx, second)
 	s.Require().NoError(err)
 
 	resp, err := s.featuredSlotHandler.ListFeaturedSlotsHandler(ctx, &ListFeaturedSlotsRequest{HistoryLimit: 5})

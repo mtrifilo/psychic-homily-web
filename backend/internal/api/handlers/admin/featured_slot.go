@@ -20,21 +20,21 @@ import (
 // raw markdown source) is also exposed so the admin UI can re-edit a
 // pick without round-tripping through the rendered form.
 type FeaturedSlotResponse struct {
-	ID             uint       `json:"id"`
-	SlotType       string     `json:"slot_type"`
-	EntityID       uint       `json:"entity_id"`
-	CuratorNote    *string    `json:"curator_note,omitempty"`
-	CuratorNoteHTML string    `json:"curator_note_html,omitempty"`
-	ActiveFrom     time.Time  `json:"active_from"`
-	ActiveUntil    *time.Time `json:"active_until,omitempty"`
-	CreatedBy      uint       `json:"created_by"`
-	CreatedAt      time.Time  `json:"created_at"`
-	UpdatedAt      time.Time  `json:"updated_at"`
+	ID              uint       `json:"id"`
+	SlotType        string     `json:"slot_type"`
+	EntityID        uint       `json:"entity_id"`
+	CuratorNote     *string    `json:"curator_note,omitempty"`
+	CuratorNoteHTML string     `json:"curator_note_html,omitempty"`
+	ActiveFrom      time.Time  `json:"active_from"`
+	ActiveUntil     *time.Time `json:"active_until,omitempty"`
+	CreatedBy       uint       `json:"created_by"`
+	CreatedAt       time.Time  `json:"created_at"`
+	UpdatedAt       time.Time  `json:"updated_at"`
 }
 
 // FeaturedSlotHandler exposes the admin-only featured-slot CRUD surface.
-// Routes register on rc.Admin (PSY-423) so the middleware enforces auth +
-// IsAdmin upstream; handlers do not call shared.RequireAdmin themselves.
+// Routes register on rc.Admin so the middleware enforces auth + IsAdmin
+// upstream; handlers do not call shared.RequireAdmin themselves.
 type FeaturedSlotHandler struct {
 	featuredSlotService contracts.FeaturedSlotServiceInterface
 	auditLogService     contracts.AuditLogServiceInterface
