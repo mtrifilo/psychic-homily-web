@@ -1603,6 +1603,49 @@ func (m *MockFavoriteVenueService) GetFavoriteVenueIDs(userID uint, venueIDs []u
 }
 
 // ============================================================================
+// Mock: FeaturedSlotServiceInterface
+// ============================================================================
+
+type MockFeaturedSlotService struct {
+	GetActiveSlotFn     func(string) (*adminm.FeaturedSlot, error)
+	ListRecentFn        func(string, int) ([]adminm.FeaturedSlot, error)
+	SetActiveSlotFn     func(string, uint, *string, uint) (*adminm.FeaturedSlot, error)
+	RetireActiveSlotFn  func(string, uint) error
+	RenderCuratorNoteFn func(*string) string
+}
+
+func (m *MockFeaturedSlotService) GetActiveSlot(slotType string) (*adminm.FeaturedSlot, error) {
+	if m.GetActiveSlotFn != nil {
+		return m.GetActiveSlotFn(slotType)
+	}
+	return nil, nil
+}
+func (m *MockFeaturedSlotService) ListRecent(slotType string, limit int) ([]adminm.FeaturedSlot, error) {
+	if m.ListRecentFn != nil {
+		return m.ListRecentFn(slotType, limit)
+	}
+	return nil, nil
+}
+func (m *MockFeaturedSlotService) SetActiveSlot(slotType string, entityID uint, curatorNote *string, userID uint) (*adminm.FeaturedSlot, error) {
+	if m.SetActiveSlotFn != nil {
+		return m.SetActiveSlotFn(slotType, entityID, curatorNote, userID)
+	}
+	return nil, nil
+}
+func (m *MockFeaturedSlotService) RetireActiveSlot(slotType string, userID uint) error {
+	if m.RetireActiveSlotFn != nil {
+		return m.RetireActiveSlotFn(slotType, userID)
+	}
+	return nil
+}
+func (m *MockFeaturedSlotService) RenderCuratorNote(note *string) string {
+	if m.RenderCuratorNoteFn != nil {
+		return m.RenderCuratorNoteFn(note)
+	}
+	return ""
+}
+
+// ============================================================================
 // Mock: FestivalIntelligenceServiceInterface
 // ============================================================================
 
@@ -4020,6 +4063,7 @@ var _ contracts.EnrichmentServiceInterface = (*MockEnrichmentService)(nil)
 var _ contracts.EntityReportServiceInterface = (*MockEntityReportService)(nil)
 var _ contracts.ExtractionServiceInterface = (*MockExtractionService)(nil)
 var _ contracts.FavoriteVenueServiceInterface = (*MockFavoriteVenueService)(nil)
+var _ contracts.FeaturedSlotServiceInterface = (*MockFeaturedSlotService)(nil)
 var _ contracts.FestivalIntelligenceServiceInterface = (*MockFestivalIntelligenceService)(nil)
 var _ contracts.FestivalServiceInterface = (*MockFestivalService)(nil)
 var _ contracts.FieldNoteServiceInterface = (*MockFieldNoteService)(nil)

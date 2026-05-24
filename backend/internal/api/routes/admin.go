@@ -103,4 +103,12 @@ func setupAdminRoutes(rc RouteContext) {
 	huma.Get(rc.Admin, "/admin/analytics/engagement", analyticsHandler.GetEngagementMetricsHandler)
 	huma.Get(rc.Admin, "/admin/analytics/community", analyticsHandler.GetCommunityHealthHandler)
 	huma.Get(rc.Admin, "/admin/analytics/data-quality", analyticsHandler.GetDataQualityTrendsHandler)
+
+	// Admin featured-slot endpoints — the /explore landing has two
+	// admin-curated editorial slots (Featured Bill + Featured Collection)
+	// curated on whatever cadence the admin chooses.
+	featuredSlotHandler := adminh.NewFeaturedSlotHandler(rc.SC.FeaturedSlot, rc.SC.AuditLog)
+	huma.Get(rc.Admin, "/admin/featured-slots", featuredSlotHandler.ListFeaturedSlotsHandler)
+	huma.Post(rc.Admin, "/admin/featured-slots", featuredSlotHandler.SetFeaturedSlotHandler)
+	huma.Delete(rc.Admin, "/admin/featured-slots/{slot_type}", featuredSlotHandler.DeleteFeaturedSlotHandler)
 }

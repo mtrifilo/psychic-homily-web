@@ -33,6 +33,7 @@ type ServiceContainer struct {
 	ContributorProfile     *usersvc.ContributorProfileService
 	ArtistReport           *adminsvc.ArtistReportService
 	AuditLog               *adminsvc.AuditLogService
+	FeaturedSlot           *adminsvc.FeaturedSlotService
 	Bookmark               *engagement.BookmarkService
 	Calendar               *engagement.CalendarService
 	Collection             *community.CollectionService
@@ -164,6 +165,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ContributorProfile:     usersvc.NewContributorProfileService(database),
 		ArtistReport:           adminsvc.NewArtistReportService(database),
 		AuditLog:               adminsvc.NewAuditLogService(database),
+		FeaturedSlot:           adminsvc.NewFeaturedSlotService(database),
 		Bookmark:               engagement.NewBookmarkService(database),
 		Calendar:               engagement.NewCalendarService(database, savedShow),
 		Collection:             collectionSvc,

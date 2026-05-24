@@ -107,6 +107,11 @@ var testFixturesAllowlistContractSkips = map[string]string{
 
 	// Profile — preferences-style rows, not test artifacts.
 	"user_profile_sections": "preferences-style; upserted, not user-mutated in E2E",
+
+	// Admin-curated /explore editorial slots — created_by FK is to the
+	// admin who set the pick, not to test fixture users; the slots are
+	// global, not per-user. Revisit if E2E adds an admin-curation flow.
+	"featured_slots": "admin-curated global picks; not part of per-user E2E mutating flows",
 }
 
 // TestAllowlistCoversAllUserFKTables queries information_schema for every
