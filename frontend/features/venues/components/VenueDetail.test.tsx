@@ -4,8 +4,16 @@ import userEvent from '@testing-library/user-event'
 import { VenueDetail } from './VenueDetail'
 import type { Venue } from '../types'
 
-// Mock AuthContext
-const mockAuthContext = vi.fn(() => ({
+// Mock AuthContext.
+// Return type widened so individual tests can override `user`/`isAuthenticated`
+// without TS narrowing from the default-null literal.
+type MockAuthContextValue = {
+  user: { id: string; is_admin: boolean } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: null,
   isAuthenticated: false,
   isLoading: false,
@@ -50,7 +58,14 @@ vi.mock('@/lib/queryClient', () => ({
 
 // Mock useVenue, useVenueGenres, and useVenueShows hooks
 const mockUseVenue = vi.fn()
-const mockUseVenueGenres = vi.fn((_id?: number) => ({ data: null }))
+type MockUseVenueGenresValue = {
+  data:
+    | { genres: Array<{ tag_id: number; name: string; slug: string; count: number }> }
+    | null
+}
+const mockUseVenueGenres = vi.fn<(_id?: number) => MockUseVenueGenresValue>(
+  () => ({ data: null })
+)
 const mockUseVenueShows = vi.fn((_opts: unknown) => ({
   data: { shows: [], total: 0 } as { shows: unknown[]; total: number },
   isLoading: false,

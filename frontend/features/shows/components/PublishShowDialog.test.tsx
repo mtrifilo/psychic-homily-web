@@ -5,7 +5,13 @@ import { PublishShowDialog } from './PublishShowDialog'
 import type { ShowResponse } from '../types'
 
 const mockMutate = vi.fn()
-const mockPublishHook = vi.fn(() => ({
+type MockPublishHookValue = {
+  mutate: typeof mockMutate
+  isPending: boolean
+  isError: boolean
+  error: { message?: string } | null
+}
+const mockPublishHook = vi.fn<() => MockPublishHookValue>(() => ({
   mutate: mockMutate,
   isPending: false,
   isError: false,

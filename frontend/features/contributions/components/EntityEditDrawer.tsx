@@ -387,12 +387,16 @@ export function EntityEditDrawer({
                       <div key={change.field} className="mb-2 last:mb-0">
                         <span className="font-medium">{fieldDef?.label ?? change.field}:</span>
                         <div className="ml-2">
-                          {change.old_value && (
+                          {/* old_value/new_value are `unknown` (the field
+                              type is intentionally generic). The
+                              `Boolean(...)` guards keep the JSX
+                              expression's type narrowed to ReactNode. */}
+                          {Boolean(change.old_value) && (
                             <div className="text-red-400 line-through">
                               {String(change.old_value)}
                             </div>
                           )}
-                          {change.new_value && (
+                          {Boolean(change.new_value) && (
                             <div className="text-green-400">{String(change.new_value)}</div>
                           )}
                           {!change.old_value && !change.new_value && (

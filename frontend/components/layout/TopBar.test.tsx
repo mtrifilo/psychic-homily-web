@@ -16,7 +16,20 @@ vi.mock('next/image', () => ({
 }))
 
 const mockLogout = vi.fn()
-const mockAuthContext = vi.fn(() => ({
+// Return type widened so individual tests can override `user`/`isAuthenticated`
+// without TS narrowing from the default-null literal.
+type MockAuthContextValue = {
+  user: {
+    email: string
+    first_name?: string
+    last_name?: string
+    is_admin: boolean
+  } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockAuthContext = vi.fn<() => MockAuthContextValue>(() => ({
   user: null,
   isAuthenticated: false,
   isLoading: false,

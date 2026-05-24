@@ -4,7 +4,15 @@ import userEvent from '@testing-library/user-event'
 import { SaveButton } from './SaveButton'
 
 const mockToggle = vi.fn()
-const mockUseSaveShowToggle = vi.fn((..._args: unknown[]) => ({
+type MockUseSaveShowToggleValue = {
+  isSaved: boolean
+  isLoading: boolean
+  toggle: typeof mockToggle
+  error: Error | null
+}
+const mockUseSaveShowToggle = vi.fn<
+  (..._args: unknown[]) => MockUseSaveShowToggleValue
+>(() => ({
   isSaved: false,
   isLoading: false,
   toggle: mockToggle,
@@ -15,7 +23,13 @@ vi.mock('@/features/shows', () => ({
   useSaveShowToggle: (...args: unknown[]) => mockUseSaveShowToggle(...args),
 }))
 
-const mockUseAuthContext = vi.fn(() => ({
+type MockUseAuthContextValue = {
+  user: { email: string } | null
+  isAuthenticated: boolean
+  isLoading: boolean
+  logout: () => void
+}
+const mockUseAuthContext = vi.fn<() => MockUseAuthContextValue>(() => ({
   isAuthenticated: true,
   user: { email: 'test@test.com' },
   isLoading: false,

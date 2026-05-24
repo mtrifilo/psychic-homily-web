@@ -78,7 +78,9 @@ export function SettingsPanel() {
   const handleGenerateCLIToken = async () => {
     try {
       const response = await generateCLIToken.mutateAsync()
-      setCLIToken(response.token)
+      // `token` is `string | undefined` on the response; coerce to null
+      // so the `string | null` token state stays well-typed.
+      setCLIToken(response.token ?? null)
       setTokenCopied(false)
     } catch (error) {
       Sentry.captureException(error, {

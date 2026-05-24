@@ -10,7 +10,26 @@ const mockRejectAll = vi.fn()
 const mockOpenPreferences = vi.fn()
 const mockClosePreferences = vi.fn()
 const mockSavePreferences = vi.fn()
-const mockUseCookieConsent = vi.fn(() => ({
+type MockConsent = {
+  version: number
+  timestamp: string
+  expiresAt: string
+  gpcDetected: boolean
+  categories: { essential: boolean; analytics: boolean }
+  consentMethod: 'banner_accept_all' | 'banner_reject_all' | 'preferences_save'
+}
+type MockUseCookieConsentValue = {
+  showBanner: boolean
+  gpcSignalDetected: boolean
+  acceptAll: typeof mockAcceptAll
+  rejectAll: typeof mockRejectAll
+  openPreferences: typeof mockOpenPreferences
+  closePreferences: typeof mockClosePreferences
+  savePreferences: typeof mockSavePreferences
+  preferencesOpen: boolean
+  consent: MockConsent | null
+}
+const mockUseCookieConsent = vi.fn<() => MockUseCookieConsentValue>(() => ({
   showBanner: true,
   gpcSignalDetected: false,
   acceptAll: mockAcceptAll,

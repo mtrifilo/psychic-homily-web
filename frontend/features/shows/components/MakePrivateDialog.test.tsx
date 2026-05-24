@@ -5,7 +5,13 @@ import { MakePrivateDialog } from './MakePrivateDialog'
 import type { ShowResponse } from '../types'
 
 const mockMutate = vi.fn()
-const mockMakePrivateHook = vi.fn(() => ({
+type MockMakePrivateHookValue = {
+  mutate: typeof mockMutate
+  isPending: boolean
+  isError: boolean
+  error: { message?: string } | null
+}
+const mockMakePrivateHook = vi.fn<() => MockMakePrivateHookValue>(() => ({
   mutate: mockMutate,
   isPending: false,
   isError: false,

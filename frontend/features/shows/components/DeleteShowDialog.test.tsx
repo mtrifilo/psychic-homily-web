@@ -5,7 +5,13 @@ import { DeleteShowDialog } from './DeleteShowDialog'
 import type { ShowResponse } from '../types'
 
 const mockMutate = vi.fn()
-const mockDeleteHook = vi.fn(() => ({
+type MockDeleteHookValue = {
+  mutate: typeof mockMutate
+  isPending: boolean
+  isError: boolean
+  error: { message?: string } | null
+}
+const mockDeleteHook = vi.fn<() => MockDeleteHookValue>(() => ({
   mutate: mockMutate,
   isPending: false,
   isError: false,
