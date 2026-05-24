@@ -11,18 +11,6 @@ import type { EntityTag, TagSummary } from '@/features/tags/types'
 export const MAX_COLLECTION_MARKDOWN_LENGTH = 10000
 
 /**
- * PSY-356: minimum thresholds for a public collection to appear in the
- * /collections browse listing. Mirrors backend `services.MinPublicCollection*`
- * constants — keep both sides in sync.
- *
- * - MIN_PUBLIC_COLLECTION_ITEMS: number of items required.
- * - MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS: minimum CHAR_LENGTH of the raw
- *   description (the banner copy talks about "characters" for clarity).
- */
-export const MIN_PUBLIC_COLLECTION_ITEMS = 3
-export const MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS = 50
-
-/**
  * PSY-371: maximum length for `cover_image_url`. The browser address-bar
  * de-facto cap is ~2048 chars; longer URLs almost always indicate
  * pasted-malformed input. We cap on the client to surface the error

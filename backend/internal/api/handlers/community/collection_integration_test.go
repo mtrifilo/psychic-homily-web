@@ -3,7 +3,6 @@ package community
 import (
 	"context"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -13,13 +12,8 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
-	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
-
-// Local alias so the helper isn't tied to the `community.` qualifier on every
-// reference. PSY-356.
-const MinPublicCollectionItems = community.MinPublicCollectionItems
 
 type CollectionHandlerIntegrationSuite struct {
 	suite.Suite
@@ -49,38 +43,11 @@ func TestCollectionHandlerIntegration(t *testing.T) {
 
 // --- Helpers ---
 
-// createCollectionViaService creates a collection. PSY-356 disallows creating
-// public-at-create-time, so the helper always creates private. Tests that
-// pass isPublic=true get the gate-passing dance applied (seed 3 items + 50+
-// char description, then flip is_public). Tests that pass false get a bare
-// private collection — most tests that only need a slug should call with
-// false to keep item counts predictable.
+// createCollectionViaService creates a collection with the given visibility.
 func (s *CollectionHandlerIntegrationSuite) createCollectionViaService(user *authm.User, title string, isPublic bool) *contracts.CollectionDetailResponse {
-	priv, err := s.deps.CollectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+	resp, err := s.deps.CollectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
 		Title:    title,
-		IsPublic: false,
-	})
-	s.Require().NoError(err)
-
-	if !isPublic {
-		return priv
-	}
-
-	// PSY-356 publish-gate dance: private → seed items + description → flip public.
-	for i := 0; i < MinPublicCollectionItems; i++ {
-		artist := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("%s seed %d-%d", title, i, time.Now().UnixNano()))
-		_, err = s.deps.CollectionService.AddItem(priv.Slug, user.ID, &contracts.AddCollectionItemRequest{
-			EntityType: "artist",
-			EntityID:   artist.ID,
-		})
-		s.Require().NoError(err)
-	}
-
-	desc := fmt.Sprintf("Quality-gate description for %s — long enough to satisfy the 50-char minimum.", title)
-	pub := true
-	resp, err := s.deps.CollectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
-		Description: &desc,
-		IsPublic:    &pub,
+		IsPublic: isPublic,
 	})
 	s.Require().NoError(err)
 	return resp
@@ -94,7 +61,6 @@ func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_Success() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 
-	// PSY-356: created private — public-at-create is rejected by the gate.
 	req := &CreateCollectionHandlerRequest{}
 	req.Body.Title = "My Favorite Artists"
 	req.Body.IsPublic = false
@@ -116,7 +82,7 @@ func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_WithDescription
 	req := &CreateCollectionHandlerRequest{}
 	req.Body.Title = "Curated List"
 	req.Body.Description = &desc
-	req.Body.IsPublic = false // PSY-356: tests description persistence, not visibility.
+	req.Body.IsPublic = false
 	req.Body.Collaborative = true
 
 	resp, err := s.handler.CreateCollectionHandler(ctx, req)
@@ -191,8 +157,6 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollection_AuthenticatedViewe
 
 func (s *CollectionHandlerIntegrationSuite) TestGetCollectionStats_Success() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	// Private — the test asserts a precise ItemCount=1 and the gate dance
-	// would seed 3 extra items. Visibility is incidental here.
 	coll := s.createCollectionViaService(user, "Stats Collection", false)
 
 	// Add an artist item
@@ -323,22 +287,26 @@ func (s *CollectionHandlerIntegrationSuite) TestListCollections_FeaturedFilter()
 // PSY-355: expanded browse search (description / notes / tag name+alias)
 // ============================================================================
 
-// seedSearchableCollection bundles the publish-gate dance with a description
-// and (optionally) an item-with-notes payload so the search-tier tests below
-// stay readable. Returns the public slug.
+// seedSearchableCollection creates a public collection with a description
+// and 3 seeded artist items (optionally with notes on the first), so the
+// search-tier tests can match against title, description, and item notes.
+// Returns the public slug.
 func (s *CollectionHandlerIntegrationSuite) seedSearchableCollection(
 	user *authm.User,
 	title, description, itemNotes string,
 ) string {
-	priv, err := s.deps.CollectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
-		Title:    title,
-		IsPublic: false,
+	desc := description
+	pub, err := s.deps.CollectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:       title,
+		Description: &desc,
+		IsPublic:    true,
 	})
 	s.Require().NoError(err)
 
-	// PSY-356 publish gate seeds. Reuse the supplied notes on the first
-	// item so both the gate and notes-tier match share the same row.
-	for i := 0; i < MinPublicCollectionItems; i++ {
+	// Seed 3 items so the notes-tier search tests can match. Reuse the
+	// supplied notes on the first item so the notes-tier search has a
+	// payload to find.
+	for i := 0; i < 3; i++ {
 		artist := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("%s seed %d-%d", title, i, time.Now().UnixNano()))
 		req := &contracts.AddCollectionItemRequest{
 			EntityType: "artist",
@@ -348,23 +316,11 @@ func (s *CollectionHandlerIntegrationSuite) seedSearchableCollection(
 			notes := itemNotes
 			req.Notes = &notes
 		}
-		_, err = s.deps.CollectionService.AddItem(priv.Slug, user.ID, req)
+		_, err = s.deps.CollectionService.AddItem(pub.Slug, user.ID, req)
 		s.Require().NoError(err)
 	}
 
-	// Description must be at least 50 chars to pass the publish gate; pad
-	// when the test's intent description is shorter.
-	desc := description
-	if len(desc) < 50 {
-		desc = description + " — " + strings.Repeat("seed", 16)
-	}
-	pub := true
-	_, err = s.deps.CollectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
-		Description: &desc,
-		IsPublic:    &pub,
-	})
-	s.Require().NoError(err)
-	return priv.Slug
+	return pub.Slug
 }
 
 // TestListCollections_Search_DescriptionMatch surfaces a collection whose
@@ -1282,11 +1238,6 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_Zer
 // a public collection with items + notes + positions is copied faithfully
 // into a new collection owned by the caller, with attribution back to the
 // original. This is the primary acceptance criterion.
-//
-// PSY-356 note: createCollectionViaService(..., true) seeds 3 items as part
-// of the publish-gate dance. Those land at positions 0..2, so the
-// test-added items are at positions 3..5. The assertions index relative to
-// the start of the test-added range.
 func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_CopiesItemsNotesAndPositions() {
 	owner := testhelpers.CreateTestUser(s.deps.DB)
 	cloner := testhelpers.CreateTestUser(s.deps.DB)
@@ -1331,22 +1282,20 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_CopiesItemsNotes
 	s.Equal("Source Collection", resp.Body.ForkedFrom.Title)
 	s.Equal(owner.ID, resp.Body.ForkedFrom.CreatorID)
 
-	// Items copied: 3 gate-seeded + 3 explicit = 6 total. Index into the
-	// test-added range (positions 3..5).
-	s.Require().Len(resp.Body.Items, MinPublicCollectionItems+3)
-	startIdx := MinPublicCollectionItems
-	s.Equal(a1.ID, resp.Body.Items[startIdx].EntityID)
-	s.Require().NotNil(resp.Body.Items[startIdx].Notes)
-	s.Equal("first note", *resp.Body.Items[startIdx].Notes)
-	s.Equal(a2.ID, resp.Body.Items[startIdx+1].EntityID)
-	s.Nil(resp.Body.Items[startIdx+1].Notes)
-	s.Equal(a3.ID, resp.Body.Items[startIdx+2].EntityID)
-	s.Require().NotNil(resp.Body.Items[startIdx+2].Notes)
-	s.Equal("third note", *resp.Body.Items[startIdx+2].Notes)
+	// Items copied: 3 explicit. Order matches source.
+	s.Require().Len(resp.Body.Items, 3)
+	s.Equal(a1.ID, resp.Body.Items[0].EntityID)
+	s.Require().NotNil(resp.Body.Items[0].Notes)
+	s.Equal("first note", *resp.Body.Items[0].Notes)
+	s.Equal(a2.ID, resp.Body.Items[1].EntityID)
+	s.Nil(resp.Body.Items[1].Notes)
+	s.Equal(a3.ID, resp.Body.Items[2].EntityID)
+	s.Require().NotNil(resp.Body.Items[2].Notes)
+	s.Equal("third note", *resp.Body.Items[2].Notes)
 
 	// Positions are strictly increasing (matches source order).
-	s.Less(resp.Body.Items[startIdx].Position, resp.Body.Items[startIdx+1].Position)
-	s.Less(resp.Body.Items[startIdx+1].Position, resp.Body.Items[startIdx+2].Position)
+	s.Less(resp.Body.Items[0].Position, resp.Body.Items[1].Position)
+	s.Less(resp.Body.Items[1].Position, resp.Body.Items[2].Position)
 }
 
 // TestCloneCollection_NoAuth covers the authn boundary — the endpoint
@@ -1456,10 +1405,13 @@ func (s *CollectionHandlerIntegrationSuite) TestCloneCollection_OriginalShowsFor
 }
 
 // ============================================================================
-// PSY-356: publish-gate handler integration
+// Public-visibility handler behavior (no-gate model)
 // ============================================================================
 
-func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_PublicAtCreateRejectedAs422() {
+// TestCreateCollection_PublicAtCreateSucceeds confirms the handler accepts
+// IsPublic=true at create time, returning a public collection. Matches
+// What.cd / Gazelle's no-gate model.
+func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_PublicAtCreateSucceeds() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	ctx := testhelpers.CtxWithUser(user)
 
@@ -1467,21 +1419,27 @@ func (s *CollectionHandlerIntegrationSuite) TestCreateCollection_PublicAtCreateR
 	req.Body.Title = "Public At Create"
 	req.Body.IsPublic = true
 
-	_, err := s.handler.CreateCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 422)
+	resp, err := s.handler.CreateCollectionHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp)
+	s.True(resp.Body.IsPublic)
 }
 
-func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_FlipPublicBelowGateRejectedAs422() {
+// TestUpdateCollection_FlipPublicEmptyCollectionSucceeds confirms an empty
+// private collection can be flipped to public without items or description.
+func (s *CollectionHandlerIntegrationSuite) TestUpdateCollection_FlipPublicEmptyCollectionSucceeds() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	priv := s.createCollectionViaService(user, "Flip Below Gate", false)
+	priv := s.createCollectionViaService(user, "Flip Empty", false)
 
 	ctx := testhelpers.CtxWithUser(user)
 	pub := true
 	req := &UpdateCollectionHandlerRequest{Slug: priv.Slug}
 	req.Body.IsPublic = &pub
 
-	_, err := s.handler.UpdateCollectionHandler(ctx, req)
-	testhelpers.AssertHumaError(s.T(), err, 422)
+	resp, err := s.handler.UpdateCollectionHandler(ctx, req)
+	s.Require().NoError(err)
+	s.Require().NotNil(resp)
+	s.True(resp.Body.IsPublic)
 }
 
 // ============================================================================

@@ -161,11 +161,8 @@ func (suite *CollectionServiceIntegrationTestSuite) createTestVenueForCollection
 }
 
 // createBasicCollection creates a private collection (no items, no
-// description) returned by CreateCollection. PSY-356 forbids creating
-// public-at-create-time, so the caller is expected to rely on the slug
-// alone for tests that don't care about visibility. Tests that need a
-// public, gate-passing collection should call createPublicCollection
-// instead.
+// description). Use createPublicCollection when the test needs the
+// collection to be publicly visible.
 func (suite *CollectionServiceIntegrationTestSuite) createBasicCollection(user *authm.User, title string) *contracts.CollectionDetailResponse {
 	resp, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
 		Title:    title,
@@ -175,37 +172,18 @@ func (suite *CollectionServiceIntegrationTestSuite) createBasicCollection(user *
 	return resp
 }
 
-// createPublicCollection creates a collection that satisfies the PSY-356
-// publish gate (>= 3 items, >= 50-char description) and flips it public.
+// createPublicCollection creates a public collection with the given title.
 // Use this when a test depends on the collection being publicly visible
 // (anonymous viewer access, browse listing, etc.).
 func (suite *CollectionServiceIntegrationTestSuite) createPublicCollection(user *authm.User, title string) *contracts.CollectionDetailResponse {
-	priv := suite.createBasicCollection(user, title)
-
-	for i := 0; i < MinPublicCollectionItems; i++ {
-		artist := suite.createTestArtist(fmt.Sprintf("%s seed %d-%d", title, i, time.Now().UnixNano()))
-		_, err := suite.collectionService.AddItem(priv.Slug, user.ID, &contracts.AddCollectionItemRequest{
-			EntityType: communitym.CollectionEntityArtist,
-			EntityID:   artist.ID,
-		})
-		suite.Require().NoError(err)
-	}
-
-	desc := fmt.Sprintf("Quality-gate description for %s — long enough to satisfy the 50-char minimum.", title)
-	pub := true
-	resp, err := suite.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
-		Description: &desc,
-		IsPublic:    &pub,
+	resp, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    title,
+		IsPublic: true,
 	})
 	suite.Require().NoError(err)
 	return resp
 }
 
-// createBareCollection is an alias for createBasicCollection kept for
-// PSY-356 tests that read more clearly with the explicit "bare" name.
-func (suite *CollectionServiceIntegrationTestSuite) createBareCollection(user *authm.User, title string) *contracts.CollectionDetailResponse {
-	return suite.createBasicCollection(user, title)
-}
 
 func strPtrCollection(s string) *string {
 	return &s
@@ -219,10 +197,9 @@ func boolPtrCollection(b bool) *bool {
 // Group 1: CreateCollection
 // =============================================================================
 
-// TestCreateCollection_Success creates as private (per PSY-356 — public at
-// create time is rejected because items_count is always 0) and verifies the
-// usual fields are persisted. Public-creation rejection is covered by
-// TestCreateCollection_PublicAtCreateRejected.
+// TestCreateCollection_Success creates a private collection and verifies
+// the usual fields are persisted. Public-creation success is covered by
+// TestCreateCollection_PublicAtCreateSucceeds.
 func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Success() {
 	user := suite.createTestUser("Creator")
 
@@ -244,7 +221,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Success
 	suite.Equal("My favorite artists", resp.Description)
 	suite.Equal(user.ID, resp.CreatorID)
 	suite.True(resp.Collaborative)
-	suite.False(resp.IsPublic) // PSY-356: cannot create public directly.
+	suite.False(resp.IsPublic)
 	suite.False(resp.IsFeatured)
 	suite.Equal(0, resp.ItemCount)
 	suite.Equal(1, resp.SubscriberCount) // Creator auto-subscribed
@@ -337,7 +314,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_OptInRa
 	mode := communitym.CollectionDisplayModeRanked
 	req := &contracts.CreateCollectionRequest{
 		Title:       "Top Albums of 2026",
-		IsPublic:    false, // PSY-356: must be created private.
+		IsPublic:    false,
 		DisplayMode: &mode,
 	}
 
@@ -352,7 +329,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Invalid
 	bogus := "best-of"
 	req := &contracts.CreateCollectionRequest{
 		Title:       "Bogus Mode",
-		IsPublic:    false, // PSY-356: avoid colliding with the publish gate.
+		IsPublic:    false,
 		DisplayMode: &bogus,
 	}
 
@@ -490,9 +467,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestListCollections_FilterBy
 // =============================================================================
 
 // updateCollectionDescription patches a collection's description without
-// flipping visibility. Used by search tests that need to seed a description
-// containing the search term while keeping the collection private (so the
-// PSY-356 publish gate doesn't get in the way).
+// flipping visibility. Used by search tests that seed a description
+// containing the search term.
 func (suite *CollectionServiceIntegrationTestSuite) updateCollectionDescription(slug string, userID uint, description string) {
 	desc := description
 	_, err := suite.collectionService.UpdateCollection(slug, userID, false,
@@ -953,7 +929,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_Renders
 	req := &contracts.CreateCollectionRequest{
 		Title:       "Markdown Description",
 		Description: &desc,
-		IsPublic:    false, // PSY-356: tested behavior is markdown rendering, not visibility.
+		IsPublic:    false,
 	}
 
 	resp, err := suite.collectionService.CreateCollection(user.ID, req)
@@ -973,7 +949,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_RendersDescrip
 	created, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
 		Title:       "Quoted",
 		Description: &desc,
-		IsPublic:    false, // PSY-356: tested behavior is markdown rendering, not visibility.
+		IsPublic:    false,
 	})
 	suite.Require().NoError(err)
 
@@ -990,7 +966,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetBySlug_DescriptionXSS
 	created, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
 		Title:       "XSS Attempt",
 		Description: &desc,
-		IsPublic:    false, // PSY-356: tested behavior is XSS sanitization, not visibility.
+		IsPublic:    false,
 	})
 	suite.Require().NoError(err)
 
@@ -2063,7 +2039,6 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetUserCollections_NewSi
 	creator := suite.createTestUser("Creator")
 	subscriber := suite.createTestUser("Subscriber")
 	// Use a collaborative collection so the subscriber can also add items.
-	// PSY-356: created private (gate test scope is unrelated to visibility).
 	collResp, err := suite.collectionService.CreateCollection(creator.ID, &contracts.CreateCollectionRequest{
 		Title:         "Tracked Collection",
 		IsPublic:      false,
@@ -2376,210 +2351,115 @@ func (suite *CollectionServiceIntegrationTestSuite) TestBatchCheckUserLikes() {
 }
 
 // =============================================================================
-// Group 15 (PSY-356): Public-visibility quality gates
+// Group 15: Public-visibility behavior (no-gate model)
 // =============================================================================
 //
-// The gate has two halves: items_count >= 3 AND CHAR_LENGTH(description) >= 50.
-// It applies in two places:
-//   1. ListCollections(PublicOnly=true) — browse filter.
-//   2. CreateCollection / UpdateCollection — forward gate at private→public
-//      transitions (and at create-time when IsPublic=true is requested).
-//
-// The user's own library (GetUserCollections) intentionally does NOT filter
-// by the gate — curators must be able to see their own under-gate
-// collections to know what's missing.
+// Collections can be public from creation with zero items and an empty
+// description. ListCollections(PublicOnly=true) surfaces all public
+// collections; the user's own library (GetUserCollections) surfaces all
+// owned collections regardless of visibility.
 
-// gateSeedItems forces a private collection past the items half of the gate
-// by adding `count` artist items. Returns the slug, which may have changed
-// if the caller passes title-update later.
-func (suite *CollectionServiceIntegrationTestSuite) gateSeedItems(slug string, userID uint, count int) {
-	for i := 0; i < count; i++ {
-		artist := suite.createTestArtist(fmt.Sprintf("seed-%s-%d-%d", slug, i, time.Now().UnixNano()))
-		_, err := suite.collectionService.AddItem(slug, userID, &contracts.AddCollectionItemRequest{
-			EntityType: communitym.CollectionEntityArtist,
-			EntityID:   artist.ID,
-		})
-		suite.Require().NoError(err)
-	}
+// TestCreateCollection_PublicAtCreateSucceeds confirms that creating a public
+// collection from scratch — with zero items and an empty description —
+// succeeds. Matches What.cd / Gazelle's no-gate model.
+func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_PublicAtCreateSucceeds() {
+	user := suite.createTestUser("CreatePublicEmpty")
+	resp, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    "Public From Day One",
+		IsPublic: true,
+	})
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.True(resp.IsPublic)
+	suite.Equal("Public From Day One", resp.Title)
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) TestPublicOnly_ExcludesBelowItemThreshold() {
-	user := suite.createTestUser("BrowseGateItems")
-	// Two items + good description → fails on items.
-	priv := suite.createBareCollection(user, "Two Items Only")
-	suite.gateSeedItems(priv.Slug, user.ID, MinPublicCollectionItems-1)
-
-	// Force is_public=true behind the back of the service to simulate a
-	// grandfathered (pre-PSY-356) row that the gate must drop from browse.
-	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
-		Where("id = ?", priv.ID).
-		Updates(map[string]interface{}{
-			"is_public":   true,
-			"description": strings.Repeat("x", MinPublicCollectionDescriptionChars),
-		}).Error)
+// TestPublicOnly_IncludesEmptyAndShort confirms the browse listing surfaces
+// public collections with zero items and empty descriptions.
+func (suite *CollectionServiceIntegrationTestSuite) TestPublicOnly_IncludesEmptyAndShort() {
+	user := suite.createTestUser("BrowseIncludesEmpty")
+	suite.createPublicCollection(user, "Empty Public")
 
 	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{PublicOnly: true}, 20, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(0), total, "below-items collection must drop from browse")
-	suite.Len(resp, 0)
+	suite.Equal(int64(1), total, "empty public collections must appear in browse")
+	suite.Require().Len(resp, 1)
+	suite.Equal("Empty Public", resp[0].Title)
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) TestPublicOnly_ExcludesBelowDescriptionThreshold() {
-	user := suite.createTestUser("BrowseGateDesc")
-	priv := suite.createBareCollection(user, "Three Items No Desc")
-	suite.gateSeedItems(priv.Slug, user.ID, MinPublicCollectionItems)
-
-	// Grandfather + zero-length description.
-	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
-		Where("id = ?", priv.ID).
-		Updates(map[string]interface{}{
-			"is_public":   true,
-			"description": "",
-		}).Error)
-
-	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{PublicOnly: true}, 20, 0)
-	suite.Require().NoError(err)
-	suite.Equal(int64(0), total, "empty-description collection must drop from browse")
-	suite.Len(resp, 0)
-}
-
-func (suite *CollectionServiceIntegrationTestSuite) TestPublicOnly_IncludesGatePassing() {
-	user := suite.createTestUser("BrowseGatePass")
-	// createPublicCollection satisfies the gate (3 items + 50+ char desc + flips public).
-	suite.createPublicCollection(user, "Passes The Gate")
+func (suite *CollectionServiceIntegrationTestSuite) TestPublicOnly_IncludesPublic() {
+	user := suite.createTestUser("BrowseIncludesPublic")
+	suite.createPublicCollection(user, "Visible Public")
 
 	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{PublicOnly: true}, 20, 0)
 	suite.Require().NoError(err)
 	suite.Equal(int64(1), total)
 	suite.Require().Len(resp, 1)
-	suite.Equal("Passes The Gate", resp[0].Title)
+	suite.Equal("Visible Public", resp[0].Title)
 }
 
-// TestUserLibrary_NotFilteredByGate ensures the curator's own library
-// surfaces under-gate collections — the curator MUST see them to fix them.
-func (suite *CollectionServiceIntegrationTestSuite) TestUserLibrary_NotFilteredByGate() {
+// TestUserLibrary_IncludesAllOwned ensures the curator's own library surfaces
+// every collection they own — empty, short, public, private. The library
+// view has never been gated; this test guards that contract.
+func (suite *CollectionServiceIntegrationTestSuite) TestUserLibrary_IncludesAllOwned() {
 	user := suite.createTestUser("LibraryOwner")
-	suite.createBareCollection(user, "Below Gate Library")
+	suite.createBasicCollection(user, "Empty Private Collection")
 
 	resp, total, err := suite.collectionService.GetUserCollections(user.ID, "", 20, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(1), total, "user's own library must include under-gate collections")
+	suite.Equal(int64(1), total, "user's own library must include empty collections")
 	suite.Require().Len(resp, 1)
-	suite.Equal("Below Gate Library", resp[0].Title)
+	suite.Equal("Empty Private Collection", resp[0].Title)
 }
 
-func (suite *CollectionServiceIntegrationTestSuite) TestCreateCollection_PublicAtCreateRejected() {
-	user := suite.createTestUser("CreatePublicReject")
-	desc := strings.Repeat("d", MinPublicCollectionDescriptionChars)
-	resp, err := suite.collectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
-		Title:       "Public At Create",
-		Description: &desc,
-		IsPublic:    true,
-	})
-	suite.Require().Error(err)
-	suite.Nil(resp)
-
-	var collErr *apperrors.CollectionError
-	suite.Require().ErrorAs(err, &collErr)
-	suite.Equal(apperrors.CodeCollectionInvalidRequest, collErr.Code)
-	// Item count is 0 at create time, so the items half of the gate fires.
-	suite.Contains(collErr.Message, "at least 3 items")
-}
-
-func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PrivateToPublic_RejectsBelowItems() {
-	user := suite.createTestUser("FlipItemReject")
-	priv := suite.createBareCollection(user, "Flip Below Items")
-	desc := strings.Repeat("d", MinPublicCollectionDescriptionChars)
-	pub := true
-	resp, err := suite.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
-		Description: &desc,
-		IsPublic:    &pub,
-	})
-	suite.Require().Error(err)
-	suite.Nil(resp)
-
-	var collErr *apperrors.CollectionError
-	suite.Require().ErrorAs(err, &collErr)
-	suite.Equal(apperrors.CodeCollectionInvalidRequest, collErr.Code)
-	suite.Contains(collErr.Message, "at least 3 items")
-}
-
-func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PrivateToPublic_RejectsBelowDescription() {
-	user := suite.createTestUser("FlipDescReject")
-	priv := suite.createBareCollection(user, "Flip Below Desc")
-	suite.gateSeedItems(priv.Slug, user.ID, MinPublicCollectionItems)
+// TestUpdateCollection_PrivateToPublic_Accepts confirms a private collection
+// can be flipped to public without satisfying any item-count or description
+// threshold.
+func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PrivateToPublic_Accepts() {
+	user := suite.createTestUser("FlipPublic")
+	priv := suite.createBasicCollection(user, "Flip Empty")
 
 	pub := true
 	resp, err := suite.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
-		IsPublic: &pub, // no description in patch; current description is empty.
-	})
-	suite.Require().Error(err)
-	suite.Nil(resp)
-
-	var collErr *apperrors.CollectionError
-	suite.Require().ErrorAs(err, &collErr)
-	suite.Equal(apperrors.CodeCollectionInvalidRequest, collErr.Code)
-	suite.Contains(collErr.Message, "50 characters")
-}
-
-func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PrivateToPublic_AcceptsWhenGatePasses() {
-	user := suite.createTestUser("FlipAccept")
-	priv := suite.createBareCollection(user, "Flip Pass")
-	suite.gateSeedItems(priv.Slug, user.ID, MinPublicCollectionItems)
-
-	desc := strings.Repeat("d", MinPublicCollectionDescriptionChars)
-	pub := true
-	resp, err := suite.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
-		Description: &desc,
-		IsPublic:    &pub,
+		IsPublic: &pub,
 	})
 	suite.Require().NoError(err)
 	suite.Require().NotNil(resp)
 	suite.True(resp.IsPublic)
 }
 
-// TestUpdateCollection_PublicToPrivate_AlwaysAllowed: even when the
-// collection is below the gate (e.g., grandfathered), reverting to private
-// must succeed without re-running the gate.
+// TestUpdateCollection_PublicToPrivate_AlwaysAllowed: reverting a public
+// collection to private always succeeds, including for empty collections.
 func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PublicToPrivate_AlwaysAllowed() {
 	user := suite.createTestUser("UnpublishOwner")
-	// Grandfather a public-but-below-gate row directly.
-	priv := suite.createBareCollection(user, "Grandfathered")
-	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
-		Where("id = ?", priv.ID).
-		Update("is_public", true).Error)
+	pub := suite.createPublicCollection(user, "Initially Public")
 
-	pub := false
-	resp, err := suite.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
-		IsPublic: &pub,
+	makePrivate := false
+	resp, err := suite.collectionService.UpdateCollection(pub.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+		IsPublic: &makePrivate,
 	})
 	suite.Require().NoError(err)
 	suite.False(resp.IsPublic)
 }
 
-// TestUpdateCollection_GrandfatheredEditableWithoutGate: a public-but-below-
-// gate collection can still be edited (e.g., title change) without the patch
-// triggering gate validation.
-func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_GrandfatheredEditableWithoutGate() {
-	user := suite.createTestUser("GrandfatheredEditor")
-	priv := suite.createBareCollection(user, "Edit Me")
-	suite.Require().NoError(suite.db.Model(&communitym.Collection{}).
-		Where("id = ?", priv.ID).
-		Update("is_public", true).Error)
+// TestUpdateCollection_PublicEmptyEditable: an empty public collection can
+// be edited (e.g. title change) without restrictions.
+func (suite *CollectionServiceIntegrationTestSuite) TestUpdateCollection_PublicEmptyEditable() {
+	user := suite.createTestUser("EmptyPublicEditor")
+	pub := suite.createPublicCollection(user, "Edit Me")
 
 	newTitle := "Edited Title"
-	resp, err := suite.collectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
+	resp, err := suite.collectionService.UpdateCollection(pub.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
 		Title: &newTitle,
 	})
 	suite.Require().NoError(err)
 	suite.Equal("Edited Title", resp.Title)
-	suite.True(resp.IsPublic, "grandfathered row stays public")
+	suite.True(resp.IsPublic)
 }
 
-// TestCloneCollection_AutoPassesGateInBrowse: a clone inherits items +
-// description from the source, so it satisfies the gate without special-
-// casing in CloneCollection.
-func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_AutoPassesGateInBrowse() {
+// TestCloneCollection_VisibleInBrowse: a clone of a public collection is
+// itself public and appears in the browse listing.
+func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_VisibleInBrowse() {
 	owner := suite.createTestUser("CloneSource")
 	cloner := suite.createTestUser("Cloner")
 
@@ -2589,10 +2469,9 @@ func (suite *CollectionServiceIntegrationTestSuite) TestCloneCollection_AutoPass
 	suite.Require().NotNil(cloned)
 	suite.True(cloned.IsPublic)
 
-	// Both should appear in PublicOnly browse.
 	resp, total, err := suite.collectionService.ListCollections(contracts.CollectionFilters{PublicOnly: true}, 20, 0)
 	suite.Require().NoError(err)
-	suite.Equal(int64(2), total, "source + clone both pass the gate")
+	suite.Equal(int64(2), total, "source + clone both visible in browse")
 	suite.Len(resp, 2)
 }
 
