@@ -68,6 +68,22 @@ function isSessionExpiredError(error: unknown): boolean {
   )
 }
 
+// `useProfile` resolves its queryFn to a `UserProfile` shape — when the
+// user is logged out the payload is `{ success: false, ... }` rather than
+// an error. Used by the global error handlers below so a sibling query's
+// 401 doesn't re-invalidate a profile that already knows it's anonymous
+// (either via SSR seed from `prefetchAuthProfile` or a prior 401).
+function profileAlreadyKnowsAnonymous(
+  client: QueryClient | undefined
+): boolean {
+  if (!client) return false
+  const state = client.getQueryState(queryKeys.auth.profile)
+  if (!state) return false
+  if (state.status === 'error') return true
+  const data = state.data as { success?: boolean } | undefined
+  return data?.success === false
+}
+
 // Function to create query client (for use in provider)
 function makeQueryClient() {
   // Create caches with global error handlers
@@ -79,8 +95,14 @@ function makeQueryClient() {
       // again, creating an infinite cascade of clears and refetches.
       if (isSessionExpiredError(error)) {
         if (query.queryKey[0] !== 'auth' || query.queryKey[1] !== 'profile') {
-          const profileState = browserQueryClient?.getQueryState(queryKeys.auth.profile)
-          if (profileState?.status !== 'error') {
+          // Skip the invalidation if the profile cache already encodes
+          // the "logged out" answer — either as an error from a prior
+          // 401, or as the `{ success: false }` payload seeded by the
+          // SSR pre-hydration (PSY-834). Invalidating in that case
+          // turns the SSR-seeded cache into a wasted client refetch
+          // that races with the very auth-gated buttons the seed was
+          // meant to make safe.
+          if (!profileAlreadyKnowsAnonymous(browserQueryClient)) {
             browserQueryClient?.invalidateQueries({ queryKey: queryKeys.auth.profile })
           }
         }
@@ -93,8 +115,7 @@ function makeQueryClient() {
       // When a session expires during a mutation, invalidate profile to update
       // auth state. Same rationale as above — don't clear the entire cache.
       if (isSessionExpiredError(error)) {
-        const profileState = browserQueryClient?.getQueryState(queryKeys.auth.profile)
-        if (profileState?.status !== 'error') {
+        if (!profileAlreadyKnowsAnonymous(browserQueryClient)) {
           browserQueryClient?.invalidateQueries({ queryKey: queryKeys.auth.profile })
         }
       }

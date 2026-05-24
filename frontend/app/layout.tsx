@@ -47,6 +47,7 @@ import { JsonLd } from '@/components/seo/JsonLd'
 import { generateOrganizationSchema } from '@/lib/seo/jsonld'
 import { Analytics } from '@vercel/analytics/react'
 import { SpeedInsights } from '@vercel/speed-insights/next'
+import { prefetchAuthProfile } from '@/lib/auth-hydration'
 
 export const viewport: Viewport = {
   themeColor: [
@@ -81,11 +82,19 @@ export const metadata: Metadata = {
   },
 }
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode
 }>) {
+  // PSY-834: pre-seed /auth/profile so client useProfile() resolves from
+  // cache on first paint — fixes the race where hydrated pages render
+  // auth-gated buttons interactive before the client profile fetch
+  // settles, routing first-load clicks to /auth instead of the intended
+  // mutation. Helper handles the no-cookie / 401 / 5xx cases so an
+  // anonymous render is not an error path.
+  const authState = await prefetchAuthProfile()
+
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
@@ -98,7 +107,7 @@ export default function RootLayout({
       <body
         className={`${clashDisplay.variable} ${satoshi.variable} ${spaceMono.variable} antialiased`}
       >
-        <Providers>
+        <Providers authState={authState}>
           <ThemeProvider
             attribute="class"
             defaultTheme="system"
