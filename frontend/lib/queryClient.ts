@@ -1,10 +1,15 @@
-'use client'
-
 /**
  * TanStack Query Configuration
  *
  * This module configures TanStack Query with environment-aware settings
  * and provides query client utilities for the application.
+ *
+ * No `'use client'` directive: the module body is isomorphic so server
+ * components (e.g. `app/artists/[slug]/page.tsx`) can import
+ * `getQueryClient` for SSR prefetch + hydration. `getQueryClient` gates
+ * on `typeof window` to mint a fresh client per request on the server
+ * and reuse a singleton in the browser. The cache `onError` handlers
+ * read `browserQueryClient?.…` which safely short-circuits on the server.
  */
 
 import { QueryClient, DefaultOptions, QueryCache, MutationCache } from '@tanstack/react-query'

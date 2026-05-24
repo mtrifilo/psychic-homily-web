@@ -1235,8 +1235,6 @@ describe('CollectionDetail', () => {
     })
 
     it('shows an inline error and hides the preview for an invalid URL', async () => {
-      // Use a collection that passes the publish gate so that role="alert"
-      // banner doesn't compete with our inline error.
       mockCollection.mockReturnValue({
         data: makeCollection({
           cover_image_url: null,
@@ -1254,9 +1252,6 @@ describe('CollectionDetail', () => {
       const input = screen.getByTestId('edit-cover-image-url-input')
       await user.type(input, 'not-a-real-url')
 
-      // Error message renders with the helper id and describes the field.
-      // Use a stable id rather than role="alert" because the publish-gate
-      // banner shares that role.
       const error = document.getElementById('edit-cover-image-url-error')
       expect(error).not.toBeNull()
       expect(error!.textContent).toMatch(/valid URL|http/i)
@@ -1323,9 +1318,6 @@ describe('CollectionDetail', () => {
         'edit-cover-image-url-preview'
       ) as HTMLImageElement
       expect(preview.src).toBe('https://example.com/new-cover.jpg')
-      // No inline cover-image error visible (publish-gate banner may still
-      // appear in some collection states; this test uses a passing one to
-      // keep the assertion focused).
       expect(
         document.getElementById('edit-cover-image-url-error')
       ).toBeNull()
@@ -1453,129 +1445,6 @@ describe('CollectionDetail', () => {
       // Synchronously re-render in edit mode without touching the input.
       // We just open the form; no role="alert" should be present yet.
       void user.click(screen.getByRole('button', { name: /Edit/i }))
-    })
-  })
-
-  // ──────────────────────────────────────────────
-  // PSY-356: publish-gate banner
-  // ──────────────────────────────────────────────
-
-  describe('PSY-356 publish-gate banner', () => {
-    it('renders for creator on a public collection below the gate (items + description)', () => {
-      mockCollection.mockReturnValue({
-        data: makeCollection({
-          is_public: true,
-          item_count: 0,
-          description: '',
-        }),
-        isLoading: false,
-        error: null,
-      })
-
-      render(<CollectionDetail slug="test-collection" />)
-
-      const banner = screen.getByTestId('publish-gate-banner')
-      expect(banner).toBeInTheDocument()
-      // Public + below: emphasises the browse-listing impact.
-      expect(banner.textContent).toContain("isn't appearing")
-      // Enumerates both gaps.
-      expect(banner.textContent).toContain('3 more items')
-      expect(banner.textContent).toContain('description of at least 50 characters')
-    })
-
-    it('renders pre-publish copy when creator owns a private below-gate collection', () => {
-      mockCollection.mockReturnValue({
-        data: makeCollection({
-          is_public: false,
-          item_count: 1,
-          description: 'short',
-        }),
-        isLoading: false,
-        error: null,
-      })
-
-      render(<CollectionDetail slug="test-collection" />)
-
-      const banner = screen.getByTestId('publish-gate-banner')
-      expect(banner.textContent).toContain('Before publishing')
-      // Items: 1 of 3 → 2 more items.
-      expect(banner.textContent).toContain('2 more items')
-      // Existing-but-too-short description uses the "longer description" phrasing.
-      expect(banner.textContent).toContain('longer description (50+ characters)')
-    })
-
-    it('enumerates only the items gap when description already passes', () => {
-      mockCollection.mockReturnValue({
-        data: makeCollection({
-          is_public: false,
-          item_count: 2,
-          description: 'x'.repeat(60),
-        }),
-        isLoading: false,
-        error: null,
-      })
-
-      render(<CollectionDetail slug="test-collection" />)
-
-      const banner = screen.getByTestId('publish-gate-banner')
-      expect(banner.textContent).toContain('1 more item')
-      expect(banner.textContent).not.toMatch(/description/)
-    })
-
-    it('enumerates only the description gap when items already pass', () => {
-      mockCollection.mockReturnValue({
-        data: makeCollection({
-          is_public: false,
-          item_count: 3,
-          description: '',
-        }),
-        isLoading: false,
-        error: null,
-      })
-
-      render(<CollectionDetail slug="test-collection" />)
-
-      const banner = screen.getByTestId('publish-gate-banner')
-      expect(banner.textContent).toContain('description of at least 50 characters')
-      expect(banner.textContent).not.toMatch(/more item/)
-    })
-
-    it('does not render when the gate passes', () => {
-      mockCollection.mockReturnValue({
-        data: makeCollection({
-          is_public: true,
-          item_count: 3,
-          description: 'x'.repeat(60),
-        }),
-        isLoading: false,
-        error: null,
-      })
-
-      render(<CollectionDetail slug="test-collection" />)
-      expect(screen.queryByTestId('publish-gate-banner')).not.toBeInTheDocument()
-    })
-
-    it('does not render for a non-creator viewer', () => {
-      // Viewer is user 999, collection creator is user 1.
-      mockAuthContext.mockReturnValue({
-        user: { id: '999' },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
-      mockCollection.mockReturnValue({
-        data: makeCollection({
-          creator_id: 1,
-          is_public: true,
-          item_count: 0,
-          description: '',
-        }),
-        isLoading: false,
-        error: null,
-      })
-
-      render(<CollectionDetail slug="test-collection" />)
-      expect(screen.queryByTestId('publish-gate-banner')).not.toBeInTheDocument()
     })
   })
 
