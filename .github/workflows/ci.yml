@@ -169,14 +169,14 @@ jobs:
           cache-dependency-path: backend/go.sum
 
       - name: Run gated linters
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
           version: v2.12.2
           working-directory: backend
           args: --config=.golangci.yml
 
       - name: Run advisory linters
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         # Surface findings but never fail the job — the advisory backlog is
         # tracked separately and each linter graduates to .golangci.yml as it
         # gets cleaned up.
