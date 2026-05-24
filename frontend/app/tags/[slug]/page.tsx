@@ -19,17 +19,15 @@ interface TagPageProps {
 }
 
 /**
- * Fetch the enriched tag detail (GET /tags/{slug}/detail). PSY-485 originally
- * used the lightweight /tags/{slug} endpoint here on the theory that the
- * client component would refetch the enriched payload anyway. PSY-798 wires
- * `<HydrationBoundary>` for `useTagDetail`, which inverts the trade: a single
- * enriched server fetch now covers metadata + page render + client hydration,
- * so the lightweight call would just be wasted bytes.
+ * Fetch the enriched tag detail (GET /tags/{slug}/detail) — the same shape
+ * the client `useTagDetail` hook consumes. Server hydration eliminates the
+ * client refetch, so paying for the enriched shape once on the server is
+ * cheaper than the previous lightweight-metadata + client-enriched waterfall.
  *
  * Wrapped in `React.cache()` so `generateMetadata` and the page body share
- * one backend round-trip per request. Returns null for 404s (expected for
- * invalid slugs) — the page component uses that signal to call `notFound()`
- * for a hard HTTP 404 instead of a soft-404 (PSY-497).
+ * one round-trip per request. Returns null for 404s (expected for invalid
+ * slugs) so the page can call `notFound()` for a hard HTTP 404 rather than
+ * letting the client render a soft-404 that poisons SEO and monitoring.
  */
 const getTagDetail = cache(
   async (slug: string): Promise<TagEnrichedDetailResponse | null> => {
@@ -110,22 +108,18 @@ function TagLoadingFallback() {
 export default async function TagDetailPage({ params }: TagPageProps) {
   const { slug } = await params
 
-  // Server-side existence check: if the backend doesn't know this slug, call
-  // `notFound()` so Next.js returns HTTP 404 and renders the route's
-  // `not-found.tsx`. Without this, the client component would render a
-  // friendly "Tag Not Found" page but the response status stays 200 — a
-  // soft-404 that poisons SEO, monitoring, and crawlers (PSY-497).
+  // Server-side existence check: unknown slugs must return HTTP 404 so the
+  // route renders `not-found.tsx`. Without `notFound()` the client component
+  // would render a friendly "Tag Not Found" page at HTTP 200 — a soft-404
+  // that poisons SEO, monitoring, and crawlers.
   const tag = await getTagDetail(slug)
   if (!tag) {
     notFound()
   }
 
-  // Seed a request-scoped QueryClient with the enriched tag payload the
-  // server already fetched, then dehydrate so the client `useTagDetail` hook
-  // resolves from the cache instead of refetching. The queryFn returns the
-  // cached value synchronously — `cache()` above guarantees the network call
-  // has already happened, so this is a no-op cache write rather than a
-  // refetch.
+  // `cache()` above guarantees the network call already happened, so the
+  // sync `queryFn` is a no-op cache write that just seeds the dehydrated
+  // entry the client `useTagDetail` hook will pick up.
   const queryClient = getQueryClient()
   await queryClient.prefetchQuery({
     queryKey: queryKeys.tags.enrichedDetail(slug),

@@ -19,25 +19,24 @@ interface CollectionPageProps {
   params: Promise<{ slug: string }>
 }
 
-// PSY-551: forward the viewer's auth cookie so SSR sees the same view as the
-// browser. Private collections 404 to anonymous viewers (correct), but the
-// page route runs server-side and previously bypassed the /api proxy that
-// normally attaches the cookie — so private-but-owned collections rendered
-// 404 for their own creator. Mirrors the cookie-forward pattern in
-// app/api/[...path]/route.ts.
-//
-// PSY-798: wrapped with `React.cache()` so `generateMetadata` and the page
-// body share ONE backend fetch per request instead of two. The result also
-// seeds the TanStack Query cache via `prefetchQuery` below, eliminating the
-// client-side refetch on first paint. Same endpoint + same key as the client
-// `useCollection` hook, so the dehydrated entry resolves directly.
-//
-// Privacy: the backend `GetBySlug` enforces visibility (403 for unauthorized
-// access to private collections; mapped to HTTP 403). We treat any non-2xx
-// as null and fall through to `notFound()`, so the SSR payload only contains
-// data the viewer is authorized to see. Authenticated requests use
-// `cache: 'no-store'` to avoid cross-user cache pollution; anonymous
-// requests stay on ISR for public-collection performance.
+/**
+ * Forwards the viewer's auth cookie so SSR sees the same view as the
+ * browser — without this, owners of private collections would 404 on their
+ * own pages because the page route bypasses the /api proxy that normally
+ * attaches the cookie. Mirrors the cookie-forward pattern in
+ * app/api/[...path]/route.ts.
+ *
+ * Wrapped in `React.cache()` so `generateMetadata` and the page body share
+ * one round-trip per request; the same payload then hydrates the TanStack
+ * Query cache under `queryKeys.collections.detail(slug)` so the client
+ * `useCollection` hook resolves from cache instead of refetching.
+ *
+ * Privacy: backend `GetBySlug` returns 403 for unauthorized access to
+ * private collections; we treat any non-2xx as null and fall through to
+ * `notFound()`, so the SSR payload never contains data the viewer isn't
+ * authorized to see. Authenticated requests use `cache: 'no-store'` to
+ * avoid cross-user cache pollution; anonymous requests stay on ISR.
+ */
 const getCollection = cache(
   async (slug: string): Promise<CollectionDetailData | null> => {
     const cookieStore = await cookies()
@@ -126,12 +125,9 @@ export default async function CollectionPage({ params }: CollectionPageProps) {
     notFound()
   }
 
-  // Seed a request-scoped QueryClient with the collection payload the server
-  // already fetched, then dehydrate so the client `useCollection` hook
-  // resolves from the cache instead of refetching. The queryFn returns the
-  // cached value synchronously — `cache()` above guarantees the network call
-  // has already happened, so this is a no-op cache write rather than a
-  // refetch.
+  // `cache()` above guarantees the network call already happened, so the
+  // sync `queryFn` is a no-op cache write that just seeds the dehydrated
+  // entry the client `useCollection` hook will pick up.
   const queryClient = getQueryClient()
   await queryClient.prefetchQuery({
     queryKey: queryKeys.collections.detail(slug),
