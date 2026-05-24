@@ -81,11 +81,9 @@ import {
   getEntityTypeLabel,
   MAX_COLLECTION_MARKDOWN_LENGTH,
   MAX_COVER_IMAGE_URL_LENGTH,
-  MIN_PUBLIC_COLLECTION_ITEMS,
-  MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS,
   validateCoverImageUrl,
 } from '../types'
-import type { CollectionDisplayMode, CollectionItem, CollectionDetail as CollectionDetailType } from '../types'
+import type { CollectionDisplayMode, CollectionItem } from '../types'
 import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
 import { CollectionGraph } from './CollectionGraph'
 import { CollectionItemCard } from './CollectionItemCard'
@@ -99,7 +97,6 @@ import {
   ENTITY_SEARCH_UNAVAILABLE_MESSAGE,
 } from '@/lib/hooks/common/useEntitySearch'
 import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
-import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -223,55 +220,6 @@ function useAutoDismissError(
   }, [])
 
   return message
-}
-
-/**
- * PSY-356: curator-only banner shown on a collection's detail page when it
- * fails the public-visibility gate (>= 3 items AND >= 50-char description).
- * Copy enumerates only the missing pieces and changes wording based on
- * whether the collection is currently public (and thus dropped from browse)
- * or still private (and warned about pre-publish).
- *
- * Hidden when:
- *   - Caller is not the creator (other viewers should not see this).
- *   - The gate passes.
- */
-function PublishGateBanner({ collection }: { collection: CollectionDetailType }) {
-  const itemsBelow = collection.item_count < MIN_PUBLIC_COLLECTION_ITEMS
-  const descriptionLength = collection.description?.length ?? 0
-  const descBelow = descriptionLength < MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS
-  if (!itemsBelow && !descBelow) {
-    return null
-  }
-
-  const itemsNeeded = Math.max(0, MIN_PUBLIC_COLLECTION_ITEMS - collection.item_count)
-  const itemsClause =
-    itemsNeeded === 1
-      ? '1 more item'
-      : `${itemsNeeded} more items`
-  const descriptionClause =
-    descriptionLength === 0
-      ? `a description of at least ${MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS} characters`
-      : `a longer description (${MIN_PUBLIC_COLLECTION_DESCRIPTION_CHARS}+ characters)`
-
-  let needsCopy: string
-  if (itemsBelow && descBelow) {
-    needsCopy = `${itemsClause} and ${descriptionClause}`
-  } else if (itemsBelow) {
-    needsCopy = itemsClause
-  } else {
-    needsCopy = descriptionClause
-  }
-
-  const message = collection.is_public
-    ? `Below current quality standards — your collection isn't appearing in the public browse. Add ${needsCopy} to fix this.`
-    : `Before publishing, this collection needs ${needsCopy}. Public collections must meet these standards.`
-
-  return (
-    <Alert className="mb-4" data-testid="publish-gate-banner">
-      <AlertDescription>{message}</AlertDescription>
-    </Alert>
-  )
 }
 
 export function CollectionDetail({ slug }: CollectionDetailProps) {
@@ -856,9 +804,6 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
           isAuthenticated={isAuthenticated}
         />
       </div>
-
-      {/* PSY-356: publish-gate banner (creator-only) */}
-      {isCreator && <PublishGateBanner collection={collection} />}
 
       {/* PSY-555 (was PSY-366): collection graph (toggleable). Renders
           only when the user clicks "Explore graph" in the actions row.

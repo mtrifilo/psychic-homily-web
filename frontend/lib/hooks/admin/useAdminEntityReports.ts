@@ -113,12 +113,10 @@ export function useResolveEntityReport() {
 }
 
 /**
- * PSY-357: hide a collection from public browse by flipping `is_public` to
- * false via the existing admin-permitted PUT /collections/{slug} endpoint.
- *
- * The backend's UpdateCollection accepts an `is_admin` path so admins can
- * edit any collection, and PSY-356's publish-gate is forward-only — going
- * from public to private is unconditional. No new endpoint is required.
+ * Hide a collection from public browse by flipping `is_public` to false via
+ * the existing admin-permitted PUT /collections/{slug} endpoint. The
+ * backend's UpdateCollection accepts an `is_admin` path so admins can edit
+ * any collection. No new endpoint is required.
  *
  * Coupled with `useResolveEntityReport` at the call site so a single click
  * in the moderation queue both hides the collection AND clears the report

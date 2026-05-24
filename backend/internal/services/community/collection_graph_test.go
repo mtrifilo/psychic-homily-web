@@ -48,10 +48,8 @@ func (suite *CollectionServiceIntegrationTestSuite) seedArtistRelationship(a, b 
 	suite.Require().NoError(suite.db.Create(rel).Error)
 }
 
-// addArtistItemToCollection bypasses CreateCollection's quality gates by
-// inserting directly. The visibility gates only apply to UpdateCollection's
-// false→true transition, so this is safe for graph tests that need a public
-// collection with N artist items without satisfying the publish-gate.
+// addArtistItemToCollection inserts a collection_items row directly, used
+// by graph tests that build deterministic item sets.
 func (suite *CollectionServiceIntegrationTestSuite) addArtistItemToCollection(collectionID, artistID, addedByUserID uint) {
 	item := &communitym.CollectionItem{
 		CollectionID:  collectionID,
@@ -76,7 +74,7 @@ func (suite *CollectionServiceIntegrationTestSuite) addNonArtistItemToCollection
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PublicCollectionAnonymous() {
 	user := suite.createTestUser("GraphCreator")
-	coll := suite.createPublicCollection(user, "Graph Public") // already has 3 seed artists from gate
+	coll := suite.createPublicCollection(user, "Graph Public")
 	a1 := suite.createTestArtist("Alpha")
 	a2 := suite.createTestArtist("Bravo")
 	a3 := suite.createTestArtist("Charlie")
@@ -91,9 +89,8 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Publi
 	suite.Equal(coll.Slug, graph.Collection.Slug)
 	suite.Equal("Graph Public", graph.Collection.Name)
 
-	// 3 publish-gate seed artists + 3 named artists = 6 nodes total.
-	suite.Equal(6, graph.Collection.ArtistCount)
-	suite.Len(graph.Nodes, 6)
+	suite.Equal(3, graph.Collection.ArtistCount)
+	suite.Len(graph.Nodes, 3)
 	suite.Equal(1, graph.Collection.EdgeCount)
 	suite.Len(graph.Links, 1)
 
@@ -108,7 +105,7 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_Publi
 		}
 	}
 	suite.Equal(2, connected, "alpha + bravo are connected by shared_bills")
-	suite.Equal(4, isolated, "charlie + 3 publish-gate artists have no edges")
+	suite.Equal(1, isolated, "charlie has no edges")
 }
 
 func (suite *CollectionServiceIntegrationTestSuite) TestGetCollectionGraph_PrivateForbiddenForNonCreator() {
