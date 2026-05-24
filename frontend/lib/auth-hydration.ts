@@ -57,11 +57,11 @@ const UNAUTHENTICATED_PROFILE: AuthProfilePayload = {
 
 /**
  * Fetch `/auth/profile` server-side and hydrate the result into a
- * request-scoped QueryClient. Called once per request from the root
- * layout — `getQueryClient` returns a fresh client on the server, so
- * there's no cross-request cache leak. Wrapped in `React.cache()` so
- * multiple server components in the same render can call it without
- * triggering a duplicate backend fetch.
+ * request-scoped QueryClient. Called once per request from the
+ * `<AuthHydrator>` server component — `getQueryClient` returns a fresh
+ * client on the server, so there's no cross-request cache leak.
+ * Wrapped in `React.cache()` so multiple server components in the same
+ * render can call it without triggering a duplicate backend fetch.
  */
 export const prefetchAuthProfile = cache(
   async (): Promise<DehydratedState> => {
