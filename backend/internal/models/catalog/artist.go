@@ -19,6 +19,12 @@ type Artist struct {
 	SourceConfidence *float64   `json:"source_confidence,omitempty" gorm:"column:source_confidence;type:numeric(3,2)"`
 	LastVerifiedAt   *time.Time `json:"last_verified_at,omitempty" gorm:"column:last_verified_at"`
 
+	// Streaming discovery review state. Drives the admin worklist that walks
+	// artists missing music-platform links (spotify/bandcamp/youtube/soundcloud)
+	// and records the outcome of each review. CHECK-constrained at the DB.
+	StreamingDiscoveryStatus string  `json:"streaming_discovery_status" gorm:"column:streaming_discovery_status;size:32;not null;default:unreviewed"`
+	StreamingDiscoveryReason *string `json:"streaming_discovery_reason,omitempty" gorm:"column:streaming_discovery_reason;type:text"`
+
 	CreatedAt time.Time `gorm:"not null"`
 	UpdatedAt time.Time `gorm:"not null"`
 
