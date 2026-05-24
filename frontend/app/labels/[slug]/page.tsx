@@ -1,29 +1,26 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { LabelDetail } from '@/features/labels/components'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
+import type { LabelDetail as LabelDetailData } from '@/features/labels/types'
+import { API_BASE_URL } from '@/lib/api-base'
+import { queryKeys } from '@/lib/queryClient'
+import { prefetchEntity } from '@/lib/query-hydration'
 
 interface LabelPageProps {
   params: Promise<{ slug: string }>
 }
 
-interface LabelData {
-  name: string
-  slug?: string
-  city?: string | null
-  state?: string | null
-  status?: string
-}
-
-async function getLabel(slug: string): Promise<LabelData | null> {
+/**
+ * Wrapped with `React.cache()` so `generateMetadata` and the page body
+ * share ONE backend fetch per request instead of two. The result also
+ * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
+ * the client-side refetch on first paint.
+ */
+const getLabel = cache(async (slug: string): Promise<LabelDetailData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/labels/${slug}`, {
       next: { revalidate: 3600 },
@@ -46,7 +43,7 @@ async function getLabel(slug: string): Promise<LabelData | null> {
     })
   }
   return null
-}
+})
 
 export async function generateMetadata({
   params,
@@ -99,9 +96,16 @@ export default async function LabelPage({ params }: LabelPageProps) {
     notFound()
   }
 
+  const dehydratedState = await prefetchEntity(
+    queryKeys.labels.detail(slug),
+    labelData,
+  )
+
   return (
-    <Suspense fallback={<LabelLoadingFallback />}>
-      <LabelDetail idOrSlug={slug} />
-    </Suspense>
+    <HydrationBoundary state={dehydratedState}>
+      <Suspense fallback={<LabelLoadingFallback />}>
+        <LabelDetail idOrSlug={slug} />
+      </Suspense>
+    </HydrationBoundary>
   )
 }

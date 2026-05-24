@@ -3,18 +3,14 @@ import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
-import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { ArtistDetail } from '@/features/artists'
 import type { Artist } from '@/features/artists/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-import { getQueryClient, queryKeys } from '@/lib/queryClient'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
+import { API_BASE_URL } from '@/lib/api-base'
+import { queryKeys } from '@/lib/queryClient'
+import { prefetchEntity } from '@/lib/query-hydration'
 
 interface ArtistPageProps {
   params: Promise<{ slug: string }>
@@ -23,7 +19,7 @@ interface ArtistPageProps {
 /**
  * Wrapped with `React.cache()` so `generateMetadata` and the page body
  * share ONE backend fetch per request instead of two. The result also
- * seeds the TanStack Query cache via `prefetchQuery` below, eliminating
+ * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
  * the client-side refetch on first paint.
  */
 const getArtist = cache(async (slug: string): Promise<Artist | null> => {
@@ -98,16 +94,10 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFound()
   }
 
-  // Seed a request-scoped QueryClient with the artist payload the server
-  // already fetched, then dehydrate so the client `useArtist` hook resolves
-  // from the cache instead of refetching. The queryFn returns the cached
-  // value synchronously — `cache()` above guarantees the network call has
-  // already happened, so this is a no-op cache write rather than a refetch.
-  const queryClient = getQueryClient()
-  await queryClient.prefetchQuery({
-    queryKey: queryKeys.artists.detail(slug),
-    queryFn: () => artistData,
-  })
+  const dehydratedState = await prefetchEntity(
+    queryKeys.artists.detail(slug),
+    artistData,
+  )
 
   return (
     <>
@@ -126,7 +116,7 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
         { name: 'Artists', url: 'https://psychichomily.com/artists' },
         { name: artistData.name, url: `https://psychichomily.com/artists/${artistData.slug || slug}` },
       ])} />
-      <HydrationBoundary state={dehydrate(queryClient)}>
+      <HydrationBoundary state={dehydratedState}>
         <Suspense fallback={<ArtistLoadingFallback />}>
           <ArtistDetail artistId={slug} />
         </Suspense>

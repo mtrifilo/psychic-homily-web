@@ -3,6 +3,17 @@ import { withSentryConfig } from "@sentry/nextjs";
 import withBundleAnalyzer from "@next/bundle-analyzer";
 
 const nextConfig: NextConfig = {
+  // Cache Components is Next 16's successor to `experimental.ppr` and
+  // the supported way to enable Partial Prerendering. The legacy
+  // `experimental.ppr` config (boolean OR `'incremental'`) is a
+  // hard-deprecated config error in Next 16; `cacheComponents` is the
+  // only switch and enables PPR globally. Every route's static shell
+  // prerenders; anything wrapped in `<Suspense>` (here, `<AuthHydrator>`
+  // in the root layout) streams dynamically. Per-route ISR
+  // (`next: { revalidate: 3600 }` on the hydrated entity routes) is
+  // preserved because the route body — the part with the `fetch` cache
+  // hint — stays in the static shell.
+  cacheComponents: true,
   experimental: {
     // Optimize barrel imports for common libraries
     // Only list packages that are actually installed
