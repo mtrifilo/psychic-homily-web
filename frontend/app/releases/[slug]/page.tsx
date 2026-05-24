@@ -1,28 +1,26 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { ReleaseDetail } from '@/features/releases/components'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
+import type { ReleaseDetail as ReleaseDetailData } from '@/features/releases/types'
+import { API_BASE_URL } from '@/lib/api-base'
+import { queryKeys } from '@/lib/queryClient'
+import { prefetchEntity } from '@/lib/query-hydration'
 
 interface ReleasePageProps {
   params: Promise<{ slug: string }>
 }
 
-interface ReleaseData {
-  title: string
-  slug?: string
-  release_type?: string
-  release_year?: number | null
-}
-
-async function getRelease(slug: string): Promise<ReleaseData | null> {
+/**
+ * Wrapped with `React.cache()` so `generateMetadata` and the page body
+ * share ONE backend fetch per request instead of two. The result also
+ * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
+ * the client-side refetch on first paint.
+ */
+const getRelease = cache(async (slug: string): Promise<ReleaseDetailData | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/releases/${slug}`, {
       next: { revalidate: 3600 },
@@ -45,7 +43,7 @@ async function getRelease(slug: string): Promise<ReleaseData | null> {
     })
   }
   return null
-}
+})
 
 export async function generateMetadata({
   params,
@@ -97,9 +95,16 @@ export default async function ReleasePage({ params }: ReleasePageProps) {
     notFound()
   }
 
+  const dehydratedState = await prefetchEntity(
+    queryKeys.releases.detail(slug),
+    releaseData,
+  )
+
   return (
-    <Suspense fallback={<ReleaseLoadingFallback />}>
-      <ReleaseDetail idOrSlug={slug} />
-    </Suspense>
+    <HydrationBoundary state={dehydratedState}>
+      <Suspense fallback={<ReleaseLoadingFallback />}>
+        <ReleaseDetail idOrSlug={slug} />
+      </Suspense>
+    </HydrationBoundary>
   )
 }
