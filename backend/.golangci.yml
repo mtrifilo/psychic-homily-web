@@ -59,7 +59,6 @@ linters:
       # cleanup belongs in a typed-constants follow-up, not in this config.
       disable:
         - inline
-      enable-all: false
 
   # The PSY-760 placeholder. Un-comment + extend after that ticket ships.
   #
