@@ -1,9 +1,12 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import type { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
+import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
 import { TagDetail } from '@/features/tags/components'
+import type { TagEnrichedDetailResponse } from '@/features/tags/types'
+import { getQueryClient, queryKeys } from '@/lib/queryClient'
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -15,55 +18,51 @@ interface TagPageProps {
   params: Promise<{ slug: string }>
 }
 
-interface TagSummaryForMetadata {
-  name: string
-  slug?: string
-  category?: string
-  usage_count?: number
-}
-
 /**
- * Fetch tag metadata for the document head. We deliberately use the lightweight
- * GET /tags/{slug} endpoint (not /tags/{slug}/detail) because we only need
- * name + usage_count for the title/description; the enriched detail call has
- * extra cost for content the client component will fetch anyway. (PSY-485)
+ * Fetch the enriched tag detail (GET /tags/{slug}/detail). PSY-485 originally
+ * used the lightweight /tags/{slug} endpoint here on the theory that the
+ * client component would refetch the enriched payload anyway. PSY-798 wires
+ * `<HydrationBoundary>` for `useTagDetail`, which inverts the trade: a single
+ * enriched server fetch now covers metadata + page render + client hydration,
+ * so the lightweight call would just be wasted bytes.
  *
- * Returns null for 404s (expected for invalid slugs) — the page component
- * uses that signal to call `notFound()` and return a hard HTTP 404 instead
- * of a soft-404 (PSY-497).
+ * Wrapped in `React.cache()` so `generateMetadata` and the page body share
+ * one backend round-trip per request. Returns null for 404s (expected for
+ * invalid slugs) — the page component uses that signal to call `notFound()`
+ * for a hard HTTP 404 instead of a soft-404 (PSY-497).
  */
-async function getTagForMetadata(
-  slug: string
-): Promise<TagSummaryForMetadata | null> {
-  try {
-    const res = await fetch(`${API_BASE_URL}/tags/${slug}`, {
-      next: { revalidate: 3600 },
-    })
-    if (res.ok) {
-      return res.json()
-    }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Tag page metadata fetch error: ${res.status}`, {
+const getTagDetail = cache(
+  async (slug: string): Promise<TagEnrichedDetailResponse | null> => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/tags/${slug}/detail`, {
+        next: { revalidate: 3600 },
+      })
+      if (res.ok) {
+        return res.json()
+      }
+      if (res.status >= 500) {
+        Sentry.captureMessage(`Tag page fetch error: ${res.status}`, {
+          level: 'error',
+          tags: { service: 'tag-page' },
+          extra: { slug, status: res.status },
+        })
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
         level: 'error',
         tags: { service: 'tag-page' },
-        extra: { slug, status: res.status },
+        extra: { slug },
       })
     }
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
-      tags: { service: 'tag-page' },
-      extra: { slug },
-    })
+    return null
   }
-  return null
-}
+)
 
 export async function generateMetadata({
   params,
 }: TagPageProps): Promise<Metadata> {
   const { slug } = await params
-  const tag = await getTagForMetadata(slug)
+  const tag = await getTagDetail(slug)
 
   if (tag) {
     const usageCount = tag.usage_count ?? 0
@@ -116,19 +115,28 @@ export default async function TagDetailPage({ params }: TagPageProps) {
   // `not-found.tsx`. Without this, the client component would render a
   // friendly "Tag Not Found" page but the response status stays 200 — a
   // soft-404 that poisons SEO, monitoring, and crawlers (PSY-497).
-  //
-  // We rely on `getTagForMetadata` (already called during metadata
-  // generation) — but Next.js doesn't memoize across `generateMetadata` and
-  // the page component, so this second fetch is unavoidable. It hits
-  // `revalidate: 3600` cache in practice.
-  const tag = await getTagForMetadata(slug)
+  const tag = await getTagDetail(slug)
   if (!tag) {
     notFound()
   }
 
+  // Seed a request-scoped QueryClient with the enriched tag payload the
+  // server already fetched, then dehydrate so the client `useTagDetail` hook
+  // resolves from the cache instead of refetching. The queryFn returns the
+  // cached value synchronously — `cache()` above guarantees the network call
+  // has already happened, so this is a no-op cache write rather than a
+  // refetch.
+  const queryClient = getQueryClient()
+  await queryClient.prefetchQuery({
+    queryKey: queryKeys.tags.enrichedDetail(slug),
+    queryFn: () => tag,
+  })
+
   return (
-    <Suspense fallback={<TagLoadingFallback />}>
-      <TagDetail slug={slug} />
-    </Suspense>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <Suspense fallback={<TagLoadingFallback />}>
+        <TagDetail slug={slug} />
+      </Suspense>
+    </HydrationBoundary>
   )
 }
