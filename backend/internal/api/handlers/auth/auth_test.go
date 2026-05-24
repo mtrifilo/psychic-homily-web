@@ -1912,114 +1912,186 @@ func TestRecoverAccountHandler_Success(t *testing.T) {
 	}
 }
 
-func TestRecoverAccountHandler_UserNotFound(t *testing.T) {
-	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
-				return nil, nil // user not found
-			},
-		}
-	})
-
-	input := &RecoverAccountRequest{}
-	input.Body.Email = "nobody@example.com"
-	input.Body.Password = "password"
-
-	resp, err := h.RecoverAccountHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != autherrors.CodeInvalidCredentials {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
-	}
+// recoverAccountState models a soft-deleted-account lookup outcome for the
+// RecoverAccountHandler enumeration test (PSY-774).
+type recoverAccountState struct {
+	name string
+	user func(email string) (*authm.User, error)
 }
 
-func TestRecoverAccountHandler_AccountActive(t *testing.T) {
-	email := "active@example.com"
-	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &email, IsActive: true}, nil
-			},
-		}
-	})
-
-	input := &RecoverAccountRequest{}
-	input.Body.Email = email
-	input.Body.Password = "password"
-
-	resp, err := h.RecoverAccountHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
-	}
-	if resp.Body.ErrorCode != "ACCOUNT_ACTIVE" {
-		t.Errorf("expected error_code=ACCOUNT_ACTIVE, got %s", resp.Body.ErrorCode)
-	}
-}
-
-func TestRecoverAccountHandler_NotRecoverable(t *testing.T) {
-	email := "expired@example.com"
+// recoverAccountStates enumerates the pre-success states whose responses must
+// be indistinguishable: unknown email, active account, expired recovery
+// window, no-password account, and known-recoverable account with the wrong
+// password. All five must collapse to a single "Invalid credentials" body.
+func recoverAccountStates(email string) []recoverAccountState {
 	hash := "$2a$10$fakehash"
-	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &email, PasswordHash: &hash, IsActive: false}, nil
-			},
-			IsAccountRecoverableFn: func(user *authm.User) bool {
-				return false
-			},
+	return []recoverAccountState{
+		{name: "unknown_email", user: func(string) (*authm.User, error) { return nil, nil }},
+		{name: "active_account", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, IsActive: true}, nil
+		}},
+		{name: "expired_account", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, PasswordHash: &hash, IsActive: false}, nil
+		}},
+		{name: "no_password_account", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, IsActive: false}, nil
+		}},
+		{name: "wrong_password", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, PasswordHash: &hash, IsActive: false}, nil
+		}},
+	}
+}
+
+// TestRecoverAccountHandler_ResponseIdenticalAcrossAccountStates is the
+// PSY-774 regression guard: the response body must be byte-identical
+// regardless of account state, so the endpoint can't be used as an
+// existence/state oracle.
+func TestRecoverAccountHandler_ResponseIdenticalAcrossAccountStates(t *testing.T) {
+	email := "probe@example.com"
+
+	respFor := func(state recoverAccountState) RecoverAccountResponse {
+		h := authHandler(func(ah *AuthHandler) {
+			ah.userService = &testhelpers.MockUserService{
+				GetUserByEmailIncludingDeletedFn: state.user,
+				IsAccountRecoverableFn: func(user *authm.User) bool {
+					// Expired branch must collapse onto the same failure body.
+					return state.name != "expired_account"
+				},
+				VerifyPasswordFn: func(hashedPassword, password string) error {
+					return fmt.Errorf("bcrypt mismatch")
+				},
+			}
+		})
+		input := &RecoverAccountRequest{}
+		input.Body.Email = email
+		input.Body.Password = "any-password"
+		resp, err := h.RecoverAccountHandler(context.Background(), input)
+		if err != nil {
+			t.Fatalf("[%s] unexpected error: %v", state.name, err)
 		}
-	})
-
-	input := &RecoverAccountRequest{}
-	input.Body.Email = email
-	input.Body.Password = "password"
-
-	resp, err := h.RecoverAccountHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		return *resp
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
+
+	states := recoverAccountStates(email)
+	want := respFor(states[0])
+	if want.Body.Success {
+		t.Fatalf("expected success=false for enumeration-safe failure, got message=%q", want.Body.Message)
 	}
-	if resp.Body.ErrorCode != "ACCOUNT_NOT_RECOVERABLE" {
-		t.Errorf("expected error_code=ACCOUNT_NOT_RECOVERABLE, got %s", resp.Body.ErrorCode)
+	if want.Body.ErrorCode != autherrors.CodeInvalidCredentials {
+		t.Fatalf("expected error_code=%s, got %q", autherrors.CodeInvalidCredentials, want.Body.ErrorCode)
+	}
+	for _, state := range states[1:] {
+		got := respFor(state)
+		if got.Body != want.Body {
+			t.Errorf("response body for %s differs from %s:\n  got  %+v\n  want %+v",
+				state.name, states[0].name, got.Body, want.Body)
+		}
 	}
 }
 
 // --- RequestAccountRecoveryHandler mock tests ---
 
-func TestRequestAccountRecoveryHandler_Success(t *testing.T) {
-	email := "deleted@example.com"
+// requestRecoveryAccountState models a soft-deleted-account lookup outcome
+// for the RequestAccountRecoveryHandler enumeration test (PSY-774).
+type requestRecoveryAccountState struct {
+	name string
+	user func(email string) (*authm.User, error)
+}
+
+// requestRecoveryAccountStates enumerates the four post-lookup states whose
+// responses must be indistinguishable: unknown email, active account, expired
+// recovery window, and a recoverable account (which triggers a real send).
+func requestRecoveryAccountStates(email string) []requestRecoveryAccountState {
 	hash := "$2a$10$fakehash"
-	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &email, PasswordHash: &hash, IsActive: false}, nil
-			},
-			IsAccountRecoverableFn: func(user *authm.User) bool {
-				return true
-			},
-			GetDaysUntilPermanentDeletionFn: func(user *authm.User) int {
-				return 20
-			},
+	return []requestRecoveryAccountState{
+		{name: "unknown_email", user: func(string) (*authm.User, error) { return nil, nil }},
+		{name: "active_account", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, IsActive: true}, nil
+		}},
+		{name: "expired_account", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, PasswordHash: &hash, IsActive: false}, nil
+		}},
+		{name: "recoverable_account", user: func(e string) (*authm.User, error) {
+			return &authm.User{ID: 1, Email: &e, PasswordHash: &hash, IsActive: false}, nil
+		}},
+	}
+}
+
+// TestRequestAccountRecoveryHandler_ResponseIdenticalAcrossAccountStates is
+// the PSY-774 regression guard: the response body must be byte-identical
+// regardless of whether the email is unknown, registered-active,
+// registered-expired, or registered-recoverable, so the endpoint can't be
+// used as an account-existence/recoverability oracle.
+func TestRequestAccountRecoveryHandler_ResponseIdenticalAcrossAccountStates(t *testing.T) {
+	email := "probe@example.com"
+
+	respFor := func(state requestRecoveryAccountState) RequestAccountRecoveryResponse {
+		h := authHandler(func(ah *AuthHandler) {
+			ah.emailService = &testhelpers.MockEmailService{
+				IsConfiguredFn:             func() bool { return true },
+				SendAccountRecoveryEmailFn: func(string, string, int) error { return nil },
+			}
+			ah.userService = &testhelpers.MockUserService{
+				GetUserByEmailIncludingDeletedFn: state.user,
+				IsAccountRecoverableFn: func(user *authm.User) bool {
+					// Expired branch must collapse onto the generic success body.
+					return state.name != "expired_account"
+				},
+				GetDaysUntilPermanentDeletionFn: func(*authm.User) int { return 20 },
+			}
+			ah.jwtService = &testhelpers.MockJWTService{
+				CreateAccountRecoveryTokenFn: func(uint, string) (string, error) { return "recovery-token", nil },
+			}
+		})
+		input := &RequestAccountRecoveryRequest{}
+		input.Body.Email = email
+		resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
+		if err != nil {
+			t.Fatalf("[%s] unexpected error: %v", state.name, err)
 		}
+		return *resp
+	}
+
+	states := requestRecoveryAccountStates(email)
+	want := respFor(states[0])
+	if !want.Body.Success {
+		t.Fatalf("expected success=true for enumeration-safe response, got message=%q", want.Body.Message)
+	}
+	if want.Body.ErrorCode != "" {
+		t.Fatalf("expected empty error_code, got %q", want.Body.ErrorCode)
+	}
+	for _, state := range states[1:] {
+		got := respFor(state)
+		if got.Body != want.Body {
+			t.Errorf("response body for %s differs from %s:\n  got  %+v\n  want %+v",
+				state.name, states[0].name, got.Body, want.Body)
+		}
+	}
+}
+
+// TestRequestAccountRecoveryHandler_RecoverableSendsEmail asserts the side
+// effect: a recoverable account triggers a real recovery email (PSY-774).
+func TestRequestAccountRecoveryHandler_RecoverableSendsEmail(t *testing.T) {
+	email := "recoverable@example.com"
+	hash := "$2a$10$fakehash"
+	var recoverySent bool
+	h := authHandler(func(ah *AuthHandler) {
 		ah.emailService = &testhelpers.MockEmailService{
 			IsConfiguredFn: func() bool { return true },
 			SendAccountRecoveryEmailFn: func(toEmail, token string, daysRemaining int) error {
+				recoverySent = true
 				return nil
 			},
 		}
-		ah.jwtService = &testhelpers.MockJWTService{
-			CreateAccountRecoveryTokenFn: func(userID uint, e string) (string, error) {
-				return "recovery-token", nil
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
+				return &authm.User{ID: 1, Email: &e, PasswordHash: &hash, IsActive: false}, nil
 			},
+			IsAccountRecoverableFn:          func(*authm.User) bool { return true },
+			GetDaysUntilPermanentDeletionFn: func(*authm.User) int { return 20 },
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateAccountRecoveryTokenFn: func(uint, string) (string, error) { return "recovery-token", nil },
 		}
 	})
 
@@ -2031,19 +2103,28 @@ func TestRequestAccountRecoveryHandler_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if !resp.Body.Success {
-		t.Errorf("expected success=true, got message=%q", resp.Body.Message)
+		t.Error("expected success=true")
 	}
-	if resp.Body.DaysRemaining != 20 {
-		t.Errorf("expected days_remaining=20, got %d", resp.Body.DaysRemaining)
+	if !recoverySent {
+		t.Error("expected recovery email to be sent for recoverable account")
 	}
 }
 
-func TestRequestAccountRecoveryHandler_UserNotFound(t *testing.T) {
+// TestRequestAccountRecoveryHandler_UnknownDoesNotSend asserts an unknown
+// email triggers NO email send — the response stays generic but no side
+// effect leaks downstream (PSY-774).
+func TestRequestAccountRecoveryHandler_UnknownDoesNotSend(t *testing.T) {
+	var recoverySent bool
 	h := authHandler(func(ah *AuthHandler) {
-		ah.userService = &testhelpers.MockUserService{
-			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
-				return nil, nil
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
+			SendAccountRecoveryEmailFn: func(string, string, int) error {
+				recoverySent = true
+				return nil
 			},
+		}
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(string) (*authm.User, error) { return nil, nil },
 		}
 	})
 
@@ -2054,19 +2135,35 @@ func TestRequestAccountRecoveryHandler_UserNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	// Should return success to prevent email enumeration
 	if !resp.Body.Success {
 		t.Error("expected success=true (silent failure)")
 	}
+	if recoverySent {
+		t.Error("expected NO recovery email for unknown user")
+	}
 }
 
-func TestRequestAccountRecoveryHandler_AccountActive(t *testing.T) {
-	email := "active@example.com"
+// TestRequestAccountRecoveryHandler_SendFailureStaysGeneric asserts that a
+// downstream send failure for a recoverable account does NOT change the
+// response — otherwise the failure response would leak account state
+// (PSY-774).
+func TestRequestAccountRecoveryHandler_SendFailureStaysGeneric(t *testing.T) {
+	email := "recoverable@example.com"
+	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn:             func() bool { return true },
+			SendAccountRecoveryEmailFn: func(string, string, int) error { return fmt.Errorf("send exploded") },
+		}
 		ah.userService = &testhelpers.MockUserService{
 			GetUserByEmailIncludingDeletedFn: func(e string) (*authm.User, error) {
-				return &authm.User{ID: 1, Email: &email, IsActive: true}, nil
+				return &authm.User{ID: 1, Email: &e, PasswordHash: &hash, IsActive: false}, nil
 			},
+			IsAccountRecoverableFn:          func(*authm.User) bool { return true },
+			GetDaysUntilPermanentDeletionFn: func(*authm.User) int { return 20 },
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateAccountRecoveryTokenFn: func(uint, string) (string, error) { return "recovery-token", nil },
 		}
 	})
 
@@ -2077,11 +2174,11 @@ func TestRequestAccountRecoveryHandler_AccountActive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if resp.Body.Success {
-		t.Error("expected success=false")
+	if !resp.Body.Success {
+		t.Error("expected success=true even when send fails (no enumeration leak)")
 	}
-	if resp.Body.ErrorCode != "ACCOUNT_ACTIVE" {
-		t.Errorf("expected error_code=ACCOUNT_ACTIVE, got %s", resp.Body.ErrorCode)
+	if resp.Body.ErrorCode != "" {
+		t.Errorf("expected empty error_code on send failure, got %q", resp.Body.ErrorCode)
 	}
 }
 

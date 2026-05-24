@@ -698,6 +698,9 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_Success() {
 	s.True(updated.IsActive)
 }
 
+// TestRecoverAccount_AccountActive: PSY-774 — an active account must
+// collapse to the same "Invalid credentials" body as an unknown email so
+// the endpoint can't be used as an existence/state oracle.
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_AccountActive() {
 	h := s.newAuthHandler(false)
 	s.createUserWithPassword("recover-active@test.com", "strong-password-123!")
@@ -709,9 +712,11 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_AccountActive() {
 	resp, err := h.RecoverAccountHandler(context.Background(), input)
 	s.Require().NoError(err)
 	s.False(resp.Body.Success)
-	s.Equal("ACCOUNT_ACTIVE", resp.Body.ErrorCode)
+	s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 }
 
+// TestRecoverAccount_Expired: PSY-774 — an expired recovery window must
+// collapse to "Invalid credentials" too (was ACCOUNT_NOT_RECOVERABLE).
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_Expired() {
 	h := s.newAuthHandler(false)
 	user := s.createUserWithPassword("recover-exp@test.com", "strong-password-123!")
@@ -724,7 +729,7 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_Expired() {
 	resp, err := h.RecoverAccountHandler(context.Background(), input)
 	s.Require().NoError(err)
 	s.False(resp.Body.Success)
-	s.Equal("ACCOUNT_NOT_RECOVERABLE", resp.Body.ErrorCode)
+	s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 }
 
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_WrongPassword() {
@@ -742,6 +747,8 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_WrongPassword() {
 	s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 }
 
+// TestRecoverAccount_NoPassword: PSY-774 — OAuth-only accounts must
+// collapse to "Invalid credentials" too (was NO_PASSWORD).
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_NoPassword() {
 	h := s.newAuthHandler(false)
 	// Create an OAuth-only user, then soft-delete
@@ -755,7 +762,7 @@ func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_NoPassword() {
 	resp, err := h.RecoverAccountHandler(context.Background(), input)
 	s.Require().NoError(err)
 	s.False(resp.Body.Success)
-	s.Equal("NO_PASSWORD", resp.Body.ErrorCode)
+	s.Equal(autherrors.CodeInvalidCredentials, resp.Body.ErrorCode)
 }
 
 func (s *AuthHandlerIntegrationSuite) TestRecoverAccount_UserNotFound() {
@@ -784,6 +791,9 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_UserNotFound() {
 	s.True(resp.Body.Success) // enumeration prevention
 }
 
+// TestRequestRecovery_AccountActive: PSY-774 — an active account must
+// collapse to the same generic "if eligible, sent" response as an unknown
+// email so the endpoint can't be used as an account-state oracle.
 func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_AccountActive() {
 	h := s.newAuthHandler(true)
 	s.createUserWithPassword("req-active@test.com", "strong-password-123!")
@@ -793,11 +803,12 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_AccountActive() {
 
 	resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
 	s.Require().NoError(err)
-	s.False(resp.Body.Success)
-	s.Equal("ACCOUNT_ACTIVE", resp.Body.ErrorCode)
-	s.True(resp.Body.HasPassword)
+	s.True(resp.Body.Success)
+	s.Empty(resp.Body.ErrorCode)
 }
 
+// TestRequestRecovery_Expired: PSY-774 — an expired recovery window must
+// also collapse to the generic success body (was ACCOUNT_NOT_RECOVERABLE).
 func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_Expired() {
 	h := s.newAuthHandler(true)
 	user := s.createUserWithPassword("req-exp@test.com", "strong-password-123!")
@@ -808,10 +819,13 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_Expired() {
 
 	resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
 	s.Require().NoError(err)
-	s.False(resp.Body.Success)
-	s.Equal("ACCOUNT_NOT_RECOVERABLE", resp.Body.ErrorCode)
+	s.True(resp.Body.Success)
+	s.Empty(resp.Body.ErrorCode)
 }
 
+// TestRequestRecovery_EmailNotConfigured: pre-lookup config error fires for
+// every caller regardless of account state, so SERVICE_UNAVAILABLE is not
+// an existence oracle.
 func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_EmailNotConfigured() {
 	h := s.newAuthHandler(false) // email NOT configured
 	user := s.createUserWithPassword("req-nomail@test.com", "strong-password-123!")
@@ -826,6 +840,9 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_EmailNotConfigured() {
 	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 }
 
+// TestRequestRecovery_SendFails: PSY-774 — a downstream send failure for a
+// recoverable account must NOT change the response, otherwise the failure
+// itself leaks account existence.
 func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_SendFails() {
 	h := s.newAuthHandler(true) // email configured but fake API key
 	user := s.createUserWithPassword("req-fail@test.com", "strong-password-123!")
@@ -836,8 +853,8 @@ func (s *AuthHandlerIntegrationSuite) TestRequestRecovery_SendFails() {
 
 	resp, err := h.RequestAccountRecoveryHandler(context.Background(), input)
 	s.Require().NoError(err)
-	s.False(resp.Body.Success)
-	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	s.True(resp.Body.Success)
+	s.Empty(resp.Body.ErrorCode)
 }
 
 // --- ConfirmAccountRecoveryHandler ---
