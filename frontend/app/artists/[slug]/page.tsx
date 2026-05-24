@@ -1,11 +1,14 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
+import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
 import { ArtistDetail } from '@/features/artists'
+import type { Artist } from '@/features/artists/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { getQueryClient, queryKeys } from '@/lib/queryClient'
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -17,15 +20,13 @@ interface ArtistPageProps {
   params: Promise<{ slug: string }>
 }
 
-interface ArtistData {
-  name: string
-  slug?: string
-  city?: string | null
-  state?: string | null
-  social?: Record<string, string | null>
-}
-
-async function getArtist(slug: string): Promise<ArtistData | null> {
+/**
+ * Wrapped with `React.cache()` so `generateMetadata` and the page body
+ * share ONE backend fetch per request instead of two. The result also
+ * seeds the TanStack Query cache via `prefetchQuery` below, eliminating
+ * the client-side refetch on first paint.
+ */
+const getArtist = cache(async (slug: string): Promise<Artist | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/artists/${slug}`, {
       next: { revalidate: 3600 },
@@ -48,7 +49,7 @@ async function getArtist(slug: string): Promise<ArtistData | null> {
     })
   }
   return null
-}
+})
 
 export async function generateMetadata({ params }: ArtistPageProps): Promise<Metadata> {
   const { slug } = await params
@@ -97,6 +98,17 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFound()
   }
 
+  // Seed a request-scoped QueryClient with the artist payload the server
+  // already fetched, then dehydrate so the client `useArtist` hook resolves
+  // from the cache instead of refetching. The queryFn returns the cached
+  // value synchronously — `cache()` above guarantees the network call has
+  // already happened, so this is a no-op cache write rather than a refetch.
+  const queryClient = getQueryClient()
+  await queryClient.prefetchQuery({
+    queryKey: queryKeys.artists.detail(slug),
+    queryFn: () => artistData,
+  })
+
   return (
     <>
       <JsonLd data={generateMusicGroupSchema({
@@ -104,16 +116,21 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
         slug: artistData.slug || slug,
         city: artistData.city,
         state: artistData.state,
-        social: artistData.social,
+        // `ArtistSocial` is a struct of named optional fields; spread into a
+        // plain object so it satisfies the schema helper's index-signature
+        // parameter type without changing the cross-feature type.
+        social: { ...artistData.social },
       })} />
       <JsonLd data={generateBreadcrumbSchema([
         { name: 'Home', url: 'https://psychichomily.com' },
         { name: 'Artists', url: 'https://psychichomily.com/artists' },
         { name: artistData.name, url: `https://psychichomily.com/artists/${artistData.slug || slug}` },
       ])} />
-      <Suspense fallback={<ArtistLoadingFallback />}>
-        <ArtistDetail artistId={slug} />
-      </Suspense>
+      <HydrationBoundary state={dehydrate(queryClient)}>
+        <Suspense fallback={<ArtistLoadingFallback />}>
+          <ArtistDetail artistId={slug} />
+        </Suspense>
+      </HydrationBoundary>
     </>
   )
 }
