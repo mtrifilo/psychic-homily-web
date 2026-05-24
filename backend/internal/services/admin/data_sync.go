@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -386,7 +387,7 @@ func (s *DataSyncService) importArtist(artist *contracts.ExportedArtist, dryRun 
 			s.db.Model(&existing).Update("slug", slug)
 		}
 		return fmt.Sprintf("DUPLICATE: Artist '%s' already exists (ID: %d)", artist.Name, existing.ID), "duplicate"
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Sprintf("ERROR: Failed to check artist '%s': %v", artist.Name, err), "error"
 	}
 
@@ -448,7 +449,7 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 			s.db.Model(&existing).Update("slug", slug)
 		}
 		return fmt.Sprintf("DUPLICATE: Venue '%s' in %s already exists (ID: %d)", venue.Name, venue.City, existing.ID), "duplicate"
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Sprintf("ERROR: Failed to check venue '%s': %v", venue.Name, err), "error"
 	}
 
@@ -527,7 +528,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			}
 			return fmt.Sprintf("DUPLICATE: Show '%s' at %s on %s already exists (ID: %d)",
 				show.Title, venueName, eventDate.Format("2006-01-02"), existingShow.ID), "duplicate"
-		} else if err != gorm.ErrRecordNotFound {
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Sprintf("ERROR: Failed to check show '%s': %v", show.Title, err), "error"
 		}
 	}
@@ -601,7 +602,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 			var venue catalogm.Venue
 			err := tx.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)",
 				exportedVenue.Name, exportedVenue.City).First(&venue).Error
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				// Create venue with slug
 				venueBaseSlug := utils.GenerateVenueSlug(exportedVenue.Name, exportedVenue.City, exportedVenue.State)
 				venueSlug := utils.GenerateUniqueSlug(venueBaseSlug, func(candidate string) bool {
@@ -657,7 +658,7 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 		for _, exportedArtist := range show.Artists {
 			var artist catalogm.Artist
 			err := tx.Where("LOWER(name) = LOWER(?)", exportedArtist.Name).First(&artist).Error
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				// Create artist with slug
 				artistBaseSlug := utils.GenerateArtistSlug(exportedArtist.Name)
 				artistSlug := utils.GenerateUniqueSlug(artistBaseSlug, func(candidate string) bool {

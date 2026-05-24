@@ -184,7 +184,6 @@ func (suite *CollectionServiceIntegrationTestSuite) createPublicCollection(user 
 	return resp
 }
 
-
 func strPtrCollection(s string) *string {
 	return &s
 }

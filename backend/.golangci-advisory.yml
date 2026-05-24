@@ -25,7 +25,3 @@ linters:
     # 474 violations. Large legacy backlog (dropped resp.Body.Close, bcrypt
     # compares, etc.); needs its own ticket.
     - errcheck
-    # 205 violations. PSY-762 will codemod the err == sentinel sites; the
-    # follow-up to PSY-762 will flip this linter from advisory to gated by
-    # moving it into .golangci.yml.
-    - errorlint

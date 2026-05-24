@@ -6,8 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stretchr/testify/assert"
 	authm "psychic-homily-backend/internal/models/auth"
+
+	"github.com/stretchr/testify/assert"
 )
 
 // stubUserService is a minimal stub for cleanup tests.

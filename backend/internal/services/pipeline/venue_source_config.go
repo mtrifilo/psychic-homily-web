@@ -1,6 +1,7 @@
 package pipeline
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -37,7 +38,7 @@ func (s *VenueSourceConfigService) GetByVenueID(venueID uint) (*adminm.VenueSour
 	var config adminm.VenueSourceConfig
 	err := s.db.Where("venue_id = ?", venueID).First(&config).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get venue source config: %w", err)

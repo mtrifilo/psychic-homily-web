@@ -14,6 +14,10 @@ import (
 	"psychic-homily-backend/internal/seeddata"
 	"psychic-homily-backend/internal/utils"
 
+	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
+
 	"github.com/goccy/go-yaml"
 	"github.com/joho/godotenv"
 	"golang.org/x/crypto/bcrypt"
@@ -21,9 +25,6 @@ import (
 	"golang.org/x/text/language"
 	"gorm.io/gorm"
 	"gorm.io/gorm/clause"
-	authm "psychic-homily-backend/internal/models/auth"
-	catalogm "psychic-homily-backend/internal/models/catalog"
-	engagementm "psychic-homily-backend/internal/models/engagement"
 )
 
 type VenueData struct {
@@ -256,7 +257,7 @@ func parseShowFrontmatter(data []byte) (ShowData, error) {
 	var show ShowData
 	err := yaml.Unmarshal([]byte(parts[1]), &show)
 	if err != nil {
-		return ShowData{}, fmt.Errorf("failed to parse YAML: %v", err)
+		return ShowData{}, fmt.Errorf("failed to parse YAML: %w", err)
 	}
 
 	return show, nil
@@ -266,7 +267,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 	// Parse event date and convert to UTC
 	eventDate, err := time.Parse("2006-01-02T15:04:05-07:00", showData.EventDate)
 	if err != nil {
-		return fmt.Errorf("failed to parse event date: %v", err)
+		return fmt.Errorf("failed to parse event date: %w", err)
 	}
 
 	// Convert to UTC for database storage
@@ -309,7 +310,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 	return db.Transaction(func(tx *gorm.DB) error {
 		// Create the show
 		if err := tx.Create(show).Error; err != nil {
-			return fmt.Errorf("failed to create show: %v", err)
+			return fmt.Errorf("failed to create show: %w", err)
 		}
 
 		// Associate venues. Track the lowest venue.ID for the
@@ -338,7 +339,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 				VenueID: venue.ID,
 			}
 			if err := tx.Create(&showVenue).Error; err != nil {
-				return fmt.Errorf("failed to create show-venue association: %v", err)
+				return fmt.Errorf("failed to create show-venue association: %w", err)
 			}
 
 			if primaryVenueID == nil || venue.ID < *primaryVenueID {
@@ -384,7 +385,7 @@ func createShowWithAssociations(db *gorm.DB, showData ShowData) error {
 				VenueID:   primaryVenueID,
 			}
 			if err := tx.Create(&showArtist).Error; err != nil {
-				return fmt.Errorf("failed to create show-artist association: %v", err)
+				return fmt.Errorf("failed to create show-artist association: %w", err)
 			}
 		}
 

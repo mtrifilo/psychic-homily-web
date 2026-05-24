@@ -2,6 +2,7 @@ package user
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -843,8 +844,8 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithPassword_Duplica
 	suite.Nil(user)
 
 	// Verify it's the right error type
-	authErr, ok := err.(*apperrors.AuthError)
-	suite.Require().True(ok)
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr))
 	suite.Equal(apperrors.CodeUserExists, authErr.Code)
 }
 
@@ -909,8 +910,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_WrongPassword() {
 
 	suite.Require().Error(err)
 	suite.Nil(user)
-	authErr, ok := err.(*apperrors.AuthError)
-	suite.Require().True(ok)
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr))
 	suite.Equal(apperrors.CodeInvalidCredentials, authErr.Code)
 
 	// Verify failed attempts were incremented
@@ -926,8 +927,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_NonexistentEmail(
 
 	suite.Require().Error(err)
 	suite.Nil(user)
-	authErr, ok := err.(*apperrors.AuthError)
-	suite.Require().True(ok)
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr))
 	suite.Equal(apperrors.CodeInvalidCredentials, authErr.Code)
 }
 
@@ -942,8 +943,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_OAuthOnlyUser() {
 
 	suite.Require().Error(err)
 	suite.Nil(user)
-	authErr, ok := err.(*apperrors.AuthError)
-	suite.Require().True(ok)
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr))
 	suite.Equal(apperrors.CodeInvalidCredentials, authErr.Code)
 }
 
@@ -967,8 +968,8 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_LockedAccount() {
 
 	suite.Require().Error(err)
 	suite.Nil(user)
-	authErr, ok := err.(*apperrors.AuthError)
-	suite.Require().True(ok)
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr))
 	suite.Equal(apperrors.CodeAccountLocked, authErr.Code)
 }
 
@@ -1081,8 +1082,8 @@ func (suite *UserServiceIntegrationTestSuite) TestUpdatePassword_WrongCurrent() 
 	err = suite.userService.UpdatePassword(user.ID, "WrongOld!", "NewPassword2!")
 	suite.Require().Error(err)
 
-	authErr, ok := err.(*apperrors.AuthError)
-	suite.Require().True(ok)
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr))
 	suite.Equal(apperrors.CodeInvalidCredentials, authErr.Code)
 }
 
@@ -1367,8 +1368,8 @@ func (suite *UserServiceIntegrationTestSuite) TestCreateUserWithoutPassword_Dupl
 	suite.Require().Error(err)
 	suite.Nil(user)
 
-	authErr, ok := err.(*apperrors.AuthError)
-	suite.Require().True(ok)
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr))
 	suite.Equal(apperrors.CodeUserExists, authErr.Code)
 }
 

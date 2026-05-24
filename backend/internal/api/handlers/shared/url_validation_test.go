@@ -339,7 +339,8 @@ func TestURLSchemeError_RejectsNonHTTPScheme(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for javascript: scheme, got nil")
 	}
-	if _, isHuma := err.(huma.StatusError); isHuma {
+	var isHuma huma.StatusError
+	if errors.As(err, &isHuma) {
 		t.Errorf("expected a plain error (not huma StatusError), got: %T", err)
 	}
 }

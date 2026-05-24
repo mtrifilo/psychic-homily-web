@@ -110,9 +110,9 @@ func TestValidateHTTPURL(t *testing.T) {
 			errSubstr: "host",
 		},
 		{
-			name:      "empty scheme with host-like value",
-			input:     "://example.com",
-			wantErr:   true,
+			name:    "empty scheme with host-like value",
+			input:   "://example.com",
+			wantErr: true,
 		},
 		{
 			name:      "scheme-relative URL",

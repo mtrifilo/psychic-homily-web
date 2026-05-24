@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -101,7 +102,7 @@ func (s *RevisionService) GetRevision(revisionID uint) (*adminm.Revision, error)
 	var revision adminm.Revision
 	err := s.db.Preload("User").First(&revision, revisionID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get revision: %w", err)

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -407,7 +408,7 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		return existing.ID, false, nil
 	}
 
-	if err != gorm.ErrRecordNotFound {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, false, fmt.Errorf("checking existing show by external_id: %w", err)
 	}
 
@@ -426,7 +427,7 @@ func (s *RadioService) upsertRadioShow(stationID uint, importShow RadioShowImpor
 		return existing.ID, false, nil
 	}
 
-	if err != gorm.ErrRecordNotFound {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return 0, false, fmt.Errorf("checking existing show by slug: %w", err)
 	}
 
@@ -488,7 +489,7 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		// Episode already exists — skip to avoid duplicates
 		return &contracts.EpisodeImportResult{}, nil
 	}
-	if err != gorm.ErrRecordNotFound {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("checking existing episode: %w", err)
 	}
 

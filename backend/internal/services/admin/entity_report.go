@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -108,7 +109,7 @@ func (s *EntityReportService) GetEntityReport(reportID uint) (*contracts.EntityR
 	var report communitym.EntityReport
 	err := s.db.Preload("Reporter").Preload("Reviewer").First(&report, reportID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to get entity report: %w", err))
@@ -190,7 +191,7 @@ func (s *EntityReportService) ResolveEntityReport(reportID uint, reviewerID uint
 
 	var report communitym.EntityReport
 	if err := s.db.First(&report, reportID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrEntityReportNotFound()
 		}
 		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to get report: %w", err))
@@ -225,7 +226,7 @@ func (s *EntityReportService) DismissEntityReport(reportID uint, reviewerID uint
 
 	var report communitym.EntityReport
 	if err := s.db.First(&report, reportID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrEntityReportNotFound()
 		}
 		return nil, apperrors.ErrEntityReportInternal(fmt.Errorf("failed to get report: %w", err))

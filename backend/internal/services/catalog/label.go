@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -87,7 +88,7 @@ func (s *LabelService) GetLabel(labelID uint) (*contracts.LabelDetailResponse, e
 	var label catalogm.Label
 	err := s.db.First(&label, labelID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrLabelNotFound(labelID)
 		}
 		return nil, fmt.Errorf("failed to get label: %w", err)
@@ -105,7 +106,7 @@ func (s *LabelService) GetLabelBySlug(slug string) (*contracts.LabelDetailRespon
 	var label catalogm.Label
 	err := s.db.Where("slug = ?", slug).First(&label).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrLabelNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get label: %w", err)
@@ -309,7 +310,7 @@ func (s *LabelService) UpdateLabel(labelID uint, req *contracts.UpdateLabelReque
 	var label catalogm.Label
 	err := s.db.First(&label, labelID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrLabelNotFound(labelID)
 		}
 		return nil, fmt.Errorf("failed to get label: %w", err)
@@ -399,7 +400,7 @@ func (s *LabelService) DeleteLabel(labelID uint) error {
 	var label catalogm.Label
 	err := s.db.First(&label, labelID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrLabelNotFound(labelID)
 		}
 		return fmt.Errorf("failed to get label: %w", err)
@@ -423,7 +424,7 @@ func (s *LabelService) GetLabelRoster(labelID uint) ([]*contracts.LabelArtistRes
 	// Verify label exists
 	var label catalogm.Label
 	if err := s.db.First(&label, labelID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrLabelNotFound(labelID)
 		}
 		return nil, fmt.Errorf("failed to get label: %w", err)
@@ -470,7 +471,7 @@ func (s *LabelService) GetLabelCatalog(labelID uint) ([]*contracts.LabelReleaseR
 	// Verify label exists
 	var label catalogm.Label
 	if err := s.db.First(&label, labelID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrLabelNotFound(labelID)
 		}
 		return nil, fmt.Errorf("failed to get label: %w", err)
@@ -523,7 +524,7 @@ func (s *LabelService) AddArtistToLabel(labelID, artistID uint) error {
 	// Verify label exists
 	var label catalogm.Label
 	if err := s.db.First(&label, labelID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrLabelNotFound(labelID)
 		}
 		return fmt.Errorf("failed to get label: %w", err)
@@ -532,7 +533,7 @@ func (s *LabelService) AddArtistToLabel(labelID, artistID uint) error {
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("artist not found: %d", artistID)
 		}
 		return fmt.Errorf("failed to get artist: %w", err)
@@ -561,7 +562,7 @@ func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber 
 	// Verify label exists
 	var label catalogm.Label
 	if err := s.db.First(&label, labelID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrLabelNotFound(labelID)
 		}
 		return fmt.Errorf("failed to get label: %w", err)
@@ -570,7 +571,7 @@ func (s *LabelService) AddReleaseToLabel(labelID, releaseID uint, catalogNumber 
 	// Verify release exists
 	var release catalogm.Release
 	if err := s.db.First(&release, releaseID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("release not found: %d", releaseID)
 		}
 		return fmt.Errorf("failed to get release: %w", err)

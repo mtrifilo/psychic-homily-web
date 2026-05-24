@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -112,7 +113,7 @@ func (s *ReleaseService) GetRelease(releaseID uint) (*contracts.ReleaseDetailRes
 	var release catalogm.Release
 	err := s.db.Preload("ExternalLinks").First(&release, releaseID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrReleaseNotFound(releaseID)
 		}
 		return nil, fmt.Errorf("failed to get release: %w", err)
@@ -130,7 +131,7 @@ func (s *ReleaseService) GetReleaseBySlug(slug string) (*contracts.ReleaseDetail
 	var release catalogm.Release
 	err := s.db.Preload("ExternalLinks").Where("slug = ?", slug).First(&release).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrReleaseNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get release: %w", err)
@@ -277,7 +278,7 @@ func (s *ReleaseService) UpdateRelease(releaseID uint, req *contracts.UpdateRele
 	var release catalogm.Release
 	err := s.db.First(&release, releaseID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrReleaseNotFound(releaseID)
 		}
 		return nil, fmt.Errorf("failed to get release: %w", err)
@@ -332,7 +333,7 @@ func (s *ReleaseService) DeleteRelease(releaseID uint) error {
 	var release catalogm.Release
 	err := s.db.First(&release, releaseID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrReleaseNotFound(releaseID)
 		}
 		return fmt.Errorf("failed to get release: %w", err)
@@ -356,7 +357,7 @@ func (s *ReleaseService) GetReleasesForArtist(artistID uint) ([]*contracts.Relea
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -375,7 +376,7 @@ func (s *ReleaseService) GetReleasesForArtistWithRoles(artistID uint) ([]*contra
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -435,7 +436,7 @@ func (s *ReleaseService) AddExternalLink(releaseID uint, platform, url string) (
 	// Verify release exists
 	var release catalogm.Release
 	if err := s.db.First(&release, releaseID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrReleaseNotFound(releaseID)
 		}
 		return nil, fmt.Errorf("failed to get release: %w", err)
