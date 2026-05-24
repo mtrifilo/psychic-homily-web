@@ -146,6 +146,46 @@ jobs:
           flags: backend
           token: ${{ secrets.CODECOV_TOKEN }}
 
+  # PSY-772: backend lint gate. Two steps, two configs:
+  #   * Gated linters (.golangci.yml) — fail the job on any finding. Currently
+  #     `govet` (with the cosmetic `inline` analyzer disabled). Surveyed clean
+  #     on 2026-05-23.
+  #   * Advisory linters (.golangci-advisory.yml) — surface the pre-existing
+  #     backlog (errcheck, errorlint, ineffassign, staticcheck, unused) WITHOUT
+  #     failing the job (continue-on-error). As each backlog is cleaned, the
+  #     linter moves from -advisory.yml into .golangci.yml in a follow-up PR.
+  # Wall-time on the survey was ~6s for both runs combined — well inside the
+  # ~10-min PR CI budget. golangci-lint-action handles its own module + build
+  # cache, independent of the test job's setup-go cache.
+  backend-lint:
+    name: Backend Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v4
+        with:
+          go-version: '1.24'
+          cache-dependency-path: backend/go.sum
+
+      - name: Run gated linters
+        uses: golangci/golangci-lint-action@v7
+        with:
+          version: v2.12.2
+          working-directory: backend
+          args: --config=.golangci.yml
+
+      - name: Run advisory linters
+        uses: golangci/golangci-lint-action@v7
+        # Surface findings but never fail the job — the advisory backlog is
+        # tracked separately and each linter graduates to .golangci.yml as it
+        # gets cleaned up.
+        continue-on-error: true
+        with:
+          version: v2.12.2
+          working-directory: backend
+          args: --config=.golangci-advisory.yml
+
   # PSY-771/PSY-794: the committed testhelpers/mocks_gen.go is generated. It
   # drifted from its generator once before, so this job re-runs the generator
   # and fails if the committed file differs — cheap (no DB, just the generator).
@@ -350,11 +390,12 @@ jobs:
     name: Notify on main CI failure
     # `always()` so this runs even when upstream `needs:` failed — the
     # whole point. Scoped to main-branch push events (not PRs).
-    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.e2e-tests.result == 'failure' || needs.e2e-report.result == 'failure') }}
+    if: ${{ always() && github.event_name == 'push' && github.ref == 'refs/heads/main' && (needs.migration-lint.result == 'failure' || needs.migration-reversibility.result == 'failure' || needs.backend-tests.result == 'failure' || needs.backend-lint.result == 'failure' || needs.mocks-gen-check.result == 'failure' || needs.frontend-unit-tests.result == 'failure' || needs.e2e-tests.result == 'failure' || needs.e2e-report.result == 'failure') }}
     needs:
       - migration-lint
       - migration-reversibility
       - backend-tests
+      - backend-lint
       - mocks-gen-check
       - frontend-unit-tests
       - e2e-tests
@@ -369,6 +410,7 @@ jobs:
           RES_MIGRATION_LINT: ${{ needs.migration-lint.result }}
           RES_MIGRATION_REVERSIBILITY: ${{ needs.migration-reversibility.result }}
           RES_BACKEND_TESTS: ${{ needs.backend-tests.result }}
+          RES_BACKEND_LINT: ${{ needs.backend-lint.result }}
           RES_MOCKS_GEN_CHECK: ${{ needs.mocks-gen-check.result }}
           RES_FRONTEND_UNIT: ${{ needs.frontend-unit-tests.result }}
           RES_E2E_TESTS: ${{ needs.e2e-tests.result }}
@@ -397,6 +439,7 @@ jobs:
               'Migration Lint': process.env.RES_MIGRATION_LINT,
               'Migration Reversibility': process.env.RES_MIGRATION_REVERSIBILITY,
               'Backend Tests': process.env.RES_BACKEND_TESTS,
+              'Backend Lint': process.env.RES_BACKEND_LINT,
               'Mocks Generator Drift': process.env.RES_MOCKS_GEN_CHECK,
               'Frontend Unit Tests': process.env.RES_FRONTEND_UNIT,
               'E2E Tests (sharded)': process.env.RES_E2E_TESTS,

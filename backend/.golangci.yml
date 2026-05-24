@@ -1,0 +1,73 @@
+# golangci-lint v2 configuration for the Psychic Homily backend.
+#
+# Rollout posture (PSY-772):
+#   Phased — cheap linters with zero (or near-zero) violations are gated as
+#   errors and FAIL CI. Linters with a meaningful pre-existing backlog run
+#   in a separate ADVISORY job (continue-on-error: true) so they surface
+#   findings without blocking PRs. As each backlog is cleaned, the linter
+#   moves from the advisory list to the gated list in a follow-up PR.
+#
+# Two configs, two CI steps:
+#   * this file (.golangci.yml)             — gated linters; non-zero exit fails CI.
+#   * .golangci-advisory.yml                — advisory linters; soft-fail in CI.
+#
+# Violation survey (2026-05-23, golangci-lint v2.12.2):
+#   linter       | violations | decision  | rationale
+#   ----------- | ---------- | --------- | ------------------------------------------------
+#   govet        |          0 | GATE      | clean once the `inline` analyzer (advisory
+#                |            |           | suggestion to swap `reflect.Ptr` → `reflect.Pointer`)
+#                |            |           | is disabled — see settings below.
+#   ineffassign  |          4 | advisory  | trivial fixes, but spec says do not widen
+#                |            |           | scope; flip to gate after cleanup ticket.
+#   unused       |         25 | advisory  | mix of dead test helpers + dead consts/types;
+#                |            |           | needs human review (some may be live via
+#                |            |           | reflection or future use) before deletion.
+#   staticcheck  |         36 | advisory  | mostly QF style suggestions, a few SA4006
+#                |            |           | unused-assignment bugs; flip after cleanup.
+#   errcheck     |        474 | advisory  | large legacy backlog (dropped resp.Body.Close,
+#                |            |           | bcrypt compares, etc.); needs its own ticket.
+#   errorlint    |        205 | advisory  | PSY-762 will codemod the 200+ err == sentinel
+#                |            |           | sites; once that ships, flip to gate.
+#
+# Note on the PSY-760 attribution-deref rule:
+#   PSY-760 wants a custom rule that flags direct user.{Username,FirstName,Email}
+#   reads outside services/shared/ (forces callers to go through the resolver
+#   chain). The natural home is a `forbidigo` block here, but the rule depends
+#   on PSY-760 landing first. The skeleton is commented out below; when PSY-760
+#   merges, un-comment + tune the path-exclude pattern.
+
+version: "2"
+
+run:
+  # Total work timeout. Wall-time survey on this codebase is ~5s for the full
+  # set; 5m gives plenty of margin without letting a future blow-up linger.
+  timeout: 5m
+
+linters:
+  # Start with NO defaults; the survey above is the source of truth for which
+  # linters belong in which tier.
+  default: none
+  enable:
+    - govet
+
+  settings:
+    govet:
+      # govet ships with an `inline` analyzer that suggests rewriting
+      # `reflect.Ptr` (deprecated constant) as `reflect.Pointer`. The 3 hits
+      # are in services/shared/revisiondiff/*.go and are purely cosmetic.
+      # Disabling keeps govet clean as a gate; the broader inline-vs-name
+      # cleanup belongs in a typed-constants follow-up, not in this config.
+      disable:
+        - inline
+
+  # The PSY-760 placeholder. Un-comment + extend after that ticket ships.
+  #
+  # exclusions:
+  #   rules:
+  #     - path: internal/services/shared/.*
+  #       linters: [forbidigo]
+  # settings:
+  #   forbidigo:
+  #     forbid:
+  #       - pattern: 'user\.(Username|FirstName|Email)'
+  #         msg: "use services/shared.Resolve* helpers, not direct field deref (PSY-760)"
