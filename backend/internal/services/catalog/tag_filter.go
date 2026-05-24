@@ -3,8 +3,9 @@ package catalog
 import (
 	"strings"
 
-	"gorm.io/gorm"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+
+	"gorm.io/gorm"
 )
 
 // TagFilter captures the tag-filter inputs for browse-list queries

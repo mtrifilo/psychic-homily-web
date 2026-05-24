@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -41,7 +42,7 @@ func (s *CommentVoteService) Vote(userID uint, commentID uint, direction int) er
 	// Verify comment exists
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCommentVoteCommentNotFound()
 		}
 		return fmt.Errorf("failed to get comment: %w", err)
@@ -59,7 +60,7 @@ func (s *CommentVoteService) Vote(userID uint, commentID uint, direction int) er
 		var existingVote engagementm.CommentVote
 		err := tx.Where("comment_id = ? AND user_id = ?", commentID, userID).First(&existingVote).Error
 
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// New vote
 			vote := engagementm.CommentVote{
 				CommentID: commentID,
@@ -93,7 +94,7 @@ func (s *CommentVoteService) Unvote(userID uint, commentID uint) error {
 	// Verify comment exists
 	var comment engagementm.Comment
 	if err := s.db.First(&comment, commentID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrCommentVoteCommentNotFound()
 		}
 		return fmt.Errorf("failed to get comment: %w", err)
@@ -119,7 +120,7 @@ func (s *CommentVoteService) GetUserVote(userID uint, commentID uint) (*int, err
 	var vote engagementm.CommentVote
 	err := s.db.Where("comment_id = ? AND user_id = ?", commentID, userID).First(&vote).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get user vote: %w", err)

@@ -845,6 +845,7 @@ type {{.NameTitle}}ListResponse struct {
 var tmplService = `package catalog
 
 import (
+	"errors"
 	"fmt"
 
 	"gorm.io/gorm"
@@ -911,7 +912,7 @@ func (s *{{.NameTitle}}Service) Get{{.NameTitle}}({{.NameCamel}}ID uint) (*contr
 	var record models.{{.NameTitle}}
 	err := s.db.First(&record, {{.NameCamel}}ID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("{{.Name}} not found: %d", {{.NameCamel}}ID)
 		}
 		return nil, fmt.Errorf("failed to get {{.Name}}: %w", err)
@@ -929,7 +930,7 @@ func (s *{{.NameTitle}}Service) Get{{.NameTitle}}BySlug(slug string) (*contracts
 	var record models.{{.NameTitle}}
 	err := s.db.Where("slug = ?", slug).First(&record).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("{{.Name}} not found: %s", slug)
 		}
 		return nil, fmt.Errorf("failed to get {{.Name}}: %w", err)
@@ -1027,7 +1028,7 @@ func (s *{{.NameTitle}}Service) Update{{.NameTitle}}({{.NameCamel}}ID uint, req 
 
 	var record models.{{.NameTitle}}
 	if err := s.db.First(&record, {{.NameCamel}}ID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("{{.Name}} not found: %d", {{.NameCamel}}ID)
 		}
 		return nil, fmt.Errorf("failed to get {{.Name}}: %w", err)
@@ -1074,7 +1075,7 @@ func (s *{{.NameTitle}}Service) Delete{{.NameTitle}}({{.NameCamel}}ID uint) erro
 
 	var record models.{{.NameTitle}}
 	if err := s.db.First(&record, {{.NameCamel}}ID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("{{.Name}} not found: %d", {{.NameCamel}}ID)
 		}
 		return fmt.Errorf("failed to get {{.Name}}: %w", err)

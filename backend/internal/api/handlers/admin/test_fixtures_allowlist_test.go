@@ -56,9 +56,9 @@ var testFixturesAllowlistContractSkips = map[string]string{
 	"user_preferences":     "upsert-on-login; resetting would hide regressions",
 
 	// Cross-user behavior + audit — reset would destroy cross-test signal.
-	"audit_logs":              "audit trail is intentionally preserved across runs",
-	"entity_edit_audit_logs":  "audit trail (PSY-618 split-out for entity edits); preserved across runs like audit_logs",
-	"admin_stats_snapshots":   "aggregate rollups, not user-scoped test artifacts",
+	"audit_logs":             "audit trail is intentionally preserved across runs",
+	"entity_edit_audit_logs": "audit trail (PSY-618 split-out for entity edits); preserved across runs like audit_logs",
+	"admin_stats_snapshots":  "aggregate rollups, not user-scoped test artifacts",
 
 	// Comments / field notes — tests clean up via direct DELETE API calls,
 	// as called out in the PSY-432 ticket. Keep separate paths.

@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -40,7 +41,7 @@ func (s *FavoriteVenueService) FavoriteVenue(userID, venueID uint) error {
 	// Check if venue exists
 	var venue catalogm.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrVenueNotFound(venueID)
 		}
 		return fmt.Errorf("failed to verify venue: %w", err)

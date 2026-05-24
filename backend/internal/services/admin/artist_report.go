@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -42,7 +43,7 @@ func (s *ArtistReportService) CreateReport(userID, artistID uint, reportType str
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("artist not found")
 		}
 		return nil, fmt.Errorf("failed to verify artist: %w", err)
@@ -89,7 +90,7 @@ func (s *ArtistReportService) GetUserReportForArtist(userID, artistID uint) (*co
 		First(&report).Error
 
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil // No report found
 		}
 		return nil, fmt.Errorf("failed to get report: %w", err)
@@ -142,7 +143,7 @@ func (s *ArtistReportService) DismissReport(reportID, adminID uint, notes *strin
 
 	var report communitym.ArtistReport
 	if err := s.db.Preload("Artist").First(&report, reportID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("report not found")
 		}
 		return nil, fmt.Errorf("failed to get report: %w", err)
@@ -174,7 +175,7 @@ func (s *ArtistReportService) ResolveReport(reportID, adminID uint, notes *strin
 
 	var report communitym.ArtistReport
 	if err := s.db.Preload("Artist").First(&report, reportID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("report not found")
 		}
 		return nil, fmt.Errorf("failed to get report: %w", err)
@@ -206,7 +207,7 @@ func (s *ArtistReportService) GetReportByID(reportID uint) (*communitym.ArtistRe
 
 	var report communitym.ArtistReport
 	if err := s.db.Preload("Artist").First(&report, reportID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("report not found")
 		}
 		return nil, fmt.Errorf("failed to get report: %w", err)

@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"time"
@@ -43,7 +44,7 @@ func (s *TagService) GetTagAncestors(tagID uint) ([]*catalogm.Tag, error) {
 
 	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrTagNotFound(tagID)
 		}
 		return nil, fmt.Errorf("failed to load tag: %w", err)
@@ -61,7 +62,7 @@ func (s *TagService) GetTagAncestors(tagID uint) ([]*catalogm.Tag, error) {
 
 		var parent catalogm.Tag
 		if err := s.db.First(&parent, *currentParentID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				// Orphaned parent_id pointing at a deleted row — stop walking.
 				break
 			}
@@ -145,7 +146,7 @@ func (s *TagService) SetTagParent(tagID uint, parentID *uint, actorUserID uint) 
 
 	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrTagNotFound(tagID)
 		}
 		return fmt.Errorf("failed to load tag: %w", err)
@@ -204,7 +205,7 @@ func (s *TagService) validateTagParent(tag *catalogm.Tag, parentID *uint) error 
 
 	var parent catalogm.Tag
 	if err := s.db.First(&parent, *parentID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrTagNotFound(*parentID)
 		}
 		return fmt.Errorf("failed to load proposed parent: %w", err)
@@ -235,7 +236,7 @@ func (s *TagService) validateTagParent(tag *catalogm.Tag, parentID *uint) error 
 
 		var anc catalogm.Tag
 		if err := s.db.First(&anc, *cursor).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil
 			}
 			return fmt.Errorf("failed to walk ancestors: %w", err)

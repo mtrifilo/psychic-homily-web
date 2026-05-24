@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -49,7 +50,7 @@ func (s *AttendanceService) SetAttendance(userID, showID uint, status string) er
 	// Check that the show exists
 	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrAttendanceShowNotFound()
 		}
 		return apperrors.ErrAttendanceInternal(fmt.Errorf("failed to verify show: %w", err))
@@ -133,7 +134,7 @@ func (s *AttendanceService) GetUserAttendance(userID, showID uint) (string, erro
 	).First(&bookmark).Error
 
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return "", nil
 		}
 		return "", fmt.Errorf("failed to get attendance: %w", err)

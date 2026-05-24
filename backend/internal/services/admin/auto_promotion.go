@@ -3,6 +3,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
@@ -344,7 +345,7 @@ func (s *AutoPromotionService) EvaluateUser(userID uint) (*contracts.UserEvaluat
 
 	var user authm.User
 	if err := s.db.First(&user, userID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrAutoPromotionUserNotFound()
 		}
 		return nil, apperrors.ErrAutoPromotionInternal(fmt.Errorf("failed to get user: %w", err))

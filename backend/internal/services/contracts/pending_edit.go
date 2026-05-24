@@ -83,8 +83,8 @@ type PendingEditResponse struct {
 	// the JSON encodes null for accounts that never set a username. Frontend
 	// renders the byline as a link to /users/:username when non-nil; nil
 	// renders as plain text. PSY-619.
-	SubmitterUsername *string                  `json:"submitter_username"`
-	FieldChanges      []adminm.FieldChange     `json:"field_changes"`
+	SubmitterUsername *string              `json:"submitter_username"`
+	FieldChanges      []adminm.FieldChange `json:"field_changes"`
 	// Summary is the raw markdown source of the contributor's reason for the
 	// edit; SummaryHTML is the sanitized rendered HTML produced on each read
 	// via utils.MarkdownRenderer (goldmark + bluemonday, comment-system

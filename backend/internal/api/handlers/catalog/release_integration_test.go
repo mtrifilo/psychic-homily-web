@@ -347,4 +347,3 @@ func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
 	s.Require().NoError(err)
 	s.Empty(refreshed.ExternalLinks)
 }
-

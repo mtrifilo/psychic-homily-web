@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -136,7 +137,7 @@ func (s *FestivalIntelligenceService) GetSimilarFestivals(festivalID uint, limit
 	// Verify festival exists
 	var festival catalogm.Festival
 	if err := s.db.First(&festival, festivalID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrFestivalIntelNotFound("festival not found")
 		}
 		return nil, fmt.Errorf("failed to get festival: %w", err)

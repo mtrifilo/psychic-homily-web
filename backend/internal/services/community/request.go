@@ -1,6 +1,7 @@
 package community
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -74,7 +75,7 @@ func (s *RequestService) GetRequest(requestID uint) (*communitym.Request, error)
 	var request communitym.Request
 	err := s.db.Preload("Requester").Preload("Fulfiller").First(&request, requestID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get request: %w", err)
@@ -142,7 +143,7 @@ func (s *RequestService) UpdateRequest(requestID, userID uint, title, descriptio
 	var request communitym.Request
 	err := s.db.First(&request, requestID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrRequestNotFound(requestID)
 		}
 		return nil, fmt.Errorf("failed to get request: %w", err)
@@ -180,7 +181,7 @@ func (s *RequestService) DeleteRequest(requestID, userID uint, isAdmin bool) err
 	var request communitym.Request
 	err := s.db.First(&request, requestID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrRequestNotFound(requestID)
 		}
 		return fmt.Errorf("failed to get request: %w", err)
@@ -212,7 +213,7 @@ func (s *RequestService) Vote(requestID, userID uint, isUpvote bool) error {
 	// Verify request exists
 	var request communitym.Request
 	if err := s.db.First(&request, requestID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrRequestNotFound(requestID)
 		}
 		return fmt.Errorf("failed to get request: %w", err)
@@ -228,7 +229,7 @@ func (s *RequestService) Vote(requestID, userID uint, isUpvote bool) error {
 		var existingVote communitym.RequestVote
 		err := tx.Where("request_id = ? AND user_id = ?", requestID, userID).First(&existingVote).Error
 
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			// New vote
 			vote := communitym.RequestVote{
 				RequestID: requestID,
@@ -261,7 +262,7 @@ func (s *RequestService) RemoveVote(requestID, userID uint) error {
 	// Verify request exists
 	var request communitym.Request
 	if err := s.db.First(&request, requestID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrRequestNotFound(requestID)
 		}
 		return fmt.Errorf("failed to get request: %w", err)
@@ -287,7 +288,7 @@ func (s *RequestService) FulfillRequest(requestID, fulfillerID uint, fulfilledEn
 	var request communitym.Request
 	err := s.db.First(&request, requestID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrRequestNotFound(requestID)
 		}
 		return fmt.Errorf("failed to get request: %w", err)
@@ -324,7 +325,7 @@ func (s *RequestService) CloseRequest(requestID, userID uint, isAdmin bool) erro
 	var request communitym.Request
 	err := s.db.First(&request, requestID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrRequestNotFound(requestID)
 		}
 		return fmt.Errorf("failed to get request: %w", err)
@@ -357,7 +358,7 @@ func (s *RequestService) GetUserVote(requestID, userID uint) (*communitym.Reques
 	var vote communitym.RequestVote
 	err := s.db.Where("request_id = ? AND user_id = ?", requestID, userID).First(&vote).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get user vote: %w", err)

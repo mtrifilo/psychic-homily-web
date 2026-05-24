@@ -1,32 +1,28 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
 import { notFound } from 'next/navigation'
 import { Loader2 } from 'lucide-react'
 import * as Sentry from '@sentry/nextjs'
+import { HydrationBoundary } from '@tanstack/react-query'
 import { VenueDetail } from '@/features/venues'
+import type { Venue } from '@/features/venues/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicVenueSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
-
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ||
-  (process.env.NODE_ENV === 'development'
-    ? 'http://localhost:8080'
-    : 'https://api.psychichomily.com')
+import { API_BASE_URL } from '@/lib/api-base'
+import { queryKeys } from '@/lib/queryClient'
+import { prefetchEntity } from '@/lib/query-hydration'
 
 interface VenuePageProps {
   params: Promise<{ slug: string }>
 }
 
-interface VenueData {
-  name: string
-  slug?: string
-  address?: string
-  city?: string
-  state?: string
-  zip_code?: string
-}
-
-async function getVenue(slug: string): Promise<VenueData | null> {
+/**
+ * Wrapped with `React.cache()` so `generateMetadata` and the page body
+ * share ONE backend fetch per request instead of two. The result also
+ * seeds the TanStack Query cache via `prefetchEntity` below, eliminating
+ * the client-side refetch on first paint.
+ */
+const getVenue = cache(async (slug: string): Promise<Venue | null> => {
   try {
     const res = await fetch(`${API_BASE_URL}/venues/${slug}`, {
       next: { revalidate: 3600 },
@@ -50,7 +46,7 @@ async function getVenue(slug: string): Promise<VenueData | null> {
     })
   }
   return null
-}
+})
 
 export async function generateMetadata({ params }: VenuePageProps): Promise<Metadata> {
   const { slug } = await params
@@ -99,14 +95,18 @@ export default async function VenuePage({ params }: VenuePageProps) {
     notFound()
   }
 
+  const dehydratedState = await prefetchEntity(
+    queryKeys.venues.detail(slug),
+    venueData,
+  )
+
   return (
     <>
       <JsonLd data={generateMusicVenueSchema({
         name: venueData.name,
-        address: venueData.address,
+        address: venueData.address ?? undefined,
         city: venueData.city,
         state: venueData.state,
-        zip_code: venueData.zip_code,
         slug: venueData.slug || slug,
       })} />
       <JsonLd data={generateBreadcrumbSchema([
@@ -114,9 +114,11 @@ export default async function VenuePage({ params }: VenuePageProps) {
         { name: 'Venues', url: 'https://psychichomily.com/venues' },
         { name: venueData.name, url: `https://psychichomily.com/venues/${venueData.slug || slug}` },
       ])} />
-      <Suspense fallback={<VenueLoadingFallback />}>
-        <VenueDetail venueId={slug} />
-      </Suspense>
+      <HydrationBoundary state={dehydratedState}>
+        <Suspense fallback={<VenueLoadingFallback />}>
+          <VenueDetail venueId={slug} />
+        </Suspense>
+      </HydrationBoundary>
     </>
   )
 }

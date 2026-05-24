@@ -3,6 +3,7 @@ package pipeline
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -247,7 +248,7 @@ func (s *DiscoveryService) importEvent(event *contracts.DiscoveredEvent, dryRun 
 			return s.updateShowFromEvent(&existing, event, dryRun)
 		}
 		return fmt.Sprintf("DUPLICATE: %s (ID: %s) already imported as show #%d", event.Title, event.ID, existing.ID), "duplicate"
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return fmt.Sprintf("ERROR: Failed to check duplicate: %v", err), "error"
 	}
 
@@ -435,7 +436,7 @@ func (s *DiscoveryService) createShowFromEvent(event *contracts.DiscoveredEvent,
 			// Find or create artist
 			var artist catalogm.Artist
 			err := tx.Where("LOWER(name) = LOWER(?)", artistName).First(&artist).Error
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				artist = catalogm.Artist{Name: artistName}
 				if err := tx.Create(&artist).Error; err != nil {
 					return fmt.Errorf("failed to create artist %s: %w", artistName, err)
