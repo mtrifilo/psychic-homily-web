@@ -72,7 +72,8 @@ function isSessionExpiredError(error: unknown): boolean {
 // user is logged out the payload is `{ success: false, ... }` rather than
 // an error. Used by the global error handlers below so a sibling query's
 // 401 doesn't re-invalidate a profile that already knows it's anonymous
-// (either via SSR seed from `prefetchAuthProfile` or a prior 401).
+// (either via the SSR auth-profile seed in `prefetchAuthProfile` or a
+// prior 401).
 function profileAlreadyKnowsAnonymous(
   client: QueryClient | undefined
 ): boolean {
@@ -98,10 +99,10 @@ function makeQueryClient() {
           // Skip the invalidation if the profile cache already encodes
           // the "logged out" answer — either as an error from a prior
           // 401, or as the `{ success: false }` payload seeded by the
-          // SSR pre-hydration (PSY-834). Invalidating in that case
-          // turns the SSR-seeded cache into a wasted client refetch
-          // that races with the very auth-gated buttons the seed was
-          // meant to make safe.
+          // SSR pre-hydration. Invalidating in that case turns the
+          // SSR-seeded cache into a wasted client refetch that races
+          // with the very auth-gated buttons the seed was meant to
+          // make safe.
           if (!profileAlreadyKnowsAnonymous(browserQueryClient)) {
             browserQueryClient?.invalidateQueries({ queryKey: queryKeys.auth.profile })
           }

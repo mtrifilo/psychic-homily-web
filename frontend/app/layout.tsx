@@ -87,12 +87,12 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode
 }>) {
-  // PSY-834: pre-seed /auth/profile so client useProfile() resolves from
-  // cache on first paint — fixes the race where hydrated pages render
-  // auth-gated buttons interactive before the client profile fetch
-  // settles, routing first-load clicks to /auth instead of the intended
-  // mutation. Helper handles the no-cookie / 401 / 5xx cases so an
-  // anonymous render is not an error path.
+  // Pre-seed /auth/profile so client useProfile() resolves from cache on
+  // first paint — fixes the race where hydrated pages render auth-gated
+  // buttons interactive before the client profile fetch settles, routing
+  // first-load clicks to /auth instead of the intended mutation. Helper
+  // handles the no-cookie / 401 / 5xx cases so an anonymous render is
+  // not an error path.
   const authState = await prefetchAuthProfile()
 
   return (

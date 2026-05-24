@@ -11,12 +11,12 @@ import { AuthProvider } from '@/lib/context/AuthContext'
 interface ProvidersProps {
     children: React.ReactNode
     /**
-     * Pre-hydrated TanStack Query state from the root layout (PSY-834).
-     * Today this only carries the `/auth/profile` cache entry so
-     * `useProfile` resolves from cache on first paint, eliminating the
-     * race where auth-gated buttons render interactive before the client
-     * profile fetch settles. Optional so callers that don't prefetch
-     * (e.g. unit tests) keep working without a noop placeholder.
+     * Pre-hydrated TanStack Query state from the root layout. Today this
+     * only carries the `/auth/profile` cache entry so `useProfile`
+     * resolves from cache on first paint, eliminating the race where
+     * auth-gated buttons render interactive before the client profile
+     * fetch settles. Optional so callers that don't prefetch (e.g. unit
+     * tests) keep working without a noop placeholder.
      */
     authState?: DehydratedState
 }
