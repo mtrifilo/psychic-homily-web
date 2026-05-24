@@ -1,0 +1,31 @@
+# golangci-lint v2 advisory configuration (PSY-772).
+#
+# Linters in this file have a pre-existing backlog and run as ADVISORY in CI
+# (continue-on-error: true). Findings surface in the job log without failing
+# the PR. As each backlog is cleaned, move the linter into .golangci.yml.
+#
+# See .golangci.yml for the full rollout posture + violation survey.
+
+version: "2"
+
+run:
+  timeout: 5m
+
+linters:
+  default: none
+  enable:
+    # 4 violations (2026-05-23). Trivial to fix; flip to gate after cleanup.
+    - ineffassign
+    # 25 violations. Mix of dead test helpers + dead consts/types; needs
+    # human review before deletion.
+    - unused
+    # 36 violations. Mostly QF style suggestions, a few SA4006 unused-value
+    # bugs. Flip after cleanup ticket.
+    - staticcheck
+    # 474 violations. Large legacy backlog (dropped resp.Body.Close, bcrypt
+    # compares, etc.); needs its own ticket.
+    - errcheck
+    # 205 violations. PSY-762 will codemod the err == sentinel sites; the
+    # follow-up to PSY-762 will flip this linter from advisory to gated by
+    # moving it into .golangci.yml.
+    - errorlint

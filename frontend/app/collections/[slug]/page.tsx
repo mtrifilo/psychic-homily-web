@@ -1,10 +1,13 @@
-import { Suspense } from 'react'
+import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
 import { cookies } from 'next/headers'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
+import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
 import { CollectionDetail } from '@/features/collections/components'
+import type { CollectionDetail as CollectionDetailData } from '@/features/collections/types'
+import { getQueryClient, queryKeys } from '@/lib/queryClient'
 
 const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL ||
@@ -16,54 +19,58 @@ interface CollectionPageProps {
   params: Promise<{ slug: string }>
 }
 
-interface CollectionData {
-  title: string
-  slug?: string
-  description?: string
-  creator_name?: string
-}
+/**
+ * Forwards the viewer's auth cookie so SSR sees the same view as the
+ * browser — without this, owners of private collections would 404 on their
+ * own pages because the page route bypasses the /api proxy that normally
+ * attaches the cookie. Mirrors the cookie-forward pattern in
+ * app/api/[...path]/route.ts.
+ *
+ * Wrapped in `React.cache()` so `generateMetadata` and the page body share
+ * one round-trip per request; the same payload then hydrates the TanStack
+ * Query cache under `queryKeys.collections.detail(slug)` so the client
+ * `useCollection` hook resolves from cache instead of refetching.
+ *
+ * Privacy: backend `GetBySlug` returns 403 for unauthorized access to
+ * private collections; we treat any non-2xx as null and fall through to
+ * `notFound()`, so the SSR payload never contains data the viewer isn't
+ * authorized to see. Authenticated requests use `cache: 'no-store'` to
+ * avoid cross-user cache pollution; anonymous requests stay on ISR.
+ */
+const getCollection = cache(
+  async (slug: string): Promise<CollectionDetailData | null> => {
+    const cookieStore = await cookies()
+    const authToken = cookieStore.get('auth_token')
 
-// PSY-551: forward the viewer's auth cookie so SSR sees the same view as the
-// browser. Private collections 404 to anonymous viewers (correct), but the
-// page route runs server-side and previously bypassed the /api proxy that
-// normally attaches the cookie — so private-but-owned collections rendered
-// 404 for their own creator. Mirrors the cookie-forward pattern in
-// app/api/[...path]/route.ts.
-async function getCollection(slug: string): Promise<CollectionData | null> {
-  const cookieStore = await cookies()
-  const authToken = cookieStore.get('auth_token')
+    const fetchInit: RequestInit = authToken
+      ? {
+          headers: { Cookie: `auth_token=${authToken.value}` },
+          cache: 'no-store',
+        }
+      : { next: { revalidate: 3600 } }
 
-  // When auth is present the backend response is viewer-specific (private
-  // collections gate on creator_id), so we must NOT cache it across users.
-  // Anonymous requests stay on ISR for public-collection performance.
-  const fetchInit: RequestInit = authToken
-    ? {
-        headers: { Cookie: `auth_token=${authToken.value}` },
-        cache: 'no-store',
+    try {
+      const res = await fetch(`${API_BASE_URL}/collections/${slug}`, fetchInit)
+      if (res.ok) {
+        return res.json()
       }
-    : { next: { revalidate: 3600 } }
-
-  try {
-    const res = await fetch(`${API_BASE_URL}/collections/${slug}`, fetchInit)
-    if (res.ok) {
-      return res.json()
-    }
-    if (res.status >= 500) {
-      Sentry.captureMessage(`Collection page fetch error: ${res.status}`, {
+      if (res.status >= 500) {
+        Sentry.captureMessage(`Collection page fetch error: ${res.status}`, {
+          level: 'error',
+          tags: { service: 'collection-page' },
+          extra: { slug, status: res.status },
+        })
+      }
+    } catch (error) {
+      Sentry.captureException(error, {
         level: 'error',
         tags: { service: 'collection-page' },
-        extra: { slug, status: res.status },
+        extra: { slug },
       })
     }
-  } catch (error) {
-    Sentry.captureException(error, {
-      level: 'error',
-      tags: { service: 'collection-page' },
-      extra: { slug },
-    })
+    return null
   }
-  return null
-}
+)
 
 export async function generateMetadata({
   params,
@@ -118,9 +125,20 @@ export default async function CollectionPage({ params }: CollectionPageProps) {
     notFound()
   }
 
+  // `cache()` above guarantees the network call already happened, so the
+  // sync `queryFn` is a no-op cache write that just seeds the dehydrated
+  // entry the client `useCollection` hook will pick up.
+  const queryClient = getQueryClient()
+  await queryClient.prefetchQuery({
+    queryKey: queryKeys.collections.detail(slug),
+    queryFn: () => collectionData,
+  })
+
   return (
-    <Suspense fallback={<CollectionLoadingFallback />}>
-      <CollectionDetail slug={slug} />
-    </Suspense>
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <Suspense fallback={<CollectionLoadingFallback />}>
+        <CollectionDetail slug={slug} />
+      </Suspense>
+    </HydrationBoundary>
   )
 }
