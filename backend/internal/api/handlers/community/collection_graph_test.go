@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"strings"
 	"testing"
 	"time"
 
@@ -67,30 +66,17 @@ func (s *CollectionGraphHandlerSuite) seedPrivateCollection(creator *authm.User,
 // that an absent user is treated as viewerID=0 by the handler, not as an error.
 func (s *CollectionGraphHandlerSuite) TestHandler_AnonymousViewerSeesPublicCollection() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
-	// Build a publicly-visible collection by going through the publish-gate
-	// path. PSY-356 requires >=3 items + >=50-char description.
-	priv := s.seedPrivateCollection(user, "Public Through Gate")
-	for i := 0; i < 3; i++ {
-		artist := testhelpers.CreateArtist(s.deps.DB, fmt.Sprintf("GateArtist-%d-%d", i, time.Now().UnixNano()))
-		_, err := s.deps.CollectionService.AddItem(priv.Slug, user.ID, &contracts.AddCollectionItemRequest{
-			EntityType: communitym.CollectionEntityArtist,
-			EntityID:   artist.ID,
-		})
-		s.Require().NoError(err)
-	}
-	desc := strings.Repeat("a", 60)
-	pub := true
-	_, err := s.deps.CollectionService.UpdateCollection(priv.Slug, user.ID, false, &contracts.UpdateCollectionRequest{
-		Description: &desc,
-		IsPublic:    &pub,
+	pub, err := s.deps.CollectionService.CreateCollection(user.ID, &contracts.CreateCollectionRequest{
+		Title:    "Public Collection",
+		IsPublic: true,
 	})
 	s.Require().NoError(err)
 
 	// Anonymous: no user in context.
-	resp, err := s.handler.GetCollectionGraphHandler(context.Background(), &GetCollectionGraphRequest{Slug: priv.Slug})
+	resp, err := s.handler.GetCollectionGraphHandler(context.Background(), &GetCollectionGraphRequest{Slug: pub.Slug})
 	s.Require().NoError(err)
 	s.Require().NotNil(resp)
-	s.Equal(priv.Slug, resp.Body.Collection.Slug)
+	s.Equal(pub.Slug, resp.Body.Collection.Slug)
 }
 
 // TestHandler_AuthedNonOwnerOnPrivateCollection_403: an authed user who is
