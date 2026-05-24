@@ -21,10 +21,10 @@ interface ArtistPageProps {
 }
 
 /**
- * PSY-796: wrap with `React.cache()` so `generateMetadata` and the page
- * body share ONE fetch per request instead of two. The result also seeds
- * the TanStack Query cache via `prefetchQuery` below, eliminating the
- * client-side refetch on first paint.
+ * Wrapped with `React.cache()` so `generateMetadata` and the page body
+ * share ONE backend fetch per request instead of two. The result also
+ * seeds the TanStack Query cache via `prefetchQuery` below, eliminating
+ * the client-side refetch on first paint.
  */
 const getArtist = cache(async (slug: string): Promise<Artist | null> => {
   try {
@@ -98,11 +98,11 @@ export default async function ArtistPage({ params }: ArtistPageProps) {
     notFound()
   }
 
-  // PSY-796: pilot SSR hydration. Seed a request-scoped QueryClient with the
-  // artist payload the server already fetched, then dehydrate so the client
-  // `useArtist` hook resolves from the cache instead of refetching. The
-  // queryFn just returns the cached value — `cache()` above ensures the
-  // network call already happened, so this is a synchronous cache write.
+  // Seed a request-scoped QueryClient with the artist payload the server
+  // already fetched, then dehydrate so the client `useArtist` hook resolves
+  // from the cache instead of refetching. The queryFn returns the cached
+  // value synchronously — `cache()` above guarantees the network call has
+  // already happened, so this is a no-op cache write rather than a refetch.
   const queryClient = getQueryClient()
   await queryClient.prefetchQuery({
     queryKey: queryKeys.artists.detail(slug),
