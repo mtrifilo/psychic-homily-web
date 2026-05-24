@@ -11,12 +11,18 @@
 #   * this file (.golangci.yml)             — gated linters; non-zero exit fails CI.
 #   * .golangci-advisory.yml                — advisory linters; soft-fail in CI.
 #
-# Violation survey (2026-05-23, golangci-lint v2.12.2):
+# Violation survey (2026-05-23, golangci-lint v2.12.2; errorlint updated 2026-05-24):
 #   linter       | violations | decision  | rationale
 #   ----------- | ---------- | --------- | ------------------------------------------------
 #   govet        |          0 | GATE      | clean once the `inline` analyzer (advisory
 #                |            |           | suggestion to swap `reflect.Ptr` → `reflect.Pointer`)
 #                |            |           | is disabled — see settings below.
+#   errorlint    |          0 | GATE      | PSY-762 codemodded 193 `err == gorm.ErrRecordNotFound`
+#                |            |           | sites (189 in source-Go + 4 in cmd/scaffold templates)
+#                |            |           | to `errors.Is(...)` via `gofmt -r`, then cleaned up
+#                |            |           | the 13 stragglers (5 fmt.Errorf %v→%w in cmd/seed +
+#                |            |           | 8 test-file `err.(*T)`→`errors.As(err, &v)`). Gated
+#                |            |           | to prevent regression of err-wrap discipline.
 #   ineffassign  |          4 | advisory  | trivial fixes, but spec says do not widen
 #                |            |           | scope; flip to gate after cleanup ticket.
 #   unused       |         25 | advisory  | mix of dead test helpers + dead consts/types;
@@ -26,8 +32,6 @@
 #                |            |           | unused-assignment bugs; flip after cleanup.
 #   errcheck     |        474 | advisory  | large legacy backlog (dropped resp.Body.Close,
 #                |            |           | bcrypt compares, etc.); needs its own ticket.
-#   errorlint    |        205 | advisory  | PSY-762 will codemod the 200+ err == sentinel
-#                |            |           | sites; once that ships, flip to gate.
 #
 # Note on the PSY-760 attribution-deref rule:
 #   PSY-760 wants a custom rule that flags direct user.{Username,FirstName,Email}
@@ -49,6 +53,7 @@ linters:
   default: none
   enable:
     - govet
+    - errorlint
 
   settings:
     govet:

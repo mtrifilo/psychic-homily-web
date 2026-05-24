@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -42,7 +43,7 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 	err := s.db.Where("LOWER(name) = LOWER(?)", req.Name).First(&existingArtist).Error
 	if err == nil {
 		return nil, apperrors.ErrArtistExists(req.Name)
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("failed to check existing artist: %w", err)
 	}
 
@@ -90,7 +91,7 @@ func (s *ArtistService) GetArtist(artistID uint) (*contracts.ArtistDetailRespons
 	var artist catalogm.Artist
 	err := s.db.First(&artist, artistID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -110,7 +111,7 @@ func (s *ArtistService) GetArtistByName(name string) (*contracts.ArtistDetailRes
 	var artist catalogm.Artist
 	err := s.db.Where("LOWER(name) = LOWER(?)", name).First(&artist).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -128,7 +129,7 @@ func (s *ArtistService) GetArtistBySlug(slug string) (*contracts.ArtistDetailRes
 	var artist catalogm.Artist
 	err := s.db.Where("slug = ?", slug).First(&artist).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -213,7 +214,7 @@ func (s *ArtistService) UpdateArtist(artistID uint, req *contracts.UpdateArtistR
 		err := s.db.Where("LOWER(name) = LOWER(?) AND id != ?", name, artistID).First(&existingArtist).Error
 		if err == nil {
 			return nil, fmt.Errorf("artist with name '%s' already exists", name)
-		} else if err != gorm.ErrRecordNotFound {
+		} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("failed to check existing artist: %w", err)
 		}
 		updates["name"] = name
@@ -287,7 +288,7 @@ func (s *ArtistService) DeleteArtist(artistID uint) error {
 	var artist catalogm.Artist
 	err := s.db.First(&artist, artistID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrArtistNotFound(artistID)
 		}
 		return fmt.Errorf("failed to get artist: %w", err)
@@ -619,7 +620,7 @@ func (s *ArtistService) GetLabelsForArtist(artistID uint) ([]*contracts.ArtistLa
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -670,7 +671,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, 0, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, 0, fmt.Errorf("failed to get artist: %w", err)
@@ -855,7 +856,7 @@ func (s *ArtistService) AddArtistAlias(artistID uint, alias string) (*contracts.
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -916,7 +917,7 @@ func (s *ArtistService) GetArtistAliases(artistID uint) ([]*contracts.ArtistAlia
 	// Verify artist exists
 	var artist catalogm.Artist
 	if err := s.db.First(&artist, artistID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(artistID)
 		}
 		return nil, fmt.Errorf("failed to get artist: %w", err)
@@ -960,7 +961,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 	// Verify both artists exist
 	var canonical catalogm.Artist
 	if err := s.db.First(&canonical, canonicalID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(canonicalID)
 		}
 		return nil, fmt.Errorf("failed to get canonical artist: %w", err)
@@ -968,7 +969,7 @@ func (s *ArtistService) MergeArtists(canonicalID, mergeFromID uint) (*contracts.
 
 	var mergeFrom catalogm.Artist
 	if err := s.db.First(&mergeFrom, mergeFromID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrArtistNotFound(mergeFromID)
 		}
 		return nil, fmt.Errorf("failed to get merge-from artist: %w", err)

@@ -2,6 +2,7 @@ package user
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -193,7 +194,7 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 		return &user, nil
 	}
 
-	if result.Error != gorm.ErrRecordNotFound {
+	if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("database error: %w", result.Error)
 	}
 
@@ -205,7 +206,7 @@ func (s *UserService) findOrCreateOAuthUser(gothUser goth.User, provider string,
 			// User exists, link OAuth account
 			return s.linkOAuthAccount(&existingUser, gothUser, provider)
 		}
-		if result.Error != gorm.ErrRecordNotFound {
+		if !errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("database error: %w", result.Error)
 		}
 	}
@@ -497,7 +498,7 @@ func (s *UserService) linkOAuthAccount(user *authm.User, gothUser goth.User, pro
 		if err := s.db.Save(&existingOAuth).Error; err != nil {
 			return nil, fmt.Errorf("failed to update OAuth account: %w", err)
 		}
-	} else if err == gorm.ErrRecordNotFound {
+	} else if errors.Is(err, gorm.ErrRecordNotFound) {
 		// Create new OAuth account
 		oauthAccount := &authm.OAuthAccount{
 			UserID:            user.ID,
@@ -563,7 +564,7 @@ func (s *UserService) GetUserByEmail(email string) (*authm.User, error) {
 		First(&user)
 
 	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get user: %w", result.Error)
@@ -585,7 +586,7 @@ func (s *UserService) GetUserByUsername(username string) (*authm.User, error) {
 		First(&user)
 
 	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get user: %w", result.Error)
@@ -1335,7 +1336,7 @@ func (s *UserService) GetUserByEmailIncludingDeleted(email string) (*authm.User,
 		First(&user)
 
 	if result.Error != nil {
-		if result.Error == gorm.ErrRecordNotFound {
+		if errors.Is(result.Error, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get user: %w", result.Error)

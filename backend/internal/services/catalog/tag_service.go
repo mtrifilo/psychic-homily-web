@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"math"
 	"regexp"
@@ -91,7 +92,7 @@ func (s *TagService) GetTag(tagID uint) (*catalogm.Tag, error) {
 	var tag catalogm.Tag
 	err := s.db.Preload("Parent").Preload("Children").Preload("Aliases").Preload("CreatedBy").First(&tag, tagID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get tag: %w", err)
@@ -110,7 +111,7 @@ func (s *TagService) GetTagBySlug(slug string) (*catalogm.Tag, error) {
 	err := s.db.Preload("Parent").Preload("Children").Preload("Aliases").Preload("CreatedBy").
 		Where("slug = ?", slug).First(&tag).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get tag by slug: %w", err)
@@ -255,7 +256,7 @@ func (s *TagService) UpdateTag(tagID uint, name *string, description *string, pa
 
 	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrTagNotFound(tagID)
 		}
 		return nil, fmt.Errorf("failed to get tag: %w", err)
@@ -366,7 +367,7 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 	if tagID > 0 {
 		var t catalogm.Tag
 		if err := s.db.First(&t, tagID).Error; err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				return nil, apperrors.ErrTagNotFound(tagID)
 			}
 			return nil, fmt.Errorf("failed to get tag: %w", err)
@@ -384,7 +385,7 @@ func (s *TagService) AddTagToEntity(tagID uint, tagName string, entityType strin
 			// Try direct name match
 			var t catalogm.Tag
 			if err := s.db.Where("LOWER(name) = LOWER(?)", tagName).First(&t).Error; err != nil {
-				if err == gorm.ErrRecordNotFound {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
 					// Tag not found — create inline if user has permission
 					newTag, createErr := s.createTagInline(tagName, category, userID)
 					if createErr != nil {
@@ -628,7 +629,7 @@ func (s *TagService) VoteOnTag(tagID uint, entityType string, entityID uint, use
 	err := s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ?", tagID, entityType, entityID).
 		First(&entityTag).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrEntityTagNotFound(tagID, entityType, entityID)
 		}
 		return fmt.Errorf("failed to verify entity tag: %w", err)
@@ -644,7 +645,7 @@ func (s *TagService) VoteOnTag(tagID uint, entityType string, entityID uint, use
 	err = s.db.Where("tag_id = ? AND entity_type = ? AND entity_id = ? AND user_id = ?",
 		tagID, entityType, entityID, userID).First(&existing).Error
 
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		vote := catalogm.TagVote{
 			TagID:      tagID,
 			EntityType: entityType,
@@ -694,7 +695,7 @@ func (s *TagService) CreateAlias(tagID uint, alias string) (*catalogm.TagAlias, 
 	// Verify tag exists
 	var tag catalogm.Tag
 	if err := s.db.First(&tag, tagID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrTagNotFound(tagID)
 		}
 		return nil, fmt.Errorf("failed to get tag: %w", err)
@@ -855,7 +856,7 @@ func (s *TagService) BulkImportAliases(items []contracts.BulkAliasImportItem) (*
 		err := s.db.Where("LOWER(slug) = LOWER(?) OR LOWER(name) = LOWER(?)", canonical, canonical).
 			First(&tag).Error
 		if err != nil {
-			if err == gorm.ErrRecordNotFound {
+			if errors.Is(err, gorm.ErrRecordNotFound) {
 				result.Skipped = append(result.Skipped, contracts.BulkAliasImportSkipped{
 					Row:       row,
 					Alias:     alias,
@@ -919,7 +920,7 @@ func (s *TagService) ResolveAlias(alias string) (*catalogm.Tag, error) {
 	var tagAlias catalogm.TagAlias
 	err := s.db.Where("LOWER(alias) = LOWER(?)", alias).First(&tagAlias).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to resolve alias: %w", err)

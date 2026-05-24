@@ -5,8 +5,9 @@ package contracts
 import (
 	"time"
 
-	"gorm.io/gorm"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+
+	"gorm.io/gorm"
 )
 
 // ──────────────────────────────────────────────
@@ -486,18 +487,18 @@ type UpdateArtistRequest struct {
 
 // ArtistDetailResponse represents the artist data returned to clients
 type ArtistDetailResponse struct {
-	ID               uint                 `json:"id"`
-	Slug             string               `json:"slug"`
-	Name             string               `json:"name"`
-	State            *string              `json:"state"`
-	City             *string              `json:"city"`
-	Country          *string              `json:"country,omitempty"` // PSY-558: optional country (Australia, UK, etc.)
-	BandcampEmbedURL *string              `json:"bandcamp_embed_url"`
-	Description      *string              `json:"description,omitempty"`
-	ImageURL         *string              `json:"image_url"` // Optional artist photo (PSY-521)
-	Social           SocialResponse       `json:"social"`
-	CreatedAt        time.Time            `json:"created_at"`
-	UpdatedAt        time.Time            `json:"updated_at"`
+	ID               uint           `json:"id"`
+	Slug             string         `json:"slug"`
+	Name             string         `json:"name"`
+	State            *string        `json:"state"`
+	City             *string        `json:"city"`
+	Country          *string        `json:"country,omitempty"` // PSY-558: optional country (Australia, UK, etc.)
+	BandcampEmbedURL *string        `json:"bandcamp_embed_url"`
+	Description      *string        `json:"description,omitempty"`
+	ImageURL         *string        `json:"image_url"` // Optional artist photo (PSY-521)
+	Social           SocialResponse `json:"social"`
+	CreatedAt        time.Time      `json:"created_at"`
+	UpdatedAt        time.Time      `json:"updated_at"`
 	// Stats is populated only by detail-page lookups (GetArtist /
 	// GetArtistBySlug — PSY-639). List, search, and mutation responses leave
 	// it nil so the omitempty tag drops it from the wire.

@@ -1,6 +1,7 @@
 package engagement
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -42,7 +43,7 @@ func (s *SavedShowService) SaveShow(userID, showID uint) error {
 	// Check if show exists
 	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrShowNotFound(showID)
 		}
 		return fmt.Errorf("failed to verify show: %w", err)

@@ -80,11 +80,11 @@ func TestGenerateFilterUnsubscribeURL(t *testing.T) {
 
 func TestCommentEntityPathAndTable(t *testing.T) {
 	cases := []struct {
-		in         string
-		wantPath   string
-		wantTable  string
+		in          string
+		wantPath    string
+		wantTable   string
 		wantNameCol string
-		wantOK     bool
+		wantOK      bool
 	}{
 		{"artist", "artists", "artists", "name", true},
 		{"venue", "venues", "venues", "name", true},

@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 	"testing"
@@ -196,8 +197,8 @@ func TestResolve_InstagramHandleTooLong(t *testing.T) {
 
 	found := false
 	for _, e := range errs {
-		detail, ok := e.(*huma.ErrorDetail)
-		if ok && detail.Location == "body.artists[0].instagram_handle" {
+		var detail *huma.ErrorDetail
+		if errors.As(e, &detail) && detail.Location == "body.artists[0].instagram_handle" {
 			found = true
 			break
 		}
@@ -222,8 +223,8 @@ func TestResolve_InstagramHandleValid(t *testing.T) {
 	errs := body.Resolve(nil)
 
 	for _, e := range errs {
-		detail, ok := e.(*huma.ErrorDetail)
-		if ok && detail.Location == "body.artists[0].instagram_handle" {
+		var detail *huma.ErrorDetail
+		if errors.As(e, &detail) && detail.Location == "body.artists[0].instagram_handle" {
 			t.Errorf("unexpected instagram_handle validation error: %v", detail)
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"time"
 
@@ -111,7 +112,7 @@ func (s *APITokenService) ValidateToken(plainToken string) (*authm.User, *adminm
 	var token adminm.APIToken
 	err := s.db.Preload("User").Where("token_hash = ?", tokenHash).First(&token).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil, fmt.Errorf("invalid token")
 		}
 		return nil, nil, fmt.Errorf("failed to validate token: %w", err)
@@ -206,7 +207,7 @@ func (s *APITokenService) GetToken(userID uint, tokenID uint) (*contracts.APITok
 	var token adminm.APIToken
 	err := s.db.Where("id = ? AND user_id = ?", tokenID, userID).First(&token).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("token not found")
 		}
 		return nil, fmt.Errorf("failed to get token: %w", err)

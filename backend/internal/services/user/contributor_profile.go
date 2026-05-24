@@ -2,6 +2,7 @@ package user
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -116,7 +117,7 @@ func (s *ContributorProfileService) GetPublicProfile(username string, viewerID *
 	var user authm.User
 	err := s.db.Where("username = ?", username).First(&user).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to find user: %w", err)
@@ -207,7 +208,7 @@ func (s *ContributorProfileService) GetOwnProfile(userID uint) (*contracts.Publi
 	var user authm.User
 	err := s.db.First(&user, userID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to find user: %w", err)
@@ -669,7 +670,7 @@ func (s *ContributorProfileService) UpdateSection(userID uint, sectionID uint, u
 	var section authm.UserProfileSection
 	err := s.db.Where("id = ? AND user_id = ?", sectionID, userID).First(&section).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrProfileSectionNotFound()
 		}
 		return nil, apperrors.ErrProfileInternal(fmt.Errorf("failed to find profile section: %w", err))

@@ -2,6 +2,7 @@ package admin
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"log/slog"
@@ -148,7 +149,7 @@ func (s *PendingEditService) GetPendingEdit(editID uint) (*contracts.PendingEdit
 	var edit adminm.PendingEntityEdit
 	err := s.db.Preload("Submitter").Preload("Reviewer").First(&edit, editID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edit: %w", err))
@@ -261,7 +262,7 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 
 	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrPendingEditNotFound()
 		}
 		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edit: %w", err))
@@ -380,7 +381,7 @@ func (s *PendingEditService) RejectPendingEdit(editID uint, reviewerID uint, rea
 
 	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrPendingEditNotFound()
 		}
 		return nil, apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edit: %w", err))
@@ -415,7 +416,7 @@ func (s *PendingEditService) CancelPendingEdit(editID uint, userID uint) error {
 
 	var edit adminm.PendingEntityEdit
 	if err := s.db.First(&edit, editID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrPendingEditNotFound()
 		}
 		return apperrors.ErrPendingEditInternal(fmt.Errorf("failed to get pending edit: %w", err))

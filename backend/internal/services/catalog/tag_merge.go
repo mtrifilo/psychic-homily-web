@@ -3,6 +3,7 @@ package catalog
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
@@ -160,7 +161,7 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 		if err == nil && existingAlias.TagID != target.ID {
 			return apperrors.ErrTagMergeAliasConflict(source.Name, existingAlias.TagID)
 		}
-		if err != nil && err != gorm.ErrRecordNotFound {
+		if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("failed to check alias collision: %w", err)
 		}
 
@@ -245,14 +246,14 @@ func (s *TagService) MergeTags(sourceID, targetID uint, actorUserID uint) (*cont
 func (s *TagService) loadMergeTags(db *gorm.DB, sourceID, targetID uint) (*catalogm.Tag, *catalogm.Tag, error) {
 	var source catalogm.Tag
 	if err := db.First(&source, sourceID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil, apperrors.ErrTagNotFound(sourceID)
 		}
 		return nil, nil, fmt.Errorf("failed to load source: %w", err)
 	}
 	var target catalogm.Tag
 	if err := db.First(&target, targetID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil, apperrors.ErrTagNotFound(targetID)
 		}
 		return nil, nil, fmt.Errorf("failed to load target: %w", err)
@@ -267,7 +268,7 @@ func (s *TagService) loadMergeTags(db *gorm.DB, sourceID, targetID uint) (*catal
 			fmt.Sprintf("'%s' is already an alias of '%s'", source.Name, target.Name),
 		)
 	}
-	if err != nil && err != gorm.ErrRecordNotFound {
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, nil, fmt.Errorf("failed to check existing alias relationship: %w", err)
 	}
 

@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -43,7 +44,7 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 	err := s.db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?)", req.Name, req.City).First(&existingVenue).Error
 	if err == nil {
 		return nil, fmt.Errorf("venue with name '%s' already exists in %s", req.Name, req.City)
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
@@ -94,7 +95,7 @@ func (s *VenueService) GetVenue(venueID uint) (*contracts.VenueDetailResponse, e
 	var venue catalogm.Venue
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
@@ -112,7 +113,7 @@ func (s *VenueService) GetVenueBySlug(slug string) (*contracts.VenueDetailRespon
 	var venue catalogm.Venue
 	err := s.db.Where("slug = ?", slug).First(&venue).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrVenueNotFound(0)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
@@ -172,7 +173,7 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 	var currentVenue catalogm.Venue
 	err := s.db.First(&currentVenue, venueID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
@@ -195,7 +196,7 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 	err = s.db.Where("LOWER(name) = LOWER(?) AND LOWER(city) = LOWER(?) AND id != ?", checkName, checkCity, venueID).First(&existingVenue).Error
 	if err == nil {
 		return nil, fmt.Errorf("venue with name '%s' already exists in %s", checkName, checkCity)
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
@@ -275,7 +276,7 @@ func (s *VenueService) DeleteVenue(venueID uint) error {
 	var venue catalogm.Venue
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return apperrors.ErrVenueNotFound(venueID)
 		}
 		return fmt.Errorf("failed to get venue: %w", err)
@@ -388,7 +389,7 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 			query.Model(&venue).Update("slug", slug)
 		}
 		return &venue, false, nil
-	} else if err != gorm.ErrRecordNotFound {
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, false, fmt.Errorf("failed to check existing venue: %w", err)
 	}
 
@@ -429,7 +430,7 @@ func (s *VenueService) VerifyVenue(venueID uint) (*contracts.VenueDetailResponse
 	var venue catalogm.Venue
 	err := s.db.First(&venue, venueID).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)
@@ -627,7 +628,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	// Verify venue exists
 	var venue catalogm.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, 0, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, 0, fmt.Errorf("failed to get venue: %w", err)
@@ -889,7 +890,7 @@ func (s *VenueService) GetVenueModel(venueID uint) (*catalogm.Venue, error) {
 
 	var venue catalogm.Venue
 	if err := s.db.First(&venue, venueID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, apperrors.ErrVenueNotFound(venueID)
 		}
 		return nil, fmt.Errorf("failed to get venue: %w", err)

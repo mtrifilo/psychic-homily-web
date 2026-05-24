@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"errors"
 	"fmt"
 	"time"
 
@@ -43,7 +44,7 @@ func (s *ShowReportService) CreateReport(userID, showID uint, reportType string,
 	// Verify show exists
 	var show catalogm.Show
 	if err := s.db.First(&show, showID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("show not found")
 		}
 		return nil, fmt.Errorf("failed to verify show: %w", err)
@@ -90,7 +91,7 @@ func (s *ShowReportService) GetUserReportForShow(userID, showID uint) (*contract
 		First(&report).Error
 
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil // No report found
 		}
 		return nil, fmt.Errorf("failed to get report: %w", err)
@@ -143,7 +144,7 @@ func (s *ShowReportService) DismissReport(reportID, adminID uint, notes *string)
 
 	var report communitym.ShowReport
 	if err := s.db.Preload("Show").First(&report, reportID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("report not found")
 		}
 		return nil, fmt.Errorf("failed to get report: %w", err)
@@ -182,7 +183,7 @@ func (s *ShowReportService) ResolveReportWithFlag(reportID, adminID uint, notes 
 
 	var report communitym.ShowReport
 	if err := s.db.Preload("Show").First(&report, reportID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("report not found")
 		}
 		return nil, fmt.Errorf("failed to get report: %w", err)
@@ -247,7 +248,7 @@ func (s *ShowReportService) GetReportByID(reportID uint) (*communitym.ShowReport
 
 	var report communitym.ShowReport
 	if err := s.db.Preload("Show").First(&report, reportID).Error; err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("report not found")
 		}
 		return nil, fmt.Errorf("failed to get report: %w", err)

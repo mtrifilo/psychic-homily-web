@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"strings"
@@ -78,7 +79,7 @@ func (s *ArtistRelationshipService) GetRelationship(artistA, artistB uint, relTy
 	err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 		src, tgt, relType).First(&rel).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get relationship: %w", err)
@@ -195,7 +196,7 @@ func (s *ArtistRelationshipService) Vote(artistA, artistB uint, relType string, 
 	err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 		src, tgt, relType).First(&rel).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return fmt.Errorf("relationship not found between artists %d and %d (type: %s)", src, tgt, relType)
 		}
 		return fmt.Errorf("failed to verify relationship: %w", err)
@@ -212,7 +213,7 @@ func (s *ArtistRelationshipService) Vote(artistA, artistB uint, relType string, 
 		err := tx.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND user_id = ?",
 			src, tgt, relType, userID).First(&existing).Error
 
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			vote := catalogm.ArtistRelationshipVote{
 				SourceArtistID:   src,
 				TargetArtistID:   tgt,
@@ -264,7 +265,7 @@ func (s *ArtistRelationshipService) GetUserVote(artistA, artistB uint, relType s
 	err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ? AND user_id = ?",
 		src, tgt, relType, userID).First(&vote).Error
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("failed to get user vote: %w", err)
@@ -1018,7 +1019,7 @@ func (s *ArtistRelationshipService) DeriveSharedBills(minShows int) (int64, erro
 		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 			row.ArtistA, row.ArtistB, catalogm.RelationshipTypeSharedBills).First(&existing).Error
 
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			rel := &catalogm.ArtistRelationship{
 				SourceArtistID:   row.ArtistA,
 				TargetArtistID:   row.ArtistB,
@@ -1098,7 +1099,7 @@ func (s *ArtistRelationshipService) DeriveSharedLabels(minLabels int) (int64, er
 		err := s.db.Where("source_artist_id = ? AND target_artist_id = ? AND relationship_type = ?",
 			row.ArtistA, row.ArtistB, catalogm.RelationshipTypeSharedLabel).First(&existing).Error
 
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			rel := &catalogm.ArtistRelationship{
 				SourceArtistID:   row.ArtistA,
 				TargetArtistID:   row.ArtistB,
