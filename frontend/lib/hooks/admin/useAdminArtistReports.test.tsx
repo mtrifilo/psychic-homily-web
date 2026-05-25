@@ -71,6 +71,34 @@ describe('usePendingArtistReports', () => {
     expect(url).toContain('limit=10')
     expect(url).toContain('offset=20')
   })
+
+  it('starts in loading state and resolves to success', async () => {
+    let resolveFetch: (value: unknown) => void = () => {}
+    const pending = new Promise((resolve) => {
+      resolveFetch = resolve
+    })
+    mockApiRequest.mockReturnValueOnce(pending)
+
+    const { result } = renderHook(() => usePendingArtistReports(), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.isLoading).toBe(true)
+
+    resolveFetch({ reports: [], total: 0 })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  })
+
+  it('surfaces fetch errors', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+    const { result } = renderHook(() => usePendingArtistReports(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect((result.current.error as Error).message).toBe('Forbidden')
+  })
 })
 
 describe('useDismissArtistReport', () => {
@@ -135,6 +163,22 @@ describe('useDismissArtistReport', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockInvalidateArtistReports).toHaveBeenCalled()
+  })
+
+  it('surfaces mutation errors without invalidating', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('Report not found'))
+
+    const { result } = renderHook(() => useDismissArtistReport(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ reportId: 999 })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect((result.current.error as Error).message).toBe('Report not found')
+    expect(mockInvalidateArtistReports).not.toHaveBeenCalled()
   })
 })
 

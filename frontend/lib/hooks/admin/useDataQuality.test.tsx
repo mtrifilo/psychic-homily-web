@@ -54,8 +54,20 @@ describe('useDataQualitySummary', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest).toHaveBeenCalledWith('/admin/data-quality', { method: 'GET' })
+    expect(result.current.data?.total_items).toBe(15)
+    expect(result.current.data?.categories).toHaveLength(2)
   })
 
+  it('surfaces fetch errors', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+    const { result } = renderHook(() => useDataQualitySummary(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect((result.current.error as Error).message).toBe('Forbidden')
+  })
 })
 
 describe('useDataQualityCategory', () => {
@@ -115,5 +127,37 @@ describe('useDataQualityCategory', () => {
     )
 
     expect(result.current.fetchStatus).toBe('idle')
+  })
+
+  it('surfaces fetch errors', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+    const { result } = renderHook(
+      () => useDataQualityCategory('missing_social'),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect((result.current.error as Error).message).toBe('Forbidden')
+  })
+
+  it('keys cache by category AND pagination', async () => {
+    mockApiRequest
+      .mockResolvedValueOnce({ items: [], total: 0 })
+      .mockResolvedValueOnce({ items: [], total: 0 })
+
+    const { result: socialPage1 } = renderHook(
+      () => useDataQualityCategory('missing_social', 50, 0),
+      { wrapper: createWrapper() }
+    )
+    await waitFor(() => expect(socialPage1.current.isSuccess).toBe(true))
+
+    const { result: noShowsPage1 } = renderHook(
+      () => useDataQualityCategory('no_shows', 50, 0),
+      { wrapper: createWrapper() }
+    )
+    await waitFor(() => expect(noShowsPage1.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
   })
 })

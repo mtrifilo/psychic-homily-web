@@ -87,4 +87,19 @@ describe('useAdminActivity', () => {
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(result.current.data?.events).toEqual([])
   })
+
+  it('handles activity-feed API errors', async () => {
+    server.use(
+      http.get(`${TEST_API_BASE}/admin/activity`, () => {
+        return HttpResponse.json({ message: 'Forbidden' }, { status: 403 })
+      })
+    )
+
+    const { result } = renderHook(() => useAdminActivity(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.data).toBeUndefined()
+  })
 })

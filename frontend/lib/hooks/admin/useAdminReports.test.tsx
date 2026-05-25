@@ -183,4 +183,55 @@ describe('useResolveReport', () => {
     expect(mockInvalidateShowReports).toHaveBeenCalled()
     expect(mockInvalidateShows).toHaveBeenCalled()
   })
+
+  it('surfaces mutation errors without invalidating', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('Report not found'))
+
+    const { result } = renderHook(() => useResolveReport(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ reportId: 999 })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect((result.current.error as Error).message).toBe('Report not found')
+    expect(mockInvalidateShowReports).not.toHaveBeenCalled()
+    expect(mockInvalidateShows).not.toHaveBeenCalled()
+  })
+})
+
+describe('error paths on list and dismiss', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+    mockInvalidateShowReports.mockReset()
+  })
+
+  it('surfaces list fetch errors', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+    const { result } = renderHook(() => usePendingReports(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect((result.current.error as Error).message).toBe('Forbidden')
+  })
+
+  it('surfaces dismiss errors without invalidating', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('Already resolved'))
+
+    const { result } = renderHook(() => useDismissReport(), {
+      wrapper: createWrapper(),
+    })
+
+    await act(async () => {
+      result.current.mutate({ reportId: 1 })
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(mockInvalidateShowReports).not.toHaveBeenCalled()
+  })
 })
