@@ -44,15 +44,14 @@ const (
 const shuffleWindowDays = 90
 
 // ExploreService backs the /explore landing endpoints. The DB handle
-// falls back to the package singleton so older test paths constructing
-// the bare struct still resolve a connection. featuredSlots gives us
-// the admin-curated picks; md renders curator notes + collection
-// descriptions on read with the shared markdown stack.
+// falls back to the package singleton so the bare-struct construction
+// path used by older test fixtures still resolves a connection.
+// featuredSlots gives us the admin-curated picks; md renders curator
+// notes + collection descriptions on read with the shared markdown stack.
 type ExploreService struct {
 	db            *gorm.DB
 	featuredSlots contracts.FeaturedSlotServiceInterface
 	md            *utils.MarkdownRenderer
-	nowFn         func() time.Time
 }
 
 // NewExploreService constructs the /explore service with its
@@ -68,25 +67,7 @@ func NewExploreService(database *gorm.DB, featuredSlots contracts.FeaturedSlotSe
 		db:            database,
 		featuredSlots: featuredSlots,
 		md:            utils.NewMarkdownRenderer(),
-		nowFn:         time.Now,
 	}
-}
-
-// SetNowFn overrides the clock used for "now" comparisons. Tests use
-// this to make time-window queries deterministic — the alternative is
-// inserting shows at hard-coded relative offsets and hoping no
-// daylight-saving boundary shifts the assertion. Not for production use.
-func (s *ExploreService) SetNowFn(fn func() time.Time) {
-	if fn != nil {
-		s.nowFn = fn
-	}
-}
-
-func (s *ExploreService) now() time.Time {
-	if s.nowFn == nil {
-		return time.Now()
-	}
-	return s.nowFn()
 }
 
 // ──────────────────────────────────────────────
@@ -120,7 +101,7 @@ func (s *ExploreService) GetUpcomingShows(limit, offset int) (*contracts.Explore
 		offset = 0
 	}
 
-	now := s.now().UTC()
+	now := time.Now().UTC()
 
 	// Count first so the response carries an authoritative total
 	// without the page-size cap affecting it. Same WHERE clause as the
@@ -430,9 +411,10 @@ func (s *ExploreService) resolveFeaturedCollection() (*contracts.ExploreFeatured
 // activeSlotOrNil wraps FeaturedSlotService.GetActiveSlot but translates
 // the ErrFeaturedSlotNotFound sentinel into (nil, nil) so callers can
 // branch on the not-found case without importing the admin-service
-// sentinel themselves. Real I/O failures are propagated unchanged.
-// Tolerates a nil featuredSlots dependency for legacy test paths that
-// construct ExploreService without wiring the admin services.
+// sentinel themselves. Real I/O failures propagate unchanged. The
+// nil-dependency guard keeps the bare-struct construction path safe
+// (legitimately reachable by anything that builds ExploreService
+// without the FeaturedSlot wiring).
 func (s *ExploreService) activeSlotOrNil(slotType string) (*adminm.FeaturedSlot, error) {
 	if s.featuredSlots == nil {
 		return nil, nil
@@ -491,7 +473,7 @@ func (s *ExploreService) GetShuffleTarget() (*contracts.ExploreShuffleTargetResp
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	now := s.now().UTC()
+	now := time.Now().UTC()
 	windowStart := now.AddDate(0, 0, -shuffleWindowDays)
 	windowEnd := now.AddDate(0, 0, shuffleWindowDays)
 
