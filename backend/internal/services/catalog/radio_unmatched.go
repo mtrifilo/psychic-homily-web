@@ -26,9 +26,6 @@ func (s *RadioService) GetUnmatchedPlays(stationID uint, limit, offset int) ([]*
 		limit = 50
 	}
 
-	// countQuery + groupQuery below are each built independently and re-apply
-	// the same station-scope filter; no shared base-query handle is needed.
-
 	// Count total distinct artist names
 	var total int64
 	countQuery := s.db.Table("radio_plays rp").

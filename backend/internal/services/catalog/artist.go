@@ -688,9 +688,7 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	startOfTodayUTC := startOfToday.UTC()
 
-	// Apply time filter and determine ordering. countQuery + showQuery are
-	// built independently below and re-apply the same dateCondition string;
-	// no shared base-query handle is needed.
+	// Apply time filter and determine ordering
 	var dateCondition string
 	var orderDirection string
 	switch timeFilter {

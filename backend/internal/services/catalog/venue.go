@@ -645,9 +645,7 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	startOfTodayUTC := startOfToday.UTC()
 
-	// Apply time filter. countQuery + showQuery are built independently below
-	// and re-apply the same dateCondition string; no shared base-query handle
-	// is needed.
+	// Apply time filter
 	var dateCondition string
 	var orderDirection string
 	switch timeFilter {
