@@ -221,9 +221,12 @@ func (suite *LabelServiceIntegrationTestSuite) TestGetLabelBySlug_NotFound() {
 // =============================================================================
 
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_All() {
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Alpha Records"})
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Beta Records"})
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Charlie Records"})
+	_, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Alpha Records"})
+	suite.Require().NoError(err)
+	_, err = suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Beta Records"})
+	suite.Require().NoError(err)
+	_, err = suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Charlie Records"})
+	suite.Require().NoError(err)
 
 	resp, err := suite.labelService.ListLabels(map[string]interface{}{})
 
@@ -236,8 +239,10 @@ func (suite *LabelServiceIntegrationTestSuite) TestListLabels_All() {
 }
 
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByStatus() {
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Active Label", Status: "active"})
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
+	_, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Active Label", Status: "active"})
+	suite.Require().NoError(err)
+	_, err = suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
+	suite.Require().NoError(err)
 
 	resp, err := suite.labelService.ListLabels(map[string]interface{}{"status": "defunct"})
 
@@ -249,8 +254,10 @@ func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByStatus() {
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByCity() {
 	city1 := "Seattle"
 	city2 := "Portland"
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Seattle Label", City: &city1})
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Portland Label", City: &city2})
+	_, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Seattle Label", City: &city1})
+	suite.Require().NoError(err)
+	_, err = suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Portland Label", City: &city2})
+	suite.Require().NoError(err)
 
 	resp, err := suite.labelService.ListLabels(map[string]interface{}{"city": "Seattle"})
 
@@ -262,8 +269,10 @@ func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByCity() {
 func (suite *LabelServiceIntegrationTestSuite) TestListLabels_FilterByState() {
 	state1 := "WA"
 	state2 := "OR"
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "WA Label", State: &state1})
-	suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "OR Label", State: &state2})
+	_, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "WA Label", State: &state1})
+	suite.Require().NoError(err)
+	_, err = suite.labelService.CreateLabel(&contracts.CreateLabelRequest{Name: "OR Label", State: &state2})
+	suite.Require().NoError(err)
 
 	resp, err := suite.labelService.ListLabels(map[string]interface{}{"state": "WA"})
 

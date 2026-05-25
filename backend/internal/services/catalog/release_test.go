@@ -236,9 +236,12 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestGetReleaseBySlug_NotFound()
 // =============================================================================
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_All() {
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album A", ReleaseYear: intPtr(2020)})
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album B", ReleaseYear: intPtr(2023)})
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album C", ReleaseYear: intPtr(2021)})
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album A", ReleaseYear: intPtr(2020)})
+	suite.Require().NoError(err)
+	_, err = suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album B", ReleaseYear: intPtr(2023)})
+	suite.Require().NoError(err)
+	_, err = suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Album C", ReleaseYear: intPtr(2021)})
+	suite.Require().NoError(err)
 
 	resp, total, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
@@ -252,9 +255,12 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_All() {
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByType() {
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "LP Release", ReleaseType: "lp"})
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Single Release", ReleaseType: "single"})
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "LP Release", ReleaseType: "lp"})
+	suite.Require().NoError(err)
+	_, err = suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
+	suite.Require().NoError(err)
+	_, err = suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Single Release", ReleaseType: "single"})
+	suite.Require().NoError(err)
 
 	resp, total, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{ReleaseType: "ep"})
 
@@ -265,8 +271,10 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByType()
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByYear() {
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Old Album", ReleaseYear: intPtr(2020)})
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "New Album", ReleaseYear: intPtr(2024)})
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "Old Album", ReleaseYear: intPtr(2020)})
+	suite.Require().NoError(err)
+	_, err = suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "New Album", ReleaseYear: intPtr(2024)})
+	suite.Require().NoError(err)
 
 	resp, total, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{Year: 2024})
 
@@ -280,14 +288,16 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_FilterByArtist
 	artist1 := suite.createTestArtist("Artist One")
 	artist2 := suite.createTestArtist("Artist Two")
 
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Artist One Album",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artist1.ID, Role: "main"}},
 	})
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	suite.Require().NoError(err)
+	_, err = suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Artist Two Album",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artist2.ID, Role: "main"}},
 	})
+	suite.Require().NoError(err)
 
 	resp, total, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{ArtistID: artist1.ID})
 
@@ -301,13 +311,14 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistCount() 
 	artist1 := suite.createTestArtist("Count Artist 1")
 	artist2 := suite.createTestArtist("Count Artist 2")
 
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Multi Artist Album",
 		Artists: []contracts.CreateReleaseArtistEntry{
 			{ArtistID: artist1.ID, Role: "main"},
 			{ArtistID: artist2.ID, Role: "featured"},
 		},
 	})
+	suite.Require().NoError(err)
 
 	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
@@ -320,13 +331,14 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistNames() 
 	artist1 := suite.createTestArtist("Alvvays")
 	artist2 := suite.createTestArtist("Snail Mail")
 
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Split EP",
 		Artists: []contracts.CreateReleaseArtistEntry{
 			{ArtistID: artist1.ID, Role: "main"},
 			{ArtistID: artist2.ID, Role: "main"},
 		},
 	})
+	suite.Require().NoError(err)
 
 	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
@@ -341,9 +353,10 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistNames() 
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_ArtistsEmptySlice() {
 	// Release with no artists should have empty artists slice (not nil)
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "No Artist Album",
 	})
+	suite.Require().NoError(err)
 
 	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
@@ -373,9 +386,10 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_LabelInfo() {
 }
 
 func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_NoLabel() {
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title: "Unlabeled Album",
 	})
+	suite.Require().NoError(err)
 
 	resp, _, err := suite.releaseService.ListReleases(contracts.ReleaseListFilters{})
 
@@ -388,10 +402,11 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestListReleases_NoLabel() {
 func (suite *ReleaseServiceIntegrationTestSuite) TestSearchReleases_ArtistNames() {
 	artist := suite.createTestArtist("Radiohead")
 
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "OK Computer",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
 	})
+	suite.Require().NoError(err)
 
 	resp, err := suite.releaseService.SearchReleases("OK Computer")
 
@@ -518,20 +533,23 @@ func (suite *ReleaseServiceIntegrationTestSuite) TestGetReleasesForArtist_Succes
 	artist := suite.createTestArtist("Discography Artist")
 	otherArtist := suite.createTestArtist("Other Artist")
 
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:       "Album A",
 		ReleaseYear: intPtr(2020),
 		Artists:     []contracts.CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
 	})
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	suite.Require().NoError(err)
+	_, err = suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:       "Album B",
 		ReleaseYear: intPtr(2023),
 		Artists:     []contracts.CreateReleaseArtistEntry{{ArtistID: artist.ID, Role: "main"}},
 	})
-	suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	suite.Require().NoError(err)
+	_, err = suite.releaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Other Album",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: otherArtist.ID, Role: "main"}},
 	})
+	suite.Require().NoError(err)
 
 	resp, err := suite.releaseService.GetReleasesForArtist(artist.ID)
 
