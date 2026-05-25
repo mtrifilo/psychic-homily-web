@@ -12,6 +12,7 @@ import (
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/engagement"
+	exploresvc "psychic-homily-backend/internal/services/explore"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	usersvc "psychic-homily-backend/internal/services/user"
@@ -34,6 +35,7 @@ type ServiceContainer struct {
 	ArtistReport           *adminsvc.ArtistReportService
 	AuditLog               *adminsvc.AuditLogService
 	FeaturedSlot           *adminsvc.FeaturedSlotService
+	Explore                *exploresvc.ExploreService
 	Bookmark               *engagement.BookmarkService
 	Calendar               *engagement.CalendarService
 	Collection             *community.CollectionService
@@ -153,6 +155,13 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	tagSvc := catalog.NewTagService(database)
 	collectionSvc.SetTagService(tagSvc)
 
+	// /explore landing reads reuse the FeaturedSlot service to look up
+	// the admin-curated bill + collection. Construct FeaturedSlot up
+	// front so the explore service can take it as a dependency rather
+	// than reaching back through the container.
+	featuredSlotSvc := adminsvc.NewFeaturedSlotService(database)
+	exploreService := exploresvc.NewExploreService(database, featuredSlotSvc)
+
 	return &ServiceContainer{
 		// DB-only leaf services
 		AdminStats:             adminsvc.NewAdminStatsService(database),
@@ -166,7 +175,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		ContributorProfile:     usersvc.NewContributorProfileService(database),
 		ArtistReport:           adminsvc.NewArtistReportService(database),
 		AuditLog:               adminsvc.NewAuditLogService(database),
-		FeaturedSlot:           adminsvc.NewFeaturedSlotService(database),
+		FeaturedSlot:           featuredSlotSvc,
+		Explore:                exploreService,
 		Bookmark:               engagement.NewBookmarkService(database),
 		Calendar:               engagement.NewCalendarService(database, savedShow),
 		Collection:             collectionSvc,

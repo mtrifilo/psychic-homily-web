@@ -1531,6 +1531,35 @@ func (m *MockEntityReportService) DismissEntityReport(reportID uint, reviewerID 
 }
 
 // ============================================================================
+// Mock: ExploreServiceInterface
+// ============================================================================
+
+type MockExploreService struct {
+	GetUpcomingShowsFn func(int, int) (*contracts.ExploreUpcomingShowsResponse, error)
+	GetFeaturedFn      func() (*contracts.ExploreFeaturedResponse, error)
+	GetShuffleTargetFn func() (*contracts.ExploreShuffleTargetResponse, error)
+}
+
+func (m *MockExploreService) GetUpcomingShows(limit int, offset int) (*contracts.ExploreUpcomingShowsResponse, error) {
+	if m.GetUpcomingShowsFn != nil {
+		return m.GetUpcomingShowsFn(limit, offset)
+	}
+	return nil, nil
+}
+func (m *MockExploreService) GetFeatured() (*contracts.ExploreFeaturedResponse, error) {
+	if m.GetFeaturedFn != nil {
+		return m.GetFeaturedFn()
+	}
+	return nil, nil
+}
+func (m *MockExploreService) GetShuffleTarget() (*contracts.ExploreShuffleTargetResponse, error) {
+	if m.GetShuffleTargetFn != nil {
+		return m.GetShuffleTargetFn()
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: ExtractionServiceInterface
 // ============================================================================
 
@@ -4083,6 +4112,7 @@ var _ contracts.DiscoveryServiceInterface = (*MockDiscoveryService)(nil)
 var _ contracts.EmailServiceInterface = (*MockEmailService)(nil)
 var _ contracts.EnrichmentServiceInterface = (*MockEnrichmentService)(nil)
 var _ contracts.EntityReportServiceInterface = (*MockEntityReportService)(nil)
+var _ contracts.ExploreServiceInterface = (*MockExploreService)(nil)
 var _ contracts.ExtractionServiceInterface = (*MockExtractionService)(nil)
 var _ contracts.FavoriteVenueServiceInterface = (*MockFavoriteVenueService)(nil)
 var _ contracts.FeaturedSlotServiceInterface = (*MockFeaturedSlotService)(nil)

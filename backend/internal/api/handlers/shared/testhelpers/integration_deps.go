@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/services/catalog"
 	"psychic-homily-backend/internal/services/community"
 	"psychic-homily-backend/internal/services/engagement"
+	exploresvc "psychic-homily-backend/internal/services/explore"
 	"psychic-homily-backend/internal/services/notification"
 	"psychic-homily-backend/internal/services/pipeline"
 	usersvc "psychic-homily-backend/internal/services/user"
@@ -35,6 +36,7 @@ type IntegrationDeps struct {
 	UserService               *usersvc.UserService
 	AuditLogService           *adminsvc.AuditLogService
 	FeaturedSlotService       *adminsvc.FeaturedSlotService
+	ExploreService            *exploresvc.ExploreService
 	DiscordService            *notification.DiscordService
 	ExtractionService         *pipeline.ExtractionService
 	APITokenService           *adminsvc.APITokenService
@@ -64,6 +66,7 @@ func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 
 	emptyCfg := &config.Config{}
 
+	featuredSlotSvc := adminsvc.NewFeaturedSlotService(db)
 	deps := &IntegrationDeps{
 		DB:                        db,
 		TestDB:                    testDB,
@@ -75,7 +78,8 @@ func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 		ShowReportService:         adminsvc.NewShowReportService(db),
 		UserService:               usersvc.NewUserService(db),
 		AuditLogService:           adminsvc.NewAuditLogService(db),
-		FeaturedSlotService:       adminsvc.NewFeaturedSlotService(db),
+		FeaturedSlotService:       featuredSlotSvc,
+		ExploreService:            exploresvc.NewExploreService(db, featuredSlotSvc),
 		DiscordService:            notification.NewDiscordService(emptyCfg),
 		ExtractionService:         pipeline.NewExtractionService(db, emptyCfg, catalog.NewArtistService(db), catalog.NewVenueService(db)),
 		APITokenService:           adminsvc.NewAPITokenService(db),
