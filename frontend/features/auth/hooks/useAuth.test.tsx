@@ -22,11 +22,12 @@ vi.mock('@/lib/api', () => ({
       CHANGE_PASSWORD: '/auth/change-password',
       MAGIC_LINK_SEND: '/auth/magic-link/send',
       MAGIC_LINK_VERIFY: '/auth/magic-link/verify',
-      DELETION_SUMMARY: '/auth/deletion-summary',
-      DELETE_ACCOUNT: '/auth/delete-account',
-      EXPORT_DATA: '/auth/export-data',
-      OAUTH_ACCOUNTS: '/auth/oauth-accounts',
-      OAUTH_UNLINK: (provider: string) => `/auth/oauth/${provider}/unlink`,
+      DELETION_SUMMARY: '/auth/account/deletion-summary',
+      DELETE_ACCOUNT: '/auth/account/delete',
+      EXPORT_DATA: '/auth/account/export',
+      OAUTH_ACCOUNTS: '/auth/oauth/accounts',
+      OAUTH_UNLINK: (provider: string) =>
+        `/auth/oauth/accounts/${provider}`,
       RECOVER_ACCOUNT: '/auth/recover-account',
       RECOVER_ACCOUNT_REQUEST: '/auth/recover-account/request',
       RECOVER_ACCOUNT_CONFIRM: '/auth/recover-account/confirm',
@@ -913,7 +914,7 @@ describe('useAuth hooks', () => {
       })
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/auth/delete-account',
+        '/auth/account/delete',
         expect.objectContaining({
           method: 'POST',
           body: JSON.stringify({ password: 'pw', reason: 'no longer needed' }),
@@ -991,7 +992,7 @@ describe('useAuth hooks', () => {
       })
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/auth/export-data',
+        '/auth/account/export',
         expect.objectContaining({ method: 'GET' })
       )
       expect(returned).toEqual(exportPayload)
@@ -1041,7 +1042,7 @@ describe('useAuth hooks', () => {
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/auth/oauth-accounts',
+        '/auth/oauth/accounts',
         expect.objectContaining({ method: 'GET', credentials: 'include' })
       )
       expect(result.current.data).toEqual(response)
@@ -1108,7 +1109,7 @@ describe('useAuth hooks', () => {
       })
 
       expect(mockApiRequest).toHaveBeenCalledWith(
-        '/auth/oauth/google/unlink',
+        '/auth/oauth/accounts/google',
         expect.objectContaining({ method: 'DELETE' })
       )
     })

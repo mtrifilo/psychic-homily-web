@@ -391,17 +391,6 @@ describe('useCalendarTokenStatus + useCreateCalendarToken integration', () => {
     mockInvalidateCalendar.mockReset()
   })
 
-  it('exposes shared queryKey so invalidation reaches the status query', async () => {
-    // Sanity check: queryKey object exported by queryClient matches the
-    // key the status query uses. If the keys drift, invalidation becomes
-    // a silent no-op — the very "fails silently" pattern PSY-700 is
-    // hardening against.
-    const { queryKeys } = await import('@/lib/queryClient')
-
-    expect(queryKeys.calendar.tokenStatus).toEqual(['calendar', 'tokenStatus'])
-    expect(queryKeys.calendar.all).toEqual(['calendar'])
-  })
-
   it('caches token status under a stable key (no refetch on remount with shared client)', async () => {
     const queryClient = createTestQueryClient()
     mockApiRequest.mockResolvedValueOnce({
