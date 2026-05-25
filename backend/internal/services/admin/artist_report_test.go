@@ -237,8 +237,10 @@ func (suite *ArtistReportServiceIntegrationTestSuite) TestGetPendingReports_Succ
 	user1 := suite.createTestUser()
 	user2 := suite.createTestUser()
 
-	suite.reportService.CreateReport(user1.ID, artist1.ID, "inaccurate", nil)
-	suite.reportService.CreateReport(user2.ID, artist2.ID, "removal_request", nil)
+	_, err := suite.reportService.CreateReport(user1.ID, artist1.ID, "inaccurate", nil)
+	suite.Require().NoError(err)
+	_, err = suite.reportService.CreateReport(user2.ID, artist2.ID, "removal_request", nil)
+	suite.Require().NoError(err)
 
 	resp, total, err := suite.reportService.GetPendingReports(10, 0)
 
@@ -258,12 +260,14 @@ func (suite *ArtistReportServiceIntegrationTestSuite) TestGetPendingReports_Excl
 	report := suite.createPendingReport(user.ID, artist.ID, "inaccurate")
 
 	// Dismiss the report
-	suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	_, err := suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	suite.Require().NoError(err)
 
 	// Create another pending one
 	artist2 := suite.createTestArtist("Still Pending Artist")
 	user2 := suite.createTestUser()
-	suite.reportService.CreateReport(user2.ID, artist2.ID, "removal_request", nil)
+	_, err = suite.reportService.CreateReport(user2.ID, artist2.ID, "removal_request", nil)
+	suite.Require().NoError(err)
 
 	resp, total, err := suite.reportService.GetPendingReports(10, 0)
 
@@ -278,7 +282,8 @@ func (suite *ArtistReportServiceIntegrationTestSuite) TestGetPendingReports_Pagi
 	for i := 0; i < 5; i++ {
 		artist := suite.createTestArtist(fmt.Sprintf("Paginated Artist %d", i))
 		user := suite.createTestUser()
-		suite.reportService.CreateReport(user.ID, artist.ID, "inaccurate", nil)
+		_, err := suite.reportService.CreateReport(user.ID, artist.ID, "inaccurate", nil)
+		suite.Require().NoError(err)
 	}
 
 	// Page 1
@@ -344,7 +349,8 @@ func (suite *ArtistReportServiceIntegrationTestSuite) TestDismissReport_AlreadyR
 	admin := suite.createTestUser()
 
 	report := suite.createPendingReport(user.ID, artist.ID, "inaccurate")
-	suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	_, err := suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	suite.Require().NoError(err)
 
 	// Try to dismiss again
 	resp, err := suite.reportService.DismissReport(report.ID, admin.ID, nil)
@@ -403,7 +409,8 @@ func (suite *ArtistReportServiceIntegrationTestSuite) TestResolveReport_AlreadyR
 	admin := suite.createTestUser()
 
 	report := suite.createPendingReport(user.ID, artist.ID, "inaccurate")
-	suite.reportService.ResolveReport(report.ID, admin.ID, nil)
+	_, err := suite.reportService.ResolveReport(report.ID, admin.ID, nil)
+	suite.Require().NoError(err)
 
 	resp, err := suite.reportService.ResolveReport(report.ID, admin.ID, nil)
 
@@ -418,7 +425,8 @@ func (suite *ArtistReportServiceIntegrationTestSuite) TestResolveReport_CannotRe
 	admin := suite.createTestUser()
 
 	report := suite.createPendingReport(user.ID, artist.ID, "inaccurate")
-	suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	_, err := suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	suite.Require().NoError(err)
 
 	resp, err := suite.reportService.ResolveReport(report.ID, admin.ID, nil)
 

@@ -259,7 +259,8 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_FilterByParent() {
 	parent := suite.createTag("rock", "genre")
 	suite.createTag("post-punk", "genre")
 	// Make post-rock a child of rock
-	suite.tagService.CreateTag("post-rock", nil, &parent.ID, "genre", false, nil)
+	_, err := suite.tagService.CreateTag("post-rock", nil, &parent.ID, "genre", false, nil)
+	suite.Require().NoError(err)
 
 	tags, total, err := suite.tagService.ListTags("", "", &parent.ID, "name", 50, 0, "")
 	suite.Require().NoError(err)
@@ -541,8 +542,10 @@ func (suite *TagServiceIntegrationTestSuite) TestListEntityTags() {
 	tag2 := suite.createTag("lo-fi", "other")
 	artistID := suite.createArtist("Indie Lo-Fi Band")
 
-	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
-	suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artistID, user.ID, "")
+	_, err := suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
+	_, err = suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
 
 	tags, err := suite.tagService.ListEntityTags("artist", artistID, 0)
 	suite.Require().NoError(err)
@@ -554,8 +557,9 @@ func (suite *TagServiceIntegrationTestSuite) TestListEntityTags_WithUserVote() {
 	tag := suite.createTag("punk", "genre")
 	artistID := suite.createArtist("Punk Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
-	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true))
 
 	tags, err := suite.tagService.ListEntityTags("artist", artistID, user.ID)
 	suite.Require().NoError(err)
@@ -630,9 +634,10 @@ func (suite *TagServiceIntegrationTestSuite) TestVoteOnTag_Upvote() {
 	tag := suite.createTag("synth", "genre")
 	artistID := suite.createArtist("Synth Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
 
-	err := suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
+	err = suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
 	suite.Assert().NoError(err)
 }
 
@@ -641,11 +646,12 @@ func (suite *TagServiceIntegrationTestSuite) TestVoteOnTag_ChangeVote() {
 	tag := suite.createTag("grunge", "genre")
 	artistID := suite.createArtist("Grunge Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
-	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true))
 
 	// Change to downvote
-	err := suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, false)
+	err = suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, false)
 	suite.Assert().NoError(err)
 
 	// Verify vote changed
@@ -671,10 +677,11 @@ func (suite *TagServiceIntegrationTestSuite) TestRemoveTagVote() {
 	tag := suite.createTag("noise", "genre")
 	artistID := suite.createArtist("Noise Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
-	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user.ID, true))
 
-	err := suite.tagService.RemoveTagVote(tag.ID, "artist", artistID, user.ID)
+	err = suite.tagService.RemoveTagVote(tag.ID, "artist", artistID, user.ID)
 	suite.Assert().NoError(err)
 
 	// Verify vote removed
@@ -698,9 +705,10 @@ func (suite *TagServiceIntegrationTestSuite) TestCreateAlias_Success() {
 
 func (suite *TagServiceIntegrationTestSuite) TestCreateAlias_Duplicate() {
 	tag := suite.createTag("hip-hop", "genre")
-	suite.tagService.CreateAlias(tag.ID, "hiphop")
+	_, err := suite.tagService.CreateAlias(tag.ID, "hiphop")
+	suite.Require().NoError(err)
 
-	_, err := suite.tagService.CreateAlias(tag.ID, "HipHop")
+	_, err = suite.tagService.CreateAlias(tag.ID, "HipHop")
 	suite.Assert().Error(err)
 	var tagErr *apperrors.TagError
 	suite.Assert().ErrorAs(err, &tagErr)
@@ -736,8 +744,10 @@ func (suite *TagServiceIntegrationTestSuite) TestDeleteAlias() {
 
 func (suite *TagServiceIntegrationTestSuite) TestListAliases() {
 	tag := suite.createTag("post-punk", "genre")
-	suite.tagService.CreateAlias(tag.ID, "post punk")
-	suite.tagService.CreateAlias(tag.ID, "postpunk")
+	_, err := suite.tagService.CreateAlias(tag.ID, "post punk")
+	suite.Require().NoError(err)
+	_, err = suite.tagService.CreateAlias(tag.ID, "postpunk")
+	suite.Require().NoError(err)
 
 	aliases, err := suite.tagService.ListAliases(tag.ID)
 	suite.Require().NoError(err)
@@ -746,7 +756,8 @@ func (suite *TagServiceIntegrationTestSuite) TestListAliases() {
 
 func (suite *TagServiceIntegrationTestSuite) TestResolveAlias_Found() {
 	tag := suite.createTag("post-punk", "genre")
-	suite.tagService.CreateAlias(tag.ID, "post punk")
+	_, err := suite.tagService.CreateAlias(tag.ID, "post punk")
+	suite.Require().NoError(err)
 
 	resolved, err := suite.tagService.ResolveAlias("Post Punk")
 	suite.Require().NoError(err)
@@ -896,7 +907,8 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTrendingTags() {
 	artistID := suite.createArtist("Multi-Genre")
 
 	// Apply tags to entities to increase usage count
-	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
+	_, err := suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
 	// tag2 not applied, so usage_count stays 0
 
 	_ = tag2
@@ -913,9 +925,11 @@ func (suite *TagServiceIntegrationTestSuite) TestGetTrendingTags_FilterByCategor
 	tag2 := suite.createTag("1990s", "other")
 	artistID := suite.createArtist("Band")
 
-	suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
+	_, err := suite.tagService.AddTagToEntity(tag1.ID, "", "artist", artistID, user.ID, "")
+	suite.Require().NoError(err)
 	artist2 := suite.createArtist("Band2")
-	suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artist2, user.ID, "")
+	_, err = suite.tagService.AddTagToEntity(tag2.ID, "", "artist", artist2, user.ID, "")
+	suite.Require().NoError(err)
 
 	tags, err := suite.tagService.GetTrendingTags(10, "other")
 	suite.Require().NoError(err)
@@ -930,9 +944,10 @@ func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags() {
 	artistID := suite.createArtist("Some Band")
 
 	// Apply tag and get downvoted
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID, "")
-	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user1.ID, false)
-	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user2.ID, false)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user1.ID, false))
+	suite.Require().NoError(suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user2.ID, false))
 
 	pruned, err := suite.tagService.PruneDownvotedTags()
 	suite.Require().NoError(err)
@@ -949,9 +964,10 @@ func (suite *TagServiceIntegrationTestSuite) TestPruneDownvotedTags_OfficialImmu
 	tag, _ := suite.tagService.CreateTag("official-tag", nil, nil, "genre", true, nil)
 	artistID := suite.createArtist("Some Official Band")
 
-	suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID, "")
-	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user1.ID, false)
-	suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user2.ID, false)
+	_, err := suite.tagService.AddTagToEntity(tag.ID, "", "artist", artistID, user1.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user1.ID, false))
+	suite.Require().NoError(suite.tagService.VoteOnTag(tag.ID, "artist", artistID, user2.ID, false))
 
 	pruned, err := suite.tagService.PruneDownvotedTags()
 	suite.Require().NoError(err)
@@ -1582,8 +1598,10 @@ func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_ReturnsCanonical
 func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_SearchByAlias() {
 	tagA := suite.createTag("post-punk", "genre")
 	tagB := suite.createTag("hip-hop", "genre")
-	suite.tagService.CreateAlias(tagA.ID, "postpunk")
-	suite.tagService.CreateAlias(tagB.ID, "hiphop")
+	_, err := suite.tagService.CreateAlias(tagA.ID, "postpunk")
+	suite.Require().NoError(err)
+	_, err = suite.tagService.CreateAlias(tagB.ID, "hiphop")
+	suite.Require().NoError(err)
 
 	items, total, err := suite.tagService.ListAllAliases("post", 50, 0)
 	suite.Require().NoError(err)
@@ -1595,8 +1613,10 @@ func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_SearchByAlias() 
 func (suite *TagServiceIntegrationTestSuite) TestListAllAliases_SearchByCanonicalName() {
 	tagA := suite.createTag("post-punk", "genre")
 	tagB := suite.createTag("hip-hop", "genre")
-	suite.tagService.CreateAlias(tagA.ID, "xyz")
-	suite.tagService.CreateAlias(tagB.ID, "abc")
+	_, err := suite.tagService.CreateAlias(tagA.ID, "xyz")
+	suite.Require().NoError(err)
+	_, err = suite.tagService.CreateAlias(tagB.ID, "abc")
+	suite.Require().NoError(err)
 
 	items, total, err := suite.tagService.ListAllAliases("hip", 50, 0)
 	suite.Require().NoError(err)
@@ -1683,7 +1703,8 @@ func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_DuplicateInBa
 
 func (suite *TagServiceIntegrationTestSuite) TestBulkImportAliases_AliasAlreadyExists() {
 	tagA := suite.createTag("drum-and-bass", "genre")
-	suite.tagService.CreateAlias(tagA.ID, "dnb")
+	_, err := suite.tagService.CreateAlias(tagA.ID, "dnb")
+	suite.Require().NoError(err)
 
 	items := []contracts.BulkAliasImportItem{
 		{Alias: "dnb", Canonical: "drum-and-bass"},

@@ -219,10 +219,12 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestGetPendingReports_Succes
 	user1 := suite.createTestUser()
 	user2 := suite.createTestUser()
 
-	suite.reportService.CreateReport(user1.ID, show.ID, "cancelled", nil)
+	_, err := suite.reportService.CreateReport(user1.ID, show.ID, "cancelled", nil)
+	suite.Require().NoError(err)
 
 	show2 := suite.createApprovedShow("Another Show")
-	suite.reportService.CreateReport(user2.ID, show2.ID, "sold_out", nil)
+	_, err = suite.reportService.CreateReport(user2.ID, show2.ID, "sold_out", nil)
+	suite.Require().NoError(err)
 
 	resp, total, err := suite.reportService.GetPendingReports(10, 0)
 
@@ -242,12 +244,14 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestGetPendingReports_Exclud
 	report := suite.createPendingReport(user.ID, show.ID, "cancelled")
 
 	// Dismiss the report
-	suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	_, err := suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	suite.Require().NoError(err)
 
 	// Create another pending one
 	show2 := suite.createApprovedShow("Still Pending Show")
 	user2 := suite.createTestUser()
-	suite.reportService.CreateReport(user2.ID, show2.ID, "inaccurate", nil)
+	_, err = suite.reportService.CreateReport(user2.ID, show2.ID, "inaccurate", nil)
+	suite.Require().NoError(err)
 
 	resp, total, err := suite.reportService.GetPendingReports(10, 0)
 
@@ -262,7 +266,8 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestGetPendingReports_Pagina
 	for i := 0; i < 5; i++ {
 		show := suite.createApprovedShow(fmt.Sprintf("Paginated Show %d", i))
 		user := suite.createTestUser()
-		suite.reportService.CreateReport(user.ID, show.ID, "cancelled", nil)
+		_, err := suite.reportService.CreateReport(user.ID, show.ID, "cancelled", nil)
+		suite.Require().NoError(err)
 	}
 
 	// Page 1
@@ -320,7 +325,8 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestDismissReport_AlreadyRev
 	admin := suite.createTestUser()
 
 	report := suite.createPendingReport(user.ID, show.ID, "cancelled")
-	suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	_, err := suite.reportService.DismissReport(report.ID, admin.ID, nil)
+	suite.Require().NoError(err)
 
 	// Try to dismiss again
 	resp, err := suite.reportService.DismissReport(report.ID, admin.ID, nil)
@@ -365,7 +371,8 @@ func (suite *ShowReportServiceIntegrationTestSuite) TestResolveReport_AlreadyRev
 	admin := suite.createTestUser()
 
 	report := suite.createPendingReport(user.ID, show.ID, "cancelled")
-	suite.reportService.ResolveReport(report.ID, admin.ID, nil)
+	_, err := suite.reportService.ResolveReport(report.ID, admin.ID, nil)
+	suite.Require().NoError(err)
 
 	resp, err := suite.reportService.ResolveReport(report.ID, admin.ID, nil)
 

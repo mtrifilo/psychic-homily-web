@@ -415,7 +415,7 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendance_Going(
 	user := suite.createTestUser()
 	show := suite.createApprovedShow("Get Going Show", user.ID)
 
-	suite.attendanceService.SetAttendance(user.ID, show.ID, "going")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show.ID, "going"))
 
 	status, err := suite.attendanceService.GetUserAttendance(user.ID, show.ID)
 	suite.Require().NoError(err)
@@ -426,7 +426,7 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendance_Intere
 	user := suite.createTestUser()
 	show := suite.createApprovedShow("Get Interested Show", user.ID)
 
-	suite.attendanceService.SetAttendance(user.ID, show.ID, "interested")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show.ID, "interested"))
 
 	status, err := suite.attendanceService.GetUserAttendance(user.ID, show.ID)
 	suite.Require().NoError(err)
@@ -452,9 +452,9 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetAttendanceCounts_Mult
 	user3 := suite.createTestUser()
 	show := suite.createApprovedShow("Count Show", user1.ID)
 
-	suite.attendanceService.SetAttendance(user1.ID, show.ID, "going")
-	suite.attendanceService.SetAttendance(user2.ID, show.ID, "going")
-	suite.attendanceService.SetAttendance(user3.ID, show.ID, "interested")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user1.ID, show.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user2.ID, show.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user3.ID, show.ID, "interested"))
 
 	counts, err := suite.attendanceService.GetAttendanceCounts(show.ID)
 	suite.Require().NoError(err)
@@ -484,9 +484,9 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetBatchAttendanceCounts
 	show2 := suite.createApprovedShow("Batch Show 2", user1.ID)
 	show3 := suite.createApprovedShow("Batch Show 3", user1.ID)
 
-	suite.attendanceService.SetAttendance(user1.ID, show1.ID, "going")
-	suite.attendanceService.SetAttendance(user2.ID, show1.ID, "interested")
-	suite.attendanceService.SetAttendance(user1.ID, show2.ID, "interested")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user1.ID, show1.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user2.ID, show1.ID, "interested"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user1.ID, show2.ID, "interested"))
 
 	result, err := suite.attendanceService.GetBatchAttendanceCounts([]uint{show1.ID, show2.ID, show3.ID})
 	suite.Require().NoError(err)
@@ -516,8 +516,8 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetBatchUserAttendance_M
 	show2 := suite.createApprovedShow("Batch User Show 2", user.ID)
 	show3 := suite.createApprovedShow("Batch User Show 3", user.ID)
 
-	suite.attendanceService.SetAttendance(user.ID, show1.ID, "going")
-	suite.attendanceService.SetAttendance(user.ID, show2.ID, "interested")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show1.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show2.ID, "interested"))
 
 	result, err := suite.attendanceService.GetBatchUserAttendance(user.ID, []uint{show1.ID, show2.ID, show3.ID})
 	suite.Require().NoError(err)
@@ -545,8 +545,8 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_Al
 	show1, _ := suite.createShowWithVenue("Attending Show 1", user.ID)
 	show2, _ := suite.createShowWithVenue("Attending Show 2", user.ID)
 
-	suite.attendanceService.SetAttendance(user.ID, show1.ID, "going")
-	suite.attendanceService.SetAttendance(user.ID, show2.ID, "interested")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show1.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show2.ID, "interested"))
 
 	shows, total, err := suite.attendanceService.GetUserAttendingShows(user.ID, "all", 10, 0)
 	suite.Require().NoError(err)
@@ -559,8 +559,8 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_Fi
 	show1, _ := suite.createShowWithVenue("Going Only Show", user.ID)
 	show2, _ := suite.createShowWithVenue("Interested Only Show", user.ID)
 
-	suite.attendanceService.SetAttendance(user.ID, show1.ID, "going")
-	suite.attendanceService.SetAttendance(user.ID, show2.ID, "interested")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show1.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show2.ID, "interested"))
 
 	shows, total, err := suite.attendanceService.GetUserAttendingShows(user.ID, "going", 10, 0)
 	suite.Require().NoError(err)
@@ -574,8 +574,8 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_Fi
 	show1, _ := suite.createShowWithVenue("Going Show for Filter", user.ID)
 	show2, _ := suite.createShowWithVenue("Interested Show for Filter", user.ID)
 
-	suite.attendanceService.SetAttendance(user.ID, show1.ID, "going")
-	suite.attendanceService.SetAttendance(user.ID, show2.ID, "interested")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show1.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show2.ID, "interested"))
 
 	shows, total, err := suite.attendanceService.GetUserAttendingShows(user.ID, "interested", 10, 0)
 	suite.Require().NoError(err)
@@ -589,8 +589,8 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_On
 	upcomingShow, _ := suite.createShowWithVenue("Upcoming Show", user.ID)
 	pastShow := suite.createPastShow("Past Show", user.ID)
 
-	suite.attendanceService.SetAttendance(user.ID, upcomingShow.ID, "going")
-	suite.attendanceService.SetAttendance(user.ID, pastShow.ID, "going")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, upcomingShow.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, pastShow.ID, "going"))
 
 	shows, total, err := suite.attendanceService.GetUserAttendingShows(user.ID, "all", 10, 0)
 	suite.Require().NoError(err)
@@ -613,8 +613,8 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_On
 	}
 	suite.db.Create(pendingShow)
 
-	suite.attendanceService.SetAttendance(user.ID, approvedShow.ID, "going")
-	suite.attendanceService.SetAttendance(user.ID, pendingShow.ID, "going")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, approvedShow.ID, "going"))
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, pendingShow.ID, "going"))
 
 	shows, total, err := suite.attendanceService.GetUserAttendingShows(user.ID, "all", 10, 0)
 	suite.Require().NoError(err)
@@ -627,7 +627,7 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_Pa
 	user := suite.createTestUser()
 	for i := 0; i < 5; i++ {
 		show, _ := suite.createShowWithVenue(fmt.Sprintf("Paginated Show %d", i), user.ID)
-		suite.attendanceService.SetAttendance(user.ID, show.ID, "going")
+		suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show.ID, "going"))
 	}
 
 	shows1, total, err := suite.attendanceService.GetUserAttendingShows(user.ID, "all", 2, 0)
@@ -650,7 +650,7 @@ func (suite *AttendanceServiceIntegrationTestSuite) TestGetUserAttendingShows_In
 	user := suite.createTestUser()
 	show, venue := suite.createShowWithVenue("Venue Info Show", user.ID)
 
-	suite.attendanceService.SetAttendance(user.ID, show.ID, "going")
+	suite.Require().NoError(suite.attendanceService.SetAttendance(user.ID, show.ID, "going"))
 
 	shows, _, err := suite.attendanceService.GetUserAttendingShows(user.ID, "all", 10, 0)
 	suite.Require().NoError(err)

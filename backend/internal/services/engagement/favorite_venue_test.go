@@ -165,7 +165,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestUnfavoriteVenue_Succe
 	user := suite.createTestUser()
 	venue := suite.createTestVenue("Unfavorite Me", "Phoenix", "AZ")
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 
 	err := suite.favoriteVenueService.UnfavoriteVenue(user.ID, venue.ID)
 
@@ -197,9 +197,9 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUserFavoriteVenues
 	venue1 := suite.createTestVenue("Fav Venue 1", "Phoenix", "AZ")
 	venue2 := suite.createTestVenue("Fav Venue 2", "Tempe", "AZ")
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue1.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue1.ID))
 	time.Sleep(10 * time.Millisecond)
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue2.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue2.ID))
 
 	resp, total, err := suite.favoriteVenueService.GetUserFavoriteVenues(user.ID, 10, 0)
 
@@ -233,7 +233,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUserFavoriteVenues
 	// Create 1 past show (should not count)
 	suite.createApprovedShowAtVenue("Past Show", venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 
 	resp, _, err := suite.favoriteVenueService.GetUserFavoriteVenues(user.ID, 10, 0)
 
@@ -246,7 +246,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUserFavoriteVenues
 	user := suite.createTestUser()
 	for i := 0; i < 5; i++ {
 		venue := suite.createTestVenue(fmt.Sprintf("Paginated Venue %d", i), "Phoenix", "AZ")
-		suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+		suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -272,8 +272,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUserFavoriteVenues
 	venue1 := suite.createTestVenue("User1 Venue", "Phoenix", "AZ")
 	venue2 := suite.createTestVenue("User2 Venue", "Tempe", "AZ")
 
-	suite.favoriteVenueService.FavoriteVenue(user1.ID, venue1.ID)
-	suite.favoriteVenueService.FavoriteVenue(user2.ID, venue2.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user1.ID, venue1.ID))
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user2.ID, venue2.ID))
 
 	resp, total, err := suite.favoriteVenueService.GetUserFavoriteVenues(user1.ID, 10, 0)
 
@@ -291,7 +291,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestIsVenueFavorited_True
 	user := suite.createTestUser()
 	venue := suite.createTestVenue("Fav Check", "Phoenix", "AZ")
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 
 	fav, err := suite.favoriteVenueService.IsVenueFavorited(user.ID, venue.ID)
 
@@ -320,7 +320,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUpcomingShowsFromF
 	suite.createApprovedShowAtVenue("Future Show", venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 	suite.createApprovedShowAtVenue("Past Show", venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, -7))
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 
 	resp, total, err := suite.favoriteVenueService.GetUpcomingShowsFromFavorites(user.ID, "UTC", 10, 0)
 
@@ -335,7 +335,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUpcomingShowsFromF
 	venue := suite.createTestVenue("Venue Info Venue", "Phoenix", "AZ")
 
 	suite.createApprovedShowAtVenue("Venue Show", venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 
 	resp, _, err := suite.favoriteVenueService.GetUpcomingShowsFromFavorites(user.ID, "UTC", 10, 0)
 
@@ -350,7 +350,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUpcomingShowsFromF
 	venue := suite.createTestVenue("Artist Venue", "Phoenix", "AZ")
 
 	suite.createShowWithArtistAtVenue("Artist Show", venue.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7), "Cool Band")
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 
 	resp, _, err := suite.favoriteVenueService.GetUpcomingShowsFromFavorites(user.ID, "UTC", 10, 0)
 
@@ -389,7 +389,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUpcomingShowsFromF
 	suite.db.Create(pendingShow)
 	suite.db.Create(&catalogm.ShowVenue{ShowID: pendingShow.ID, VenueID: venue.ID})
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 
 	resp, total, err := suite.favoriteVenueService.GetUpcomingShowsFromFavorites(user.ID, "UTC", 10, 0)
 
@@ -407,8 +407,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUpcomingShowsFromF
 	suite.createApprovedShowAtVenue("Show at V1", venue1.ID, user.ID, time.Now().UTC().AddDate(0, 0, 7))
 	suite.createApprovedShowAtVenue("Show at V2", venue2.ID, user.ID, time.Now().UTC().AddDate(0, 0, 14))
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue1.ID)
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue2.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue1.ID))
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue2.ID))
 
 	resp, total, err := suite.favoriteVenueService.GetUpcomingShowsFromFavorites(user.ID, "UTC", 10, 0)
 
@@ -432,7 +432,7 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetUpcomingShowsFromF
 		)
 	}
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue.ID))
 
 	resp1, total, err := suite.favoriteVenueService.GetUpcomingShowsFromFavorites(user.ID, "UTC", 2, 0)
 	suite.Require().NoError(err)
@@ -456,8 +456,8 @@ func (suite *FavoriteVenueServiceIntegrationTestSuite) TestGetFavoriteVenueIDs_S
 	venue2 := suite.createTestVenue("Batch Venue 2", "Tempe", "AZ")
 	venue3 := suite.createTestVenue("Batch Venue 3", "Mesa", "AZ")
 
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue1.ID)
-	suite.favoriteVenueService.FavoriteVenue(user.ID, venue3.ID)
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue1.ID))
+	suite.Require().NoError(suite.favoriteVenueService.FavoriteVenue(user.ID, venue3.ID))
 
 	result, err := suite.favoriteVenueService.GetFavoriteVenueIDs(user.ID, []uint{venue1.ID, venue2.ID, venue3.ID})
 

@@ -961,7 +961,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestListComments_HiddenNotVisib
 		EntityID:   artistID,
 		Body:       "Will be hidden",
 	})
-	suite.commentService.DeleteComment(user.ID, comment.ID, false)
+	suite.Require().NoError(suite.commentService.DeleteComment(user.ID, comment.ID, false))
 
 	// List should not include hidden comments by default
 	result, err := suite.commentService.ListCommentsForEntity("artist", artistID, contracts.CommentListFilters{})
@@ -1090,12 +1090,14 @@ func (suite *CommentServiceIntegrationTestSuite) TestUpdateComment_EditHistoryAp
 		Body:       "Version 1",
 	})
 
-	suite.commentService.UpdateComment(user.ID, original.ID, &contracts.UpdateCommentRequest{
+	_, err := suite.commentService.UpdateComment(user.ID, original.ID, &contracts.UpdateCommentRequest{
 		Body: "Version 2",
 	})
-	suite.commentService.UpdateComment(user.ID, original.ID, &contracts.UpdateCommentRequest{
+	suite.Require().NoError(err)
+	_, err = suite.commentService.UpdateComment(user.ID, original.ID, &contracts.UpdateCommentRequest{
 		Body: "Version 3",
 	})
+	suite.Require().NoError(err)
 
 	// Check edit history
 	var edits []engagementm.CommentEdit
@@ -1502,7 +1504,7 @@ func (suite *CommentServiceIntegrationTestSuite) TestRestoreComment_Success() {
 		EntityID:   artistID,
 		Body:       "Hide then restore",
 	})
-	suite.commentService.HideComment(admin.ID, comment.ID, "temp hide")
+	suite.Require().NoError(suite.commentService.HideComment(admin.ID, comment.ID, "temp hide"))
 
 	err := suite.commentService.RestoreComment(admin.ID, comment.ID)
 	suite.Require().NoError(err)

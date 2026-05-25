@@ -146,7 +146,8 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestCreateRelationsh
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetRelationship_Found() {
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
 	rel, err := suite.svc.GetRelationship(a1, a2, "similar")
 	suite.Require().NoError(err)
@@ -156,7 +157,8 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetRelationship_
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetRelationship_ReversedOrder() {
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
 	// Query with reversed order — should still find it
 	rel, err := suite.svc.GetRelationship(a2, a1, "similar")
@@ -175,8 +177,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetRelatedArtist
 	a2 := suite.createArtist("Related Band 1")
 	a3 := suite.createArtist("Related Band 2")
 
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
-	suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+	_, err = suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+	suite.Require().NoError(err)
 
 	related, err := suite.svc.GetRelatedArtists(a1, "", 30)
 	suite.Require().NoError(err)
@@ -188,8 +192,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetRelatedArtist
 	a2 := suite.createArtist("Similar")
 	a3 := suite.createArtist("Shared")
 
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
-	suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+	_, err = suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+	suite.Require().NoError(err)
 
 	related, err := suite.svc.GetRelatedArtists(a1, "similar", 30)
 	suite.Require().NoError(err)
@@ -200,9 +206,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetRelatedArtist
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeleteRelationship() {
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
-	err := suite.svc.DeleteRelationship(a1, a2, "similar")
+	err = suite.svc.DeleteRelationship(a1, a2, "similar")
 	suite.Assert().NoError(err)
 
 	rel, _ := suite.svc.GetRelationship(a1, a2, "similar")
@@ -222,9 +229,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestVote_Upvote() {
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
 	user := suite.createUser("voter")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
-	err := suite.svc.Vote(a1, a2, "similar", user.ID, true)
+	err = suite.svc.Vote(a1, a2, "similar", user.ID, true)
 	suite.Assert().NoError(err)
 
 	vote, err := suite.svc.GetUserVote(a1, a2, "similar", user.ID)
@@ -237,9 +245,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestVote_Downvote() 
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
 	user := suite.createUser("voter")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
-	err := suite.svc.Vote(a1, a2, "similar", user.ID, false)
+	err = suite.svc.Vote(a1, a2, "similar", user.ID, false)
 	suite.Assert().NoError(err)
 
 	vote, _ := suite.svc.GetUserVote(a1, a2, "similar", user.ID)
@@ -250,10 +259,11 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestVote_ChangeDirec
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
 	user := suite.createUser("voter")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
-	suite.svc.Vote(a1, a2, "similar", user.ID, true)
-	suite.svc.Vote(a1, a2, "similar", user.ID, false) // Change to downvote
+	suite.Require().NoError(suite.svc.Vote(a1, a2, "similar", user.ID, true))
+	suite.Require().NoError(suite.svc.Vote(a1, a2, "similar", user.ID, false)) // Change to downvote
 
 	vote, _ := suite.svc.GetUserVote(a1, a2, "similar", user.ID)
 	suite.Assert().Equal(int16(-1), vote.Direction)
@@ -271,11 +281,12 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestVote_ScoreUpdate
 	a2 := suite.createArtist("Band B")
 	user1 := suite.createUser("voter1")
 	user2 := suite.createUser("voter2")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
 	// Two upvotes
-	suite.svc.Vote(a1, a2, "similar", user1.ID, true)
-	suite.svc.Vote(a1, a2, "similar", user2.ID, true)
+	suite.Require().NoError(suite.svc.Vote(a1, a2, "similar", user1.ID, true))
+	suite.Require().NoError(suite.svc.Vote(a1, a2, "similar", user2.ID, true))
 
 	rel, _ := suite.svc.GetRelationship(a1, a2, "similar")
 	suite.Assert().Greater(rel.Score, float32(0))
@@ -285,10 +296,11 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestRemoveVote() {
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
 	user := suite.createUser("voter")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
-	suite.svc.Vote(a1, a2, "similar", user.ID, true)
-	err := suite.svc.RemoveVote(a1, a2, "similar", user.ID)
+	suite.Require().NoError(suite.svc.Vote(a1, a2, "similar", user.ID, true))
+	err = suite.svc.RemoveVote(a1, a2, "similar", user.ID)
 	suite.Assert().NoError(err)
 
 	vote, _ := suite.svc.GetUserVote(a1, a2, "similar", user.ID)
@@ -299,7 +311,8 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetUserVote_NotV
 	a1 := suite.createArtist("Band A")
 	a2 := suite.createArtist("Band B")
 	user := suite.createUser("voter")
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
 	vote, err := suite.svc.GetUserVote(a1, a2, "similar", user.ID)
 	suite.Assert().NoError(err)
@@ -358,7 +371,8 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestDeriveSharedBill
 	suite.addArtistToShow(show2, a1)
 	suite.addArtistToShow(show2, a2)
 
-	suite.svc.DeriveSharedBills(2)
+	_, err := suite.svc.DeriveSharedBills(2)
+	suite.Require().NoError(err)
 
 	// Add another show and re-derive
 	show3 := suite.createShow("Show 3")
@@ -382,8 +396,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_B
 	a2 := suite.createArtist("Related Band 1")
 	a3 := suite.createArtist("Related Band 2")
 
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
-	suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+	_, err = suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+	suite.Require().NoError(err)
 
 	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
 	suite.Require().NoError(err)
@@ -401,8 +417,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_F
 	a2 := suite.createArtist("Similar")
 	a3 := suite.createArtist("Shared")
 
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
-	suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+	_, err = suite.svc.CreateRelationship(a1, a3, "shared_bills", true)
+	suite.Require().NoError(err)
 
 	// Only similar
 	graph, err := suite.svc.GetArtistGraph(a1, []string{"similar"}, 0)
@@ -418,10 +436,13 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_C
 	a3 := suite.createArtist("Related B")
 
 	// Center connects to both
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
-	suite.svc.CreateRelationship(a1, a3, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+	_, err = suite.svc.CreateRelationship(a1, a3, "similar", false)
+	suite.Require().NoError(err)
 	// Cross-connection between related artists
-	suite.svc.CreateRelationship(a2, a3, "shared_bills", true)
+	_, err = suite.svc.CreateRelationship(a2, a3, "shared_bills", true)
+	suite.Require().NoError(err)
 
 	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
 	suite.Require().NoError(err)
@@ -435,8 +456,9 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_W
 	a2 := suite.createArtist("Related")
 	user := suite.createUser("voter")
 
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
-	suite.svc.Vote(a1, a2, "similar", user.ID, true)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+	suite.Require().NoError(suite.svc.Vote(a1, a2, "similar", user.ID, true))
 
 	graph, err := suite.svc.GetArtistGraph(a1, nil, user.ID)
 	suite.Require().NoError(err)
@@ -482,7 +504,8 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_U
 	suite.db.Create(futureShow)
 	suite.addArtistToShow(futureShow.ID, a2)
 
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
 
 	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
 	suite.Require().NoError(err)
@@ -700,8 +723,10 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_F
 
 	// Center ↔ a2 and Center ↔ a3 stored similar relationships so they
 	// surface as related artists.
-	suite.svc.CreateRelationship(a1, a2, "similar", false)
-	suite.svc.CreateRelationship(a1, a3, "similar", false)
+	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
+	suite.Require().NoError(err)
+	_, err = suite.svc.CreateRelationship(a1, a3, "similar", false)
+	suite.Require().NoError(err)
 
 	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
 	suite.Require().NoError(err)
