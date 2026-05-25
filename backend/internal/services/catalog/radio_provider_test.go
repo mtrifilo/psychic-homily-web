@@ -135,6 +135,10 @@ func TestParseKEXPEpisode(t *testing.T) {
 	assert.Equal(t, "https://kexp.org/archive/2026-01-15", *ep.ArchiveURL)
 }
 
+// TestParseKEXPEpisode_NoEndTime exercises the list-endpoint shape: KEXP's
+// /v2/shows/ list response omits both `end_time` and `archive_url`, so the
+// parser's defensive guards must leave DurationMinutes and ArchiveURL nil
+// without panicking (PSY-813).
 func TestParseKEXPEpisode_NoEndTime(t *testing.T) {
 	show := kexpShow{
 		ID:        9999,
@@ -146,6 +150,8 @@ func TestParseKEXPEpisode_NoEndTime(t *testing.T) {
 	assert.Equal(t, "9999", ep.ExternalID)
 	assert.Equal(t, "2026-01-15", ep.AirDate)
 	assert.Nil(t, ep.DurationMinutes)
+	assert.Nil(t, ep.ArchiveURL,
+		"PSY-813: list endpoint omits archive_url, parser must leave ArchiveURL nil")
 }
 
 // =============================================================================
@@ -295,6 +301,12 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 	assert.Nil(t, shows[1].HostName)
 }
 
+// PSY-813: KEXP's /v2/shows/ LIST endpoint does NOT carry `end_time` or
+// `archive_url` on its results — only the /v2/shows/{id}/ DETAIL endpoint
+// does. The previous fixture set both fields and asserted DurationMinutes was
+// populated, which contradicted production behavior. The corrected fixture
+// matches the real API and the assertions document the contract: list-imported
+// episodes always land with DurationMinutes == nil and ArchiveURL == nil.
 func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
@@ -307,8 +319,8 @@ func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
 					"program":      42,
 					"program_name": "The Morning Show",
 					"start_time":   "2026-01-15T06:00:00-08:00",
-					"end_time":     "2026-01-15T10:00:00-08:00",
-					"archive_url":  "https://kexp.org/archive/5678",
+					// end_time and archive_url intentionally omitted — the
+					// real /v2/shows/ list response does not include them.
 				},
 			},
 		})
@@ -328,8 +340,14 @@ func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
 	assert.Equal(t, "5678", episodes[0].ExternalID)
 	assert.Equal(t, "42", episodes[0].ShowExternalID)
 	assert.Equal(t, "2026-01-15", episodes[0].AirDate)
-	assert.NotNil(t, episodes[0].DurationMinutes)
-	assert.Equal(t, 240, *episodes[0].DurationMinutes)
+	// PSY-813: list-endpoint contract — duration + archive must be nil because
+	// the source payload omits end_time / archive_url. parseKEXPEpisode's
+	// defensive guards make this graceful; FetchPlaylist's detail-endpoint
+	// roundtrip is where these fields would be populated if backfilled.
+	assert.Nil(t, episodes[0].DurationMinutes,
+		"list endpoint omits end_time, so DurationMinutes must be nil")
+	assert.Nil(t, episodes[0].ArchiveURL,
+		"list endpoint omits archive_url, so ArchiveURL must be nil")
 }
 
 func TestKEXPProvider_FetchNewEpisodes_FiltersByProgram(t *testing.T) {
@@ -1131,6 +1149,10 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 		// List endpoint serves both the PSY-509 host-map fetch and the
 		// FetchNewEpisodes filter. Both read the same `program` int field
 		// (alongside `host_names`, which only the host map uses).
+		//
+		// PSY-813: the real /v2/shows/ list response does NOT include
+		// `end_time` or `archive_url` — only the detail endpoint above does.
+		// Omitting them here keeps the fixture aligned with production behavior.
 		json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 1,
 			"results": []map[string]interface{}{
@@ -1140,7 +1162,6 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 					"program_name": "The Morning Show",
 					"host_names":   []string{"John Richards"},
 					"start_time":   "2026-01-15T06:00:00-08:00",
-					"end_time":     "2026-01-15T10:00:00-08:00",
 				},
 			},
 		})

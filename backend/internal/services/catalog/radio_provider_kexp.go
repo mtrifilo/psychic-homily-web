@@ -409,6 +409,17 @@ func (p *KEXPProvider) fetchProgramHostNames() (map[int]string, error) {
 }
 
 // parseKEXPEpisode converts a KEXP show (broadcast) into our episode import DTO.
+//
+// PSY-813: The /v2/shows/ LIST endpoint (used by FetchNewEpisodes) does NOT
+// include `end_time` or `archive_url` on its result objects — only the
+// /v2/shows/{id}/ DETAIL endpoint (used by FetchPlaylist) carries them. As a
+// result, episodes imported via FetchNewEpisodes ALWAYS land with
+// DurationMinutes == nil and ArchiveURL == nil. The defensive `!= ""` guards
+// below make that nil outcome graceful instead of a panic or garbage value.
+// If/when callers need duration or archive URL populated, they must round-trip
+// through the detail endpoint (currently only FetchPlaylist does so, and only
+// to compute its playlist time window — it does not back-fill the episode
+// record).
 func parseKEXPEpisode(show kexpShow, programExternalID string) RadioEpisodeImport {
 	ep := RadioEpisodeImport{
 		ExternalID:     strconv.Itoa(show.ID),
