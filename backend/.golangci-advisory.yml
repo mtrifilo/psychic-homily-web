@@ -17,9 +17,6 @@ linters:
     # 25 violations. Mix of dead test helpers + dead consts/types; needs
     # human review before deletion.
     - unused
-    # 36 violations. Mostly QF style suggestions, a few SA4006 unused-value
-    # bugs. Flip after cleanup ticket.
-    - staticcheck
     # 474 violations. Large legacy backlog (dropped resp.Body.Close, bcrypt
     # compares, etc.); needs its own ticket.
     - errcheck

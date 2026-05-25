@@ -100,9 +100,10 @@ func countVoteMovesBySign(db *gorm.DB, sourceID, targetID uint) (up, down int64,
 		return 0, 0, fmt.Errorf("failed to split vote moves by sign: %w", err)
 	}
 	for _, r := range rows {
-		if r.Vote == 1 {
+		switch r.Vote {
+		case 1:
 			up = r.Count
-		} else if r.Vote == -1 {
+		case -1:
 			down = r.Count
 		}
 	}

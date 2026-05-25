@@ -817,21 +817,17 @@ func (s *EmailService) SendCollectionDigestEmail(toEmail string, groups []contra
 	// Render each group as its own block.
 	var groupsHTML strings.Builder
 	for _, g := range groups {
-		groupsHTML.WriteString(fmt.Sprintf(
-			`<div style="margin-bottom: 24px;">
+		fmt.Fprintf(&groupsHTML, `<div style="margin-bottom: 24px;">
 				<h3 style="margin: 0 0 8px; color: #1a1a1a;"><a href="%s" style="color: #1a1a1a; text-decoration: none;">%s</a></h3>
 				<ul style="margin: 0; padding-left: 20px; color: #444;">`,
 			g.CollectionURL,
-			htmlEscape(g.CollectionTitle),
-		))
+			htmlEscape(g.CollectionTitle))
 		for _, item := range g.Items {
-			groupsHTML.WriteString(fmt.Sprintf(
-				`<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a> <span style="color: #888;">(%s, added by %s)</span></li>`,
+			fmt.Fprintf(&groupsHTML, `<li style="margin-bottom: 4px;"><a href="%s" style="color: #f97316; text-decoration: none;">%s</a> <span style="color: #888;">(%s, added by %s)</span></li>`,
 				item.EntityURL,
 				htmlEscape(item.EntityName),
 				htmlEscape(item.EntityType),
-				htmlEscape(item.AddedBy),
-			))
+				htmlEscape(item.AddedBy))
 		}
 		groupsHTML.WriteString(`</ul></div>`)
 	}

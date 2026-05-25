@@ -155,7 +155,7 @@ func ValidateTestFixturesEnvironment(getenv func(string) string) error {
 			allowed = append(allowed, k)
 		}
 		return fmt.Errorf(
-			"%s=1 requires ENVIRONMENT to be one of %v (got %q). Refusing to boot.",
+			"%s=1 requires ENVIRONMENT to be one of %v (got %q); refusing to boot",
 			EnableTestFixturesEnvVar, allowed, env,
 		)
 	}

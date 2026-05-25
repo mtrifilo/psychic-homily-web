@@ -319,10 +319,7 @@ func (h *ShowReportHandler) ResolveReportHandler(ctx context.Context, req *Resol
 	}
 
 	// Determine if we should set the show flag
-	setShowFlag := false
-	if req.Body.SetShowFlag != nil && *req.Body.SetShowFlag {
-		setShowFlag = true
-	}
+	setShowFlag := req.Body.SetShowFlag != nil && *req.Body.SetShowFlag
 
 	logger.FromContext(ctx).Debug("admin_resolve_report_attempt",
 		"report_id", reportID,

@@ -182,10 +182,11 @@ func (h *AdminDataHandler) ExportVenuesHandler(ctx context.Context, req *ExportV
 	}
 
 	// Parse verified filter
-	if req.Verified == "true" {
+	switch req.Verified {
+	case "true":
 		verified := true
 		params.Verified = &verified
-	} else if req.Verified == "false" {
+	case "false":
 		verified := false
 		params.Verified = &verified
 	}

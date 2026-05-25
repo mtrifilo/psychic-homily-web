@@ -104,7 +104,7 @@ func (s *AppleAuthService) ValidateIdentityToken(identityToken string) (*contrac
 	}
 
 	if !token.Valid {
-		return nil, fmt.Errorf("Apple identity token is not valid")
+		return nil, fmt.Errorf("apple identity token is not valid")
 	}
 
 	return claims, nil
@@ -254,7 +254,7 @@ func (s *AppleAuthService) getApplePublicKey(kid string) (*rsa.PublicKey, error)
 
 	key, ok := s.keys[kid]
 	if !ok {
-		return nil, fmt.Errorf("Apple public key not found for kid: %s", kid)
+		return nil, fmt.Errorf("apple public key not found for kid: %s", kid)
 	}
 
 	return key, nil
@@ -273,7 +273,7 @@ func (s *AppleAuthService) fetchAppleKeys() error {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("Apple keys endpoint returned status %d", resp.StatusCode)
+		return fmt.Errorf("apple keys endpoint returned status %d", resp.StatusCode)
 	}
 
 	var jwkSet appleJWKSet

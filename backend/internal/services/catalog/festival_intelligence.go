@@ -565,7 +565,7 @@ func (s *FestivalIntelligenceService) GetFestivalBreakouts(festivalID uint) (*co
 
 		// Build trajectory
 		trajectory := make([]contracts.TrajectoryEntry, len(hist))
-		var bestRank int = 99
+		var bestRank = 99
 		for i, h := range hist {
 			trajectory[i] = contracts.TrajectoryEntry{
 				FestivalName: h.Name,

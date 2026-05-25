@@ -100,7 +100,7 @@ func TestValidateIdentityToken(t *testing.T) {
 	// Create a mock Apple keys server
 	mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Encode public key as JWK
-		nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.PublicKey.N.Bytes())
+		nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
 		eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
 		eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
 
@@ -158,7 +158,7 @@ func TestValidateIdentityToken(t *testing.T) {
 
 		_, err := svc.ValidateIdentityToken(token)
 		assert.Error(t, err)
-		assert.Contains(t, err.Error(), "Apple public key not found")
+		assert.Contains(t, err.Error(), "apple public key not found")
 	})
 
 	t.Run("wrong_signing_key_rejected", func(t *testing.T) {
@@ -204,7 +204,7 @@ func TestAppleKeyFetching(t *testing.T) {
 
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			callCount++
-			nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.PublicKey.N.Bytes())
+			nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
 			eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
 			eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
 			w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"cached-kid","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
@@ -231,7 +231,7 @@ func TestAppleKeyFetching(t *testing.T) {
 
 		mockServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			callCount++
-			nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.PublicKey.N.Bytes())
+			nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
 			eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
 			eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
 			w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"known-kid","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))

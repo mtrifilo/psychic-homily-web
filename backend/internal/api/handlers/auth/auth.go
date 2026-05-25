@@ -1837,7 +1837,8 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 		}
 		// Only allow alphanumeric, underscores, and hyphens
 		for _, c := range username {
-			if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-') {
+			allowed := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || c == '-'
+			if !allowed {
 				resp.Body.Success = false
 				resp.Body.Message = "Username may only contain letters, numbers, underscores, and hyphens"
 				resp.Body.ErrorCode = autherrors.CodeValidationFailed
