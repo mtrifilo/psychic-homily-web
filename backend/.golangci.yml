@@ -12,7 +12,7 @@
 #   * .golangci-advisory.yml                — advisory linters; soft-fail in CI.
 #
 # Violation survey (2026-05-23, golangci-lint v2.12.2; errorlint updated 2026-05-24,
-# ineffassign updated 2026-05-24):
+# ineffassign updated 2026-05-24, staticcheck updated 2026-05-24):
 #   linter       | violations | decision  | rationale
 #   ----------- | ---------- | --------- | ------------------------------------------------
 #   govet        |          0 | GATE      | clean once the `inline` analyzer (advisory
@@ -28,11 +28,17 @@
 #                |            |           | deleted, 1 wasted allocation swapped for nil-slice
 #                |            |           | declaration). Gated to prevent regression of
 #                |            |           | ineffective-assignment patterns.
+#   staticcheck  |          0 | GATE      | PSY-832 cleaned the 32 sites (5 SA4006 dead
+#                |            |           | baseQuery reassignments deleted, 17 QF style
+#                |            |           | suggestions autofixed via `--fix` + 1 manual
+#                |            |           | De Morgan rewrite extracted to a named predicate,
+#                |            |           | 8 ST1005 error-string capitalization/punctuation
+#                |            |           | fixes, 1 S1011 slice-append + 1 ST1023 redundant
+#                |            |           | type-decl autofixes). Gated to prevent regression
+#                |            |           | of staticcheck-clean patterns.
 #   unused       |         25 | advisory  | mix of dead test helpers + dead consts/types;
 #                |            |           | needs human review (some may be live via
 #                |            |           | reflection or future use) before deletion.
-#   staticcheck  |         36 | advisory  | mostly QF style suggestions, a few SA4006
-#                |            |           | unused-assignment bugs; flip after cleanup.
 #   errcheck     |        474 | advisory  | large legacy backlog (dropped resp.Body.Close,
 #                |            |           | bcrypt compares, etc.); needs its own ticket.
 #
@@ -58,6 +64,7 @@ linters:
     - govet
     - errorlint
     - ineffassign
+    - staticcheck
 
   settings:
     govet:

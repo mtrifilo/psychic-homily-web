@@ -1213,9 +1213,7 @@ func (s *ArtistRelationshipService) computeFestivalCobillCenterEdges(centerID ui
 	// Collect (artistA, artistB) pairs to fetch their representative
 	// festival names in a single batch query.
 	pairs := make([]festivalCobillRow, 0, len(rows))
-	for _, r := range rows {
-		pairs = append(pairs, r)
-	}
+	pairs = append(pairs, rows...)
 	nameMap, err := s.queryFestivalCobillNames(pairs)
 	if err != nil {
 		// Tooltip names are best-effort — log nothing, return whatever we have.

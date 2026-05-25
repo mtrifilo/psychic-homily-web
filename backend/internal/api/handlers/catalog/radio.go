@@ -166,9 +166,10 @@ type ListRadioStationsResponse struct {
 // ListRadioStationsHandler handles GET /radio-stations
 func (h *RadioHandler) ListRadioStationsHandler(ctx context.Context, req *ListRadioStationsRequest) (*ListRadioStationsResponse, error) {
 	filters := make(map[string]interface{})
-	if req.IsActive == "true" {
+	switch req.IsActive {
+	case "true":
 		filters["is_active"] = true
-	} else if req.IsActive == "false" {
+	case "false":
 		filters["is_active"] = false
 	}
 

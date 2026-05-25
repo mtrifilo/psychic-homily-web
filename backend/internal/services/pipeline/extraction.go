@@ -318,7 +318,7 @@ func (s *ExtractionService) sendAnthropicRequest(reqBody anthropicRequest) (stri
 
 	resp, err := s.httpClient.Do(req)
 	if err != nil {
-		return "", fmt.Errorf("Anthropic API request failed: %w", err)
+		return "", fmt.Errorf("anthropic API request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
@@ -328,7 +328,7 @@ func (s *ExtractionService) sendAnthropicRequest(reqBody anthropicRequest) (stri
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("Anthropic API error (status %d): %s", resp.StatusCode, string(body))
+		return "", fmt.Errorf("anthropic API error (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	var apiResp anthropicResponse
@@ -337,7 +337,7 @@ func (s *ExtractionService) sendAnthropicRequest(reqBody anthropicRequest) (stri
 	}
 
 	if apiResp.Error != nil {
-		return "", fmt.Errorf("Anthropic API error: %s", apiResp.Error.Message)
+		return "", fmt.Errorf("anthropic API error: %s", apiResp.Error.Message)
 	}
 
 	// Extract text from response content blocks

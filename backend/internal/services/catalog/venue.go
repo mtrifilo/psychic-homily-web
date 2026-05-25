@@ -645,24 +645,17 @@ func (s *VenueService) GetShowsForVenue(venueID uint, timezone string, limit int
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	startOfTodayUTC := startOfToday.UTC()
 
-	// Build base query
-	baseQuery := s.db.Table("show_venues").
-		Joins("JOIN shows ON show_venues.show_id = shows.id").
-		Where("show_venues.venue_id = ? AND shows.status = ?", venueID, catalogm.ShowStatusApproved)
-
 	// Apply time filter
 	var dateCondition string
 	var orderDirection string
 	switch timeFilter {
 	case "past":
-		baseQuery = baseQuery.Where("shows.event_date < ?", startOfTodayUTC)
 		dateCondition = "shows.event_date < ?"
 		orderDirection = "shows.event_date DESC" // Most recent past shows first
 	case "all":
 		dateCondition = "" // No date filter
 		orderDirection = "shows.event_date ASC"
 	default: // "upcoming"
-		baseQuery = baseQuery.Where("shows.event_date >= ?", startOfTodayUTC)
 		dateCondition = "shows.event_date >= ?"
 		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
 	}

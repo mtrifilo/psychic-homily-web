@@ -547,6 +547,6 @@ func VerifyCollectionDigestUnsubscribeSignature(userID uint, signature, secret s
 // one notification type can't be replayed against another.
 func ComputeCollectionDigestUnsubscribeSignature(userID uint, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	mac.Write([]byte(fmt.Sprintf("unsubscribe:collection-digest:%d", userID)))
+	fmt.Fprintf(mac, "unsubscribe:collection-digest:%d", userID)
 	return hex.EncodeToString(mac.Sum(nil))
 }
