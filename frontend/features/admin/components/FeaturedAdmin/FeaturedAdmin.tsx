@@ -44,6 +44,7 @@ import {
 import { useDebounce } from 'use-debounce'
 import { useQuery } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
+import { formatShowDate } from '@/lib/utils/formatters'
 import {
   MarkdownContent,
   MarkdownEditor,
@@ -112,14 +113,9 @@ function ActiveBillCard({
   onRetire: () => void
   isRetiring: boolean
 }) {
-  const eventDate = new Date(bill.event_date)
-  const dateLabel = Number.isNaN(eventDate.getTime())
+  const dateLabel = Number.isNaN(new Date(bill.event_date).getTime())
     ? null
-    : eventDate.toLocaleDateString('en-US', {
-        month: 'short',
-        day: 'numeric',
-        year: 'numeric',
-      })
+    : formatShowDate(bill.event_date, bill.venue_state, true)
 
   return (
     <div
