@@ -30,7 +30,7 @@
  * session.
  */
 
-import { useCallback, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   ChevronLeft,
@@ -380,6 +380,20 @@ export function StreamingWorklist() {
   // useEffect for prop-derived state.
   const pageIndex = Math.floor(offset / limit)
   const totalPages = Math.max(1, Math.ceil(total / limit))
+
+  // Rewind to the last non-empty page when a mutation drops the only
+  // visible row on a non-first page. Without this, total goes (e.g.) 26
+  // → 25 but offset stays at 25 — the user sees the empty-state copy
+  // even though the queue isn't actually clear. We use useEffect rather
+  // than calculate-during-render because (a) offset is parent state we
+  // need to mutate via setOffset, and (b) the condition fires only when
+  // the query result lands, not on every render.
+  useEffect(() => {
+    if (data && entries.length === 0 && offset > 0 && total > 0) {
+      const lastValidOffset = Math.max(0, (Math.ceil(total / limit) - 1) * limit)
+      setOffset(lastValidOffset)
+    }
+  }, [data, entries.length, offset, total, limit])
 
   const handleStatusChange = useCallback((value: StreamingWorklistStatusFilter) => {
     setStatus(value)

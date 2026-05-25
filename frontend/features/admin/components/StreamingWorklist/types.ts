@@ -63,8 +63,10 @@ export interface UpdateStreamingDiscoveryStatusInput {
 }
 
 /**
- * Backend response after a successful status mutation. Huma nests the
- * row under `body`.
+ * Backend response after a successful status mutation. Huma's
+ * response struct has a `Body` field but the framework serializes that
+ * field's value AS the HTTP body — there is no `{body: ...}` envelope
+ * on the wire. This type mirrors what the client receives directly.
  */
 export interface UpdateStreamingDiscoveryStatusResponseBody {
   id: number
@@ -73,10 +75,6 @@ export interface UpdateStreamingDiscoveryStatusResponseBody {
   streaming_discovery_status: StreamingDiscoveryStatus
   streaming_discovery_reason?: string | null
   updated_at: string
-}
-
-export interface UpdateStreamingDiscoveryStatusResponse {
-  body: UpdateStreamingDiscoveryStatusResponseBody
 }
 
 /**

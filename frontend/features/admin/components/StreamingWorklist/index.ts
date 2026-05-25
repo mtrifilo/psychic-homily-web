@@ -10,7 +10,6 @@ export type {
   StreamingWorklistResult,
   StreamingWorklistStatusFilter,
   UpdateStreamingDiscoveryStatusInput,
-  UpdateStreamingDiscoveryStatusResponse,
   UpdateStreamingDiscoveryStatusResponseBody,
 } from './types'
 export {

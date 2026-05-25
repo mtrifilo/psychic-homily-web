@@ -47,10 +47,6 @@ export function useStreamingWorklist({
   offset,
   enabled = true,
 }: UseStreamingWorklistParams) {
-  const params: Record<string, string | number> = { limit, offset }
-  if (status) {
-    params.status = status
-  }
   return useQuery({
     queryKey: queryKeys.admin.streamingWorklist({ status, limit, offset }),
     queryFn: () => {
@@ -85,12 +81,14 @@ export function useStreamingWorklist({
 export function useUpdateStreamingDiscoveryStatus() {
   const queryClient = useQueryClient()
   return useMutation({
-    mutationFn: async (
+    mutationFn: (
       input: UpdateStreamingDiscoveryStatusInput
-    ): Promise<UpdateStreamingDiscoveryStatusResponseBody> => {
-      const response = await apiRequest<{
-        body: UpdateStreamingDiscoveryStatusResponseBody
-      }>(
+    ): Promise<UpdateStreamingDiscoveryStatusResponseBody> =>
+      // Huma's response struct has a `Body` field, but the framework
+      // serializes that field's value AS the HTTP body — there is no
+      // `{body: ...}` envelope on the wire. The response IS the artist
+      // payload. Verified empirically against the dev backend.
+      apiRequest<UpdateStreamingDiscoveryStatusResponseBody>(
         API_ENDPOINTS.ADMIN.ARTISTS.STREAMING_DISCOVERY_STATUS(input.artist_id),
         {
           method: 'POST',
@@ -99,11 +97,7 @@ export function useUpdateStreamingDiscoveryStatus() {
             reason: input.reason ?? null,
           }),
         }
-      )
-      // Huma wraps the row under `body`; unwrap so the mutation
-      // consumer gets the artist payload directly.
-      return response.body
-    },
+      ),
     onSuccess: () => {
       // Invalidate the whole worklist branch — status filter and
       // pagination both vary by key, so a single invalidation needs to

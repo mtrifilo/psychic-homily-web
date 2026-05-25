@@ -115,15 +115,16 @@ describe('useUpdateStreamingDiscoveryStatus', () => {
   })
 
   it('POSTs the status mutation and invalidates the worklist branch', async () => {
+    // Huma sends the response's `Body` field AS the HTTP body — there
+    // is no `{body: ...}` envelope. apiRequest returns the artist
+    // payload directly. Verified empirically against the dev backend.
     mockApiRequest.mockResolvedValueOnce({
-      body: {
-        id: 42,
-        name: 'Test Band',
-        slug: 'test-band',
-        streaming_discovery_status: 'skipped',
-        streaming_discovery_reason: 'Same-name collision',
-        updated_at: '2026-05-24T12:00:00Z',
-      },
+      id: 42,
+      name: 'Test Band',
+      slug: 'test-band',
+      streaming_discovery_status: 'skipped',
+      streaming_discovery_reason: 'Same-name collision',
+      updated_at: '2026-05-24T12:00:00Z',
     })
     const { queryClient, invalidateSpy } = setupClient()
 
@@ -158,12 +159,10 @@ describe('useUpdateStreamingDiscoveryStatus', () => {
 
   it('passes null reason through unchanged', async () => {
     mockApiRequest.mockResolvedValueOnce({
-      body: {
-        id: 7,
-        name: 'X',
-        streaming_discovery_status: 'linked',
-        updated_at: '2026-05-24T12:00:00Z',
-      },
+      id: 7,
+      name: 'X',
+      streaming_discovery_status: 'linked',
+      updated_at: '2026-05-24T12:00:00Z',
     })
     const { queryClient } = setupClient()
 
@@ -187,14 +186,14 @@ describe('useUpdateStreamingDiscoveryStatus', () => {
     )
   })
 
-  it('unwraps the Huma `body` envelope into the mutation result', async () => {
+  it('returns the artist payload directly (no body envelope)', async () => {
     const updatedArtist = {
       id: 9,
       name: 'Y',
       streaming_discovery_status: 'no_links_found' as const,
       updated_at: '2026-05-24T12:00:00Z',
     }
-    mockApiRequest.mockResolvedValueOnce({ body: updatedArtist })
+    mockApiRequest.mockResolvedValueOnce(updatedArtist)
     const { queryClient } = setupClient()
 
     const { result } = renderHook(() => useUpdateStreamingDiscoveryStatus(), {
