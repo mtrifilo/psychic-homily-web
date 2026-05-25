@@ -26,16 +26,8 @@ func (s *RadioService) GetUnmatchedPlays(stationID uint, limit, offset int) ([]*
 		limit = 50
 	}
 
-	// Build base query for grouping unmatched plays by artist_name
-	baseQuery := s.db.Table("radio_plays rp").
-		Where("rp.artist_id IS NULL")
-
-	if stationID > 0 {
-		baseQuery = baseQuery.
-			Joins("JOIN radio_episodes re ON re.id = rp.episode_id").
-			Joins("JOIN radio_shows rsh ON rsh.id = re.show_id").
-			Where("rsh.station_id = ?", stationID)
-	}
+	// countQuery + groupQuery below are each built independently and re-apply
+	// the same station-scope filter; no shared base-query handle is needed.
 
 	// Count total distinct artist names
 	var total int64

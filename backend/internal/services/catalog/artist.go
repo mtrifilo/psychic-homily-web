@@ -688,24 +688,19 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 	startOfToday := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, loc)
 	startOfTodayUTC := startOfToday.UTC()
 
-	// Build base query
-	baseQuery := s.db.Table("show_artists").
-		Joins("JOIN shows ON show_artists.show_id = shows.id").
-		Where("show_artists.artist_id = ? AND shows.status = ?", artistID, catalogm.ShowStatusApproved)
-
-	// Apply time filter and determine ordering
+	// Apply time filter and determine ordering. countQuery + showQuery are
+	// built independently below and re-apply the same dateCondition string;
+	// no shared base-query handle is needed.
 	var dateCondition string
 	var orderDirection string
 	switch timeFilter {
 	case "past":
-		baseQuery = baseQuery.Where("shows.event_date < ?", startOfTodayUTC)
 		dateCondition = "shows.event_date < ?"
 		orderDirection = "shows.event_date DESC" // Most recent past shows first
 	case "all":
 		dateCondition = "" // No date filter
 		orderDirection = "shows.event_date ASC"
 	default: // "upcoming"
-		baseQuery = baseQuery.Where("shows.event_date >= ?", startOfTodayUTC)
 		dateCondition = "shows.event_date >= ?"
 		orderDirection = "shows.event_date ASC" // Soonest upcoming shows first
 	}
