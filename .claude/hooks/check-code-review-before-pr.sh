@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 # PreToolUse hook on Bash — blocks `gh pr create` if the PR body lacks a
-# checked test-plan item for /simplify.
+# checked test-plan item for /code-review.
 #
 # Encodes the psy-solo phase 5 + psy-dispatch ironclad rule 3 convention:
-# /simplify must run before push. Belt-and-suspenders on top of
+# /code-review must run before push. Belt-and-suspenders on top of
 # /psy-self-review's body-claim audit — catches the case where the agent
-# skips /simplify AND doesn't claim it (which /psy-self-review can't detect
+# skips /code-review AND doesn't claim it (which /psy-self-review can't detect
 # because there's no [x] claim to audit).
 #
-# Bypass for explicit one-offs: set CLAUDE_SKIP_SIMPLIFY_CHECK=1 in the call.
+# Bypass for explicit one-offs: set CLAUDE_SKIP_CODE_REVIEW_CHECK=1 in the call.
 
 set -euo pipefail
 
@@ -26,8 +26,8 @@ if ! [[ "$command" =~ ^[[:space:]]*gh[[:space:]]+pr[[:space:]]+create ]]; then
 fi
 
 # Explicit bypass
-if [[ "${CLAUDE_SKIP_SIMPLIFY_CHECK:-}" == "1" ]]; then
-    echo "[check-simplify-before-pr] CLAUDE_SKIP_SIMPLIFY_CHECK=1 — bypassing" >&2
+if [[ "${CLAUDE_SKIP_CODE_REVIEW_CHECK:-}" == "1" ]]; then
+    echo "[check-code-review-before-pr] CLAUDE_SKIP_CODE_REVIEW_CHECK=1 — bypassing" >&2
     exit 0
 fi
 
@@ -53,13 +53,13 @@ if [[ -z "$body" ]]; then
 fi
 
 # Accept any of:
-#   - [x] /simplify
-#   - [x] `/simplify`
-#   - [x] /simplify — <outcome>
-#   - [x] `/simplify` — <outcome>
+#   - [x] /code-review
+#   - [x] `/code-review`
+#   - [x] /code-review — <outcome>
+#   - [x] `/code-review` — <outcome>
 # Lowercase `[x]` only — `[X]` is a typo signal worth catching as a miss,
 # not silently accepting. Indented bullet allowed.
-if echo "$body" | grep -qE '^[[:space:]]*-[[:space:]]*\[x\][[:space:]]*`?/simplify`?'; then
+if echo "$body" | grep -qE '^[[:space:]]*-[[:space:]]*\[x\][[:space:]]*`?/code-review`?'; then
     exit 0
 fi
 
@@ -68,20 +68,20 @@ cat >&2 <<'EOF'
 
 ERROR — pre-push convention violation
 
-PR body must contain a checked test-plan item for /simplify:
-    - [x] /simplify — <outcome>
+PR body must contain a checked test-plan item for /code-review:
+    - [x] /code-review — <outcome>
 or
-    - [x] `/simplify` — <outcome>
+    - [x] `/code-review` — <outcome>
 
-The /psy-solo phase 5 + /psy-dispatch ironclad rule 3 both require /simplify
-to run before push. If you ran /simplify, add the [x] claim to your PR body
+The /psy-solo phase 5 + /psy-dispatch ironclad rule 3 both require /code-review
+to run before push. If you ran /code-review, add the [x] claim to your PR body
 and re-run gh pr create.
 
-If you genuinely skipped /simplify (tiny typo fix, docs-only, etc.), explicitly
+If you genuinely skipped /code-review (tiny typo fix, docs-only, etc.), explicitly
 downgrade to [ ] with a "skipped — <reason>" note. Reviewers need the signal.
 
 To bypass this hook for a specific call:
-    CLAUDE_SKIP_SIMPLIFY_CHECK=1 gh pr create ...
+    CLAUDE_SKIP_CODE_REVIEW_CHECK=1 gh pr create ...
 
 EOF
 exit 1
