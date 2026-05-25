@@ -14,8 +14,8 @@ import (
 )
 
 // StreamingWorklistHandler owns the admin streaming-discovery worklist
-// surface (PSY-827). Sits alongside AdminDiscoveryHandler — both
-// handlers belong to the discovery-flow admin surface.
+// surface. Sits alongside AdminDiscoveryHandler — both handlers belong
+// to the discovery-flow admin surface.
 type StreamingWorklistHandler struct {
 	worklistService contracts.StreamingWorklistServiceInterface
 	auditLogService contracts.AuditLogServiceInterface

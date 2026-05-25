@@ -3,7 +3,6 @@ package pipeline
 import (
 	"errors"
 	"fmt"
-	"time"
 
 	"gorm.io/gorm"
 
@@ -83,23 +82,17 @@ var validStreamingStatuses = map[catalogm.StreamingDiscoveryStatus]struct{}{
 // nonTerminalWorklistStatuses are the statuses surfaced by the worklist
 // list query. Terminal states (linked/no_links_found/skipped) are
 // excluded — those rows have been triaged.
+//
+// Slice form is what the SQL `IN ?` placeholder expects; the set form
+// is used for O(1) membership checks when validating the status filter.
 var nonTerminalWorklistStatuses = []string{
 	string(catalogm.StreamingDiscoveryStatusUnreviewed),
 	string(catalogm.StreamingDiscoveryStatusCandidatesPending),
 }
 
-// worklistRow is the scan target for the list query. Mirrors the SELECT
-// list column-for-column. Kept in service-internal scope; the public
-// shape returned to handlers is StreamingWorklistEntry in contracts.
-type worklistRow struct {
-	ArtistID                 uint
-	ArtistName               string
-	ArtistSlug               *string
-	StreamingDiscoveryStatus string
-	SoonestEventDate         time.Time
-	VenueName                *string
-	VenueCity                *string
-	UpcomingShowCount        int64
+var nonTerminalWorklistStatusSet = map[string]struct{}{
+	string(catalogm.StreamingDiscoveryStatusUnreviewed):        {},
+	string(catalogm.StreamingDiscoveryStatusCandidatesPending): {},
 }
 
 // ListStreamingWorklist returns artists whose streaming_discovery_status
@@ -128,25 +121,14 @@ func (s *StreamingWorklistService) ListStreamingWorklist(status string, limit, o
 
 	// Allowed status filter values — only the two non-terminal statuses.
 	// An explicit empty string means "no filter; both non-terminal
-	// statuses".
-	var statusFilter []string
+	// statuses". Unknown values reject with the same error class as an
+	// invalid transition so callers handle a single failure mode.
+	statusFilter := nonTerminalWorklistStatuses
 	if status != "" {
-		// Validate against the non-terminal set; unknown values reject
-		// with the same error as invalid transitions so the caller has
-		// a single failure mode to handle.
-		valid := false
-		for _, s := range nonTerminalWorklistStatuses {
-			if s == status {
-				valid = true
-				break
-			}
-		}
-		if !valid {
+		if _, ok := nonTerminalWorklistStatusSet[status]; !ok {
 			return nil, fmt.Errorf("%w: status %q is not a non-terminal worklist status", contracts.ErrInvalidStreamingStatusTransition, status)
 		}
 		statusFilter = []string{status}
-	} else {
-		statusFilter = nonTerminalWorklistStatuses
 	}
 
 	// LATERAL subquery selects the soonest future show for each artist
@@ -209,8 +191,8 @@ func (s *StreamingWorklistService) ListStreamingWorklist(status string, limit, o
 		LIMIT ? OFFSET ?
 	`
 
-	var rows []worklistRow
-	if err := s.db.Raw(query, statusFilter, limit, offset).Scan(&rows).Error; err != nil {
+	entries := make([]contracts.StreamingWorklistEntry, 0)
+	if err := s.db.Raw(query, statusFilter, limit, offset).Scan(&entries).Error; err != nil {
 		return nil, fmt.Errorf("list streaming worklist: %w", err)
 	}
 
@@ -233,20 +215,6 @@ func (s *StreamingWorklistService) ListStreamingWorklist(status string, limit, o
 	`
 	if err := s.db.Raw(countQuery, statusFilter).Scan(&total).Error; err != nil {
 		return nil, fmt.Errorf("count streaming worklist: %w", err)
-	}
-
-	entries := make([]contracts.StreamingWorklistEntry, 0, len(rows))
-	for _, r := range rows {
-		entries = append(entries, contracts.StreamingWorklistEntry{
-			ArtistID:                 r.ArtistID,
-			ArtistName:               r.ArtistName,
-			ArtistSlug:               r.ArtistSlug,
-			StreamingDiscoveryStatus: r.StreamingDiscoveryStatus,
-			SoonestEventDate:         r.SoonestEventDate,
-			VenueName:                r.VenueName,
-			VenueCity:                r.VenueCity,
-			UpcomingShowCount:        r.UpcomingShowCount,
-		})
 	}
 
 	return &contracts.StreamingWorklistResult{
@@ -313,16 +281,11 @@ func (s *StreamingWorklistService) UpdateStreamingDiscoveryStatus(input contract
 	}
 
 	// Reason normalization: empty string → NULL. Non-nil non-empty is
-	// passed through. Re-opens (terminal → unreviewed) clear any
-	// prior reason since the previous decision no longer applies.
+	// passed through. Re-opens (terminal → unreviewed) clear any prior
+	// reason since the previous decision no longer applies.
 	var nextReason *string
-	switch {
-	case requested == catalogm.StreamingDiscoveryStatusUnreviewed:
-		nextReason = nil
-	case input.Reason != nil && *input.Reason != "":
+	if requested != catalogm.StreamingDiscoveryStatusUnreviewed && input.Reason != nil && *input.Reason != "" {
 		nextReason = input.Reason
-	default:
-		nextReason = nil
 	}
 
 	updates := map[string]interface{}{

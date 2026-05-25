@@ -332,7 +332,7 @@ type CheckEventsResult struct {
 
 // StreamingWorklistEntry is one row in the admin streaming-discovery worklist.
 // Returned by ListStreamingWorklist; shaped for direct rendering by the
-// frontend triage UI (PSY-828).
+// frontend triage UI.
 type StreamingWorklistEntry struct {
 	ArtistID                 uint      `json:"artist_id"`
 	ArtistName               string    `json:"artist_name"`
