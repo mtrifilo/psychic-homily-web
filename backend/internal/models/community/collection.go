@@ -30,6 +30,23 @@ func IsValidCollectionDisplayMode(mode string) bool {
 	return mode == CollectionDisplayModeRanked || mode == CollectionDisplayModeUnranked
 }
 
+// IsValidCollectionEntityType returns true if entityType is one of the six
+// indexed KG entity types accepted as a collection item. Used by the bulk-add
+// + URL-resolve paths (PSY-823) to reject typos before they reach the DB
+// (collection_items.entity_type has no FK constraint — polymorphic).
+func IsValidCollectionEntityType(entityType string) bool {
+	switch entityType {
+	case CollectionEntityArtist,
+		CollectionEntityRelease,
+		CollectionEntityLabel,
+		CollectionEntityShow,
+		CollectionEntityVenue,
+		CollectionEntityFestival:
+		return true
+	}
+	return false
+}
+
 // Collection represents a user-curated collection of entities
 type Collection struct {
 	ID            uint    `gorm:"primaryKey"`

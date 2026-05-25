@@ -64,7 +64,7 @@ import {
 import {
   useCollection,
   useUpdateCollection,
-  useAddCollectionItem,
+  useBulkAddCollectionItems,
   useRemoveCollectionItem,
   useReorderCollectionItems,
   useUpdateCollectionItem,
@@ -75,6 +75,10 @@ import {
   useLikeCollection,
   useUnlikeCollection,
 } from '../hooks'
+import {
+  AddItemsPicker,
+  type StagedCollectionItem,
+} from './AddItemsPicker'
 import { cn } from '@/lib/utils'
 import {
   getEntityUrl,
@@ -91,12 +95,7 @@ import { CollectionCoverImage } from './CollectionCoverImage'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
-import { DensityToggle, Breadcrumb, UserAttribution, InlineErrorBanner } from '@/components/shared'
-import {
-  useEntitySearch,
-  ENTITY_SEARCH_UNAVAILABLE_MESSAGE,
-} from '@/lib/hooks/common/useEntitySearch'
-import type { EntitySearchResult } from '@/lib/hooks/common/useEntitySearch'
+import { DensityToggle, Breadcrumb, UserAttribution } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -1532,65 +1531,64 @@ function AddItemsSection({
   slug: string
   existingItems: CollectionItem[]
   /**
-   * PSY-581: when true, the search panel renders open on first paint.
-   * Parent passes `items.length === 0` so the empty-state "use search
-   * above" copy stays honest. Sets only the initial state — the X
-   * toggle still collapses/reopens the panel.
+   * PSY-581: when true, the picker renders open on first paint. Parent
+   * passes `items.length === 0` so the empty-state copy stays honest.
+   * Sets only the initial state — the X toggle still collapses/reopens.
    */
   defaultOpen?: boolean
 }) {
   const [isOpen, setIsOpen] = useState(defaultOpen)
-  const [searchQuery, setSearchQuery] = useState('')
-  const [addedMessage, setAddedMessage] = useState<string | null>(null)
-  const addMutation = useAddCollectionItem()
+  // PSY-823: items staged in the picker, submitted in one bulk-add request.
+  const [stagedItems, setStagedItems] = useState<StagedCollectionItem[]>([])
+  const [feedback, setFeedback] = useState<
+    | { variant: 'success'; message: string }
+    | { variant: 'error'; message: string }
+    | null
+  >(null)
+  const bulkAddMutation = useBulkAddCollectionItems()
 
-  // `searchError` is true only when every backing search endpoint failed in
-  // the latest fetch. Lets us swap the "No results" message for an explicit
-  // "search unavailable" banner so users don't retype a query against a
-  // dead backend.
-  const { data: searchResults, isSearching, searchError } = useEntitySearch({
-    query: searchQuery,
-    enabled: isOpen,
-  })
-
-  // Flatten results into a single list for display.
-  // PSY-372: shows surface alongside the other entity types now that the
-  // /shows/search endpoint exists (PSY-520).
-  const allResults: EntitySearchResult[] = searchResults
-    ? [
-        ...searchResults.artists,
-        ...searchResults.shows,
-        ...searchResults.venues,
-        ...searchResults.releases,
-        ...searchResults.labels,
-        ...searchResults.festivals,
-      ]
-    : []
-
-  // Check if an entity is already in the collection
-  const isAlreadyAdded = (entityType: string, entityId: number): boolean => {
-    return existingItems.some(
-      item => item.entity_type === entityType && item.entity_id === entityId
-    )
-  }
-
-  const handleAdd = (result: EntitySearchResult) => {
-    addMutation.mutate(
-      {
+  const handleSubmit = async () => {
+    if (stagedItems.length === 0) return
+    try {
+      const resp = await bulkAddMutation.mutateAsync({
         slug,
-        entityType: result.entityType,
-        entityId: result.id,
-      },
-      {
-        onSuccess: () => {
-          setAddedMessage(`Added "${result.name}" to collection`)
-          setTimeout(() => setAddedMessage(null), 3000)
-        },
+        items: stagedItems.map((s) => ({
+          entity_type: s.entityType,
+          entity_id: s.entityId,
+        })),
+      })
+      const addedCount = resp.added.length
+      const rejectedCount = resp.errors.length
+      if (rejectedCount === 0) {
+        setFeedback({
+          variant: 'success',
+          message: `Added ${addedCount} ${addedCount === 1 ? 'item' : 'items'} to collection`,
+        })
+      } else if (addedCount === 0) {
+        setFeedback({
+          variant: 'error',
+          message: `Couldn't add any items (${rejectedCount} ${rejectedCount === 1 ? 'error' : 'errors'}). Adjust the picker and try again.`,
+        })
+      } else {
+        setFeedback({
+          variant: 'success',
+          message: `Added ${addedCount} ${addedCount === 1 ? 'item' : 'items'}; ${rejectedCount} couldn't be added.`,
+        })
       }
-    )
+      // Clear staged list only if at least one row committed. When EVERY
+      // row failed, leave the picker as-is so the user can edit/retry
+      // without re-staging from scratch.
+      if (addedCount > 0) {
+        setStagedItems([])
+      }
+      setTimeout(() => setFeedback(null), 4000)
+    } catch (err) {
+      setFeedback({
+        variant: 'error',
+        message: describeCollectionMutationError(err, 'Failed to add items.'),
+      })
+    }
   }
-
-  const SearchIcon = ENTITY_ICONS
 
   return (
     <div className="mb-6">
@@ -1606,125 +1604,51 @@ function AddItemsSection({
       ) : (
         <div className="rounded-lg border border-border/50 bg-card p-4">
           <div className="flex items-center justify-between mb-3">
-            <h3 className="text-sm font-semibold">Add Items</h3>
+            <span className="text-sm font-semibold sr-only">Add items</span>
             <Button
               variant="ghost"
               size="sm"
-              className="h-7 w-7 p-0"
+              className="h-7 w-7 p-0 ml-auto"
               onClick={() => {
                 setIsOpen(false)
-                setSearchQuery('')
+                setStagedItems([])
+                setFeedback(null)
               }}
+              aria-label="Close add-items picker"
             >
               <X className="h-4 w-4" />
             </Button>
           </div>
 
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
-            <Input
-              placeholder="Search artists, shows, venues, releases, labels, festivals..."
-              value={searchQuery}
-              onChange={e => setSearchQuery(e.target.value)}
-              className="pl-9"
-              autoFocus
+          <AddItemsPicker
+            existingItems={existingItems.map((i) => ({
+              entity_type: i.entity_type,
+              entity_id: i.entity_id,
+            }))}
+            stagedItems={stagedItems}
+            onStagedItemsChange={setStagedItems}
+          />
+
+          {feedback && (
+            <MutationFeedback
+              variant={feedback.variant}
+              message={feedback.message}
+              testId={feedback.variant === 'success' ? 'add-item-success' : 'add-item-error'}
             />
+          )}
+
+          <div className="flex justify-end mt-4">
+            <Button
+              size="sm"
+              onClick={handleSubmit}
+              disabled={stagedItems.length === 0 || bulkAddMutation.isPending}
+              data-testid="add-items-picker-submit"
+            >
+              {bulkAddMutation.isPending
+                ? 'Adding...'
+                : `Add ${stagedItems.length || ''} item${stagedItems.length === 1 ? '' : 's'}`.trim()}
+            </Button>
           </div>
-
-          {/* Success feedback */}
-          {addedMessage && (
-            <MutationFeedback
-              variant="success"
-              message={addedMessage}
-              testId="add-item-success"
-            />
-          )}
-
-          {/* Search results */}
-          {searchQuery.trim().length >= 2 && (
-            <div className="mt-3 max-h-64 overflow-y-auto">
-              {isSearching ? (
-                <div className="flex items-center justify-center py-4">
-                  <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-                </div>
-              ) : searchError ? (
-                // Every backing search endpoint rejected — surface the
-                // outage explicitly so users don't keep typing against a
-                // dead backend and read silence as "no matches".
-                <InlineErrorBanner testId="add-items-search-error-banner">
-                  {ENTITY_SEARCH_UNAVAILABLE_MESSAGE}
-                </InlineErrorBanner>
-              ) : allResults.length === 0 ? (
-                <p className="text-sm text-muted-foreground py-3 text-center">
-                  No results found for &quot;{searchQuery}&quot;
-                </p>
-              ) : (
-                <div className="space-y-1">
-                  {allResults.map(result => {
-                    const alreadyAdded = isAlreadyAdded(result.entityType, result.id)
-                    const Icon = SearchIcon[result.entityType] ?? Library
-
-                    return (
-                      <div
-                        key={`${result.entityType}-${result.id}`}
-                        className="flex items-center gap-3 rounded-md p-2 hover:bg-muted/50"
-                      >
-                        <div className="h-7 w-7 shrink-0 rounded bg-muted/50 flex items-center justify-center">
-                          <Icon className="h-3.5 w-3.5 text-muted-foreground/60" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="text-sm font-medium truncate">
-                              {result.name}
-                            </span>
-                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
-                              {getEntityTypeLabel(result.entityType)}
-                            </Badge>
-                          </div>
-                          {result.subtitle && (
-                            <p className="text-xs text-muted-foreground truncate">
-                              {result.subtitle}
-                            </p>
-                          )}
-                        </div>
-                        {alreadyAdded ? (
-                          <Badge variant="secondary" className="text-xs shrink-0">
-                            <Check className="h-3 w-3 mr-1" />
-                            Added
-                          </Badge>
-                        ) : (
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 shrink-0"
-                            onClick={() => handleAdd(result)}
-                            disabled={addMutation.isPending}
-                          >
-                            <Plus className="h-3.5 w-3.5 mr-1" />
-                            Add
-                          </Button>
-                        )}
-                      </div>
-                    )
-                  })}
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* PSY-609: error feedback. Uses the shared inline-banner
-              primitive so the search-box add path renders feedback in the
-              same shape as every other collection mutation surface. */}
-          {addMutation.isError && (
-            <MutationFeedback
-              variant="error"
-              testId="add-item-error"
-              message={describeCollectionMutationError(
-                addMutation.error,
-                'Failed to add item.'
-              )}
-            />
-          )}
         </div>
       )}
     </div>

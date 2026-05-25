@@ -429,6 +429,87 @@ func (h *CollectionHandler) AddItemHandler(ctx context.Context, req *AddItemHand
 }
 
 // ============================================================================
+// Bulk Add Items (PSY-823)
+// ============================================================================
+
+// BulkAddItemRow is one entry in a BulkAddItemsHandlerRequest. Mirrors the
+// single-add wire format so callers only learn one item shape.
+type BulkAddItemRow struct {
+	EntityType string  `json:"entity_type" doc:"Entity type (artist, release, label, show, venue, festival)" example:"artist"`
+	EntityID   uint    `json:"entity_id" doc:"Entity ID" example:"42"`
+	Notes      *string `json:"notes,omitempty" required:"false" doc:"Optional notes about this item"`
+}
+
+// BulkAddItemsHandlerRequest is the body for POST /collections/{slug}/items/bulk.
+type BulkAddItemsHandlerRequest struct {
+	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Body struct {
+		Items []BulkAddItemRow `json:"items" doc:"Items to add. Capped at MaxBulkAddCollectionItems."`
+	}
+}
+
+// BulkAddItemsHandlerResponse carries the partial-success result: rows that
+// committed inside the single transaction plus per-row errors that did not.
+type BulkAddItemsHandlerResponse struct {
+	Body *contracts.BulkAddCollectionItemsResponse
+}
+
+// BulkAddItemsHandler handles POST /collections/{slug}/items/bulk. Emits a
+// single audit-log entry per invocation (not per row) so curator activity
+// feeds stay readable at N=200. PSY-823.
+func (h *CollectionHandler) BulkAddItemsHandler(ctx context.Context, req *BulkAddItemsHandlerRequest) (*BulkAddItemsHandlerResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	items := make([]contracts.AddCollectionItemRequest, len(req.Body.Items))
+	for i, row := range req.Body.Items {
+		items[i] = contracts.AddCollectionItemRequest{
+			EntityType: row.EntityType,
+			EntityID:   row.EntityID,
+			Notes:      row.Notes,
+		}
+	}
+	serviceReq := &contracts.BulkAddCollectionItemsRequest{Items: items}
+
+	resp, err := h.collectionService.BulkAddItems(req.Slug, user.ID, serviceReq)
+	if err != nil {
+		mappedErr := shared.MapCollectionError(err)
+		if mappedErr != nil {
+			return nil, mappedErr
+		}
+		logger.FromContext(ctx).Error("bulk_add_collection_items_failed",
+			"slug", req.Slug,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to bulk-add items to collection (request_id: %s)", requestID),
+		)
+	}
+
+	// One audit-log event per batch (fire-and-forget). Surface the committed
+	// count + rejected count so audit consumers can spot abuse without
+	// expanding each row.
+	if h.auditLogService != nil && (len(resp.Added) > 0 || len(resp.Errors) > 0) {
+		addedCount := len(resp.Added)
+		errorCount := len(resp.Errors)
+		servicesshared.GoSafe(ctx, "audit_log", func() {
+			h.auditLogService.LogAction(user.ID, "bulk_add_collection_items", "collection", 0, map[string]interface{}{
+				"slug":          req.Slug,
+				"added_count":   addedCount,
+				"rejected_count": errorCount,
+			})
+		})
+	}
+
+	return &BulkAddItemsHandlerResponse{Body: resp}, nil
+}
+
+// ============================================================================
 // Update Item
 // ============================================================================
 
@@ -1071,6 +1152,70 @@ func (h *CollectionHandler) RemoveCollectionTagHandler(ctx context.Context, req 
 	}
 
 	return nil, nil
+}
+
+// ============================================================================
+// Resolve Items (PSY-823) — Paste-URLs live preview helper
+// ============================================================================
+
+// ResolveCollectionItemEntryRow is one (entity_type, slug) lookup. Identical
+// shape to the service contract; declared separately on the handler side so
+// the OpenAPI doc strings stay attached to the request type.
+type ResolveCollectionItemEntryRow struct {
+	EntityType string `json:"entity_type" doc:"Entity type (artist, release, label, show, venue, festival)" example:"artist"`
+	Slug       string `json:"slug" doc:"Canonical PH slug (no leading slash)" example:"kendrick-lamar"`
+}
+
+// ResolveCollectionItemsHandlerRequest is the body for POST /collections/resolve-items.
+type ResolveCollectionItemsHandlerRequest struct {
+	Body struct {
+		Entries []ResolveCollectionItemEntryRow `json:"entries" doc:"Pairs to resolve. Capped at MaxBulkAddCollectionItems."`
+	}
+}
+
+// ResolveCollectionItemsHandlerResponse partitions input entries into resolved
+// (with entity_id + display metadata) and unresolved buckets.
+type ResolveCollectionItemsHandlerResponse struct {
+	Body *contracts.ResolveCollectionItemsResponse
+}
+
+// ResolveCollectionItemsHandler handles POST /collections/resolve-items.
+// Authenticated read-only helper for the AddItemsPicker's Paste-URLs mode —
+// returns the same name + subtitle + image_url shape as the search results so
+// the preview chip can render without a follow-up fetch. PSY-823.
+func (h *CollectionHandler) ResolveCollectionItemsHandler(ctx context.Context, req *ResolveCollectionItemsHandlerRequest) (*ResolveCollectionItemsHandlerResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	entries := make([]contracts.ResolveCollectionItemEntry, len(req.Body.Entries))
+	for i, row := range req.Body.Entries {
+		entries[i] = contracts.ResolveCollectionItemEntry{
+			EntityType: row.EntityType,
+			Slug:       row.Slug,
+		}
+	}
+	serviceReq := &contracts.ResolveCollectionItemsRequest{Entries: entries}
+
+	resp, err := h.collectionService.ResolveCollectionItems(serviceReq)
+	if err != nil {
+		mappedErr := shared.MapCollectionError(err)
+		if mappedErr != nil {
+			return nil, mappedErr
+		}
+		logger.FromContext(ctx).Error("resolve_collection_items_failed",
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to resolve collection items (request_id: %s)", requestID),
+		)
+	}
+
+	return &ResolveCollectionItemsHandlerResponse{Body: resp}, nil
 }
 
 // ============================================================================
