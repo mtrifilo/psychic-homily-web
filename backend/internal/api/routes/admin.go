@@ -24,6 +24,7 @@ func setupAdminRoutes(rc RouteContext) {
 	tokenHandler := adminh.NewAdminTokenHandler(rc.SC.APIToken)
 	dataHandler := adminh.NewAdminDataHandler(rc.SC.DataSync)
 	discoveryHandler := pipelineh.NewAdminDiscoveryHandler(rc.SC.Discovery)
+	streamingWorklistHandler := pipelineh.NewStreamingWorklistHandler(rc.SC.StreamingWorklist, rc.SC.AuditLog)
 
 	artistHandler := catalogh.NewArtistHandler(rc.SC.Artist, rc.SC.AuditLog, rc.SC.Revision, rc.Cfg)
 	auditLogHandler := adminh.NewAuditLogHandler(rc.SC.AuditLog)
@@ -67,6 +68,11 @@ func setupAdminRoutes(rc RouteContext) {
 	// Admin discovery endpoints (for local discovery app)
 	huma.Post(rc.Admin, "/admin/discovery/import", discoveryHandler.DiscoveryImportHandler)
 	huma.Post(rc.Admin, "/admin/discovery/check", discoveryHandler.DiscoveryCheckHandler)
+
+	// Admin streaming-discovery worklist + status mutation (PSY-827).
+	// Surfaces the prioritized triage queue and records admin decisions.
+	huma.Get(rc.Admin, "/admin/streaming-worklist", streamingWorklistHandler.GetStreamingWorklistHandler)
+	huma.Post(rc.Admin, "/admin/artists/{artist_id}/streaming-discovery-status", streamingWorklistHandler.UpdateStreamingDiscoveryStatusHandler)
 
 	// Admin API token management endpoints
 	huma.Post(rc.Admin, "/admin/tokens", tokenHandler.CreateAPITokenHandler)

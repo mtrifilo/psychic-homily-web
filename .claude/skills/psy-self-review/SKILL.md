@@ -1,12 +1,12 @@
 ---
 name: psy-self-review
-description: Sub-agent review of an in-flight PR draft against session evidence. Catches unverified `[x]` test-plan claims, missing coverage-gap disclosure, asymmetric peer-component checks, and convention drift. Runs AFTER `/simplify` and BEFORE push as the final gate. Pattern matches `/simplify` (3 parallel reviewer sub-agents); failure forces the agent back to the verification phase rather than letting an unverified claim ship.
+description: Sub-agent review of an in-flight PR draft against session evidence. Catches unverified `[x]` test-plan claims, missing coverage-gap disclosure, asymmetric peer-component checks, and convention drift. Runs AFTER `/code-review` and BEFORE push as the final gate. Pattern matches `/code-review` (3 parallel reviewer sub-agents); failure forces the agent back to the verification phase rather than letting an unverified claim ship.
 argument-hint: "[optional: path to draft PR body markdown]"
 ---
 
 # psy-self-review: pre-push evidence-of-verification audit
 
-Encodes the convention that PR test-plan `[x]` items are statements of "I verified this," not aspirations. Spawns 3 parallel reviewer sub-agents to check the in-flight PR draft against the session's evidence trail (bash log, screenshots, test runs). Same shape as `/simplify`; runs immediately after `/simplify` and before `git push`.
+Encodes the convention that PR test-plan `[x]` items are statements of "I verified this," not aspirations. Spawns 3 parallel reviewer sub-agents to check the in-flight PR draft against the session's evidence trail (bash log, screenshots, test runs). Same shape as `/code-review`; runs immediately after `/code-review` and before `git push`.
 
 Born out of the May 16–17 Entity Pages Density Rollout retro: PSY-658 PR claimed `[Add to collection]` would render for unauth viewers without verifying — that claim was wrong, and the empty-linkbox bug shipped to main, caught only by a post-shipped audit (PSY-663). PSY-664 (Graph Dialog hash bug) had the same shape: assumed-correct CLOSE path, never actually clicked. This skill is the gate that catches that pattern before push.
 
@@ -15,27 +15,27 @@ Born out of the May 16–17 Entity Pages Density Rollout retro: PSY-658 PR claim
 The user invokes it explicitly via `/psy-self-review`, OR an upstream skill (`/psy-solo` phase 8.5, `/psy-dispatch` per-agent step 8.5) calls it as part of the standard pre-push sequence.
 
 Do NOT invoke for:
-- Backend-only / docs-only / config-only PRs (test plan is integration-test or "docs-only, no manual repro applicable"; nothing for the sub-agents to evidence-check beyond what `/simplify` already covers).
-- The `/simplify` pass itself — different skill, different concerns.
+- Backend-only / docs-only / config-only PRs (test plan is integration-test or "docs-only, no manual repro applicable"; nothing for the sub-agents to evidence-check beyond what `/code-review` already covers).
+- The `/code-review` pass itself — different skill, different concerns.
 
 ## What this skill does NOT do
 
 Honest about the scope so callers don't over-rely:
 - **Cannot verify a screenshot actually shows what the PR claims.** This skill checks `/tmp/psy-XXX.png` EXISTS and was taken in the session; it can't semantically check that the screenshot proves "unauth viewer sees `[Add to collection]`." Use Read on the PNG (separate caller responsibility) to visually verify content.
-- **Cannot catch logic bugs in tested code.** This is an evidence-trail audit, not a test-suite audit. Code correctness is `/simplify` + the unit/integration tests.
+- **Cannot catch logic bugs in tested code.** This is an evidence-trail audit, not a test-suite audit. Code correctness is `/code-review` + the unit/integration tests.
 - **Cannot infer behavior the diff doesn't explicitly call out.** If a diff changes 5 things but the test plan only mentions 3, the sub-agent will flag the omission BUT can't tell you what the missing 2 should test. Up to the agent + reviewer to decide.
 
 This is a process gate, not a correctness oracle.
 
 ## Prerequisites
 
-- `/simplify` has run and any code changes from it have been committed.
+- `/code-review` has run and any code changes from it have been committed.
 - The draft PR body exists either (a) inline in the agent's recent conversation context, (b) at a passed-in markdown path, or (c) as the already-opened PR's body via `gh pr view <#> --json body`.
 - The session bash log is accessible via `/private/tmp/claude-501/<project>/<session>/tasks/*.output` files.
 
 ## The three sub-agents
 
-Same parallel-agent dispatch pattern as `/simplify`. Send all three Agent calls in a SINGLE assistant message so the harness runs them concurrently.
+Same parallel-agent dispatch pattern as `/code-review`. Send all three Agent calls in a SINGLE assistant message so the harness runs them concurrently.
 
 ### Agent 1 — Test-plan evidence audit
 
@@ -46,7 +46,7 @@ For each `[x]` item in the draft PR body's `## Test plan` section, check the ses
 | `[x] bun run typecheck — clean` | session bash log shows the command + zero error output |
 | `[x] bun run test:run features/X — N/N passing` | session bash log shows the command + matching "N passed" output |
 | `[x] go test ./pkg/... — ok` | session bash log shows the command + zero "FAIL" output |
-| `[x] /simplify — clean` (or with diff outcome) | recent agent run with `Skill(skill: "simplify")` invocation; simplify's reported outcome matches the claim |
+| `[x] /code-review — clean` (or with diff outcome) | recent agent run with `Skill(skill: "code-review")` invocation; code-review's reported outcome matches the claim |
 | `[x] Manual repro: <description>` | at least one `agent-browser open <relevant-url>` + screenshot taken in the session; OR a `curl` invocation for backend; OR a referenced integration test |
 | `[x] Manual repro: unauth + auth states` | at least TWO navigations + screenshots; flag if only one |
 | `[x] Manual repro: rich + sparse data` | at least TWO distinct entity slugs navigated; flag if only one |
@@ -77,7 +77,7 @@ Sanity-check the PR body for project-convention drift + scan the diff for known 
 - PR body contains `Closes PSY-{N}` — flag if missing.
 - PR body does NOT contain unresolved `PSY-XXX` / `PSY-???` / `PSY-{N}` placeholder strings — these slip through when follow-up filing (phase 7) happens AFTER the PR body is drafted. Flag any placeholder.
 - `## Coverage gaps` section present (or explicitly stated as "no gaps") — flag if missing entirely; reviewers need to know what wasn't exercised.
-- `## Heads up from /simplify` (or `## Findings from /simplify`) present if simplify surfaced concerns; absent if `/simplify` was clean.
+- `## Heads up from /code-review` (or `## Findings from /code-review`) present if code-review surfaced concerns; absent if `/code-review` was clean.
 - `## Deferred (per pre-implementation Q&A)` section present if any spike questions resulted in "skip + file follow-up" decisions during phase 2; absent if none.
 - For frontend diffs touching shared components: if `if (!isAuthenticated) return null` is added/modified, check peer components (FollowButton.tsx, NotifyMeButton.tsx, AddToCollectionButton.tsx, EntityTagList.tsx, etc.) for the convention. Asymmetric unauth fallbacks is the PSY-663 footgun.
 - For frontend diffs gating on optional API data: check the gate uses shape-aware predicates (`Object.values(x).some(...)`, `.length > 0`) not truthy-only (`!!x` where `x` could be `{}` or `[]`). PSY-657 root cause.
@@ -137,7 +137,7 @@ A single structured report to the calling agent:
 - PR title "PSY-657: FestivalDetail density — remove 4-tab system + BracketLink linkbox" is 69 chars. Within budget but tight.
 
 ### Pass
-- /simplify outcome matches claim ✓
+- /code-review outcome matches claim ✓
 - Test-plan typecheck + scoped test claims have matching command output ✓
 ```
 
@@ -162,7 +162,7 @@ Your job: scan the `## Test plan` section. For each `[x]` item, check the sessio
 |---|---|
 | `[x] bun run typecheck — clean` | session log shows the command + zero error output |
 | `[x] bun run test:run features/X — N/N passing` | session log shows the command + matching "N passed" output |
-| `[x] /simplify — clean` | recent Skill(skill: "simplify") invocation; outcome matches |
+| `[x] /code-review — clean` | recent Skill(skill: "code-review") invocation; outcome matches |
 | `[x] Manual repro: <description>` | at least one agent-browser navigation + screenshot in the session |
 | `[x] Manual repro: unauth + auth states` | TWO navigations + screenshots; flag if only one |
 | `[x] Manual repro: rich + sparse data` | TWO distinct entity slugs navigated; flag if only one |
@@ -198,7 +198,7 @@ For each gap, report:
 - What the test plan should have claimed
 - Recommended action: add to `## Coverage gaps` section (honest disclosure) OR re-do phase 6 to actually exercise it
 
-Under 250 words. Skip code-correctness review (that's /simplify's job).
+Under 250 words. Skip code-correctness review (that's /code-review's job).
 ```
 
 ### Agent 3 prompt (convention + asymmetry)
@@ -219,7 +219,7 @@ Your job — check for:
 - Body contains `Closes PSY-{N}`
 - Body does NOT contain unresolved `PSY-XXX` / `PSY-???` placeholder strings (slips through when follow-up filing happens after PR-body drafting)
 - `## Coverage gaps` section present (or explicitly stated as "no gaps")
-- `## Heads up from /simplify` (or `## Findings from /simplify`) if /simplify surfaced concerns; absent if clean
+- `## Heads up from /code-review` (or `## Findings from /code-review`) if /code-review surfaced concerns; absent if clean
 - `## Deferred` section if phase 2 produced "skip + file follow-up" decisions
 
 **Frontend asymmetry traps**:
@@ -236,18 +236,18 @@ Under 250 words.
 ## Anti-patterns
 
 - **Running `/psy-self-review` AFTER pushing.** The whole point is to catch unverified claims before they ship. Push → audit → fix-PR is the May 16 anti-pattern this skill exists to break. Run BEFORE push, every time.
-- **Treating BLOCKING findings as advisory.** Per `feedback_simplify_before_pr.md`'s parallel: `[x]` is a statement of "I verified this." If the evidence isn't there, the claim is false. Don't push past with "I know it works" — re-verify or downgrade.
+- **Treating BLOCKING findings as advisory.** Per `feedback_code-review_before_pr.md`'s parallel: `[x]` is a statement of "I verified this." If the evidence isn't there, the claim is false. Don't push past with "I know it works" — re-verify or downgrade.
 - **Stuffing `[x] all manual repro covered` as a single line to bypass per-claim checks.** The skill checks the granular `[x]` items. Compound claims defeat the per-claim audit. Break into specific verifiable items: `[x] unauth viewer at /releases/X — empty header confirmed`; `[x] auth viewer at /releases/X — 4 brackets render`; `[x] click [Add to collection] while unauth — redirects to /auth`.
 - **Skipping `/psy-self-review` for "small" PRs.** Discipline > efficiency. Small PRs have small diffs which are FAST for the sub-agents (often the report is < 30 seconds end-to-end). Skipping defeats the convention.
 - **Trusting Agent 1's PASS without spot-checking the screenshot.** Agent 1 verifies a screenshot file EXISTS; it can't verify the screenshot SHOWS what was claimed. Spot-Read the PNG yourself if the claim is load-bearing for review.
 
 ## Related skills and memories
 
-- **`/psy-solo`** — single-ticket workflow that invokes this skill at phase 8.5 (between `/simplify` and the PR open).
+- **`/psy-solo`** — single-ticket workflow that invokes this skill at phase 8.5 (between `/code-review` and the PR open).
 - **`/psy-dispatch`** — parallel-worktree dispatch; per-agent template should add a `/psy-self-review` step before the `gh pr create` call. (Update pending; will land alongside /psy-self-review commit.)
-- **`/simplify`** — runs immediately before `/psy-self-review`. Different concern (code quality + reuse + efficiency) but same parallel-sub-agent shape.
+- **`/code-review`** — runs immediately before `/psy-self-review`. Different concern (code quality + reuse + efficiency) but same parallel-sub-agent shape.
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped audit. Complements this skill: `/psy-self-review` catches pre-push; `/psy-audit` catches what slipped through.
-- `feedback_simplify_before_pr.md` — same rule shape: failure blocks push, escalate to user instead of pushing past.
+- `feedback_code-review_before_pr.md` — same rule shape: failure blocks push, escalate to user instead of pushing past.
 - `feedback_verify_before_push.md` — verify the fix actually fixes the thing before pushing.
 
 ## Caveats / known limitations
