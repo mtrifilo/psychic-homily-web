@@ -741,6 +741,5 @@ func (s *AutoPromotionIntegrationTestSuite) TestRolling30dIncludesRevisions() {
 
 	result, err := s.svc.EvaluateUser(user.ID)
 	s.Require().NoError(err)
-	// 8 revisions + 2 rejected = 10 total, 8/10 = 80% — at threshold, not below
 	s.False(result.Changed)
 }
