@@ -184,6 +184,11 @@ export const queryKeys = {
       ['admin', 'pendingEdits', params] as const,
     entityReports: (params?: Record<string, unknown>) =>
       ['admin', 'entityReports', params] as const,
+    // Featured slots (admin-curated /explore picks). One list query
+    // covers both slot types — list invalidations refresh both
+    // panels after Set / Retire.
+    featuredSlots: (params?: Record<string, unknown>) =>
+      ['admin', 'featuredSlots', params] as const,
   },
 
   // Artist queries (defined in features/artists/api.ts)
@@ -393,6 +398,11 @@ export const queryKeys = {
   // Notification filter queries
   notificationFilters: {
     all: ['notificationFilters'] as const,
+  },
+
+  // /explore landing read endpoints (PSY-835/836)
+  explore: {
+    featured: ['explore', 'featured'] as const,
   },
 
   // System queries
