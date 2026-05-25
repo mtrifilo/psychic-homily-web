@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 
 // Create mocks
@@ -21,6 +20,10 @@ vi.mock('../../api', () => ({
         BATCH_REJECT: '/admin/shows/batch-reject',
       },
     },
+    SHOWS: {
+      SET_SOLD_OUT: (showId: number) => `/shows/${showId}/sold-out`,
+      SET_CANCELLED: (showId: number) => `/shows/${showId}/cancelled`,
+    },
   },
   API_BASE_URL: 'http://localhost:8080',
 }))
@@ -40,6 +43,8 @@ import {
   useRejectShow,
   useBatchApproveShows,
   useBatchRejectShows,
+  useSetShowSoldOut,
+  useSetShowCancelled,
   adminQueryKeys,
 } from './useAdminShows'
 
@@ -115,6 +120,31 @@ describe('useAdminShows', () => {
       )
     })
 
+    it('appends venueId + source filters when provided', async () => {
+      // Both filters are optional on the admin moderation surface — verify
+      // they survive into the URL so the backend can scope correctly.
+      mockApiRequest.mockResolvedValueOnce({ shows: [], total: 0 })
+
+      const { result } = renderHook(
+        () => usePendingShows({ venueId: 7, source: 'ical' }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      const url = mockApiRequest.mock.calls[0][0] as string
+      expect(url).toContain('venue_id=7')
+      expect(url).toContain('source=ical')
+    })
+
+    it('does not fetch when enabled=false', () => {
+      const { result } = renderHook(
+        () => usePendingShows({ enabled: false }),
+        { wrapper: createWrapper() }
+      )
+
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
   })
 
   describe('useRejectedShows', () => {
@@ -167,6 +197,16 @@ describe('useAdminShows', () => {
       expect(calledUrl).toContain('search=query')
     })
 
+    it('surfaces fetch errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+      const { result } = renderHook(() => useRejectedShows(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect((result.current.error as Error).message).toBe('Forbidden')
+    })
   })
 
   describe('useApproveShow', () => {
@@ -440,5 +480,126 @@ describe('useAdminShows', () => {
       })
     })
 
+  })
+
+  describe('useSetShowSoldOut', () => {
+    it('POSTs the sold-out toggle value (true)', async () => {
+      mockApiRequest.mockResolvedValueOnce({ id: 1, is_sold_out: true })
+
+      const { result } = renderHook(() => useSetShowSoldOut(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ showId: 1, value: true })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/shows/1/sold-out',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ value: true }),
+        })
+      )
+    })
+
+    it('POSTs the sold-out toggle value (false) to clear', async () => {
+      mockApiRequest.mockResolvedValueOnce({ id: 1, is_sold_out: false })
+
+      const { result } = renderHook(() => useSetShowSoldOut(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ showId: 1, value: false })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/shows/1/sold-out',
+        expect.objectContaining({
+          body: JSON.stringify({ value: false }),
+        })
+      )
+    })
+
+    it('invalidates the public shows scope on success', async () => {
+      // Sold-out display is denormalised across show listings, so the
+      // broad ['shows'] scope must invalidate. We assert via the shared
+      // invalidateQueries.shows() spy (mocked at module level).
+      mockApiRequest.mockResolvedValueOnce({ id: 1 })
+
+      const { result } = renderHook(() => useSetShowSoldOut(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ showId: 1, value: true })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockInvalidateShows).toHaveBeenCalled()
+    })
+
+    it('surfaces errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+      const { result } = renderHook(() => useSetShowSoldOut(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ showId: 1, value: true })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect((result.current.error as Error).message).toBe('Forbidden')
+      expect(mockInvalidateShows).not.toHaveBeenCalled()
+    })
+  })
+
+  describe('useSetShowCancelled', () => {
+    it('POSTs the cancelled toggle value', async () => {
+      mockApiRequest.mockResolvedValueOnce({ id: 5, is_cancelled: true })
+
+      const { result } = renderHook(() => useSetShowCancelled(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ showId: 5, value: true })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/shows/5/cancelled',
+        expect.objectContaining({
+          method: 'POST',
+          body: JSON.stringify({ value: true }),
+        })
+      )
+      expect(mockInvalidateShows).toHaveBeenCalled()
+    })
+
+    it('clears the cancelled flag with value=false', async () => {
+      mockApiRequest.mockResolvedValueOnce({ id: 5, is_cancelled: false })
+
+      const { result } = renderHook(() => useSetShowCancelled(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({ showId: 5, value: false })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(mockApiRequest).toHaveBeenCalledWith(
+        '/shows/5/cancelled',
+        expect.objectContaining({
+          body: JSON.stringify({ value: false }),
+        })
+      )
+    })
   })
 })
