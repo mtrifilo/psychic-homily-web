@@ -67,4 +67,60 @@ describe('useAuditLogs', () => {
     expect(url).toContain('offset=40')
   })
 
+  it('starts in loading state and resolves to success', async () => {
+    // Hook contract: useQuery never blocks the initial render. We render
+    // first, observe the loading state, then let the promise resolve.
+    let resolveFetch: (value: unknown) => void = () => {}
+    const pending = new Promise((resolve) => {
+      resolveFetch = resolve
+    })
+    mockApiRequest.mockReturnValueOnce(pending)
+
+    const { result } = renderHook(() => useAuditLogs(), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.isLoading).toBe(true)
+    expect(result.current.data).toBeUndefined()
+
+    resolveFetch({ logs: [], total: 0 })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(result.current.isLoading).toBe(false)
+  })
+
+  it('surfaces fetch errors', async () => {
+    const error = new Error('Forbidden')
+    Object.assign(error, { status: 403 })
+    mockApiRequest.mockRejectedValueOnce(error)
+
+    const { result } = renderHook(() => useAuditLogs(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect((result.current.error as Error).message).toBe('Forbidden')
+    expect(result.current.data).toBeUndefined()
+  })
+
+  it('keys cache by limit AND offset', async () => {
+    // Two different paginations must produce two distinct query keys,
+    // not collide and skip the second fetch.
+    mockApiRequest
+      .mockResolvedValueOnce({ logs: [], total: 0 })
+      .mockResolvedValueOnce({ logs: [], total: 0 })
+
+    const { result: page1 } = renderHook(
+      () => useAuditLogs({ limit: 50, offset: 0 }),
+      { wrapper: createWrapper() }
+    )
+    await waitFor(() => expect(page1.current.isSuccess).toBe(true))
+
+    const { result: page2 } = renderHook(
+      () => useAuditLogs({ limit: 50, offset: 50 }),
+      { wrapper: createWrapper() }
+    )
+    await waitFor(() => expect(page2.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
+  })
 })

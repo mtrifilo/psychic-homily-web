@@ -46,15 +46,25 @@ func setupCollectionRoutes(rc RouteContext) {
 
 	// Collection item management — canonical /collections/ paths
 	huma.Post(rc.Protected, "/collections/{slug}/items", collectionHandler.AddItemHandler)
+	// PSY-823: bulk-add ({items: [...]}) with partial-success semantics. Used
+	// by the AddItemsPicker drawer for canon-list curation (e.g. "the 200
+	// best albums of the 2010s").
+	huma.Post(rc.Protected, "/collections/{slug}/items/bulk", collectionHandler.BulkAddItemsHandler)
 	huma.Patch(rc.Protected, "/collections/{slug}/items/{item_id}", collectionHandler.UpdateItemHandler)
 	huma.Delete(rc.Protected, "/collections/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
 	huma.Put(rc.Protected, "/collections/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
+	// PSY-823: paste-URL preview helper. Maps canonical PH slugs to entity
+	// ids + display metadata in one round-trip so the picker's per-row chips
+	// render without per-row fetches.
+	huma.Post(rc.Protected, "/collections/resolve-items", collectionHandler.ResolveCollectionItemsHandler)
 
 	// Collection item management — legacy /crates/ paths (backward compat)
 	huma.Post(rc.Protected, "/crates/{slug}/items", collectionHandler.AddItemHandler)
+	huma.Post(rc.Protected, "/crates/{slug}/items/bulk", collectionHandler.BulkAddItemsHandler)
 	huma.Patch(rc.Protected, "/crates/{slug}/items/{item_id}", collectionHandler.UpdateItemHandler)
 	huma.Delete(rc.Protected, "/crates/{slug}/items/{item_id}", collectionHandler.RemoveItemHandler)
 	huma.Put(rc.Protected, "/crates/{slug}/items/reorder", collectionHandler.ReorderItemsHandler)
+	huma.Post(rc.Protected, "/crates/resolve-items", collectionHandler.ResolveCollectionItemsHandler)
 
 	// Collection subscription — canonical /collections/ paths
 	huma.Post(rc.Protected, "/collections/{slug}/subscribe", collectionHandler.SubscribeHandler)

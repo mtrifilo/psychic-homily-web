@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterAll } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 import { server } from '@/test/mocks/server'
 
@@ -23,7 +22,12 @@ afterAll(() => {
 vi.mock('../../queryClient', () => ({
   queryKeys: {
     artists: {
+      all: ['artists'],
       detail: (id: number) => ['artists', 'detail', id],
+      aliases: (id: number) => ['artists', 'aliases', id],
+    },
+    shows: {
+      all: ['shows'],
     },
   },
 }))
@@ -35,15 +39,23 @@ import {
   useClearArtistBandcamp,
   useUpdateArtistSpotify,
   useClearArtistSpotify,
+  useArtistUpdate,
+  useArtistAliases,
+  useCreateArtistAlias,
+  useDeleteArtistAlias,
+  useMergeArtists,
   type DiscoverMusicResponse,
 } from './useAdminArtists'
 
 
-// Helper to mock successful fetch response
+// Helper to mock successful fetch response. Includes a Headers-like
+// object so `apiRequest`'s `response.headers.get(...)` call doesn't
+// blow up for hooks that go through apiRequest (vs raw fetch).
 function mockFetchResponse(data: unknown, ok = true, status = 200) {
   mockFetch.mockResolvedValueOnce({
     ok,
     status,
+    headers: new Headers(),
     json: async () => data,
   })
 }
@@ -53,6 +65,7 @@ function mockFetchError(message: string, status = 500) {
   mockFetch.mockResolvedValueOnce({
     ok: false,
     status,
+    headers: new Headers(),
     json: async () => ({ message, error: message }),
   })
 }
@@ -421,6 +434,228 @@ describe('useAdminArtists', () => {
       await waitFor(() => expect(result.current.isError).toBe(true))
 
       expect((result.current.error as Error).message).toBe('Clear failed')
+    })
+  })
+
+  describe('useArtistUpdate', () => {
+    it('PATCHes the admin artist endpoint with the edit payload', async () => {
+      // useArtistUpdate goes through apiRequest (not raw fetch), so the
+      // full http://localhost:8080 base is included in the URL.
+      mockFetchResponse({ id: 123, name: 'Renamed' })
+
+      const { result } = renderHook(() => useArtistUpdate(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          artistId: 123,
+          data: { name: 'Renamed', city: 'Phoenix' },
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toMatch(/\/admin\/artists\/123$/)
+      expect(init).toMatchObject({
+        method: 'PATCH',
+        body: JSON.stringify({ name: 'Renamed', city: 'Phoenix' }),
+      })
+    })
+
+    it('invalidates artist detail, artists.all, AND shows.all on success', async () => {
+      // Updating an artist may rename them — show listings carry the artist
+      // name denormalised, so the shows scope also gets invalidated.
+      mockFetchResponse({ id: 456 })
+
+      const queryClient = createTestQueryClient()
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useArtistUpdate(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          artistId: 456,
+          data: { name: 'New Name' },
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['artists', 'detail', 456],
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['artists'],
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['shows'],
+      })
+    })
+
+    it('surfaces update failures', async () => {
+      mockFetchError('Validation failed', 422)
+
+      const { result } = renderHook(() => useArtistUpdate(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          artistId: 123,
+          data: { name: '' },
+        })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect((result.current.error as Error).message).toBe('Validation failed')
+    })
+  })
+
+  describe('useArtistAliases', () => {
+    it('fetches aliases for a positive artist id', async () => {
+      mockFetchResponse({ aliases: [{ id: 1, alias: 'X' }] })
+
+      const { result } = renderHook(() => useArtistAliases(42), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      const [url] = mockFetch.mock.calls[0]
+      expect(url).toMatch(/\/artists\/42\/aliases$/)
+    })
+
+    it('does not fetch when enabled=false', () => {
+      const { result } = renderHook(() => useArtistAliases(42, false), {
+        wrapper: createWrapper(),
+      })
+
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockFetch).not.toHaveBeenCalled()
+    })
+
+    it('does not fetch when artistId is 0', () => {
+      const { result } = renderHook(() => useArtistAliases(0), {
+        wrapper: createWrapper(),
+      })
+
+      expect(result.current.fetchStatus).toBe('idle')
+    })
+  })
+
+  describe('useCreateArtistAlias', () => {
+    it('POSTs the alias body and invalidates that artist’s aliases', async () => {
+      mockFetchResponse({ id: 1, artist_id: 42, alias: 'New Alias' })
+
+      const queryClient = createTestQueryClient()
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useCreateArtistAlias(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await act(async () => {
+        result.current.mutate({ artistId: 42, alias: 'New Alias' })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toMatch(/\/admin\/artists\/42\/aliases$/)
+      expect(init).toMatchObject({
+        method: 'POST',
+        body: JSON.stringify({ alias: 'New Alias' }),
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['artists', 'aliases', 42],
+      })
+    })
+  })
+
+  describe('useDeleteArtistAlias', () => {
+    it('DELETEs and invalidates the artist’s aliases', async () => {
+      mockFetchResponse(undefined)
+
+      const queryClient = createTestQueryClient()
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useDeleteArtistAlias(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await act(async () => {
+        result.current.mutate({ artistId: 42, aliasId: 7 })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toMatch(/\/admin\/artists\/42\/aliases\/7$/)
+      expect(init).toMatchObject({ method: 'DELETE' })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['artists', 'aliases', 42],
+      })
+    })
+  })
+
+  describe('useMergeArtists', () => {
+    it('POSTs canonical + merge-from ids and invalidates artists + shows', async () => {
+      // Merge collapses two artists into one. Anywhere they appear (shows,
+      // listings, references) must refetch — guard the broad invalidation.
+      mockFetchResponse({
+        canonical_artist_id: 10,
+        merged_count: 5,
+      })
+
+      const queryClient = createTestQueryClient()
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
+
+      const { result } = renderHook(() => useMergeArtists(), {
+        wrapper: createWrapperWithClient(queryClient),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          canonicalArtistId: 10,
+          mergeFromArtistId: 20,
+        })
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+      const [url, init] = mockFetch.mock.calls[0]
+      expect(url).toMatch(/\/admin\/artists\/merge$/)
+      expect(init).toMatchObject({
+        method: 'POST',
+        body: JSON.stringify({
+          canonical_artist_id: 10,
+          merge_from_artist_id: 20,
+        }),
+      })
+
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['artists'] })
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['shows'] })
+    })
+
+    it('surfaces merge errors', async () => {
+      mockFetchError('Cannot merge with self', 400)
+
+      const { result } = renderHook(() => useMergeArtists(), {
+        wrapper: createWrapper(),
+      })
+
+      await act(async () => {
+        result.current.mutate({
+          canonicalArtistId: 10,
+          mergeFromArtistId: 10,
+        })
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect((result.current.error as Error).message).toBe('Cannot merge with self')
     })
   })
 })

@@ -1,6 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient } from '@tanstack/react-query'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 
 // Create mocks
@@ -13,6 +12,7 @@ vi.mock('../../api', () => ({
   API_ENDPOINTS: {
     ADMIN: {
       VENUES: {
+        UNVERIFIED: '/admin/venues/unverified',
         VERIFY: (venueId: number) => `/admin/venues/${venueId}/verify`,
       },
     },
@@ -22,13 +22,19 @@ vi.mock('../../api', () => ({
 
 // Mock queryClient module
 vi.mock('../../queryClient', () => ({
+  queryKeys: {
+    admin: {
+      unverifiedVenues: (limit: number, offset: number) =>
+        ['admin', 'venues', 'unverified', { limit, offset }],
+    },
+  },
   createInvalidateQueries: () => ({
     venues: mockInvalidateVenues,
   }),
 }))
 
 // Import hooks after mocks are set up
-import { useVerifyVenue } from './useAdminVenues'
+import { useUnverifiedVenues, useVerifyVenue } from './useAdminVenues'
 
 
 describe('useAdminVenues', () => {
@@ -36,6 +42,57 @@ describe('useAdminVenues', () => {
     vi.clearAllMocks()
     mockApiRequest.mockReset()
     mockInvalidateVenues.mockReset()
+  })
+
+  describe('useUnverifiedVenues', () => {
+    it('fetches with default pagination', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(() => useUnverifiedVenues(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      const url = mockApiRequest.mock.calls[0][0] as string
+      expect(url).toContain('/admin/venues/unverified')
+      expect(url).toContain('limit=50')
+      expect(url).toContain('offset=0')
+    })
+
+    it('passes custom limit and offset', async () => {
+      mockApiRequest.mockResolvedValueOnce({ venues: [], total: 0 })
+
+      const { result } = renderHook(
+        () => useUnverifiedVenues({ limit: 25, offset: 50 }),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      const url = mockApiRequest.mock.calls[0][0] as string
+      expect(url).toContain('limit=25')
+      expect(url).toContain('offset=50')
+    })
+
+    it('does not fetch when enabled=false', () => {
+      const { result } = renderHook(
+        () => useUnverifiedVenues({ enabled: false }),
+        { wrapper: createWrapper() }
+      )
+
+      expect(result.current.fetchStatus).toBe('idle')
+      expect(mockApiRequest).not.toHaveBeenCalled()
+    })
+
+    it('surfaces fetch errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+      const { result } = renderHook(() => useUnverifiedVenues(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect((result.current.error as Error).message).toBe('Forbidden')
+    })
   })
 
   describe('useVerifyVenue', () => {
@@ -62,7 +119,9 @@ describe('useAdminVenues', () => {
       })
     })
 
-    it('invalidates venues and pending shows on success', async () => {
+    it('invalidates venues, pending shows, AND the unverified list on success', async () => {
+      // Verifying flips the venue out of the unverified queue — the queue
+      // itself must invalidate so the row disappears without a refresh.
       mockApiRequest.mockResolvedValueOnce({ id: 20, verified: true })
 
       const queryClient = createTestQueryClient()
@@ -81,6 +140,9 @@ describe('useAdminVenues', () => {
       expect(mockInvalidateVenues).toHaveBeenCalled()
       expect(invalidateSpy).toHaveBeenCalledWith({
         queryKey: ['admin', 'shows', 'pending'],
+      })
+      expect(invalidateSpy).toHaveBeenCalledWith({
+        queryKey: ['admin', 'venues', 'unverified'],
       })
     })
 

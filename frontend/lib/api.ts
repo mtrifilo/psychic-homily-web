@@ -262,6 +262,13 @@ export const API_ENDPOINTS = {
     DETAIL: (slug: string) => `${API_BASE_URL}/collections/${slug}`,
     STATS: (slug: string) => `${API_BASE_URL}/collections/${slug}/stats`,
     ITEMS: (slug: string) => `${API_BASE_URL}/collections/${slug}/items`,
+    // PSY-823: bulk-add ({items: [...]}) for the AddItemsPicker drawer.
+    // Partial-success — valid rows commit even when some are invalid.
+    ITEMS_BULK: (slug: string) =>
+      `${API_BASE_URL}/collections/${slug}/items/bulk`,
+    // PSY-823: paste-URL preview helper. Maps (entity_type, slug) pairs to
+    // entity_ids + display metadata.
+    RESOLVE_ITEMS: `${API_BASE_URL}/collections/resolve-items`,
     ITEM: (slug: string, itemId: number) =>
       `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
     UPDATE_ITEM: (slug: string, itemId: number) =>

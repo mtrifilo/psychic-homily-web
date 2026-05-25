@@ -49,6 +49,20 @@ vi.mock('../hooks', () => ({
   useMyCollections: (params: unknown) => mockUseMyCollections(params),
   useCreateCollection: () => ({
     mutate: mockCreateMutate,
+    // PSY-823: form now uses mutateAsync to chain create → bulk-add.
+    // Resolve with a slug shape so the sequel doesn't blow up.
+    mutateAsync: (data: unknown) => {
+      mockCreateMutate(data)
+      return Promise.resolve({ slug: 'test-slug' })
+    },
+    isPending: false,
+    error: null as Error | null,
+  }),
+  // PSY-823: bulk-add mutation used after create to commit staged items.
+  // Tests don't exercise the staged-items flow today; resolve with an empty
+  // partial-success response so the chain proceeds cleanly.
+  useBulkAddCollectionItems: () => ({
+    mutateAsync: () => Promise.resolve({ added: [], errors: [] }),
     isPending: false,
     error: null as Error | null,
   }),
@@ -84,18 +98,28 @@ vi.mock('@/components/ui/textarea', () => ({
   Textarea: (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...props} />,
 }))
 
-vi.mock('@/components/ui/dialog', () => ({
-  Dialog: ({ children, open }: { children: React.ReactNode; open: boolean }) => (
-    <div data-testid="dialog" data-open={open}>{children}</div>
+// PSY-823: the Create flow swapped its Dialog for a Sheet drawer. Mock the
+// Sheet so the form children render synchronously without a portal — tests
+// can assert against the form fields directly via getByLabelText.
+vi.mock('@/components/ui/sheet', () => ({
+  Sheet: ({ children, open }: { children: React.ReactNode; open: boolean }) => (
+    <div data-testid="sheet" data-open={open}>{children}</div>
   ),
-  DialogContent: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="dialog-content">{children}</div>
+  SheetContent: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="sheet-content">{children}</div>
   ),
-  DialogHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  DialogTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
-  DialogTrigger: ({ children }: { children: React.ReactNode; asChild?: boolean }) => (
+  SheetHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
+  SheetTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
+  SheetTrigger: ({ children }: { children: React.ReactNode; asChild?: boolean }) => (
     <>{children}</>
   ),
+}))
+
+// PSY-823: stub the picker so create-form tests don't have to provision
+// useEntitySearch / useResolveCollectionItems. The picker has its own
+// test file (AddItemsPicker.test.tsx) for that surface.
+vi.mock('./AddItemsPicker', () => ({
+  AddItemsPicker: () => <div data-testid="add-items-picker-stub" />,
 }))
 
 // Track the active tab value for selective rendering of TabsContent. Also

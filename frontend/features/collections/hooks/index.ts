@@ -357,6 +357,112 @@ export function useAddCollectionItem() {
   })
 }
 
+/**
+ * PSY-823: bulk-add a batch of items to a collection in a single request.
+ * Partial-success semantics: valid rows commit even when some rows fail
+ * validation/dedup — the response carries an `errors` array keyed by the
+ * original row index so the UI can light up per-row chips.
+ */
+export interface BulkAddItem {
+  entity_type: string
+  entity_id: number
+  notes?: string
+}
+
+export interface BulkAddItemError {
+  row_index: number
+  error_code: 'VALIDATION' | 'DUPLICATE' | string
+  message: string
+}
+
+export interface BulkAddItemsResponse {
+  added: BulkAddedItem[]
+  errors: BulkAddItemError[]
+}
+
+export interface BulkAddedItem {
+  id: number
+  entity_type: string
+  entity_id: number
+  entity_name: string
+  entity_slug: string
+  position: number
+  added_by_user_id: number
+  added_by_name: string
+  notes: string | null
+  created_at: string
+}
+
+export function useBulkAddCollectionItems() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({
+      slug,
+      items,
+    }: {
+      slug: string
+      items: BulkAddItem[]
+    }) =>
+      apiRequest<BulkAddItemsResponse>(API_ENDPOINTS.COLLECTIONS.ITEMS_BULK(slug), {
+        method: 'POST',
+        body: JSON.stringify({ items }),
+      }),
+    onSuccess: (data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.detail(variables.slug),
+      })
+      // Invalidate the contains-check + backlinks caches for entities that
+      // ACTUALLY committed — `data.added` is the partial-success slice,
+      // `variables.items` includes rows the backend rejected as duplicate
+      // or invalid. Iterating the rejected set wastes refetches AND
+      // pollutes the cache with bogus keys when error_code=VALIDATION
+      // carries a typo'd entity_type.
+      for (const added of data.added) {
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.collections.containing(added.entity_type, added.entity_id),
+        })
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.collections.entity(added.entity_type, added.entity_id),
+        })
+      }
+    },
+  })
+}
+
+/**
+ * PSY-823: resolve canonical PH slugs to entity_ids + display metadata for
+ * the Paste-URLs live preview. Read-only; failure mode is silent (unknown
+ * slugs land in `unresolved` rather than throwing).
+ */
+export interface ResolveItemEntry {
+  entity_type: string
+  slug: string
+}
+
+export interface ResolvedCollectionItem {
+  entity_type: string
+  slug: string
+  entity_id: number
+  name: string
+  subtitle?: string | null
+  image_url?: string | null
+}
+
+export interface ResolveItemsResponse {
+  resolved: ResolvedCollectionItem[]
+  unresolved: ResolveItemEntry[]
+}
+
+export function useResolveCollectionItems() {
+  return useMutation({
+    mutationFn: (entries: ResolveItemEntry[]) =>
+      apiRequest<ResolveItemsResponse>(API_ENDPOINTS.COLLECTIONS.RESOLVE_ITEMS, {
+        method: 'POST',
+        body: JSON.stringify({ entries }),
+      }),
+  })
+}
+
 /** Remove an item from a collection */
 export function useRemoveCollectionItem() {
   const queryClient = useQueryClient()

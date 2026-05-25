@@ -47,6 +47,78 @@ type AddCollectionItemRequest struct {
 	Notes      *string `json:"notes"`
 }
 
+// MaxBulkAddCollectionItems caps how many items a single bulk-add submit can
+// carry. Sized for canon-list curation ("the 200 best albums of the 2010s"),
+// not infinite — bounded so a single request stays well under request body
+// limits and transaction time is predictable. PSY-823.
+const MaxBulkAddCollectionItems = 500
+
+// BulkAddCollectionItemsRequest is the body for POST /collections/{slug}/items/bulk.
+// Each row reuses the single-add shape (entity_type, entity_id, notes) so callers
+// only need to learn one item contract. PSY-823.
+type BulkAddCollectionItemsRequest struct {
+	Items []AddCollectionItemRequest `json:"items"`
+}
+
+// Bulk-add per-row error codes (PSY-823). Surfaced verbatim so the frontend
+// can format per-row badges without parsing the human message.
+const (
+	BulkAddItemErrorValidation = "VALIDATION"
+	BulkAddItemErrorDuplicate  = "DUPLICATE"
+)
+
+// BulkAddCollectionItemError describes one row that failed validation or
+// dedup in a bulk-add submit. Carries the original request index so the
+// frontend can light up the right row's chip.
+type BulkAddCollectionItemError struct {
+	RowIndex  int    `json:"row_index"`
+	ErrorCode string `json:"error_code"`
+	Message   string `json:"message"`
+}
+
+// BulkAddCollectionItemsResponse is returned by the bulk-add endpoint with
+// partial-success semantics: the Added array holds rows that committed
+// inside the single transaction; Errors holds per-row rejections that did
+// not roll back the successful inserts. PSY-823.
+type BulkAddCollectionItemsResponse struct {
+	Added  []CollectionItemResponse     `json:"added"`
+	Errors []BulkAddCollectionItemError `json:"errors"`
+}
+
+// ResolveCollectionItemEntry is one (entity_type, slug) pair to resolve into
+// an entity_id. Backs the Paste-URLs mode's live preview (PSY-823): the
+// frontend parses canonical PH paths client-side, then batches the resulting
+// pairs through this endpoint to render matched / unmatched chips.
+type ResolveCollectionItemEntry struct {
+	EntityType string `json:"entity_type"`
+	Slug       string `json:"slug"`
+}
+
+// ResolveCollectionItemsRequest is the body for POST /collections/resolve-items.
+type ResolveCollectionItemsRequest struct {
+	Entries []ResolveCollectionItemEntry `json:"entries"`
+}
+
+// ResolvedCollectionItem is one (entity_type, slug) pair that resolved to an
+// existing entity. Name + Subtitle + ImageURL are returned so the preview
+// row can render identically to a search result without a follow-up fetch.
+type ResolvedCollectionItem struct {
+	EntityType string  `json:"entity_type"`
+	Slug       string  `json:"slug"`
+	EntityID   uint    `json:"entity_id"`
+	Name       string  `json:"name"`
+	Subtitle   *string `json:"subtitle,omitempty"`
+	ImageURL   *string `json:"image_url,omitempty"`
+}
+
+// ResolveCollectionItemsResponse is the response. Resolved + Unresolved
+// partition the input entries by lookup outcome; each entry appears in
+// exactly one of the two slices.
+type ResolveCollectionItemsResponse struct {
+	Resolved   []ResolvedCollectionItem     `json:"resolved"`
+	Unresolved []ResolveCollectionItemEntry `json:"unresolved"`
+}
+
 // ReorderCollectionItemsRequest represents a request to reorder items in a collection
 type ReorderCollectionItemsRequest struct {
 	Items []ReorderItem `json:"items" validate:"required"`
@@ -392,6 +464,14 @@ type CollectionServiceInterface interface {
 	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, error)
 	DeleteCollection(slug string, userID uint, isAdmin bool) error
 	AddItem(slug string, userID uint, req *AddCollectionItemRequest) (*CollectionItemResponse, error)
+	// BulkAddItems commits a batch of items in one transaction with
+	// partial-success semantics: invalid rows are returned in Errors and do
+	// not roll back valid inserts. PSY-823.
+	BulkAddItems(slug string, userID uint, req *BulkAddCollectionItemsRequest) (*BulkAddCollectionItemsResponse, error)
+	// ResolveCollectionItems maps (entity_type, slug) entries to entity_ids
+	// for the Paste-URLs preview in the AddItemsPicker. Returns Resolved /
+	// Unresolved partitions; never an error for unknown slugs. PSY-823.
+	ResolveCollectionItems(req *ResolveCollectionItemsRequest) (*ResolveCollectionItemsResponse, error)
 	UpdateItem(slug string, itemID uint, userID uint, isAdmin bool, req *UpdateCollectionItemRequest) (*CollectionItemResponse, error)
 	RemoveItem(slug string, itemID uint, userID uint, isAdmin bool) error
 	ReorderItems(slug string, userID uint, req *ReorderCollectionItemsRequest) error
