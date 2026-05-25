@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { createWrapper } from '@/test/utils'
+import {
+  createWrapper,
+  createWrapperWithClient,
+  createTestQueryClient,
+} from '@/test/utils'
 
 // Create mocks
 const mockApiRequest = vi.fn()
@@ -14,6 +18,8 @@ vi.mock('@/lib/api', () => ({
     USERS: {
       PROFILE: (username: string) => `/users/${username}`,
       CONTRIBUTIONS: (username: string) => `/users/${username}/contributions`,
+      ACTIVITY_HEATMAP: (username: string) => `/users/${username}/activity-heatmap`,
+      RANKINGS: (username: string) => `/users/${username}/rankings`,
     },
     CONTRIBUTOR: {
       OWN_PROFILE: '/auth/profile/contributor',
@@ -36,6 +42,8 @@ vi.mock('@/lib/queryClient', () => ({
       contributions: (username: string) => ['contributor', 'contributions', username],
       ownContributions: ['contributor', 'ownContributions'],
       ownSections: ['contributor', 'ownSections'],
+      activityHeatmap: (username: string) => ['contributor', 'activityHeatmap', username],
+      rankings: (username: string) => ['contributor', 'rankings', username],
     },
   },
   createInvalidateQueries: () => ({
@@ -48,6 +56,8 @@ vi.mock('@/lib/queryClient', () => ({
 import {
   usePublicProfile,
   usePublicContributions,
+  useActivityHeatmap,
+  usePercentileRankings,
   useOwnContributorProfile,
   useOwnContributions,
   useOwnSections,
@@ -115,6 +125,195 @@ describe('usePublicProfile', () => {
     await waitFor(() => expect(result.current.isError).toBe(true))
 
     expect((result.current.error as Error).message).toBe('User not found')
+  })
+
+  it('isPending is true while the initial fetch is in flight', () => {
+    // Hang the request so we can observe loading state.
+    mockApiRequest.mockReturnValueOnce(new Promise(() => {}))
+
+    const { result } = renderHook(() => usePublicProfile('testuser'), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.isPending).toBe(true)
+    expect(result.current.isSuccess).toBe(false)
+  })
+
+  it('caches profile under the username key and skips refetch on remount', async () => {
+    // Profile pages link to each other — if the cache key doesn't match
+    // the username, navigating user A → user B → user A would re-fetch
+    // every time. Verify the queryKey is stable per username and the
+    // staleTime=5min window prevents the second call.
+    const queryClient = createTestQueryClient()
+    const profile = {
+      username: 'testuser',
+      bio: 'bio',
+      profile_visibility: 'public',
+      user_tier: 'contributor',
+      joined_at: '2024-01-01T00:00:00Z',
+    }
+    mockApiRequest.mockResolvedValueOnce(profile)
+
+    const { result, unmount } = renderHook(
+      () => usePublicProfile('testuser'),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+
+    unmount()
+
+    // Remount with the same client + same username — should hit cache.
+    const { result: result2 } = renderHook(
+      () => usePublicProfile('testuser'),
+      { wrapper: createWrapperWithClient(queryClient) }
+    )
+
+    expect(result2.current.data).toEqual(profile)
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
+  })
+
+  it('issues a separate fetch for a different username', async () => {
+    // Companion to the cache test above: distinct usernames must NOT share
+    // a cache entry.
+    const queryClient = createTestQueryClient()
+    mockApiRequest.mockResolvedValueOnce({
+      username: 'a',
+      bio: '',
+      profile_visibility: 'public',
+      user_tier: 'contributor',
+      joined_at: '2024-01-01T00:00:00Z',
+    })
+
+    const { result } = renderHook(() => usePublicProfile('a'), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    mockApiRequest.mockResolvedValueOnce({
+      username: 'b',
+      bio: '',
+      profile_visibility: 'public',
+      user_tier: 'contributor',
+      joined_at: '2024-01-01T00:00:00Z',
+    })
+
+    const { result: result2 } = renderHook(() => usePublicProfile('b'), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+    await waitFor(() => expect(result2.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    expect(mockApiRequest.mock.calls[0][0]).toBe('/users/a')
+    expect(mockApiRequest.mock.calls[1][0]).toBe('/users/b')
+  })
+})
+
+describe('useActivityHeatmap', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('fetches the activity heatmap for a username', async () => {
+    const heatmap = {
+      days: [
+        { date: '2025-01-01', count: 3 },
+        { date: '2025-01-02', count: 0 },
+      ],
+      total_contributions: 3,
+      max_day_count: 3,
+    }
+    mockApiRequest.mockResolvedValueOnce(heatmap)
+
+    const { result } = renderHook(() => useActivityHeatmap('testuser'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith('/users/testuser/activity-heatmap', {
+      method: 'GET',
+    })
+    expect(result.current.data).toEqual(heatmap)
+  })
+
+  it('does not fetch when username is empty', () => {
+    const { result } = renderHook(() => useActivityHeatmap(''), {
+      wrapper: createWrapper(),
+    })
+
+    expect(mockApiRequest).not.toHaveBeenCalled()
+    expect(result.current.fetchStatus).toBe('idle')
+  })
+
+  it('surfaces server errors instead of returning empty heatmap', async () => {
+    // The contributor profile page renders a year-long grid; if errors
+    // were swallowed, the user would see "0 contributions" for every day
+    // when the backend was actually down.
+    const error = new Error('Server error')
+    Object.assign(error, { status: 500 })
+    mockApiRequest.mockRejectedValueOnce(error)
+
+    const { result } = renderHook(() => useActivityHeatmap('testuser'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.data).toBeUndefined()
+    expect((result.current.error as Error).message).toBe('Server error')
+  })
+})
+
+describe('usePercentileRankings', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockApiRequest.mockReset()
+  })
+
+  it('fetches percentile rankings for a username', async () => {
+    const rankings = {
+      shows_submitted: { value: 42, percentile: 87 },
+      venues_submitted: { value: 5, percentile: 50 },
+      total_contributions: { value: 50, percentile: 80 },
+    }
+    mockApiRequest.mockResolvedValueOnce(rankings)
+
+    const { result } = renderHook(() => usePercentileRankings('testuser'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+
+    expect(mockApiRequest).toHaveBeenCalledWith('/users/testuser/rankings', {
+      method: 'GET',
+    })
+    expect(result.current.data).toEqual(rankings)
+  })
+
+  it('does not fetch when username is empty', () => {
+    const { result } = renderHook(() => usePercentileRankings(''), {
+      wrapper: createWrapper(),
+    })
+
+    expect(mockApiRequest).not.toHaveBeenCalled()
+    expect(result.current.fetchStatus).toBe('idle')
+  })
+
+  it('does NOT retry on 404 (rankings unavailable)', async () => {
+    // The hook deliberately disables retry to surface the "not available"
+    // state fast. Verify a single attempt regardless of retry settings.
+    const error = new Error('Not Found')
+    Object.assign(error, { status: 404 })
+    mockApiRequest.mockRejectedValue(error)
+
+    const { result } = renderHook(() => usePercentileRankings('testuser'), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(mockApiRequest).toHaveBeenCalledTimes(1)
   })
 })
 
@@ -248,6 +447,22 @@ describe('useOwnContributorProfile', () => {
     })
   })
 
+  it('surfaces auth errors (401) to the caller', async () => {
+    // The "Your profile" panel must distinguish "logged out" from "loaded
+    // but empty" — silently treating 401 as undefined would render a
+    // skeleton forever.
+    const error = new Error('Unauthorized')
+    Object.assign(error, { status: 401 })
+    mockApiRequest.mockRejectedValueOnce(error)
+
+    const { result } = renderHook(() => useOwnContributorProfile(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect(result.current.data).toBeUndefined()
+    expect((result.current.error as Error).message).toBe('Unauthorized')
+  })
 })
 
 describe('useOwnContributions', () => {
