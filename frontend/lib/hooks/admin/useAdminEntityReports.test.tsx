@@ -1,6 +1,10 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { createWrapper } from '@/test/utils'
+import {
+  createWrapper,
+  createWrapperWithClient,
+  createTestQueryClient,
+} from '@/test/utils'
 
 const mockApiRequest = vi.fn()
 const mockInvalidateAdminEntityReports = vi.fn()
@@ -311,21 +315,14 @@ describe('useAdminHideCollection', () => {
     // The moderation queue surface depends on both invalidations: the
     // queue itself (so the related report disappears) AND the collections
     // list (so the now-private record stops appearing in browse).
-    const { QueryClient, QueryClientProvider } = await import(
-      '@tanstack/react-query'
-    )
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-    })
-    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
-
     mockApiRequest.mockResolvedValueOnce(undefined)
 
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    )
+    const queryClient = createTestQueryClient()
+    const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    const { result } = renderHook(() => useAdminHideCollection(), { wrapper })
+    const { result } = renderHook(() => useAdminHideCollection(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
 
     await act(async () => {
       result.current.mutate({ slug: 'spammy-list' })

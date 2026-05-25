@@ -1,7 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { renderHook, waitFor, act } from '@testing-library/react'
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import React from 'react'
 import { createWrapper, createWrapperWithClient, createTestQueryClient } from '@/test/utils'
 
 const mockApiRequest = vi.fn()
@@ -754,11 +752,9 @@ describe('useBulkLinkPlays', () => {
     const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    )
-
-    const { result } = renderHook(() => useBulkLinkPlays(), { wrapper })
+    const { result } = renderHook(() => useBulkLinkPlays(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
 
     await act(async () => {
       result.current.mutate({ artistName: 'X', artistId: 1 })
@@ -776,16 +772,12 @@ describe('useBulkLinkPlays', () => {
   it('surfaces mutation errors without invalidating', async () => {
     mockApiRequest.mockRejectedValueOnce(new Error('Artist not found'))
 
-    const queryClient = new QueryClient({
-      defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
-    })
+    const queryClient = createTestQueryClient()
     const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries')
 
-    const wrapper = ({ children }: { children: React.ReactNode }) => (
-      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
-    )
-
-    const { result } = renderHook(() => useBulkLinkPlays(), { wrapper })
+    const { result } = renderHook(() => useBulkLinkPlays(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
 
     await act(async () => {
       result.current.mutate({ artistName: 'X', artistId: 999 })
