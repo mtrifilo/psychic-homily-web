@@ -88,15 +88,8 @@ func (h *CalendarHandler) CreateCalendarTokenHandler(ctx context.Context, req *C
 		return nil, huma.Error401Unauthorized("Authentication required")
 	}
 
-	// Derive the API base URL from config
-	// In production this is the backend's public URL (e.g. https://api.psychichomily.com)
-	apiBaseURL := h.config.Email.FrontendURL
-	if apiBaseURL == "" {
-		apiBaseURL = "http://localhost:8080"
-	}
-	// The feed URL should use the API domain, not the frontend domain
-	// Derive from the MusicDiscovery FrontendURL pattern, but use the API URL
-	apiBaseURL = getAPIBaseURL(h.config)
+	// Feed URLs use the API domain, not the frontend domain.
+	apiBaseURL := getAPIBaseURL(h.config)
 
 	result, err := h.calendarService.CreateToken(user.ID, apiBaseURL)
 	if err != nil {

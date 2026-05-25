@@ -733,21 +733,13 @@ func (s *AutoPromotionIntegrationTestSuite) TestRolling30dIncludesRevisions() {
 	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-5*24*time.Hour))
 	s.createPendingEditWithStatus(user.ID, "artist", artist.ID, adminm.PendingEditStatusRejected, time.Now().Add(-4*24*time.Hour))
 
-	// 7 recent revisions (count as approved) in 30d window
-	for i := 0; i < 7; i++ {
+	// 8 recent revisions (count as approved) in 30d window so 8/(8+2) = 80%,
+	// exactly at the demotion threshold (not below).
+	for i := 0; i < 8; i++ {
 		s.createRevision(user.ID, "artist", artist.ID, time.Now().Add(-time.Duration(i+1)*24*time.Hour))
 	}
 
 	result, err := s.svc.EvaluateUser(user.ID)
 	s.Require().NoError(err)
-	// Rolling 30d: 7 approved (revisions) + 0 pending approved / (7 + 2 total) = 77.7%
-	// Wait, let me recalculate: 7 revisions + 2 pending rejected = 9 total, 7/9 = 77.7% < 80%
-	// Actually the user should be demoted because 7/9 = 77.7% < 80%
-	// Let me add one more revision to get 8/10 = 80%
-	s.createRevision(user.ID, "artist", artist.ID, time.Now().Add(-8*24*time.Hour))
-
-	result, err = s.svc.EvaluateUser(user.ID)
-	s.Require().NoError(err)
-	// 8 revisions + 2 rejected = 10 total, 8/10 = 80% — at threshold, not below
 	s.False(result.Changed)
 }
