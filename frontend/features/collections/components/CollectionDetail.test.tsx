@@ -230,6 +230,16 @@ vi.mock('../hooks', () => ({
     isError: false,
     error: null,
   }),
+  // PSY-823: AddItemsSection now stages items in AddItemsPicker and submits
+  // via bulk-add. Tests mostly stub the picker; the bulk-add mock just
+  // resolves with an empty partial-success response.
+  useBulkAddCollectionItems: () => ({
+    mutate: vi.fn(),
+    mutateAsync: () => Promise.resolve({ added: [], errors: [] }),
+    isPending: false,
+    isError: false,
+    error: null,
+  }),
   useRemoveCollectionItem: () => mockRemoveMutation(),
   useReorderCollectionItems: () => mockReorderMutation(),
   useUpdateCollectionItem: (): MutationStub => ({
@@ -251,6 +261,14 @@ vi.mock('@/features/comments', () => ({
   CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
     <div data-testid="comment-thread">Comments for {entityType} {entityId}</div>
   ),
+}))
+
+// PSY-823: stub the AddItemsPicker. CollectionDetail tests don't exercise
+// the picker's internals (search results, paste preview, staging) — that
+// surface has its own test file. The stub keeps these tests fast and
+// isolates them from useEntitySearch + useResolveCollectionItems wiring.
+vi.mock('./AddItemsPicker', () => ({
+  AddItemsPicker: () => <div data-testid="add-items-picker-stub" />,
 }))
 
 // PSY-354: stub EntityTagList — its real implementation pulls in tag
@@ -1517,149 +1535,10 @@ describe('CollectionDetail', () => {
   })
 
   // ──────────────────────────────────────────────
-  // PSY-372: shows in the Add Items search
-  // ──────────────────────────────────────────────
-
-  describe('PSY-372 shows in Add Items search', () => {
-    /**
-     * Helper: seed the entity-search mock with results in the requested
-     * entity type so the dropdown renders rows the user can interact with,
-     * then type a 2+ char query to satisfy the dropdown's render gate. The
-     * hook is mocked so the typed value is irrelevant — only the length
-     * matters. PSY-581: the default fixture renders an empty collection
-     * (`items: []`) so the Add Items panel is now open on first paint and
-     * no toggle click is needed.
-     */
-    async function openAddItemsWith({
-      shows = [],
-      artists = [],
-    }: {
-      shows?: Array<{
-        id: number
-        slug: string
-        name: string
-        subtitle: string | null
-        entityType: 'show'
-        href: string
-      }>
-      artists?: Array<{
-        id: number
-        slug: string
-        name: string
-        subtitle: string | null
-        entityType: 'artist'
-        href: string
-      }>
-    }) {
-      mockUseEntitySearchResult = {
-        data: {
-          artists,
-          venues: [],
-          shows,
-          releases: [],
-          labels: [],
-          festivals: [],
-          tags: [],
-        },
-        isSearching: false,
-        totalResults: shows.length + artists.length,
-        searchError: false,
-      }
-      const user = userEvent.setup()
-      render(<CollectionDetail slug="test-collection" />)
-      // The Add Items panel only renders the dropdown when the query field
-      // has 2+ chars. Type something to satisfy the gate.
-      const input = screen.getByPlaceholderText(/Search artists, shows/)
-      await user.type(input, 'tt')
-      return user
-    }
-
-    it('placeholder copy includes "shows"', async () => {
-      // PSY-581: empty fixture defaults the panel open, so the input is
-      // immediately present without a toggle click.
-      render(<CollectionDetail slug="test-collection" />)
-
-      const input = screen.getByPlaceholderText(
-        'Search artists, shows, venues, releases, labels, festivals...'
-      )
-      expect(input).toBeInTheDocument()
-    })
-
-    it('renders show results in the dropdown with the configured label and a "Show" badge', async () => {
-      // Synthesize a show entry mirroring how `useEntitySearch` would emit
-      // it — name pre-formatted as "{Headliner} @ {Venue} · {Date}".
-      const formattedLabel = 'Faetooth @ Valley Bar · Apr 15, 2026'
-      await openAddItemsWith({
-        shows: [
-          {
-            id: 99,
-            slug: 'faetooth-valley-bar-2026-04-15',
-            name: formattedLabel,
-            subtitle: null,
-            entityType: 'show',
-            href: '/shows/faetooth-valley-bar-2026-04-15',
-          },
-        ],
-      })
-
-      // Label rendered verbatim in the dropdown row.
-      expect(screen.getByText(formattedLabel)).toBeInTheDocument()
-      // "Show" badge appears next to the label.
-      expect(screen.getByText('Show')).toBeInTheDocument()
-    })
-
-    it('clicking Add on a show calls the add mutation with entityType "show"', async () => {
-      const user = await openAddItemsWith({
-        shows: [
-          {
-            id: 99,
-            slug: 'faetooth-valley-bar-2026-04-15',
-            name: 'Faetooth @ Valley Bar · Apr 15, 2026',
-            subtitle: null,
-            entityType: 'show',
-            href: '/shows/faetooth-valley-bar-2026-04-15',
-          },
-        ],
-      })
-
-      // The Add Items panel triggers a button labeled "Add Items" (which
-      // opened the dropdown), and each result row also has an "Add" button.
-      // We want the row's button — filter to ones whose accessible name is
-      // exactly "Add" (the row button has just "Add", not "Add Items").
-      const buttons = screen.getAllByRole('button', { name: 'Add' })
-      // There should be exactly one "Add" button (the show row).
-      expect(buttons).toHaveLength(1)
-      await user.click(buttons[0])
-
-      expect(mockAddItemMutate).toHaveBeenCalledWith(
-        expect.objectContaining({
-          slug: 'test-collection',
-          entityType: 'show',
-          entityId: 99,
-        }),
-        expect.any(Object)
-      )
-    })
-
-    it('does not regress: artist results still render with their existing label and badge', async () => {
-      await openAddItemsWith({
-        artists: [
-          {
-            id: 1,
-            slug: 'the-growlers',
-            name: 'The Growlers',
-            subtitle: 'Dana Point, CA',
-            entityType: 'artist',
-            href: '/artists/the-growlers',
-          },
-        ],
-      })
-
-      expect(screen.getByText('The Growlers')).toBeInTheDocument()
-      expect(screen.getByText('Dana Point, CA')).toBeInTheDocument()
-      expect(screen.getByText('Artist')).toBeInTheDocument()
-    })
-  })
+  // PSY-372 / PSY-725 search-internal tests moved to AddItemsPicker.test.tsx —
+  // CollectionDetail now stubs the picker (PSY-823) so picker internals
+  // (search results, outage banner, paste-mode preview) live in the
+  // picker's own test surface.
 
   // ──────────────────────────────────────────────
   // PSY-581: Add Items default-open on empty collections
@@ -1681,17 +1560,13 @@ describe('CollectionDetail', () => {
       created_at: '2025-01-01T00:00:00Z',
     }
 
-    it('renders the search input by default when the collection is empty', () => {
+    it('renders the picker by default when the collection is empty', () => {
       // Default fixture has `items: []` and the current user is the creator
-      // so the empty-state path applies.
+      // so the empty-state path applies — the panel opens on first paint
+      // and renders the AddItemsPicker (stubbed in this test surface).
       render(<CollectionDetail slug="test-collection" />)
 
-      // Search input is immediately visible — no toggle click needed.
-      expect(
-        screen.getByPlaceholderText(
-          'Search artists, shows, venues, releases, labels, festivals...'
-        )
-      ).toBeInTheDocument()
+      expect(screen.getByTestId('add-items-picker-stub')).toBeInTheDocument()
     })
 
     it('keeps the panel collapsed by default when the collection has items', () => {
@@ -1706,65 +1581,8 @@ describe('CollectionDetail', () => {
       expect(
         screen.getByRole('button', { name: /Add Items/i })
       ).toBeInTheDocument()
-      expect(
-        screen.queryByPlaceholderText(
-          'Search artists, shows, venues, releases, labels, festivals...'
-        )
-      ).not.toBeInTheDocument()
-    })
-  })
-
-  // ──────────────────────────────────────────────
-  // PSY-725: Add Items search-outage banner
-  // ──────────────────────────────────────────────
-  // When every backing search endpoint fails, useEntitySearch flips
-  // `searchError` true. The Add Items panel has to render the dedicated
-  // banner instead of the silent "no results" message so users don't
-  // mistake a backend outage for a typo and retype indefinitely.
-
-  describe('PSY-725 Add Items search-outage banner', () => {
-    it('renders the InlineErrorBanner when searchError is true and query is 2+ chars', async () => {
-      mockUseEntitySearchResult = {
-        data: {
-          artists: [],
-          venues: [],
-          shows: [],
-          releases: [],
-          labels: [],
-          festivals: [],
-          tags: [],
-        },
-        isSearching: false,
-        totalResults: 0,
-        searchError: true,
-      }
-
-      const user = userEvent.setup()
-      // Default fixture is empty → Add Items panel renders open on first paint.
-      render(<CollectionDetail slug="test-collection" />)
-      const input = screen.getByPlaceholderText(/Search artists, shows/)
-      await user.type(input, 'tt')
-
-      const banner = screen.getByTestId('add-items-search-error-banner')
-      expect(banner).toBeInTheDocument()
-      expect(banner).toHaveTextContent(/Search is temporarily unavailable/i)
-      // "No results found" copy MUST NOT appear when the banner is showing —
-      // otherwise we'd be lying about the cause to the user.
-      expect(screen.queryByText(/No results found/i)).not.toBeInTheDocument()
-    })
-
-    it('does NOT render the banner when searchError is false (default empty case)', async () => {
-      // Default mock state has searchError: false. Typing into the empty
-      // state should produce "No results found" copy, not the outage banner.
-      const user = userEvent.setup()
-      render(<CollectionDetail slug="test-collection" />)
-      const input = screen.getByPlaceholderText(/Search artists, shows/)
-      await user.type(input, 'tt')
-
-      expect(
-        screen.queryByTestId('add-items-search-error-banner')
-      ).not.toBeInTheDocument()
-      expect(screen.getByText(/No results found/i)).toBeInTheDocument()
+      // Picker is not mounted while the panel is collapsed.
+      expect(screen.queryByTestId('add-items-picker-stub')).not.toBeInTheDocument()
     })
   })
 
