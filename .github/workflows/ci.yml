@@ -144,6 +144,7 @@ jobs:
         with:
           files: backend/coverage.out
           flags: backend
+          disable_search: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # PSY-772: backend lint gate. Two steps, two configs:
@@ -241,6 +242,8 @@ jobs:
         with:
           files: frontend/coverage/lcov.info
           flags: frontend
+          disable_search: true
+          working-directory: ./frontend
           token: ${{ secrets.CODECOV_TOKEN }}
 
   e2e-smoke:
