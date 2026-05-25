@@ -1,6 +1,6 @@
 ---
 name: psy-solo
-description: Work a single Psychic Homily Linear ticket end-to-end serially in the main worktree. Use when the user provides a single PSY-XXX ticket and wants the full ship workflow (read → plan with AskUserQuestion on spikes → implement → typecheck + scoped tests → /simplify → optional screenshots → file follow-ups → PR) without parallel-worktree overhead. Includes the UI-screenshot pattern (dev stack + agent-browser + gh draft-release upload) for tickets with user-facing changes.
+description: Work a single Psychic Homily Linear ticket end-to-end serially in the main worktree. Use when the user provides a single PSY-XXX ticket and wants the full ship workflow (read → plan with AskUserQuestion on spikes → implement → typecheck + scoped tests → /code-review → optional screenshots → file follow-ups → PR) without parallel-worktree overhead. Includes the UI-screenshot pattern (dev stack + agent-browser + gh draft-release upload) for tickets with user-facing changes.
 argument-hint: "PSY-XXX [+ context like 'next' or 'merged, next']"
 ---
 
@@ -12,7 +12,7 @@ Encodes the serial workflow for taking ONE PSY ticket from "In Progress" to a me
 
 - User points at a single ticket: "Let's do PSY-657", "Next is PSY-656", "Pick up PSY-XXX"
 - User accepts a hand-off pointing at a single next ticket: "merged, next" after a queued list has been established (a la the May 2026 Entity Pages Density Rollout sweep)
-- A small one-off improvement the user wants worked serially with full PR ceremony (Plan → impl → tests → /simplify → PR)
+- A small one-off improvement the user wants worked serially with full PR ceremony (Plan → impl → tests → /code-review → PR)
 
 Do NOT use for:
 - A batch of 2+ tickets — that's `psy-dispatch` (parallel worktrees, one agent per ticket).
@@ -35,7 +35,7 @@ which agent-browser               # if any UI screenshots are planned
 1. **One issue = one PR.** Branch name `PSY-{N}/{kebab-description}`. PR body includes `Closes PSY-{N}`.
 2. **Pull latest main BEFORE starting.** `git -C <repo> checkout main && git pull --ff-only origin main`. Stale main inherits stale-fallout CI from anything that merged in between (see psy-dispatch anti-pattern catalog for the canonical incident).
 3. **Surface ambiguity via `AskUserQuestion` BEFORE writing code.** When the ticket has a design fork (Option A vs B, taxonomy/threshold/UX choice not already decided), batch the questions into a single `AskUserQuestion` call. See `feedback_no_speculative_implementation.md` and `feedback_plan_mode_questions_first.md`. Do not guess — file a follow-up rather than implementing speculative scope.
-4. **`/simplify` AND relevant local tests run before push; failure blocks push.** Same rule as `psy-dispatch`. Never push past a failing local test, even one you believe is pre-existing on main — escalate to the user instead of triaging via GitHub CI. See `feedback_simplify_before_pr.md`.
+4. **`/code-review` AND relevant local tests run before push; failure blocks push.** Same rule as `psy-dispatch`. Never push past a failing local test, even one you believe is pre-existing on main — escalate to the user instead of triaging via GitHub CI. See `feedback_code-review_before_pr.md`.
 5. **Never mark Done in Linear.** Transition to "In Progress" on start; the user moves it to Done on merge.
 6. **Never merge the PR yourself.** Push and open the PR; the user merges.
 7. **Document deferred scope explicitly in the PR body.** If the implementation Q&A produced a "skip this and file a follow-up" decision, link the follow-up ticket(s) in a `## Deferred` section.
@@ -95,13 +95,13 @@ cd backend && go test ./internal/services/<pkg>/...       # scoped test, or `./.
 
 The actual scoped frontend runner is `bun run test:run <path>`, NOT `bun run test:unit`. The latter doesn't exist; verify scripts via `package.json` if uncertain.
 
-If any test fails — even one you believe is pre-existing on main — STOP, report the failing test + command + one-sentence hypothesis, and let the user decide between (a) fixing inline first, (b) skipping, (c) accepting. Do NOT push and hope GitHub CI sorts it. See `feedback_simplify_before_pr.md`.
+If any test fails — even one you believe is pre-existing on main — STOP, report the failing test + command + one-sentence hypothesis, and let the user decide between (a) fixing inline first, (b) skipping, (c) accepting. Do NOT push and hope GitHub CI sorts it. See `feedback_code-review_before_pr.md`.
 
-### Phase 5: /simplify
+### Phase 5: /code-review
 
-Invoke `Skill` with `skill: "simplify"`. The simplify skill spawns 3 parallel reviewer agents (reuse / quality / efficiency) against your diff. Aggregate their findings; fix the actionable ones directly. For findings that are pre-existing peer-wide gaps (e.g. inline `<h2>` headings vs `SectionHeader` primitive when the peer pages all use inline) — note in the PR body, do NOT expand scope.
+Invoke `Skill` with `skill: "code-review"`. The code-review skill spawns 3 parallel reviewer agents (reuse / quality / efficiency) against your diff. Aggregate their findings; fix the actionable ones directly. For findings that are pre-existing peer-wide gaps (e.g. inline `<h2>` headings vs `SectionHeader` primitive when the peer pages all use inline) — note in the PR body, do NOT expand scope.
 
-If `/simplify` produced code changes, re-run the relevant test commands from phase 4.
+If `/code-review` produced code changes, re-run the relevant test commands from phase 4.
 
 ### Phase 6: Screenshots (UI tickets only)
 
@@ -227,7 +227,7 @@ Invoke `Skill` with `skill: "psy-self-review"`, passing the `/tmp/psy-{N}-pr-bod
 
 The skill is honest about scope (can't verify what a screenshot SHOWS, only that it exists; cannot audit PR title since it's passed via `--title` separately from the body; spot-Read PNGs yourself for load-bearing claims).
 
-Required for any PR with a `## Test plan` containing `[x]` items. Skip only for backend-only / docs-only / config-only PRs where `/simplify` already covers the audit surface.
+Required for any PR with a `## Test plan` containing `[x]` items. Skip only for backend-only / docs-only / config-only PRs where `/code-review` already covers the audit surface.
 
 Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` claim that caught a real bug post-merge (PSY-663). This phase exists to prevent that recurring. See `.claude/skills/psy-self-review/SKILL.md`.
 
@@ -256,13 +256,13 @@ Closes PSY-{N}.
 ## Deferred (per pre-implementation Q&A)
 - **<what was skipped>** — <one-sentence reason>. Filed **PSY-{M}** to address.
 
-## Heads up from `/simplify`
-<only include this section if /simplify surfaced a non-blocking concern worth flagging — e.g. an efficiency regression that's intrinsic to the design. Omit if /simplify was clean.>
+## Heads up from `/code-review`
+<only include this section if /code-review surfaced a non-blocking concern worth flagging — e.g. an efficiency regression that's intrinsic to the design. Omit if /code-review was clean.>
 
 ## Test plan
 - [x] `bun run typecheck` — clean
 - [x] `bun run test:run features/<scope>` — N/N passing
-- [x] `/simplify` — <outcome>
+- [x] `/code-review` — <outcome>
 - [x] `/psy-self-review` — <outcome: clean / N findings addressed>
 - [x] Manual repro against local dev stack with <entity>: <one-sentence description of what was visually verified>
 
@@ -286,7 +286,7 @@ EOF
 
 The 3 bracket-related lines under `## Coverage gaps` are standard for any UI ticket using the header-linkbox + AddTagDialog pattern. Include them by default; remove only if the specific PR doesn't touch them.
 
-PR title under 70 chars (verify manually — `/psy-self-review` cannot audit titles passed via `--title`). Body MUST include `Closes PSY-{N}`. If `/simplify` was clean, drop the `## Heads up` section. For non-UI tickets, drop `## Screenshots` and add a Manual repro line in the Test plan ("no UI surface" or curl-against-backend response).
+PR title under 70 chars (verify manually — `/psy-self-review` cannot audit titles passed via `--title`). Body MUST include `Closes PSY-{N}`. If `/code-review` was clean, drop the `## Heads up` section. For non-UI tickets, drop `## Screenshots` and add a Manual repro line in the Test plan ("no UI surface" or curl-against-backend response).
 
 ### Phase 9: Cleanup
 
@@ -323,9 +323,9 @@ Do NOT delete the draft release after the PR is open — the asset URLs depend o
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped UI audit pattern (sweep N merged tickets via screenshots + DOM-eval, file follow-ups, post project-update). Different scope from `psy-solo` (retrospective sweep vs forward per-ticket). Will be drafted after PSY-656 validates the audit cadence is genuinely reusable. May 16 audit was the first instance: caught PSY-663 + PSY-664 in ~30 minutes.
 - **`psy-ticket`** — ticket creation; pair with phase 7 to file the follow-ups this skill identifies.
 - **`linear-cli`** — generic Linear surface; drop down to it if `linear issue` lacks a flag.
-- **`simplify`** — invoked in phase 5; spawns 3 parallel reviewer agents (reuse / quality / efficiency) against the diff.
+- **`code-review`** — invoked in phase 5; spawns 3 parallel reviewer agents (reuse / quality / efficiency) against the diff.
 - **`agent-browser` CLI** — `which agent-browser` to confirm install; pre-installed in this dev environment. Reliable Chrome automation that doesn't depend on a running Chrome instance.
-- `feedback_simplify_before_pr.md` — non-negotiable rule 4 above.
+- `feedback_code-review_before_pr.md` — non-negotiable rule 4 above.
 - `feedback_no_speculative_implementation.md` — non-negotiable rule 3 above (ask, don't guess).
 - `feedback_plan_mode_questions_first.md` — surface forks via `AskUserQuestion` BEFORE implementation.
 - `feedback_verify_before_push.md` — manual repro + screenshot in phase 6 verifies feature-correctness; tests verify only code-correctness.
