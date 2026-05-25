@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
@@ -66,7 +67,7 @@ func (h *CalendarHandler) GetCalendarFeedHandler(w http.ResponseWriter, r *http.
 	w.Header().Set("Content-Disposition", "inline; filename=\"psychic-homily.ics\"")
 	w.Header().Set("Cache-Control", "no-cache, no-store, must-revalidate")
 	w.WriteHeader(http.StatusOK)
-	w.Write(icsData)
+	respond.SafeWrite(r.Context(), w, icsData)
 }
 
 // --- Token CRUD endpoints (Huma, protected) ---

@@ -167,7 +167,7 @@ func TestKEXPProvider_DiscoverShows(t *testing.T) {
 	// array. The shows handler must come BEFORE the programs handler so the
 	// most-specific path matches first in net/http's mux.
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
 			"count": 3,
 			"results": []map[string]interface{}{
@@ -199,7 +199,7 @@ func TestKEXPProvider_DiscoverShows(t *testing.T) {
 	// Mock programs endpoint — note: the real API does NOT return
 	// host_ids/host_names on programs, so the test omits those fields.
 	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
 			"count": 2,
 			"results": []map[string]interface{}{
@@ -254,7 +254,7 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 	// PSY-509: empty broadcast slice — exercise the warn-log "empty map"
 	// branch alongside paginated programs.
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 0, "results": []interface{}{},
 		})
 	})
@@ -263,7 +263,7 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
 		callCount++
 		if callCount == 1 {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"next":  fmt.Sprintf("%s/v2/programs/?offset=1", server.URL),
 				"count": 2,
 				"results": []map[string]interface{}{
@@ -271,7 +271,7 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 				},
 			})
 		} else {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"next":  nil,
 				"count": 2,
 				"results": []map[string]interface{}{
@@ -310,7 +310,7 @@ func TestKEXPProvider_DiscoverShows_Pagination(t *testing.T) {
 func TestKEXPProvider_FetchNewEpisodes(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
 			"count": 1,
 			"results": []map[string]interface{}{
@@ -358,7 +358,7 @@ func TestKEXPProvider_FetchNewEpisodes_FiltersByProgram(t *testing.T) {
 	// episodes imported for every KEXP program).
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 3,
 			"results": []map[string]interface{}{
 				{"id": 1, "program": 42, "program_name": "Wanted", "start_time": "2026-01-15T06:00:00-08:00"},
@@ -388,7 +388,7 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	// Show detail endpoint -- returns start_time AND end_time so the provider
 	// should use the actual broadcast window (4 hours) instead of the fallback.
 	mux.HandleFunc("/v2/shows/5678/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":           5678,
 			"program":      42,
 			"program_name": "The Morning Show",
@@ -398,7 +398,7 @@ func TestKEXPProvider_FetchPlaylist(t *testing.T) {
 	})
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
 		playsRequestQuery = r.URL.RawQuery
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
 			"count": 3,
 			"results": []map[string]interface{}{
@@ -486,14 +486,14 @@ func TestKEXPProvider_FetchPlaylist_NoEndTimeFallback(t *testing.T) {
 	// Show detail endpoint -- no end_time, so provider should fall back to
 	// kexpPlaylistWindowFallback (5 hours).
 	mux.HandleFunc("/v2/shows/7777/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         7777,
 			"start_time": "2026-01-15T14:00:00Z",
 		})
 	})
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
 		playsRequestQuery = r.URL.RawQuery
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
 			"count": 1,
 			"results": []map[string]interface{}{
@@ -528,13 +528,13 @@ func TestKEXPProvider_FetchPlaylist_NoEndTimeFallback(t *testing.T) {
 func TestKEXPProvider_FetchPlaylist_OnlyTrackPlays(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/shows/1234/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         1234,
 			"start_time": "2026-01-15T06:00:00Z",
 		})
 	})
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":  nil,
 			"count": 3,
 			"results": []map[string]interface{}{
@@ -561,13 +561,13 @@ func TestKEXPProvider_FetchPlaylist_OnlyTrackPlays(t *testing.T) {
 func TestKEXPProvider_FetchPlaylist_EmptyPlays(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/shows/9999/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         9999,
 			"start_time": "2026-01-15T06:00:00Z",
 		})
 	})
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next":    nil,
 			"count":   0,
 			"results": []map[string]interface{}{},
@@ -590,7 +590,7 @@ func TestKEXPProvider_FetchPlaylist_ShowNotFound(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/shows/404/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		w.Write([]byte(`{"detail":"Not found."}`))
+		_, _ = w.Write([]byte(`{"detail":"Not found."}`))
 	})
 
 	server := httptest.NewServer(mux)
@@ -609,7 +609,7 @@ func TestKEXPProvider_FetchPlaylist_Pagination(t *testing.T) {
 	playsCallCount := 0
 	mux := http.NewServeMux()
 	mux.HandleFunc("/v2/shows/5678/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"id":         5678,
 			"start_time": "2026-01-15T06:00:00Z",
 		})
@@ -619,7 +619,7 @@ func TestKEXPProvider_FetchPlaylist_Pagination(t *testing.T) {
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
 		playsCallCount++
 		if playsCallCount == 1 {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"next":  fmt.Sprintf("%s/v2/plays/?cursor=page2", server.URL),
 				"count": 3,
 				"results": []map[string]interface{}{
@@ -640,7 +640,7 @@ func TestKEXPProvider_FetchPlaylist_Pagination(t *testing.T) {
 				},
 			})
 		} else {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"next":  nil,
 				"count": 3,
 				"results": []map[string]interface{}{
@@ -682,14 +682,14 @@ func TestKEXPProvider_HTTPError(t *testing.T) {
 	// PSY-509: shows endpoint (used to build the host map) succeeds —
 	// host-map failures are non-fatal so we must isolate the programs error.
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 0, "results": []interface{}{},
 		})
 	})
 	// Programs returns 500
 	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("internal error"))
+		_, _ = w.Write([]byte("internal error"))
 	})
 
 	server := httptest.NewServer(mux)
@@ -716,11 +716,11 @@ func TestKEXPProvider_DiscoverShows_HostMapNonFatal(t *testing.T) {
 	// /v2/shows/ returns 500 — host map fetch fails.
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte("upstream broken"))
+		_, _ = w.Write([]byte("upstream broken"))
 	})
 	// Programs endpoint healthy.
 	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 1,
 			"results": []map[string]interface{}{
 				{"id": 99, "name": "Show With No Host Yet"},
@@ -753,7 +753,7 @@ func TestKEXPProvider_DiscoverShows_HostMappingIntegration(t *testing.T) {
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
 		// Results are returned in -start_time order, matching how the
 		// real API responds when ordering=-start_time is requested.
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 6,
 			"results": []map[string]interface{}{
 				// Most recent: program 100 hosted by two co-DJs.
@@ -804,7 +804,7 @@ func TestKEXPProvider_DiscoverShows_HostMappingIntegration(t *testing.T) {
 	})
 
 	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 5,
 			"results": []map[string]interface{}{
 				{"id": 100, "name": "El Sonido"},
@@ -1119,7 +1119,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 
 	// Mock programs
 	mux.HandleFunc("/v2/programs/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 1,
 			"results": []map[string]interface{}{
 				{"id": 42, "name": "The Morning Show"},
@@ -1137,7 +1137,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 	mux.HandleFunc("/v2/shows/", func(w http.ResponseWriter, r *http.Request) {
 		// Detail-by-ID: /v2/shows/100/ used by FetchPlaylist.
 		if r.URL.Path == "/v2/shows/100/" {
-			json.NewEncoder(w).Encode(map[string]interface{}{
+			_ = json.NewEncoder(w).Encode(map[string]interface{}{
 				"id":           100,
 				"program":      42,
 				"program_name": "The Morning Show",
@@ -1153,7 +1153,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 		// PSY-813: the real /v2/shows/ list response does NOT include
 		// `end_time` or `archive_url` — only the detail endpoint above does.
 		// Omitting them here keeps the fixture aligned with production behavior.
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 1,
 			"results": []map[string]interface{}{
 				{
@@ -1169,7 +1169,7 @@ func (suite *RadioImportIntegrationTestSuite) TestImportStation_Success() {
 
 	// Mock plays
 	mux.HandleFunc("/v2/plays/", func(w http.ResponseWriter, r *http.Request) {
-		json.NewEncoder(w).Encode(map[string]interface{}{
+		_ = json.NewEncoder(w).Encode(map[string]interface{}{
 			"next": nil, "count": 2,
 			"results": []map[string]interface{}{
 				{

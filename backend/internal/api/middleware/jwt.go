@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"net/http"
 	"strings"
@@ -14,6 +13,7 @@ import (
 	autherrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/respond"
 	adminsvc "psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/auth"
 )
@@ -68,7 +68,7 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 				logger.AuthWarn(ctx, "jwt_token_missing",
 					"path", r.URL.Path,
 				)
-				writeJWTError(w, requestID, autherrors.CodeTokenMissing, "Authentication required", http.StatusUnauthorized)
+				writeJWTError(ctx, w, requestID, autherrors.CodeTokenMissing, "Authentication required", http.StatusUnauthorized)
 				return
 			}
 
@@ -92,7 +92,7 @@ func JWTMiddleware(jwtService *auth.JWTService) func(http.Handler) http.Handler 
 					"error", err.Error(),
 					"error_code", errorCode,
 				)
-				writeJWTError(w, requestID, errorCode, message, http.StatusUnauthorized)
+				writeJWTError(ctx, w, requestID, errorCode, message, http.StatusUnauthorized)
 				return
 			}
 
@@ -378,10 +378,10 @@ func GetUserFromContext(ctx context.Context) *authm.User {
 }
 
 // writeJWTError writes a JSON error response for JWT authentication failures
-func writeJWTError(w http.ResponseWriter, requestID, errorCode, message string, statusCode int) {
+func writeJWTError(ctx context.Context, w http.ResponseWriter, requestID, errorCode, message string, statusCode int) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(statusCode)
-	json.NewEncoder(w).Encode(JWTErrorResponse{
+	respond.SafeEncode(ctx, w, JWTErrorResponse{
 		Success:   false,
 		Message:   message,
 		ErrorCode: errorCode,
@@ -399,12 +399,10 @@ func writeHumaJWTError(ctx huma.Context, requestID, errorCode, message string, s
 		ctx.SetHeader("Set-Cookie", clearCookie.String())
 	}
 
-	resp := JWTErrorResponse{
+	respond.SafeEncode(ctx.Context(), ctx.BodyWriter(), JWTErrorResponse{
 		Success:   false,
 		Message:   message,
 		ErrorCode: errorCode,
 		RequestID: requestID,
-	}
-	data, _ := json.Marshal(resp)
-	ctx.BodyWriter().Write(data)
+	})
 }

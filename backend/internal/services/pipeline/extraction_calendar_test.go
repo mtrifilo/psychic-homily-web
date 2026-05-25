@@ -514,7 +514,7 @@ func TestExtractCalendarPage(t *testing.T) {
 			assert.Equal(t, "claude-haiku-4-5-20251001", reqBody.Model)
 
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -556,7 +556,7 @@ func TestExtractCalendarPage(t *testing.T) {
 			assert.Len(t, reqBody.Messages, 1)
 
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -590,7 +590,7 @@ func TestExtractCalendarPage(t *testing.T) {
 	t.Run("api_returns_empty_array", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -622,7 +622,7 @@ func TestExtractCalendarPage(t *testing.T) {
 	t.Run("api_returns_unparseable_response", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -652,7 +652,7 @@ func TestExtractCalendarPage(t *testing.T) {
 	t.Run("api_error_returns_friendly_message", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusInternalServerError)
-			w.Write([]byte("internal error"))
+			_, _ = w.Write([]byte("internal error"))
 		}))
 		defer server.Close()
 
@@ -675,7 +675,7 @@ func TestExtractCalendarPage(t *testing.T) {
 	t.Run("billing_error_returns_friendly_message", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusPaymentRequired)
-			w.Write([]byte("Your credit balance is too low"))
+			_, _ = w.Write([]byte("Your credit balance is too low"))
 		}))
 		defer server.Close()
 
@@ -698,7 +698,7 @@ func TestExtractCalendarPage(t *testing.T) {
 	t.Run("events_with_missing_dates_produces_warning", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -739,7 +739,7 @@ func TestExtractCalendarPage(t *testing.T) {
 	t.Run("events_with_missing_artists_produces_warning", func(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -781,7 +781,7 @@ func TestExtractCalendarPage(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			capturedBody, _ = io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`

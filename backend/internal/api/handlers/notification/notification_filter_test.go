@@ -517,6 +517,7 @@ func TestInt64ArrayToSlice(t *testing.T) {
 // create a circular dependency in test setup).
 func computeTestFilterSig(filterID uint, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "unsubscribe:filter:%d", filterID)
+	// hash.Hash.Write never returns an error; the drop is intentional.
+	_, _ = fmt.Fprintf(mac, "unsubscribe:filter:%d", filterID)
 	return hex.EncodeToString(mac.Sum(nil))
 }

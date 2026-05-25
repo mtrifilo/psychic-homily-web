@@ -8,6 +8,7 @@ import (
 	"github.com/go-chi/httprate"
 
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/auth"
 )
 
@@ -177,5 +178,5 @@ func RateLimitExceededHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Header().Set("Retry-After", "60")
 	w.WriteHeader(http.StatusTooManyRequests)
-	w.Write([]byte(`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in 60 seconds."}`))
+	respond.SafeWrite(r.Context(), w, []byte(`{"success":false,"error":"too_many_requests","message":"Rate limit exceeded. Please try again in 60 seconds."}`))
 }

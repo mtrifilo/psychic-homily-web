@@ -220,6 +220,7 @@ func VerifyUnsubscribeSignature(userID uint, signature, secret string) bool {
 // ComputeUnsubscribeSignature computes HMAC-SHA256 of the user ID
 func ComputeUnsubscribeSignature(userID uint, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "unsubscribe:show-reminders:%d", userID)
+	// hash.Hash.Write never returns an error; the drop is intentional.
+	_, _ = fmt.Fprintf(mac, "unsubscribe:show-reminders:%d", userID)
 	return hex.EncodeToString(mac.Sum(nil))
 }

@@ -969,7 +969,8 @@ func VerifyFilterUnsubscribeSignature(filterID uint, signature, secret string) b
 // ComputeFilterUnsubscribeSignature computes HMAC-SHA256 of the filter ID.
 func ComputeFilterUnsubscribeSignature(filterID uint, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "unsubscribe:filter:%d", filterID)
+	// hash.Hash.Write never returns an error; the drop is intentional.
+	_, _ = fmt.Fprintf(mac, "unsubscribe:filter:%d", filterID)
 	return hex.EncodeToString(mac.Sum(nil))
 }
 

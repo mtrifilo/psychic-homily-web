@@ -105,7 +105,7 @@ func TestValidateIdentityToken(t *testing.T) {
 		eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
 
 		w.Header().Set("Content-Type", "application/json")
-		w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"` + kid + `","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
+		_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"` + kid + `","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
 	}))
 	defer mockServer.Close()
 
@@ -207,7 +207,7 @@ func TestAppleKeyFetching(t *testing.T) {
 			nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
 			eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
 			eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
-			w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"cached-kid","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
+			_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"cached-kid","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
 		}))
 		defer mockServer.Close()
 
@@ -234,7 +234,7 @@ func TestAppleKeyFetching(t *testing.T) {
 			nBase64 := base64.RawURLEncoding.EncodeToString(privateKey.N.Bytes())
 			eBytes := big.NewInt(int64(privateKey.PublicKey.E)).Bytes()
 			eBase64 := base64.RawURLEncoding.EncodeToString(eBytes)
-			w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"known-kid","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
+			_, _ = w.Write([]byte(`{"keys":[{"kty":"RSA","kid":"known-kid","use":"sig","alg":"RS256","n":"` + nBase64 + `","e":"` + eBase64 + `"}]}`))
 		}))
 		defer mockServer.Close()
 

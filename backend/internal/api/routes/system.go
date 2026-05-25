@@ -1,12 +1,12 @@
 package routes
 
 import (
-	"encoding/json"
 	"net/http"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	systemh "psychic-homily-backend/internal/api/handlers/system"
+	"psychic-homily-backend/internal/respond"
 )
 
 // setupSystemRoutes configures system/infrastructure endpoints
@@ -18,6 +18,6 @@ func setupSystemRoutes(rc RouteContext) {
 	api := rc.API
 	rc.Router.Get("/openapi.json", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(api.OpenAPI())
+		respond.SafeEncode(r.Context(), w, api.OpenAPI())
 	})
 }
