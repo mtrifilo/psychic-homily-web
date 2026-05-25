@@ -746,7 +746,7 @@ func (s *ArtistRelationshipService) GetArtistBillComposition(artistID uint, mont
 	}
 
 	// 5. Cap graph to top N by total shared_count.
-	graphIDs := make([]uint, 0, billCompositionMaxNodes)
+	var graphIDs []uint
 	{
 		sorted := make([]uint, len(graphOrder))
 		copy(sorted, graphOrder)

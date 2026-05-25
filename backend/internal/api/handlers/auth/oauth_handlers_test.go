@@ -136,9 +136,9 @@ func oauthLoginRequest(provider string) (*httptest.ResponseRecorder, *http.Reque
 
 func TestOAuthLoginHTTPHandler_NoProvider(t *testing.T) {
 	handler := NewOAuthHTTPHandler(nil, nil)
-	w, req := oauthLoginRequest("")
-	// Clear chi context so URLParam returns ""
-	req = httptest.NewRequest("GET", "/auth/login", nil)
+	// Build request with no chi context so URLParam("provider") returns "".
+	req := httptest.NewRequest("GET", "/auth/login", nil)
+	w := httptest.NewRecorder()
 
 	handler.OAuthLoginHTTPHandler(w, req)
 

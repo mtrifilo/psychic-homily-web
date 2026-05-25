@@ -14,8 +14,6 @@ run:
 linters:
   default: none
   enable:
-    # 4 violations (2026-05-23). Trivial to fix; flip to gate after cleanup.
-    - ineffassign
     # 25 violations. Mix of dead test helpers + dead consts/types; needs
     # human review before deletion.
     - unused

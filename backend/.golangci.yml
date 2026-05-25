@@ -11,7 +11,8 @@
 #   * this file (.golangci.yml)             — gated linters; non-zero exit fails CI.
 #   * .golangci-advisory.yml                — advisory linters; soft-fail in CI.
 #
-# Violation survey (2026-05-23, golangci-lint v2.12.2; errorlint updated 2026-05-24):
+# Violation survey (2026-05-23, golangci-lint v2.12.2; errorlint updated 2026-05-24,
+# ineffassign updated 2026-05-24):
 #   linter       | violations | decision  | rationale
 #   ----------- | ---------- | --------- | ------------------------------------------------
 #   govet        |          0 | GATE      | clean once the `inline` analyzer (advisory
@@ -23,8 +24,10 @@
 #                |            |           | the 13 stragglers (5 fmt.Errorf %v→%w in cmd/seed +
 #                |            |           | 8 test-file `err.(*T)`→`errors.As(err, &v)`). Gated
 #                |            |           | to prevent regression of err-wrap discipline.
-#   ineffassign  |          4 | advisory  | trivial fixes, but spec says do not widen
-#                |            |           | scope; flip to gate after cleanup ticket.
+#   ineffassign  |          0 | GATE      | PSY-830 cleaned the 4 sites (3 dead assignments
+#                |            |           | deleted, 1 wasted allocation swapped for nil-slice
+#                |            |           | declaration). Gated to prevent regression of
+#                |            |           | ineffective-assignment patterns.
 #   unused       |         25 | advisory  | mix of dead test helpers + dead consts/types;
 #                |            |           | needs human review (some may be live via
 #                |            |           | reflection or future use) before deletion.
@@ -54,6 +57,7 @@ linters:
   enable:
     - govet
     - errorlint
+    - ineffassign
 
   settings:
     govet:
