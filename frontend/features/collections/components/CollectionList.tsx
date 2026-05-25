@@ -4,7 +4,16 @@ import { useState, useMemo } from 'react'
 import { Plus, Search, Library, Star, Clock, TrendingUp, User, X } from 'lucide-react'
 import Link from 'next/link'
 import { useDebounce } from 'use-debounce'
-import { useCollections, useMyCollections, useCreateCollection } from '../hooks'
+import {
+  useCollections,
+  useMyCollections,
+  useCreateCollection,
+  useBulkAddCollectionItems,
+} from '../hooks'
+import {
+  AddItemsPicker,
+  type StagedCollectionItem,
+} from './AddItemsPicker'
 import { CollectionCard } from './CollectionCard'
 import { MarkdownEditor } from './MarkdownEditor'
 import {
@@ -16,12 +25,12 @@ import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-} from '@/components/ui/dialog'
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -202,29 +211,37 @@ export function CollectionList() {
           />
         </div>
 
-        {/* Create button */}
+        {/* Create button — PSY-823: drawer (Sheet) replaces the legacy
+            inline Dialog so the integrated AddItemsPicker has room to
+            scroll a 200-row staged list without clipping. */}
         {isAuthenticated && (
-          <Dialog open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
-            <DialogTrigger asChild>
+          <Sheet open={createDialogOpen} onOpenChange={setCreateDialogOpen}>
+            <SheetTrigger asChild>
               <Button size="sm">
                 <Plus className="h-4 w-4 mr-1.5" />
                 Create Collection
               </Button>
-            </DialogTrigger>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Create Collection</DialogTitle>
-              </DialogHeader>
-              <CreateCollectionForm
-                onSuccess={(newSlug) => {
-                  setCreateDialogOpen(false)
-                  if (newSlug) {
-                    router.push(`/collections/${newSlug}`)
-                  }
-                }}
-              />
-            </DialogContent>
-          </Dialog>
+            </SheetTrigger>
+            <SheetContent
+              side="right"
+              className="w-full sm:max-w-xl flex flex-col overflow-y-auto"
+            >
+              <SheetHeader>
+                <SheetTitle>Create Collection</SheetTitle>
+              </SheetHeader>
+              <div className="px-4 pb-4">
+                <CreateCollectionForm
+                  onSuccess={(newSlug) => {
+                    setCreateDialogOpen(false)
+                    if (newSlug) {
+                      router.push(`/collections/${newSlug}`)
+                    }
+                  }}
+                  onCancel={() => setCreateDialogOpen(false)}
+                />
+              </div>
+            </SheetContent>
+          </Sheet>
         )}
       </div>
 
@@ -475,8 +492,17 @@ function EmptyState({
 // Create Collection Form (inline in dialog)
 // ──────────────────────────────────────────────
 
-function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => void }) {
+function CreateCollectionForm({
+  onSuccess,
+  onCancel,
+}: {
+  onSuccess: (slug?: string) => void
+  /** PSY-823: cancel affordance for the Sheet footer. Optional so legacy
+   *  Dialog callers can still mount the form without a cancel button. */
+  onCancel?: () => void
+}) {
   const createMutation = useCreateCollection()
+  const bulkAddMutation = useBulkAddCollectionItems()
   const { user } = useAuthContext()
   // PSY-358: per-tier owned-collection cap. Read user's collections so we
   // can render "X of Y collections" before they submit. We filter to OWNED
@@ -501,6 +527,14 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
   const [description, setDescription] = useState('')
   const [isPublic, setIsPublic] = useState(true)
   const [collaborative, setCollaborative] = useState(false)
+  // PSY-823: items staged via the AddItemsPicker. Submitted via the bulk-add
+  // endpoint immediately after the collection is created — sequential because
+  // the bulk endpoint is keyed on the new collection's slug.
+  const [stagedItems, setStagedItems] = useState<StagedCollectionItem[]>([])
+  // Post-create per-row error display from the bulk-add response. Surfaced
+  // inline so the user knows which paste rows didn't commit before they
+  // navigate to the new collection's detail page.
+  const [bulkAddRejectedCount, setBulkAddRejectedCount] = useState(0)
   // PSY-585: cover image URL on create — mirrors the Edit form's field
   // shape (validation, preview, clear button) so users can set the cover
   // in one step instead of create-then-immediately-edit. Empty string is
@@ -517,32 +551,65 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
   const showCoverImagePreview =
     trimmedCoverUrl.length > 0 && coverImageUrlError === null
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!title.trim()) return
     if (coverImageUrlError) return
 
-    createMutation.mutate(
-      {
+    // PSY-823: sequential flow — create collection, then bulk-add staged
+    // items. The bulk endpoint requires the collection's slug, so this
+    // pair can't collapse into a single backend hit without a new
+    // composite endpoint (out of scope for V1).
+    try {
+      const newCollection = await createMutation.mutateAsync({
         title: title.trim(),
         description: description.trim() || undefined,
         is_public: isPublic,
         collaborative,
-        // Empty string means "no cover" — omit the field rather than
-        // sending an empty string so the backend column stays null.
         cover_image_url:
           trimmedCoverUrl.length === 0 ? undefined : trimmedCoverUrl,
-      },
-      {
-        onSuccess: (data) => {
-          setTitle('')
-          setDescription('')
-          setCoverImageUrl('')
-          setCoverImageUrlTouched(false)
-          onSuccess(data?.slug)
-        },
+      })
+
+      if (stagedItems.length > 0 && newCollection?.slug) {
+        try {
+          const bulkResp = await bulkAddMutation.mutateAsync({
+            slug: newCollection.slug,
+            items: stagedItems.map((s) => ({
+              entity_type: s.entityType,
+              entity_id: s.entityId,
+            })),
+          })
+          if (bulkResp.errors.length > 0) {
+            // Collection still created; surface the rejected count so the
+            // user can investigate on the detail page.
+            setBulkAddRejectedCount(bulkResp.errors.length)
+          }
+        } catch (bulkErr) {
+          // Bulk-add failed entirely (network/5xx). The collection still
+          // exists. We navigate to the new collection so the user lands
+          // on its detail page (where the empty-state picker prompts a
+          // retry). Inline failure feedback in the drawer would help, but
+          // the drawer auto-closes on onSuccess — surfacing the failure
+          // here would require holding the user in the drawer, which
+          // conflicts with the same-title slug-collision retry path. V1
+          // accepts the silent navigation; follow-up handles total-failure
+          // UX. See PSY-829 / new follow-up.
+          // eslint-disable-next-line no-console
+          console.error('bulk-add failed after collection create', bulkErr)
+        }
       }
-    )
+
+      setTitle('')
+      setDescription('')
+      setCoverImageUrl('')
+      setCoverImageUrlTouched(false)
+      setStagedItems([])
+      onSuccess(newCollection?.slug)
+    } catch {
+      // create-collection failure: the mutation surfaces its error inline
+      // (see the existing createMutation.error render below) — nothing
+      // more to do here.
+    }
   }
 
   return (
@@ -717,6 +784,18 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
         </label>
       </div>
 
+      {/* PSY-823: integrated AddItemsPicker — stages items as the user
+          fills the form so they can land a fully populated collection in
+          one drawer interaction. Staged items are POSTed to the bulk-add
+          endpoint immediately after the collection is created. */}
+      <div className="border-t border-border/50 pt-4">
+        <AddItemsPicker
+          existingItems={[]}
+          stagedItems={stagedItems}
+          onStagedItemsChange={setStagedItems}
+        />
+      </div>
+
       {createMutation.error && (
         <p className="text-sm text-destructive" data-testid="collection-create-error">
           {createMutation.error instanceof Error
@@ -725,17 +804,41 @@ function CreateCollectionForm({ onSuccess }: { onSuccess: (slug?: string) => voi
         </p>
       )}
 
+      {bulkAddRejectedCount > 0 && (
+        <p
+          className="text-sm text-amber-600 dark:text-amber-400"
+          data-testid="collection-create-bulk-rejected"
+        >
+          Collection created, but {bulkAddRejectedCount}{' '}
+          {bulkAddRejectedCount === 1 ? 'item' : 'items'} couldn&apos;t be added.
+          You can retry from the collection page.
+        </p>
+      )}
+
       <div className="flex justify-end gap-2">
+        {onCancel && (
+          <Button
+            type="button"
+            variant="outline"
+            onClick={onCancel}
+            disabled={createMutation.isPending || bulkAddMutation.isPending}
+          >
+            Cancel
+          </Button>
+        )}
         <Button
           type="submit"
           disabled={
             !title.trim() ||
             coverImageUrlError !== null ||
             createMutation.isPending ||
+            bulkAddMutation.isPending ||
             atOrOverCap
           }
         >
-          {createMutation.isPending ? 'Creating...' : 'Create'}
+          {createMutation.isPending || bulkAddMutation.isPending
+            ? 'Creating...'
+            : 'Create'}
         </Button>
       </div>
     </form>

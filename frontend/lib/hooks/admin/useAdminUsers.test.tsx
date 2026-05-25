@@ -68,4 +68,47 @@ describe('useAdminUsers', () => {
     expect(url).toContain('search=john')
   })
 
+  it('URL-encodes spaces in the search filter', async () => {
+    // Search-box copies frequently contain spaces (e.g. "alice doe") —
+    // make sure URLSearchParams produces a backend-parseable URL rather
+    // than a raw space that breaks the query.
+    mockApiRequest.mockResolvedValueOnce({ users: [], total: 0 })
+
+    const { result } = renderHook(
+      () => useAdminUsers({ search: 'alice doe' }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const url = mockApiRequest.mock.calls[0][0] as string
+    expect(url).toMatch(/search=alice(\+|%20)doe/)
+  })
+
+  it('starts in loading state before resolving', async () => {
+    let resolveFetch: (value: unknown) => void = () => {}
+    const pending = new Promise((resolve) => {
+      resolveFetch = resolve
+    })
+    mockApiRequest.mockReturnValueOnce(pending)
+
+    const { result } = renderHook(() => useAdminUsers(), {
+      wrapper: createWrapper(),
+    })
+
+    expect(result.current.isLoading).toBe(true)
+
+    resolveFetch({ users: [], total: 0 })
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+  })
+
+  it('surfaces fetch errors', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+    const { result } = renderHook(() => useAdminUsers(), {
+      wrapper: createWrapper(),
+    })
+
+    await waitFor(() => expect(result.current.isError).toBe(true))
+    expect((result.current.error as Error).message).toBe('Forbidden')
+  })
 })

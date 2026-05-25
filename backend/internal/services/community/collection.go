@@ -984,6 +984,17 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		return nil, apperrors.ErrCollectionForbidden(slug)
 	}
 
+	// PSY-823: validate entity_type before insert. The polymorphic
+	// collection_items.entity_type column has no FK, so a typo like
+	// "artistt" would otherwise insert a dead row that resolves to
+	// "Unknown" on every read. BulkAddItems already validates this — the
+	// gate here keeps the two write paths contract-aligned.
+	if !communitym.IsValidCollectionEntityType(req.EntityType) {
+		return nil, apperrors.ErrCollectionInvalidRequest(
+			fmt.Sprintf("Unsupported entity_type %q", req.EntityType),
+		)
+	}
+
 	// Validate notes length on save (mirrors comment body limit).
 	if req.Notes != nil && len(*req.Notes) > contracts.MaxCollectionItemNotesLength {
 		return nil, fmt.Errorf("notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength)
@@ -1045,6 +1056,400 @@ func (s *CollectionService) AddItem(slug string, userID uint, req *contracts.Add
 		NotesHTML:     s.renderNotes(item.Notes),
 		CreatedAt:     item.CreatedAt,
 	}, nil
+}
+
+// BulkAddItems adds a batch of items to a collection in a single transaction
+// with partial-success semantics. Valid rows commit together; per-row
+// validation / duplicate failures are returned in Errors and do not roll
+// back the successful inserts. PSY-823.
+//
+// The handler is responsible for emitting the one audit-log entry per
+// bulk-add invocation — the service intentionally does NOT fan out per-row
+// audit events so the activity feed stays readable at N=200.
+func (s *CollectionService) BulkAddItems(slug string, userID uint, req *contracts.BulkAddCollectionItemsRequest) (*contracts.BulkAddCollectionItemsResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	if req == nil || len(req.Items) == 0 {
+		return nil, apperrors.ErrCollectionInvalidRequest("Items list cannot be empty")
+	}
+	if len(req.Items) > contracts.MaxBulkAddCollectionItems {
+		return nil, apperrors.ErrCollectionInvalidRequest(
+			fmt.Sprintf("Cannot add more than %d items in a single request", contracts.MaxBulkAddCollectionItems),
+		)
+	}
+
+	var collection communitym.Collection
+	if err := s.db.Where("slug = ?", slug).First(&collection).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrCollectionNotFound(slug)
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+	if collection.CreatorID != userID && !collection.Collaborative {
+		return nil, apperrors.ErrCollectionForbidden(slug)
+	}
+
+	response := &contracts.BulkAddCollectionItemsResponse{
+		Added:  []contracts.CollectionItemResponse{},
+		Errors: []contracts.BulkAddCollectionItemError{},
+	}
+
+	// One round-trip dedup lookup vs N per-row queries — matters at the
+	// 200-item upper end of curator-list submits.
+	var existing []communitym.CollectionItem
+	if err := s.db.Select("entity_type, entity_id").
+		Where("collection_id = ?", collection.ID).
+		Find(&existing).Error; err != nil {
+		return nil, fmt.Errorf("failed to load existing items: %w", err)
+	}
+	existingKeys := make(map[string]bool, len(existing))
+	for _, it := range existing {
+		existingKeys[fmt.Sprintf("%s:%d", it.EntityType, it.EntityID)] = true
+	}
+
+	var maxPosition int
+	posRow := s.db.Model(&communitym.CollectionItem{}).
+		Where("collection_id = ?", collection.ID).
+		Select("COALESCE(MAX(position), -1)").Row()
+	if posRow != nil {
+		_ = posRow.Scan(&maxPosition)
+	}
+	nextPosition := maxPosition + 1
+
+	seenInBatch := make(map[string]bool, len(req.Items))
+	type pendingRow struct {
+		rowIndex int
+		model    *communitym.CollectionItem
+	}
+	pending := make([]pendingRow, 0, len(req.Items))
+
+	for i, in := range req.Items {
+		if in.EntityType == "" || in.EntityID == 0 {
+			response.Errors = append(response.Errors, contracts.BulkAddCollectionItemError{
+				RowIndex:  i,
+				ErrorCode: contracts.BulkAddItemErrorValidation,
+				Message:   "Missing entity_type or entity_id",
+			})
+			continue
+		}
+		if !communitym.IsValidCollectionEntityType(in.EntityType) {
+			response.Errors = append(response.Errors, contracts.BulkAddCollectionItemError{
+				RowIndex:  i,
+				ErrorCode: contracts.BulkAddItemErrorValidation,
+				Message:   fmt.Sprintf("Unsupported entity_type %q", in.EntityType),
+			})
+			continue
+		}
+		if in.Notes != nil && len(*in.Notes) > contracts.MaxCollectionItemNotesLength {
+			response.Errors = append(response.Errors, contracts.BulkAddCollectionItemError{
+				RowIndex:  i,
+				ErrorCode: contracts.BulkAddItemErrorValidation,
+				Message:   fmt.Sprintf("Notes exceed maximum length of %d characters", contracts.MaxCollectionItemNotesLength),
+			})
+			continue
+		}
+
+		key := fmt.Sprintf("%s:%d", in.EntityType, in.EntityID)
+		if seenInBatch[key] || existingKeys[key] {
+			response.Errors = append(response.Errors, contracts.BulkAddCollectionItemError{
+				RowIndex:  i,
+				ErrorCode: contracts.BulkAddItemErrorDuplicate,
+				Message:   "Already in collection",
+			})
+			continue
+		}
+		seenInBatch[key] = true
+
+		model := &communitym.CollectionItem{
+			CollectionID:  collection.ID,
+			EntityType:    in.EntityType,
+			EntityID:      in.EntityID,
+			Position:      nextPosition,
+			AddedByUserID: userID,
+			Notes:         in.Notes,
+		}
+		nextPosition++
+		pending = append(pending, pendingRow{rowIndex: i, model: model})
+	}
+
+	if len(pending) == 0 {
+		return response, nil
+	}
+
+	txErr := s.db.Transaction(func(tx *gorm.DB) error {
+		for _, p := range pending {
+			if err := tx.Create(p.model).Error; err != nil {
+				return fmt.Errorf("insert row %d: %w", p.rowIndex, err)
+			}
+		}
+		return nil
+	})
+	if txErr != nil {
+		return nil, fmt.Errorf("failed to bulk-add items: %w", txErr)
+	}
+
+	models := make([]communitym.CollectionItem, len(pending))
+	for i, p := range pending {
+		models[i] = *p.model
+	}
+	response.Added = s.buildItemResponses(models)
+
+	return response, nil
+}
+
+// ResolveCollectionItems batches (entity_type, slug) lookups for the
+// Paste-URLs live preview in the AddItemsPicker (PSY-823). Returns
+// Resolved / Unresolved partitions of the input; never errors for unknown
+// slugs so the frontend can render unmatched rows as red badges without
+// branching on two error shapes. The shape mirrors EntitySearchResult on
+// the frontend (name + subtitle + image_url) so the preview row reuses the
+// same component as a search result.
+func (s *CollectionService) ResolveCollectionItems(req *contracts.ResolveCollectionItemsRequest) (*contracts.ResolveCollectionItemsResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	response := &contracts.ResolveCollectionItemsResponse{
+		Resolved:   []contracts.ResolvedCollectionItem{},
+		Unresolved: []contracts.ResolveCollectionItemEntry{},
+	}
+	if req == nil || len(req.Entries) == 0 {
+		return response, nil
+	}
+	if len(req.Entries) > contracts.MaxBulkAddCollectionItems {
+		return nil, apperrors.ErrCollectionInvalidRequest(
+			fmt.Sprintf("Cannot resolve more than %d entries in a single request", contracts.MaxBulkAddCollectionItems),
+		)
+	}
+
+	slugsByType := make(map[string][]string, 6)
+	for _, e := range req.Entries {
+		if !communitym.IsValidCollectionEntityType(e.EntityType) || e.Slug == "" {
+			continue
+		}
+		slugsByType[e.EntityType] = append(slugsByType[e.EntityType], e.Slug)
+	}
+
+	resolved := make(map[string]contracts.ResolvedCollectionItem)
+	for entityType, slugs := range slugsByType {
+		s.fillResolvedBySlug(entityType, slugs, resolved)
+	}
+
+	// Walk the original input so each entry lands in exactly one partition
+	// and input order is preserved across the response.
+	for _, e := range req.Entries {
+		if !communitym.IsValidCollectionEntityType(e.EntityType) || e.Slug == "" {
+			response.Unresolved = append(response.Unresolved, e)
+			continue
+		}
+		key := fmt.Sprintf("%s:%s", e.EntityType, e.Slug)
+		if r, ok := resolved[key]; ok {
+			response.Resolved = append(response.Resolved, r)
+		} else {
+			response.Unresolved = append(response.Unresolved, e)
+		}
+	}
+
+	return response, nil
+}
+
+// fillResolvedBySlug runs the per-entity-type slug-IN query and builds each
+// resolved row's metadata. Subtitle + image_url mirror the frontend search
+// mapper shape so the preview chip can render identically to a search-result
+// row in the AddItemsPicker. Shows skip the subtitle (would need joins
+// against headliner + venue + date) — the row still renders with title +
+// matched badge, just without a sub-label.
+//
+// Per-type Find errors are logged and degrade silently: that entity_type's
+// slugs land in Unresolved on the caller. Without the log, a transient DB
+// failure would surface as "every slug is wrong" copy on the frontend — the
+// same failure mode the PSY-725 search-error banner was added to prevent
+// for the search path.
+func (s *CollectionService) fillResolvedBySlug(entityType string, slugs []string, out map[string]contracts.ResolvedCollectionItem) {
+	switch entityType {
+	case communitym.CollectionEntityArtist:
+		var rows []catalogm.Artist
+		if err := s.db.Select("id, name, slug, city, state, image_url").
+			Where("slug IN ?", slugs).Find(&rows).Error; err != nil {
+			log.Printf("warning: resolve artists by slug failed: %v", err)
+			return
+		}
+		for _, r := range rows {
+			if r.Slug == nil {
+				continue
+			}
+			out[fmt.Sprintf("%s:%s", entityType, *r.Slug)] = contracts.ResolvedCollectionItem{
+				EntityType: entityType,
+				Slug:       *r.Slug,
+				EntityID:   r.ID,
+				Name:       r.Name,
+				Subtitle:   locationSubtitle(derefStr(r.City), derefStr(r.State)),
+				ImageURL:   nonEmptyImageURL(r.ImageURL),
+			}
+		}
+	case communitym.CollectionEntityVenue:
+		var rows []catalogm.Venue
+		if err := s.db.Select("id, name, slug, city, state, image_url").
+			Where("slug IN ?", slugs).Find(&rows).Error; err != nil {
+			log.Printf("warning: resolve venues by slug failed: %v", err)
+			return
+		}
+		for _, r := range rows {
+			if r.Slug == nil {
+				continue
+			}
+			out[fmt.Sprintf("%s:%s", entityType, *r.Slug)] = contracts.ResolvedCollectionItem{
+				EntityType: entityType,
+				Slug:       *r.Slug,
+				EntityID:   r.ID,
+				Name:       r.Name,
+				Subtitle:   locationSubtitle(r.City, r.State),
+				ImageURL:   nonEmptyImageURL(r.ImageURL),
+			}
+		}
+	case communitym.CollectionEntityShow:
+		var rows []catalogm.Show
+		if err := s.db.Select("id, title, slug, image_url").
+			Where("slug IN ?", slugs).Find(&rows).Error; err != nil {
+			log.Printf("warning: resolve shows by slug failed: %v", err)
+			return
+		}
+		for _, r := range rows {
+			if r.Slug == nil {
+				continue
+			}
+			out[fmt.Sprintf("%s:%s", entityType, *r.Slug)] = contracts.ResolvedCollectionItem{
+				EntityType: entityType,
+				Slug:       *r.Slug,
+				EntityID:   r.ID,
+				Name:       r.Title,
+				ImageURL:   nonEmptyImageURL(r.ImageURL),
+			}
+		}
+	case communitym.CollectionEntityRelease:
+		var rows []catalogm.Release
+		if err := s.db.Select("id, title, slug, release_type, release_year, cover_art_url").
+			Where("slug IN ?", slugs).Find(&rows).Error; err != nil {
+			log.Printf("warning: resolve releases by slug failed: %v", err)
+			return
+		}
+		for _, r := range rows {
+			if r.Slug == nil {
+				continue
+			}
+			out[fmt.Sprintf("%s:%s", entityType, *r.Slug)] = contracts.ResolvedCollectionItem{
+				EntityType: entityType,
+				Slug:       *r.Slug,
+				EntityID:   r.ID,
+				Name:       r.Title,
+				Subtitle:   releaseSubtitle(string(r.ReleaseType), r.ReleaseYear),
+				ImageURL:   nonEmptyImageURL(r.CoverArtURL),
+			}
+		}
+	case communitym.CollectionEntityLabel:
+		var rows []catalogm.Label
+		if err := s.db.Select("id, name, slug, city, state, image_url").
+			Where("slug IN ?", slugs).Find(&rows).Error; err != nil {
+			log.Printf("warning: resolve labels by slug failed: %v", err)
+			return
+		}
+		for _, r := range rows {
+			if r.Slug == nil {
+				continue
+			}
+			out[fmt.Sprintf("%s:%s", entityType, *r.Slug)] = contracts.ResolvedCollectionItem{
+				EntityType: entityType,
+				Slug:       *r.Slug,
+				EntityID:   r.ID,
+				Name:       r.Name,
+				Subtitle:   locationSubtitle(derefStr(r.City), derefStr(r.State)),
+				ImageURL:   nonEmptyImageURL(r.ImageURL),
+			}
+		}
+	case communitym.CollectionEntityFestival:
+		var rows []catalogm.Festival
+		if err := s.db.Select("id, name, slug, city, state, edition_year, flyer_url").
+			Where("slug IN ?", slugs).Find(&rows).Error; err != nil {
+			log.Printf("warning: resolve festivals by slug failed: %v", err)
+			return
+		}
+		for _, r := range rows {
+			out[fmt.Sprintf("%s:%s", entityType, r.Slug)] = contracts.ResolvedCollectionItem{
+				EntityType: entityType,
+				Slug:       r.Slug,
+				EntityID:   r.ID,
+				Name:       r.Name,
+				Subtitle:   festivalSubtitle(derefStr(r.City), derefStr(r.State), r.EditionYear),
+				ImageURL:   nonEmptyImageURL(r.FlyerURL),
+			}
+		}
+	}
+}
+
+// locationSubtitle joins city + state into the "Compton, CA" shape that
+// EntitySearchResult.subtitle uses on the frontend. Returns nil so the row
+// renders without a sub-label when both columns are empty. Takes plain
+// strings (not pointers) because catalog models differ: venue.City/State are
+// NOT NULL strings, while artist/label/festival use nullable *string —
+// callers dereference safely.
+func locationSubtitle(city, state string) *string {
+	parts := []string{}
+	if city != "" {
+		parts = append(parts, city)
+	}
+	if state != "" {
+		parts = append(parts, state)
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	joined := strings.Join(parts, ", ")
+	return &joined
+}
+
+// derefStr returns *s when non-nil, else "". Tiny helper so the
+// locationSubtitle callers can stay one-liners across the *string columns.
+func derefStr(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
+}
+
+// releaseSubtitle mirrors mapRelease in useEntitySearch.ts ("Album · 2015").
+// releaseType is the catalog enum stringified; releaseYear may be nil for
+// unknown-year rows.
+func releaseSubtitle(releaseType string, releaseYear *int) *string {
+	parts := []string{}
+	if releaseType != "" {
+		parts = append(parts, releaseType)
+	}
+	if releaseYear != nil && *releaseYear != 0 {
+		parts = append(parts, strconv.Itoa(*releaseYear))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	joined := strings.Join(parts, " · ")
+	return &joined
+}
+
+// festivalSubtitle mirrors mapFestival in useEntitySearch.ts
+// ("Phoenix, AZ · 2026"). edition_year is non-pointer in the model — 0 means
+// "unset" by convention.
+func festivalSubtitle(city, state string, editionYear int) *string {
+	parts := []string{}
+	if city != "" && state != "" {
+		parts = append(parts, fmt.Sprintf("%s, %s", city, state))
+	}
+	if editionYear != 0 {
+		parts = append(parts, strconv.Itoa(editionYear))
+	}
+	if len(parts) == 0 {
+		return nil
+	}
+	joined := strings.Join(parts, " · ")
+	return &joined
 }
 
 // UpdateItem updates an item's notes in a collection
