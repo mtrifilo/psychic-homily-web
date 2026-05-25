@@ -3196,6 +3196,28 @@ func (m *MockShowStateService) SetShowCancelled(showID uint, isCancelled bool) (
 }
 
 // ============================================================================
+// Mock: StreamingWorklistServiceInterface
+// ============================================================================
+
+type MockStreamingWorklistService struct {
+	ListStreamingWorklistFn          func(string, int, int) (*contracts.StreamingWorklistResult, error)
+	UpdateStreamingDiscoveryStatusFn func(contracts.UpdateStreamingDiscoveryStatusInput) (*contracts.StreamingDiscoveryArtistResponse, error)
+}
+
+func (m *MockStreamingWorklistService) ListStreamingWorklist(status string, limit int, offset int) (*contracts.StreamingWorklistResult, error) {
+	if m.ListStreamingWorklistFn != nil {
+		return m.ListStreamingWorklistFn(status, limit, offset)
+	}
+	return nil, nil
+}
+func (m *MockStreamingWorklistService) UpdateStreamingDiscoveryStatus(input contracts.UpdateStreamingDiscoveryStatusInput) (*contracts.StreamingDiscoveryArtistResponse, error) {
+	if m.UpdateStreamingDiscoveryStatusFn != nil {
+		return m.UpdateStreamingDiscoveryStatusFn(input)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: TagServiceInterface
 // ============================================================================
 
@@ -4116,6 +4138,7 @@ var _ contracts.ShowImportServiceInterface = (*MockShowImportService)(nil)
 var _ contracts.ShowReportServiceInterface = (*MockShowReportService)(nil)
 var _ contracts.ShowServiceInterface = (*MockShowService)(nil)
 var _ contracts.ShowStateServiceInterface = (*MockShowStateService)(nil)
+var _ contracts.StreamingWorklistServiceInterface = (*MockStreamingWorklistService)(nil)
 var _ contracts.TagServiceInterface = (*MockTagService)(nil)
 var _ contracts.UserServiceInterface = (*MockUserService)(nil)
 var _ contracts.VenueServiceInterface = (*MockVenueService)(nil)

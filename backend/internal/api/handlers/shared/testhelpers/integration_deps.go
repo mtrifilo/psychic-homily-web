@@ -43,6 +43,7 @@ type IntegrationDeps struct {
 	DataSyncService           *adminsvc.DataSyncService
 	AdminStatsService         *adminsvc.AdminStatsService
 	DiscoveryService          *pipeline.DiscoveryService
+	StreamingWorklistService  *pipeline.StreamingWorklistService
 	ArtistService             *catalog.ArtistService
 	FestivalService           *catalog.FestivalService
 	LabelService              *catalog.LabelService
@@ -85,6 +86,7 @@ func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 		DataSyncService:           adminsvc.NewDataSyncService(db),
 		AdminStatsService:         adminsvc.NewAdminStatsService(db),
 		DiscoveryService:          pipeline.NewDiscoveryService(db, catalog.NewVenueService(db)),
+		StreamingWorklistService:  pipeline.NewStreamingWorklistService(db),
 		ArtistService:             catalog.NewArtistService(db),
 		FestivalService:           catalog.NewFestivalService(db),
 		LabelService:              catalog.NewLabelService(db),
