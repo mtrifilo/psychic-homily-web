@@ -1,9 +1,23 @@
+import { type Page } from '@playwright/test'
 import { test, expect } from '../fixtures'
 import {
   resetTestFixtures,
   lookupWorkerUserId,
 } from '../fixtures/test-fixtures-reset'
 import { USER_COUNT, userAuthFileForWorker } from '../global-setup'
+
+// Auth-gated buttons (FollowButton, AttendanceButton) redirect to /auth
+// when useAuthContext returns isAuthenticated=false at click time. The
+// buttons render regardless of auth state (only tooltip copy differs),
+// so visibility checks don't gate against the SSR-pre-hydration → client
+// propagation race window. The sidebar's "Library" link is rendered only
+// when isAuthenticated=true (Sidebar.tsx), so waiting on it is a reliable
+// signal that auth has propagated before we click an auth-gated button.
+async function waitForAuthHydrated(page: Page) {
+  await expect(
+    page.getByRole('link', { name: 'Library' })
+  ).toBeVisible({ timeout: 10_000 })
+}
 
 // PSY-457: backfill E2E coverage for follow + going/interested flows.
 // PSY-430: pin to reserved artist + show seeded by setup-db.sh so parallel
@@ -53,6 +67,8 @@ test.describe('Follow and attendance', () => {
         name: RESERVED_ARTIST_NAME,
       })
     ).toBeVisible({ timeout: 10_000 })
+
+    await waitForAuthHydrated(authenticatedPage)
 
     // FollowButton on the artist detail page renders as a BracketLink
     // (variant="bracket" since PSY-641). The bracket variant uses the
@@ -107,6 +123,8 @@ test.describe('Follow and attendance', () => {
       })
     ).toBeVisible({ timeout: 10_000 })
 
+    await waitForAuthHydrated(authenticatedPage)
+
     // Clicking the [Following] bracket link while isFollowing=true triggers
     // unfollow. Bracket variant has no hover-to-Unfollow state, so the
     // accessible name stays "Following" until the click resolves.
@@ -140,6 +158,8 @@ test.describe('Follow and attendance', () => {
         .getByRole('navigation', { name: 'Breadcrumb' })
         .getByText(RESERVED_SHOW_TITLE)
     ).toBeVisible({ timeout: 10_000 })
+
+    await waitForAuthHydrated(authenticatedPage)
 
     // Going button initial state: no count suffix on a fresh reserved show
     // (accessible name = "Going").
@@ -185,6 +205,8 @@ test.describe('Follow and attendance', () => {
         .getByRole('navigation', { name: 'Breadcrumb' })
         .getByText(RESERVED_SHOW_TITLE)
     ).toBeVisible({ timeout: 10_000 })
+
+    await waitForAuthHydrated(authenticatedPage)
 
     await Promise.all([
       authenticatedPage.waitForResponse(
