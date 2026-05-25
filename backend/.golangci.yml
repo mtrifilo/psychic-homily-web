@@ -12,7 +12,7 @@
 #   * .golangci-advisory.yml                — advisory linters; soft-fail in CI.
 #
 # Violation survey (2026-05-23, golangci-lint v2.12.2; errorlint updated 2026-05-24,
-# ineffassign updated 2026-05-24, staticcheck updated 2026-05-24):
+# ineffassign updated 2026-05-24, staticcheck updated 2026-05-24, unused updated 2026-05-24):
 #   linter       | violations | decision  | rationale
 #   ----------- | ---------- | --------- | ------------------------------------------------
 #   govet        |          0 | GATE      | clean once the `inline` analyzer (advisory
@@ -36,9 +36,22 @@
 #                |            |           | fixes, 1 S1011 slice-append + 1 ST1023 redundant
 #                |            |           | type-decl autofixes). Gated to prevent regression
 #                |            |           | of staticcheck-clean patterns.
-#   unused       |         25 | advisory  | mix of dead test helpers + dead consts/types;
-#                |            |           | needs human review (some may be live via
-#                |            |           | reflection or future use) before deletion.
+#   unused       |          0 | GATE      | PSY-831 deleted all 25 sites — 14 dead test
+#                |            |           | helpers (3 duplicate handler factories, 5 unused
+#                |            |           | non-admin context helpers, 1 dead JWT claims
+#                |            |           | helper, 4 dead pointer/sort helpers + 1 dead
+#                |            |           | suite-method on RadioServiceIntegrationTestSuite),
+#                |            |           | 1 dead production hashEmail (notification.HashEmail
+#                |            |           | is the canonical impl already called from the same
+#                |            |           | file), 3 dead production types (festivalNameRow,
+#                |            |           | local editionArtist, local showVenueKey — declared
+#                |            |           | but never instantiated), 1 dead production const
+#                |            |           | (venueBillSparseShowsThreshold — frontend mirrors
+#                |            |           | the threshold itself, backend never read its own
+#                |            |           | const), 1 dead production OAuth wrapper method
+#                |            |           | (transitional shim around …WithConsent never wired
+#                |            |           | back in after the consent path replaced it). Gated
+#                |            |           | to prevent dead-code regression.
 #   errcheck     |        474 | advisory  | large legacy backlog (dropped resp.Body.Close,
 #                |            |           | bcrypt compares, etc.); needs its own ticket.
 #
@@ -65,6 +78,7 @@ linters:
     - errorlint
     - ineffassign
     - staticcheck
+    - unused
 
   settings:
     govet:

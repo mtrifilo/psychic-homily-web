@@ -360,12 +360,6 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 	return user, nil
 }
 
-// createNewUserOauth creates a new user with OAuth account.
-// This legacy path does not enforce consent requirements.
-func (s *UserService) createNewUserOauth(gothUser goth.User, provider string) (*authm.User, error) {
-	return s.createNewUserOauthWithConsent(gothUser, provider, nil, false)
-}
-
 func (s *UserService) createNewUserOauthWithConsent(
 	gothUser goth.User,
 	provider string,

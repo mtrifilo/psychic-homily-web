@@ -16,16 +16,8 @@ import (
 // Test helpers
 // ============================================================================
 
-func testPipelineHandler() *PipelineHandler {
-	return NewPipelineHandler(nil, nil, nil)
-}
-
 func pipelineAdminCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
-}
-
-func pipelineNonAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: false})
 }
 
 // ============================================================================

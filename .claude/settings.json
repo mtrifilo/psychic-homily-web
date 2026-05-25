@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-simplify-before-pr.sh"
+            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/check-code-review-before-pr.sh"
           }
         ]
       }
