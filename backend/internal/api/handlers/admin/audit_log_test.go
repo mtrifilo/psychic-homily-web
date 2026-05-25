@@ -9,10 +9,6 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-func testAuditLogHandler() *AuditLogHandler {
-	return NewAuditLogHandler(nil)
-}
-
 func TestGetAuditLogsHandler_Success(t *testing.T) {
 	logs := []*contracts.AuditLogResponse{{ID: 1, Action: "approve_show"}}
 	mock := &testhelpers.MockAuditLogService{

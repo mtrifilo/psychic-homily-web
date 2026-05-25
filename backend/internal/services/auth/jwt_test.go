@@ -623,19 +623,3 @@ func TestJWTService_AccountRecoveryToken(t *testing.T) {
 	})
 }
 
-// =============================================================================
-// HELPER FUNCTIONS
-// =============================================================================
-
-// parseTokenClaims is a helper function to parse JWT claims
-func parseTokenClaims(t *testing.T, tokenString, secretKey string) jwt.MapClaims {
-	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
-		return []byte(secretKey), nil
-	})
-	require.NoError(t, err)
-	require.True(t, token.Valid)
-
-	claims, ok := token.Claims.(jwt.MapClaims)
-	require.True(t, ok)
-	return claims
-}

@@ -140,7 +140,6 @@ func (s *ReminderService) runReminderCycle() {
 	s.logger.Info("found shows to send reminders for", "count", len(rows))
 
 	// Collect venue names for each show
-	type showVenueKey struct{ showID uint }
 	venueCache := make(map[uint][]string)
 
 	sentCount := 0

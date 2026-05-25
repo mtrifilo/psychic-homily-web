@@ -16,16 +16,8 @@ import (
 // Test helpers
 // ============================================================================
 
-func testRevisionHandler() *RevisionHandler {
-	return NewRevisionHandler(nil, nil)
-}
-
 func revisionAdminCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
-}
-
-func revisionNonAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: false})
 }
 
 func makeTestRevision(id uint) adminm.Revision {

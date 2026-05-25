@@ -2,7 +2,6 @@ package engagement
 
 import (
 	"fmt"
-	"sort"
 	"sync"
 	"testing"
 	"time"
@@ -173,15 +172,6 @@ func (m *captureDigestEmailService) SendCollectionDigestEmail(toEmail string, gr
 	}
 	m.calls = append(m.calls, digestEmailCall{ToEmail: toEmail, Groups: cp, UnsubscribeURL: unsubscribeURL})
 	return nil
-}
-
-func (m *captureDigestEmailService) callsSorted() []digestEmailCall {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	out := make([]digestEmailCall, len(m.calls))
-	copy(out, m.calls)
-	sort.Slice(out, func(i, j int) bool { return out[i].ToEmail < out[j].ToEmail })
-	return out
 }
 
 // CollectionDigestServiceIntegrationSuite drives the digest service against a

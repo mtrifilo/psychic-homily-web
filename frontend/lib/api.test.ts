@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import * as Sentry from '@sentry/nextjs'
 import { AuthError, AuthErrorCode } from './errors'
+
+vi.mock('@sentry/nextjs', () => ({
+  captureException: vi.fn(),
+  captureMessage: vi.fn(),
+}))
 
 // We need to test the module functions, but getApiBaseUrl runs at module load time
 // So we'll test the exported functions and mock fetch for apiRequest tests
@@ -457,6 +463,62 @@ describe('API Module', () => {
           'Validation failed: email is required'
         )
       }
+    })
+
+    // Non-auth endpoint network failures propagate as-is without Sentry capture.
+    it('propagates fetch network errors on non-auth endpoints', async () => {
+      const networkError = new TypeError('fetch failed')
+      vi.mocked(fetch).mockRejectedValueOnce(networkError)
+
+      const { apiRequest } = await import('./api')
+
+      await expect(apiRequest('/shows')).rejects.toThrow('fetch failed')
+      expect(Sentry.captureException).not.toHaveBeenCalled()
+    })
+
+    // Auth-endpoint network failures additionally capture to Sentry with the
+    // service:auth tag so backend-down incidents page on-call.
+    it('captures network errors to Sentry for auth endpoints', async () => {
+      const networkError = new TypeError('fetch failed')
+      vi.mocked(fetch).mockRejectedValueOnce(networkError)
+
+      const { apiRequest, API_BASE_URL } = await import('./api')
+
+      await expect(
+        apiRequest(`${API_BASE_URL}/auth/profile`)
+      ).rejects.toThrow('fetch failed')
+      expect(Sentry.captureException).toHaveBeenCalledWith(
+        networkError,
+        expect.objectContaining({
+          level: 'error',
+          tags: expect.objectContaining({
+            service: 'auth',
+            error_type: 'network_failure',
+          }),
+        })
+      )
+    })
+
+    // Documents current behavior: success-path JSON.parse failures propagate
+    // as SyntaxError, unlike the error path which falls back to a generic
+    // message. Tracked separately for graceful handling.
+    it('propagates JSON parse errors on 200 success responses', async () => {
+      const parseError = new SyntaxError(
+        'Unexpected token < in JSON at position 0'
+      )
+      const mockResponse = {
+        ok: true,
+        status: 200,
+        json: () => Promise.reject(parseError),
+        headers: new Headers(),
+      }
+      vi.mocked(fetch).mockResolvedValue(mockResponse as unknown as Response)
+
+      const { apiRequest } = await import('./api')
+
+      await expect(apiRequest('/test')).rejects.toThrow(
+        'Unexpected token < in JSON at position 0'
+      )
     })
   })
 

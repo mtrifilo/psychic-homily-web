@@ -39,11 +39,6 @@ const (
 	// production threshold for `shared_bills` in `DeriveSharedBills`
 	// (see docs/features/similar-artists.md §"shared_bills" / minShows=2).
 	venueBillMinSharedShows = 2
-
-	// Sparse-venue empty-state threshold. Frontend handles the actual UX,
-	// but the service surfaces ShowCount and ArtistCount in the response so
-	// callers can short-circuit before even looking at edges.
-	venueBillSparseShowsThreshold = 10
 )
 
 // venueBillSourceShow is one approved show at the venue, scoped to the active
