@@ -1531,6 +1531,35 @@ func (m *MockEntityReportService) DismissEntityReport(reportID uint, reviewerID 
 }
 
 // ============================================================================
+// Mock: ExploreServiceInterface
+// ============================================================================
+
+type MockExploreService struct {
+	GetUpcomingShowsFn func(int, int) (*contracts.ExploreUpcomingShowsResponse, error)
+	GetFeaturedFn      func() (*contracts.ExploreFeaturedResponse, error)
+	GetShuffleTargetFn func() (*contracts.ExploreShuffleTargetResponse, error)
+}
+
+func (m *MockExploreService) GetUpcomingShows(limit int, offset int) (*contracts.ExploreUpcomingShowsResponse, error) {
+	if m.GetUpcomingShowsFn != nil {
+		return m.GetUpcomingShowsFn(limit, offset)
+	}
+	return nil, nil
+}
+func (m *MockExploreService) GetFeatured() (*contracts.ExploreFeaturedResponse, error) {
+	if m.GetFeaturedFn != nil {
+		return m.GetFeaturedFn()
+	}
+	return nil, nil
+}
+func (m *MockExploreService) GetShuffleTarget() (*contracts.ExploreShuffleTargetResponse, error) {
+	if m.GetShuffleTargetFn != nil {
+		return m.GetShuffleTargetFn()
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: ExtractionServiceInterface
 // ============================================================================
 
@@ -3167,6 +3196,28 @@ func (m *MockShowStateService) SetShowCancelled(showID uint, isCancelled bool) (
 }
 
 // ============================================================================
+// Mock: StreamingWorklistServiceInterface
+// ============================================================================
+
+type MockStreamingWorklistService struct {
+	ListStreamingWorklistFn          func(string, int, int) (*contracts.StreamingWorklistResult, error)
+	UpdateStreamingDiscoveryStatusFn func(contracts.UpdateStreamingDiscoveryStatusInput) (*contracts.StreamingDiscoveryArtistResponse, error)
+}
+
+func (m *MockStreamingWorklistService) ListStreamingWorklist(status string, limit int, offset int) (*contracts.StreamingWorklistResult, error) {
+	if m.ListStreamingWorklistFn != nil {
+		return m.ListStreamingWorklistFn(status, limit, offset)
+	}
+	return nil, nil
+}
+func (m *MockStreamingWorklistService) UpdateStreamingDiscoveryStatus(input contracts.UpdateStreamingDiscoveryStatusInput) (*contracts.StreamingDiscoveryArtistResponse, error) {
+	if m.UpdateStreamingDiscoveryStatusFn != nil {
+		return m.UpdateStreamingDiscoveryStatusFn(input)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: TagServiceInterface
 // ============================================================================
 
@@ -4061,6 +4112,7 @@ var _ contracts.DiscoveryServiceInterface = (*MockDiscoveryService)(nil)
 var _ contracts.EmailServiceInterface = (*MockEmailService)(nil)
 var _ contracts.EnrichmentServiceInterface = (*MockEnrichmentService)(nil)
 var _ contracts.EntityReportServiceInterface = (*MockEntityReportService)(nil)
+var _ contracts.ExploreServiceInterface = (*MockExploreService)(nil)
 var _ contracts.ExtractionServiceInterface = (*MockExtractionService)(nil)
 var _ contracts.FavoriteVenueServiceInterface = (*MockFavoriteVenueService)(nil)
 var _ contracts.FeaturedSlotServiceInterface = (*MockFeaturedSlotService)(nil)
@@ -4086,6 +4138,7 @@ var _ contracts.ShowImportServiceInterface = (*MockShowImportService)(nil)
 var _ contracts.ShowReportServiceInterface = (*MockShowReportService)(nil)
 var _ contracts.ShowServiceInterface = (*MockShowService)(nil)
 var _ contracts.ShowStateServiceInterface = (*MockShowStateService)(nil)
+var _ contracts.StreamingWorklistServiceInterface = (*MockStreamingWorklistService)(nil)
 var _ contracts.TagServiceInterface = (*MockTagService)(nil)
 var _ contracts.UserServiceInterface = (*MockUserService)(nil)
 var _ contracts.VenueServiceInterface = (*MockVenueService)(nil)
