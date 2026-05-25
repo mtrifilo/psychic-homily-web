@@ -195,6 +195,16 @@ export const API_ENDPOINTS = {
       REJECT: (editId: string | number) =>
         `${API_BASE_URL}/admin/pending-edits/${editId}/reject`,
     },
+    // Featured slots — admin-curated /explore editorial picks
+    // (Featured Bill + Featured Collection). PSY-835 backend; PSY-838
+    // admin UI. POST atomically retires the prior active row and
+    // inserts a new one; DELETE retires the current active row.
+    FEATURED_SLOTS: {
+      LIST: `${API_BASE_URL}/admin/featured-slots`,
+      SET: `${API_BASE_URL}/admin/featured-slots`,
+      RETIRE: (slotType: string) =>
+        `${API_BASE_URL}/admin/featured-slots/${slotType}`,
+    },
     ENTITY_REPORTS: {
       LIST: `${API_BASE_URL}/admin/entity-reports`,
       GET: (reportId: string | number) =>
@@ -389,6 +399,16 @@ export const API_ENDPOINTS = {
     POPULAR_ARTISTS: `${API_BASE_URL}/charts/popular-artists`,
     ACTIVE_VENUES: `${API_BASE_URL}/charts/active-venues`,
     HOT_RELEASES: `${API_BASE_URL}/charts/hot-releases`,
+  },
+
+  // /explore landing (PSY-835/836) — public read endpoints. The
+  // FEATURED endpoint returns hydrated referent details (name,
+  // thumbnail, curator note HTML) which the admin /admin/featured
+  // page also uses to render the "current active" slot cards.
+  EXPLORE: {
+    UPCOMING_SHOWS: `${API_BASE_URL}/explore/upcoming-shows`,
+    FEATURED: `${API_BASE_URL}/explore/featured`,
+    SHUFFLE_TARGET: `${API_BASE_URL}/explore/shuffle-target`,
   },
 
   // System endpoints
