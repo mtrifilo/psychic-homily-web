@@ -188,10 +188,6 @@ func strPtrCollection(s string) *string {
 	return &s
 }
 
-func boolPtrCollection(b bool) *bool {
-	return &b
-}
-
 // =============================================================================
 // Group 1: CreateCollection
 // =============================================================================

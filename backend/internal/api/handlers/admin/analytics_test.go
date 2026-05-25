@@ -14,16 +14,8 @@ import (
 // Test helpers
 // ============================================================================
 
-func testAnalyticsHandler() *AnalyticsHandler {
-	return NewAnalyticsHandler(&testhelpers.MockAnalyticsService{})
-}
-
 func analyticsAdminCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
-}
-
-func analyticsNonAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: false})
 }
 
 // ============================================================================

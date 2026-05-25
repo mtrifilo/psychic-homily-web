@@ -42,10 +42,6 @@ func commentAdminAdminCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 }
 
-func commentAdminUserCtx() context.Context {
-	return testhelpers.CtxWithUser(&authm.User{ID: 10, IsAdmin: false})
-}
-
 // ============================================================================
 // Tests: Hide Comment — Auth & Validation
 // ============================================================================
