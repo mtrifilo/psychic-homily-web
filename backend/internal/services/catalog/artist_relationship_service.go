@@ -323,16 +323,6 @@ type festivalCobillRow struct {
 	MostRecentYear  *int
 }
 
-// festivalNameRow is one festival name for a given artist pair, used to
-// fetch the top-N festivals by recency for the tooltip detail.
-type festivalNameRow struct {
-	ArtistA      uint
-	ArtistB      uint
-	FestivalName string
-	StartDate    time.Time
-	EditionYear  int
-}
-
 // GetArtistGraph returns the relationship graph for an artist (depth 1).
 // types filters by relationship type; empty slice means all types.
 // userID > 0 includes user vote data; 0 means no user context.

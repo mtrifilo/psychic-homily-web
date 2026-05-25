@@ -22,10 +22,6 @@ func requestUserCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: false})
 }
 
-func requestAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: true})
-}
-
 // ============================================================================
 // Tests: Auth Guard — all mutating endpoints require auth
 // ============================================================================

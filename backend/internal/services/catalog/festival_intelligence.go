@@ -833,11 +833,7 @@ func (s *FestivalIntelligenceService) GetSeriesComparison(seriesSlug string, yea
 		Where("festival_id IN ?", festivalIDs).
 		Scan(&allArtists)
 
-	// Build per-edition artist sets
-	type editionArtist struct {
-		tier string
-	}
-	// year -> artistID -> tier
+	// Build per-edition artist sets — year -> artistID -> tier
 	editionSets := make(map[int]map[uint]string)
 	for _, f := range festivals {
 		editionSets[f.EditionYear] = make(map[uint]string)

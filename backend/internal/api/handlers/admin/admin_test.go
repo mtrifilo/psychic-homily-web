@@ -7,7 +7,6 @@ import (
 	"testing"
 	"time"
 
-	"psychic-homily-backend/internal/api/handlers/pipeline"
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
@@ -22,10 +21,6 @@ func testAdminShowHandler() *AdminShowHandler {
 	return NewAdminShowHandler(nil, nil, nil, nil, nil, nil)
 }
 
-func testAdminDiscoveryHandler() *pipeline.AdminDiscoveryHandler {
-	return pipeline.NewAdminDiscoveryHandler(nil)
-}
-
 func testAdminVenueHandler() *AdminVenueHandler {
 	return NewAdminVenueHandler(nil, nil)
 }
@@ -36,14 +31,6 @@ func testAdminTokenHandler() *AdminTokenHandler {
 
 func testAdminDataHandler() *AdminDataHandler {
 	return NewAdminDataHandler(nil)
-}
-
-func testAdminUserHandler() *AdminUserHandler {
-	return NewAdminUserHandler(nil)
-}
-
-func testAdminStatsHandler() *AdminStatsHandler {
-	return NewAdminStatsHandler(nil)
 }
 
 func adminCtx() context.Context {

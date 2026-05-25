@@ -15,16 +15,8 @@ import (
 // Test helpers
 // ============================================================================
 
-func testDataQualityHandler() *DataQualityHandler {
-	return NewDataQualityHandler(&testhelpers.MockDataQualityService{})
-}
-
 func dataQualityAdminCtx() context.Context {
 	return testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
-}
-
-func dataQualityNonAdminCtx() context.Context {
-	return testhelpers.CtxWithUser(&authm.User{ID: 2, IsAdmin: false})
 }
 
 // ============================================================================

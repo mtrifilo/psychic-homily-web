@@ -189,13 +189,6 @@ func (suite *RadioServiceIntegrationTestSuite) createRelease(title string) *cata
 	return release
 }
 
-func (suite *RadioServiceIntegrationTestSuite) createLabel(name string) *catalogm.Label {
-	label := &catalogm.Label{Name: name, Status: catalogm.LabelStatusActive}
-	err := suite.db.Create(label).Error
-	suite.Require().NoError(err)
-	return label
-}
-
 // =============================================================================
 // STATION CRUD TESTS
 // =============================================================================
