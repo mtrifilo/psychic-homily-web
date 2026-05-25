@@ -63,6 +63,7 @@ type ServiceContainer struct {
 	RelationshipDerivation *catalog.RelationshipDerivationService
 	Venue                  *catalog.VenueService
 	VenueSourceConfig      *pipeline.VenueSourceConfigService
+	StreamingWorklist      *pipeline.StreamingWorklistService
 
 	// Config-only services
 	Discord            *notification.DiscordService
@@ -195,6 +196,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		RelationshipDerivation: catalog.NewRelationshipDerivationService(artistRelSvc),
 		Venue:                  venue,
 		VenueSourceConfig:      venueSourceConfig,
+		StreamingWorklist:      pipeline.NewStreamingWorklistService(database),
 
 		// Config-only services
 		Discord:            discord,

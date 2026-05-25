@@ -12,4 +12,5 @@ var (
 	_ contracts.SchedulerServiceInterface         = (*SchedulerService)(nil)
 	_ contracts.EnrichmentServiceInterface        = (*EnrichmentService)(nil)
 	_ contracts.EnrichmentWorkerInterface         = (*EnrichmentWorker)(nil)
+	_ contracts.StreamingWorklistServiceInterface = (*StreamingWorklistService)(nil)
 )

@@ -2,6 +2,7 @@ package contracts
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"gorm.io/gorm"
@@ -324,6 +325,71 @@ type CheckEventStatus struct {
 type CheckEventsResult struct {
 	Events map[string]CheckEventStatus `json:"events"`
 }
+
+// ──────────────────────────────────────────────
+// Streaming Worklist types
+// ──────────────────────────────────────────────
+
+// StreamingWorklistEntry is one row in the admin streaming-discovery worklist.
+// Returned by ListStreamingWorklist; shaped for direct rendering by the
+// frontend triage UI (PSY-828).
+type StreamingWorklistEntry struct {
+	ArtistID                 uint      `json:"artist_id"`
+	ArtistName               string    `json:"artist_name"`
+	ArtistSlug               *string   `json:"artist_slug,omitempty"`
+	StreamingDiscoveryStatus string    `json:"streaming_discovery_status"`
+	SoonestEventDate         time.Time `json:"soonest_event_date"`
+	VenueName                *string   `json:"venue_name,omitempty"`
+	VenueCity                *string   `json:"venue_city,omitempty"`
+	UpcomingShowCount        int64     `json:"upcoming_show_count"`
+}
+
+// StreamingWorklistResult is the paginated worklist response.
+type StreamingWorklistResult struct {
+	Entries []StreamingWorklistEntry `json:"entries"`
+	Total   int64                    `json:"total"`
+}
+
+// UpdateStreamingDiscoveryStatusInput is the service-level input for the
+// status mutation. Status is the raw string from the admin request; the
+// service validates membership in the legal-transition matrix.
+type UpdateStreamingDiscoveryStatusInput struct {
+	ArtistID uint
+	Status   string
+	Reason   *string
+}
+
+// StreamingDiscoveryArtistResponse is the updated-artist payload returned
+// after a successful status mutation. Mirrors the relevant columns from
+// the artists table — no relationships are eagerly loaded.
+type StreamingDiscoveryArtistResponse struct {
+	ID                       uint      `json:"id"`
+	Name                     string    `json:"name"`
+	Slug                     *string   `json:"slug,omitempty"`
+	StreamingDiscoveryStatus string    `json:"streaming_discovery_status"`
+	StreamingDiscoveryReason *string   `json:"streaming_discovery_reason,omitempty"`
+	UpdatedAt                time.Time `json:"updated_at"`
+}
+
+// ──────────────────────────────────────────────
+// Streaming Worklist Service Interface
+// ──────────────────────────────────────────────
+
+// StreamingWorklistServiceInterface defines the contract for the admin
+// streaming-discovery worklist + status mutation.
+type StreamingWorklistServiceInterface interface {
+	ListStreamingWorklist(status string, limit, offset int) (*StreamingWorklistResult, error)
+	UpdateStreamingDiscoveryStatus(input UpdateStreamingDiscoveryStatusInput) (*StreamingDiscoveryArtistResponse, error)
+}
+
+// ErrInvalidStreamingStatusTransition is returned by
+// UpdateStreamingDiscoveryStatus when the requested transition is not
+// allowed by the matrix. Handler maps this to a 400.
+var ErrInvalidStreamingStatusTransition = errors.New("invalid streaming-discovery status transition")
+
+// ErrStreamingArtistNotFound is returned by UpdateStreamingDiscoveryStatus
+// when the artist row does not exist. Handler maps this to a 404.
+var ErrStreamingArtistNotFound = errors.New("artist not found")
 
 // ──────────────────────────────────────────────
 // Extraction Service Interface
