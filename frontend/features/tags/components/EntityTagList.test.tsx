@@ -4,6 +4,15 @@ import { screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 
+// AddTagForm debounces the search input by 300ms (real setTimeout, not fake
+// timers). Under parallel test-runner contention the real-clock 300ms can be
+// delayed by the OS scheduler + React render budget, and the
+// @testing-library default waitFor / findBy* timeout (1000ms) is too tight.
+// Generic 3000ms slack on the "wait for search results / no-match copy" calls
+// covers full-suite parallel-load runs while still catching genuine
+// regressions inside one test runtime.
+const DEBOUNCE_TIMEOUT = { timeout: 3000 }
+
 // PSY-460 introduces a mobile "Show all tags" Sheet alongside the existing
 // desktop top-5 cap. Both rows render in the DOM (swapped via Tailwind's
 // `sm:hidden` / `hidden sm:flex` utilities — jsdom does not apply those
@@ -224,10 +233,9 @@ describe('EntityTagList add-tag dialog accessibility', () => {
     const input = screen.getByPlaceholderText('Search tags or type a new one...')
     await user.type(input, 'punk')
 
-    // Wait for search results to appear
-    await waitFor(() => {
-      expect(screen.getByText('punk')).toBeInTheDocument()
-    })
+    // Wait for search results to appear (debounce + render under
+    // parallel-load contention — see DEBOUNCE_TIMEOUT).
+    expect(await screen.findByText('punk', undefined, DEBOUNCE_TIMEOUT)).toBeInTheDocument()
 
     // Press Enter
     await user.keyboard('{Enter}')
@@ -369,9 +377,7 @@ describe('EntityTagList add-tag dialog alias caption', () => {
 
     await openDialogAndSearch('punk-rock')
 
-    await waitFor(() => {
-      expect(screen.getByText('punk')).toBeInTheDocument()
-    })
+    expect(await screen.findByText('punk', undefined, DEBOUNCE_TIMEOUT)).toBeInTheDocument()
 
     const caption = screen.getByTestId('tag-autocomplete-matched-alias')
     expect(caption).toBeInTheDocument()
@@ -383,9 +389,7 @@ describe('EntityTagList add-tag dialog alias caption', () => {
     // mirrors the "user typed the canonical form" case.
     await openDialogAndSearch('punk')
 
-    await waitFor(() => {
-      expect(screen.getByText('punk')).toBeInTheDocument()
-    })
+    expect(await screen.findByText('punk', undefined, DEBOUNCE_TIMEOUT)).toBeInTheDocument()
 
     expect(
       screen.queryByTestId('tag-autocomplete-matched-alias')
@@ -420,10 +424,13 @@ describe('EntityTagList add-tag dialog alias caption', () => {
 
     await openDialogAndSearch('punk')
 
+    // Both rows must be present before checking caption count; keep the
+    // multi-assertion waitFor (findBy* is single-element) but use the
+    // longer debounce-aware timeout for parallel-load slack.
     await waitFor(() => {
       expect(screen.getByText('punk')).toBeInTheDocument()
       expect(screen.getByText('post-punk')).toBeInTheDocument()
-    })
+    }, DEBOUNCE_TIMEOUT)
 
     // Exactly one row has a caption — the one whose match came through the
     // alias table.
@@ -483,11 +490,9 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
 
     await openDialogAndSearch('rock-music')
 
-    await waitFor(() => {
-      expect(
-        screen.getByTestId('tag-autocomplete-already-applied')
-      ).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByTestId('tag-autocomplete-already-applied', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     const row = screen.getByTestId('tag-autocomplete-already-applied')
     expect(row).toHaveTextContent(/[“"]rock[”"] is already applied/)
@@ -524,11 +529,9 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
 
     await openDialogAndSearch('indie')
 
-    await waitFor(() => {
-      expect(
-        screen.getByTestId('tag-autocomplete-already-applied')
-      ).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByTestId('tag-autocomplete-already-applied', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     expect(
       screen.getByTestId('tag-autocomplete-already-applied')
@@ -552,9 +555,9 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
 
     await openDialogAndSearch('brand-new-tag')
 
-    await waitFor(() => {
-      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     expect(
       screen.queryByTestId('tag-autocomplete-already-applied')
@@ -582,11 +585,9 @@ describe('EntityTagList add-tag dialog already-applied short-circuit', () => {
 
     const user = await openDialogAndSearch('rock-music')
 
-    await waitFor(() => {
-      expect(
-        screen.getByTestId('tag-autocomplete-already-applied')
-      ).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByTestId('tag-autocomplete-already-applied', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     await user.keyboard('{Enter}')
 
@@ -630,9 +631,9 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     mockAuthUser = { user_tier: 'new_user' }
     await openDialogAndSearch('brand-new-tag')
 
-    await waitFor(() => {
-      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     // No Create affordance at all — neither enabled nor disabled. The old
     // PSY-443 disabled-button + tooltip wrapper are both gone.
@@ -665,9 +666,9 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     mockAuthUser = { user_tier: 'new_user' }
     const user = await openDialogAndSearch('brand-new-tag')
 
-    await waitFor(() => {
-      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     await user.keyboard('{Enter}')
     expect(mockAddMutate).not.toHaveBeenCalled()
@@ -677,9 +678,9 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     mockAuthUser = { user_tier: 'contributor' }
     await openDialogAndSearch('brand-new-tag')
 
-    await waitFor(() => {
-      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     const createButton = screen.getByRole('button', {
       name: /Create "brand-new-tag"/,
@@ -694,9 +695,9 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     mockAuthUser = { user_tier: 'trusted_contributor' }
     await openDialogAndSearch('brand-new-tag')
 
-    await waitFor(() => {
-      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     const createButton = screen.getByRole('button', {
       name: /Create "brand-new-tag"/,
@@ -716,9 +717,9 @@ describe('EntityTagList add-tag dialog create-tag tier gating', () => {
     mockAuthUser = { user_tier: 'new_user', is_admin: true }
     await openDialogAndSearch('brand-new-tag')
 
-    await waitFor(() => {
-      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     const createButton = screen.getByRole('button', {
       name: /Create "brand-new-tag"/,
@@ -1568,9 +1569,9 @@ describe('AddTagDialog standalone (PSY-654)', () => {
     const input = screen.getByPlaceholderText('Search tags or type a new one...')
     await user.type(input, 'doom')
 
-    await waitFor(() => {
-      expect(screen.getByText('No matching tags found.')).toBeInTheDocument()
-    })
+    expect(
+      await screen.findByText('No matching tags found.', undefined, DEBOUNCE_TIMEOUT)
+    ).toBeInTheDocument()
 
     await user.click(
       screen.getByRole('button', { name: /Create "doom"/ })
