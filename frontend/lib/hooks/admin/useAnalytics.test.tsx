@@ -182,6 +182,66 @@ describe('useAnalytics hooks', () => {
 
   })
 
+  describe('useGrowthMetrics error handling', () => {
+    it('surfaces fetch errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+      const { result } = renderHook(() => useGrowthMetrics(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+      expect((result.current.error as Error).message).toBe('Forbidden')
+      expect(result.current.data).toBeUndefined()
+    })
+
+    it('keys cache by months so 6 vs 12 don’t collide', async () => {
+      mockApiRequest
+        .mockResolvedValueOnce({
+          shows: [], artists: [], venues: [], releases: [], labels: [], users: [],
+        })
+        .mockResolvedValueOnce({
+          shows: [], artists: [], venues: [], releases: [], labels: [], users: [],
+        })
+
+      const { result: six } = renderHook(() => useGrowthMetrics(6), {
+        wrapper: createWrapper(),
+      })
+      await waitFor(() => expect(six.current.isSuccess).toBe(true))
+
+      const { result: twelve } = renderHook(() => useGrowthMetrics(12), {
+        wrapper: createWrapper(),
+      })
+      await waitFor(() => expect(twelve.current.isSuccess).toBe(true))
+
+      expect(mockApiRequest).toHaveBeenCalledTimes(2)
+    })
+  })
+
+  describe('useEngagementMetrics error handling', () => {
+    it('surfaces fetch errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+      const { result } = renderHook(() => useEngagementMetrics(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+    })
+  })
+
+  describe('useCommunityHealth error handling', () => {
+    it('surfaces fetch errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+      const { result } = renderHook(() => useCommunityHealth(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+    })
+  })
+
   describe('useDataQualityTrends', () => {
     it('fetches data quality trends with default months', async () => {
       const mockResponse = {
@@ -226,5 +286,14 @@ describe('useAnalytics hooks', () => {
       )
     })
 
+    it('surfaces fetch errors', async () => {
+      mockApiRequest.mockRejectedValueOnce(new Error('Forbidden'))
+
+      const { result } = renderHook(() => useDataQualityTrends(), {
+        wrapper: createWrapper(),
+      })
+
+      await waitFor(() => expect(result.current.isError).toBe(true))
+    })
   })
 })

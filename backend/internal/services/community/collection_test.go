@@ -3389,3 +3389,301 @@ func (suite *CollectionServiceIntegrationTestSuite) TestGetEntityCollections_Oth
 	suite.Require().Len(resp, 1, "owner A must see only their own private collection, not owner B's")
 	suite.Equal(privA.ID, resp[0].ID)
 }
+
+// =============================================================================
+// Group 17 (PSY-823): BulkAddItems — partial-success semantics
+// =============================================================================
+
+// TestBulkAddItems_Success commits a 3-item batch end-to-end: positions
+// auto-increment, Added carries the resolved entity names + slugs, Errors
+// is empty.
+func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_Success() {
+	user := suite.createTestUser("BulkAdder")
+	coll := suite.createBasicCollection(user, "Bulk Test")
+	a := suite.createTestArtist("Bulk A")
+	b := suite.createTestArtist("Bulk B")
+	c := suite.createTestArtist("Bulk C")
+
+	notes := "rec one"
+	resp, err := suite.collectionService.BulkAddItems(coll.Slug, user.ID, &contracts.BulkAddCollectionItemsRequest{
+		Items: []contracts.AddCollectionItemRequest{
+			{EntityType: communitym.CollectionEntityArtist, EntityID: a.ID, Notes: &notes},
+			{EntityType: communitym.CollectionEntityArtist, EntityID: b.ID},
+			{EntityType: communitym.CollectionEntityArtist, EntityID: c.ID},
+		},
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp)
+	suite.Require().Len(resp.Added, 3)
+	suite.Empty(resp.Errors)
+	suite.Equal(0, resp.Added[0].Position)
+	suite.Equal(1, resp.Added[1].Position)
+	suite.Equal(2, resp.Added[2].Position)
+	suite.Equal("Bulk A", resp.Added[0].EntityName)
+	suite.Require().NotNil(resp.Added[0].Notes)
+	suite.Equal("rec one", *resp.Added[0].Notes)
+}
+
+// TestBulkAddItems_PartialSuccess submits a mix of valid + invalid rows and
+// verifies that valid rows commit while invalid rows surface in Errors keyed
+// by their original index.
+func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_PartialSuccess() {
+	user := suite.createTestUser("PartialAdder")
+	coll := suite.createBasicCollection(user, "Partial Test")
+	a := suite.createTestArtist("Partial A")
+	b := suite.createTestArtist("Partial B")
+
+	resp, err := suite.collectionService.BulkAddItems(coll.Slug, user.ID, &contracts.BulkAddCollectionItemsRequest{
+		Items: []contracts.AddCollectionItemRequest{
+			{EntityType: communitym.CollectionEntityArtist, EntityID: a.ID}, // 0 — ok
+			{EntityType: "", EntityID: 1},                                    // 1 — missing entity_type
+			{EntityType: "unknown_thing", EntityID: 1},                       // 2 — unsupported entity_type
+			{EntityType: communitym.CollectionEntityArtist, EntityID: 0},     // 3 — missing entity_id
+			{EntityType: communitym.CollectionEntityArtist, EntityID: b.ID}, // 4 — ok
+		},
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Added, 2)
+	suite.Require().Len(resp.Errors, 3)
+
+	// Errors are keyed by the original input index so the UI can light up
+	// the right per-row chip.
+	indices := []int{resp.Errors[0].RowIndex, resp.Errors[1].RowIndex, resp.Errors[2].RowIndex}
+	suite.ElementsMatch([]int{1, 2, 3}, indices)
+	for _, e := range resp.Errors {
+		suite.Equal(contracts.BulkAddItemErrorValidation, e.ErrorCode)
+	}
+}
+
+// TestBulkAddItems_RejectsEmpty 400s on an empty input list — there's nothing
+// for the caller to want from an empty submit.
+func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_RejectsEmpty() {
+	user := suite.createTestUser("EmptyBulkAdder")
+	coll := suite.createBasicCollection(user, "Empty Test")
+
+	_, err := suite.collectionService.BulkAddItems(coll.Slug, user.ID, &contracts.BulkAddCollectionItemsRequest{
+		Items: []contracts.AddCollectionItemRequest{},
+	})
+
+	suite.Require().Error(err)
+	var ce *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &ce)
+	suite.Equal(apperrors.CodeCollectionInvalidRequest, ce.Code)
+}
+
+// TestBulkAddItems_RejectsOverCap rejects payloads above
+// MaxBulkAddCollectionItems. We don't need to actually create that many
+// entities — the cap is enforced before any DB lookup.
+func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_RejectsOverCap() {
+	user := suite.createTestUser("OverCapAdder")
+	coll := suite.createBasicCollection(user, "Cap Test")
+
+	items := make([]contracts.AddCollectionItemRequest, contracts.MaxBulkAddCollectionItems+1)
+	for i := range items {
+		items[i] = contracts.AddCollectionItemRequest{
+			EntityType: communitym.CollectionEntityArtist,
+			EntityID:   uint(i + 1),
+		}
+	}
+
+	_, err := suite.collectionService.BulkAddItems(coll.Slug, user.ID, &contracts.BulkAddCollectionItemsRequest{
+		Items: items,
+	})
+
+	suite.Require().Error(err)
+	var ce *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &ce)
+	suite.Equal(apperrors.CodeCollectionInvalidRequest, ce.Code)
+}
+
+// TestBulkAddItems_Forbidden — non-creator can't add to a private,
+// non-collaborative collection (mirrors AddItem's permission gate).
+func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_Forbidden() {
+	owner := suite.createTestUser("OwnerBulk")
+	stranger := suite.createTestUser("StrangerBulk")
+	coll := suite.createBasicCollection(owner, "Locked Down")
+	a := suite.createTestArtist("Forbidden A")
+
+	_, err := suite.collectionService.BulkAddItems(coll.Slug, stranger.ID, &contracts.BulkAddCollectionItemsRequest{
+		Items: []contracts.AddCollectionItemRequest{
+			{EntityType: communitym.CollectionEntityArtist, EntityID: a.ID},
+		},
+	})
+
+	suite.Require().Error(err)
+	var ce *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &ce)
+	suite.Equal(apperrors.CodeCollectionForbidden, ce.Code)
+}
+
+// TestBulkAddItems_DedupAgainstExisting — items already in the collection
+// surface as DUPLICATE errors and do not roll back valid rows.
+func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_DedupAgainstExisting() {
+	user := suite.createTestUser("DedupAdder")
+	coll := suite.createBasicCollection(user, "Dedup Test")
+	a := suite.createTestArtist("Dedup A")
+	b := suite.createTestArtist("Dedup B")
+
+	// Pre-load A via single-add path.
+	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: communitym.CollectionEntityArtist,
+		EntityID:   a.ID,
+	})
+	suite.Require().NoError(err)
+
+	// Bulk-add tries A (duplicate) + B (new).
+	resp, err := suite.collectionService.BulkAddItems(coll.Slug, user.ID, &contracts.BulkAddCollectionItemsRequest{
+		Items: []contracts.AddCollectionItemRequest{
+			{EntityType: communitym.CollectionEntityArtist, EntityID: a.ID},
+			{EntityType: communitym.CollectionEntityArtist, EntityID: b.ID},
+		},
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Added, 1)
+	suite.Require().Len(resp.Errors, 1)
+	suite.Equal(0, resp.Errors[0].RowIndex)
+	suite.Equal(contracts.BulkAddItemErrorDuplicate, resp.Errors[0].ErrorCode)
+	suite.Equal(b.ID, resp.Added[0].EntityID)
+}
+
+// TestAddItem_RejectsUnsupportedEntityType — PSY-823 parity gate. Single-add
+// now rejects typo'd entity_types the same way BulkAddItems does, so the
+// polymorphic collection_items.entity_type column doesn't accumulate dead
+// rows (no FK on entity_id) that resolve to "Unknown" on every read.
+func (suite *CollectionServiceIntegrationTestSuite) TestAddItem_RejectsUnsupportedEntityType() {
+	user := suite.createTestUser("UnknownTypeAdder")
+	coll := suite.createBasicCollection(user, "Unknown Type Test")
+
+	_, err := suite.collectionService.AddItem(coll.Slug, user.ID, &contracts.AddCollectionItemRequest{
+		EntityType: "podcast",
+		EntityID:   1,
+	})
+
+	suite.Require().Error(err)
+	var ce *apperrors.CollectionError
+	suite.Require().ErrorAs(err, &ce)
+	suite.Equal(apperrors.CodeCollectionInvalidRequest, ce.Code)
+}
+
+// TestBulkAddItems_DedupWithinBatch — same (entity_type, entity_id) repeated
+// in the same submit: first one commits, subsequent ones are DUPLICATE.
+func (suite *CollectionServiceIntegrationTestSuite) TestBulkAddItems_DedupWithinBatch() {
+	user := suite.createTestUser("BatchDedupAdder")
+	coll := suite.createBasicCollection(user, "Batch Dedup")
+	a := suite.createTestArtist("Batch A")
+
+	resp, err := suite.collectionService.BulkAddItems(coll.Slug, user.ID, &contracts.BulkAddCollectionItemsRequest{
+		Items: []contracts.AddCollectionItemRequest{
+			{EntityType: communitym.CollectionEntityArtist, EntityID: a.ID},
+			{EntityType: communitym.CollectionEntityArtist, EntityID: a.ID},
+		},
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Added, 1)
+	suite.Require().Len(resp.Errors, 1)
+	suite.Equal(1, resp.Errors[0].RowIndex)
+	suite.Equal(contracts.BulkAddItemErrorDuplicate, resp.Errors[0].ErrorCode)
+}
+
+// =============================================================================
+// Group 18 (PSY-823): ResolveCollectionItems — paste-URL preview helper
+// =============================================================================
+
+// TestResolveCollectionItems_HappyPath — artist + release entries by slug
+// return resolved rows with the name + subtitle shape the AddItemsPicker
+// preview row expects.
+func (suite *CollectionServiceIntegrationTestSuite) TestResolveCollectionItems_HappyPath() {
+	artistSlug := fmt.Sprintf("resolved-artist-%d", time.Now().UnixNano())
+	city := "Compton"
+	state := "CA"
+	artist := &catalogm.Artist{
+		Name:  "Resolved Artist",
+		Slug:  &artistSlug,
+		City:  &city,
+		State: &state,
+	}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	releaseSlug := fmt.Sprintf("resolved-release-%d", time.Now().UnixNano())
+	year := 2015
+	release := &catalogm.Release{
+		Title:       "Resolved Release",
+		Slug:        &releaseSlug,
+		ReleaseType: catalogm.ReleaseTypeLP,
+		ReleaseYear: &year,
+	}
+	suite.Require().NoError(suite.db.Create(release).Error)
+
+	resp, err := suite.collectionService.ResolveCollectionItems(&contracts.ResolveCollectionItemsRequest{
+		Entries: []contracts.ResolveCollectionItemEntry{
+			{EntityType: communitym.CollectionEntityArtist, Slug: artistSlug},
+			{EntityType: communitym.CollectionEntityRelease, Slug: releaseSlug},
+		},
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Resolved, 2)
+	suite.Empty(resp.Unresolved)
+
+	byType := map[string]contracts.ResolvedCollectionItem{}
+	for _, r := range resp.Resolved {
+		byType[r.EntityType] = r
+	}
+	artistResolved, ok := byType[communitym.CollectionEntityArtist]
+	suite.Require().True(ok)
+	suite.Equal(artist.ID, artistResolved.EntityID)
+	suite.Equal("Resolved Artist", artistResolved.Name)
+	suite.Require().NotNil(artistResolved.Subtitle)
+	suite.Equal("Compton, CA", *artistResolved.Subtitle)
+
+	releaseResolved, ok := byType[communitym.CollectionEntityRelease]
+	suite.Require().True(ok)
+	suite.Equal(release.ID, releaseResolved.EntityID)
+	suite.Equal("Resolved Release", releaseResolved.Name)
+	suite.Require().NotNil(releaseResolved.Subtitle)
+	suite.Contains(*releaseResolved.Subtitle, "2015")
+}
+
+// TestResolveCollectionItems_MixedResolvedUnresolved — one real slug, one
+// missing slug. The response partitions cleanly so the frontend can render
+// matched vs unmatched chips off two separate buckets.
+func (suite *CollectionServiceIntegrationTestSuite) TestResolveCollectionItems_MixedResolvedUnresolved() {
+	artistSlug := fmt.Sprintf("partial-resolve-%d", time.Now().UnixNano())
+	artist := &catalogm.Artist{Name: "Partial Artist", Slug: &artistSlug}
+	suite.Require().NoError(suite.db.Create(artist).Error)
+
+	missingSlug := fmt.Sprintf("does-not-exist-%d", time.Now().UnixNano())
+
+	resp, err := suite.collectionService.ResolveCollectionItems(&contracts.ResolveCollectionItemsRequest{
+		Entries: []contracts.ResolveCollectionItemEntry{
+			{EntityType: communitym.CollectionEntityArtist, Slug: artistSlug},
+			{EntityType: communitym.CollectionEntityArtist, Slug: missingSlug},
+		},
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().Len(resp.Resolved, 1)
+	suite.Require().Len(resp.Unresolved, 1)
+	suite.Equal(artistSlug, resp.Resolved[0].Slug)
+	suite.Equal(missingSlug, resp.Unresolved[0].Slug)
+}
+
+// TestResolveCollectionItems_UnsupportedEntityType — unknown entity_type
+// values land in Unresolved instead of erroring, so the frontend's per-row
+// chip handling stays uniform.
+func (suite *CollectionServiceIntegrationTestSuite) TestResolveCollectionItems_UnsupportedEntityType() {
+	resp, err := suite.collectionService.ResolveCollectionItems(&contracts.ResolveCollectionItemsRequest{
+		Entries: []contracts.ResolveCollectionItemEntry{
+			{EntityType: "podcast", Slug: "some-show"},
+			{EntityType: "", Slug: "no-type"},
+		},
+	})
+
+	suite.Require().NoError(err)
+	suite.Empty(resp.Resolved)
+	suite.Require().Len(resp.Unresolved, 2)
+}
