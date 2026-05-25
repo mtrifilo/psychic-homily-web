@@ -161,7 +161,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestUnsaveShow_Success() {
 	user := suite.createTestUser()
 	show := suite.createApprovedShow("Unsave Me", user.ID)
 
-	suite.savedShowService.SaveShow(user.ID, show.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
 
 	err := suite.savedShowService.UnsaveShow(user.ID, show.ID)
 
@@ -194,9 +194,9 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Success
 	show1, _, _ := suite.createShowWithVenueAndArtist("Saved Show 1", user.ID)
 	show2, _, _ := suite.createShowWithVenueAndArtist("Saved Show 2", user.ID)
 
-	suite.savedShowService.SaveShow(user.ID, show1.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show1.ID))
 	time.Sleep(10 * time.Millisecond) // ensure different saved_at
-	suite.savedShowService.SaveShow(user.ID, show2.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show2.ID))
 
 	resp, total, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0)
 
@@ -223,7 +223,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Include
 	user := suite.createTestUser()
 	show, venue, artist := suite.createShowWithVenueAndArtist("Full Show", user.ID)
 
-	suite.savedShowService.SaveShow(user.ID, show.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
 
 	resp, _, err := suite.savedShowService.GetUserSavedShows(user.ID, 10, 0)
 
@@ -239,7 +239,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_Paginat
 	user := suite.createTestUser()
 	for i := 0; i < 5; i++ {
 		show := suite.createApprovedShow(fmt.Sprintf("Paginated Show %d", i), user.ID)
-		suite.savedShowService.SaveShow(user.ID, show.ID)
+		suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
 		time.Sleep(5 * time.Millisecond)
 	}
 
@@ -269,8 +269,8 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetUserSavedShows_OnlyOwn
 	show1 := suite.createApprovedShow("User1 Show", user1.ID)
 	show2 := suite.createApprovedShow("User2 Show", user2.ID)
 
-	suite.savedShowService.SaveShow(user1.ID, show1.ID)
-	suite.savedShowService.SaveShow(user2.ID, show2.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user1.ID, show1.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user2.ID, show2.ID))
 
 	resp, total, err := suite.savedShowService.GetUserSavedShows(user1.ID, 10, 0)
 
@@ -288,7 +288,7 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestIsShowSaved_True() {
 	user := suite.createTestUser()
 	show := suite.createApprovedShow("Saved Check", user.ID)
 
-	suite.savedShowService.SaveShow(user.ID, show.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show.ID))
 
 	saved, err := suite.savedShowService.IsShowSaved(user.ID, show.ID)
 
@@ -316,8 +316,8 @@ func (suite *SavedShowServiceIntegrationTestSuite) TestGetSavedShowIDs_Success()
 	show2 := suite.createApprovedShow("Batch Show 2", user.ID)
 	show3 := suite.createApprovedShow("Batch Show 3", user.ID)
 
-	suite.savedShowService.SaveShow(user.ID, show1.ID)
-	suite.savedShowService.SaveShow(user.ID, show3.ID)
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show1.ID))
+	suite.Require().NoError(suite.savedShowService.SaveShow(user.ID, show3.ID))
 
 	result, err := suite.savedShowService.GetSavedShowIDs(user.ID, []uint{show1.ID, show2.ID, show3.ID})
 

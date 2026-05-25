@@ -331,7 +331,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestUnfollow_Success() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Unfollow Artist")
 
-	suite.followService.Follow(user.ID, "artist", artistID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
 
 	err := suite.followService.Unfollow(user.ID, "artist", artistID)
 	suite.Require().NoError(err)
@@ -361,7 +361,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestIsFollowing_True() {
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Following Artist")
 
-	suite.followService.Follow(user.ID, "artist", artistID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
 
 	result, err := suite.followService.IsFollowing(user.ID, "artist", artistID)
 	suite.Require().NoError(err)
@@ -387,9 +387,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetFollowerCount_MultipleFol
 	user3 := suite.createTestUser()
 	artistID := suite.createTestArtist("Popular Artist")
 
-	suite.followService.Follow(user1.ID, "artist", artistID)
-	suite.followService.Follow(user2.ID, "artist", artistID)
-	suite.followService.Follow(user3.ID, "artist", artistID)
+	suite.Require().NoError(suite.followService.Follow(user1.ID, "artist", artistID))
+	suite.Require().NoError(suite.followService.Follow(user2.ID, "artist", artistID))
+	suite.Require().NoError(suite.followService.Follow(user3.ID, "artist", artistID))
 
 	count, err := suite.followService.GetFollowerCount("artist", artistID)
 	suite.Require().NoError(err)
@@ -415,9 +415,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetBatchFollowerCounts_Multi
 	artist2ID := suite.createTestArtist("Batch Artist 2")
 	artist3ID := suite.createTestArtist("Batch Artist 3")
 
-	suite.followService.Follow(user1.ID, "artist", artist1ID)
-	suite.followService.Follow(user2.ID, "artist", artist1ID)
-	suite.followService.Follow(user1.ID, "artist", artist2ID)
+	suite.Require().NoError(suite.followService.Follow(user1.ID, "artist", artist1ID))
+	suite.Require().NoError(suite.followService.Follow(user2.ID, "artist", artist1ID))
+	suite.Require().NoError(suite.followService.Follow(user1.ID, "artist", artist2ID))
 
 	result, err := suite.followService.GetBatchFollowerCounts("artist", []uint{artist1ID, artist2ID, artist3ID})
 	suite.Require().NoError(err)
@@ -443,8 +443,8 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetBatchUserFollowing_MixedF
 	artist2ID := suite.createTestArtist("Batch User Artist 2")
 	artist3ID := suite.createTestArtist("Batch User Artist 3")
 
-	suite.followService.Follow(user.ID, "artist", artist1ID)
-	suite.followService.Follow(user.ID, "artist", artist3ID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artist1ID))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artist3ID))
 
 	result, err := suite.followService.GetBatchUserFollowing(user.ID, "artist", []uint{artist1ID, artist2ID, artist3ID})
 	suite.Require().NoError(err)
@@ -472,9 +472,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_ByType() {
 	artist2ID := suite.createTestArtist("Following Artist 2")
 	venueID := suite.createTestVenue("Following Venue")
 
-	suite.followService.Follow(user.ID, "artist", artist1ID)
-	suite.followService.Follow(user.ID, "artist", artist2ID)
-	suite.followService.Follow(user.ID, "venue", venueID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artist1ID))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artist2ID))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "venue", venueID))
 
 	// Filter by artist
 	following, total, err := suite.followService.GetUserFollowing(user.ID, "artist", 10, 0)
@@ -492,9 +492,9 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_AllTypes() 
 	venueID := suite.createTestVenue("All Types Venue")
 	labelID := suite.createTestLabel("All Types Label")
 
-	suite.followService.Follow(user.ID, "artist", artistID)
-	suite.followService.Follow(user.ID, "venue", venueID)
-	suite.followService.Follow(user.ID, "label", labelID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "venue", venueID))
+	suite.Require().NoError(suite.followService.Follow(user.ID, "label", labelID))
 
 	following, total, err := suite.followService.GetUserFollowing(user.ID, "", 10, 0)
 	suite.Require().NoError(err)
@@ -506,7 +506,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_Pagination(
 	user := suite.createTestUser()
 	for i := 0; i < 5; i++ {
 		artistID := suite.createTestArtist(fmt.Sprintf("Paginated Artist %d", i))
-		suite.followService.Follow(user.ID, "artist", artistID)
+		suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
 	}
 
 	// First page
@@ -534,10 +534,10 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_OrderByFoll
 	artist1ID := suite.createTestArtist("First Followed")
 	artist2ID := suite.createTestArtist("Second Followed")
 
-	suite.followService.Follow(user.ID, "artist", artist1ID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artist1ID))
 	// Small delay to ensure different timestamps
 	time.Sleep(10 * time.Millisecond)
-	suite.followService.Follow(user.ID, "artist", artist2ID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artist2ID))
 
 	following, _, err := suite.followService.GetUserFollowing(user.ID, "artist", 10, 0)
 	suite.Require().NoError(err)
@@ -552,7 +552,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_IncludesNam
 	user := suite.createTestUser()
 	artistID := suite.createTestArtist("Named Artist")
 
-	suite.followService.Follow(user.ID, "artist", artistID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
 
 	following, _, err := suite.followService.GetUserFollowing(user.ID, "artist", 10, 0)
 	suite.Require().NoError(err)
@@ -578,7 +578,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_ReturnsUserInfo
 	user := suite.createTestUserWithUsername("follower-user")
 	artistID := suite.createTestArtist("Followed Artist")
 
-	suite.followService.Follow(user.ID, "artist", artistID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
 
 	followers, total, err := suite.followService.GetFollowers("artist", artistID, 10, 0)
 	suite.Require().NoError(err)
@@ -593,7 +593,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_Pagination() {
 	artistID := suite.createTestArtist("Paginated Followers Artist")
 	for i := 0; i < 5; i++ {
 		user := suite.createTestUser()
-		suite.followService.Follow(user.ID, "artist", artistID)
+		suite.Require().NoError(suite.followService.Follow(user.ID, "artist", artistID))
 	}
 
 	page1, total, err := suite.followService.GetFollowers("artist", artistID, 2, 0)
@@ -623,7 +623,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_VenueNameSl
 	user := suite.createTestUser()
 	venueID := suite.createTestVenue("The Rebel Lounge")
 
-	suite.followService.Follow(user.ID, "venue", venueID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "venue", venueID))
 
 	following, total, err := suite.followService.GetUserFollowing(user.ID, "venue", 10, 0)
 	suite.Require().NoError(err)
@@ -638,7 +638,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_FestivalNam
 	user := suite.createTestUser()
 	festivalID := suite.createTestFestival("summer-fest")
 
-	suite.followService.Follow(user.ID, "festival", festivalID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "festival", festivalID))
 
 	following, total, err := suite.followService.GetUserFollowing(user.ID, "festival", 10, 0)
 	suite.Require().NoError(err)
@@ -653,7 +653,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetUserFollowing_LabelNameSl
 	user := suite.createTestUser()
 	labelID := suite.createTestLabel("Sub Pop")
 
-	suite.followService.Follow(user.ID, "label", labelID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "label", labelID))
 
 	following, total, err := suite.followService.GetUserFollowing(user.ID, "label", 10, 0)
 	suite.Require().NoError(err)
@@ -669,8 +669,8 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_VenueEntityType
 	user2 := suite.createTestUserWithUsername("venue-follower-2")
 	venueID := suite.createTestVenue("Crescent Ballroom")
 
-	suite.followService.Follow(user1.ID, "venue", venueID)
-	suite.followService.Follow(user2.ID, "venue", venueID)
+	suite.Require().NoError(suite.followService.Follow(user1.ID, "venue", venueID))
+	suite.Require().NoError(suite.followService.Follow(user2.ID, "venue", venueID))
 
 	followers, total, err := suite.followService.GetFollowers("venue", venueID, 10, 0)
 	suite.Require().NoError(err)
@@ -682,7 +682,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetFollowers_FestivalEntityT
 	user := suite.createTestUserWithUsername("fest-follower")
 	festivalID := suite.createTestFestival("m3f-fest")
 
-	suite.followService.Follow(user.ID, "festival", festivalID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "festival", festivalID))
 
 	followers, total, err := suite.followService.GetFollowers("festival", festivalID, 10, 0)
 	suite.Require().NoError(err)
@@ -696,7 +696,7 @@ func (suite *FollowServiceIntegrationTestSuite) TestGetBatchFollowerCounts_Venue
 	venue1ID := suite.createTestVenue("Batch Venue 1")
 	venue2ID := suite.createTestVenue("Batch Venue 2")
 
-	suite.followService.Follow(user.ID, "venue", venue1ID)
+	suite.Require().NoError(suite.followService.Follow(user.ID, "venue", venue1ID))
 
 	result, err := suite.followService.GetBatchFollowerCounts("venue", []uint{venue1ID, venue2ID})
 	suite.Require().NoError(err)
