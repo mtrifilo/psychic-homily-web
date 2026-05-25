@@ -106,3 +106,72 @@ export interface ExtractShowResponse {
   /** Warnings about partial extraction or uncertain matches */
   warnings?: string[]
 }
+
+// ─────────────────────────────────────────────────────────────
+// AI-assisted collection extraction
+// ─────────────────────────────────────────────────────────────
+
+/**
+ * Request to extract a collection's items from pasted article text or a
+ * screenshot of one. Same input shape as show extraction so AICollectionFiller
+ * stays close to the AIFormFiller chrome.
+ */
+export interface ExtractCollectionRequest {
+  type: 'text' | 'image' | 'both'
+  text?: string
+  image_data?: string
+  media_type?: 'image/jpeg' | 'image/png' | 'image/gif' | 'image/webp'
+}
+
+/**
+ * One row in an AI-extracted collection. Mirrors the shape ExtractedArtist
+ * uses for show extraction so consumers can apply the same matched/suggestion
+ * UX pattern. Carries an OPTIONAL release_title — many canon lists are
+ * "best releases" so most rows will have one, but pure artist lists (e.g.
+ * "100 best artists of the decade") have just the artist.
+ *
+ * V1 matches against artists.name (case-insensitive) + artist_aliases.alias;
+ * release_title is preserved verbatim in the response but NOT matched against
+ * the releases table (deferred to a follow-up — release matching needs the
+ * artist match to scope correctly, and same-title releases by different
+ * artists is common enough to need its own picker UX).
+ */
+export interface ExtractedCollectionItem {
+  /** Artist name as extracted from input */
+  artist_name: string
+  /** Release/album title when the source is a "best releases" list */
+  release_title?: string
+  /** Database ID if the artist was matched to an existing entity */
+  matched_artist_id?: number
+  /** Canonical artist name from database (may differ in casing) */
+  matched_artist_name?: string
+  /** Slug from database if matched */
+  matched_artist_slug?: string
+  /** Close matches when no exact artist match found */
+  artist_suggestions?: MatchSuggestion[]
+}
+
+/**
+ * Full extraction result. Items are returned in source order — for canon
+ * lists ("100 best albums of the 2010s") order is the user's primary
+ * curation signal.
+ */
+export interface ExtractedCollectionData {
+  /** Optional source label captured from the article (e.g. "Pitchfork's 200 Best Albums of the 2010s") */
+  source?: string
+  /** Optional description for the collection (suggested title / summary from the article) */
+  description?: string
+  /** Per-row items in source order. */
+  items: ExtractedCollectionItem[]
+}
+
+/**
+ * API response wrapper. Same envelope shape as ExtractShowResponse so
+ * AICollectionFiller's error/warning handling can mirror AIFormFiller's.
+ */
+export interface ExtractCollectionResponse {
+  success: boolean
+  data?: ExtractedCollectionData
+  error?: string
+  warnings?: string[]
+}

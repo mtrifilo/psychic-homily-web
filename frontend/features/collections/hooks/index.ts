@@ -780,6 +780,10 @@ export function useAddCollectionTag() {
   })
 }
 
+// Re-export the collection-extraction hook so consumers can import it
+// from `../hooks` alongside the rest of the collection hooks.
+export { useCollectionExtraction } from './useCollectionExtraction'
+
 /**
  * Remove a tag from a collection. Server enforces the same edit-access
  * gate as Add. Errors surface via apiRequest.
