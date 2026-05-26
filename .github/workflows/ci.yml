@@ -145,6 +145,7 @@ jobs:
           files: backend/coverage.out
           flags: backend
           disable_search: true
+          fail_ci_if_error: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # PSY-772: backend lint gate.
@@ -229,9 +230,10 @@ jobs:
       - name: Upload frontend coverage to Codecov
         uses: codecov/codecov-action@v5
         with:
-          files: frontend/coverage/lcov.info
+          files: coverage/lcov.info
           flags: frontend
           disable_search: true
+          fail_ci_if_error: true
           working-directory: ./frontend
           token: ${{ secrets.CODECOV_TOKEN }}
 
