@@ -1,5 +1,7 @@
 // Request types — aligned with backend contracts/request.go response types.
 
+import { formatTimeAgo as sharedFormatTimeAgo } from '@/lib/formatTimeAgo'
+
 export const REQUEST_ENTITY_TYPES = [
   'artist',
   'release',
@@ -131,31 +133,15 @@ export function getStatusColor(status: string): string {
   }
 }
 
-/** Helper: format a date string as relative time (e.g., "3 hours ago") */
-export function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSeconds = Math.floor(diffMs / 1000)
-  const diffMinutes = Math.floor(diffSeconds / 60)
-  const diffHours = Math.floor(diffMinutes / 60)
-  const diffDays = Math.floor(diffHours / 24)
-  const diffWeeks = Math.floor(diffDays / 7)
-  const diffMonths = Math.floor(diffDays / 30)
-
-  if (diffSeconds < 60) return 'just now'
-  if (diffMinutes === 1) return '1 minute ago'
-  if (diffMinutes < 60) return `${diffMinutes} minutes ago`
-  if (diffHours === 1) return '1 hour ago'
-  if (diffHours < 24) return `${diffHours} hours ago`
-  if (diffDays === 1) return '1 day ago'
-  if (diffDays < 7) return `${diffDays} days ago`
-  if (diffWeeks === 1) return '1 week ago'
-  if (diffWeeks < 5) return `${diffWeeks} weeks ago`
-  if (diffMonths === 1) return '1 month ago'
-  if (diffMonths < 12) return `${diffMonths} months ago`
-  return formatDate(dateString)
-}
+/**
+ * Helper: format a date string as relative time (e.g., "3 hours ago").
+ *
+ * Re-exports the canonical `formatTimeAgo` (PSY-780) — the months-aware
+ * implementation that previously lived only in this file. Past ~12 months
+ * the shared helper falls back to the same `month: short, day, year`
+ * format as `formatDate`, so the visible output for callers is unchanged.
+ */
+export const formatTimeAgo = sharedFormatTimeAgo
 
 /** Helper: format a date string as "Jan 5, 2026" */
 export function formatDate(dateString: string): string {

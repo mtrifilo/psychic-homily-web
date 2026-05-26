@@ -1,5 +1,7 @@
 // Notification filter types — aligned with backend contracts/notification_filter.go response types.
 
+import { formatTimeAgo as sharedFormatTimeAgo } from '@/lib/formatTimeAgo'
+
 /** City criteria for notification filter */
 export interface FilterCity {
   city: string
@@ -119,32 +121,14 @@ export interface UpdateFilterInput {
 export const NOTIFY_ENTITY_TYPES = ['artist', 'venue', 'label', 'tag'] as const
 export type NotifyEntityType = (typeof NOTIFY_ENTITY_TYPES)[number]
 
-/** Helper: format relative time for last_matched_at */
-export function formatTimeAgo(dateString: string): string {
-  const date = new Date(dateString)
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSeconds = Math.floor(diffMs / 1000)
-  const diffMinutes = Math.floor(diffSeconds / 60)
-  const diffHours = Math.floor(diffMinutes / 60)
-  const diffDays = Math.floor(diffHours / 24)
-  const diffWeeks = Math.floor(diffDays / 7)
-
-  if (diffSeconds < 60) return 'just now'
-  if (diffMinutes === 1) return '1 minute ago'
-  if (diffMinutes < 60) return `${diffMinutes} minutes ago`
-  if (diffHours === 1) return '1 hour ago'
-  if (diffHours < 24) return `${diffHours} hours ago`
-  if (diffDays === 1) return '1 day ago'
-  if (diffDays < 7) return `${diffDays} days ago`
-  if (diffWeeks === 1) return '1 week ago'
-  if (diffWeeks < 5) return `${diffWeeks} weeks ago`
-  return date.toLocaleDateString('en-US', {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  })
-}
+/**
+ * Helper: format relative time for last_matched_at.
+ *
+ * Re-exports the canonical `formatTimeAgo` (PSY-780). Prior copy was missing
+ * the month branch, so anything older than 5 weeks dropped straight to an
+ * absolute date — the divergence was accidental, not a deliberate UX choice.
+ */
+export const formatTimeAgo = sharedFormatTimeAgo
 
 /** Helper: build a human-readable summary of filter criteria */
 export function getFilterSummary(filter: NotificationFilter): string {
