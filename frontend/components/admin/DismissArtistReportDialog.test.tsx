@@ -33,6 +33,10 @@ describe('DismissArtistReportDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // mockReset (not just clearAllMocks) is required because tests below
+    // use mockImplementation to simulate success/error paths. clearAllMocks
+    // only resets call history — implementations persist across tests.
+    mockMutate.mockReset()
     mockIsPending = false
     mockIsError = false
     mockError = null
