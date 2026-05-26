@@ -81,6 +81,13 @@ export function RejectShowDialog({
           </div>
         </div>
 
+        {rejectMutation.isError && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {rejectMutation.error?.message ||
+              'Failed to reject show. Please try again.'}
+          </div>
+        )}
+
         <DialogFooter>
           <Button
             variant="outline"

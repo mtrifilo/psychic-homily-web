@@ -5,11 +5,15 @@ import { BatchRejectDialog } from './BatchRejectDialog'
 
 const mockMutate = vi.fn()
 let mockIsPending = false
+let mockIsError = false
+let mockError: Error | null = null
 
 vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useBatchRejectShows: () => ({
     mutate: mockMutate,
     isPending: mockIsPending,
+    isError: mockIsError,
+    error: mockError,
   }),
 }))
 
@@ -24,6 +28,8 @@ describe('BatchRejectDialog', () => {
     // only resets call history — implementations persist across tests.
     mockMutate.mockReset()
     mockIsPending = false
+    mockIsError = false
+    mockError = null
   })
 
   it('renders nothing when closed', () => {
@@ -239,6 +245,39 @@ describe('BatchRejectDialog', () => {
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(screen.getByText('Rejecting...')).toBeInTheDocument()
+  })
+
+  it('shows batch reject error banner when useBatchRejectShows is in error state', () => {
+    mockIsError = true
+    mockError = new Error('Server unreachable')
+    render(
+      <BatchRejectDialog
+        showIds={[1, 2]}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    // Dialog stays open AND banner renders with the error message.
+    expect(screen.getAllByText(/Reject 2 Shows/).length).toBeGreaterThanOrEqual(1)
+    expect(screen.getByText('Server unreachable')).toBeInTheDocument()
+  })
+
+  it('falls back to canned copy when error has no message', () => {
+    mockIsError = true
+    mockError = null
+    render(
+      <BatchRejectDialog
+        showIds={[1, 2]}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    expect(screen.getAllByText(/Reject 2 Shows/).length).toBeGreaterThanOrEqual(1)
+    expect(
+      screen.getByText('Failed to batch reject shows. Please try again.')
+    ).toBeInTheDocument()
   })
 
   it('fires onSuccess callback, clears form, and closes dialog when mutation succeeds', async () => {

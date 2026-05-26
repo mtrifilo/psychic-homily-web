@@ -109,6 +109,13 @@ export function ApproveShowDialog({
           </div>
         )}
 
+        {approveMutation.isError && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {approveMutation.error?.message ||
+              'Failed to approve show. Please try again.'}
+          </div>
+        )}
+
         <DialogFooter>
           <Button
             variant="outline"
