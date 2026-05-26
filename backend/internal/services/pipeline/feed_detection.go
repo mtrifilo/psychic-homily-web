@@ -84,7 +84,7 @@ func (d *FeedDetector) ProbeURL(candidateURL string) (*DetectedFeed, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, nil

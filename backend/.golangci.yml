@@ -12,7 +12,8 @@
 #   * .golangci-advisory.yml                — advisory linters; soft-fail in CI.
 #
 # Violation survey (2026-05-23, golangci-lint v2.12.2; errorlint updated 2026-05-24,
-# ineffassign updated 2026-05-24, staticcheck updated 2026-05-24, unused updated 2026-05-24):
+# ineffassign updated 2026-05-24, staticcheck updated 2026-05-24, unused updated 2026-05-24,
+# errcheck updated 2026-05-25):
 #   linter       | violations | decision  | rationale
 #   ----------- | ---------- | --------- | ------------------------------------------------
 #   govet        |          0 | GATE      | clean once the `inline` analyzer (advisory
@@ -52,8 +53,27 @@
 #                |            |           | (transitional shim around …WithConsent never wired
 #                |            |           | back in after the consent path replaced it). Gated
 #                |            |           | to prevent dead-code regression.
-#   errcheck     |        474 | advisory  | large legacy backlog (dropped resp.Body.Close,
-#                |            |           | bcrypt compares, etc.); needs its own ticket.
+#   errcheck     |          0 | GATE      | PSY-833 (umbrella) cleared via 4-phase split —
+#                |            |           | PSY-846/847/848/849. Roughly 481 sites resolved
+#                |            |           | across all four phases:
+#                |            |           |  * Phase 1 (PSY-846, #817): 276 testify-suite
+#                |            |           |    err drops → s.Require().NoError(err).
+#                |            |           |  * Phase 2 (PSY-847, #825): 125 HTTP write/encode
+#                |            |           |    drops via the new respond.SafeWrite /
+#                |            |           |    respond.SafeEncode helper.
+#                |            |           |  * Phase 3 (PSY-848, #827): 22 json.Unmarshal
+#                |            |           |    drops in tests → require.NoError(t, ...).
+#                |            |           |  * Phase 4 (PSY-849, this PR): 58 long-tail
+#                |            |           |    sites — 2 bcrypt timing-mitigation calls
+#                |            |           |    annotated with preserved security comments,
+#                |            |           |    2 silent IncrementFailedAttempts /
+#                |            |           |    ResetFailedAttempts errors switched to
+#                |            |           |    structured logging, ~27 uniform best-effort
+#                |            |           |    annotations (resp.Body.Close, os.Setenv/
+#                |            |           |    Unsetenv, rows.Close, Container.Terminate),
+#                |            |           |    and ~27 testify-suite + bare-t fixture
+#                |            |           |    drops resolved with NoError calls. Gated to
+#                |            |           |    prevent regression of error-discipline.
 #
 # Note on the PSY-760 attribution-deref rule:
 #   PSY-760 wants a custom rule that flags direct user.{Username,FirstName,Email}
@@ -79,6 +99,7 @@ linters:
     - ineffassign
     - staticcheck
     - unused
+    - errcheck
 
   settings:
     govet:

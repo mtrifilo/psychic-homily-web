@@ -86,11 +86,11 @@ func TestGetEnvAsInt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set up environment variable
 			if tt.envValue != "" {
-				os.Setenv(tt.envKey, tt.envValue)
-				defer os.Unsetenv(tt.envKey)
+				os.Setenv(tt.envKey, tt.envValue)         //nolint:errcheck // test setup; failure would manifest as test failure below
+				defer os.Unsetenv(tt.envKey)              //nolint:errcheck // test teardown best-effort
 			} else {
 				// Ensure the environment variable is not set
-				os.Unsetenv(tt.envKey)
+				os.Unsetenv(tt.envKey) //nolint:errcheck // test teardown best-effort
 			}
 
 			// Call the function
@@ -106,11 +106,11 @@ func TestGetEnvAsInt(t *testing.T) {
 
 func TestGetEnvAsIntEnvironmentIsolation(t *testing.T) {
 	// Test that environment variables don't interfere with each other
-	os.Setenv("TEST_A", "100")
-	os.Setenv("TEST_B", "200")
+	os.Setenv("TEST_A", "100") //nolint:errcheck // test setup; failure would manifest as test failure below
+	os.Setenv("TEST_B", "200") //nolint:errcheck // test setup; failure would manifest as test failure below
 	defer func() {
-		os.Unsetenv("TEST_A")
-		os.Unsetenv("TEST_B")
+		os.Unsetenv("TEST_A") //nolint:errcheck // test teardown best-effort
+		os.Unsetenv("TEST_B") //nolint:errcheck // test teardown best-effort
 	}()
 
 	// Test that each variable returns its own value
@@ -175,8 +175,8 @@ func TestGetEnvAsIntEdgeCases(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			os.Setenv(tt.envKey, tt.envValue)
-			defer os.Unsetenv(tt.envKey)
+			os.Setenv(tt.envKey, tt.envValue) //nolint:errcheck // test setup; failure would manifest as test failure below
+			defer os.Unsetenv(tt.envKey)      //nolint:errcheck // test teardown best-effort
 
 			result := getEnvAsInt(tt.envKey, tt.defaultValue)
 
@@ -189,8 +189,8 @@ func TestGetEnvAsIntEdgeCases(t *testing.T) {
 
 // Benchmark test for performance
 func BenchmarkGetEnvAsInt(b *testing.B) {
-	os.Setenv("BENCHMARK_TEST", "12345")
-	defer os.Unsetenv("BENCHMARK_TEST")
+	os.Setenv("BENCHMARK_TEST", "12345") //nolint:errcheck // benchmark setup; failure would manifest in measured timings
+	defer os.Unsetenv("BENCHMARK_TEST")  //nolint:errcheck // benchmark teardown best-effort
 
 	for i := 0; i < b.N; i++ {
 		getEnvAsInt("BENCHMARK_TEST", 0)
@@ -198,7 +198,7 @@ func BenchmarkGetEnvAsInt(b *testing.B) {
 }
 
 func BenchmarkGetEnvAsIntDefault(b *testing.B) {
-	os.Unsetenv("BENCHMARK_TEST_DEFAULT")
+	os.Unsetenv("BENCHMARK_TEST_DEFAULT") //nolint:errcheck // benchmark teardown best-effort
 
 	for i := 0; i < b.N; i++ {
 		getEnvAsInt("BENCHMARK_TEST_DEFAULT", 12345)

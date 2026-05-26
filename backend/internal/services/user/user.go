@@ -12,6 +12,7 @@ import (
 
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
+	"psychic-homily-backend/internal/logger"
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	engagementm "psychic-homily-backend/internal/models/engagement"
@@ -326,6 +327,11 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 		// Use a dummy hash to maintain constant time
 		// This will always fail but takes the same time as a real verification
 		dummyHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy" // bcrypt hash of "dummy"
+		// Intentionally discard the result: this call exists ONLY for its CPU-time
+		// side effect (constant-time response). We must not branch on the outcome,
+		// since branching would re-introduce the timing oracle this code defends
+		// against.
+		//nolint:errcheck // see above; called for timing equalization, not validation
 		bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
 		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
@@ -338,15 +344,25 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 	}
 
 	if user.PasswordHash == nil {
-		// Also do dummy verification for OAuth-only accounts
+		// Also do dummy verification for OAuth-only accounts so attackers can't
+		// distinguish "no password set" from "wrong password" by timing.
 		dummyHash := "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+		//nolint:errcheck // see above; called for timing equalization, not validation
 		bcrypt.CompareHashAndPassword([]byte(dummyHash), []byte(password))
 		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
 
 	if err := s.VerifyPassword(*user.PasswordHash, password); err != nil {
-		// Increment failed attempts on password failure
-		s.IncrementFailedAttempts(user.ID)
+		// Increment failed attempts on password failure. Log + continue on
+		// counter-write failure: the auth attempt still fails (correct), but a
+		// silent counter failure would weaken brute-force lockout — surface it
+		// so ops can investigate without blocking the user-facing error.
+		if incErr := s.IncrementFailedAttempts(user.ID); incErr != nil {
+			logger.Default().Error("user_increment_failed_attempts_failed",
+				"user_id", user.ID,
+				"error", incErr,
+			)
+		}
 		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
 
@@ -354,8 +370,15 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 		return nil, fmt.Errorf("user account is not active")
 	}
 
-	// Reset failed attempts on successful login
-	s.ResetFailedAttempts(user.ID)
+	// Reset failed attempts on successful login. Log + continue on failure:
+	// the user is authenticated either way; a stale counter is a minor
+	// degradation, not a correctness bug.
+	if resetErr := s.ResetFailedAttempts(user.ID); resetErr != nil {
+		logger.Default().Error("user_reset_failed_attempts_failed",
+			"user_id", user.ID,
+			"error", resetErr,
+		)
+	}
 
 	return user, nil
 }

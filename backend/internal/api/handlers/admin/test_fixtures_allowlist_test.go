@@ -175,7 +175,7 @@ func tablesWithUsersFK(db *gorm.DB) ([]string, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	var tables []string
 	for rows.Next() {

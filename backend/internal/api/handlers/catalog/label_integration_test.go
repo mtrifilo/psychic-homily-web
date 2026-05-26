@@ -81,8 +81,10 @@ func (s *LabelHandlerIntegrationSuite) TestListLabels_Empty() {
 }
 
 func (s *LabelHandlerIntegrationSuite) TestListLabels_FilterByStatus() {
-	s.deps.LabelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Active Label", Status: "active"})
-	s.deps.LabelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
+	_, err := s.deps.LabelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Active Label", Status: "active"})
+	s.Require().NoError(err)
+	_, err = s.deps.LabelService.CreateLabel(&contracts.CreateLabelRequest{Name: "Defunct Label", Status: "defunct"})
+	s.Require().NoError(err)
 
 	req := &ListLabelsRequest{Status: "defunct"}
 	resp, err := s.handler.ListLabelsHandler(s.deps.Ctx, req)

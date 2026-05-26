@@ -33,7 +33,7 @@ func setupEmailTest(t *testing.T) (*EmailService, chan capturedEmail, *httptest.
 	requests := make(chan capturedEmail, 10)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var req capturedEmail
-		json.NewDecoder(r.Body).Decode(&req)
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&req))
 		requests <- req
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(map[string]string{"id": "test-email-id"})

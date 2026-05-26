@@ -390,5 +390,6 @@ func TestSubscribe_NilSubscriptionService(t *testing.T) {
 			t.Log("nil service handled gracefully or returned error")
 		}
 	}()
+	//nolint:errcheck // intentionally calling for panic side effect; recover() above handles outcome
 	h.SubscribeHandler(ctx, req)
 }

@@ -184,6 +184,7 @@ func (s *EnrichmentIntegrationTestSuite) SetupSuite() {
 
 func (s *EnrichmentIntegrationTestSuite) TearDownSuite() {
 	if s.container != nil {
+		//nolint:errcheck // test teardown best-effort; container is going away
 		s.container.Terminate(s.ctx)
 	}
 }

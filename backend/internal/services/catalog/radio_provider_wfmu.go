@@ -148,7 +148,7 @@ func (p *WFMUProvider) doGet(url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("executing request: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
