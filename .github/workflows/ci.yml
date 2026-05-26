@@ -147,15 +147,15 @@ jobs:
           disable_search: true
           token: ${{ secrets.CODECOV_TOKEN }}
 
-  # PSY-772: backend lint gate. Two steps, two configs:
+  # PSY-772: backend lint gate.
   #   * Gated linters (.golangci.yml) — fail the job on any finding. Currently
-  #     `govet` (with the cosmetic `inline` analyzer disabled). Surveyed clean
-  #     on 2026-05-23.
-  #   * Advisory linters (.golangci-advisory.yml) — surface the pre-existing
-  #     backlog (errcheck, errorlint, ineffassign, staticcheck, unused) WITHOUT
-  #     failing the job (continue-on-error). As each backlog is cleaned, the
-  #     linter moves from -advisory.yml into .golangci.yml in a follow-up PR.
-  # Wall-time on the survey was ~6s for both runs combined — well inside the
+  #     govet (inline analyzer disabled), errorlint, ineffassign, staticcheck,
+  #     unused, errcheck. All linters surveyed clean as of 2026-05-25.
+  #   * Advisory tier (.golangci-advisory.yml) — REMOVED by PSY-849. The
+  #     graduation series (PSY-762/830/831/832/833) cleared every advisory
+  #     linter; all 5 are now gated. Re-add the file + a second action step
+  #     if a future linter needs an advisory phase.
+  # Wall-time on the survey was ~6s for the full set — well inside the
   # ~10-min PR CI budget. golangci-lint-action handles its own module + build
   # cache, independent of the test job's setup-go cache.
   backend-lint:
@@ -175,17 +175,6 @@ jobs:
           version: v2.12.2
           working-directory: backend
           args: --config=.golangci.yml
-
-      - name: Run advisory linters
-        uses: golangci/golangci-lint-action@v7
-        # Surface findings but never fail the job — the advisory backlog is
-        # tracked separately and each linter graduates to .golangci.yml as it
-        # gets cleaned up.
-        continue-on-error: true
-        with:
-          version: v2.12.2
-          working-directory: backend
-          args: --config=.golangci-advisory.yml
 
   # PSY-771/PSY-794: the committed testhelpers/mocks_gen.go is generated. It
   # drifted from its generator once before, so this job re-runs the generator
