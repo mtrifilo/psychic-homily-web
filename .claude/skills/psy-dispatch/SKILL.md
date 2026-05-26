@@ -22,7 +22,7 @@ Do NOT use for:
 - A genuine one-off ticket — no multi-ticket sweep context, no prior dispatcher handoff, the user just wants help with PSY-XXX. Do the work directly; the dispatch overhead isn't worth it when the user is actively pairing.
 - A ticket whose only edits land in gitignored paths (e.g. `docs/` in this repo). Worktree edits to ignored files don't commit, don't push, don't surface in a PR, and vanish on worktree cleanup. See the anti-pattern entry below for the recovery path when this is discovered mid-flight.
 - Ticket *creation* → that's `psy-ticket`.
-- Generic Linear queries → that's `linear-cli`.
+- Generic Linear queries → that's `linear-reference` (CLI shape) or `psy-ticket` (PSY conventions).
 
 ## Prerequisites
 
@@ -445,7 +445,7 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 ## Related skills and memories
 
 - **`psy-ticket`** — ticket *creation* (this skill is for ticket *execution*).
-- **`linear-cli`** — generic Linear CLI surface; drop down to it if `linear issue update --state` lacks a flag you need.
+- **`linear-reference`** — workspace-agnostic `linear` CLI reference. Drop down to it when you need a command shape outside `psy-ticket`'s ticket-creation focus — `linear issue update --state` flags, posting comments on dispatched tickets (`linear issue comment add` rejects `--no-interactive`), project-update posts, milestone / document ops.
 - **`code-review`** — invoked by every dispatched agent before opening its PR.
 - `feedback_code_review_before_pr.md` — `/code-review` AND relevant local tests run before every PR (single-ticket or batched); failure blocks push, escalate to orchestrator instead of pushing past it.
 - `feedback_no_speculative_implementation.md` — when a ticket is ambiguous about WHAT to build, STOP and ask.

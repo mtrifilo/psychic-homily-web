@@ -17,7 +17,7 @@ Encodes the serial workflow for taking ONE PSY ticket from "In Progress" to a me
 Do NOT use for:
 - A batch of 2+ tickets — that's `psy-dispatch` (parallel worktrees, one agent per ticket).
 - Ticket *creation* — that's `psy-ticket`.
-- Generic Linear queries — that's `linear-cli`.
+- Generic Linear queries — that's `linear-reference` (CLI shape) or `psy-ticket` (PSY conventions).
 - A throwaway debug session where the user is pairing inline and doesn't want a PR.
 
 ## Prerequisites
@@ -341,7 +341,7 @@ Do NOT delete the draft release after the PR is open — the asset URLs depend o
 - **`/psy-self-review`** — invoked at phase 7.6 between follow-up filing (phases 7 / 7.5) and `git push` (phase 8). Sub-agent audits the draft PR body against session evidence; BLOCKING finding (unverified `[x]` claim) stops the push.
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped UI audit pattern (sweep N merged tickets via screenshots + DOM-eval, file follow-ups, post project-update). Different scope from `psy-solo` (retrospective sweep vs forward per-ticket). Will be drafted after PSY-656 validates the audit cadence is genuinely reusable. May 16 audit was the first instance: caught PSY-663 + PSY-664 in ~30 minutes.
 - **`psy-ticket`** — ticket creation; pair with phase 7 to file the follow-ups this skill identifies.
-- **`linear-cli`** — generic Linear surface; drop down to it if `linear issue` lacks a flag.
+- **`linear-reference`** — workspace-agnostic `linear` CLI reference. Drop down to it when you need a command shape outside `psy-ticket`'s ticket-creation focus — posting status updates via `linear project-update create --health onTrack|atRisk|offTrack`, posting an issue comment via `linear issue comment add` (note: rejects `--no-interactive`), milestone / initiative-update / document ops. Pair with `psy-ticket` when PSY conventions also apply.
 - **`code-review`** — invoked in phase 5; spawns 3 parallel reviewer agents (reuse / quality / efficiency) against the diff.
 - **`agent-browser` CLI** — `which agent-browser` to confirm install; pre-installed in this dev environment. Reliable Chrome automation that doesn't depend on a running Chrome instance.
 - `feedback_code_review_before_pr.md` — non-negotiable rule 4 above.

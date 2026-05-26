@@ -5,7 +5,7 @@ description: Resume or extend the PSY-646 Psychic Homily design system build in 
 
 # psy-design-system: Psychic Homily Figma DS workflow
 
-PSY-646 design system overhaul — editorial / dense / newsprint aesthetic, retiring Geist. This skill is the project-specific layer on top of `figma-use` (Plugin API rules) and `figma-generate-library` (phased workflow). It encodes locked decisions and the gotchas that have already cost time.
+PSY-646 design system overhaul — editorial / dense / newsprint aesthetic, retiring Geist. This skill is the project-specific layer on top of `figma-use` (Plugin API rules), `figma-generate-library` (phased workflow), and `figma-reference` (read-tool decision tree + recovery patterns when MCP misbehaves). It encodes locked decisions and the gotchas that have already cost time.
 
 ## When to use
 
@@ -365,7 +365,8 @@ Figma policy (since Oct 2024): the **Publish library** button is hidden when the
 
 1. Load this skill (you're here).
 2. Load `figma:figma-use` + `figma:figma-generate-library` skills.
-3. Load Figma MCP tool schemas (see Prerequisites §3).
+3. Load `figma-reference` if this is an inspection-heavy session (read tools, URL parsing, recovery when MCP misbehaves or desktop isn't on the file).
+4. Load Figma MCP tool schemas (see Prerequisites §3).
 4. Sanity-check auth: `mcp__plugin_figma_figma__whoami`.
 5. Run the §"Verify state" inventory script against the **DS file** (`isfHz0oyFK1ALX19IRGg51`). Cross-reference with the Build state in this skill — if they disagree, file state wins.
 6. Pick up the next component. Mirror Button + Badge structure.
@@ -376,7 +377,8 @@ Figma policy (since Oct 2024): the **Publish library** button is hidden when the
 
 1. Load this skill (you're here).
 2. Load `figma:figma-use` + `figma:figma-generate-design` skills.
-3. Load Figma MCP tool schemas (see Prerequisites §3).
+3. Load `figma-reference` if this is an inspection-heavy session (read tools, URL parsing, recovery when MCP misbehaves or desktop isn't on the file).
+4. Load Figma MCP tool schemas (see Prerequisites §3).
 4. Sanity-check auth: `mcp__plugin_figma_figma__whoami`.
 5. Run the §"Verify state" inventory script against the **DS file** to harvest library keys.
 6. **Read the actual app** per "Product-design workflow → Read the actual app FIRST." Skipping this step costs an iteration.
