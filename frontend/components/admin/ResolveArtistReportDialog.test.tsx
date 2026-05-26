@@ -42,6 +42,10 @@ describe('ResolveArtistReportDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // mockReset (not just clearAllMocks) is required because tests below
+    // use mockImplementation to simulate success/error paths. clearAllMocks
+    // only resets call history — implementations persist across tests.
+    mockMutate.mockReset()
     mockIsPending = false
     mockIsError = false
     mockError = null
@@ -220,5 +224,50 @@ describe('ResolveArtistReportDialog', () => {
     expect(
       screen.getByText('Failed to resolve report. Please try again.')
     ).toBeInTheDocument()
+  })
+
+  it('fires onSuccess (closes dialog + clears notes) when mutation succeeds', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.()
+    })
+
+    render(
+      <ResolveArtistReportDialog
+        report={makeReport()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const textarea = screen.getByLabelText('Action taken (optional)')
+    await user.type(textarea, 'Updated artist socials')
+    await user.click(screen.getByRole('button', { name: /Mark as Resolved/i }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(textarea).toHaveValue('')
+  })
+
+  it('preserves notes draft on error so admin can retry without re-typing', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation(() => {
+      // Error path: onSuccess never fires
+    })
+
+    render(
+      <ResolveArtistReportDialog
+        report={makeReport()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const textarea = screen.getByLabelText('Action taken (optional)')
+    await user.type(textarea, 'Should survive retry')
+    await user.click(screen.getByRole('button', { name: /Mark as Resolved/i }))
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(textarea).toHaveValue('Should survive retry')
   })
 })

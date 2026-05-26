@@ -5,13 +5,16 @@ import { DismissArtistReportDialog } from './DismissArtistReportDialog'
 import type { ArtistReportResponse } from '@/features/artists'
 
 const mockMutate = vi.fn()
+let mockIsPending = false
+let mockIsError = false
+let mockError: Error | null = null
 
 vi.mock('@/lib/hooks/admin/useAdminArtistReports', () => ({
   useDismissArtistReport: () => ({
     mutate: mockMutate,
-    isPending: false,
-    isError: false,
-    error: null as Error | null,
+    isPending: mockIsPending,
+    isError: mockIsError,
+    error: mockError,
   }),
 }))
 
@@ -30,6 +33,13 @@ describe('DismissArtistReportDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // mockReset (not just clearAllMocks) is required because tests below
+    // use mockImplementation to simulate success/error paths. clearAllMocks
+    // only resets call history — implementations persist across tests.
+    mockMutate.mockReset()
+    mockIsPending = false
+    mockIsError = false
+    mockError = null
   })
 
   it('renders nothing when closed', () => {
@@ -153,5 +163,146 @@ describe('DismissArtistReportDialog', () => {
       />
     )
     expect(screen.getByText(/Unknown Artist/)).toBeInTheDocument()
+  })
+
+  it('calls mutate with undefined notes when notes field is empty', async () => {
+    const user = userEvent.setup()
+    render(
+      <DismissArtistReportDialog
+        report={baseReport}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const dismissButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Dismiss Report'))
+    await user.click(dismissButtons[dismissButtons.length - 1])
+
+    expect(mockMutate).toHaveBeenCalledWith(
+      { reportId: 1, notes: undefined },
+      expect.any(Object)
+    )
+  })
+
+  it('trims whitespace-only notes to undefined', async () => {
+    const user = userEvent.setup()
+    render(
+      <DismissArtistReportDialog
+        report={baseReport}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    await user.type(screen.getByLabelText('Notes (optional)'), '   ')
+
+    const dismissButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Dismiss Report'))
+    await user.click(dismissButtons[dismissButtons.length - 1])
+
+    expect(mockMutate).toHaveBeenCalledWith(
+      { reportId: 1, notes: undefined },
+      expect.any(Object)
+    )
+  })
+
+  it('disables buttons when mutation is pending', () => {
+    mockIsPending = true
+    render(
+      <DismissArtistReportDialog
+        report={baseReport}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    expect(screen.getByText('Dismissing...')).toBeInTheDocument()
+  })
+
+  it('shows inline error banner when mutation fails', () => {
+    mockIsError = true
+    mockError = new Error('Network blew up')
+    render(
+      <DismissArtistReportDialog
+        report={baseReport}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    expect(screen.getByText('Network blew up')).toBeInTheDocument()
+  })
+
+  it('shows fallback error message when error has no message', () => {
+    mockIsError = true
+    mockError = null
+    render(
+      <DismissArtistReportDialog
+        report={baseReport}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    expect(
+      screen.getByText('Failed to dismiss report. Please try again.')
+    ).toBeInTheDocument()
+  })
+
+  it('preserves notes draft on error so admin can retry without re-typing', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation(() => {
+      // Error path: onSuccess never fires
+    })
+
+    render(
+      <DismissArtistReportDialog
+        report={baseReport}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const textarea = screen.getByLabelText('Notes (optional)')
+    await user.type(textarea, 'Retry me')
+
+    const dismissButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Dismiss Report'))
+    await user.click(dismissButtons[dismissButtons.length - 1])
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    expect(textarea).toHaveValue('Retry me')
+  })
+
+  it('fires onSuccess (closes dialog + clears notes) when mutation succeeds', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.()
+    })
+
+    render(
+      <DismissArtistReportDialog
+        report={baseReport}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const textarea = screen.getByLabelText('Notes (optional)')
+    await user.type(textarea, 'Dismissing as spam')
+
+    const dismissButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Dismiss Report'))
+    await user.click(dismissButtons[dismissButtons.length - 1])
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(textarea).toHaveValue('')
   })
 })
