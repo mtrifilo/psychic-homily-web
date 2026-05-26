@@ -506,7 +506,7 @@ func TestExtractCalendarPage(t *testing.T) {
 			// Verify the request is well-formed
 			body, _ := io.ReadAll(r.Body)
 			var reqBody anthropicRequest
-			json.Unmarshal(body, &reqBody)
+			require.NoError(t, json.Unmarshal(body, &reqBody))
 
 			// Verify calendar-specific settings
 			assert.Equal(t, 4096, reqBody.MaxTokens)
@@ -550,7 +550,7 @@ func TestExtractCalendarPage(t *testing.T) {
 		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			body, _ := io.ReadAll(r.Body)
 			var reqBody anthropicRequest
-			json.Unmarshal(body, &reqBody)
+			require.NoError(t, json.Unmarshal(body, &reqBody))
 
 			// Verify message content includes image block
 			assert.Len(t, reqBody.Messages, 1)
