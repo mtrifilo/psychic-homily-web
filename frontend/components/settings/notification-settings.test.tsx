@@ -292,4 +292,40 @@ describe('NotificationSettings', () => {
       expect(errors.length).toBeGreaterThanOrEqual(1)
     })
   })
+
+  // ----- Pending spinner placement (both rows) -----
+
+  it('renders independent pending state per row — show-reminders pending does not disable digest', () => {
+    mockShowRemindersState = { isPending: true, isError: false, error: null }
+    renderWithProviders(<NotificationSettings />)
+
+    const showRemindersToggle = screen.getByRole('switch', {
+      name: 'Show reminders',
+    })
+    const digestToggle = screen.getByRole('switch', {
+      name: /Weekly digest of new items in collections I follow/,
+    })
+
+    // Only show-reminders is mutating; the digest row must remain interactive.
+    expect(showRemindersToggle).toBeDisabled()
+    expect(digestToggle).toBeEnabled()
+  })
+
+  it('does not call the digest mutation when toggling show reminders', async () => {
+    mockProfileData = {
+      user: {
+        preferences: {
+          show_reminders: false,
+          notify_on_collection_digest: false,
+        },
+      },
+    }
+    const user = userEvent.setup()
+    renderWithProviders(<NotificationSettings />)
+
+    await user.click(screen.getByRole('switch', { name: 'Show reminders' }))
+
+    expect(mockShowRemindersMutate).toHaveBeenCalledTimes(1)
+    expect(mockCollectionDigestMutate).not.toHaveBeenCalled()
+  })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { OAuthAccounts } from './oauth-accounts'
@@ -389,5 +389,71 @@ describe('OAuthAccounts', () => {
     // The disconnect button should be disabled during pending
     const disconnectBtn = screen.getByRole('button', { name: /Disconnect/ })
     expect(disconnectBtn).toBeDisabled()
+  })
+
+  it('closes the confirmation dialog after a successful unlink', async () => {
+    mockOAuthData = {
+      accounts: [
+        {
+          provider: 'google',
+          email: 'user@gmail.com',
+          connected_at: '2025-06-15T10:00:00Z',
+        },
+      ],
+    }
+    mockUnlinkMutateAsync.mockResolvedValueOnce(undefined)
+
+    const user = userEvent.setup()
+    renderWithProviders(<OAuthAccounts />)
+
+    await user.click(screen.getByRole('button', { name: /Disconnect/ }))
+    expect(screen.getByText('Disconnect Google Account?')).toBeInTheDocument()
+
+    // Confirm disconnect.
+    const dialogDisconnect = screen.getAllByRole('button').find(
+      btn => btn.textContent === 'Disconnect' && btn.closest('[role="dialog"]')
+    )
+    if (dialogDisconnect) {
+      await user.click(dialogDisconnect)
+    }
+
+    // After the awaited mutateAsync resolves, the dialog should close —
+    // `setUnlinkProvider(null)` in handleUnlink triggers the close.
+    await waitFor(() => {
+      expect(
+        screen.queryByText('Disconnect Google Account?')
+      ).not.toBeInTheDocument()
+    })
+  })
+
+  it('keeps the confirmation dialog open when unlink rejects', async () => {
+    mockOAuthData = {
+      accounts: [
+        {
+          provider: 'google',
+          email: 'user@gmail.com',
+          connected_at: '2025-06-15T10:00:00Z',
+        },
+      ],
+    }
+    mockUnlinkMutateAsync.mockRejectedValueOnce(new Error('Server error'))
+
+    const user = userEvent.setup()
+    renderWithProviders(<OAuthAccounts />)
+
+    await user.click(screen.getByRole('button', { name: /Disconnect/ }))
+
+    const dialogDisconnect = screen.getAllByRole('button').find(
+      btn => btn.textContent === 'Disconnect' && btn.closest('[role="dialog"]')
+    )
+    if (dialogDisconnect) {
+      await user.click(dialogDisconnect)
+    }
+
+    // After Sentry capture, the dialog should stay open so the user can retry.
+    await waitFor(() => {
+      expect(mockCaptureException).toHaveBeenCalled()
+    })
+    expect(screen.getByText('Disconnect Google Account?')).toBeInTheDocument()
   })
 })
