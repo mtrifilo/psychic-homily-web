@@ -156,8 +156,8 @@ type UserService struct {
 	// AuthenticateUserWithPassword routes the lockout-counter increment through
 	// this function instead of s.IncrementFailedAttempts directly. The seam
 	// exists to deterministically exercise the fail-closed path on counter-
-	// write failure (PSY-861) without resorting to DB-state manipulation that
-	// would race with the rest of the integration suite. Leave nil in production.
+	// write failure without resorting to DB-state manipulation that would race
+	// with the rest of the integration suite. Leave nil in production.
 	incrementFailedAttemptsFn func(userID uint) error
 }
 
