@@ -39,15 +39,25 @@ on:
       # budgets / preset / paths re-validate on the same PR.
       - lighthouserc.json
       - .github/workflows/lighthouse-explore.yml
+      #
+      # Intentionally NOT in the filter — these are transitive deps
+      # whose perf footprint already spans the whole app (changes
+      # there get caught by the broader E2E / visual suite):
+      #   * frontend/lib/queryClient.ts, lib/api-base.ts, lib/utils/*
+      #   * frontend/features/shows/**, features/artists/**
+      # If a regression in those areas materializes on /explore later,
+      # widen the filter rather than fix it after the fact.
 
 jobs:
   lighthouse:
     name: Lighthouse /explore (mobile)
     runs-on: ubuntu-latest
     # Vercel preview waits can be slow (cold builds peak at ~3min);
-    # Lighthouse itself adds ~1min per run × 3 runs. 10min is a safe
-    # ceiling that still catches a hung deployment.
-    timeout-minutes: 10
+    # Lighthouse itself adds ~1min per run × 3 runs. Job ceiling is
+    # the wait timeout (10min) + lhci runtime (~5min) + slack for
+    # cold action setup. Set explicitly above the sum so an unlucky
+    # cold-build PR doesn't get SIGKILL'd before lhci can report.
+    timeout-minutes: 20
     # `wait-for-vercel-preview` reads deployment statuses via the GH
     # API; default GITHUB_TOKEN permissions cover this. No write
     # permissions required — Lighthouse uploads to

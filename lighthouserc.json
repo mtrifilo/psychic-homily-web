@@ -39,9 +39,6 @@
           { "maxNumericValue": 0.1, "aggregationMethod": "median" }
         ]
       }
-    },
-    "upload": {
-      "target": "temporary-public-storage"
     }
   }
 }
