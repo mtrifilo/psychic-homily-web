@@ -248,13 +248,14 @@ describe('AddItemsPicker', () => {
     }
   })
 
-  it('renders Search + Paste tabs and a disabled AI tab', () => {
+  it('renders Search, Paste, and AI tabs', () => {
+    // PSY-824 enabled the AI tab (was disabled with a "Coming in PSY-824"
+    // tooltip in PSY-823). All three tabs should now be present + active.
     render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
     expect(screen.getByTestId('tab-search')).toBeInTheDocument()
     expect(screen.getByTestId('tab-paste')).toBeInTheDocument()
-    const aiTab = screen.getByTestId('tab-ai')
-    expect(aiTab).toBeInTheDocument()
-    expect(aiTab).toBeDisabled()
+    expect(screen.getByTestId('tab-ai')).toBeInTheDocument()
+    expect(screen.getByTestId('tab-ai')).not.toBeDisabled()
   })
 
   it('shows the search empty-state copy by default', () => {
