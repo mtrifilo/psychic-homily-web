@@ -27,9 +27,20 @@ describe('getVenueLocation', () => {
     )
   })
 
-  it('still renders the separator when a part is an empty string', () => {
-    // The helper is a plain template join with no null/empty guard; an empty
-    // state leaves a trailing ", " so callers can spot missing data.
-    expect(getVenueLocation(venue({ state: '' }))).toBe('Phoenix, ')
+  it('drops the separator when state is empty (PSY-780 fix)', () => {
+    // Previously the helper rendered "Phoenix, " (trailing comma + space) for
+    // venues with a missing state. Now delegates to the shared formatLocation
+    // helper, which filters empty parts before joining.
+    expect(getVenueLocation(venue({ state: '' }))).toBe('Phoenix')
+  })
+
+  it('renders only the state when city is empty', () => {
+    expect(getVenueLocation(venue({ city: '', state: 'AZ' }))).toBe('AZ')
+  })
+
+  it('returns "Location Unknown" when both city and state are empty', () => {
+    expect(getVenueLocation(venue({ city: '', state: '' }))).toBe(
+      'Location Unknown'
+    )
   })
 })

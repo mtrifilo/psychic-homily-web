@@ -189,6 +189,12 @@ export const queryKeys = {
     // panels after Set / Retire.
     featuredSlots: (params?: Record<string, unknown>) =>
       ['admin', 'featuredSlots', params] as const,
+    // Streaming-discovery triage worklist. Status filter + limit /
+    // offset are part of the key so the status filter and pagination
+    // produce independent cache entries; status mutations invalidate
+    // the whole streamingWorklist branch.
+    streamingWorklist: (params?: Record<string, unknown>) =>
+      ['admin', 'streamingWorklist', params] as const,
   },
 
   // Artist queries (defined in features/artists/api.ts)

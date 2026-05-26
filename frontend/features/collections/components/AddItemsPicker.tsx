@@ -20,8 +20,8 @@
  *     round-trip (useResolveCollectionItems). Plain-text lines fall to
  *     UNRESOLVED for V1 — plain-text auto-match is a follow-up.
  *
- * AI mode (third tab) is rendered DISABLED for visual parity with the
- * locked Figma — PSY-824 will enable it.
+ * AI mode (third tab) mounts AICollectionFiller for paste-an-article
+ * extraction via Claude Haiku.
  */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -33,7 +33,6 @@ import {
   Check,
   AlertCircle,
   Library,
-  Sparkles,
   Loader2,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -49,6 +48,7 @@ import {
 import { useResolveCollectionItems } from '../hooks'
 import { getEntityTypeLabel } from '../types'
 import { cn } from '@/lib/utils'
+import { AICollectionFiller } from './AICollectionFiller'
 
 // ──────────────────────────────────────────────
 // Types
@@ -364,9 +364,7 @@ export function AddItemsPicker({
         <TabsList className="w-full justify-start">
           <TabsTrigger value="search">Search</TabsTrigger>
           <TabsTrigger value="paste">Paste URLs</TabsTrigger>
-          <TabsTrigger value="ai" disabled title="Coming in PSY-824">
-            From article (AI)
-          </TabsTrigger>
+          <TabsTrigger value="ai">From article (AI)</TabsTrigger>
         </TabsList>
 
         {tab === 'search' && (
@@ -395,10 +393,16 @@ export function AddItemsPicker({
         )}
 
         {tab === 'ai' && (
-          <p className="text-sm text-muted-foreground py-6 text-center">
-            <Sparkles className="inline h-3.5 w-3.5 mr-1.5" />
-            AI extraction lands in PSY-824. For now use Search or Paste URLs.
-          </p>
+          <AICollectionFiller
+            onStageItems={stageBatch}
+            alreadyStaged={(entityType, entityId) =>
+              isAlreadyStaged(
+                { entityType, entityId, name: '', subtitle: null },
+                existingItems,
+                stagedItems
+              )
+            }
+          />
         )}
       </Tabs>
 
@@ -680,8 +684,8 @@ function PasteModePane({
         <p className="text-xs text-muted-foreground">
           Unresolved lines must be canonical PH paths like{' '}
           <code className="px-1 rounded bg-muted">/artists/&lt;slug&gt;</code>.
-          External URLs and free-text auto-match are tracked separately
-          (PSY-824 / follow-up).
+          For an article URL or pasted prose, switch to the AI tab. Free-text
+          auto-match in this paste-URL field is a follow-up.
         </p>
       )}
     </div>

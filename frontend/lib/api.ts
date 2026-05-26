@@ -143,6 +143,18 @@ export const API_ENDPOINTS = {
       DELETE_ALIAS: (artistId: string | number, aliasId: string | number) =>
         `${API_BASE_URL}/admin/artists/${artistId}/aliases/${aliasId}`,
       MERGE: `${API_BASE_URL}/admin/artists/merge`,
+      // Streaming-discovery triage status mutation. Engine seam: the
+      // worklist concentrates the state write; the discovery engine
+      // itself stays stateless. See StreamingWorklist.tsx.
+      STREAMING_DISCOVERY_STATUS: (artistId: string | number) =>
+        `${API_BASE_URL}/admin/artists/${artistId}/streaming-discovery-status`,
+    },
+    // Prioritized triage queue for streaming-link discovery. Returns
+    // artists with non-terminal streaming_discovery_status who have at
+    // least one upcoming show, ordered by soonest show ASC. Pairs with
+    // ADMIN.ARTISTS.STREAMING_DISCOVERY_STATUS for row mutations.
+    STREAMING_WORKLIST: {
+      LIST: `${API_BASE_URL}/admin/streaming-worklist`,
     },
     REPORTS: {
       LIST: `${API_BASE_URL}/admin/reports`,
@@ -582,8 +594,36 @@ export const apiRequest = async <T = unknown>(
     return undefined as T
   }
 
-  // Parse successful response
-  const data = (await response.json()) as T
+  // Parse successful response. A 2xx with a non-JSON body (misconfigured
+  // proxy returning HTML, gateway page, truncated stream, etc.) must
+  // surface as an ApiError so callers get the same structured envelope as
+  // the error path — bare SyntaxError leaks `JSON.parse` internals to the
+  // UI with no status/requestId/endpoint context.
+  let data: T
+  try {
+    data = (await response.json()) as T
+  } catch (parseError) {
+    const parseMessage =
+      parseError instanceof Error ? parseError.message : String(parseError)
+    const message = `Invalid JSON in successful response from ${endpointPath} (HTTP ${response.status}): ${parseMessage}`
+
+    authLogger.error(
+      'API response parse failed',
+      parseError instanceof Error ? parseError : new Error(parseMessage),
+      {
+        endpoint: endpointPath,
+        status: response.status,
+      },
+      requestId
+    )
+
+    const apiError: ApiError = new Error(message)
+    apiError.status = response.status
+    apiError.statusText = response.statusText
+    apiError.requestId = requestId
+    apiError.details = parseError
+    throw apiError
+  }
 
   // Inject request ID from header if not in response body (if data is an object)
   if (requestId && data && typeof data === 'object') {

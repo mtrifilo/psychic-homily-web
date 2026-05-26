@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import Link from 'next/link'
 import {
   Clock,
   MapPin,
@@ -24,6 +25,8 @@ import {
   Star,
   Tag,
   Link2,
+  Radio,
+  Sparkles,
   Activity,
   type LucideIcon,
 } from 'lucide-react'
@@ -332,6 +335,52 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
             trend={stats.total_users_trend}
             onClick={onNavigate ? () => onNavigate('users') : undefined}
           />
+        </div>
+      </section>
+
+      {/* Tools — standalone admin pages outside the main tab grid.
+       Featured curation and Streaming-discovery worklist each live at
+       their own route, so they need explicit links here for
+       discoverability. */}
+      <section>
+        <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wider mb-3">
+          Tools
+        </h2>
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <Link
+            href="/admin/streaming-worklist"
+            className="rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            data-testid="admin-dashboard-link-streaming-worklist"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Radio className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Streaming-discovery worklist</p>
+                <p className="text-xs text-muted-foreground">
+                  Triage Bandcamp/Spotify links for artists with upcoming shows.
+                </p>
+              </div>
+            </div>
+          </Link>
+          <Link
+            href="/admin/featured"
+            className="rounded-lg border border-border bg-card p-4 transition-colors hover:bg-muted/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            data-testid="admin-dashboard-link-featured"
+          >
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-muted text-muted-foreground">
+                <Sparkles className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">Featured curation</p>
+                <p className="text-xs text-muted-foreground">
+                  Set the active Featured Bill and Featured Collection on /explore.
+                </p>
+              </div>
+            </div>
+          </Link>
         </div>
       </section>
 

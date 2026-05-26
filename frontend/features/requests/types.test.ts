@@ -155,55 +155,28 @@ describe('formatTimeAgo', () => {
   const DAY = 24 * HOUR
   const WEEK = 7 * DAY
 
+  // Smoke test — full behavior is covered in lib/formatTimeAgo.test.ts. The
+  // requests module re-exports the shared helper (PSY-780); these cases pin
+  // the months-aware path that previously lived only in this file.
   it('returns "just now" under a minute', () => {
     expect(ago(30 * SECOND)).toBe('just now')
-  })
-
-  it('singularizes one minute', () => {
-    expect(ago(MINUTE)).toBe('1 minute ago')
-  })
-
-  it('pluralizes minutes', () => {
-    expect(ago(5 * MINUTE)).toBe('5 minutes ago')
-  })
-
-  it('singularizes one hour', () => {
-    expect(ago(HOUR)).toBe('1 hour ago')
-  })
-
-  it('pluralizes hours', () => {
-    expect(ago(3 * HOUR)).toBe('3 hours ago')
-  })
-
-  it('singularizes one day', () => {
-    expect(ago(DAY)).toBe('1 day ago')
-  })
-
-  it('pluralizes days', () => {
-    expect(ago(3 * DAY)).toBe('3 days ago')
-  })
-
-  it('singularizes one week', () => {
-    expect(ago(WEEK)).toBe('1 week ago')
   })
 
   it('pluralizes weeks', () => {
     expect(ago(3 * WEEK)).toBe('3 weeks ago')
   })
 
-  it('singularizes one month', () => {
+  it('singularizes one month at 35 days', () => {
     // The month branch is only reachable once the week count reaches 5
     // (diffWeeks < 5 short-circuits first), so 35 days is the floor for
     // "1 month ago" rather than 31.
     expect(ago(35 * DAY)).toBe('1 month ago')
   })
 
-  it('pluralizes months', () => {
-    expect(ago(90 * DAY)).toBe('3 months ago')
-  })
-
   it('falls back to an absolute date past a year', () => {
-    // ~13 months ago — beyond the relative window, so it returns formatDate().
-    expect(ago(400 * DAY)).toBe(formatDate(new Date(NOW.getTime() - 400 * DAY).toISOString()))
+    // ~13 months ago — beyond the relative window, so it matches formatDate().
+    expect(ago(400 * DAY)).toBe(
+      formatDate(new Date(NOW.getTime() - 400 * DAY).toISOString())
+    )
   })
 })
