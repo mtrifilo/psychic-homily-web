@@ -358,7 +358,7 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 		// silent counter failure would weaken brute-force lockout — surface it
 		// so ops can investigate without blocking the user-facing error.
 		if incErr := s.IncrementFailedAttempts(user.ID); incErr != nil {
-			logger.Default().Error("user_increment_failed_attempts_error",
+			logger.Default().Error("user_increment_failed_attempts_failed",
 				"user_id", user.ID,
 				"error", incErr,
 			)
@@ -374,7 +374,7 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 	// the user is authenticated either way; a stale counter is a minor
 	// degradation, not a correctness bug.
 	if resetErr := s.ResetFailedAttempts(user.ID); resetErr != nil {
-		logger.Default().Error("user_reset_failed_attempts_error",
+		logger.Default().Error("user_reset_failed_attempts_failed",
 			"user_id", user.ID,
 			"error", resetErr,
 		)
