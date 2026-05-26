@@ -35,7 +35,7 @@ which agent-browser               # if any UI screenshots are planned
 1. **One issue = one PR.** Branch name `PSY-{N}/{kebab-description}`. PR body includes `Closes PSY-{N}`.
 2. **Pull latest main BEFORE starting.** `git -C <repo> checkout main && git pull --ff-only origin main`. Stale main inherits stale-fallout CI from anything that merged in between (see psy-dispatch anti-pattern catalog for the canonical incident).
 3. **Surface ambiguity via `AskUserQuestion` BEFORE writing code.** When the ticket has a design fork (Option A vs B, taxonomy/threshold/UX choice not already decided), batch the questions into a single `AskUserQuestion` call. See `feedback_no_speculative_implementation.md` and `feedback_plan_mode_questions_first.md`. Do not guess — file a follow-up rather than implementing speculative scope.
-4. **`/code-review` AND relevant local tests run before push; failure blocks push.** Same rule as `psy-dispatch`. Never push past a failing local test, even one you believe is pre-existing on main — escalate to the user instead of triaging via GitHub CI. See `feedback_code-review_before_pr.md`.
+4. **`/code-review` AND relevant local tests run before push; failure blocks push.** Same rule as `psy-dispatch`. Never push past a failing local test, even one you believe is pre-existing on main — escalate to the user instead of triaging via GitHub CI. See `feedback_code_review_before_pr.md`.
 5. **Never mark Done in Linear.** Transition to "In Progress" on start; the user moves it to Done on merge.
 6. **Never merge the PR yourself.** Push and open the PR; the user merges.
 7. **Document deferred scope explicitly in the PR body.** If the implementation Q&A produced a "skip this and file a follow-up" decision, link the follow-up ticket(s) in a `## Deferred` section.
@@ -95,7 +95,26 @@ cd backend && go test ./internal/services/<pkg>/...       # scoped test, or `./.
 
 The actual scoped frontend runner is `bun run test:run <path>`, NOT `bun run test:unit`. The latter doesn't exist; verify scripts via `package.json` if uncertain.
 
-If any test fails — even one you believe is pre-existing on main — STOP, report the failing test + command + one-sentence hypothesis, and let the user decide between (a) fixing inline first, (b) skipping, (c) accepting. Do NOT push and hope GitHub CI sorts it. See `feedback_code-review_before_pr.md`.
+If any test fails — even one you believe is pre-existing on main — STOP, report the failing test + command + one-sentence hypothesis, and let the user decide between (a) fixing inline first, (b) skipping, (c) accepting. Do NOT push and hope GitHub CI sorts it. See `feedback_code_review_before_pr.md`.
+
+**Local-test-before-push is non-negotiable for E2E spec changes** (separate from the unit-test discipline above; the unit-test rule is already encoded in the code block + the "STOP if any test fails" paragraph). Per the user-level `feedback_local_test_before_push.md` memory: *CI is the second signal, not the first.* For diffs that touch anything under `frontend/e2e/`:
+
+```bash
+# Bring up an isolated stack on free ports (E2E global-setup will then spin
+# up its own :8080 backend separately for the actual Playwright run):
+bash scripts/dispatch/stack-up.sh "$(git rev-parse --show-toplevel)" --mode=isolated
+
+# Run the affected spec, scoped to the relevant test pattern:
+cd frontend && bun run test:e2e -- <spec-path> --grep <pattern>
+
+# For suspected-flake fixes: 2-3 consecutive iterations to prove non-flakiness.
+# One local pass doesn't prove robustness.
+
+# Tear down after:
+bash scripts/dispatch/stack-down.sh "$(git rev-parse --show-toplevel)"
+```
+
+**Canonical: PSY-851 (2026-05-24)** — initial fix pushed without local E2E run; user explicitly called this out: *"be sure to run locally before pushing any changes. It's a waste of time to rely on the GitHub check alone."* Subsequent re-push (after cherry-picking into PSY-813's branch to unblock CI) followed the local-verify-then-push pattern: 2 consecutive `bun run test:e2e -- follow-and-attendance.spec.ts --grep @smoke` passes in ~20s each, then push. CI passed first try.
 
 ### Phase 5: /code-review
 
@@ -325,7 +344,7 @@ Do NOT delete the draft release after the PR is open — the asset URLs depend o
 - **`linear-cli`** — generic Linear surface; drop down to it if `linear issue` lacks a flag.
 - **`code-review`** — invoked in phase 5; spawns 3 parallel reviewer agents (reuse / quality / efficiency) against the diff.
 - **`agent-browser` CLI** — `which agent-browser` to confirm install; pre-installed in this dev environment. Reliable Chrome automation that doesn't depend on a running Chrome instance.
-- `feedback_code-review_before_pr.md` — non-negotiable rule 4 above.
+- `feedback_code_review_before_pr.md` — non-negotiable rule 4 above.
 - `feedback_no_speculative_implementation.md` — non-negotiable rule 3 above (ask, don't guess).
 - `feedback_plan_mode_questions_first.md` — surface forks via `AskUserQuestion` BEFORE implementation.
 - `feedback_verify_before_push.md` — manual repro + screenshot in phase 6 verifies feature-correctness; tests verify only code-correctness.
