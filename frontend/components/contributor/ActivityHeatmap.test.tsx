@@ -211,9 +211,15 @@ describe('ActivityHeatmap', () => {
   // existing tests use fireEvent.mouseEnter (which is enough to fire
   // the synthetic React event) but the ticket asks for hover coverage.
   it('shows tooltip via userEvent.hover and clears it on unhover', async () => {
+    // Use today's date so the cell is guaranteed to be inside the visible
+    // 52-week grid, regardless of when this test runs. A hardcoded historical
+    // date would silently fall outside the grid after ~52 weeks and the
+    // getByTestId would start throwing.
+    const today = new Date().toISOString().slice(0, 10)
+
     mockUseActivityHeatmap.mockReturnValue({
       data: {
-        days: [{ date: '2026-03-31', count: 4 }],
+        days: [{ date: today, count: 4 }],
       },
       isLoading: false,
     })
@@ -223,7 +229,7 @@ describe('ActivityHeatmap', () => {
     const user = userEvent.setup()
 
     render(<ActivityHeatmap username="alice" />)
-    const cell = screen.getByTestId('heatmap-cell-2026-03-31')
+    const cell = screen.getByTestId(`heatmap-cell-${today}`)
 
     await user.hover(cell)
     const tooltip = screen.getByTestId('heatmap-tooltip')

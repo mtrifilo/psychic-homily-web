@@ -420,6 +420,15 @@ describe('PrivacySettingsPanel', () => {
         error: null,
       })
       render(<PrivacySettingsPanel />)
+
+      // Toggle a setting first so `hasChanges` is true; otherwise the Save
+      // button is already disabled by `!hasChanges` and `isPending` is never
+      // load-bearing in the assertion.
+      const hiddenButtons = screen.getAllByRole('button', { name: /Hidden/i })
+      act(() => {
+        hiddenButtons[0].click()
+      })
+
       const saveButton = screen.getByRole('button', {
         name: /Save Privacy Settings/i,
       })
@@ -486,6 +495,12 @@ describe('PrivacySettingsPanel', () => {
       })
 
       rerender(<PrivacySettingsPanel />)
+
+      // After rerender with updated server data, the re-sync useEffect should
+      // run again, so the hook is observed re-invoked. Without an assertion
+      // this test would pass even if the re-sync logic regressed.
+      expect(mockUseOwnContributorProfile).toHaveBeenCalled()
+      expect(mockUseOwnContributorProfile.mock.calls.length).toBeGreaterThan(1)
     })
 
     it('clears the "Settings saved" indicator when a new change is made before timeout', () => {
