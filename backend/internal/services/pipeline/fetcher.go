@@ -61,7 +61,7 @@ func (s *FetcherService) Fetch(url string, lastETag string, lastContentHash stri
 	if err != nil {
 		return nil, fmt.Errorf("fetching %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	switch {
 	case resp.StatusCode == http.StatusMovedPermanently || resp.StatusCode == http.StatusPermanentRedirect:

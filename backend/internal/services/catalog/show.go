@@ -1086,7 +1086,7 @@ func (s *ShowService) SearchShows(query string) ([]*contracts.ShowSearchResult, 
 	if err != nil {
 		return nil, fmt.Errorf("failed to search shows: %w", err)
 	}
-	defer rows.Close()
+	defer rows.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	// Two-stage scan: DISTINCT ON requires its expression(s) to lead the
 	// ORDER BY. To order results by event_date DESC across the de-duplicated

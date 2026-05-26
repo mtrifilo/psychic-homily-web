@@ -149,7 +149,7 @@ func (c *MusicBrainzClient) doRequest(url string) ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	if resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode == http.StatusServiceUnavailable {
 		return nil, fmt.Errorf("rate limited (HTTP %d)", resp.StatusCode)

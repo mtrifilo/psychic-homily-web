@@ -99,7 +99,7 @@ func (v *PasswordValidator) IsBreached(password string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("failed to query pwned passwords: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	if resp.StatusCode != http.StatusOK {
 		return false, fmt.Errorf("pwned passwords API returned status %d", resp.StatusCode)

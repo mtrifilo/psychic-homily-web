@@ -270,7 +270,7 @@ func (s *AppleAuthService) fetchAppleKeys() error {
 	if err != nil {
 		return fmt.Errorf("failed to fetch Apple keys: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("apple keys endpoint returned status %d", resp.StatusCode)
