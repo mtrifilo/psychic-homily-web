@@ -406,9 +406,14 @@ export const queryKeys = {
     all: ['notificationFilters'] as const,
   },
 
-  // /explore landing read endpoints (PSY-835/836)
+  // /explore landing read endpoints (PSY-835/836/837)
   explore: {
     featured: ['explore', 'featured'] as const,
+    upcomingShows: (params?: { limit?: number; offset?: number }) =>
+      params && Object.values(params).some(v => v != null)
+        ? (['explore', 'upcomingShows', params] as const)
+        : (['explore', 'upcomingShows'] as const),
+    shuffleTarget: ['explore', 'shuffleTarget'] as const,
   },
 
   // System queries

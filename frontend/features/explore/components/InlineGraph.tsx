@@ -1,0 +1,171 @@
+'use client'
+
+/**
+ * InlineGraph (PSY-837)
+ *
+ * Lazy-mounted force graph anchored to the featured bill's headliner.
+ * The brief calls for the graph initial nodes to come from the bill's
+ * lineup; the /explore/featured response only exposes the bill slug +
+ * headliner name (not artist IDs), so we resolve the lineup by
+ * fetching the show detail when the section scrolls into view, then
+ * pass the headliner's artist ID to the existing artist-relationship
+ * graph (PSY-365 ForceGraphView via PSY-361 useArtistGraph).
+ *
+ * Lazy-mount strategy:
+ *   1. Render a skeleton placeholder at the natural graph height to
+ *      prevent CLS.
+ *   2. IntersectionObserver with rootMargin '200px' so the data fetch
+ *      kicks off shortly before the placeholder scrolls into view.
+ *   3. Only once mounted do we call `useShow` / `useArtistGraph`.
+ *
+ * Mobile gate (<640px) collapses the graph to a static teaser per
+ * PSY-511; canvas touch handling isn't usable at small widths.
+ */
+
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
+import Link from 'next/link'
+import { ForceGraphView } from '@/components/graph/ForceGraphView'
+import type { GraphNode } from '@/components/graph/ForceGraphView'
+import { useShow } from '@/features/shows'
+import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
+
+const GRAPH_BREAKPOINT_PX = 640
+const GRAPH_HEIGHT_PX = 480
+const INTERSECTION_ROOT_MARGIN = '200px'
+
+interface InlineGraphProps {
+  /** Featured bill slug — drives the show-detail fetch for lineup. */
+  billSlug: string
+  /** Featured bill title — for the canvas aria-label. */
+  billTitle: string
+  /** Featured bill href — for the mobile teaser fallback link. */
+  billHref: string
+}
+
+export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps) {
+  const router = useRouter()
+  const containerRef = useRef<HTMLDivElement>(null)
+  const [isMounted, setIsMounted] = useState(false)
+  const [containerWidth, setContainerWidth] = useState<number | null>(null)
+
+  // Lazy-mount via IntersectionObserver. Pre-mount with a 200px root
+  // margin so the data is in flight before the placeholder is fully
+  // on-screen; once mounted, we never tear down (the user has shown
+  // intent by scrolling here).
+  useEffect(() => {
+    if (isMounted) return
+    const node = containerRef.current
+    if (!node || typeof IntersectionObserver === 'undefined') {
+      // SSR / very old browsers — fall back to immediate mount.
+      setIsMounted(true)
+      return
+    }
+    const observer = new IntersectionObserver(
+      entries => {
+        for (const entry of entries) {
+          if (entry.isIntersecting) {
+            setIsMounted(true)
+            observer.disconnect()
+            return
+          }
+        }
+      },
+      { rootMargin: INTERSECTION_ROOT_MARGIN },
+    )
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [isMounted])
+
+  // Width measurement only kicks in after mount. Same callback-ref +
+  // ResizeObserver pattern as CollectionGraph / SceneGraph.
+  const measureRefCallback = useCallback((node: HTMLDivElement | null) => {
+    if (!node) return
+    setContainerWidth(node.getBoundingClientRect().width)
+    const observer = new ResizeObserver(entries => {
+      for (const entry of entries) {
+        setContainerWidth(entry.contentRect.width)
+      }
+    })
+    observer.observe(node)
+    return () => observer.disconnect()
+  }, [])
+
+  const { data: showData } = useShow(isMounted ? billSlug : '')
+  const headlinerId = showData?.artists.find(a => a.is_headliner)?.id
+    ?? showData?.artists[0]?.id
+    ?? 0
+
+  const { data: graphData, isLoading: graphLoading } = useArtistGraph({
+    artistId: headlinerId,
+    enabled: isMounted && headlinerId > 0,
+  })
+
+  const handleNodeClick = useCallback(
+    (node: GraphNode) => {
+      router.push(`/artists/${node.slug}`)
+    },
+    [router],
+  )
+
+  const graphAvailable =
+    containerWidth !== null && containerWidth >= GRAPH_BREAKPOINT_PX
+
+  // Static teaser for <640px viewports per PSY-511.
+  const teaser = (
+    <div className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/20 flex flex-col items-center justify-center text-center p-6 gap-3">
+      <p className="text-sm text-muted-foreground max-w-xs">
+        The interactive knowledge graph is best on a tablet or larger
+        screen.
+      </p>
+      <Link
+        href={billHref}
+        className="text-sm text-primary hover:underline underline-offset-4"
+      >
+        View the bill instead →
+      </Link>
+    </div>
+  )
+
+  // Skeleton placeholder — reserves the graph's natural height so the
+  // section below doesn't shift when the canvas mounts (CLS budget).
+  const skeleton = (
+    <div
+      className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse"
+      style={{ minHeight: GRAPH_HEIGHT_PX }}
+      aria-hidden="true"
+    />
+  )
+
+  return (
+    <div ref={containerRef} className="w-full">
+      <div ref={measureRefCallback} className="w-full">
+        {!isMounted && skeleton}
+
+        {isMounted && containerWidth !== null && !graphAvailable && teaser}
+
+        {isMounted && graphAvailable && (
+          <>
+            {graphLoading && skeleton}
+            {graphData && graphData.nodes.length > 0 && (
+              <ForceGraphView
+                nodes={graphData.nodes}
+                links={graphData.links}
+                clusters={[]}
+                containerWidth={containerWidth}
+                height={GRAPH_HEIGHT_PX}
+                ariaLabel={`Knowledge graph anchored to ${billTitle}: ${graphData.nodes.length} artists.`}
+                onNodeClick={handleNodeClick}
+              />
+            )}
+            {!graphLoading && (!graphData || graphData.nodes.length === 0) && (
+              <div className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 flex items-center justify-center text-sm text-muted-foreground">
+                Not enough related artists to render the graph yet.
+              </div>
+            )}
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
