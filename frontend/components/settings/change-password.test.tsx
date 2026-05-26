@@ -231,4 +231,47 @@ describe('ChangePassword', () => {
 
     expect(input).toHaveAttribute('type', 'text')
   })
+
+  it('shows "Changing password..." label and disables the submit button while mutation is pending', () => {
+    mockMutationState = { isPending: true, isError: false, error: null }
+    renderForm()
+
+    // Pending label replaces "Change Password".
+    expect(screen.getByText('Changing password...')).toBeInTheDocument()
+    // The submit button is the only button rendered as a button[type=submit].
+    // Pull it via the label area.
+    const submitButton = screen.getByText('Changing password...').closest('button')
+    expect(submitButton).toBeDisabled()
+  })
+
+  it('clears the password fields after a successful change', async () => {
+    mockMutate.mockImplementation((_data: unknown, opts: { onSuccess: (d: { message: string }) => void }) => {
+      opts.onSuccess({ message: 'Password changed successfully' })
+    })
+    const { user } = renderForm()
+
+    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New Password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm New Password'), 'newSecurePassword123!')
+    await user.click(screen.getByRole('button', { name: 'Change Password' }))
+
+    // After success, form.reset() empties the inputs.
+    await waitFor(() => {
+      expect(screen.getByText('Password changed successfully')).toBeInTheDocument()
+    })
+    expect(screen.getByLabelText('Current Password')).toHaveValue('')
+    expect(screen.getByLabelText('New Password')).toHaveValue('')
+    expect(screen.getByLabelText('Confirm New Password')).toHaveValue('')
+  })
+
+  it('falls back to generic error copy when mutation error has no message', () => {
+    mockMutationState = {
+      isPending: false,
+      isError: true,
+      error: new Error(''),
+    }
+    renderForm()
+
+    expect(screen.getByText('Failed to change password')).toBeInTheDocument()
+  })
 })

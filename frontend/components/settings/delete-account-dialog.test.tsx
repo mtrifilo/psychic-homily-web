@@ -337,4 +337,93 @@ describe('DeleteAccountDialog', () => {
 
     expect(onOpenChange).toHaveBeenCalledWith(false)
   })
+
+  it('includes a non-empty reason in the deleteAccount payload', async () => {
+    mockDeleteMutateAsync.mockResolvedValue({
+      success: true,
+      deletion_date: '2026-04-06T00:00:00Z',
+    })
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+
+    await user.type(screen.getByLabelText('Password'), 'mypassword123')
+    await user.type(
+      screen.getByLabelText('Why are you leaving? (optional)'),
+      'Moving to another service.'
+    )
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(
+      screen.getByRole('button', { name: 'Delete My Account' })
+    )
+
+    expect(mockDeleteMutateAsync).toHaveBeenCalledWith({
+      password: 'mypassword123',
+      reason: 'Moving to another service.',
+    })
+  })
+
+  it('disables Delete My Account when user has no password (OAuth-only)', async () => {
+    mockDeletionSummaryState = {
+      ...mockDeletionSummaryState,
+      data: {
+        shows_count: 0,
+        saved_shows_count: 0,
+        passkeys_count: 0,
+        has_password: false,
+      },
+    }
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+
+    // No password field is rendered when has_password=false.
+    expect(screen.queryByLabelText('Password')).not.toBeInTheDocument()
+
+    // Checking the confirm box still leaves the Delete button disabled —
+    // OAuth-only accounts are blocked from in-app deletion.
+    await user.click(screen.getByRole('checkbox'))
+    const deleteBtn = screen.getByRole('button', {
+      name: 'Delete My Account',
+    })
+    expect(deleteBtn).toBeDisabled()
+  })
+
+  it('renders the Go to Home button + auto-redirect copy on the success step', async () => {
+    mockDeleteMutateAsync.mockResolvedValue({
+      success: true,
+      deletion_date: '2026-04-06T00:00:00Z',
+    })
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+    await user.type(screen.getByLabelText('Password'), 'mypassword123')
+    await user.click(screen.getByRole('checkbox'))
+    await user.click(
+      screen.getByRole('button', { name: 'Delete My Account' })
+    )
+
+    await waitFor(() => {
+      expect(screen.getByText('Redirecting to home page...')).toBeInTheDocument()
+    })
+
+    // Clicking "Go to Home" triggers the router.push('/') side effect.
+    await user.click(screen.getByRole('button', { name: 'Go to Home' }))
+    expect(mockRouterPush).toHaveBeenCalledWith('/')
+  })
+
+  it('falls back to generic error copy when mutation error has no message', async () => {
+    mockDeleteMutationState = {
+      ...mockDeleteMutationState,
+      isError: true,
+      error: new Error(''),
+    }
+    const { user } = renderDialog()
+
+    await user.click(screen.getByRole('button', { name: /Continue/ }))
+
+    expect(
+      screen.getByText('Failed to delete account. Please try again.')
+    ).toBeInTheDocument()
+  })
 })

@@ -240,4 +240,65 @@ describe('FavoriteCitiesSettings', () => {
       screen.getByText('Failed to save. Please try again.')
     ).toBeInTheDocument()
   })
+
+  it('disables Clear all button while the mutation is pending', () => {
+    mockCitiesData = {
+      cities: [{ city: 'Phoenix', state: 'AZ', show_count: 8 }],
+    }
+    mockProfileData = {
+      user: {
+        preferences: {
+          favorite_cities: [{ city: 'Phoenix', state: 'AZ' }],
+        },
+      },
+    }
+    mockMutationState = { isPending: true, isError: false, isSuccess: false }
+
+    renderWithProviders(<FavoriteCitiesSettings />)
+
+    // Clear all is rendered as a <button>; it should be disabled while pending.
+    const clearAllBtn = screen.getByText('Clear all').closest('button')
+    expect(clearAllBtn).toBeDisabled()
+  })
+
+  it('appends a new city to existing favorites rather than replacing the list', async () => {
+    mockCitiesData = {
+      cities: [
+        { city: 'Phoenix', state: 'AZ', show_count: 8 },
+        { city: 'Tempe', state: 'AZ', show_count: 3 },
+      ],
+    }
+    mockProfileData = {
+      user: {
+        preferences: {
+          favorite_cities: [{ city: 'Phoenix', state: 'AZ' }],
+        },
+      },
+    }
+
+    const user = userEvent.setup()
+    renderWithProviders(<FavoriteCitiesSettings />)
+
+    // Phoenix already selected; toggling Tempe should send BOTH.
+    await user.click(screen.getByText('Tempe, AZ'))
+
+    expect(mockMutate).toHaveBeenCalledWith([
+      { city: 'Phoenix', state: 'AZ' },
+      { city: 'Tempe', state: 'AZ' },
+    ])
+  })
+
+  it('does not show Saved indicator while a fresh mutation is still pending', () => {
+    mockCitiesData = {
+      cities: [{ city: 'Phoenix', state: 'AZ', show_count: 8 }],
+    }
+    // isPending+isSuccess together happens briefly during a re-trigger; the
+    // UI should NOT show "Saved" until pending clears.
+    mockMutationState = { isPending: true, isError: false, isSuccess: true }
+
+    renderWithProviders(<FavoriteCitiesSettings />)
+
+    expect(screen.queryByText('Saved')).not.toBeInTheDocument()
+    expect(screen.getByText('Saving...')).toBeInTheDocument()
+  })
 })
