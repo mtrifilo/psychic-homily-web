@@ -240,6 +240,48 @@ describe('AddToCollectionButton', () => {
     expect(mockMutateAsync).toHaveBeenCalledTimes(2)
   })
 
+  // Lock in the "Adding…" loading state. Earlier the only assertion around
+  // the submitting UX was the failure-surface message; that would pass even
+  // if the submit button stopped switching to its loading copy mid-flight.
+  it('shows the "Adding…" loading state while the submit promises are in flight', async () => {
+    // Hold every add open so the submitting=true window is observable.
+    let resolveOne!: () => void
+    mockMutateAsync.mockImplementation(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveOne = resolve
+        })
+    )
+
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={42} entityName="Test Artist" />
+    )
+
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+    await user.click(
+      await screen.findByRole('checkbox', { name: /my favorites/i })
+    )
+    await user.click(
+      screen.getByRole('button', { name: /add to 1 collection/i })
+    )
+
+    // BEFORE the mutation resolves: button copy switches to "Adding…" +
+    // every row checkbox is disabled (so the user can't toggle mid-submit).
+    expect(
+      await screen.findByRole('button', { name: /adding/i })
+    ).toBeDisabled()
+    for (const cb of screen.getAllByRole('checkbox')) {
+      expect(cb).toBeDisabled()
+    }
+
+    // Resolve so the test doesn't hang on the pending promise.
+    resolveOne()
+    await waitFor(() => {
+      expect(mockMutateAsync).toHaveBeenCalledTimes(1)
+    })
+  })
+
   it('shows "Create new collection" link', async () => {
     const user = userEvent.setup()
     render(
