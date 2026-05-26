@@ -236,7 +236,7 @@ Under 250 words.
 ## Anti-patterns
 
 - **Running `/psy-self-review` AFTER pushing.** The whole point is to catch unverified claims before they ship. Push → audit → fix-PR is the May 16 anti-pattern this skill exists to break. Run BEFORE push, every time.
-- **Treating BLOCKING findings as advisory.** Per `feedback_code-review_before_pr.md`'s parallel: `[x]` is a statement of "I verified this." If the evidence isn't there, the claim is false. Don't push past with "I know it works" — re-verify or downgrade.
+- **Treating BLOCKING findings as advisory.** Per `feedback_code_review_before_pr.md`'s parallel: `[x]` is a statement of "I verified this." If the evidence isn't there, the claim is false. Don't push past with "I know it works" — re-verify or downgrade.
 - **Stuffing `[x] all manual repro covered` as a single line to bypass per-claim checks.** The skill checks the granular `[x]` items. Compound claims defeat the per-claim audit. Break into specific verifiable items: `[x] unauth viewer at /releases/X — empty header confirmed`; `[x] auth viewer at /releases/X — 4 brackets render`; `[x] click [Add to collection] while unauth — redirects to /auth`.
 - **Skipping `/psy-self-review` for "small" PRs.** Discipline > efficiency. Small PRs have small diffs which are FAST for the sub-agents (often the report is < 30 seconds end-to-end). Skipping defeats the convention.
 - **Trusting Agent 1's PASS without spot-checking the screenshot.** Agent 1 verifies a screenshot file EXISTS; it can't verify the screenshot SHOWS what was claimed. Spot-Read the PNG yourself if the claim is load-bearing for review.
@@ -247,7 +247,7 @@ Under 250 words.
 - **`/psy-dispatch`** — parallel-worktree dispatch; per-agent template should add a `/psy-self-review` step before the `gh pr create` call. (Update pending; will land alongside /psy-self-review commit.)
 - **`/code-review`** — runs immediately before `/psy-self-review`. Different concern (code quality + reuse + efficiency) but same parallel-sub-agent shape.
 - **`/psy-audit` (planned, post-PSY-656)** — multi-page post-shipped audit. Complements this skill: `/psy-self-review` catches pre-push; `/psy-audit` catches what slipped through.
-- `feedback_code-review_before_pr.md` — same rule shape: failure blocks push, escalate to user instead of pushing past.
+- `feedback_code_review_before_pr.md` — same rule shape: failure blocks push, escalate to user instead of pushing past.
 - `feedback_verify_before_push.md` — verify the fix actually fixes the thing before pushing.
 
 ## Caveats / known limitations
