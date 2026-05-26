@@ -3,54 +3,106 @@ import { render, screen } from '@testing-library/react'
 import { UserTierBadge } from './UserTierBadge'
 import type { UserTier } from '@/features/auth'
 
+// Table-driven coverage for the 4 production tiers. If a new tier is
+// added to UserTier, this table forces the test author to add a row
+// (or the type-check fails on `satisfies`), preventing a silent
+// fallback-to-new-user surface.
+const TIER_CASES = [
+  {
+    tier: 'new_user',
+    label: 'New User',
+    expectedClassFragment: 'bg-muted',
+    expectedTextClassFragment: 'text-muted-foreground',
+  },
+  {
+    tier: 'contributor',
+    label: 'Contributor',
+    expectedClassFragment: 'bg-blue-500/10',
+    expectedTextClassFragment: 'text-blue-600',
+  },
+  {
+    tier: 'trusted_contributor',
+    label: 'Trusted Contributor',
+    expectedClassFragment: 'bg-emerald-500/10',
+    expectedTextClassFragment: 'text-emerald-600',
+  },
+  {
+    tier: 'local_ambassador',
+    label: 'Local Ambassador',
+    expectedClassFragment: 'bg-purple-500/10',
+    expectedTextClassFragment: 'text-purple-600',
+  },
+] as const satisfies ReadonlyArray<{
+  tier: UserTier
+  label: string
+  expectedClassFragment: string
+  expectedTextClassFragment: string
+}>
+
 describe('UserTierBadge', () => {
-  it('renders "New User" badge for new_user tier', () => {
-    render(<UserTierBadge tier="new_user" />)
-    expect(screen.getByText('New User')).toBeInTheDocument()
+  describe.each(TIER_CASES)('tier=$tier', ({ tier, label, expectedClassFragment, expectedTextClassFragment }) => {
+    it(`renders the "${label}" label`, () => {
+      render(<UserTierBadge tier={tier} />)
+      expect(screen.getByText(label)).toBeInTheDocument()
+    })
+
+    it(`applies the tier-specific background class fragment "${expectedClassFragment}"`, () => {
+      render(<UserTierBadge tier={tier} />)
+      const badge = screen.getByText(label)
+      expect(badge.className).toContain(expectedClassFragment)
+    })
+
+    it(`applies the tier-specific text class fragment "${expectedTextClassFragment}"`, () => {
+      render(<UserTierBadge tier={tier} />)
+      const badge = screen.getByText(label)
+      expect(badge.className).toContain(expectedTextClassFragment)
+    })
   })
 
-  it('renders "Contributor" badge for contributor tier', () => {
-    render(<UserTierBadge tier="contributor" />)
-    expect(screen.getByText('Contributor')).toBeInTheDocument()
+  it('each tier renders with a distinct className string', () => {
+    const classNames = TIER_CASES.map(({ tier, label }) => {
+      const { unmount } = render(<UserTierBadge tier={tier} />)
+      const badge = screen.getByText(label)
+      const className = badge.className
+      unmount()
+      return className
+    })
+
+    // No tier should share its full className string with another tier
+    const unique = new Set(classNames)
+    expect(unique.size).toBe(classNames.length)
   })
 
-  it('renders "Trusted Contributor" badge for trusted_contributor tier', () => {
-    render(<UserTierBadge tier="trusted_contributor" />)
-    expect(screen.getByText('Trusted Contributor')).toBeInTheDocument()
-  })
-
-  it('renders "Local Ambassador" badge for local_ambassador tier', () => {
-    render(<UserTierBadge tier="local_ambassador" />)
-    expect(screen.getByText('Local Ambassador')).toBeInTheDocument()
-  })
-
-  it('applies tier-specific classes for contributor', () => {
-    render(<UserTierBadge tier="contributor" />)
-    const badge = screen.getByText('Contributor')
-    expect(badge.className).toContain('text-blue-600')
-  })
-
-  it('applies tier-specific classes for trusted_contributor', () => {
-    render(<UserTierBadge tier="trusted_contributor" />)
-    const badge = screen.getByText('Trusted Contributor')
-    expect(badge.className).toContain('text-emerald-600')
-  })
-
-  it('applies tier-specific classes for local_ambassador', () => {
-    render(<UserTierBadge tier="local_ambassador" />)
-    const badge = screen.getByText('Local Ambassador')
-    expect(badge.className).toContain('text-purple-600')
-  })
-
-  it('applies custom className', () => {
+  it('applies a custom className prop in addition to tier styles', () => {
     render(<UserTierBadge tier="contributor" className="custom-class" />)
     const badge = screen.getByText('Contributor')
     expect(badge.className).toContain('custom-class')
+    // Tier-specific class is still applied
+    expect(badge.className).toContain('text-blue-600')
   })
 
-  it('falls back to new_user config for unknown tier', () => {
-    // TypeScript would normally prevent this, but test runtime behavior
+  it('renders the badge with the shared badge inline-flex class', () => {
+    render(<UserTierBadge tier="contributor" />)
+    // The shared Badge primitive always applies inline-flex via cva.
+    const badge = screen.getByText('Contributor')
+    expect(badge.className).toContain('inline-flex')
+  })
+
+  it('falls back to new_user config for an unknown tier value', () => {
+    // TypeScript would normally prevent this, but the runtime fallback
+    // matters when server-side enums drift ahead of the FE.
     render(<UserTierBadge tier={'unknown_tier' as UserTier} />)
     expect(screen.getByText('New User')).toBeInTheDocument()
+  })
+
+  it('fallback badge for unknown tier uses the same className as explicit new_user', () => {
+    const { unmount } = render(
+      <UserTierBadge tier={'totally_made_up' as UserTier} />
+    )
+    const aClass = screen.getByText('New User').className
+    unmount()
+    render(<UserTierBadge tier="new_user" />)
+    const bClass = screen.getByText('New User').className
+    expect(aClass).toBe(bClass)
   })
 })
