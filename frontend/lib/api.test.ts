@@ -499,26 +499,41 @@ describe('API Module', () => {
       )
     })
 
-    // Documents current behavior: success-path JSON.parse failures propagate
-    // as SyntaxError, unlike the error path which falls back to a generic
-    // message. Tracked separately for graceful handling.
-    it('propagates JSON parse errors on 200 success responses', async () => {
+    // PSY-842: success-path JSON parse failures are wrapped in the same
+    // ApiError envelope as the error path so callers get status/requestId/
+    // endpoint context instead of a bare SyntaxError leaking JSON.parse
+    // internals to the UI.
+    it('wraps JSON parse errors on 2xx responses in an ApiError', async () => {
       const parseError = new SyntaxError(
         'Unexpected token < in JSON at position 0'
       )
+      const headers = new Headers()
+      headers.set('X-Request-ID', 'req-parse-2xx')
       const mockResponse = {
         ok: true,
         status: 200,
+        statusText: 'OK',
         json: () => Promise.reject(parseError),
-        headers: new Headers(),
+        headers,
       }
       vi.mocked(fetch).mockResolvedValue(mockResponse as unknown as Response)
 
       const { apiRequest } = await import('./api')
 
-      await expect(apiRequest('/test')).rejects.toThrow(
-        'Unexpected token < in JSON at position 0'
-      )
+      try {
+        await apiRequest('/test')
+        expect.fail('Should have thrown')
+      } catch (error) {
+        expect(error).toBeInstanceOf(Error)
+        expect(error).not.toBeInstanceOf(SyntaxError)
+        expect((error as { status: number }).status).toBe(200)
+        expect((error as { statusText: string }).statusText).toBe('OK')
+        expect((error as { requestId: string }).requestId).toBe('req-parse-2xx')
+        expect((error as Error).message).toContain('Invalid JSON')
+        expect((error as Error).message).toContain('/test')
+        // Original parse error preserved as details for debuggability.
+        expect((error as { details: unknown }).details).toBe(parseError)
+      }
     })
   })
 
