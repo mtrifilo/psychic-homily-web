@@ -1,70 +1,66 @@
 import { describe, it, expect } from 'vitest'
+import { API_BASE_URL } from '@/lib/api-base'
 import { radioEndpoints, radioQueryKeys } from './api'
-
-// API_BASE_URL resolves to 'http://localhost:8080' under vitest
-// (NEXT_PUBLIC_API_URL set in vitest.config.mts), so endpoint strings
-// below are asserted against that fully-resolved base.
-const BASE = 'http://localhost:8080'
 
 describe('radioEndpoints', () => {
   it('STATIONS is the collection URL', () => {
-    expect(radioEndpoints.STATIONS).toBe(`${BASE}/radio-stations`)
+    expect(radioEndpoints.STATIONS).toBe(`${API_BASE_URL}/radio-stations`)
   })
 
   it('STATION(slug) appends the slug', () => {
-    expect(radioEndpoints.STATION('kexp')).toBe(`${BASE}/radio-stations/kexp`)
+    expect(radioEndpoints.STATION('kexp')).toBe(`${API_BASE_URL}/radio-stations/kexp`)
   })
 
   it('SHOWS is the collection URL', () => {
-    expect(radioEndpoints.SHOWS).toBe(`${BASE}/radio-shows`)
+    expect(radioEndpoints.SHOWS).toBe(`${API_BASE_URL}/radio-shows`)
   })
 
   it('SHOW(slug) appends the slug', () => {
-    expect(radioEndpoints.SHOW('wfmu-drummer')).toBe(`${BASE}/radio-shows/wfmu-drummer`)
+    expect(radioEndpoints.SHOW('wfmu-drummer')).toBe(`${API_BASE_URL}/radio-shows/wfmu-drummer`)
   })
 
   it('SHOW_EPISODES(slug) nests under the show', () => {
     expect(radioEndpoints.SHOW_EPISODES('wfmu-drummer')).toBe(
-      `${BASE}/radio-shows/wfmu-drummer/episodes`
+      `${API_BASE_URL}/radio-shows/wfmu-drummer/episodes`
     )
   })
 
   it('SHOW_EPISODE_BY_DATE(slug, date) nests the date segment', () => {
     expect(radioEndpoints.SHOW_EPISODE_BY_DATE('wfmu-drummer', '2026-05-01')).toBe(
-      `${BASE}/radio-shows/wfmu-drummer/episodes/2026-05-01`
+      `${API_BASE_URL}/radio-shows/wfmu-drummer/episodes/2026-05-01`
     )
   })
 
   it('SHOW_TOP_ARTISTS(slug) nests under the show', () => {
     expect(radioEndpoints.SHOW_TOP_ARTISTS('wfmu-drummer')).toBe(
-      `${BASE}/radio-shows/wfmu-drummer/top-artists`
+      `${API_BASE_URL}/radio-shows/wfmu-drummer/top-artists`
     )
   })
 
   it('SHOW_TOP_LABELS(slug) nests under the show', () => {
     expect(radioEndpoints.SHOW_TOP_LABELS('wfmu-drummer')).toBe(
-      `${BASE}/radio-shows/wfmu-drummer/top-labels`
+      `${API_BASE_URL}/radio-shows/wfmu-drummer/top-labels`
     )
   })
 
   it('ARTIST_RADIO_PLAYS(slug) nests under the artist', () => {
     expect(radioEndpoints.ARTIST_RADIO_PLAYS('gatecreeper')).toBe(
-      `${BASE}/artists/gatecreeper/radio-plays`
+      `${API_BASE_URL}/artists/gatecreeper/radio-plays`
     )
   })
 
   it('RELEASE_RADIO_PLAYS(slug) nests under the release', () => {
     expect(radioEndpoints.RELEASE_RADIO_PLAYS('an-unkindness')).toBe(
-      `${BASE}/releases/an-unkindness/radio-plays`
+      `${API_BASE_URL}/releases/an-unkindness/radio-plays`
     )
   })
 
   it('NEW_RELEASES is the aggregation URL', () => {
-    expect(radioEndpoints.NEW_RELEASES).toBe(`${BASE}/radio/new-releases`)
+    expect(radioEndpoints.NEW_RELEASES).toBe(`${API_BASE_URL}/radio/new-releases`)
   })
 
   it('STATS is the aggregation URL', () => {
-    expect(radioEndpoints.STATS).toBe(`${BASE}/radio/stats`)
+    expect(radioEndpoints.STATS).toBe(`${API_BASE_URL}/radio/stats`)
   })
 })
 

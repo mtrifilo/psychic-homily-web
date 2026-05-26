@@ -1,46 +1,41 @@
-import { describe, it, expect, vi } from 'vitest'
-
-// Pin API_BASE_URL so endpoint assertions are deterministic regardless of env.
-vi.mock('@/lib/api-base', () => ({
-  API_BASE_URL: 'http://api.test',
-}))
-
+import { describe, it, expect } from 'vitest'
+import { API_BASE_URL } from '@/lib/api-base'
 import { releaseEndpoints, releaseQueryKeys } from './api'
 
 describe('releaseEndpoints', () => {
   it('builds static collection endpoints', () => {
-    expect(releaseEndpoints.LIST).toBe('http://api.test/releases')
-    expect(releaseEndpoints.SEARCH).toBe('http://api.test/releases/search')
-    expect(releaseEndpoints.CREATE).toBe('http://api.test/releases')
+    expect(releaseEndpoints.LIST).toBe(`${API_BASE_URL}/releases`)
+    expect(releaseEndpoints.SEARCH).toBe(`${API_BASE_URL}/releases/search`)
+    expect(releaseEndpoints.CREATE).toBe(`${API_BASE_URL}/releases`)
   })
 
   it('builds a detail endpoint from a slug', () => {
     expect(releaseEndpoints.GET('ok-computer')).toBe(
-      'http://api.test/releases/ok-computer'
+      `${API_BASE_URL}/releases/ok-computer`
     )
   })
 
   it('builds a detail endpoint from a numeric id', () => {
-    expect(releaseEndpoints.GET(42)).toBe('http://api.test/releases/42')
+    expect(releaseEndpoints.GET(42)).toBe(`${API_BASE_URL}/releases/42`)
   })
 
   it('builds update and delete endpoints by id', () => {
-    expect(releaseEndpoints.UPDATE(7)).toBe('http://api.test/releases/7')
-    expect(releaseEndpoints.DELETE(7)).toBe('http://api.test/releases/7')
+    expect(releaseEndpoints.UPDATE(7)).toBe(`${API_BASE_URL}/releases/7`)
+    expect(releaseEndpoints.DELETE(7)).toBe(`${API_BASE_URL}/releases/7`)
   })
 
   it('builds nested link endpoints', () => {
     expect(releaseEndpoints.ADD_LINK(7)).toBe(
-      'http://api.test/releases/7/links'
+      `${API_BASE_URL}/releases/7/links`
     )
     expect(releaseEndpoints.REMOVE_LINK(7, 99)).toBe(
-      'http://api.test/releases/7/links/99'
+      `${API_BASE_URL}/releases/7/links/99`
     )
   })
 
   it('builds the artist-releases endpoint', () => {
     expect(releaseEndpoints.ARTIST_RELEASES('radiohead')).toBe(
-      'http://api.test/artists/radiohead/releases'
+      `${API_BASE_URL}/artists/radiohead/releases`
     )
   })
 })
