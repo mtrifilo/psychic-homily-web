@@ -1488,6 +1488,11 @@ func (s *ArtistRelationshipService) queryFestivalCobillNames(pairs []festivalCob
 		mirrored[k] = v
 		// keys are "a-b" with a<b; also store "b-a"
 		var a, b uint
+		// Keys were just built via pairKey() (fmt.Sprintf("%d-%d", ...)) so
+		// the Sscanf round-trip is guaranteed to parse. Discarding count+err
+		// is intentional: any failure here would mean we corrupted our own
+		// key format, not malformed input.
+		//nolint:errcheck // round-trip of locally-constructed key; no failure mode in practice
 		fmt.Sscanf(k, "%d-%d", &a, &b)
 		mirrored[fmt.Sprintf("%d-%d", b, a)] = v
 	}

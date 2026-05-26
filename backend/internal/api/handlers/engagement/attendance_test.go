@@ -498,7 +498,9 @@ func TestGetMyShowsHandler_PaginationClamping(t *testing.T) {
 	}
 
 	// limit=999 -> 100
-	h.GetMyShowsHandler(ctx, &GetMyShowsRequest{Status: "all", Limit: 999})
+	if _, err := h.GetMyShowsHandler(ctx, &GetMyShowsRequest{Status: "all", Limit: 999}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if capturedLimit != 100 {
 		t.Errorf("expected limit=100, got %d", capturedLimit)
 	}

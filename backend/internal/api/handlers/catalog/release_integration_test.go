@@ -73,8 +73,10 @@ func (s *ReleaseHandlerIntegrationSuite) TestListReleases_Empty() {
 }
 
 func (s *ReleaseHandlerIntegrationSuite) TestListReleases_FilterByType() {
-	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "LP Album", ReleaseType: "lp"})
-	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
+	_, err := s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "LP Album", ReleaseType: "lp"})
+	s.Require().NoError(err)
+	_, err = s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{Title: "EP Release", ReleaseType: "ep"})
+	s.Require().NoError(err)
 
 	req := &ListReleasesRequest{ReleaseType: "ep"}
 	resp, err := s.handler.ListReleasesHandler(s.deps.Ctx, req)
@@ -236,14 +238,16 @@ func (s *ReleaseHandlerIntegrationSuite) TestDeleteRelease_NotFound() {
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Success() {
 	artistID := s.createArtistViaService("Discography Artist")
 
-	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Album One",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
 	})
-	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	s.Require().NoError(err)
+	_, err = s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Album Two",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "featured"}},
 	})
+	s.Require().NoError(err)
 
 	req := &GetArtistReleasesRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	resp, err := s.handler.GetArtistReleasesHandler(s.deps.Ctx, req)
@@ -263,10 +267,11 @@ func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_Success() {
 func (s *ReleaseHandlerIntegrationSuite) TestGetArtistReleases_BySlug() {
 	artistID := s.createArtistViaService("Slug Discography Artist")
 
-	s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
+	_, err := s.deps.ReleaseService.CreateRelease(&contracts.CreateReleaseRequest{
 		Title:   "Slug Album",
 		Artists: []contracts.CreateReleaseArtistEntry{{ArtistID: artistID, Role: "main"}},
 	})
+	s.Require().NoError(err)
 
 	req := &GetArtistReleasesRequest{ArtistID: "slug-discography-artist"}
 	resp, err := s.handler.GetArtistReleasesHandler(s.deps.Ctx, req)

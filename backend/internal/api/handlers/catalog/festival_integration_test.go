@@ -92,14 +92,16 @@ func (s *FestivalHandlerIntegrationSuite) TestListFestivals_Empty() {
 }
 
 func (s *FestivalHandlerIntegrationSuite) TestListFestivals_FilterByStatus() {
-	s.deps.FestivalService.CreateFestival(&contracts.CreateFestivalRequest{
+	_, err := s.deps.FestivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Confirmed Fest", SeriesSlug: "cf", EditionYear: 2026,
 		StartDate: "2026-03-01", EndDate: "2026-03-03", Status: "confirmed",
 	})
-	s.deps.FestivalService.CreateFestival(&contracts.CreateFestivalRequest{
+	s.Require().NoError(err)
+	_, err = s.deps.FestivalService.CreateFestival(&contracts.CreateFestivalRequest{
 		Name: "Announced Fest", SeriesSlug: "af", EditionYear: 2026,
 		StartDate: "2026-04-01", EndDate: "2026-04-03",
 	})
+	s.Require().NoError(err)
 
 	req := &ListFestivalsRequest{Status: "confirmed"}
 	resp, err := s.handler.ListFestivalsHandler(s.deps.Ctx, req)
@@ -247,10 +249,11 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalArtists_Success() {
 	festival := s.createFestivalViaService("Lineup Festival")
 	artistID := s.createArtistViaArtistService("Lineup Artist")
 
-	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	_, err := s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "headliner",
 	})
+	s.Require().NoError(err)
 
 	req := &GetFestivalArtistsRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	resp, err := s.handler.GetFestivalArtistsHandler(s.deps.Ctx, req)
@@ -315,10 +318,11 @@ func (s *FestivalHandlerIntegrationSuite) TestUpdateFestivalArtist_Success() {
 	festival := s.createFestivalViaService("Update Artist Festival")
 	artistID := s.createArtistViaArtistService("Promoted Artist")
 
-	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	_, err := s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "undercard",
 	})
+	s.Require().NoError(err)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	newTier := "headliner"
@@ -355,9 +359,10 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalArtist_Success() {
 	festival := s.createFestivalViaService("Remove Artist Festival")
 	artistID := s.createArtistViaArtistService("Removed Artist")
 
-	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	_, err := s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artistID,
 	})
+	s.Require().NoError(err)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &RemoveFestivalArtistRequest{
@@ -365,7 +370,7 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalArtist_Success() {
 		ArtistID:   fmt.Sprintf("%d", artistID),
 	}
 
-	_, err := s.handler.RemoveFestivalArtistHandler(ctx, req)
+	_, err = s.handler.RemoveFestivalArtistHandler(ctx, req)
 	s.NoError(err)
 }
 
@@ -375,10 +380,11 @@ func (s *FestivalHandlerIntegrationSuite) TestGetFestivalVenues_Success() {
 	festival := s.createFestivalViaService("Venue Festival")
 	venueID := s.createVenueViaDB("Test Venue", "Phoenix", "AZ")
 
-	s.deps.FestivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
+	_, err := s.deps.FestivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID:   venueID,
 		IsPrimary: true,
 	})
+	s.Require().NoError(err)
 
 	req := &GetFestivalVenuesRequest{FestivalID: fmt.Sprintf("%d", festival.ID)}
 	resp, err := s.handler.GetFestivalVenuesHandler(s.deps.Ctx, req)
@@ -433,9 +439,10 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalVenue_Success() {
 	festival := s.createFestivalViaService("Remove Venue Festival")
 	venueID := s.createVenueViaDB("Removable Venue", "Phoenix", "AZ")
 
-	s.deps.FestivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
+	_, err := s.deps.FestivalService.AddFestivalVenue(festival.ID, &contracts.AddFestivalVenueRequest{
 		VenueID: venueID,
 	})
+	s.Require().NoError(err)
 
 	ctx := testhelpers.CtxWithUser(admin)
 	req := &RemoveFestivalVenueRequest{
@@ -443,7 +450,7 @@ func (s *FestivalHandlerIntegrationSuite) TestRemoveFestivalVenue_Success() {
 		VenueID:    fmt.Sprintf("%d", venueID),
 	}
 
-	_, err := s.handler.RemoveFestivalVenueHandler(ctx, req)
+	_, err = s.handler.RemoveFestivalVenueHandler(ctx, req)
 	s.NoError(err)
 }
 
@@ -453,10 +460,11 @@ func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_Success() {
 	festival := s.createFestivalViaService("Artist Fest History")
 	artistID := s.createArtistViaArtistService("Festival Artist")
 
-	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	_, err := s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID:    artistID,
 		BillingTier: "headliner",
 	})
+	s.Require().NoError(err)
 
 	req := &GetArtistFestivalsRequest{ArtistID: fmt.Sprintf("%d", artistID)}
 	resp, err := s.handler.GetArtistFestivalsHandler(s.deps.Ctx, req)
@@ -471,9 +479,10 @@ func (s *FestivalHandlerIntegrationSuite) TestGetArtistFestivals_BySlug() {
 	festival := s.createFestivalViaService("Slug Artist Festival")
 	artistID := s.createArtistViaArtistService("Slug Festival Artist")
 
-	s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
+	_, err := s.deps.FestivalService.AddFestivalArtist(festival.ID, &contracts.AddFestivalArtistRequest{
 		ArtistID: artistID,
 	})
+	s.Require().NoError(err)
 
 	req := &GetArtistFestivalsRequest{ArtistID: "slug-festival-artist"}
 	resp, err := s.handler.GetArtistFestivalsHandler(s.deps.Ctx, req)

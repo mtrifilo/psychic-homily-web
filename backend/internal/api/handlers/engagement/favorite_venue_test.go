@@ -196,7 +196,9 @@ func TestFavoriteVenueHandler_GetFavoriteVenues_PaginationClamping(t *testing.T)
 	}
 
 	// limit=999 → 200
-	h.GetFavoriteVenuesHandler(ctx, &GetFavoriteVenuesRequest{Limit: 999})
+	if _, err := h.GetFavoriteVenuesHandler(ctx, &GetFavoriteVenuesRequest{Limit: 999}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if capturedLimit != 200 {
 		t.Errorf("expected limit clamped to 200, got %d", capturedLimit)
 	}
