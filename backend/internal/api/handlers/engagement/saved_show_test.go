@@ -196,7 +196,9 @@ func TestGetSavedShowsHandler_PaginationClamping(t *testing.T) {
 	}
 
 	// limit=999 should be clamped to 200
-	h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 999})
+	if _, err := h.GetSavedShowsHandler(ctx, &GetSavedShowsRequest{Limit: 999}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if capturedLimit != 200 {
 		t.Errorf("expected limit clamped to 200, got %d", capturedLimit)
 	}

@@ -24,6 +24,7 @@ type TestDatabase struct {
 // Cleanup terminates the test container.
 func (td *TestDatabase) Cleanup() {
 	if td.Container != nil {
+		//nolint:errcheck // test teardown best-effort; container is going away
 		td.Container.Terminate(td.ctx)
 	}
 }

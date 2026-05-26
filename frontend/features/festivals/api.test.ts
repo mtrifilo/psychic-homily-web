@@ -1,64 +1,61 @@
 import { describe, it, expect } from 'vitest'
+import { API_BASE_URL } from '@/lib/api-base'
 import { festivalEndpoints, festivalQueryKeys } from './api'
-
-// The endpoint builders embed API_BASE_URL, which the vitest config pins to
-// http://localhost:8080 via NEXT_PUBLIC_API_URL.
-const BASE = 'http://localhost:8080'
 
 describe('festivalEndpoints', () => {
   it('exposes static collection endpoints', () => {
-    expect(festivalEndpoints.LIST).toBe(`${BASE}/festivals`)
-    expect(festivalEndpoints.SEARCH).toBe(`${BASE}/festivals/search`)
-    expect(festivalEndpoints.CREATE).toBe(`${BASE}/festivals`)
+    expect(festivalEndpoints.LIST).toBe(`${API_BASE_URL}/festivals`)
+    expect(festivalEndpoints.SEARCH).toBe(`${API_BASE_URL}/festivals/search`)
+    expect(festivalEndpoints.CREATE).toBe(`${API_BASE_URL}/festivals`)
   })
 
   it('builds detail + mutation endpoints from an id or slug', () => {
     expect(festivalEndpoints.GET('form-arcosanti')).toBe(
-      `${BASE}/festivals/form-arcosanti`
+      `${API_BASE_URL}/festivals/form-arcosanti`
     )
-    expect(festivalEndpoints.GET(42)).toBe(`${BASE}/festivals/42`)
-    expect(festivalEndpoints.UPDATE(42)).toBe(`${BASE}/festivals/42`)
-    expect(festivalEndpoints.DELETE(42)).toBe(`${BASE}/festivals/42`)
+    expect(festivalEndpoints.GET(42)).toBe(`${API_BASE_URL}/festivals/42`)
+    expect(festivalEndpoints.UPDATE(42)).toBe(`${API_BASE_URL}/festivals/42`)
+    expect(festivalEndpoints.DELETE(42)).toBe(`${API_BASE_URL}/festivals/42`)
   })
 
   it('builds lineup (artist) endpoints', () => {
-    expect(festivalEndpoints.ARTISTS(1)).toBe(`${BASE}/festivals/1/artists`)
-    expect(festivalEndpoints.ADD_ARTIST(1)).toBe(`${BASE}/festivals/1/artists`)
+    expect(festivalEndpoints.ARTISTS(1)).toBe(`${API_BASE_URL}/festivals/1/artists`)
+    expect(festivalEndpoints.ADD_ARTIST(1)).toBe(`${API_BASE_URL}/festivals/1/artists`)
     expect(festivalEndpoints.UPDATE_ARTIST(1, 7)).toBe(
-      `${BASE}/festivals/1/artists/7`
+      `${API_BASE_URL}/festivals/1/artists/7`
     )
     expect(festivalEndpoints.REMOVE_ARTIST(1, 7)).toBe(
-      `${BASE}/festivals/1/artists/7`
+      `${API_BASE_URL}/festivals/1/artists/7`
     )
   })
 
   it('builds venue endpoints', () => {
-    expect(festivalEndpoints.VENUES(1)).toBe(`${BASE}/festivals/1/venues`)
-    expect(festivalEndpoints.ADD_VENUE(1)).toBe(`${BASE}/festivals/1/venues`)
+    expect(festivalEndpoints.VENUES(1)).toBe(`${API_BASE_URL}/festivals/1/venues`)
+    expect(festivalEndpoints.ADD_VENUE(1)).toBe(`${API_BASE_URL}/festivals/1/venues`)
     expect(festivalEndpoints.REMOVE_VENUE(1, 9)).toBe(
-      `${BASE}/festivals/1/venues/9`
+      `${API_BASE_URL}/festivals/1/venues/9`
     )
   })
 
   it('builds artist-scoped festival endpoints', () => {
     expect(festivalEndpoints.ARTIST_FESTIVALS('radiohead')).toBe(
-      `${BASE}/artists/radiohead/festivals`
+      `${API_BASE_URL}/artists/radiohead/festivals`
     )
     expect(festivalEndpoints.ARTIST_TRAJECTORY('radiohead')).toBe(
-      `${BASE}/artists/radiohead/festival-trajectory`
+      `${API_BASE_URL}/artists/radiohead/festival-trajectory`
     )
   })
 
   it('builds festival-intelligence endpoints', () => {
-    expect(festivalEndpoints.SIMILAR(1)).toBe(`${BASE}/festivals/1/similar`)
+    expect(festivalEndpoints.SIMILAR(1)).toBe(`${API_BASE_URL}/festivals/1/similar`)
     expect(festivalEndpoints.OVERLAP(1, 2)).toBe(
-      `${BASE}/festivals/1/overlap/2`
+      `${API_BASE_URL}/festivals/1/overlap/2`
     )
     expect(festivalEndpoints.BREAKOUTS(1)).toBe(
-      `${BASE}/festivals/1/breakouts`
+      `${API_BASE_URL}/festivals/1/breakouts`
     )
     expect(festivalEndpoints.SERIES_COMPARE('coachella')).toBe(
-      `${BASE}/festivals/series/coachella/compare`
+      `${API_BASE_URL}/festivals/series/coachella/compare`
     )
   })
 })

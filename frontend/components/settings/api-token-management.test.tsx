@@ -261,4 +261,166 @@ describe('APITokenManagement', () => {
 
     vi.useRealTimers()
   })
+
+  it('calls revokeToken mutation when Revoke Token is confirmed in dialog', async () => {
+    mockTokensData = {
+      tokens: [
+        {
+          id: 42,
+          description: 'Confirm-revoke token',
+          scope: 'admin',
+          created_at: '2025-06-01T10:00:00Z',
+          expires_at: '2025-12-01T10:00:00Z',
+          last_used_at: null,
+          is_expired: false,
+        },
+      ],
+    }
+    mockRevokeMutateAsync.mockResolvedValueOnce(undefined)
+
+    const user = userEvent.setup()
+    renderWithProviders(<APITokenManagement />)
+
+    // Open revoke dialog via the trash icon button on the row.
+    const allButtons = screen.getAllByRole('button')
+    const deleteBtn = allButtons.find(
+      btn =>
+        btn.textContent !== 'Create Token' &&
+        !btn.textContent?.includes('Create')
+    )
+    await user.click(deleteBtn!)
+
+    // Click the destructive confirm button inside the dialog.
+    await waitFor(() => {
+      expect(screen.getByText('Revoke API Token')).toBeInTheDocument()
+    })
+    const confirmBtn = screen.getByRole('button', { name: 'Revoke Token' })
+    await user.click(confirmBtn)
+
+    expect(mockRevokeMutateAsync).toHaveBeenCalledWith(42)
+  })
+
+  it('calls createToken with description + parsed expiration_days, then shows the issued token', async () => {
+    mockTokensData = { tokens: [] }
+    mockCreateMutateAsync.mockResolvedValueOnce({
+      token: 'ph_test_token_abcdef123',
+    })
+
+    const user = userEvent.setup()
+    renderWithProviders(<APITokenManagement />)
+
+    // Open create dialog.
+    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+
+    // Fill description, override expiration_days.
+    await user.type(
+      screen.getByLabelText('Description (optional)'),
+      'Discovery laptop'
+    )
+    const expirationInput = screen.getByLabelText('Expiration (days)')
+    await user.clear(expirationInput)
+    await user.type(expirationInput, '30')
+
+    // Submit (the dialog has two "Create Token" buttons — the trigger and the
+    // confirm button inside the dialog footer). Pick the dialog one.
+    const submitBtn = screen.getAllByRole('button', { name: /Create Token/ })
+      .find(btn => btn.closest('[role="dialog"]'))
+    expect(submitBtn).toBeDefined()
+    await user.click(submitBtn!)
+
+    expect(mockCreateMutateAsync).toHaveBeenCalledWith({
+      description: 'Discovery laptop',
+      expiration_days: 30,
+    })
+
+    // The issued-token state should render the new token + a Copy button.
+    await waitFor(() => {
+      expect(screen.getByText('Token Created')).toBeInTheDocument()
+    })
+    expect(screen.getByText('ph_test_token_abcdef123')).toBeInTheDocument()
+  })
+
+  it('omits empty description from create payload and defaults expiration_days to 90', async () => {
+    mockTokensData = { tokens: [] }
+    mockCreateMutateAsync.mockResolvedValueOnce({ token: 'ph_default' })
+
+    const user = userEvent.setup()
+    renderWithProviders(<APITokenManagement />)
+
+    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+
+    // Don't touch the description (empty) or expiration_days (default 90).
+    const submitBtn = screen.getAllByRole('button', { name: /Create Token/ })
+      .find(btn => btn.closest('[role="dialog"]'))
+    await user.click(submitBtn!)
+
+    expect(mockCreateMutateAsync).toHaveBeenCalledWith({
+      description: undefined,
+      expiration_days: 90,
+    })
+  })
+
+  it('copies the issued token to the clipboard and shows "Copied!" feedback', async () => {
+    mockTokensData = { tokens: [] }
+    mockCreateMutateAsync.mockResolvedValueOnce({
+      token: 'ph_copyable_token',
+    })
+
+    // userEvent v14 installs a clipboard stub on navigator.clipboard at
+    // setup() time. Spying after setup() ensures the test sees the call.
+    const user = userEvent.setup()
+    const writeTextSpy = vi
+      .spyOn(navigator.clipboard, 'writeText')
+      .mockResolvedValue(undefined)
+
+    renderWithProviders(<APITokenManagement />)
+
+    // Issue the token first.
+    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+    const submitBtn = screen.getAllByRole('button', { name: /Create Token/ })
+      .find(btn => btn.closest('[role="dialog"]'))
+    await user.click(submitBtn!)
+
+    // Wait for the issued-token panel to render.
+    await waitFor(() => {
+      expect(screen.getByText('ph_copyable_token')).toBeInTheDocument()
+    })
+
+    // The Copy icon button is the sibling button to the <code> element
+    // inside the issued-token panel.
+    const tokenCodeEl = screen.getByText('ph_copyable_token')
+    const copyBtn = tokenCodeEl.parentElement?.querySelector('button')
+    expect(copyBtn).toBeTruthy()
+    await user.click(copyBtn!)
+
+    await waitFor(() => {
+      expect(writeTextSpy).toHaveBeenCalledWith('ph_copyable_token')
+    })
+    expect(
+      screen.getByText('Token copied to clipboard!')
+    ).toBeInTheDocument()
+
+    writeTextSpy.mockRestore()
+  })
+
+  it('disables the in-dialog Create Token submit button while the mutation is pending', async () => {
+    mockTokensData = { tokens: [] }
+    mockCreateMutationState = {
+      isPending: true,
+      isError: false,
+      error: null,
+    }
+    const user = userEvent.setup()
+    renderWithProviders(<APITokenManagement />)
+
+    // Open the dialog so the in-dialog submit button is mounted; the
+    // `mutation.isPending` flag drives `disabled` on that button.
+    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+
+    const submitBtn = screen
+      .getAllByRole('button', { name: /Create Token/ })
+      .find(btn => btn.closest('[role="dialog"]'))
+    expect(submitBtn).toBeDefined()
+    expect(submitBtn).toBeDisabled()
+  })
 })

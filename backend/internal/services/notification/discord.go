@@ -438,7 +438,7 @@ func (s *DiscordService) sendWebhook(embed DiscordEmbed) {
 		})
 		return
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		sentry.WithScope(func(scope *sentry.Scope) {

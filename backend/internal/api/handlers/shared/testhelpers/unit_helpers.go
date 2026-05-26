@@ -45,7 +45,11 @@ func humaErrorModel(t *testing.T, err error, expectedStatus int) *huma.ErrorMode
 // huma's error path.
 func AssertHumaError(t *testing.T, err error, expectedStatus int) {
 	t.Helper()
-	humaErrorModel(t, err, expectedStatus)
+	// humaErrorModel returns *huma.ErrorModel (which satisfies the error
+	// interface, so errcheck flags it). The pointer is only useful to
+	// callers that want to inspect Detail — this helper deliberately
+	// discards it. Use AssertHumaErrorWithDetail when the message matters.
+	_ = humaErrorModel(t, err, expectedStatus)
 }
 
 // AssertHumaErrorWithDetail asserts both the HTTP status AND that the

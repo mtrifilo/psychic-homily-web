@@ -320,7 +320,7 @@ func (s *ExtractionService) sendAnthropicRequest(reqBody anthropicRequest) (stri
 	if err != nil {
 		return "", fmt.Errorf("anthropic API request failed: %w", err)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
 
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {

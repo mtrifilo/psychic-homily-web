@@ -55,6 +55,10 @@ describe('RejectShowDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // mockReset (not just clearAllMocks) is required because tests below
+    // use mockImplementation to simulate success/error paths. clearAllMocks
+    // only resets call history — implementations persist across tests.
+    mockMutate.mockReset()
     mockIsPending = false
   })
 
@@ -251,5 +255,61 @@ describe('RejectShowDialog', () => {
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(screen.getByText('Rejecting...')).toBeInTheDocument()
+  })
+
+  it('clears reason and closes dialog when mutation succeeds (onSuccess fires)', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.()
+    })
+
+    render(
+      <RejectShowDialog
+        show={makeShow()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const textarea = screen.getByLabelText('Reason for rejection')
+    await user.type(textarea, 'Duplicate listing')
+
+    const rejectButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Reject'))
+    await user.click(rejectButtons[rejectButtons.length - 1])
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    // After onSuccess: reason was cleared via setReason('') — the textarea
+    // bound to the state should now be empty.
+    expect(textarea).toHaveValue('')
+  })
+
+  it('preserves reason draft when mutation does not invoke onSuccess (error path)', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation(() => {
+      // Simulate error: onSuccess never fires
+    })
+
+    render(
+      <RejectShowDialog
+        show={makeShow()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const textarea = screen.getByLabelText('Reason for rejection')
+    await user.type(textarea, 'Bad data')
+
+    const rejectButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Reject'))
+    await user.click(rejectButtons[rejectButtons.length - 1])
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    // Draft survives so admin can retry without re-typing.
+    expect(textarea).toHaveValue('Bad data')
   })
 })

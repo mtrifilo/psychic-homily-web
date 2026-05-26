@@ -594,7 +594,9 @@ func TestGetMyFollowingHandler_PaginationClamping(t *testing.T) {
 	}
 
 	// limit=999 -> 100
-	h.GetMyFollowingHandler(ctx, &GetMyFollowingRequest{Type: "all", Limit: 999})
+	if _, err := h.GetMyFollowingHandler(ctx, &GetMyFollowingRequest{Type: "all", Limit: 999}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if capturedLimit != 100 {
 		t.Errorf("expected limit=100, got %d", capturedLimit)
 	}
@@ -731,9 +733,11 @@ func TestGetFollowersListHandler_PaginationClamping(t *testing.T) {
 	}
 
 	// limit=999 -> 100
-	h.GetFollowersListHandler(context.Background(), &GetFollowersListRequest{
+	if _, err := h.GetFollowersListHandler(context.Background(), &GetFollowersListRequest{
 		EntityType: "artists", EntityID: "1", Limit: 999,
-	})
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if capturedLimit != 100 {
 		t.Errorf("expected limit=100, got %d", capturedLimit)
 	}

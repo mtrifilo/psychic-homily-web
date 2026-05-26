@@ -56,13 +56,17 @@ func TestGetAuditLogsHandler_LimitClamping(t *testing.T) {
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	// limit=0 → 50
-	h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 0})
+	if _, err := h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 0}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if capturedLimit != 50 {
 		t.Errorf("expected limit clamped to 50, got %d", capturedLimit)
 	}
 
 	// limit=200 → 100
-	h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 200})
+	if _, err := h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{Limit: 200}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if capturedLimit != 100 {
 		t.Errorf("expected limit clamped to 100, got %d", capturedLimit)
 	}
@@ -79,11 +83,13 @@ func TestGetAuditLogsHandler_FiltersPassedThrough(t *testing.T) {
 	h := NewAuditLogHandler(mock)
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
-	h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{
+	if _, err := h.GetAuditLogsHandler(ctx, &GetAuditLogsRequest{
 		Limit:      10,
 		EntityType: "show",
 		Action:     "approve_show",
-	})
+	}); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
 	if capturedFilters.EntityType != "show" {
 		t.Errorf("expected entity_type=show, got %s", capturedFilters.EntityType)
 	}

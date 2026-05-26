@@ -4,11 +4,12 @@ import userEvent from '@testing-library/user-event'
 import { BatchRejectDialog } from './BatchRejectDialog'
 
 const mockMutate = vi.fn()
+let mockIsPending = false
 
 vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useBatchRejectShows: () => ({
     mutate: mockMutate,
-    isPending: false,
+    isPending: mockIsPending,
   }),
 }))
 
@@ -18,6 +19,11 @@ describe('BatchRejectDialog', () => {
 
   beforeEach(() => {
     vi.clearAllMocks()
+    // mockReset (not just clearAllMocks) is required because tests below
+    // use mockImplementation to simulate success/error paths. clearAllMocks
+    // only resets call history — implementations persist across tests.
+    mockMutate.mockReset()
+    mockIsPending = false
   })
 
   it('renders nothing when closed', () => {
@@ -173,5 +179,127 @@ describe('BatchRejectDialog', () => {
 
     await user.click(screen.getByRole('button', { name: 'Cancel' }))
     expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('does not call mutate when reason is only whitespace', async () => {
+    const user = userEvent.setup()
+    render(
+      <BatchRejectDialog
+        showIds={[1]}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    await user.type(screen.getByLabelText('Reason'), '   ')
+
+    const rejectButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Reject'))
+    const submitButton = rejectButtons[rejectButtons.length - 1]
+    expect(submitButton).toBeDisabled()
+  })
+
+  it('trims whitespace from reason before submitting', async () => {
+    const user = userEvent.setup()
+    render(
+      <BatchRejectDialog
+        showIds={[1]}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    await user.type(screen.getByLabelText('Reason'), '  Padded reason  ')
+
+    const rejectButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Reject'))
+    await user.click(rejectButtons[rejectButtons.length - 1])
+
+    expect(mockMutate).toHaveBeenCalledWith(
+      {
+        showIds: [1],
+        reason: 'Padded reason',
+        category: undefined,
+      },
+      expect.any(Object)
+    )
+  })
+
+  it('disables buttons when mutation is pending', () => {
+    mockIsPending = true
+    render(
+      <BatchRejectDialog
+        showIds={[1]}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    expect(screen.getByText('Rejecting...')).toBeInTheDocument()
+  })
+
+  it('fires onSuccess callback, clears form, and closes dialog when mutation succeeds', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.()
+    })
+
+    render(
+      <BatchRejectDialog
+        showIds={[1, 2]}
+        open={true}
+        onOpenChange={onOpenChange}
+        onSuccess={onSuccess}
+      />
+    )
+
+    const reasonTextarea = screen.getByLabelText('Reason')
+    await user.type(reasonTextarea, 'Duplicate listing')
+    await user.selectOptions(screen.getByLabelText('Category'), 'duplicate')
+
+    const rejectButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Reject'))
+    await user.click(rejectButtons[rejectButtons.length - 1])
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(onSuccess).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    // Form state cleared via setReason('') and setCategory('').
+    expect(reasonTextarea).toHaveValue('')
+    expect(screen.getByLabelText('Category')).toHaveValue('')
+  })
+
+  it('does not fire onSuccess or clear form when mutation does not invoke onSuccess (error path)', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation(() => {
+      // Error path: onSuccess never fires
+    })
+
+    render(
+      <BatchRejectDialog
+        showIds={[1]}
+        open={true}
+        onOpenChange={onOpenChange}
+        onSuccess={onSuccess}
+      />
+    )
+
+    const reasonTextarea = screen.getByLabelText('Reason')
+    await user.type(reasonTextarea, 'Will not clear')
+
+    const rejectButtons = screen
+      .getAllByRole('button')
+      .filter(b => b.textContent?.includes('Reject'))
+    await user.click(rejectButtons[rejectButtons.length - 1])
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(onSuccess).not.toHaveBeenCalled()
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    // Draft preserved so the admin can retry.
+    expect(reasonTextarea).toHaveValue('Will not clear')
   })
 })
