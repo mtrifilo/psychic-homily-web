@@ -10,6 +10,7 @@ import (
 
 	"github.com/danielgtaylor/huma/v2"
 	"github.com/danielgtaylor/huma/v2/humatest"
+	"github.com/stretchr/testify/require"
 
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/logger"
@@ -152,7 +153,7 @@ func TestJWTMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_MISSING" {
 		t.Errorf("ErrorCode = %q, want TOKEN_MISSING", body.ErrorCode)
 	}
@@ -174,7 +175,7 @@ func TestJWTMiddleware_InvalidToken(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID", body.ErrorCode)
 	}
@@ -196,7 +197,7 @@ func TestJWTMiddleware_InvalidTokenFromCookie(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID", body.ErrorCode)
 	}
@@ -234,7 +235,7 @@ func TestJWTMiddleware_ExpiredToken(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_EXPIRED" {
 		t.Errorf("ErrorCode = %q, want TOKEN_EXPIRED", body.ErrorCode)
 	}
@@ -256,7 +257,7 @@ func TestJWTMiddleware_BearerTokenPreferredOverCookie(t *testing.T) {
 
 	// Should get TOKEN_INVALID (from header token), not TOKEN_MISSING
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID (header token should be used)", body.ErrorCode)
 	}
@@ -347,7 +348,7 @@ func TestWriteHumaJWTError_NilSessionConfig(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.RequestID != "" {
 		t.Errorf("RequestID = %q, want empty", body.RequestID)
 	}
@@ -372,7 +373,7 @@ func TestHumaJWTMiddleware_NoToken(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_MISSING" {
 		t.Errorf("ErrorCode = %q, want TOKEN_MISSING", body.ErrorCode)
 	}
@@ -396,7 +397,7 @@ func TestHumaJWTMiddleware_InvalidBearerToken(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID", body.ErrorCode)
 	}
@@ -434,7 +435,7 @@ func TestHumaJWTMiddleware_ExpiredToken(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_EXPIRED" {
 		t.Errorf("ErrorCode = %q, want TOKEN_EXPIRED", body.ErrorCode)
 	}
@@ -469,7 +470,7 @@ func TestHumaJWTMiddleware_ValidJWT_FailsDBLookup(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID (DB user lookup failure)", body.ErrorCode)
 	}
@@ -504,7 +505,7 @@ func TestHumaJWTMiddleware_CookieFallback(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	// Should get TOKEN_INVALID (not TOKEN_MISSING — cookie was found)
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID (cookie extracted, DB failed)", body.ErrorCode)
@@ -529,7 +530,7 @@ func TestHumaJWTMiddleware_InvalidAPIToken(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID", body.ErrorCode)
 	}
@@ -554,7 +555,7 @@ func TestHumaJWTMiddleware_InvalidAuthHeaderFormat(t *testing.T) {
 
 	// No Bearer prefix extracted → falls through to cookie check → no cookie → TOKEN_MISSING
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_MISSING" {
 		t.Errorf("ErrorCode = %q, want TOKEN_MISSING", body.ErrorCode)
 	}
@@ -609,7 +610,7 @@ func TestHumaJWTMiddleware_RequestIDFromContext(t *testing.T) {
 	})
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	// The request ID should be propagated to the error response
 	if body.RequestID != "ctx-req-id-123" {
 		t.Errorf("RequestID = %q, want ctx-req-id-123", body.RequestID)
@@ -635,7 +636,7 @@ func TestLenientHumaJWTMiddleware_NoToken(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_MISSING" {
 		t.Errorf("ErrorCode = %q, want TOKEN_MISSING", body.ErrorCode)
 	}
@@ -659,7 +660,7 @@ func TestLenientHumaJWTMiddleware_InvalidToken(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID", body.ErrorCode)
 	}
@@ -692,7 +693,7 @@ func TestLenientHumaJWTMiddleware_ValidToken_FailsDBLookup(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID (DB lookup failed)", body.ErrorCode)
 	}
@@ -734,7 +735,7 @@ func TestLenientHumaJWTMiddleware_ExpiredWithinGrace_FailsDBLookup(t *testing.T)
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	// Token passes grace check but DB fails → TOKEN_INVALID
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID (grace OK, DB failed)", body.ErrorCode)
@@ -773,7 +774,7 @@ func TestLenientHumaJWTMiddleware_ExpiredBeyondGrace(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	if body.ErrorCode != "TOKEN_EXPIRED" {
 		t.Errorf("ErrorCode = %q, want TOKEN_EXPIRED", body.ErrorCode)
 	}
@@ -806,7 +807,7 @@ func TestLenientHumaJWTMiddleware_CookieFallback(t *testing.T) {
 	}
 
 	var body JWTErrorResponse
-	json.Unmarshal(rr.Body.Bytes(), &body)
+	require.NoError(t, json.Unmarshal(rr.Body.Bytes(), &body))
 	// Cookie was found and parsed, but DB lookup fails
 	if body.ErrorCode != "TOKEN_INVALID" {
 		t.Errorf("ErrorCode = %q, want TOKEN_INVALID (cookie extracted, DB failed)", body.ErrorCode)
