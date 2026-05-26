@@ -282,4 +282,48 @@ describe('ApproveShowDialog', () => {
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(screen.getByText('Approving...')).toBeInTheDocument()
   })
+
+  it('closes dialog via onSuccess callback when mutation succeeds', async () => {
+    const user = userEvent.setup()
+    // Simulate successful mutation by invoking the onSuccess callback synchronously
+    mockMutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.()
+    })
+
+    render(
+      <ApproveShowDialog
+        show={makeShow()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Approve/i }))
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  it('does NOT close dialog when mutation does not invoke onSuccess (error path)', async () => {
+    const user = userEvent.setup()
+    // Mutation called but onSuccess never fires (simulating an error path
+    // where the parent error handling would surface state instead)
+    mockMutate.mockImplementation(() => {
+      // no-op: error path does not invoke onSuccess
+    })
+
+    render(
+      <ApproveShowDialog
+        show={makeShow()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    await user.click(screen.getByRole('button', { name: /Approve/i }))
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    // onOpenChange must NOT be called by the success path
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+  })
 })

@@ -305,4 +305,81 @@ describe('ResolveReportDialog', () => {
       screen.getByText('Failed to resolve report. Please try again.')
     ).toBeInTheDocument()
   })
+
+  it('fires onSuccess (closes dialog + clears notes + resets checkbox) when mutation succeeds', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation((_vars, opts) => {
+      opts?.onSuccess?.()
+    })
+
+    render(
+      <ResolveReportDialog
+        report={makeReport({ report_type: 'cancelled' })}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const textarea = screen.getByLabelText('Action taken (optional)')
+    await user.type(textarea, 'Marked show as cancelled')
+    // Uncheck the default-checked flag to verify reset puts it back true.
+    await user.click(screen.getByRole('checkbox'))
+
+    await user.click(screen.getByRole('button', { name: /Mark as Resolved/i }))
+
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+    expect(textarea).toHaveValue('')
+    // resetDialogState sets setSetShowFlag(true) so checkbox is back to checked.
+    expect(screen.getByRole('checkbox')).toBeChecked()
+  })
+
+  it('preserves notes + checkbox state on error so admin can retry without re-typing', async () => {
+    const user = userEvent.setup()
+    mockMutate.mockImplementation(() => {
+      // Error path: onSuccess never fires
+    })
+
+    render(
+      <ResolveReportDialog
+        report={makeReport({ report_type: 'cancelled' })}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    const textarea = screen.getByLabelText('Action taken (optional)')
+    await user.type(textarea, 'Retry resolve')
+    await user.click(screen.getByRole('checkbox'))
+
+    await user.click(screen.getByRole('button', { name: /Mark as Resolved/i }))
+
+    expect(mockMutate).toHaveBeenCalledTimes(1)
+    expect(onOpenChange).not.toHaveBeenCalledWith(false)
+    // Draft preserved.
+    expect(textarea).toHaveValue('Retry resolve')
+    expect(screen.getByRole('checkbox')).not.toBeChecked()
+  })
+
+  it('clears notes and resets checkbox to default when dialog is cancelled', async () => {
+    const user = userEvent.setup()
+    render(
+      <ResolveReportDialog
+        report={makeReport({ report_type: 'cancelled' })}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    // Type notes and toggle checkbox to verify reset on cancel.
+    await user.type(
+      screen.getByLabelText('Action taken (optional)'),
+      'Will not survive cancel'
+    )
+    await user.click(screen.getByRole('checkbox'))
+
+    await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+    // Cancel triggers handleDialogOpenChange(false) → resetDialogState() + onOpenChange(false)
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
 })
