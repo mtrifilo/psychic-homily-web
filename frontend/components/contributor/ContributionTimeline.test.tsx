@@ -354,4 +354,114 @@ describe('ContributionTimeline', () => {
     expect(screen.getByText('Venue B')).toBeInTheDocument()
     expect(screen.getByText('Artist C')).toBeInTheDocument()
   })
+
+  // ICON COVERAGE
+  // The entityTypeIcons map is the single source of truth for which
+  // lucide icon represents each entity type. If a mapping breaks
+  // silently (e.g. a refactor reassigns Calendar -> FilePen) the
+  // user-visible iconography rots. These tests pin the SVG class.
+  describe('entity-type icons', () => {
+    it.each([
+      { entityType: 'show', iconClass: 'lucide-calendar' },
+      { entityType: 'venue', iconClass: 'lucide-map-pin' },
+      { entityType: 'release', iconClass: 'lucide-disc-3' },
+      { entityType: 'label', iconClass: 'lucide-tag' },
+      { entityType: 'festival', iconClass: 'lucide-tent' },
+      { entityType: 'artist', iconClass: 'lucide-mic-vocal' },
+    ] as const)(
+      'renders the $iconClass icon for entity_type=$entityType',
+      ({ entityType, iconClass }) => {
+        const { container } = render(
+          <ContributionTimeline
+            contributions={[
+              makeEntry({
+                entity_type: entityType,
+                entity_name: 'Some Entity',
+              }),
+            ]}
+          />
+        )
+        expect(container.querySelector(`svg.${iconClass}`)).not.toBeNull()
+      }
+    )
+
+    // pending_entity_edits surface uses the same icon as the underlying
+    // entity (venue_edit -> MapPin, artist_edit -> Mic2, etc.).
+    it.each([
+      { entityType: 'venue_edit', iconClass: 'lucide-map-pin' },
+      { entityType: 'artist_edit', iconClass: 'lucide-mic-vocal' },
+      { entityType: 'release_edit', iconClass: 'lucide-disc-3' },
+      { entityType: 'label_edit', iconClass: 'lucide-tag' },
+      { entityType: 'festival_edit', iconClass: 'lucide-tent' },
+    ] as const)(
+      'renders the $iconClass icon for synthetic edit-type $entityType',
+      ({ entityType, iconClass }) => {
+        const { container } = render(
+          <ContributionTimeline
+            contributions={[
+              makeEntry({
+                entity_type: entityType,
+                entity_name: 'Some Entity',
+              }),
+            ]}
+          />
+        )
+        expect(container.querySelector(`svg.${iconClass}`)).not.toBeNull()
+      }
+    )
+
+    it('renders the fallback PenLine icon for an unknown entity type', () => {
+      const { container } = render(
+        <ContributionTimeline
+          contributions={[
+            makeEntry({
+              entity_type: 'unknown_thing',
+              entity_name: 'X',
+            }),
+          ]}
+        />
+      )
+      // PenLine icon renders as svg.lucide-pen-line
+      expect(container.querySelector('svg.lucide-pen-line')).not.toBeNull()
+    })
+  })
+
+  // ORDERING
+  // The component renders contributions in the order it receives them
+  // (no internal sort). Backend already returns newest-first; verify
+  // the component preserves input order so a future change can't
+  // silently scramble the feed.
+  describe('event ordering', () => {
+    it('preserves input array order in the DOM', () => {
+      render(
+        <ContributionTimeline
+          contributions={[
+            makeEntry({ id: 1, entity_name: 'Newest entry' }),
+            makeEntry({ id: 2, entity_name: 'Middle entry' }),
+            makeEntry({ id: 3, entity_name: 'Oldest entry' }),
+          ]}
+        />
+      )
+      const links = screen.getAllByRole('link')
+      const labels = links.map((l) => l.textContent)
+      expect(labels).toEqual(['Newest entry', 'Middle entry', 'Oldest entry'])
+    })
+
+    it('renders one row per entry (no dedup)', () => {
+      const { container } = render(
+        <ContributionTimeline
+          contributions={[
+            makeEntry({ id: 1, entity_name: 'X' }),
+            makeEntry({ id: 2, entity_name: 'X' }),
+            makeEntry({ id: 3, entity_name: 'X' }),
+          ]}
+        />
+      )
+      // Each entry renders its own icon container — count those.
+      const iconWraps = container.querySelectorAll(
+        '.flex.h-8.w-8.shrink-0.items-center.justify-center.rounded-full'
+      )
+      expect(iconWraps).toHaveLength(3)
+    })
+  })
 })

@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, act } from '@testing-library/react'
+import { render, screen, act, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { PrivacySettingsPanel } from './PrivacySettingsPanel'
 import type { PrivacySettings } from '@/features/auth'
@@ -15,14 +15,20 @@ const basePrivacySettings: PrivacySettings = {
   profile_sections: 'visible',
 }
 
-const baseProfile = {
+type MockProfile = {
+  id: number
+  username: string
+  profile_visibility: 'public' | 'private'
+  privacy_settings: PrivacySettings
+}
+
+const baseProfile: MockProfile = {
   id: 1,
   username: 'testuser',
-  profile_visibility: 'public' as const,
+  profile_visibility: 'public',
   privacy_settings: { ...basePrivacySettings },
 }
 
-type MockProfile = typeof baseProfile
 type MockUseOwnContributorProfileValue = {
   data: MockProfile | null
   isLoading: boolean
@@ -35,7 +41,13 @@ const mockUseOwnContributorProfile = vi.fn<
 }))
 
 const mockVisibilityMutate = vi.fn()
-const mockUseUpdateVisibility = vi.fn(() => ({
+type MockVisibilityHookValue = {
+  mutate: typeof mockVisibilityMutate
+  isPending: boolean
+  isError: boolean
+  error: { message: string } | null
+}
+const mockUseUpdateVisibility = vi.fn<() => MockVisibilityHookValue>(() => ({
   mutate: mockVisibilityMutate,
   isPending: false,
   isError: false,
@@ -43,7 +55,13 @@ const mockUseUpdateVisibility = vi.fn(() => ({
 }))
 
 const mockPrivacyMutate = vi.fn()
-const mockUseUpdatePrivacy = vi.fn(() => ({
+type MockPrivacyHookValue = {
+  mutate: typeof mockPrivacyMutate
+  isPending: boolean
+  isError: boolean
+  error: { message: string } | null
+}
+const mockUseUpdatePrivacy = vi.fn<() => MockPrivacyHookValue>(() => ({
   mutate: mockPrivacyMutate,
   isPending: false,
   isError: false,
@@ -82,135 +100,417 @@ describe('PrivacySettingsPanel', () => {
     vi.useRealTimers()
   })
 
-  it('renders loading state', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: null,
-      isLoading: true,
+  describe('loading + initial render', () => {
+    it('renders loading state', () => {
+      mockUseOwnContributorProfile.mockReturnValue({
+        data: null,
+        isLoading: true,
+      })
+      render(<PrivacySettingsPanel />)
+      // When loading, main content is not shown
+      expect(screen.queryByText('Profile Visibility')).not.toBeInTheDocument()
     })
-    render(<PrivacySettingsPanel />)
-    // When loading, main content is not shown
-    expect(screen.queryByText('Profile Visibility')).not.toBeInTheDocument()
+
+    it('renders profile visibility section', () => {
+      render(<PrivacySettingsPanel />)
+      expect(screen.getByText('Profile Visibility')).toBeInTheDocument()
+      expect(screen.getByText('Public Profile')).toBeInTheDocument()
+    })
+
+    it('shows "Private Profile" copy when visibility is private', () => {
+      mockUseOwnContributorProfile.mockReturnValue({
+        data: {
+          ...baseProfile,
+          profile_visibility: 'private',
+          privacy_settings: { ...basePrivacySettings },
+        },
+        isLoading: false,
+      })
+      render(<PrivacySettingsPanel />)
+      expect(screen.getByText('Private Profile')).toBeInTheDocument()
+      expect(
+        screen.getByText(/Only you can see your profile/i)
+      ).toBeInTheDocument()
+    })
+
+    it('shows the public profile URL when visibility is public', () => {
+      render(<PrivacySettingsPanel />)
+      expect(
+        screen.getByText(/visible to everyone at \/users\/testuser/)
+      ).toBeInTheDocument()
+    })
+
+    it('renders privacy controls section with all fields', () => {
+      render(<PrivacySettingsPanel />)
+      expect(screen.getByText('Privacy Controls')).toBeInTheDocument()
+      expect(screen.getByText('Contributions')).toBeInTheDocument()
+      expect(screen.getByText('Saved Shows')).toBeInTheDocument()
+      expect(screen.getByText('Attendance')).toBeInTheDocument()
+      expect(screen.getByText('Following')).toBeInTheDocument()
+      expect(screen.getByText('Collections')).toBeInTheDocument()
+      expect(screen.getByText('Last Active')).toBeInTheDocument()
+      expect(screen.getByText('Custom Sections')).toBeInTheDocument()
+    })
+
+    it('renders three privacy-level buttons (Visible / Count Only / Hidden) per privacy field', () => {
+      render(<PrivacySettingsPanel />)
+      // 5 three-level fields × 3 buttons = 15 buttons; plus the Save button
+      expect(
+        screen.getAllByRole('button', { name: /^Visible$/i })
+      ).toHaveLength(5)
+      expect(
+        screen.getAllByRole('button', { name: /^Count Only$/i })
+      ).toHaveLength(5)
+      expect(
+        screen.getAllByRole('button', { name: /^Hidden$/i })
+      ).toHaveLength(5)
+    })
   })
 
-  it('renders profile visibility section', () => {
-    render(<PrivacySettingsPanel />)
-    expect(screen.getByText('Profile Visibility')).toBeInTheDocument()
-    expect(screen.getByText('Public Profile')).toBeInTheDocument()
+  describe('visibility toggle', () => {
+    it('calls updateVisibility with the inverse on toggle', () => {
+      render(<PrivacySettingsPanel />)
+      const switches = screen.getAllByRole('switch')
+      act(() => {
+        switches[0].click()
+      })
+      expect(mockVisibilityMutate).toHaveBeenCalledTimes(1)
+      const [payload] = mockVisibilityMutate.mock.calls[0]
+      expect(payload).toEqual({ visibility: 'private' })
+    })
+
+    it('toggles to public when current state is private', () => {
+      mockUseOwnContributorProfile.mockReturnValue({
+        data: {
+          ...baseProfile,
+          profile_visibility: 'private',
+          privacy_settings: { ...basePrivacySettings },
+        },
+        isLoading: false,
+      })
+      render(<PrivacySettingsPanel />)
+      const switches = screen.getAllByRole('switch')
+      act(() => {
+        switches[0].click()
+      })
+      const [payload] = mockVisibilityMutate.mock.calls[0]
+      expect(payload).toEqual({ visibility: 'public' })
+    })
+
+    it('shows visibility error banner when updateVisibility is in error state', () => {
+      mockUseUpdateVisibility.mockReturnValue({
+        mutate: mockVisibilityMutate,
+        isPending: false,
+        isError: true,
+        error: { message: 'Network unreachable' },
+      })
+      render(<PrivacySettingsPanel />)
+      expect(screen.getByText('Network unreachable')).toBeInTheDocument()
+    })
+
+    it('falls back to "Failed to update visibility" copy when error has no message', () => {
+      mockUseUpdateVisibility.mockReturnValue({
+        mutate: mockVisibilityMutate,
+        isPending: false,
+        isError: true,
+        error: null,
+      })
+      render(<PrivacySettingsPanel />)
+      expect(
+        screen.getByText('Failed to update visibility')
+      ).toBeInTheDocument()
+    })
+
+    it('disables the visibility switch while update is pending', () => {
+      mockUseUpdateVisibility.mockReturnValue({
+        mutate: mockVisibilityMutate,
+        isPending: true,
+        isError: false,
+        error: null,
+      })
+      render(<PrivacySettingsPanel />)
+      const switches = screen.getAllByRole('switch')
+      // First switch is the visibility toggle
+      expect(switches[0]).toBeDisabled()
+    })
+
+    it('cleans up visibility success timeout on unmount', () => {
+      mockVisibilityMutate.mockImplementation(
+        (_input: unknown, opts: { onSuccess?: () => void }) => {
+          opts.onSuccess?.()
+        }
+      )
+
+      const { unmount } = render(<PrivacySettingsPanel />)
+
+      const switches = screen.getAllByRole('switch')
+      act(() => {
+        switches[0].click()
+      })
+
+      expect(screen.getByText('Settings saved')).toBeInTheDocument()
+      unmount()
+
+      act(() => {
+        vi.advanceTimersByTime(4000)
+      })
+    })
   })
 
-  it('renders privacy controls section with all fields', () => {
-    render(<PrivacySettingsPanel />)
-    expect(screen.getByText('Privacy Controls')).toBeInTheDocument()
-    expect(screen.getByText('Contributions')).toBeInTheDocument()
-    expect(screen.getByText('Saved Shows')).toBeInTheDocument()
-    expect(screen.getByText('Attendance')).toBeInTheDocument()
-    expect(screen.getByText('Following')).toBeInTheDocument()
-    expect(screen.getByText('Collections')).toBeInTheDocument()
-    expect(screen.getByText('Last Active')).toBeInTheDocument()
-    expect(screen.getByText('Custom Sections')).toBeInTheDocument()
-  })
+  describe('privacy field controls', () => {
+    it('Save Privacy Settings button is disabled when there are no changes', () => {
+      render(<PrivacySettingsPanel />)
+      const saveButton = screen.getByRole('button', {
+        name: /Save Privacy Settings/i,
+      })
+      expect(saveButton).toBeDisabled()
+    })
 
-  it('cleans up visibility success timeout on unmount', () => {
-    // Simulate visibility toggle that calls onSuccess immediately
-    mockVisibilityMutate.mockImplementation(
-      (_input: unknown, opts: { onSuccess?: () => void }) => {
-        opts.onSuccess?.()
+    it('enables the Save button after a privacy field changes', () => {
+      render(<PrivacySettingsPanel />)
+      const hiddenButtons = screen.getAllByRole('button', { name: /^Hidden$/i })
+      act(() => {
+        hiddenButtons[0].click()
+      })
+      const saveButton = screen.getByRole('button', {
+        name: /Save Privacy Settings/i,
+      })
+      expect(saveButton).toBeEnabled()
+    })
+
+    it('cycles a three-level field through Hidden -> Count Only -> Visible', () => {
+      render(<PrivacySettingsPanel />)
+
+      // Click Hidden for the first three-level field (Contributions)
+      act(() => {
+        screen.getAllByRole('button', { name: /^Hidden$/i })[0].click()
+      })
+      // Click Count Only
+      act(() => {
+        screen.getAllByRole('button', { name: /^Count Only$/i })[0].click()
+      })
+      // Save
+      act(() => {
+        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+      })
+
+      expect(mockPrivacyMutate).toHaveBeenCalledTimes(1)
+      const [payload] = mockPrivacyMutate.mock.calls[0]
+      expect(payload.contributions).toBe('count_only')
+    })
+
+    it('toggling the Last Active binary switch from visible to hidden sends "hidden"', () => {
+      render(<PrivacySettingsPanel />)
+
+      // The binary switches are the trailing two switches (after the visibility toggle).
+      const switches = screen.getAllByRole('switch')
+      // Index 0: visibility, 1: last_active, 2: profile_sections
+      const lastActiveSwitch = switches[1]
+      expect(lastActiveSwitch).toHaveAttribute('aria-checked', 'true')
+
+      act(() => {
+        lastActiveSwitch.click()
+      })
+
+      act(() => {
+        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+      })
+
+      const [payload] = mockPrivacyMutate.mock.calls[0]
+      expect(payload.last_active).toBe('hidden')
+    })
+
+    it('toggling the Custom Sections binary switch from visible to hidden sends "hidden"', () => {
+      render(<PrivacySettingsPanel />)
+
+      const switches = screen.getAllByRole('switch')
+      const customSectionsSwitch = switches[2]
+      expect(customSectionsSwitch).toHaveAttribute('aria-checked', 'true')
+
+      act(() => {
+        customSectionsSwitch.click()
+      })
+
+      act(() => {
+        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+      })
+
+      const [payload] = mockPrivacyMutate.mock.calls[0]
+      expect(payload.profile_sections).toBe('hidden')
+    })
+
+    it('toggling a binary switch from hidden to visible sends "visible"', () => {
+      mockUseOwnContributorProfile.mockReturnValue({
+        data: {
+          ...baseProfile,
+          privacy_settings: {
+            ...basePrivacySettings,
+            last_active: 'hidden',
+          },
+        },
+        isLoading: false,
+      })
+      render(<PrivacySettingsPanel />)
+
+      const switches = screen.getAllByRole('switch')
+      const lastActiveSwitch = switches[1]
+      expect(lastActiveSwitch).toHaveAttribute('aria-checked', 'false')
+
+      act(() => {
+        lastActiveSwitch.click()
+      })
+
+      act(() => {
+        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+      })
+
+      const [payload] = mockPrivacyMutate.mock.calls[0]
+      expect(payload.last_active).toBe('visible')
+    })
+
+    it('sends the full PrivacySettings payload (all 7 fields) on save', () => {
+      render(<PrivacySettingsPanel />)
+      // Make any change so the save button enables
+      act(() => {
+        screen.getAllByRole('button', { name: /^Hidden$/i })[0].click()
+      })
+      act(() => {
+        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+      })
+
+      const [payload] = mockPrivacyMutate.mock.calls[0]
+      expect(payload).toEqual({
+        contributions: 'hidden',
+        saved_shows: 'visible',
+        attendance: 'visible',
+        following: 'visible',
+        collections: 'visible',
+        last_active: 'visible',
+        profile_sections: 'visible',
+      })
+    })
+
+    it('shows privacy error banner when updatePrivacy is in error state', () => {
+      mockUseUpdatePrivacy.mockReturnValue({
+        mutate: mockPrivacyMutate,
+        isPending: false,
+        isError: true,
+        error: { message: 'Privacy update failed' },
+      })
+      render(<PrivacySettingsPanel />)
+      expect(screen.getByText('Privacy update failed')).toBeInTheDocument()
+    })
+
+    it('falls back to "Failed to save" copy when privacy error has no message', () => {
+      mockUseUpdatePrivacy.mockReturnValue({
+        mutate: mockPrivacyMutate,
+        isPending: false,
+        isError: true,
+        error: null,
+      })
+      render(<PrivacySettingsPanel />)
+      expect(screen.getByText('Failed to save')).toBeInTheDocument()
+    })
+
+    it('disables Save button when privacy update is pending', () => {
+      mockUseUpdatePrivacy.mockReturnValue({
+        mutate: mockPrivacyMutate,
+        isPending: true,
+        isError: false,
+        error: null,
+      })
+      render(<PrivacySettingsPanel />)
+      const saveButton = screen.getByRole('button', {
+        name: /Save Privacy Settings/i,
+      })
+      expect(saveButton).toBeDisabled()
+    })
+
+    it('cleans up privacy save success timeout on unmount', () => {
+      mockPrivacyMutate.mockImplementation(
+        (_input: unknown, opts: { onSuccess?: () => void }) => {
+          opts.onSuccess?.()
+        }
+      )
+
+      const { unmount } = render(<PrivacySettingsPanel />)
+
+      const hiddenButtons = screen.getAllByRole('button', { name: /Hidden/i })
+      act(() => {
+        hiddenButtons[0].click()
+      })
+
+      const saveButton = screen.getByRole('button', {
+        name: /Save Privacy Settings/i,
+      })
+      act(() => {
+        saveButton.click()
+      })
+
+      expect(screen.getByText('Settings saved')).toBeInTheDocument()
+      unmount()
+
+      act(() => {
+        vi.advanceTimersByTime(4000)
+      })
+    })
+
+    it('re-syncs localPrivacy when profile data changes after save', () => {
+      mockPrivacyMutate.mockImplementation(
+        (_input: unknown, opts: { onSuccess?: () => void }) => {
+          opts.onSuccess?.()
+        }
+      )
+
+      const { rerender } = render(<PrivacySettingsPanel />)
+
+      const hiddenButtons = screen.getAllByRole('button', { name: /Hidden/i })
+      act(() => {
+        hiddenButtons[0].click()
+      })
+
+      const saveButton = screen.getByRole('button', {
+        name: /Save Privacy Settings/i,
+      })
+      act(() => {
+        saveButton.click()
+      })
+
+      const updatedPrivacy = {
+        ...basePrivacySettings,
+        contributions: 'hidden' as const,
       }
-    )
+      mockUseOwnContributorProfile.mockReturnValue({
+        data: { ...baseProfile, privacy_settings: updatedPrivacy },
+        isLoading: false,
+      })
 
-    const { unmount } = render(<PrivacySettingsPanel />)
-
-    // Click the visibility toggle switch
-    const switches = screen.getAllByRole('switch')
-    act(() => {
-      switches[0].click()
+      rerender(<PrivacySettingsPanel />)
     })
 
-    // Success message should appear
-    expect(screen.getByText('Settings saved')).toBeInTheDocument()
+    it('clears the "Settings saved" indicator when a new change is made before timeout', () => {
+      mockPrivacyMutate.mockImplementation(
+        (_input: unknown, opts: { onSuccess?: () => void }) => {
+          opts.onSuccess?.()
+        }
+      )
 
-    // Unmount before the 3-second timeout fires
-    unmount()
+      render(<PrivacySettingsPanel />)
 
-    // Advance timers past 3 seconds — should not throw or warn
-    // because the timeout should have been cleaned up on unmount
-    act(() => {
-      vi.advanceTimersByTime(4000)
+      // Make change + save → success indicator appears
+      act(() => {
+        screen.getAllByRole('button', { name: /^Hidden$/i })[0].click()
+      })
+      act(() => {
+        screen.getByRole('button', { name: /Save Privacy Settings/i }).click()
+      })
+      expect(screen.getByText('Settings saved')).toBeInTheDocument()
+
+      // Make a new change before the 3s timeout fires → indicator clears
+      act(() => {
+        screen.getAllByRole('button', { name: /^Count Only$/i })[0].click()
+      })
+      expect(screen.queryByText('Settings saved')).not.toBeInTheDocument()
     })
-  })
-
-  it('cleans up privacy save success timeout on unmount', () => {
-    mockPrivacyMutate.mockImplementation(
-      (_input: unknown, opts: { onSuccess?: () => void }) => {
-        opts.onSuccess?.()
-      }
-    )
-
-    const { unmount } = render(<PrivacySettingsPanel />)
-
-    // Click a privacy control to enable save button ("Hidden" button for Contributions)
-    const hiddenButtons = screen.getAllByRole('button', { name: /Hidden/i })
-    act(() => {
-      hiddenButtons[0].click()
-    })
-
-    // Click save
-    const saveButton = screen.getByRole('button', {
-      name: /Save Privacy Settings/i,
-    })
-    act(() => {
-      saveButton.click()
-    })
-
-    // Success message should appear
-    expect(screen.getByText('Settings saved')).toBeInTheDocument()
-
-    unmount()
-
-    // Advancing timers past 3s should not throw
-    act(() => {
-      vi.advanceTimersByTime(4000)
-    })
-  })
-
-  it('re-syncs localPrivacy when profile data changes after save', () => {
-    mockPrivacyMutate.mockImplementation(
-      (_input: unknown, opts: { onSuccess?: () => void }) => {
-        opts.onSuccess?.()
-      }
-    )
-
-    const { rerender } = render(<PrivacySettingsPanel />)
-
-    // Make a local change
-    const hiddenButtons = screen.getAllByRole('button', { name: /Hidden/i })
-    act(() => {
-      hiddenButtons[0].click()
-    })
-
-    // Save
-    const saveButton = screen.getByRole('button', {
-      name: /Save Privacy Settings/i,
-    })
-    act(() => {
-      saveButton.click()
-    })
-
-    // After save, hasLocalEdits is reset. Now simulate server returning updated data
-    const updatedPrivacy = {
-      ...basePrivacySettings,
-      contributions: 'hidden' as const,
-    }
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: { ...baseProfile, privacy_settings: updatedPrivacy },
-      isLoading: false,
-    })
-
-    // Re-render to trigger useEffect with new profile data
-    rerender(<PrivacySettingsPanel />)
-
-    // The component should have re-synced since hasLocalEdits was reset on save.
-    // This verifies the bug fix: without the fix, the !localPrivacy guard would
-    // prevent resync after initial load.
   })
 })

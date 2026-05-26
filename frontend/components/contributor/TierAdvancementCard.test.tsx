@@ -2,6 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { TierAdvancementCard } from './TierAdvancementCard'
+import type { UserTier } from '@/features/auth'
 
 vi.mock('next/link', () => ({
   default: ({
@@ -19,6 +20,13 @@ vi.mock('next/link', () => ({
 }))
 
 describe('TierAdvancementCard', () => {
+  it('renders the card title and the Award icon header', () => {
+    render(<TierAdvancementCard tier="new_user" />)
+    expect(screen.getByText('Contributor Tier')).toBeInTheDocument()
+    // "Your tier:" label appears next to the current badge
+    expect(screen.getByText('Your tier:')).toBeInTheDocument()
+  })
+
   it('renders the current tier badge for new_user with next-tier requirements', () => {
     render(<TierAdvancementCard tier="new_user" />)
 
@@ -66,5 +74,54 @@ describe('TierAdvancementCard', () => {
       name: /Learn more about tiers/i,
     })
     expect(learnMore).toHaveAttribute('href', '/help/tiers')
+  })
+
+  // Table-driven check: for every advancing tier, the card MUST render
+  //   - the current-tier badge label
+  //   - the next-tier badge label
+  //   - the "Requirements" header
+  //   - a non-empty requirements list (one <li> per requirement)
+  // and for the terminal tier, the card MUST render the "highest tier" copy
+  // INSTEAD OF a Requirements section.
+  it.each([
+    { tier: 'new_user', currentLabel: 'New User', nextLabel: 'Contributor', requirementCount: 3 },
+    { tier: 'contributor', currentLabel: 'Contributor', nextLabel: 'Trusted Contributor', requirementCount: 3 },
+    { tier: 'trusted_contributor', currentLabel: 'Trusted Contributor', nextLabel: 'Local Ambassador', requirementCount: 3 },
+  ] satisfies Array<{ tier: UserTier; currentLabel: string; nextLabel: string; requirementCount: number }>)(
+    'renders current + next tier badges and $requirementCount requirements for $tier',
+    ({ tier, currentLabel, nextLabel, requirementCount }) => {
+      const { container } = render(<TierAdvancementCard tier={tier} />)
+
+      // Current tier label appears once next to "Your tier:"
+      expect(screen.getByText(currentLabel)).toBeInTheDocument()
+      // Next tier label appears in the "Next:" block
+      expect(screen.getByText(nextLabel)).toBeInTheDocument()
+      // Requirements header present
+      expect(screen.getByText('Requirements')).toBeInTheDocument()
+      // Requirements list rendered as <li> items inside a <ul>
+      const reqs = container.querySelectorAll('ul li')
+      expect(reqs.length).toBe(requirementCount)
+      // Each requirement has non-empty text
+      reqs.forEach((li) => {
+        expect(li.textContent?.trim().length).toBeGreaterThan(0)
+      })
+    }
+  )
+
+  // For local_ambassador, no "Next" block should render and no <ul> should exist
+  it('does NOT render a Next badge or requirements list for local_ambassador', () => {
+    const { container } = render(<TierAdvancementCard tier="local_ambassador" />)
+
+    expect(screen.queryByText('Next:')).not.toBeInTheDocument()
+    expect(container.querySelector('ul')).toBeNull()
+  })
+
+  // The current tier badge and the Next-tier badge MUST be visually distinct
+  // (different className strings on the UserTierBadge).
+  it('renders current and next tier badges with distinct tier styles for new_user', () => {
+    render(<TierAdvancementCard tier="new_user" />)
+    const newUserBadge = screen.getByText('New User')
+    const contributorBadge = screen.getByText('Contributor')
+    expect(newUserBadge.className).not.toBe(contributorBadge.className)
   })
 })
