@@ -143,6 +143,18 @@ export const API_ENDPOINTS = {
       DELETE_ALIAS: (artistId: string | number, aliasId: string | number) =>
         `${API_BASE_URL}/admin/artists/${artistId}/aliases/${aliasId}`,
       MERGE: `${API_BASE_URL}/admin/artists/merge`,
+      // Streaming-discovery triage status mutation. Engine seam: the
+      // worklist concentrates the state write; the discovery engine
+      // itself stays stateless. See StreamingWorklist.tsx.
+      STREAMING_DISCOVERY_STATUS: (artistId: string | number) =>
+        `${API_BASE_URL}/admin/artists/${artistId}/streaming-discovery-status`,
+    },
+    // Prioritized triage queue for streaming-link discovery. Returns
+    // artists with non-terminal streaming_discovery_status who have at
+    // least one upcoming show, ordered by soonest show ASC. Pairs with
+    // ADMIN.ARTISTS.STREAMING_DISCOVERY_STATUS for row mutations.
+    STREAMING_WORKLIST: {
+      LIST: `${API_BASE_URL}/admin/streaming-worklist`,
     },
     REPORTS: {
       LIST: `${API_BASE_URL}/admin/reports`,
