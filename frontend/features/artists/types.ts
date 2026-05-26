@@ -5,6 +5,8 @@
  * from backend/internal/services/artist.go
  */
 
+import { formatLocation } from '@/lib/formatLocation'
+
 export interface ArtistSocial {
   instagram: string | null
   facebook: string | null
@@ -116,30 +118,14 @@ export interface ArtistSearchResponse {
 /**
  * Get a formatted location string for an artist (PSY-558 display rule).
  *
- * Country is included unless state is set AND country is "USA"/"US" — local
- * audiences read "Phoenix, AZ" as US-implicit, so adding "USA" is noise.
- * International artists ("Melbourne, Australia", "London, England, UK",
- * "Tokyo, Japan") always render the country since the state cue alone is
- * not enough to locate them.
- *
- * Comparison is case-insensitive and trimmed; either spelling ("USA"/"US")
- * triggers the suppression. Parameter is structurally typed (city/state/country
- * only) so callers with a narrower row shape — e.g. the ArtistSidebar prop —
- * can pass directly without a cast.
+ * Thin wrapper around the shared `formatLocation` helper — see
+ * `lib/formatLocation.ts` for the full rule. Kept as a named export so
+ * artist call sites and tests don't need to import from `lib/` directly
+ * and the structural type is conveniently labeled "artist" at the call site.
  */
 export const getArtistLocation = (
   artist: { city?: string | null; state?: string | null; country?: string | null },
-): string => {
-  const parts = [artist.city, artist.state].filter(Boolean) as string[]
-  const country = artist.country?.trim() ?? ''
-  const stateSet = !!artist.state
-  const countryIsUS =
-    country.toUpperCase() === 'USA' || country.toUpperCase() === 'US'
-  if (country && !(stateSet && countryIsUS)) {
-    parts.push(country)
-  }
-  return parts.length > 0 ? parts.join(', ') : 'Location Unknown'
-}
+): string => formatLocation(artist)
 
 /**
  * Venue info in artist show response

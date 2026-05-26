@@ -6,6 +6,7 @@
  */
 
 import type { ArtistResponse } from '@/features/shows'
+import { formatLocation } from '@/lib/formatLocation'
 
 export interface Venue {
   id: number
@@ -97,11 +98,16 @@ export interface VenueCitiesResponse {
 }
 
 /**
- * Get a formatted location string for a venue
+ * Get a formatted location string for a venue.
+ *
+ * Delegates to the shared `formatLocation` helper (PSY-780) so empty/missing
+ * state no longer leaves a trailing ", " in the UI. The `Venue` model does
+ * not currently carry a `country` field, so the PSY-558 country-suppression
+ * rule is a no-op here today. `Venue` is passed directly (structural typing)
+ * so when `country` is added to the model the field will flow through this
+ * helper without further changes here.
  */
-export const getVenueLocation = (venue: Venue): string => {
-  return `${venue.city}, ${venue.state}`
-}
+export const getVenueLocation = (venue: Venue): string => formatLocation(venue)
 
 // ============================================================================
 // Venue Editing Types
