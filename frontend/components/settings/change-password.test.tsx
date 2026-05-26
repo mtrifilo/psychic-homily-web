@@ -232,14 +232,28 @@ describe('ChangePassword', () => {
     expect(input).toHaveAttribute('type', 'text')
   })
 
-  it('shows "Changing password..." label and disables the submit button while mutation is pending', () => {
+  it('shows "Changing password..." label while the mutation is pending', () => {
     mockMutationState = { isPending: true, isError: false, error: null }
     renderForm()
 
-    // Pending label replaces "Change Password".
+    // The submit-button label switches from "Change Password" to the pending
+    // copy whenever mutation.isPending is true (independent of form-validity).
     expect(screen.getByText('Changing password...')).toBeInTheDocument()
-    // The submit button is the only button rendered as a button[type=submit].
-    // Pull it via the label area.
+    expect(
+      screen.queryByRole('button', { name: 'Change Password' })
+    ).not.toBeInTheDocument()
+  })
+
+  it('keeps the submit button disabled when the mutation is pending even with valid inputs', async () => {
+    mockMutationState = { isPending: true, isError: false, error: null }
+    const { user } = renderForm()
+
+    // Fill in valid form values so canSubmit isn't the reason the button is
+    // disabled — the disabled state must be driven by mutation.isPending alone.
+    await user.type(screen.getByLabelText('Current Password'), 'oldpassword123')
+    await user.type(screen.getByLabelText('New Password'), 'newSecurePassword123!')
+    await user.type(screen.getByLabelText('Confirm New Password'), 'newSecurePassword123!')
+
     const submitButton = screen.getByText('Changing password...').closest('button')
     expect(submitButton).toBeDisabled()
   })

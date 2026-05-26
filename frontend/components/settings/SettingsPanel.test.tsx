@@ -466,7 +466,9 @@ describe('SettingsPanel', () => {
     const exportPayload = { profile: { email: 'user@example.com' } }
     mockExportMutateAsync.mockResolvedValueOnce(exportPayload)
 
-    // Capture URL.createObjectURL + revokeObjectURL.
+    // Capture URL.createObjectURL + revokeObjectURL. Wrap in try/finally so
+    // a failing assertion can't poison subsequent tests in this file with a
+    // broken URL.createObjectURL stub.
     const createObjectURL = vi.fn().mockReturnValue('blob:fake-url')
     const revokeObjectURL = vi.fn()
     const originalCreateObjectURL = URL.createObjectURL
@@ -474,19 +476,21 @@ describe('SettingsPanel', () => {
     URL.createObjectURL = createObjectURL
     URL.revokeObjectURL = revokeObjectURL
 
-    const user = userEvent.setup()
-    renderWithProviders(<SettingsPanel />)
+    try {
+      const user = userEvent.setup()
+      renderWithProviders(<SettingsPanel />)
 
-    await user.click(screen.getByRole('button', { name: /Export My Data/ }))
+      await user.click(screen.getByRole('button', { name: /Export My Data/ }))
 
-    expect(mockExportMutateAsync).toHaveBeenCalled()
-    await waitFor(() => {
-      expect(createObjectURL).toHaveBeenCalled()
-      expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url')
-    })
-
-    URL.createObjectURL = originalCreateObjectURL
-    URL.revokeObjectURL = originalRevokeObjectURL
+      expect(mockExportMutateAsync).toHaveBeenCalled()
+      await waitFor(() => {
+        expect(createObjectURL).toHaveBeenCalled()
+        expect(revokeObjectURL).toHaveBeenCalledWith('blob:fake-url')
+      })
+    } finally {
+      URL.createObjectURL = originalCreateObjectURL
+      URL.revokeObjectURL = originalRevokeObjectURL
+    }
   })
 
   it('renders the issued CLI token and a Copy button after generation succeeds', async () => {
@@ -558,14 +562,18 @@ describe('SettingsPanel', () => {
     writeTextSpy.mockRestore()
   })
 
-  it('opens delete account dialog AND closes it via onOpenChange(false)', async () => {
+  it('opens delete account dialog when Delete Account button is clicked (verifies open state propagates)', async () => {
     const user = userEvent.setup()
     renderWithProviders(<SettingsPanel />)
 
-    // Dialog mock surfaces when open=true (per the vi.mock above).
+    // Dialog mock only mounts when open=true (per the vi.mock above), so its
+    // presence verifies the open-state wiring on the trigger button.
+    expect(screen.queryByTestId('delete-dialog')).not.toBeInTheDocument()
+
     await user.click(
       screen.getByRole('button', { name: /Delete Account/ })
     )
+
     expect(screen.getByTestId('delete-dialog')).toBeInTheDocument()
   })
 

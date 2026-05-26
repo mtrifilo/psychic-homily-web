@@ -403,24 +403,24 @@ describe('APITokenManagement', () => {
     writeTextSpy.mockRestore()
   })
 
-  it('disables the Create Token submit button while the mutation is pending', () => {
+  it('disables the in-dialog Create Token submit button while the mutation is pending', async () => {
     mockTokensData = { tokens: [] }
     mockCreateMutationState = {
       isPending: true,
       isError: false,
       error: null,
     }
+    const user = userEvent.setup()
     renderWithProviders(<APITokenManagement />)
 
-    // Open dialog — the trigger button is also disabled-friendly but the
-    // confirm button inside the dialog reflects mutation.isPending.
-    // We re-render with pending=true, so the trigger isn't pressed; instead
-    // verify the trigger still mounts and the in-dialog state would be
-    // disabled (we don't open the dialog here — just check pending propagates
-    // via the surfaced spinner-friendly button label area).
-    // Since the dialog is closed, just assert the trigger remains in the doc.
-    expect(
-      screen.getByRole('button', { name: /Create Token/ })
-    ).toBeInTheDocument()
+    // Open the dialog so the in-dialog submit button is mounted; the
+    // `mutation.isPending` flag drives `disabled` on that button.
+    await user.click(screen.getByRole('button', { name: /Create Token/ }))
+
+    const submitBtn = screen
+      .getAllByRole('button', { name: /Create Token/ })
+      .find(btn => btn.closest('[role="dialog"]'))
+    expect(submitBtn).toBeDefined()
+    expect(submitBtn).toBeDisabled()
   })
 })
