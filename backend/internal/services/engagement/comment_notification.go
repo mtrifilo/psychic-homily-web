@@ -581,7 +581,8 @@ func VerifyCommentSubscriptionUnsubscribeSignature(userID uint, entityType strin
 // as long as the JWT secret doesn't rotate.
 func ComputeCommentSubscriptionUnsubscribeSignature(userID uint, entityType string, entityID uint, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "unsubscribe:comment-subscription:%d:%s:%d", userID, entityType, entityID)
+	// hash.Hash.Write never returns an error; the drop is intentional.
+	_, _ = fmt.Fprintf(mac, "unsubscribe:comment-subscription:%d:%s:%d", userID, entityType, entityID)
 	return hex.EncodeToString(mac.Sum(nil))
 }
 
@@ -603,6 +604,7 @@ func VerifyMentionUnsubscribeSignature(userID uint, signature, secret string) bo
 // ComputeMentionUnsubscribeSignature hashes userID under secret.
 func ComputeMentionUnsubscribeSignature(userID uint, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "unsubscribe:mention:%d", userID)
+	// hash.Hash.Write never returns an error; the drop is intentional.
+	_, _ = fmt.Fprintf(mac, "unsubscribe:mention:%d", userID)
 	return hex.EncodeToString(mac.Sum(nil))
 }

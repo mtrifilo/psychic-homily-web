@@ -1,7 +1,7 @@
 package auth
 
 import (
-	"encoding/json"
+	"context"
 	"fmt"
 	"html"
 	"net/http"
@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/engagement"
 )
 
@@ -65,7 +66,7 @@ func (h *UserPreferencesHandler) UnsubscribeCollectionDigestPageHandler(w http.R
 	)
 
 	if isOneClickPost(r) {
-		writeOneClickUnsubscribed(w)
+		writeOneClickUnsubscribed(r.Context(), w)
 		return
 	}
 
@@ -77,11 +78,11 @@ func (h *UserPreferencesHandler) UnsubscribeCollectionDigestPageHandler(w http.R
 // response: 200 with a minimal JSON body. The body is not strictly required,
 // but Gmail's documented examples include one and it makes manual debugging
 // easier. Shared by every one-click unsubscribe handler.
-func writeOneClickUnsubscribed(w http.ResponseWriter) {
+func writeOneClickUnsubscribed(ctx context.Context, w http.ResponseWriter) {
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	_ = json.NewEncoder(w).Encode(map[string]bool{"unsubscribed": true})
+	respond.SafeEncode(ctx, w, map[string]bool{"unsubscribed": true})
 }
 
 // isOneClickPost returns true when the request is a POST with body
@@ -95,22 +96,22 @@ func isOneClickPost(r *http.Request) bool {
 // writeUnsubscribeConfirmation renders the GET success page. Self-contained
 // HTML — no shared template engine — to keep this surface tiny and avoid a
 // new dependency just for one page.
-func writeUnsubscribeConfirmation(w http.ResponseWriter, _ *http.Request) {
+func writeUnsubscribeConfirmation(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, unsubscribeConfirmationHTML)
+	respond.SafeWrite(r.Context(), w, []byte(unsubscribeConfirmationHTML))
 }
 
 // writeScopedUnsubscribeConfirmation renders a GET success page whose body
 // names the specific category the recipient unsubscribed from. The noun is
 // supplied by the handler (e.g. "tier-change emails") and is from a fixed
 // internal allowlist, not user input, so it's safe to interpolate.
-func writeScopedUnsubscribeConfirmation(w http.ResponseWriter, noun string) {
+func writeScopedUnsubscribeConfirmation(ctx context.Context, w http.ResponseWriter, noun string) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprintf(w, scopedUnsubscribeConfirmationTemplate, noun)
+	respond.SafeWrite(ctx, w, []byte(fmt.Sprintf(scopedUnsubscribeConfirmationTemplate, noun)))
 }
 
 // writeUnsubscribeError renders an error page on GET, or a JSON body on POST,
@@ -120,7 +121,7 @@ func writeUnsubscribeError(w http.ResponseWriter, r *http.Request, status int, m
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(status)
-		_ = json.NewEncoder(w).Encode(map[string]any{
+		respond.SafeEncode(r.Context(), w, map[string]any{
 			"unsubscribed": false,
 			"error":        message,
 		})
@@ -131,7 +132,7 @@ func writeUnsubscribeError(w http.ResponseWriter, r *http.Request, status int, m
 	w.Header().Set("Cache-Control", "no-store")
 	w.WriteHeader(status)
 	page := strings.ReplaceAll(unsubscribeErrorTemplate, "{{message}}", html.EscapeString(message))
-	fmt.Fprint(w, page)
+	respond.SafeWrite(r.Context(), w, []byte(page))
 }
 
 // unsubscribeConfirmationHTML is the success page rendered on GET. Keep

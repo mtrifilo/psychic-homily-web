@@ -364,7 +364,7 @@ func TestExtractShowValidation(t *testing.T) {
 	}
 	validationServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		w.Write([]byte("test server"))
+		_, _ = w.Write([]byte("test server"))
 	}))
 	defer validationServer.Close()
 	svc := &ExtractionService{config: cfg, httpClient: validationServer.Client(), anthropicBaseURL: validationServer.URL}
@@ -506,7 +506,7 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("success", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -526,7 +526,7 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("multiple_content_blocks", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -547,7 +547,7 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("empty_content", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`
@@ -565,7 +565,7 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("non_text_blocks_ignored", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"content":[{"type":"tool_use","text":"ignored"},{"type":"text","text":"kept"}]}`))
+			_, _ = w.Write([]byte(`{"content":[{"type":"tool_use","text":"ignored"},{"type":"text","text":"kept"}]}`))
 		})
 		defer server.Close()
 
@@ -578,7 +578,7 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("non_200_status", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusTooManyRequests)
-			w.Write([]byte("rate limited"))
+			_, _ = w.Write([]byte("rate limited"))
 		})
 		defer server.Close()
 
@@ -592,7 +592,7 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("api_error_response", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte(`{"error":{"type":"overloaded_error","message":"Overloaded"}}`))
+			_, _ = w.Write([]byte(`{"error":{"type":"overloaded_error","message":"Overloaded"}}`))
 		})
 		defer server.Close()
 
@@ -606,7 +606,7 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("credit_billing_error", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusBadRequest)
-			w.Write([]byte("Your credit balance is too low"))
+			_, _ = w.Write([]byte("Your credit balance is too low"))
 		})
 		defer server.Close()
 
@@ -620,7 +620,7 @@ func TestCallAnthropic(t *testing.T) {
 	t.Run("invalid_response_json", func(t *testing.T) {
 		svc, server := newTestExtractionService(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("not json"))
+			_, _ = w.Write([]byte("not json"))
 		})
 		defer server.Close()
 
@@ -638,7 +638,7 @@ func TestCallAnthropic(t *testing.T) {
 			capturedHeaders = r.Header.Clone()
 			capturedBody, _ = io.ReadAll(r.Body)
 			w.WriteHeader(http.StatusOK)
-			json.NewEncoder(w).Encode(anthropicResponse{
+			_ = json.NewEncoder(w).Encode(anthropicResponse{
 				Content: []struct {
 					Type string `json:"type"`
 					Text string `json:"text"`

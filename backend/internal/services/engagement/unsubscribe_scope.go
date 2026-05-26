@@ -24,7 +24,8 @@ const (
 // tier-change and edit-review categories.
 func ComputeScopedUnsubscribeSignature(userID uint, scope, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
-	fmt.Fprintf(mac, "unsubscribe:%s:%d", scope, userID)
+	// hash.Hash.Write never returns an error; the drop is intentional.
+	_, _ = fmt.Fprintf(mac, "unsubscribe:%s:%d", scope, userID)
 	return hex.EncodeToString(mac.Sum(nil))
 }
 

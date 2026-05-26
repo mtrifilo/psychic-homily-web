@@ -105,7 +105,7 @@ func TestFetchDynamic_Basic(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}))
 	defer server.Close()
 
@@ -144,7 +144,7 @@ func TestFetchDynamic_StaticPage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}))
 	defer server.Close()
 
@@ -175,7 +175,7 @@ func TestFetchScreenshot_Basic(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}))
 	defer server.Close()
 
@@ -220,7 +220,7 @@ func TestDetectRenderMethod_Static(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}))
 	defer server.Close()
 
@@ -254,7 +254,7 @@ func TestDetectRenderMethod_NeedsDynamic(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}))
 	defer server.Close()
 
@@ -351,7 +351,7 @@ func TestWorkerPoolSemaphore(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`<!DOCTYPE html><html><body><div class="event">Event</div></body></html>`))
+		_, _ = w.Write([]byte(`<!DOCTYPE html><html><body><div class="event">Event</div></body></html>`))
 	}))
 	defer server.Close()
 
@@ -452,7 +452,7 @@ func TestDetectRenderMethod_WithoutInit(t *testing.T) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
 		// Very small page with no event markers
-		w.Write([]byte("<html><body>Hello</body></html>"))
+		_, _ = w.Write([]byte("<html><body>Hello</body></html>"))
 	}))
 	defer server.Close()
 
@@ -483,7 +483,7 @@ func TestFetchDynamic_ContentHash(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}))
 	defer server.Close()
 
@@ -523,7 +523,7 @@ func TestFetchDynamic_LargePage(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}))
 	defer server.Close()
 
@@ -546,7 +546,7 @@ func TestFetchDynamic_NoEventSelector(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(page))
+		_, _ = w.Write([]byte(page))
 	}))
 	defer server.Close()
 

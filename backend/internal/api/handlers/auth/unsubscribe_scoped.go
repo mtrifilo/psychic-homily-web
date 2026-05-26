@@ -85,9 +85,9 @@ func (h *UserPreferencesHandler) handleScopedUnsubscribe(w http.ResponseWriter, 
 	)
 
 	if isOneClickPost(r) {
-		writeOneClickUnsubscribed(w)
+		writeOneClickUnsubscribed(r.Context(), w)
 		return
 	}
 
-	writeScopedUnsubscribeConfirmation(w, cfg.noun)
+	writeScopedUnsubscribeConfirmation(r.Context(), w, cfg.noun)
 }

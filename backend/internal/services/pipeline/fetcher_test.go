@@ -15,7 +15,7 @@ func TestFetch_200_Changed(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
 
@@ -36,7 +36,7 @@ func TestFetch_200_Unchanged(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
 
@@ -56,7 +56,7 @@ func TestFetch_200_HashMismatch(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
 
@@ -77,7 +77,7 @@ func TestFetch_304_NotModified(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("body"))
+		_, _ = w.Write([]byte("body"))
 	}))
 	defer server.Close()
 
@@ -97,7 +97,7 @@ func TestFetch_ETag_Sent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedETag = r.Header.Get("If-None-Match")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("body"))
+		_, _ = w.Write([]byte("body"))
 	}))
 	defer server.Close()
 
@@ -114,7 +114,7 @@ func TestFetch_ETag_NotSent_WhenEmpty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedETag = r.Header.Get("If-None-Match")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("body"))
+		_, _ = w.Write([]byte("body"))
 	}))
 	defer server.Close()
 
@@ -268,7 +268,7 @@ func TestFetch_UserAgent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		receivedUA = r.Header.Get("User-Agent")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("body"))
+		_, _ = w.Write([]byte("body"))
 	}))
 	defer server.Close()
 
@@ -283,7 +283,7 @@ func TestFetch_ContentType(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"events":[]}`))
+		_, _ = w.Write([]byte(`{"events":[]}`))
 	}))
 	defer server.Close()
 
@@ -302,7 +302,7 @@ func TestFetch_200_WithETag(t *testing.T) {
 		w.Header().Set("ETag", responseETag)
 		w.Header().Set("Content-Type", "text/html")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(body))
+		_, _ = w.Write([]byte(body))
 	}))
 	defer server.Close()
 

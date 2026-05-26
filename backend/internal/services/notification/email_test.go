@@ -36,7 +36,7 @@ func setupEmailTest(t *testing.T) (*EmailService, chan capturedEmail, *httptest.
 		json.NewDecoder(r.Body).Decode(&req)
 		requests <- req
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(map[string]string{"id": "test-email-id"})
+		_ = json.NewEncoder(w).Encode(map[string]string{"id": "test-email-id"})
 	}))
 	t.Cleanup(server.Close)
 
@@ -56,7 +56,7 @@ func setupEmailTestError(t *testing.T) *EmailService {
 	t.Helper()
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		w.Write([]byte(`{"message": "internal error"}`))
+		_, _ = w.Write([]byte(`{"message": "internal error"}`))
 	}))
 	t.Cleanup(server.Close)
 

@@ -57,7 +57,7 @@ func TestGetUserFromContext_WrongType(t *testing.T) {
 func TestWriteJWTError(t *testing.T) {
 	rr := httptest.NewRecorder()
 
-	writeJWTError(rr, "req-123", "TOKEN_MISSING", "Authentication required", http.StatusUnauthorized)
+	writeJWTError(context.Background(), rr, "req-123", "TOKEN_MISSING", "Authentication required", http.StatusUnauthorized)
 
 	if rr.Code != http.StatusUnauthorized {
 		t.Errorf("status = %d, want %d", rr.Code, http.StatusUnauthorized)
@@ -89,7 +89,7 @@ func TestWriteJWTError(t *testing.T) {
 func TestWriteJWTError_EmptyRequestID(t *testing.T) {
 	rr := httptest.NewRecorder()
 
-	writeJWTError(rr, "", "TOKEN_INVALID", "Invalid token", http.StatusUnauthorized)
+	writeJWTError(context.Background(), rr, "", "TOKEN_INVALID", "Invalid token", http.StatusUnauthorized)
 
 	var body JWTErrorResponse
 	if err := json.Unmarshal(rr.Body.Bytes(), &body); err != nil {

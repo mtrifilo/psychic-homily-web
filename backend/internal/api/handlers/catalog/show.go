@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	"psychic-homily-backend/internal/respond"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
@@ -1397,7 +1398,7 @@ func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequ
 		Body: func(ctx huma.Context) {
 			ctx.SetHeader("Content-Type", "text/markdown; charset=utf-8")
 			ctx.SetHeader("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", filename))
-			ctx.BodyWriter().Write(content)
+			respond.SafeWrite(ctx.Context(), ctx.BodyWriter(), content)
 		},
 	}, nil
 }

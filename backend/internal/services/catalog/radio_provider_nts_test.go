@@ -122,7 +122,7 @@ const ntsEmptyEpisodesJSON = `{"results": []}`
 func TestNTS_DiscoverShows_ParsesAllFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsShowsPage1JSON)
+		_, _ = fmt.Fprint(w, ntsShowsPage1JSON)
 	}))
 	defer server.Close()
 
@@ -175,10 +175,10 @@ func TestNTS_DiscoverShows_Pagination(t *testing.T) {
 				}
 			}
 			data, _ := json.Marshal(ntsShowsResponse{Results: results})
-			w.Write(data)
+			_, _ = w.Write(data)
 		} else {
 			// Second page: return fewer results (signals end of pagination)
-			fmt.Fprint(w, ntsShowsPage2JSON)
+			_, _ = fmt.Fprint(w, ntsShowsPage2JSON)
 		}
 	}))
 	defer server.Close()
@@ -195,7 +195,7 @@ func TestNTS_DiscoverShows_Pagination(t *testing.T) {
 func TestNTS_DiscoverShows_Empty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEmptyShowsJSON)
+		_, _ = fmt.Fprint(w, ntsEmptyShowsJSON)
 	}))
 	defer server.Close()
 
@@ -214,7 +214,7 @@ func TestNTS_DiscoverShows_Empty(t *testing.T) {
 func TestNTS_FetchNewEpisodes_AllFields(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEpisodesJSON)
+		_, _ = fmt.Fprint(w, ntsEpisodesJSON)
 	}))
 	defer server.Close()
 
@@ -242,7 +242,7 @@ func TestNTS_FetchNewEpisodes_AllFields(t *testing.T) {
 func TestNTS_FetchNewEpisodes_DateFiltering(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEpisodesJSON)
+		_, _ = fmt.Fprint(w, ntsEpisodesJSON)
 	}))
 	defer server.Close()
 
@@ -276,10 +276,10 @@ func TestNTS_FetchNewEpisodes_StopsAtOldEpisodes(t *testing.T) {
 				}
 			}
 			data, _ := json.Marshal(ntsEpisodesResponse{Results: results})
-			w.Write(data)
+			_, _ = w.Write(data)
 		} else {
 			// Second page has old episodes
-			fmt.Fprint(w, ntsEpisodeOlderJSON)
+			_, _ = fmt.Fprint(w, ntsEpisodeOlderJSON)
 		}
 	}))
 	defer server.Close()
@@ -297,7 +297,7 @@ func TestNTS_FetchNewEpisodes_StopsAtOldEpisodes(t *testing.T) {
 func TestNTS_FetchNewEpisodes_Empty(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEmptyEpisodesJSON)
+		_, _ = fmt.Fprint(w, ntsEmptyEpisodesJSON)
 	}))
 	defer server.Close()
 
@@ -320,7 +320,7 @@ func TestNTS_FetchPlaylist_WithTracklist(t *testing.T) {
 		// data and every import was coming back empty because of it.
 		assert.Equal(t, "/v2/shows/huerco-s/episodes/march-2026/tracklist", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsTracklistJSON)
+		_, _ = fmt.Fprint(w, ntsTracklistJSON)
 	}))
 	defer server.Close()
 
@@ -368,7 +368,7 @@ func TestNTS_FetchPlaylist_EmptyTracklist(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assert.Equal(t, "/v2/shows/scratcha-dva/episodes/march-2026-mix/tracklist", r.URL.Path)
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEmptyTracklistJSON)
+		_, _ = fmt.Fprint(w, ntsEmptyTracklistJSON)
 	}))
 	defer server.Close()
 
@@ -387,7 +387,7 @@ func TestNTS_FetchPlaylist_EmptyTracklist(t *testing.T) {
 func TestNTS_FetchPlaylist_TracklistNotFound(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, `{"detail": "Not found."}`)
+		_, _ = fmt.Fprint(w, `{"detail": "Not found."}`)
 	}))
 	defer server.Close()
 
@@ -431,7 +431,7 @@ func TestNTS_FetchPlaylist_SkipsEmptyArtist(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, tracklistJSON)
+		_, _ = fmt.Fprint(w, tracklistJSON)
 	}))
 	defer server.Close()
 
@@ -456,7 +456,7 @@ func TestNTS_FetchPlaylist_SkipsEmptyArtist(t *testing.T) {
 func TestNTS_MixcloudArchiveURL_Preserved(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEpisodesJSON)
+		_, _ = fmt.Fprint(w, ntsEpisodesJSON)
 	}))
 	defer server.Close()
 
@@ -482,7 +482,7 @@ func TestNTS_RateLimiting(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestCount++
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEmptyShowsJSON)
+		_, _ = fmt.Fprint(w, ntsEmptyShowsJSON)
 	}))
 	defer server.Close()
 
@@ -515,7 +515,7 @@ func TestNTS_RateLimiting(t *testing.T) {
 func TestNTS_HTTPError_DiscoverShows(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, "Internal Server Error")
+		_, _ = fmt.Fprint(w, "Internal Server Error")
 	}))
 	defer server.Close()
 
@@ -530,7 +530,7 @@ func TestNTS_HTTPError_DiscoverShows(t *testing.T) {
 func TestNTS_HTTPError_FetchNewEpisodes(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, "Not Found")
+		_, _ = fmt.Fprint(w, "Not Found")
 	}))
 	defer server.Close()
 
@@ -545,7 +545,7 @@ func TestNTS_HTTPError_FetchNewEpisodes(t *testing.T) {
 func TestNTS_HTTPError_FetchPlaylist(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprint(w, "Service Unavailable")
+		_, _ = fmt.Fprint(w, "Service Unavailable")
 	}))
 	defer server.Close()
 
@@ -560,7 +560,7 @@ func TestNTS_HTTPError_FetchPlaylist(t *testing.T) {
 func TestNTS_MalformedJSON_DiscoverShows(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, "this is not json")
+		_, _ = fmt.Fprint(w, "this is not json")
 	}))
 	defer server.Close()
 
@@ -575,7 +575,7 @@ func TestNTS_MalformedJSON_DiscoverShows(t *testing.T) {
 func TestNTS_MalformedJSON_FetchPlaylist(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, "{invalid json")
+		_, _ = fmt.Fprint(w, "{invalid json")
 	}))
 	defer server.Close()
 
@@ -620,7 +620,7 @@ func TestNTS_UserAgent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedUA = r.Header.Get("User-Agent")
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, ntsEmptyShowsJSON)
+		_, _ = fmt.Fprint(w, ntsEmptyShowsJSON)
 	}))
 	defer server.Close()
 
@@ -839,7 +839,7 @@ func TestNTS_FetchNewEpisodes_DateFiltering_OffsetFormat(t *testing.T) {
 	]}`
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		fmt.Fprint(w, body)
+		_, _ = fmt.Fprint(w, body)
 	}))
 	defer server.Close()
 

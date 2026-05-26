@@ -596,7 +596,7 @@ func TestWFMU_DiscoverShows_Integration(t *testing.T) {
 		switch r.URL.Path {
 		case "/playlists/":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, wfmuDJIndexHTML)
+			_, _ = fmt.Fprint(w, wfmuDJIndexHTML)
 		default:
 			http.NotFound(w, r)
 		}
@@ -632,7 +632,7 @@ func TestWFMU_FetchNewEpisodes_Integration(t *testing.T) {
 		case "/playlists/BT":
 			archiveHits++
 			w.Header().Set("Content-Type", "text/html")
-			w.Write(archiveBody)
+			_, _ = w.Write(archiveBody)
 		default:
 			http.NotFound(w, r)
 		}
@@ -660,7 +660,7 @@ func TestWFMU_FetchPlaylist_Integration(t *testing.T) {
 		switch r.URL.Path {
 		case "/playlists/shows/162145":
 			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, wfmuPlaylistPageHTML)
+			_, _ = fmt.Fprint(w, wfmuPlaylistPageHTML)
 		default:
 			http.NotFound(w, r)
 		}
@@ -689,7 +689,7 @@ func TestWFMU_FetchPlaylist_Integration(t *testing.T) {
 func TestWFMU_HTTPError_DiscoverShows(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, "Internal Server Error")
+		_, _ = fmt.Fprint(w, "Internal Server Error")
 	}))
 	defer server.Close()
 
@@ -707,7 +707,7 @@ func TestWFMU_HTTPError_FetchNewEpisodes_404(t *testing.T) {
 	// fetch over a stale/typo'd show code doesn't trip the circuit breaker.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, "Not Found")
+		_, _ = fmt.Fprint(w, "Not Found")
 	}))
 	defer server.Close()
 
@@ -722,7 +722,7 @@ func TestWFMU_HTTPError_FetchNewEpisodes_404(t *testing.T) {
 func TestWFMU_HTTPError_FetchNewEpisodes_5xx(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
-		fmt.Fprint(w, "Internal Server Error")
+		_, _ = fmt.Fprint(w, "Internal Server Error")
 	}))
 	defer server.Close()
 
@@ -737,7 +737,7 @@ func TestWFMU_HTTPError_FetchNewEpisodes_5xx(t *testing.T) {
 func TestWFMU_HTTPError_FetchPlaylist(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
-		fmt.Fprint(w, "Service Unavailable")
+		_, _ = fmt.Fprint(w, "Service Unavailable")
 	}))
 	defer server.Close()
 
@@ -759,9 +759,9 @@ func TestWFMU_RateLimiting(t *testing.T) {
 		requestCount++
 		switch {
 		case strings.HasSuffix(r.URL.Path, "/playlists/"):
-			fmt.Fprint(w, wfmuDJIndexHTML)
+			_, _ = fmt.Fprint(w, wfmuDJIndexHTML)
 		default:
-			fmt.Fprint(w, wfmuEmptyPlaylistHTML)
+			_, _ = fmt.Fprint(w, wfmuEmptyPlaylistHTML)
 		}
 	}))
 	defer server.Close()
@@ -812,7 +812,7 @@ func TestWFMU_UserAgent(t *testing.T) {
 	var capturedUA string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		capturedUA = r.Header.Get("User-Agent")
-		fmt.Fprint(w, wfmuEmptyPlaylistHTML)
+		_, _ = fmt.Fprint(w, wfmuEmptyPlaylistHTML)
 	}))
 	defer server.Close()
 
@@ -1175,7 +1175,7 @@ func TestWFMU_FetchNewEpisodes_ArchiveFallback_Integration(t *testing.T) {
 		case "/playlists/BT":
 			archiveHits++
 			w.Header().Set("Content-Type", "text/html")
-			w.Write(archiveBody)
+			_, _ = w.Write(archiveBody)
 		default:
 			http.NotFound(w, r)
 		}
@@ -1207,7 +1207,7 @@ func TestWFMU_FetchNewEpisodes_ArchiveFallback_ZeroSince(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/playlists/BT" {
 			archiveHits++
-			w.Write(archiveBody)
+			_, _ = w.Write(archiveBody)
 			return
 		}
 		http.NotFound(w, r)
@@ -1228,7 +1228,7 @@ func TestWFMU_FetchNewEpisodes_ArchiveFallback_404(t *testing.T) {
 	// Unknown show codes should return empty, not error.
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
-		fmt.Fprint(w, "Not Found")
+		_, _ = fmt.Fprint(w, "Not Found")
 	}))
 	defer server.Close()
 
