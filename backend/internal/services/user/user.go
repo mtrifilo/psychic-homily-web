@@ -151,6 +151,14 @@ func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFi
 // UserService handles user-related business logic
 type UserService struct {
 	db *gorm.DB
+
+	// incrementFailedAttemptsFn is a test-only seam. When non-nil,
+	// AuthenticateUserWithPassword routes the lockout-counter increment through
+	// this function instead of s.IncrementFailedAttempts directly. The seam
+	// exists to deterministically exercise the fail-closed path on counter-
+	// write failure (PSY-861) without resorting to DB-state manipulation that
+	// would race with the rest of the integration suite. Leave nil in production.
+	incrementFailedAttemptsFn func(userID uint) error
 }
 
 // NewUserService creates a new user service
@@ -353,15 +361,23 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 	}
 
 	if err := s.VerifyPassword(*user.PasswordHash, password); err != nil {
-		// Increment failed attempts on password failure. Log + continue on
-		// counter-write failure: the auth attempt still fails (correct), but a
-		// silent counter failure would weaken brute-force lockout — surface it
-		// so ops can investigate without blocking the user-facing error.
-		if incErr := s.IncrementFailedAttempts(user.ID); incErr != nil {
+		// Increment failed attempts on password failure. Fail closed if the
+		// counter write itself fails: silently returning ErrInvalidCredentials
+		// when Increment errors would let an attacker brute-force without ever
+		// tripping the lockout (the invariant ">= N failures locks the account"
+		// only holds if every failure is recorded). A 503 is the right
+		// alternative — generic message, no account-state leak; a legitimate
+		// user during a DB hiccup retries until DB recovers.
+		incrementFn := s.IncrementFailedAttempts
+		if s.incrementFailedAttemptsFn != nil {
+			incrementFn = s.incrementFailedAttemptsFn
+		}
+		if incErr := incrementFn(user.ID); incErr != nil {
 			logger.Default().Error("user_increment_failed_attempts_failed",
 				"user_id", user.ID,
 				"error", incErr,
 			)
+			return nil, apperrors.ErrServiceUnavailable("user_increment_failed_attempts", incErr)
 		}
 		return nil, apperrors.ErrInvalidCredentials(nil)
 	}
