@@ -6,11 +6,15 @@ import type { ShowResponse } from '@/features/shows'
 
 const mockMutate = vi.fn()
 let mockIsPending = false
+let mockIsError = false
+let mockError: Error | null = null
 
 vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useRejectShow: () => ({
     mutate: mockMutate,
     isPending: mockIsPending,
+    isError: mockIsError,
+    error: mockError,
   }),
 }))
 
@@ -60,6 +64,8 @@ describe('RejectShowDialog', () => {
     // only resets call history — implementations persist across tests.
     mockMutate.mockReset()
     mockIsPending = false
+    mockIsError = false
+    mockError = null
   })
 
   it('renders nothing when closed', () => {
@@ -255,6 +261,39 @@ describe('RejectShowDialog', () => {
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(screen.getByText('Rejecting...')).toBeInTheDocument()
+  })
+
+  it('shows reject error banner when useRejectShow is in error state', () => {
+    mockIsError = true
+    mockError = new Error('Server unreachable')
+    render(
+      <RejectShowDialog
+        show={makeShow()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    // Dialog stays open AND banner renders with the error message.
+    expect(screen.getByRole('heading', { name: /Reject Show/i })).toBeInTheDocument()
+    expect(screen.getByText('Server unreachable')).toBeInTheDocument()
+  })
+
+  it('falls back to canned copy when error has no message', () => {
+    mockIsError = true
+    mockError = null
+    render(
+      <RejectShowDialog
+        show={makeShow()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    expect(screen.getByRole('heading', { name: /Reject Show/i })).toBeInTheDocument()
+    expect(
+      screen.getByText('Failed to reject show. Please try again.')
+    ).toBeInTheDocument()
   })
 
   it('clears reason and closes dialog when mutation succeeds (onSuccess fires)', async () => {

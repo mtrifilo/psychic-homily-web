@@ -6,11 +6,15 @@ import type { ShowResponse } from '@/features/shows'
 
 const mockMutate = vi.fn()
 let mockIsPending = false
+let mockIsError = false
+let mockError: Error | null = null
 
 vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
   useApproveShow: () => ({
     mutate: mockMutate,
     isPending: mockIsPending,
+    isError: mockIsError,
+    error: mockError,
   }),
 }))
 
@@ -60,6 +64,8 @@ describe('ApproveShowDialog', () => {
     // only resets call history — implementations persist across tests.
     mockMutate.mockReset()
     mockIsPending = false
+    mockIsError = false
+    mockError = null
   })
 
   it('renders nothing when closed', () => {
@@ -285,6 +291,39 @@ describe('ApproveShowDialog', () => {
 
     expect(screen.getByRole('button', { name: 'Cancel' })).toBeDisabled()
     expect(screen.getByText('Approving...')).toBeInTheDocument()
+  })
+
+  it('shows approve error banner when useApproveShow is in error state', () => {
+    mockIsError = true
+    mockError = new Error('Server unreachable')
+    render(
+      <ApproveShowDialog
+        show={makeShow()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    // Dialog stays open AND banner renders with the error message.
+    expect(screen.getByText('Approve Show')).toBeInTheDocument()
+    expect(screen.getByText('Server unreachable')).toBeInTheDocument()
+  })
+
+  it('falls back to canned copy when error has no message', () => {
+    mockIsError = true
+    mockError = null
+    render(
+      <ApproveShowDialog
+        show={makeShow()}
+        open={true}
+        onOpenChange={onOpenChange}
+      />
+    )
+
+    expect(screen.getByText('Approve Show')).toBeInTheDocument()
+    expect(
+      screen.getByText('Failed to approve show. Please try again.')
+    ).toBeInTheDocument()
   })
 
   it('closes dialog via onSuccess callback when mutation succeeds', async () => {

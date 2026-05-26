@@ -123,6 +123,13 @@ export function BatchRejectDialog({
           </div>
         </div>
 
+        {batchRejectMutation.isError && (
+          <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+            {batchRejectMutation.error?.message ||
+              'Failed to batch reject shows. Please try again.'}
+          </div>
+        )}
+
         <DialogFooter>
           <Button
             variant="outline"
