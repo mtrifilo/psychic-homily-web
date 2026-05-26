@@ -36,6 +36,7 @@ export function FeaturedCollectionCard({ collection }: FeaturedCollectionCardPro
               width={160}
               height={160}
               className="h-40 w-40 object-cover"
+              unoptimized
             />
           </Link>
         )}
