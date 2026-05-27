@@ -341,12 +341,18 @@ func (s *ExploreServiceIntegrationSuite) TestGetFeatured_DeletedReferentCollapse
 
 func (s *ExploreServiceIntegrationSuite) TestGetFeatured_PrivateCollectionExcluded() {
 	admin := s.createAdmin("admin3")
-	// Featured a private collection — we must hide it from the public
-	// /explore landing even though the slot row exists.
-	coll := s.createCollection(admin.ID, "secret", false)
+	// Feature a public collection, then flip it private — the slot row
+	// exists but /explore's consumer-side defensive read must hide it.
+	// Write-side validation (PSY-850) rejects featuring an already-
+	// private collection, so we set first then flip; the post-insert
+	// status-cascade case is intentionally out of scope of write-side
+	// validation per PSY-850 (status-change cascade follow-up deferred).
+	coll := s.createCollection(admin.ID, "secret", true)
 
 	_, err := s.featuredSlotService.SetActiveSlot("collection", coll.ID, nil, admin.ID)
 	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.Model(coll).Update("is_public", false).Error)
 
 	resp, err := s.exploreService.GetFeatured()
 	s.Require().NoError(err)
@@ -355,12 +361,17 @@ func (s *ExploreServiceIntegrationSuite) TestGetFeatured_PrivateCollectionExclud
 
 func (s *ExploreServiceIntegrationSuite) TestGetFeatured_NonApprovedBillExcluded() {
 	admin := s.createAdmin("admin4")
-	// Status-flip the show to pending after it was featured.
+	// Feature an approved show, then flip status to pending — the slot
+	// row exists but /explore's consumer-side defensive read collapses
+	// the bill to nil. Mirrors the private-collection case: write-side
+	// validation now blocks featuring a non-approved show up front, but
+	// post-insert status flips still need consumer-side defense.
 	show, _, _ := s.createShow("pending-shift", 14)
-	s.Require().NoError(s.db.Model(show).Update("status", catalogm.ShowStatusPending).Error)
 
 	_, err := s.featuredSlotService.SetActiveSlot("bill", show.ID, nil, admin.ID)
 	s.Require().NoError(err)
+
+	s.Require().NoError(s.db.Model(show).Update("status", catalogm.ShowStatusPending).Error)
 
 	resp, err := s.exploreService.GetFeatured()
 	s.Require().NoError(err)

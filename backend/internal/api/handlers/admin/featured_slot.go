@@ -179,6 +179,26 @@ func (h *FeaturedSlotHandler) SetFeaturedSlotHandler(ctx context.Context, req *S
 
 	slot, err := h.featuredSlotService.SetActiveSlot(req.Body.SlotType, req.Body.EntityID, req.Body.CuratorNote, user.ID)
 	if err != nil {
+		// Referent-validation sentinels translate to specific 4xx codes
+		// so the admin UI can show a useful inline error instead of the
+		// generic "phantom save" the consumer endpoint produced before
+		// validation existed. Order matters: check the typed sentinels
+		// BEFORE falling through to the generic 422.
+		switch {
+		case errors.Is(err, adminsvc.ErrFeaturedSlotReferentNotFound):
+			switch req.Body.SlotType {
+			case adminm.FeaturedSlotTypeBill:
+				return nil, huma.Error404NotFound("show not found")
+			case adminm.FeaturedSlotTypeCollection:
+				return nil, huma.Error404NotFound("collection not found")
+			default:
+				return nil, huma.Error404NotFound("featured slot referent not found")
+			}
+		case errors.Is(err, adminsvc.ErrFeaturedSlotReferentNotApproved):
+			return nil, huma.Error400BadRequest("show is not approved; only approved shows can be featured")
+		case errors.Is(err, adminsvc.ErrFeaturedSlotReferentNotPublic):
+			return nil, huma.Error400BadRequest("collection is private; only public collections can be featured")
+		}
 		logger.FromContext(ctx).Error("admin_set_featured_slot_failed",
 			"slot_type", req.Body.SlotType,
 			"entity_id", req.Body.EntityID,
