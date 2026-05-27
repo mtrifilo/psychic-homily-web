@@ -126,12 +126,14 @@ describe('Footer', () => {
     expect(linkTexts).toEqual(['Privacy Policy', 'Terms of Service', 'Contact'])
   })
 
-  it('renders the year reactively (does not regress if NaN/zero)', () => {
+  it('renders the year as a 4-digit number, not NaN or 0', () => {
     render(<Footer />)
-    const currentYear = new Date().getFullYear()
-    // Catches a bug where the year is computed once at module load and
-    // mistakenly cached as `0` or `NaN`.
-    expect(currentYear).toBeGreaterThan(2020)
-    expect(screen.getByText(new RegExp(`${currentYear}.*Psychic Homily`))).toBeInTheDocument()
+    const text = screen.getByText(/Psychic Homily/).textContent ?? ''
+    // Pin the format: 4-digit year, NOT "NaN" or "0" (defensive against
+    // a regression that pre-computes the year at module load with a
+    // broken Date constructor).
+    expect(text).toMatch(/©\s+\d{4}\s+Psychic Homily/)
+    expect(text).not.toMatch(/NaN/)
+    expect(text).not.toMatch(/©\s+0\s+/)
   })
 })

@@ -158,6 +158,9 @@ describe('SidebarLayout', () => {
     const user = userEvent.setup()
 
     // Re-mock TopBar so onSearchClick is exposed as a button we can click.
+    // Use try/finally so a failed assertion doesn't leak the doMock to
+    // sibling tests in the same vitest worker (the file-level vi.mock would
+    // otherwise stay overridden for any future dynamic import of TopBar).
     vi.doMock('./TopBar', () => ({
       TopBar: ({ onSearchClick }: { onSearchClick?: () => void }) => (
         <button data-testid="topbar-search" onClick={onSearchClick}>
@@ -165,24 +168,26 @@ describe('SidebarLayout', () => {
         </button>
       ),
     }))
-    vi.resetModules()
-    const { SidebarLayout: FreshLayout } = await import('./SidebarLayout')
+    try {
+      vi.resetModules()
+      const { SidebarLayout: FreshLayout } = await import('./SidebarLayout')
 
-    render(
-      <FreshLayout>
-        <div>content</div>
-      </FreshLayout>
-    )
+      render(
+        <FreshLayout>
+          <div>content</div>
+        </FreshLayout>
+      )
 
-    await user.click(screen.getByTestId('topbar-search'))
+      await user.click(screen.getByTestId('topbar-search'))
 
-    // openCommandPalette() dispatches a custom event named "open-command-palette"
-    const event = dispatchSpy.mock.calls.find(
-      call => call[0] instanceof Event && (call[0] as Event).type === 'open-command-palette'
-    )
-    expect(event).toBeDefined()
-
-    dispatchSpy.mockRestore()
-    vi.doUnmock('./TopBar')
+      // openCommandPalette() dispatches a custom event named "open-command-palette"
+      const event = dispatchSpy.mock.calls.find(
+        call => call[0] instanceof Event && (call[0] as Event).type === 'open-command-palette'
+      )
+      expect(event).toBeDefined()
+    } finally {
+      dispatchSpy.mockRestore()
+      vi.doUnmock('./TopBar')
+    }
   })
 })

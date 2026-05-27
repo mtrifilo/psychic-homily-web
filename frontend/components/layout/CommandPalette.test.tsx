@@ -433,6 +433,8 @@ describe('CommandPalette', () => {
     const input = screen.getByPlaceholderText('Search entities or go to page...')
     await user.type(input, 'do')
 
+    // Loader2 renders with .animate-spin while isSearching is true.
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
     // Clear button is suppressed while searching; spinner replaces it.
     expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument()
   })
