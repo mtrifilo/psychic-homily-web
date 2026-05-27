@@ -1,0 +1,183 @@
+name: Lighthouse Explore
+
+# PSY-839: perf gate on /explore against the budget locked in
+# docs/open-questions/explore-landing.md §"Performance Budget +
+# Lazy-Mount Strategy":
+#   * LCP  < 2.0s
+#   * TTI  < 2.5s
+#   * CLS  < 0.1
+# Mobile profile (Moto G4 emulation + slow-4G throttling) per the
+# lighthouserc.json config at repo root.
+#
+# Path-filtered to PR events that touch /explore or any of its
+# load-bearing primitives. Unrelated PRs skip the job entirely
+# (no false-positive failures, no wasted runner minutes).
+#
+# Vercel Deployment Protection setup:
+#   Previews are SSO-gated. The job uses a Protection Bypass for
+#   Automation secret to reach the preview from the CI runner:
+#     1. Vercel project settings → Deployment Protection →
+#        Protection Bypass for Automation → Add Secret
+#     2. Copy the generated value
+#     3. GitHub repo → Settings → Secrets and variables → Actions →
+#        New repository secret named VERCEL_AUTOMATION_BYPASS_SECRET
+#   The bypass token is sent both during the reachability probe and
+#   as `extraHeaders` on every Lighthouse request, so Vercel's auth
+#   wall doesn't skew the perf measurement.
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      # The route itself.
+      - frontend/app/explore/**
+      # The feature module composing /explore.
+      - frontend/features/explore/**
+      # ForceGraphView — InlineGraph mounts it; perf-sensitive.
+      - frontend/components/graph/**
+      # Card primitive — used throughout /explore.
+      - frontend/components/ui/card.tsx
+      # SidebarLayout — /explore renders inside its chrome, and a
+      # regression there (e.g. unsplit JS bundle) shows up as TTI loss.
+      - frontend/components/layout/Sidebar.tsx
+      - frontend/components/layout/SidebarLayout.tsx
+      # Next.js config tweaks (cacheComponents, bundle analyzer,
+      # headers) can move LCP/TTI in either direction; rerun the gate.
+      - frontend/next.config.ts
+      # The Lighthouse config + this workflow itself — so changes to
+      # budgets / preset / paths re-validate on the same PR.
+      - lighthouserc.json
+      - .github/workflows/lighthouse-explore.yml
+      #
+      # Intentionally NOT in the filter — these are transitive deps
+      # whose perf footprint already spans the whole app (changes
+      # there get caught by the broader E2E / visual suite):
+      #   * frontend/lib/queryClient.ts, lib/api-base.ts, lib/utils/*
+      #   * frontend/features/shows/**, features/artists/**
+      # If a regression in those areas materializes on /explore later,
+      # widen the filter rather than fix it after the fact.
+
+jobs:
+  lighthouse:
+    name: Lighthouse /explore (mobile)
+    runs-on: ubuntu-latest
+    # Vercel preview waits can be slow (cold builds peak at ~3min);
+    # Lighthouse itself adds ~1min per run × 3 runs. Job ceiling is
+    # the wait timeout (10min) + lhci runtime (~5min) + slack for
+    # cold action setup. Set explicitly above the sum so an unlucky
+    # cold-build PR doesn't get SIGKILL'd before lhci can report.
+    timeout-minutes: 20
+    # `deployments: read` covers the Vercel-preview-discovery API
+    # calls below. No write permissions required — Lighthouse uploads
+    # to temporary-public-storage, not a self-hosted LHCI server.
+    permissions:
+      contents: read
+      deployments: read
+      pull-requests: read
+    steps:
+      - uses: actions/checkout@v4
+
+      # Poll the GitHub deployments API for the Vercel-bot Preview
+      # deployment that matches this PR's head SHA. Replaces the
+      # previous `wait-for-vercel-preview` action whose URL-polling
+      # phase hangs on Protection-protected previews (returns 401
+      # without the bypass header — see PSY-839 build failure
+      # https://github.com/mtrifilo/psychic-homily-web/actions/runs/26461799796).
+      - name: Find Vercel preview URL
+        id: vercel-preview
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            const start = Date.now();
+            const maxMs = 10 * 60 * 1000;
+            const intervalMs = 5000;
+
+            core.info(`Looking for Vercel Preview deployment for ${sha}`);
+
+            while (Date.now() - start < maxMs) {
+              const { data: deployments } = await github.rest.repos.listDeployments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha,
+                environment: 'Preview',
+                per_page: 20,
+              });
+
+              for (const dep of deployments) {
+                if (dep.creator?.login !== 'vercel[bot]') continue;
+                const { data: statuses } = await github.rest.repos.listDeploymentStatuses({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: dep.id,
+                  per_page: 20,
+                });
+                const success = statuses.find((s) => s.state === 'success');
+                if (success?.target_url) {
+                  core.info(`Found preview: ${success.target_url}`);
+                  core.setOutput('url', success.target_url);
+                  return;
+                }
+              }
+
+              await new Promise((r) => setTimeout(r, intervalMs));
+            }
+
+            core.setFailed('Timeout: no successful Vercel Preview deployment found for this PR head SHA');
+
+      # Reachability probe with the bypass header. Fails fast and
+      # clearly if the secret is missing OR if the preview URL never
+      # serves 2xx (e.g. Vercel build still propagating after the
+      # deployment_status was posted). Separate step so the failure
+      # message points at the right thing.
+      - name: Verify preview is reachable with bypass
+        env:
+          PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          if [ -z "$BYPASS" ]; then
+            echo "::error::VERCEL_AUTOMATION_BYPASS_SECRET is not set. See the workflow header for setup."
+            exit 1
+          fi
+          for i in $(seq 1 60); do
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "x-vercel-protection-bypass: $BYPASS" \
+              "$PREVIEW_URL/explore" || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Preview /explore is reachable with bypass."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Preview URL never returned 200 with bypass header after 5 minutes."
+          exit 1
+
+      # Inject extraHeaders into lighthouserc.json so every request
+      # Lighthouse makes (initial doc + chunks + API fetches) carries
+      # the bypass header. Cookie-based approach skipped because
+      # extraHeaders applies to all requests, not just the initial.
+      - name: Inject bypass header into lighthouserc.json
+        env:
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          jq --arg bypass "$BYPASS" \
+            '.ci.collect.settings.extraHeaders = {"x-vercel-protection-bypass": $bypass}' \
+            lighthouserc.json > lighthouserc.tmp.json
+          mv lighthouserc.tmp.json lighthouserc.json
+          # Sanity print without leaking the secret value.
+          jq '.ci.collect.settings | keys' lighthouserc.json
+
+      # Run Lighthouse against the preview's /explore route. 3 runs
+      # with median aggregation per lighthouserc.json — single-run
+      # values are too noisy for hard assertions. The action installs
+      # @lhci/cli internally; no local package.json wiring needed
+      # for the CI path. (Local runs use the devDependency.)
+      - name: Run Lighthouse CI
+        uses: treosh/lighthouse-ci-action@v12
+        with:
+          urls: |
+            ${{ steps.vercel-preview.outputs.url }}/explore
+          configPath: ./lighthouserc.json
+          uploadArtifacts: true
+          temporaryPublicStorage: true
