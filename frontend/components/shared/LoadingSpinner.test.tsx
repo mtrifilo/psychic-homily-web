@@ -3,9 +3,12 @@ import { render, screen } from '@testing-library/react'
 import { LoadingSpinner } from './LoadingSpinner'
 
 describe('LoadingSpinner', () => {
-  it('renders a div element with spinner styling', () => {
-    const { container } = render(<LoadingSpinner />)
-    const spinner = container.firstChild as HTMLElement
+  it('exposes role="status" with a default accessible name', () => {
+    render(<LoadingSpinner />)
+    // role="status" + aria-label makes the spinner announceable to assistive
+    // tech. Querying by role is the authoritative shape; sizing/class assertions
+    // below cover the visual contract separately.
+    const spinner = screen.getByRole('status', { name: 'Loading' })
     expect(spinner).toBeInTheDocument()
     expect(spinner.tagName).toBe('DIV')
     expect(spinner.className).toContain('animate-spin')
@@ -13,42 +16,43 @@ describe('LoadingSpinner', () => {
     expect(spinner.className).toContain('border-b-2')
   })
 
+  it('accepts a custom accessible label', () => {
+    render(<LoadingSpinner label="Loading collections" />)
+    expect(
+      screen.getByRole('status', { name: 'Loading collections' })
+    ).toBeInTheDocument()
+  })
+
   it('defaults to medium size', () => {
-    const { container } = render(<LoadingSpinner />)
-    const spinner = container.firstChild as HTMLElement
+    render(<LoadingSpinner />)
+    const spinner = screen.getByRole('status')
     expect(spinner.className).toContain('h-8')
     expect(spinner.className).toContain('w-8')
   })
 
   it('renders small size', () => {
-    const { container } = render(<LoadingSpinner size="sm" />)
-    const spinner = container.firstChild as HTMLElement
+    render(<LoadingSpinner size="sm" />)
+    const spinner = screen.getByRole('status')
     expect(spinner.className).toContain('h-4')
     expect(spinner.className).toContain('w-4')
   })
 
   it('renders large size', () => {
-    const { container } = render(<LoadingSpinner size="lg" />)
-    const spinner = container.firstChild as HTMLElement
+    render(<LoadingSpinner size="lg" />)
+    const spinner = screen.getByRole('status')
     expect(spinner.className).toContain('h-12')
     expect(spinner.className).toContain('w-12')
   })
 
-  it('has animate-spin class for animation', () => {
-    const { container } = render(<LoadingSpinner />)
-    const spinner = container.firstChild as HTMLElement
-    expect(spinner.className).toContain('animate-spin')
-  })
-
   it('applies custom className', () => {
-    const { container } = render(<LoadingSpinner className="mt-4" />)
-    const spinner = container.firstChild as HTMLElement
+    render(<LoadingSpinner className="mt-4" />)
+    const spinner = screen.getByRole('status')
     expect(spinner.className).toContain('mt-4')
   })
 
   it('merges custom className with default classes', () => {
-    const { container } = render(<LoadingSpinner size="sm" className="text-red-500" />)
-    const spinner = container.firstChild as HTMLElement
+    render(<LoadingSpinner size="sm" className="text-red-500" />)
+    const spinner = screen.getByRole('status')
     expect(spinner.className).toContain('animate-spin')
     expect(spinner.className).toContain('text-red-500')
     expect(spinner.className).toContain('h-4')

@@ -59,10 +59,10 @@ describe('SceneList', () => {
 
   it('renders a loading spinner while fetching', () => {
     mockUseScenes.mockReturnValue({ data: undefined, isLoading: true, error: null })
-    const { container } = renderWithProviders(<SceneList />)
-    // LoadingSpinner is an unlabeled spinner div; assert on its animate-spin
-    // class rather than a role it doesn't expose.
-    expect(container.querySelector('.animate-spin')).toBeInTheDocument()
+    renderWithProviders(<SceneList />)
+    // LoadingSpinner exposes role="status" so the loading state is
+    // announceable to assistive tech and addressable by tests.
+    expect(screen.getByRole('status', { name: /loading/i })).toBeInTheDocument()
     // No scene cards while loading.
     expect(screen.queryByText(/, AZ$/)).not.toBeInTheDocument()
   })

@@ -3,6 +3,12 @@ import { cn } from '@/lib/utils'
 interface LoadingSpinnerProps {
   size?: 'sm' | 'md' | 'lg'
   className?: string
+  /**
+   * Accessible label announced to assistive tech. Defaults to "Loading".
+   * Override when the spinner sits inside a more specific context
+   * (e.g. "Loading collections") so screen reader users get useful detail.
+   */
+  label?: string
 }
 
 const sizeClasses = {
@@ -11,9 +17,16 @@ const sizeClasses = {
   lg: 'h-12 w-12',
 }
 
-export function LoadingSpinner({ size = 'md', className }: LoadingSpinnerProps) {
+export function LoadingSpinner({
+  size = 'md',
+  className,
+  label = 'Loading',
+}: LoadingSpinnerProps) {
   return (
     <div
+      role="status"
+      aria-label={label}
+      aria-live="polite"
       className={cn(
         'animate-spin rounded-full border-b-2 border-foreground',
         sizeClasses[size],

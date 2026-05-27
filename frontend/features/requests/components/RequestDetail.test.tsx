@@ -140,15 +140,10 @@ function makeRequest(overrides: Partial<Request> = {}): Request {
   }
 }
 
-// The delete action is an icon-only button with no accessible name, so it
-// can't be reached via getByRole name. It is the only action styled with the
-// destructive class, which is the stable hook the test targets.
+// The delete action is icon-only but carries an aria-label so screen readers
+// can announce it. Querying by role+name is the authoritative shape.
 function getDeleteButton(): HTMLElement {
-  const deleteBtn = screen
-    .getAllByRole('button')
-    .find(b => b.className.includes('text-destructive'))
-  if (!deleteBtn) throw new Error('delete button not found')
-  return deleteBtn
+  return screen.getByRole('button', { name: /delete request/i })
 }
 
 function queryResult(

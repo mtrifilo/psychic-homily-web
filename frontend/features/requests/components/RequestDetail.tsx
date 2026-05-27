@@ -352,6 +352,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     onClick={handleDelete}
                     disabled={deleteMutation.isPending}
                     className="text-destructive hover:text-destructive"
+                    aria-label="Delete request"
                   >
                     <Trash2 className="h-4 w-4" />
                   </Button>
