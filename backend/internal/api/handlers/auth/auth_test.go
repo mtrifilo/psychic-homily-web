@@ -2,6 +2,7 @@ package auth
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 	"testing"
@@ -840,6 +841,119 @@ func TestLoginHandler_ServiceUnavailable(t *testing.T) {
 	// guess. Lock that branch out.
 	if resp.Body.ErrorCode == autherrors.CodeInvalidCredentials {
 		t.Error("regression: SERVICE_UNAVAILABLE must not be downgraded to INVALID_CREDENTIALS")
+	}
+}
+
+// TestLoginHandler_UnknownAuthCodeFailsClosed asserts that an AuthError whose
+// Code is not explicitly handled by the LoginHandler switch propagates as a
+// 5xx instead of falling through to the historical INVALID_CREDENTIALS HTTP
+// 200 downgrade. This locks in the fail-closed convention: any new AuthError
+// code added without a dedicated handler case must surface as SERVICE_UNAVAILABLE
+// — adding an explicit 401-shaped case requires a UX decision in code review.
+func TestLoginHandler_UnknownAuthCodeFailsClosed(t *testing.T) {
+	// CodeUnknown is the canonical "we have an AuthError but the code is not
+	// one we explicitly route" signal. Any other unrouted code (e.g. a future
+	// addition without a switch arm) would exercise the same default branch.
+	unknownErr := &autherrors.AuthError{Code: autherrors.CodeUnknown, Message: "unrouted auth code"}
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			AuthenticateUserWithPasswordFn: func(email, password string) (*authm.User, error) {
+				return nil, unknownErr
+			},
+		}
+	})
+
+	input := &LoginRequest{}
+	input.Body.Email = "test@example.com"
+	input.Body.Password = "any"
+
+	resp, err := h.LoginHandler(context.Background(), input)
+
+	// The handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// Regression guard: an unrouted AuthError code must not silently downgrade
+	// to INVALID_CREDENTIALS — that was the pre-PSY-864 fall-through behavior
+	// and the convention this ticket inverts.
+	if resp.Body.ErrorCode == autherrors.CodeInvalidCredentials {
+		t.Error("regression: unknown AuthError code must not be downgraded to INVALID_CREDENTIALS")
+	}
+	// External message must match the existing SERVICE_UNAVAILABLE shape — no
+	// leak about whether the unknown was an AuthError sub-code or a raw error.
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
+// TestLoginHandler_NonAuthErrorFailsClosed asserts that a raw (non-AuthError)
+// error returned by the user service — e.g. the config / DB / account-state
+// fmt.Errorf sites in AuthenticateUserWithPassword that have not been promoted
+// to typed AuthErrors — propagates as a 5xx instead of being silently mapped
+// to INVALID_CREDENTIALS HTTP 200. The outer fallback used to swallow these
+// errors and hand attackers a free guess on DB-stress; this regression test
+// locks that branch out.
+func TestLoginHandler_NonAuthErrorFailsClosed(t *testing.T) {
+	rawErr := fmt.Errorf("simulated config error")
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			AuthenticateUserWithPasswordFn: func(email, password string) (*authm.User, error) {
+				return nil, rawErr
+			},
+		}
+	})
+
+	input := &LoginRequest{}
+	input.Body.Email = "test@example.com"
+	input.Body.Password = "any"
+
+	resp, err := h.LoginHandler(context.Background(), input)
+
+	// The handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must itself be an AuthError of CodeServiceUnavailable
+	// so the apperror mapper translates it to a 5xx. A non-AuthError leaking out
+	// here would be downstream-classified by Huma into a generic 500 with no
+	// structured error code — fine, but the explicit shape is what callers
+	// (and clients) branch on. The handler wraps via ErrServiceUnavailable.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected response error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// Regression guard: a non-AuthError must not silently downgrade to
+	// INVALID_CREDENTIALS — that was the pre-PSY-864 outer-fallback behavior
+	// and the convention this ticket inverts.
+	if resp.Body.ErrorCode == autherrors.CodeInvalidCredentials {
+		t.Error("regression: non-AuthError must not be downgraded to INVALID_CREDENTIALS")
+	}
+	// External message must match the existing SERVICE_UNAVAILABLE shape — no
+	// leak about whether the cause was a config error, raw DB failure, or
+	// some other internal step.
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 
