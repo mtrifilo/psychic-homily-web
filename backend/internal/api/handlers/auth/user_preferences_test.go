@@ -190,7 +190,7 @@ func TestUnsubscribeShowRemindersHandler_ServiceError(t *testing.T) {
 
 // computeTestUnsubscribeSig generates a valid HMAC signature for testing
 func computeTestUnsubscribeSig(uid uint, secret string) string {
-	return engagement.ComputeUnsubscribeSignature(uid, secret)
+	return engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeShowReminders, secret)
 }
 
 // ──────────────────────────────────────────────
@@ -328,7 +328,7 @@ func TestUnsubscribeMentionHandler_InvalidSignature(t *testing.T) {
 func TestUnsubscribeMentionHandler_Success(t *testing.T) {
 	secret := "hmac-secret"
 	uid := uint(8)
-	sig := engagement.ComputeMentionUnsubscribeSignature(uid, secret)
+	sig := engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeMention, secret)
 
 	var called bool
 	mock := &testhelpers.MockUserService{

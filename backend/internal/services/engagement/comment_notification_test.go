@@ -151,15 +151,15 @@ func TestHMAC_MentionRoundTrip(t *testing.T) {
 	assert.Contains(t, urlStr, "/unsubscribe/mention")
 	assert.Contains(t, urlStr, "uid=42")
 
-	sig := ComputeMentionUnsubscribeSignature(userID, secret)
-	assert.True(t, VerifyMentionUnsubscribeSignature(userID, sig, secret))
-	assert.False(t, VerifyMentionUnsubscribeSignature(userID+1, sig, secret))
-	assert.False(t, VerifyMentionUnsubscribeSignature(userID, sig, "different-secret"))
+	sig := ComputeScopedUnsubscribeSignature(userID, UnsubscribeScopeMention, secret)
+	assert.True(t, VerifyScopedUnsubscribeSignature(userID, UnsubscribeScopeMention, sig, secret))
+	assert.False(t, VerifyScopedUnsubscribeSignature(userID+1, UnsubscribeScopeMention, sig, secret))
+	assert.False(t, VerifyScopedUnsubscribeSignature(userID, UnsubscribeScopeMention, sig, "different-secret"))
 
 	// Mention signatures must NOT verify against comment-subscription
 	// signatures (defense-in-depth against swapped domains).
 	csSig := ComputeCommentSubscriptionUnsubscribeSignature(userID, "artist", 1, secret)
-	assert.False(t, VerifyMentionUnsubscribeSignature(userID, csSig, secret))
+	assert.False(t, VerifyScopedUnsubscribeSignature(userID, UnsubscribeScopeMention, csSig, secret))
 }
 
 func TestStripMarkdownToPlain(t *testing.T) {
