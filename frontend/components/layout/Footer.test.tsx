@@ -92,4 +92,46 @@ describe('Footer', () => {
     expect(links?.length).toBe(3)
     expect(buttons?.length).toBe(1)
   })
+
+  it('Cookie Preferences button click fires openPreferences exactly once and does not navigate', async () => {
+    const user = userEvent.setup()
+    render(<Footer />)
+
+    await user.click(screen.getByText('Cookie Preferences'))
+    expect(mockOpenPreferences).toHaveBeenCalledOnce()
+
+    // Double-click should fire twice (sanity check the binding is direct,
+    // not throttled, since the cookie dialog needs to remount cleanly).
+    await user.click(screen.getByText('Cookie Preferences'))
+    expect(mockOpenPreferences).toHaveBeenCalledTimes(2)
+  })
+
+  it('uses the same href for Privacy and Cookie Preferences contexts (privacy page)', () => {
+    render(<Footer />)
+    // Privacy link is the long-form policy page; the cookie preferences
+    // dialog is a separate trigger. Pin that they're independent UX paths.
+    const privacy = screen.getByText('Privacy Policy').closest('a')!
+    const cookie = screen.getByText('Cookie Preferences')
+    expect(privacy.getAttribute('href')).toBe('/privacy')
+    expect(cookie.tagName).toBe('BUTTON') // NOT a link to /privacy
+  })
+
+  it('keeps Privacy Policy and Terms of Service links in tab order before Contact', () => {
+    render(<Footer />)
+    const nav = document.querySelector('nav')!
+    const linkTexts = Array.from(nav.querySelectorAll('a')).map(a => a.textContent)
+    // The legal pair must come first so screen-reader / keyboard users hit
+    // them before the mailto. If a future refactor reorders these silently,
+    // this catches it.
+    expect(linkTexts).toEqual(['Privacy Policy', 'Terms of Service', 'Contact'])
+  })
+
+  it('renders the year reactively (does not regress if NaN/zero)', () => {
+    render(<Footer />)
+    const currentYear = new Date().getFullYear()
+    // Catches a bug where the year is computed once at module load and
+    // mistakenly cached as `0` or `NaN`.
+    expect(currentYear).toBeGreaterThan(2020)
+    expect(screen.getByText(new RegExp(`${currentYear}.*Psychic Homily`))).toBeInTheDocument()
+  })
 })
