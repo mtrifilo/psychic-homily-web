@@ -27,6 +27,40 @@ const nextConfig: NextConfig = {
       '@tanstack/react-query',
     ],
   },
+  // `next/image` allowlist for external image hosts (PSY-783).
+  //
+  // Policy: SPECIFIC hosts, not a wildcard `**`. Fails closed for
+  // unexpected hosts — a stricter posture than the document-level
+  // `img-src 'self' data: blob: https:` CSP, because the optimizer
+  // proxies upstream bytes through `/_next/image` and we don't want
+  // arbitrary third-party origins riding our CDN budget.
+  //
+  // Trade-off: requires a config update (and PR) when a new provider
+  // or admin-supplied CDN host surfaces. Acceptable — same posture as
+  // the connect-src/frame-src CSP allowlists above.
+  //
+  // Sourcing (radio surface, the first allowlist consumer):
+  //   • `www.kexp.org` — confirmed via `radio_shows.image_url` query
+  //     against the live dev DB (28/28 rows; path
+  //     `/media/filer_public/<uuid>/<file>.jpg`).
+  //   • `media.nts.live` — from NTS provider test fixtures
+  //     (`radio_provider_nts_test.go` lines 27/33/50), the canonical
+  //     CDN for `media.picture_large` / `media.background_large`.
+  //   • `wfmu.org` / `www.wfmu.org` — WFMU HTML scraper does not
+  //     extract per-show artwork today, but admins may attach show
+  //     images / station logos pointing at the station's own host.
+  //
+  // Station logos (`radio_stations.logo_url`) are admin-entered; none
+  // are seeded yet. Provider hosts double as the most likely logo
+  // hosts; expand this list as new hosts surface in the 502 logs.
+  images: {
+    remotePatterns: [
+      { protocol: 'https', hostname: 'www.kexp.org', pathname: '/**' },
+      { protocol: 'https', hostname: 'media.nts.live', pathname: '/**' },
+      { protocol: 'https', hostname: 'wfmu.org', pathname: '/**' },
+      { protocol: 'https', hostname: 'www.wfmu.org', pathname: '/**' },
+    ],
+  },
   async redirects() {
     return [
       // Hugo shows used /shows/YYYY/MM/slug/ — flatten to /shows/slug

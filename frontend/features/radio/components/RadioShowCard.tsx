@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { Mic2, ListMusic } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { EntityCardTitle } from '@/components/shared'
@@ -20,9 +21,12 @@ export function RadioShowCard({ show, stationSlug }: RadioShowCardProps) {
         {/* Show Image / Placeholder */}
         <div className="shrink-0 rounded-md bg-muted/50 flex items-center justify-center overflow-hidden h-14 w-14">
           {show.image_url ? (
-            <img
+            <Image
               src={show.image_url}
               alt={show.name}
+              width={56}
+              height={56}
+              sizes="56px"
               className="h-full w-full object-cover"
             />
           ) : (
