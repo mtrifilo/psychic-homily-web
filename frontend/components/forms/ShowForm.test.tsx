@@ -3,7 +3,7 @@ import { act, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { ExtractedShowData } from '@/lib/types/extraction'
-import type { ShowResponse, ShowUpdateResponse, OrphanedArtist } from '@/features/shows'
+import type { ShowResponse } from '@/features/shows'
 
 // ─────────────────────────────────────────────────────────────
 // Shared mock state
@@ -511,16 +511,9 @@ describe('ShowForm — date validation', () => {
     await user.type(screen.getByLabelText(/^Venue$/i), 'A Venue')
     await user.type(screen.getByLabelText(/^City$/i), 'Phoenix')
     await user.type(screen.getByLabelText(/^State$/i), 'AZ')
-    // Date input — fireEvent semantics differ across browsers/jsdom for
-    // HTML5 date inputs, so user.type is unreliable here. Set via the
-    // input's value directly via the DOM, then dispatch a change event.
-    const dateInput = screen.getByLabelText(/^Date$/i) as HTMLInputElement
-    await user.click(dateInput)
-    await user.keyboard(`{Control>}a{/Control}{Delete}`)
-    // Type the past date as MM/DD/YYYY which date inputs in jsdom accept
-    // most reliably via user.type. If your input doesn't accept it, fall
-    // back to direct value set.
-    fireSet(dateInput, pastDate())
+    // Date input — user.type is unreliable on HTML5 date inputs in jsdom,
+    // so set the value via the native setter + input event (see fireSet).
+    fireSet(screen.getByLabelText(/^Date$/i) as HTMLInputElement, pastDate())
 
     await user.click(screen.getByRole('button', { name: /submit show/i }))
 
@@ -767,8 +760,16 @@ describe('ShowForm — private-show toggle visibility (create vs edit)', () => {
     await user.type(venueInput, 'Different Venue')
     await user.tab()
 
+    // Pin the precondition: the "New Venue" banner IS showing (proves we
+    // reached the surrounding conditional). Without this, the absence
+    // assertion below would also pass if the banner never rendered at all
+    // (false pass from a setup failure rather than from the !isEditMode
+    // gate firing).
+    expect(await screen.findByText(/New Venue/i)).toBeInTheDocument()
+
     // The "New Venue" admin-info banner uses similar wording; assert
-    // specifically on the toggle's own label.
+    // specifically on the toggle's own label so we're testing the
+    // !isEditMode gate, not the outer banner.
     expect(screen.queryByLabelText(/do not publish/i)).not.toBeInTheDocument()
   })
 })
