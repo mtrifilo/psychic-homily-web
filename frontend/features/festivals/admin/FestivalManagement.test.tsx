@@ -81,6 +81,9 @@ describe('FestivalManagement', () => {
       error: null,
     })
     renderWithProviders(<FestivalManagement />)
+    // Loading state uses an inline Loader2 icon (not the shared LoadingSpinner
+    // primitive), so the role="status" gain doesn't reach this site. Target
+    // the animation class, which is the stable hook for inline spinners.
     expect(document.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
@@ -182,15 +185,13 @@ describe('FestivalManagement', () => {
       isLoading: false,
       error: null,
     })
-    const { container } = renderWithProviders(<FestivalManagement />)
+    renderWithProviders(<FestivalManagement />)
 
-    // Edit/Delete are icon-only buttons with no accessible name; the delete
-    // button is the only one carrying the destructive hover affordance.
-    const deleteButton = container.querySelector<HTMLButtonElement>(
-      'button.hover\\:text-destructive'
+    // Edit/Delete are icon-only but each row buttons carry per-festival
+    // aria-labels so they're addressable by accessible name.
+    await user.click(
+      screen.getByRole('button', { name: /delete FORM Arcosanti/i })
     )
-    expect(deleteButton).not.toBeNull()
-    await user.click(deleteButton!)
 
     expect(
       screen.getByRole('heading', { name: 'Delete Festival' })
@@ -198,6 +199,23 @@ describe('FestivalManagement', () => {
     // The confirmation copy echoes the name (quoted) in a bold span. The row
     // behind the dialog also shows the name, so match the quoted variant.
     expect(screen.getByText('"FORM Arcosanti"')).toBeInTheDocument()
+  })
+
+  it('exposes per-row Edit/Delete buttons with accessible names', () => {
+    mockUseFestivals.mockReturnValue({
+      data: { festivals: [makeFestival({ name: 'FORM Arcosanti' })], count: 1 },
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalManagement />)
+    // Positive assertion: per-row icon-only buttons must be reachable by
+    // accessible name so keyboard + screen reader users can target them.
+    expect(
+      screen.getByRole('button', { name: /edit FORM Arcosanti/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /delete FORM Arcosanti/i })
+    ).toBeInTheDocument()
   })
 
   it('navigates into the lineup management panel', async () => {
