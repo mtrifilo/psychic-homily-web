@@ -246,4 +246,99 @@ describe('ArtistEditForm', () => {
       expect(screen.getByRole('button', { name: /Cancel/i })).toBeDisabled()
     })
   })
+
+  describe('artist switch resets fields via key prop', () => {
+    it('resets fields when re-rendered with a different artist (via key prop)', async () => {
+      const user = userEvent.setup()
+      const artistA = makeArtist({
+        id: 1,
+        name: 'Artist A',
+        city: 'Phoenix',
+        state: 'AZ',
+      })
+      const artistB = makeArtist({
+        id: 2,
+        name: 'Artist B',
+        city: 'Tucson',
+        state: 'AZ',
+        social: {
+          instagram: 'https://instagram.com/artist-b',
+          facebook: null,
+          twitter: null,
+          youtube: null,
+          spotify: null,
+          soundcloud: null,
+          bandcamp: null,
+          website: 'https://artist-b.com',
+        },
+      })
+
+      const { rerender } = renderWithProviders(
+        <ArtistEditForm
+          key={artistA.id}
+          artist={artistA}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText(/Name \*/i)
+      expect(nameInput).toHaveValue('Artist A')
+
+      await user.clear(nameInput)
+      await user.type(nameInput, 'Dirty Edit')
+      expect(nameInput).toHaveValue('Dirty Edit')
+
+      rerender(
+        <ArtistEditForm
+          key={artistB.id}
+          artist={artistB}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      // Re-query after rerender — the key change unmounts the previous
+      // input node, so `nameInput` no longer points at a live element.
+      expect(screen.getByLabelText(/Name \*/i)).toHaveValue('Artist B')
+      expect(screen.getByLabelText(/City/i)).toHaveValue('Tucson')
+      expect(screen.getByLabelText(/Website/i)).toHaveValue(
+        'https://artist-b.com'
+      )
+    })
+
+    it('preserves dirty edits when re-rendered with the same key', async () => {
+      // Pins the `key` as the load-bearing reset mechanism: if React
+      // re-renders the same instance (no key change), the dirty edit
+      // must survive. Without this, a future maintainer could
+      // accidentally add an artist-prop-based reset and have both tests
+      // still pass.
+      const user = userEvent.setup()
+      const artist = makeArtist({ id: 1, name: 'Artist A' })
+
+      const { rerender } = renderWithProviders(
+        <ArtistEditForm
+          key={artist.id}
+          artist={artist}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText(/Name \*/i)
+      await user.clear(nameInput)
+      await user.type(nameInput, 'Dirty Edit')
+
+      rerender(
+        <ArtistEditForm
+          key={artist.id}
+          artist={artist}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText(/Name \*/i)).toHaveValue('Dirty Edit')
+    })
+  })
 })

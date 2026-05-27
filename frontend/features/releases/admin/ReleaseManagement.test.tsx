@@ -32,7 +32,7 @@ vi.mock('../hooks/useAdminReleases', () => ({
   useRemoveReleaseLink: () => ({ mutate: mockRemoveLink, isPending: false }),
 }))
 
-import { ReleaseManagement } from './ReleaseManagement'
+import { ReleaseManagement, EditReleaseFormFields } from './ReleaseManagement'
 
 function makeListItem(
   overrides: Partial<ReleaseListItem> = {}
@@ -309,5 +309,89 @@ describe('ReleaseManagement', () => {
     )
 
     expect(mockDelete).toHaveBeenCalledWith(9, expect.anything())
+  })
+
+  describe('EditReleaseFormFields: release switch resets fields via key prop', () => {
+    // Pins PSY-768: the inner form initializes local state from the release
+    // prop on mount, with no useEffect and no `initialized` ratchet. Callers
+    // pass `key={release.id}` so React unmounts + remounts with fresh state
+    // when the release switches. The two assertions below are the
+    // load-bearing pair — without both, a future maintainer could re-add a
+    // release-prop-based reset and the tests would still pass.
+
+    it('resets fields when re-rendered with a different release (via key prop)', async () => {
+      const user = userEvent.setup()
+      const releaseA = makeDetail({
+        id: 1,
+        title: 'Release A',
+        release_year: 2020,
+        description: 'A',
+      })
+      const releaseB = makeDetail({
+        id: 2,
+        title: 'Release B',
+        release_year: 2024,
+        description: 'B',
+      })
+
+      const { rerender } = renderWithProviders(
+        <EditReleaseFormFields
+          key={releaseA.id}
+          release={releaseA}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const titleInput = screen.getByLabelText(/Title \*/i)
+      expect(titleInput).toHaveValue('Release A')
+
+      await user.clear(titleInput)
+      await user.type(titleInput, 'Dirty Edit')
+      expect(titleInput).toHaveValue('Dirty Edit')
+
+      rerender(
+        <EditReleaseFormFields
+          key={releaseB.id}
+          release={releaseB}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      // Re-query after rerender — the key change unmounts the previous input.
+      expect(screen.getByLabelText(/Title \*/i)).toHaveValue('Release B')
+      expect(screen.getByLabelText(/Year/i)).toHaveValue(2024)
+      expect(screen.getByLabelText(/Description/i)).toHaveValue('B')
+    })
+
+    it('preserves dirty edits when re-rendered with the same key', async () => {
+      const user = userEvent.setup()
+      const release = makeDetail({ id: 1, title: 'Release A' })
+
+      const { rerender } = renderWithProviders(
+        <EditReleaseFormFields
+          key={release.id}
+          release={release}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const titleInput = screen.getByLabelText(/Title \*/i)
+      await user.clear(titleInput)
+      await user.type(titleInput, 'Dirty Edit')
+
+      rerender(
+        <EditReleaseFormFields
+          key={release.id}
+          release={release}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText(/Title \*/i)).toHaveValue('Dirty Edit')
+    })
   })
 })

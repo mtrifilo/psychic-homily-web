@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { LabelListItem } from '../types'
+import type { LabelDetail, LabelListItem } from '../types'
 
 // List + detail hooks
 const mockUseLabels = vi.fn()
@@ -22,7 +22,36 @@ vi.mock('../hooks/useAdminLabels', () => ({
   useDeleteLabel: () => ({ mutate: mockDeleteMutate, isPending: false }),
 }))
 
-import { LabelManagement } from './LabelManagement'
+import { LabelManagement, EditLabelFormFields } from './LabelManagement'
+
+function makeLabelDetail(overrides: Partial<LabelDetail> = {}): LabelDetail {
+  return {
+    id: 1,
+    name: 'Sub Pop',
+    slug: 'sub-pop',
+    city: 'Seattle',
+    state: 'WA',
+    country: 'US',
+    founded_year: 1986,
+    status: 'active',
+    description: 'Independent record label.',
+    social: {
+      instagram: null,
+      facebook: null,
+      twitter: null,
+      youtube: null,
+      spotify: null,
+      soundcloud: null,
+      bandcamp: null,
+      website: 'https://subpop.com',
+    },
+    artist_count: 0,
+    release_count: 0,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
 
 function makeLabel(overrides: Partial<LabelListItem> = {}): LabelListItem {
   return {
@@ -202,5 +231,87 @@ describe('LabelManagement', () => {
     await user.click(within(dialog).getByRole('button', { name: 'Delete Label' }))
 
     expect(mockDeleteMutate).toHaveBeenCalledWith(1, expect.any(Object))
+  })
+
+  describe('EditLabelFormFields: label switch resets fields via key prop', () => {
+    // Pins PSY-768: the inner form initializes local state from the label
+    // prop on mount, with no useEffect and no `initialized` ratchet. Callers
+    // pass `key={label.id}` so React unmounts + remounts with fresh state
+    // when the label switches. The two assertions below are the load-bearing
+    // pair — without both, a future maintainer could re-add a label-prop-based
+    // reset and the tests would still pass.
+
+    it('resets fields when re-rendered with a different label (via key prop)', async () => {
+      const user = userEvent.setup()
+      const labelA = makeLabelDetail({
+        id: 1,
+        name: 'Sub Pop',
+        city: 'Seattle',
+      })
+      const labelB = makeLabelDetail({
+        id: 2,
+        name: 'Merge Records',
+        city: 'Durham',
+        state: 'NC',
+      })
+
+      const { rerender } = renderWithProviders(
+        <EditLabelFormFields
+          key={labelA.id}
+          label={labelA}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText('Name *')
+      expect(nameInput).toHaveValue('Sub Pop')
+
+      await user.clear(nameInput)
+      await user.type(nameInput, 'Dirty Edit')
+      expect(nameInput).toHaveValue('Dirty Edit')
+
+      rerender(
+        <EditLabelFormFields
+          key={labelB.id}
+          label={labelB}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText('Name *')).toHaveValue('Merge Records')
+      expect(screen.getByLabelText('City')).toHaveValue('Durham')
+      expect(screen.getByLabelText('State')).toHaveValue('NC')
+    })
+
+    it('preserves dirty edits when re-rendered with the same key', async () => {
+      const user = userEvent.setup()
+      const label = makeLabelDetail({ id: 1, name: 'Sub Pop' })
+
+      const { rerender } = renderWithProviders(
+        <EditLabelFormFields
+          key={label.id}
+          label={label}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText('Name *')
+      await user.clear(nameInput)
+      await user.type(nameInput, 'Dirty Edit')
+
+      rerender(
+        <EditLabelFormFields
+          key={label.id}
+          label={label}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText('Name *')).toHaveValue('Dirty Edit')
+    })
   })
 })
