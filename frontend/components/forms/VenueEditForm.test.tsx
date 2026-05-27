@@ -271,5 +271,35 @@ describe('VenueEditForm', () => {
       })
       expect(cityInput).toHaveAttribute('aria-invalid', 'false')
     })
+
+    it('surfaces "State is required" and blocks the mutation when the required state is cleared, then clears on valid input', async () => {
+      const user = userEvent.setup()
+      const venue = makeVenue()
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      const stateInput = screen.getByLabelText(/^State \*/i)
+      await user.clear(stateInput)
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      expect(
+        await screen.findByText(/State is required/i)
+      ).toBeInTheDocument()
+      expect(stateInput).toHaveAttribute('aria-invalid', 'true')
+      expect(mockMutate).not.toHaveBeenCalled()
+
+      await user.type(stateInput, 'AZ')
+
+      await waitFor(() => {
+        expect(screen.queryByText(/State is required/i)).not.toBeInTheDocument()
+      })
+      expect(stateInput).toHaveAttribute('aria-invalid', 'false')
+    })
   })
 })

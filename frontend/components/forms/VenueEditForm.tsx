@@ -245,7 +245,9 @@ export function VenueEditForm({
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
                       placeholder="e.g. IL"
+                      aria-invalid={field.state.meta.errors.length > 0}
                     />
+                    <FieldInfo field={field} />
                   </div>
                 )}
               </form.Field>
