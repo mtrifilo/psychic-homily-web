@@ -45,7 +45,7 @@ func (h *UserPreferencesHandler) UnsubscribeCollectionDigestPageHandler(w http.R
 	}
 	uid := uint(uid64)
 
-	if !engagement.VerifyCollectionDigestUnsubscribeSignature(uid, sig, h.jwtSecret) {
+	if !engagement.VerifyScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeCollectionDigest, sig, h.jwtSecret) {
 		writeUnsubscribeError(w, r, http.StatusForbidden, "This unsubscribe link is invalid or has been tampered with.")
 		return
 	}

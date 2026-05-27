@@ -157,7 +157,7 @@ type UnsubscribeShowRemindersResponse struct {
 
 // UnsubscribeShowRemindersHandler handles POST /auth/unsubscribe/show-reminders (public, no auth)
 func (h *UserPreferencesHandler) UnsubscribeShowRemindersHandler(ctx context.Context, req *UnsubscribeShowRemindersRequest) (*UnsubscribeShowRemindersResponse, error) {
-	if !engagement.VerifyUnsubscribeSignature(req.Body.UID, req.Body.Sig, h.jwtSecret) {
+	if !engagement.VerifyScopedUnsubscribeSignature(req.Body.UID, engagement.UnsubscribeScopeShowReminders, req.Body.Sig, h.jwtSecret) {
 		return nil, huma.Error403Forbidden("Invalid unsubscribe link")
 	}
 
@@ -414,7 +414,7 @@ type UnsubscribeMentionResponse struct {
 // UnsubscribeMentionHandler handles POST /unsubscribe/mention. Flips the
 // user's notify_on_mention preference to false. Public — HMAC-signed.
 func (h *UserPreferencesHandler) UnsubscribeMentionHandler(ctx context.Context, req *UnsubscribeMentionRequest) (*UnsubscribeMentionResponse, error) {
-	if !engagement.VerifyMentionUnsubscribeSignature(req.Body.UID, req.Body.Sig, h.jwtSecret) {
+	if !engagement.VerifyScopedUnsubscribeSignature(req.Body.UID, engagement.UnsubscribeScopeMention, req.Body.Sig, h.jwtSecret) {
 		return nil, huma.Error403Forbidden("Invalid unsubscribe link")
 	}
 

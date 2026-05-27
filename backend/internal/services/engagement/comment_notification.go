@@ -590,21 +590,6 @@ func ComputeCommentSubscriptionUnsubscribeSignature(userID uint, entityType stri
 // recipient's `notify_on_mention` preference off. Keyed by userID only —
 // the preference is account-wide.
 func GenerateMentionUnsubscribeURL(baseURL string, userID uint, secret string) string {
-	sig := ComputeMentionUnsubscribeSignature(userID, secret)
+	sig := ComputeScopedUnsubscribeSignature(userID, UnsubscribeScopeMention, secret)
 	return fmt.Sprintf("%s/unsubscribe/mention?uid=%d&sig=%s", baseURL, userID, sig)
-}
-
-// VerifyMentionUnsubscribeSignature checks the HMAC for a mention
-// unsubscribe request.
-func VerifyMentionUnsubscribeSignature(userID uint, signature, secret string) bool {
-	expected := ComputeMentionUnsubscribeSignature(userID, secret)
-	return hmac.Equal([]byte(expected), []byte(signature))
-}
-
-// ComputeMentionUnsubscribeSignature hashes userID under secret.
-func ComputeMentionUnsubscribeSignature(userID uint, secret string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	// hash.Hash.Write never returns an error; the drop is intentional.
-	_, _ = fmt.Fprintf(mac, "unsubscribe:mention:%d", userID)
-	return hex.EncodeToString(mac.Sum(nil))
 }
