@@ -11,10 +11,19 @@ name: Lighthouse Explore
 #
 # Path-filtered to PR events that touch /explore or any of its
 # load-bearing primitives. Unrelated PRs skip the job entirely
-# (no false-positive failures, no wasted runner minutes). The job is
-# NOT yet a required check — branch protection wiring is out of scope
-# for PSY-839; the wiring decision waits on the first ~5 runs to
-# establish budget headroom.
+# (no false-positive failures, no wasted runner minutes).
+#
+# Vercel Deployment Protection setup:
+#   Previews are SSO-gated. The job uses a Protection Bypass for
+#   Automation secret to reach the preview from the CI runner:
+#     1. Vercel project settings → Deployment Protection →
+#        Protection Bypass for Automation → Add Secret
+#     2. Copy the generated value
+#     3. GitHub repo → Settings → Secrets and variables → Actions →
+#        New repository secret named VERCEL_AUTOMATION_BYPASS_SECRET
+#   The bypass token is sent both during the reachability probe and
+#   as `extraHeaders` on every Lighthouse request, so Vercel's auth
+#   wall doesn't skew the perf measurement.
 
 on:
   pull_request:
@@ -58,10 +67,9 @@ jobs:
     # cold action setup. Set explicitly above the sum so an unlucky
     # cold-build PR doesn't get SIGKILL'd before lhci can report.
     timeout-minutes: 20
-    # `wait-for-vercel-preview` reads deployment statuses via the GH
-    # API; default GITHUB_TOKEN permissions cover this. No write
-    # permissions required — Lighthouse uploads to
-    # temporary-public-storage, not a self-hosted LHCI server.
+    # `deployments: read` covers the Vercel-preview-discovery API
+    # calls below. No write permissions required — Lighthouse uploads
+    # to temporary-public-storage, not a self-hosted LHCI server.
     permissions:
       contents: read
       deployments: read
@@ -69,20 +77,96 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Wait for Vercel to mark the PR's preview deployment as
-      # READY. Polls GitHub's deployment-statuses API; bails out
-      # after max_timeout. 10min covers cold Turbopack builds.
-      - name: Wait for Vercel preview deployment
+      # Poll the GitHub deployments API for the Vercel-bot Preview
+      # deployment that matches this PR's head SHA. Replaces the
+      # previous `wait-for-vercel-preview` action whose URL-polling
+      # phase hangs on Protection-protected previews (returns 401
+      # without the bypass header — see PSY-839 build failure
+      # https://github.com/mtrifilo/psychic-homily-web/actions/runs/26461799796).
+      - name: Find Vercel preview URL
         id: vercel-preview
-        uses: patrickedqvist/wait-for-vercel-preview@v1.3.3
+        uses: actions/github-script@v7
         with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          max_timeout: 600
-          # Vercel posts the preview against the "Preview"
-          # environment. Leaving this unset matches any environment,
-          # but pinning it avoids racing against a stale prod
-          # deployment status.
-          environment: Preview
+          script: |
+            const sha = context.payload.pull_request.head.sha;
+            const start = Date.now();
+            const maxMs = 10 * 60 * 1000;
+            const intervalMs = 5000;
+
+            core.info(`Looking for Vercel Preview deployment for ${sha}`);
+
+            while (Date.now() - start < maxMs) {
+              const { data: deployments } = await github.rest.repos.listDeployments({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                sha,
+                environment: 'Preview',
+                per_page: 20,
+              });
+
+              for (const dep of deployments) {
+                if (dep.creator?.login !== 'vercel[bot]') continue;
+                const { data: statuses } = await github.rest.repos.listDeploymentStatuses({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  deployment_id: dep.id,
+                  per_page: 20,
+                });
+                const success = statuses.find((s) => s.state === 'success');
+                if (success?.target_url) {
+                  core.info(`Found preview: ${success.target_url}`);
+                  core.setOutput('url', success.target_url);
+                  return;
+                }
+              }
+
+              await new Promise((r) => setTimeout(r, intervalMs));
+            }
+
+            core.setFailed('Timeout: no successful Vercel Preview deployment found for this PR head SHA');
+
+      # Reachability probe with the bypass header. Fails fast and
+      # clearly if the secret is missing OR if the preview URL never
+      # serves 2xx (e.g. Vercel build still propagating after the
+      # deployment_status was posted). Separate step so the failure
+      # message points at the right thing.
+      - name: Verify preview is reachable with bypass
+        env:
+          PREVIEW_URL: ${{ steps.vercel-preview.outputs.url }}
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          if [ -z "$BYPASS" ]; then
+            echo "::error::VERCEL_AUTOMATION_BYPASS_SECRET is not set. See the workflow header for setup."
+            exit 1
+          fi
+          for i in $(seq 1 60); do
+            STATUS=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "x-vercel-protection-bypass: $BYPASS" \
+              "$PREVIEW_URL/explore" || echo "000")
+            echo "Attempt $i: HTTP $STATUS"
+            if [ "$STATUS" = "200" ]; then
+              echo "Preview /explore is reachable with bypass."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::Preview URL never returned 200 with bypass header after 5 minutes."
+          exit 1
+
+      # Inject extraHeaders into lighthouserc.json so every request
+      # Lighthouse makes (initial doc + chunks + API fetches) carries
+      # the bypass header. Cookie-based approach skipped because
+      # extraHeaders applies to all requests, not just the initial.
+      - name: Inject bypass header into lighthouserc.json
+        env:
+          BYPASS: ${{ secrets.VERCEL_AUTOMATION_BYPASS_SECRET }}
+        run: |
+          jq --arg bypass "$BYPASS" \
+            '.ci.collect.settings.extraHeaders = {"x-vercel-protection-bypass": $bypass}' \
+            lighthouserc.json > lighthouserc.tmp.json
+          mv lighthouserc.tmp.json lighthouserc.json
+          # Sanity print without leaking the secret value.
+          jq '.ci.collect.settings | keys' lighthouserc.json
 
       # Run Lighthouse against the preview's /explore route. 3 runs
       # with median aggregation per lighthouserc.json — single-run
