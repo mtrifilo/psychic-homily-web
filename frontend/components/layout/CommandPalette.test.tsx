@@ -271,6 +271,173 @@ describe('CommandPalette', () => {
 
     expect(screen.getByPlaceholderText('Search entities or go to page...')).toBeInTheDocument()
   })
+
+  // Avoid false coverage: the previous Cmd+K test only checked the search
+  // input was visible. Pinning the dialog role here ensures the palette
+  // actually OPENED rather than something rendering the input incidentally.
+  it('should open the dialog (role="dialog") on Cmd+K', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+
+    await user.keyboard('{Meta>}k{/Meta}')
+
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('should toggle closed on a second Cmd+K press', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+
+    await user.keyboard('{Meta>}k{/Meta}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+  })
+
+  it('clears the search query after closing and reopening', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+
+    // Seed the input
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+    const input = screen.getByPlaceholderText('Search entities or go to page...')
+    await user.type(input, 'shoegaze')
+    expect(input).toHaveValue('shoegaze')
+
+    // Close + reopen — useEffect on `open` resets the query.
+    await user.keyboard('{Escape}')
+    expect(screen.queryByRole('dialog')).not.toBeInTheDocument()
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+    const reopened = screen.getByPlaceholderText('Search entities or go to page...')
+    expect(reopened).toHaveValue('')
+  })
+
+  it('shows a Clear button that empties the query without closing the palette', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    const input = screen.getByPlaceholderText('Search entities or go to page...')
+    await user.type(input, 'doom')
+    expect(input).toHaveValue('doom')
+    // Clear button only appears with a non-empty query
+    const clearButton = screen.getByRole('button', { name: 'Clear search' })
+    await user.click(clearButton)
+    expect(input).toHaveValue('')
+    // Dialog still open after clearing
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  it('clearing recent searches removes the Recent group from the palette', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+
+    // Open + select to seed a recent search
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+    await user.click(screen.getByText('Shows'))
+
+    // Reopen — Recent group should now exist
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+    expect(screen.getByText('Recent')).toBeInTheDocument()
+
+    // Click the inline "Clear" button on the Recent header. cmdk renders
+    // the heading itself with role="button" whose accessible name includes
+    // child text ("Recent Clear"); the actual <button> is a child element,
+    // so target it by text instead of role.
+    await user.click(screen.getByText('Clear'))
+
+    // Recent group disappears immediately
+    expect(screen.queryByText('Recent')).not.toBeInTheDocument()
+  })
+
+  it('navigates to an entity result when an entity row is clicked', async () => {
+    const user = userEvent.setup()
+    mockEntitySearchResult = {
+      data: {
+        ...emptyEntityData,
+        artists: [
+          {
+            id: 7,
+            slug: 'sunn-o',
+            name: 'Sunn O)))',
+            subtitle: 'Seattle, WA',
+            entityType: 'artist',
+            href: '/artists/sunn-o',
+          },
+        ],
+      },
+      isSearching: false,
+      totalResults: 1,
+      isFetching: false,
+      searchError: false,
+    }
+
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    const input = screen.getByPlaceholderText('Search entities or go to page...')
+    await user.type(input, 'sun')
+
+    const row = screen.getByText('Sunn O)))')
+    await user.click(row)
+
+    expect(mockPush).toHaveBeenCalledWith('/artists/sunn-o')
+  })
+
+  it('shows a loading spinner while isSearching is true', async () => {
+    const user = userEvent.setup()
+    mockEntitySearchResult = {
+      data: emptyEntityData,
+      isSearching: true,
+      totalResults: 0,
+      isFetching: true,
+      searchError: false,
+    }
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    const input = screen.getByPlaceholderText('Search entities or go to page...')
+    await user.type(input, 'do')
+
+    // Loader2 renders with .animate-spin while isSearching is true.
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
+    // Clear button is suppressed while searching; spinner replaces it.
+    expect(screen.queryByRole('button', { name: 'Clear search' })).not.toBeInTheDocument()
+  })
 })
 
 describe('CommandPalette — tag row official indicator (PSY-453)', () => {
@@ -332,6 +499,51 @@ describe('CommandPalette — tag row official indicator (PSY-453)', () => {
     const markers = screen.getAllByRole('img', { name: 'Official tag' })
     expect(markers).toHaveLength(1)
     expect(markers[0]).toHaveAttribute('title', 'shoegaze (Official)')
+  })
+})
+
+describe('CommandPalette — contextual Explore graph entries (PSY-366)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    localStorage.clear()
+    mockAuthContext.user = null
+    mockAuthContext.isAuthenticated = false
+    mockPathname = '/'
+    mockEntitySearchResult = {
+      data: emptyEntityData,
+      isSearching: false,
+      totalResults: 0,
+      isFetching: false,
+      searchError: false,
+    }
+  })
+
+  it('shows "Explore graph for this artist" on /artists/[slug]', async () => {
+    mockPathname = '/artists/sunn-o'
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    expect(screen.getByText('Explore graph for this artist')).toBeInTheDocument()
+  })
+
+  it('does NOT show contextual graph entry on a non-entity page', async () => {
+    // mockPathname stays at '/' from beforeEach.
+    renderWithProviders(<CommandPalette />)
+
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+
+    expect(screen.queryByText('Explore graph for this artist')).not.toBeInTheDocument()
+    expect(screen.queryByText('Explore graph for this venue')).not.toBeInTheDocument()
+    expect(screen.queryByText('Explore graph for this scene')).not.toBeInTheDocument()
   })
 })
 

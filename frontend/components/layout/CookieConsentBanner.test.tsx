@@ -204,5 +204,81 @@ describe('CookieConsentBanner', () => {
       const { container } = render(<CookieConsentBanner />)
       expect(container).toBeTruthy()
     })
+
+    it('opens the preferences dialog and shows toggles when preferencesOpen=true', () => {
+      mockUseCookieConsent.mockReturnValue({
+        showBanner: false,
+        gpcSignalDetected: false,
+        acceptAll: mockAcceptAll,
+        rejectAll: mockRejectAll,
+        openPreferences: mockOpenPreferences,
+        closePreferences: mockClosePreferences,
+        savePreferences: mockSavePreferences,
+        preferencesOpen: true,
+        consent: {
+          version: 1,
+          timestamp: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + 86400000).toISOString(),
+          gpcDetected: false,
+          categories: { essential: true, analytics: false },
+          consentMethod: 'banner_reject_all' as const,
+        },
+      })
+      render(<CookieConsentBanner />)
+      expect(screen.getByText('Essential Cookies')).toBeInTheDocument()
+      expect(screen.getByText('Analytics Cookies')).toBeInTheDocument()
+    })
+  })
+})
+
+// Verify the banner's context handlers are wired so each visible button
+// invokes the matching context method ONCE per click (catches accidental
+// double-binding regressions). Persistence + GPC detection live in the
+// CookieConsentContext unit tests; here we pin the component's contract
+// against the hook surface it consumes.
+describe('CookieConsentBanner — handler wiring contract', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseCookieConsent.mockReturnValue({
+      showBanner: true,
+      gpcSignalDetected: false,
+      acceptAll: mockAcceptAll,
+      rejectAll: mockRejectAll,
+      openPreferences: mockOpenPreferences,
+      closePreferences: mockClosePreferences,
+      savePreferences: mockSavePreferences,
+      preferencesOpen: false,
+      consent: null,
+    })
+  })
+
+  it('Accept All click does NOT also call rejectAll or openPreferences', async () => {
+    const user = userEvent.setup()
+    render(<CookieConsentBanner />)
+    await user.click(screen.getByText('Accept All'))
+
+    expect(mockAcceptAll).toHaveBeenCalledOnce()
+    expect(mockRejectAll).not.toHaveBeenCalled()
+    expect(mockOpenPreferences).not.toHaveBeenCalled()
+  })
+
+  it('Reject All click does NOT also call acceptAll or openPreferences', async () => {
+    const user = userEvent.setup()
+    render(<CookieConsentBanner />)
+    await user.click(screen.getByText('Reject All'))
+
+    expect(mockRejectAll).toHaveBeenCalledOnce()
+    expect(mockAcceptAll).not.toHaveBeenCalled()
+    expect(mockOpenPreferences).not.toHaveBeenCalled()
+  })
+
+  it('Customize click does NOT also call accept or reject', async () => {
+    const user = userEvent.setup()
+    render(<CookieConsentBanner />)
+    await user.click(screen.getByText('Customize'))
+
+    expect(mockOpenPreferences).toHaveBeenCalledOnce()
+    expect(mockAcceptAll).not.toHaveBeenCalled()
+    expect(mockRejectAll).not.toHaveBeenCalled()
   })
 })

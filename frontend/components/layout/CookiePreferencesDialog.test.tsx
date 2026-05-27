@@ -268,4 +268,66 @@ describe('CookiePreferencesDialog', () => {
     // should reset the internal state
     expect(screen.getByLabelText('Analytics cookies')).toHaveAttribute('data-state', 'checked')
   })
+
+  // Cancel must NOT also persist preferences — earlier regressions sometimes
+  // bound Save to both buttons by accident.
+  it('Cancel does NOT call onSave', async () => {
+    const user = userEvent.setup()
+    render(
+      <CookiePreferencesDialog
+        open={true}
+        onOpenChange={onOpenChange}
+        gpcSignalDetected={false}
+        currentAnalytics={false}
+        onSave={onSave}
+      />
+    )
+
+    // Toggle to a non-default state to make sure save would HAVE changed something.
+    await user.click(screen.getByLabelText('Analytics cookies'))
+    await user.click(screen.getByText('Cancel'))
+
+    expect(onSave).not.toHaveBeenCalled()
+    expect(onOpenChange).toHaveBeenCalledWith(false)
+  })
+
+  // Save with currentAnalytics=true (the user already has consent) and no
+  // toggle change must persist `true` — this is the "no-op" save path that
+  // a regression could swap to `false`.
+  it('Save without toggling persists current value (true → true)', async () => {
+    const user = userEvent.setup()
+    render(
+      <CookiePreferencesDialog
+        open={true}
+        onOpenChange={onOpenChange}
+        gpcSignalDetected={false}
+        currentAnalytics={true}
+        onSave={onSave}
+      />
+    )
+
+    await user.click(screen.getByText('Save Preferences'))
+    expect(onSave).toHaveBeenCalledWith(true)
+  })
+
+  it('Essential Cookies toggle stays disabled even after analytics interaction', async () => {
+    const user = userEvent.setup()
+    render(
+      <CookiePreferencesDialog
+        open={true}
+        onOpenChange={onOpenChange}
+        gpcSignalDetected={false}
+        currentAnalytics={false}
+        onSave={onSave}
+      />
+    )
+
+    const essentialSwitch = screen.getByLabelText('Essential cookies (always enabled)')
+    expect(essentialSwitch).toBeDisabled()
+
+    // Click analytics — must not unlock essential.
+    await user.click(screen.getByLabelText('Analytics cookies'))
+    expect(essentialSwitch).toBeDisabled()
+    expect(essentialSwitch).toHaveAttribute('data-state', 'checked')
+  })
 })

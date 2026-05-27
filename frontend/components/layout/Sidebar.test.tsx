@@ -201,4 +201,74 @@ describe('Sidebar', () => {
     const link = screen.getByText('Shows').closest('a')!
     expect(link).not.toHaveAttribute('target')
   })
+
+  // Active state: the current route should get the active class; siblings
+  // should NOT. Catches regressions where every link styles as active.
+  // We match on the exact active token (with surrounding whitespace) to
+  // avoid colliding with hover utility `bg-sidebar-accent/50`.
+  const ACTIVE_TOKEN = 'bg-sidebar-accent text-sidebar-accent-foreground'
+
+  it('marks the current route as active when pathname matches exactly', () => {
+    mockPathname.mockReturnValue('/shows')
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    const showsLink = screen.getByText('Shows').closest('a')!
+    expect(showsLink.className).toContain(ACTIVE_TOKEN)
+    expect(showsLink.className).not.toContain('text-sidebar-foreground/70')
+  })
+
+  it('does NOT mark sibling routes as active', () => {
+    mockPathname.mockReturnValue('/shows')
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    const venuesLink = screen.getByText('Venues').closest('a')!
+    expect(venuesLink.className).toContain('text-sidebar-foreground/70')
+    expect(venuesLink.className).not.toContain(ACTIVE_TOKEN)
+  })
+
+  it('marks a route active for sub-paths (pathname.startsWith(href + "/"))', () => {
+    mockPathname.mockReturnValue('/artists/sunn-o')
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    const artistsLink = screen.getByText('Artists').closest('a')!
+    expect(artistsLink.className).toContain(ACTIVE_TOKEN)
+  })
+
+  it('does NOT mark external links as active even on a matching pathname', () => {
+    mockPathname.mockReturnValue('https://psychichomily.substack.com/')
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    const substack = screen.getByText('Substack').closest('a')!
+    // External items are never treated as "active" so the highlight follows
+    // in-app navigation only.
+    expect(substack.className).not.toContain(ACTIVE_TOKEN)
+  })
+
+  // Collapsible behavior: the collapse button is the canonical way to flip
+  // state. The label flip (Collapse → expand) drives the existing tests; add
+  // explicit aria-label on each branch.
+  it('collapse button toggles aria-label between collapsed/expanded states', () => {
+    const { rerender } = render(
+      <Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />
+    )
+    expect(screen.getByRole('button', { name: 'Collapse sidebar' })).toBeInTheDocument()
+
+    rerender(<Sidebar collapsed={true} onToggleCollapse={onToggleCollapse} />)
+    expect(screen.getByRole('button', { name: 'Expand sidebar' })).toBeInTheDocument()
+  })
+
+  it('collapsed mode keeps nav links present (icons-only) — labels hidden', () => {
+    mockPathname.mockReturnValue('/shows')
+    render(<Sidebar collapsed={true} onToggleCollapse={onToggleCollapse} />)
+    // The label "Shows" should NOT render in collapsed mode...
+    expect(screen.queryByText('Shows')).not.toBeInTheDocument()
+    // ...but the underlying nav still has the /shows link element so
+    // tooltips (rendered on hover) and clickable icons still work.
+    const links = document.querySelectorAll('a')
+    const showsLink = Array.from(links).find(a => a.getAttribute('href') === '/shows')
+    expect(showsLink).toBeTruthy()
+  })
+
+  it('collapse button calls onToggleCollapse exactly once per click', async () => {
+    const user = userEvent.setup()
+    render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+    await user.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
+    expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+  })
 })

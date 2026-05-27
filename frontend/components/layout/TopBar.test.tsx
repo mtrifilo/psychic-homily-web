@@ -367,5 +367,85 @@ describe('TopBar', () => {
       const artistsLink = screen.getByText('Artists').closest('a')
       expect(artistsLink?.className).toContain('bg-accent')
     })
+
+    it('clicking a mobile nav link closes the mobile menu', async () => {
+      const user = userEvent.setup()
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+
+      await user.click(screen.getByText('Shows'))
+      expect(onMobileOpenChange).toHaveBeenCalledWith(false)
+    })
+
+    it('mobile theme toggle calls setTheme on click (light branch)', async () => {
+      mockTheme = 'light'
+      const user = userEvent.setup()
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+
+      // The text "Dark mode" lives on the mobile toggle when current is light.
+      await user.click(screen.getByText('Dark mode'))
+      expect(mockSetTheme).toHaveBeenCalledWith('dark')
+    })
+
+    it('mobile theme toggle calls setTheme on click (dark branch)', async () => {
+      mockTheme = 'dark'
+      const user = userEvent.setup()
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+
+      await user.click(screen.getByText('Light mode'))
+      expect(mockSetTheme).toHaveBeenCalledWith('light')
+    })
+
+    it('clicking the mobile Notifications link closes the menu (authenticated)', async () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'test@test.com', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+
+      await user.click(screen.getByText('Notifications'))
+      expect(onMobileOpenChange).toHaveBeenCalledWith(false)
+    })
+  })
+
+  describe('notification bell visibility', () => {
+    it('renders NotificationBell only when authenticated', () => {
+      // Default mock is unauthenticated → no bell.
+      const { rerender } = render(
+        <TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />
+      )
+      expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
+
+      mockAuthContext.mockReturnValue({
+        user: { email: 'bell@test.com', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      rerender(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.getByTestId('notification-bell')).toBeInTheDocument()
+    })
+
+    it('hides NotificationBell while auth is loading', () => {
+      mockAuthContext.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        isLoading: true,
+        logout: mockLogout,
+      })
+      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
+    })
+  })
+
+  describe('logo link', () => {
+    it('logo links to the home page', () => {
+      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
+      const logo = screen.getByAltText('Psychic Homily Logo')
+      const link = logo.closest('a')
+      expect(link).toHaveAttribute('href', '/')
+    })
   })
 })
