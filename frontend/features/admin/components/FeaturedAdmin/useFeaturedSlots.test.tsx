@@ -95,16 +95,17 @@ describe('useSetFeaturedSlot', () => {
   })
 
   it('POSTs the slot payload and invalidates BOTH list + explore caches', async () => {
+    // Wire shape is a flat FeaturedSlotResponse — Huma serializes the
+    // handler's `Body` field VALUE as the JSON response, with no
+    // `{ body: ... }` envelope (PSY-854).
     mockApiRequest.mockResolvedValueOnce({
-      body: {
-        id: 5,
-        slot_type: 'bill',
-        entity_id: 101,
-        active_from: '2026-05-24T00:00:00Z',
-        created_by: 1,
-        created_at: '2026-05-24T00:00:00Z',
-        updated_at: '2026-05-24T00:00:00Z',
-      },
+      id: 5,
+      slot_type: 'bill',
+      entity_id: 101,
+      active_from: '2026-05-24T00:00:00Z',
+      created_by: 1,
+      created_at: '2026-05-24T00:00:00Z',
+      updated_at: '2026-05-24T00:00:00Z',
     })
     const { queryClient, invalidateSpy } = setupClient()
 
@@ -139,6 +140,42 @@ describe('useSetFeaturedSlot', () => {
     expect(invalidateSpy).toHaveBeenCalledWith({
       queryKey: ['explore', 'featured'],
     })
+  })
+
+  it('returns the new slot row directly (no `{body: ...}` envelope) — PSY-854', async () => {
+    // Regression guard for the Huma envelope trap: if a future consumer
+    // tries `.body` on the mutation result, this test should be the
+    // signal that the wire shape is flat, not wrapped.
+    const slotRow = {
+      id: 7,
+      slot_type: 'bill' as const,
+      entity_id: 202,
+      curator_note: 'Sharp bill.',
+      curator_note_html: '<p>Sharp bill.</p>',
+      active_from: '2026-05-24T00:00:00Z',
+      created_by: 1,
+      created_at: '2026-05-24T00:00:00Z',
+      updated_at: '2026-05-24T00:00:00Z',
+    }
+    mockApiRequest.mockResolvedValueOnce(slotRow)
+    const { queryClient } = setupClient()
+
+    const { result } = renderHook(() => useSetFeaturedSlot(), {
+      wrapper: createWrapperWithClient(queryClient),
+    })
+
+    let returned: unknown
+    await act(async () => {
+      returned = await result.current.mutateAsync({
+        slot_type: 'bill',
+        entity_id: 202,
+        curator_note: 'Sharp bill.',
+      })
+    })
+
+    // The mutation result is the slot row itself; there is NO `body` key.
+    expect(returned).toEqual(slotRow)
+    expect(returned).not.toHaveProperty('body')
   })
 })
 
