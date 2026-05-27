@@ -136,9 +136,11 @@ func (h *FeaturedSlotHandler) ListFeaturedSlotsHandler(ctx context.Context, req 
 
 // SetFeaturedSlotRequest is the Huma request for POST /admin/featured-slots.
 // EntityID is the show ID (slot_type=bill) or collection ID
-// (slot_type=collection); the service does not validate the referent
-// exists — that's the calling admin tool's job, mirroring how
-// pending_entity_edits trusts the referenced entity_id.
+// (slot_type=collection). The service validates the referent before
+// inserting: missing referent → 404; non-approved show / private
+// collection → 400. The predicate mirrors the consumer-side filter in
+// services/explore/explore.go so the slot row stays consistent with
+// what /api/explore/featured will surface.
 type SetFeaturedSlotRequest struct {
 	Body struct {
 		SlotType    string  `json:"slot_type" doc:"One of 'bill' or 'collection'"`
