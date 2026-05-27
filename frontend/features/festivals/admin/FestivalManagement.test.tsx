@@ -218,6 +218,37 @@ describe('FestivalManagement', () => {
     ).toBeInTheDocument()
   })
 
+  it('disambiguates same-name festivals across editions in aria-labels', () => {
+    // Festival names are not unique across editions (e.g. Coachella 2025 +
+    // Coachella 2026). Per-row aria-labels must include edition_year so
+    // screen reader users (and getByRole {name}) can target a specific row.
+    mockUseFestivals.mockReturnValue({
+      data: {
+        festivals: [
+          makeFestival({ id: 1, name: 'Coachella', edition_year: 2025 }),
+          makeFestival({ id: 2, name: 'Coachella', edition_year: 2026 }),
+        ],
+        count: 2,
+      },
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalManagement />)
+
+    expect(
+      screen.getByRole('button', { name: 'Edit Coachella 2025' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Edit Coachella 2026' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Delete Coachella 2025' })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: 'Delete Coachella 2026' })
+    ).toBeInTheDocument()
+  })
+
   it('navigates into the lineup management panel', async () => {
     const user = userEvent.setup()
     mockUseFestivals.mockReturnValue({
