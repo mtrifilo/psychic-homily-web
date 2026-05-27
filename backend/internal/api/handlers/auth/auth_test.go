@@ -846,10 +846,10 @@ func TestLoginHandler_ServiceUnavailable(t *testing.T) {
 
 // TestLoginHandler_UnknownAuthCodeFailsClosed asserts that an AuthError whose
 // Code is not explicitly handled by the LoginHandler switch propagates as a
-// 5xx instead of falling through to the historical INVALID_CREDENTIALS HTTP
-// 200 downgrade. This locks in the fail-closed convention: any new AuthError
-// code added without a dedicated handler case must surface as SERVICE_UNAVAILABLE
-// — adding an explicit 401-shaped case requires a UX decision in code review.
+// 5xx instead of falling through to an INVALID_CREDENTIALS HTTP 200 downgrade.
+// Locks in the fail-closed convention: any new AuthError code added without a
+// dedicated handler case must surface as SERVICE_UNAVAILABLE — adding an
+// explicit 401-shaped case requires a UX decision in code review.
 func TestLoginHandler_UnknownAuthCodeFailsClosed(t *testing.T) {
 	// CodeUnknown is the canonical "we have an AuthError but the code is not
 	// one we explicitly route" signal. Any other unrouted code (e.g. a future
@@ -883,8 +883,8 @@ func TestLoginHandler_UnknownAuthCodeFailsClosed(t *testing.T) {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 	}
 	// Regression guard: an unrouted AuthError code must not silently downgrade
-	// to INVALID_CREDENTIALS — that was the pre-PSY-864 fall-through behavior
-	// and the convention this ticket inverts.
+	// to INVALID_CREDENTIALS — that was the pre-existing fall-through behavior
+	// and the convention this test locks in.
 	if resp.Body.ErrorCode == autherrors.CodeInvalidCredentials {
 		t.Error("regression: unknown AuthError code must not be downgraded to INVALID_CREDENTIALS")
 	}
@@ -944,8 +944,8 @@ func TestLoginHandler_NonAuthErrorFailsClosed(t *testing.T) {
 		t.Errorf("expected response error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 	}
 	// Regression guard: a non-AuthError must not silently downgrade to
-	// INVALID_CREDENTIALS — that was the pre-PSY-864 outer-fallback behavior
-	// and the convention this ticket inverts.
+	// INVALID_CREDENTIALS — that was the pre-existing outer-fallback behavior
+	// and the convention this test locks in.
 	if resp.Body.ErrorCode == autherrors.CodeInvalidCredentials {
 		t.Error("regression: non-AuthError must not be downgraded to INVALID_CREDENTIALS")
 	}
