@@ -127,18 +127,36 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
 				return resp, authErr // Return actual error for 5xx HTTP status
+			default:
+				// Fail-closed: any AuthError code without an explicit handler
+				// case is treated as "we don't know what went wrong" and
+				// propagates as 5xx. Adding a new AuthError code that SHOULD
+				// be 401-shaped requires an explicit case here — that is the
+				// intent: code review forces a UX decision per code instead
+				// of accepting a silent INVALID_CREDENTIALS downgrade.
+				logger.AuthError(ctx, "login_unhandled_authcode", err,
+					"email_hash", logger.HashEmail(input.Body.Email),
+					"auth_code", string(authErr.Code),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+				return resp, authErr // Return actual error for 5xx HTTP status
 			}
 		}
 
-		// Generic fallback for unexpected errors
-		logger.AuthWarn(ctx, "login_failed",
+		// Outer fallback: err is NOT an AuthError. Genuine "unexpected error"
+		// territory — config failures, raw DB errors, account-state checks
+		// that have not yet been promoted to typed AuthErrors. Fail-closed
+		// with a generic message so we do not hand attackers signal about
+		// which internal step failed, and surface a 5xx so the client retries.
+		logger.AuthError(ctx, "login_unexpected_error", err,
 			"email_hash", logger.HashEmail(input.Body.Email),
-			"error", err.Error(),
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Invalid email or password"
-		resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
-		return resp, nil
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, autherrors.ErrServiceUnavailable("login", err)
 	}
 
 	// Generate JWT token
