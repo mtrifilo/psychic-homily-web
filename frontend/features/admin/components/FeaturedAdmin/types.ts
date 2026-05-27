@@ -54,12 +54,14 @@ export interface SetFeaturedSlotInput {
 }
 
 /**
- * The single-slot response wrapper backend returns from POST
- * /admin/featured-slots — Huma nests the row under `body`.
+ * Backend POST /admin/featured-slots returns the new active row
+ * directly — Huma serializes the handler's `Body` field VALUE as the
+ * JSON response, so the wire shape is a flat `FeaturedSlotResponse`,
+ * NOT `{ body: FeaturedSlotResponse }` (PSY-854 followup to PSY-838).
+ * Alias kept so importers don't need to switch to `FeaturedSlotResponse`
+ * at call sites.
  */
-export interface SetFeaturedSlotResponse {
-  body: FeaturedSlotResponse
-}
+export type SetFeaturedSlotResponse = FeaturedSlotResponse
 
 export interface RetireFeaturedSlotResponse {
   slot_type: FeaturedSlotType
