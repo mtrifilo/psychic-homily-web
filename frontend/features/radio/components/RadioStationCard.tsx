@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { Radio, MapPin, Music } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { EntityCardTitle } from '@/components/shared'
@@ -27,9 +28,12 @@ export function RadioStationCard({ station }: RadioStationCardProps) {
         {/* Station Icon / Logo */}
         <div className="shrink-0 rounded-lg bg-muted/50 flex items-center justify-center overflow-hidden h-16 w-16">
           {station.logo_url ? (
-            <img
+            <Image
               src={station.logo_url}
               alt={`${station.name} logo`}
+              width={64}
+              height={64}
+              sizes="64px"
               className="h-full w-full object-cover"
             />
           ) : (

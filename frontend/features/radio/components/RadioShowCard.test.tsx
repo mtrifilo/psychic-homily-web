@@ -11,6 +11,17 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// next/image is mocked the same way TopBar.test.tsx does it: render
+// the underlying <img> with the same src/alt so DOM-level assertions
+// (getByAltText, src equality) keep meaningful coverage of the
+// caller-passed URL — without spinning up the image optimizer.
+vi.mock('next/image', () => ({
+  default: (props: Record<string, unknown>) => {
+    const { priority, ...rest } = props
+    return <img {...rest} data-priority={priority ? 'true' : undefined} />
+  },
+}))
+
 function makeShow(overrides: Partial<RadioShowListItem> = {}): RadioShowListItem {
   return {
     id: 1,
@@ -78,13 +89,18 @@ describe('RadioShowCard', () => {
   })
 
   it('renders the show image with alt text when image_url is set', () => {
+    // URL uses a real allowlisted host (`www.kexp.org`) from
+    // next.config.ts so the test asserts the URL that would actually
+    // pass `next/image`'s remotePatterns gate in production.
+    const imageUrl =
+      'https://www.kexp.org/media/filer_public/43/da/43dad723-bb60-4945-9911-438ec2074a3c/90teen-800x800.jpg'
     render(
       <RadioShowCard
-        show={makeShow({ image_url: 'https://example.com/show.jpg' })}
+        show={makeShow({ image_url: imageUrl })}
         stationSlug="wfmu"
       />
     )
     const img = screen.getByAltText('The Drummer Show')
-    expect(img).toHaveAttribute('src', 'https://example.com/show.jpg')
+    expect(img).toHaveAttribute('src', imageUrl)
   })
 })
