@@ -25,6 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
+import { FieldInfo } from './FormField'
 
 // Form validation schema
 const venueEditSchema = z.object({
@@ -194,7 +195,9 @@ export function VenueEditForm({
                     onChange={e => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
                     placeholder="e.g. The Empty Bottle"
+                    aria-invalid={field.state.meta.errors.length > 0}
                   />
+                  <FieldInfo field={field} />
                 </div>
               )}
             </form.Field>
@@ -225,7 +228,9 @@ export function VenueEditForm({
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
                       placeholder="e.g. Chicago"
+                      aria-invalid={field.state.meta.errors.length > 0}
                     />
+                    <FieldInfo field={field} />
                   </div>
                 )}
               </form.Field>
