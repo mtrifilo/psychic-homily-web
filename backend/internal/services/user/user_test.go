@@ -992,6 +992,49 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_InactiveUser() {
 	suite.Contains(err.Error(), "user account is not active")
 }
 
+// TestAuthenticateUserWithPassword_IncrementErrorFailsClosed asserts the
+// PSY-861 fail-closed contract: when the lockout-counter write fails on a
+// wrong-password attempt, AuthenticateUserWithPassword MUST surface a
+// CodeServiceUnavailable AuthError — NOT CodeInvalidCredentials. Falling
+// through to ErrInvalidCredentials would mean the user got a free guess
+// without the counter advancing, which under sustained DB stress would let
+// an attacker brute-force without ever tripping lockout.
+func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_IncrementErrorFailsClosed() {
+	// Create a real user the auth flow can find + bcrypt-verify.
+	_, err := suite.userService.CreateUserWithPassword(
+		"failclosed@example.com", "CorrectPassword1!", "Fail", "Closed",
+	)
+	suite.Require().NoError(err)
+
+	// Build a separate UserService that shares the suite's DB (so
+	// GetUserByEmail + VerifyPassword work) but routes IncrementFailedAttempts
+	// through a hook that simulates a counter-write failure (transient DB
+	// hiccup, deadlock, pool exhaustion, etc.). The hook fires only on the
+	// password-mismatch branch we are exercising; the happy-path Increment
+	// covered elsewhere in the suite remains untouched.
+	failingSvc := &UserService{
+		db: suite.db,
+		incrementFailedAttemptsFn: func(uint) error {
+			return errors.New("simulated db failure on increment")
+		},
+	}
+
+	user, err := failingSvc.AuthenticateUserWithPassword(
+		"failclosed@example.com", "WrongPassword!",
+	)
+
+	suite.Require().Error(err)
+	suite.Nil(user)
+
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr),
+		"expected *apperrors.AuthError, got %T", err)
+	suite.Equal(apperrors.CodeServiceUnavailable, authErr.Code,
+		"fail-closed contract: must be SERVICE_UNAVAILABLE, NOT INVALID_CREDENTIALS")
+	suite.NotEqual(apperrors.CodeInvalidCredentials, authErr.Code,
+		"regression guard: falling back to INVALID_CREDENTIALS would hand an attacker a free guess")
+}
+
 // =============================================================================
 // NEW INTEGRATION TESTS: Account Lockout
 // =============================================================================

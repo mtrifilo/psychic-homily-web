@@ -113,6 +113,20 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.Message = authErr.UserMessage()
 				resp.Body.ErrorCode = autherrors.ToExternalCode(autherrors.CodeInvalidCredentials)
 				return resp, nil
+			case autherrors.CodeServiceUnavailable:
+				// Fail-closed surface from AuthenticateUserWithPassword: the
+				// lockout-counter write failed, so we cannot let the request
+				// fall through to ErrInvalidCredentials — that would hand an
+				// attacker a free guess. Propagate the AuthError so Huma emits
+				// a 5xx and the client retries; the message stays generic so
+				// we do not leak which step failed.
+				logger.AuthError(ctx, "login_service_unavailable", err,
+					"email_hash", logger.HashEmail(input.Body.Email),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+				return resp, authErr // Return actual error for 5xx HTTP status
 			}
 		}
 

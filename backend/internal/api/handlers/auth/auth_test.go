@@ -800,6 +800,49 @@ func TestLoginHandler_AccountLocked(t *testing.T) {
 	}
 }
 
+// TestLoginHandler_ServiceUnavailable asserts that a CodeServiceUnavailable
+// AuthError from AuthenticateUserWithPassword (the PSY-861 fail-closed signal
+// emitted when IncrementFailedAttempts errors) propagates as a real error to
+// Huma — NOT silently downgraded to INVALID_CREDENTIALS via the fallback path.
+// The body still carries SERVICE_UNAVAILABLE so clients can branch, and the
+// returned error drives the HTTP status into the 5xx band.
+func TestLoginHandler_ServiceUnavailable(t *testing.T) {
+	svcErr := autherrors.ErrServiceUnavailable("user_increment_failed_attempts", fmt.Errorf("db hiccup"))
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			AuthenticateUserWithPasswordFn: func(email, password string) (*authm.User, error) {
+				return nil, svcErr
+			},
+		}
+	})
+
+	input := &LoginRequest{}
+	input.Body.Email = "test@example.com"
+	input.Body.Password = "wrong"
+
+	resp, err := h.LoginHandler(context.Background(), input)
+
+	// The handler MUST return the AuthError so Huma emits a 5xx.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// Regression guard: the fall-through path used to map every unknown
+	// AuthError to INVALID_CREDENTIALS, which would hand an attacker a free
+	// guess. Lock that branch out.
+	if resp.Body.ErrorCode == autherrors.CodeInvalidCredentials {
+		t.Error("regression: SERVICE_UNAVAILABLE must not be downgraded to INVALID_CREDENTIALS")
+	}
+}
+
 func TestLoginHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &testhelpers.MockUserService{
