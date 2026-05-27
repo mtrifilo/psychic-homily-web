@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen } from '@testing-library/react'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { VenueEditForm } from './VenueEditForm'
@@ -19,13 +19,14 @@ vi.mock('@/lib/context/AuthContext', () => ({
 
 // `useVenueUpdate` is re-exported from `@/features/venues`. Mock that
 // surface (matches how VenueEditForm imports it).
+const mockMutate = vi.fn()
 vi.mock('@/features/venues', async () => {
   const actual = await vi.importActual<typeof import('@/features/venues')>(
     '@/features/venues'
   )
   return {
     ...actual,
-    useVenueUpdate: () => ({ mutate: vi.fn(), isPending: false }),
+    useVenueUpdate: () => ({ mutate: mockMutate, isPending: false }),
   }
 })
 
@@ -61,6 +62,7 @@ function makeVenue(overrides: Partial<VenueWithShowCount> = {}): VenueWithShowCo
 describe('VenueEditForm', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    mockMutate.mockReset()
   })
 
   describe('initial render', () => {
@@ -197,6 +199,77 @@ describe('VenueEditForm', () => {
       )
 
       expect(screen.getByLabelText(/Venue Name/i)).toHaveValue('Dirty Edit')
+    })
+  })
+
+  describe('inline validation messages', () => {
+    // Mirrors the PSY-779 fix on ArtistEditForm: the zod `onSubmit` validator
+    // rejects empty required fields, but the form must ALSO surface the
+    // message inline (via FieldInfo) and set aria-invalid on the input — or
+    // the user is left with a silent, dead Save button.
+    it('surfaces "Venue name is required" and blocks the mutation when the required name is cleared, then clears on valid input', async () => {
+      const user = userEvent.setup()
+      const venue = makeVenue()
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText(/Venue Name/i)
+      await user.clear(nameInput)
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      expect(
+        await screen.findByText(/Venue name is required/i)
+      ).toBeInTheDocument()
+      expect(nameInput).toHaveAttribute('aria-invalid', 'true')
+      expect(mockMutate).not.toHaveBeenCalled()
+
+      // Typing a valid value clears the error + aria-invalid, proving the
+      // message is reactive to field state (avoids the PSY-859 false-coverage
+      // pattern where a test only asserts the failing branch).
+      await user.type(nameInput, 'Venue C')
+
+      await waitFor(() => {
+        expect(
+          screen.queryByText(/Venue name is required/i)
+        ).not.toBeInTheDocument()
+      })
+      expect(nameInput).toHaveAttribute('aria-invalid', 'false')
+    })
+
+    it('surfaces "City is required" and blocks the mutation when the required city is cleared, then clears on valid input', async () => {
+      const user = userEvent.setup()
+      const venue = makeVenue()
+      renderWithProviders(
+        <VenueEditForm
+          key={venue.id}
+          venue={venue}
+          open
+          onOpenChange={vi.fn()}
+        />
+      )
+
+      const cityInput = screen.getByLabelText(/^City \*/i)
+      await user.clear(cityInput)
+      await user.click(screen.getByRole('button', { name: /Save Changes/i }))
+
+      expect(
+        await screen.findByText(/City is required/i)
+      ).toBeInTheDocument()
+      expect(cityInput).toHaveAttribute('aria-invalid', 'true')
+      expect(mockMutate).not.toHaveBeenCalled()
+
+      await user.type(cityInput, 'Tucson')
+
+      await waitFor(() => {
+        expect(screen.queryByText(/City is required/i)).not.toBeInTheDocument()
+      })
+      expect(cityInput).toHaveAttribute('aria-invalid', 'false')
     })
   })
 })
