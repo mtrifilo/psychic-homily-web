@@ -14,14 +14,15 @@ import (
 const (
 	UnsubscribeScopeTierNotifications = "tier-notifications"
 	UnsubscribeScopeEditNotifications = "edit-notifications"
+	UnsubscribeScopeShowReminders     = "show-reminders"
+	UnsubscribeScopeMention           = "mention"
+	UnsubscribeScopeCollectionDigest  = "collection-digest"
 )
 
 // ComputeScopedUnsubscribeSignature computes HMAC-SHA256 over
-// "unsubscribe:<scope>:<userID>" — the same payload shape as the older
-// per-domain helpers (ComputeUnsubscribeSignature for show-reminders,
-// ComputeCollectionDigestUnsubscribeSignature for collection-digest), but with
-// the scope passed in rather than baked into the function. Used for the
-// tier-change and edit-review categories.
+// "unsubscribe:<scope>:<userID>". The scope discriminates inbox URLs across
+// notification types so a link minted for one category can't be replayed
+// against another.
 func ComputeScopedUnsubscribeSignature(userID uint, scope, secret string) string {
 	mac := hmac.New(sha256.New, []byte(secret))
 	// hash.Hash.Write never returns an error; the drop is intentional.

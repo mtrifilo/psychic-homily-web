@@ -2,9 +2,6 @@ package engagement
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -206,21 +203,9 @@ func (s *ReminderService) RunReminderCycleNow() {
 }
 
 // GenerateUnsubscribeURL creates an HMAC-signed URL for one-click unsubscribe
+// from show reminder emails. Thin wrapper over the generic scoped helper —
+// keeps the call sites in the email send path readable.
 func GenerateUnsubscribeURL(baseURL string, userID uint, secret string) string {
-	sig := ComputeUnsubscribeSignature(userID, secret)
+	sig := ComputeScopedUnsubscribeSignature(userID, UnsubscribeScopeShowReminders, secret)
 	return fmt.Sprintf("%s/unsubscribe/show-reminders?uid=%d&sig=%s", baseURL, userID, sig)
-}
-
-// VerifyUnsubscribeSignature checks the HMAC signature for an unsubscribe request
-func VerifyUnsubscribeSignature(userID uint, signature, secret string) bool {
-	expected := ComputeUnsubscribeSignature(userID, secret)
-	return hmac.Equal([]byte(expected), []byte(signature))
-}
-
-// ComputeUnsubscribeSignature computes HMAC-SHA256 of the user ID
-func ComputeUnsubscribeSignature(userID uint, secret string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	// hash.Hash.Write never returns an error; the drop is intentional.
-	_, _ = fmt.Fprintf(mac, "unsubscribe:show-reminders:%d", userID)
-	return hex.EncodeToString(mac.Sum(nil))
 }

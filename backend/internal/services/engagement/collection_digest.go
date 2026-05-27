@@ -2,9 +2,6 @@ package engagement
 
 import (
 	"context"
-	"crypto/hmac"
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
 	"log/slog"
 	"os"
@@ -532,22 +529,6 @@ func (s *CollectionDigestService) RunDigestCycleNow() {
 // page on GET and accepts an RFC 8058 one-click POST. See
 // handlers.UnsubscribeCollectionDigestPageHandler.
 func GenerateCollectionDigestUnsubscribeURL(baseURL string, userID uint, secret string) string {
-	sig := ComputeCollectionDigestUnsubscribeSignature(userID, secret)
+	sig := ComputeScopedUnsubscribeSignature(userID, UnsubscribeScopeCollectionDigest, secret)
 	return fmt.Sprintf("%s/unsubscribe/collection-digest?uid=%d&sig=%s", baseURL, userID, sig)
-}
-
-// VerifyCollectionDigestUnsubscribeSignature checks the HMAC for an unsubscribe request.
-func VerifyCollectionDigestUnsubscribeSignature(userID uint, signature, secret string) bool {
-	expected := ComputeCollectionDigestUnsubscribeSignature(userID, secret)
-	return hmac.Equal([]byte(expected), []byte(signature))
-}
-
-// ComputeCollectionDigestUnsubscribeSignature hashes userID under secret.
-// Bound to the "collection-digest" domain string so a signature minted for
-// one notification type can't be replayed against another.
-func ComputeCollectionDigestUnsubscribeSignature(userID uint, secret string) string {
-	mac := hmac.New(sha256.New, []byte(secret))
-	// hash.Hash.Write never returns an error; the drop is intentional.
-	_, _ = fmt.Fprintf(mac, "unsubscribe:collection-digest:%d", userID)
-	return hex.EncodeToString(mac.Sum(nil))
 }

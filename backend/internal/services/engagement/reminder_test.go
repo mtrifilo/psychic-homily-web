@@ -26,40 +26,10 @@ import (
 
 const testSecret = "test-jwt-secret-key-for-hmac"
 
-func TestComputeUnsubscribeSignature_Deterministic(t *testing.T) {
-	sig1 := ComputeUnsubscribeSignature(42, testSecret)
-	sig2 := ComputeUnsubscribeSignature(42, testSecret)
-
-	assert.NotEmpty(t, sig1)
-	assert.Equal(t, sig1, sig2, "same inputs should produce the same signature")
-}
-
-func TestComputeUnsubscribeSignature_DifferentUsers(t *testing.T) {
-	sig1 := ComputeUnsubscribeSignature(1, testSecret)
-	sig2 := ComputeUnsubscribeSignature(2, testSecret)
-
-	assert.NotEqual(t, sig1, sig2, "different user IDs should produce different signatures")
-}
-
-func TestComputeUnsubscribeSignature_DifferentSecrets(t *testing.T) {
-	sig1 := ComputeUnsubscribeSignature(1, "secret-a")
-	sig2 := ComputeUnsubscribeSignature(1, "secret-b")
-
-	assert.NotEqual(t, sig1, sig2, "different secrets should produce different signatures")
-}
-
-func TestComputeUnsubscribeSignature_HexEncoded(t *testing.T) {
-	sig := ComputeUnsubscribeSignature(1, testSecret)
-
-	// HMAC-SHA256 produces 32 bytes = 64 hex chars
-	assert.Len(t, sig, 64, "HMAC-SHA256 hex output should be 64 characters")
-
-	// Verify it's valid hex
-	for _, c := range sig {
-		assert.True(t, (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f'),
-			"signature should be lowercase hex, got char: %c", c)
-	}
-}
+// Generic HMAC property tests (determinism, different-users-different-sigs,
+// different-secrets-different-sigs, hex output, tampering rejection) live in
+// unsubscribe_scope_test.go — exercising the shared compute/verify helpers.
+// The tests below only assert the show-reminders URL shape and round-trip.
 
 func TestGenerateUnsubscribeURL_Format(t *testing.T) {
 	result := GenerateUnsubscribeURL("https://example.com", 42, testSecret)
@@ -79,42 +49,8 @@ func TestGenerateUnsubscribeURL_EmbeddedSignature(t *testing.T) {
 	parsed, err := url.Parse(result)
 	assert.NoError(t, err)
 
-	expectedSig := ComputeUnsubscribeSignature(99, testSecret)
+	expectedSig := ComputeScopedUnsubscribeSignature(99, UnsubscribeScopeShowReminders, testSecret)
 	assert.Equal(t, expectedSig, parsed.Query().Get("sig"))
-}
-
-func TestVerifyUnsubscribeSignature_Valid(t *testing.T) {
-	sig := ComputeUnsubscribeSignature(42, testSecret)
-	assert.True(t, VerifyUnsubscribeSignature(42, sig, testSecret))
-}
-
-func TestVerifyUnsubscribeSignature_InvalidSignature(t *testing.T) {
-	assert.False(t, VerifyUnsubscribeSignature(42, "totally-wrong-signature", testSecret))
-}
-
-func TestVerifyUnsubscribeSignature_WrongUserID(t *testing.T) {
-	sig := ComputeUnsubscribeSignature(42, testSecret)
-	// Signature for user 42 should not verify for user 43
-	assert.False(t, VerifyUnsubscribeSignature(43, sig, testSecret))
-}
-
-func TestVerifyUnsubscribeSignature_WrongSecret(t *testing.T) {
-	sig := ComputeUnsubscribeSignature(42, "secret-a")
-	assert.False(t, VerifyUnsubscribeSignature(42, sig, "secret-b"))
-}
-
-func TestVerifyUnsubscribeSignature_EmptySignature(t *testing.T) {
-	assert.False(t, VerifyUnsubscribeSignature(42, "", testSecret))
-}
-
-func TestVerifyUnsubscribeSignature_TamperedSignature(t *testing.T) {
-	sig := ComputeUnsubscribeSignature(42, testSecret)
-	// Flip the last character
-	tampered := sig[:len(sig)-1] + "0"
-	if sig[len(sig)-1] == '0' {
-		tampered = sig[:len(sig)-1] + "1"
-	}
-	assert.False(t, VerifyUnsubscribeSignature(42, tampered, testSecret))
 }
 
 func TestHMACRoundTrip(t *testing.T) {
@@ -131,11 +67,11 @@ func TestHMACRoundTrip(t *testing.T) {
 	extractedSig := parsed.Query().Get("sig")
 	assert.NotEmpty(t, extractedSig)
 
-	assert.True(t, VerifyUnsubscribeSignature(userID, extractedSig, secret),
+	assert.True(t, VerifyScopedUnsubscribeSignature(userID, UnsubscribeScopeShowReminders, extractedSig, secret),
 		"round-trip: signature generated in URL should verify successfully")
 
 	// Also verify it fails for a different user
-	assert.False(t, VerifyUnsubscribeSignature(userID+1, extractedSig, secret),
+	assert.False(t, VerifyScopedUnsubscribeSignature(userID+1, UnsubscribeScopeShowReminders, extractedSig, secret),
 		"round-trip: signature should not verify for a different user ID")
 }
 

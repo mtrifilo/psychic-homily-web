@@ -46,7 +46,7 @@ func TestUnsubscribeCollectionDigestPage_InvalidSignature(t *testing.T) {
 func TestUnsubscribeCollectionDigestPage_GET_Success(t *testing.T) {
 	secret := "test-secret"
 	uid := uint(99)
-	sig := engagement.ComputeCollectionDigestUnsubscribeSignature(uid, secret)
+	sig := engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeCollectionDigest, secret)
 
 	var receivedUID uint
 	var receivedEnabled bool
@@ -88,7 +88,7 @@ func TestUnsubscribeCollectionDigestPage_GET_Success(t *testing.T) {
 func TestUnsubscribeCollectionDigestPage_POST_OneClick_Success(t *testing.T) {
 	secret := "test-secret"
 	uid := uint(7)
-	sig := engagement.ComputeCollectionDigestUnsubscribeSignature(uid, secret)
+	sig := engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeCollectionDigest, secret)
 
 	var called bool
 	mock := &testhelpers.MockUserService{
@@ -144,7 +144,7 @@ func TestUnsubscribeCollectionDigestPage_POST_InvalidSig_JSON(t *testing.T) {
 func TestUnsubscribeCollectionDigestPage_ServiceError_GET(t *testing.T) {
 	secret := "test-secret"
 	uid := uint(50)
-	sig := engagement.ComputeCollectionDigestUnsubscribeSignature(uid, secret)
+	sig := engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeCollectionDigest, secret)
 
 	mock := &testhelpers.MockUserService{
 		SetNotifyOnCollectionDigestFn: func(uint, bool) error {
@@ -169,7 +169,7 @@ func TestUnsubscribeCollectionDigestPage_ServiceError_GET(t *testing.T) {
 func TestUnsubscribeCollectionDigestPage_ServiceError_POST(t *testing.T) {
 	secret := "test-secret"
 	uid := uint(50)
-	sig := engagement.ComputeCollectionDigestUnsubscribeSignature(uid, secret)
+	sig := engagement.ComputeScopedUnsubscribeSignature(uid, engagement.UnsubscribeScopeCollectionDigest, secret)
 
 	mock := &testhelpers.MockUserService{
 		SetNotifyOnCollectionDigestFn: func(uint, bool) error {

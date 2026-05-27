@@ -62,20 +62,20 @@ func TestHMAC_CollectionDigestRoundTrip(t *testing.T) {
 	assert.Contains(t, urlStr, "/unsubscribe/collection-digest")
 	assert.Contains(t, urlStr, "uid=99")
 
-	sig := ComputeCollectionDigestUnsubscribeSignature(userID, secret)
-	assert.True(t, VerifyCollectionDigestUnsubscribeSignature(userID, sig, secret))
+	sig := ComputeScopedUnsubscribeSignature(userID, UnsubscribeScopeCollectionDigest, secret)
+	assert.True(t, VerifyScopedUnsubscribeSignature(userID, UnsubscribeScopeCollectionDigest, sig, secret))
 
 	// Tamper: wrong user ID
-	assert.False(t, VerifyCollectionDigestUnsubscribeSignature(userID+1, sig, secret))
+	assert.False(t, VerifyScopedUnsubscribeSignature(userID+1, UnsubscribeScopeCollectionDigest, sig, secret))
 	// Tamper: wrong secret
-	assert.False(t, VerifyCollectionDigestUnsubscribeSignature(userID, sig, "different"))
+	assert.False(t, VerifyScopedUnsubscribeSignature(userID, UnsubscribeScopeCollectionDigest, sig, "different"))
 	// Empty sig
-	assert.False(t, VerifyCollectionDigestUnsubscribeSignature(userID, "", secret))
+	assert.False(t, VerifyScopedUnsubscribeSignature(userID, UnsubscribeScopeCollectionDigest, "", secret))
 
 	// A signature minted for a *mention* unsubscribe must NOT verify against
 	// the collection-digest scheme — defense-in-depth.
-	mentionSig := ComputeMentionUnsubscribeSignature(userID, secret)
-	assert.False(t, VerifyCollectionDigestUnsubscribeSignature(userID, mentionSig, secret))
+	mentionSig := ComputeScopedUnsubscribeSignature(userID, UnsubscribeScopeMention, secret)
+	assert.False(t, VerifyScopedUnsubscribeSignature(userID, UnsubscribeScopeCollectionDigest, mentionSig, secret))
 }
 
 // TestCollectionDigestService_Construction_DefaultInterval verifies the

@@ -9,6 +9,8 @@ import (
 
 	"psychic-homily-backend/db"
 	adminm "psychic-homily-backend/internal/models/admin"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/utils"
 )
 
@@ -17,6 +19,30 @@ import (
 // the handler to distinguish "no active pick" (which is a 404 — the
 // slot simply isn't curated yet) from real I/O errors.
 var ErrFeaturedSlotNotFound = errors.New("featured slot not found")
+
+// Sentinel errors for SetActiveSlot referent validation. The handler
+// translates these to specific HTTP status codes so the admin UI can
+// surface a helpful message instead of the silent "phantom save" the
+// consumer endpoint produced before validation existed: a slot pointing
+// at a non-approved show or private collection inserted fine but the
+// /explore consumer filters it out, leaving the active card blank.
+//
+// The predicates here MUST stay in sync with services/explore/explore.go
+// resolveFeaturedBill / resolveFeaturedCollection — those are the only
+// reason this validation exists. If the consumer's "publicly visible"
+// rule changes, change this file in the same PR.
+var (
+	// ErrFeaturedSlotReferentNotFound — the referenced show/collection
+	// does not exist. Handler maps to 404.
+	ErrFeaturedSlotReferentNotFound = errors.New("featured slot referent not found")
+	// ErrFeaturedSlotReferentNotApproved — the referenced show exists
+	// but is not in the 'approved' status the consumer requires.
+	// Handler maps to 400.
+	ErrFeaturedSlotReferentNotApproved = errors.New("featured slot referent is not approved")
+	// ErrFeaturedSlotReferentNotPublic — the referenced collection
+	// exists but is_public=false. Handler maps to 400.
+	ErrFeaturedSlotReferentNotPublic = errors.New("featured slot referent is not public")
+)
 
 // FeaturedSlotService manages the admin-curated /explore editorial slots.
 // One row per slot_type is active at any time (active_until IS NULL);
@@ -100,6 +126,14 @@ func (s *FeaturedSlotService) ListRecent(slotType string, limit int) ([]adminm.F
 //
 // curatorNote is stored verbatim (markdown source); rendering happens at
 // the handler / response boundary via RenderCuratorNote.
+//
+// Referent validation: the entity_id is checked against the same
+// "publicly visible" predicate the /explore consumer uses (approved
+// status for shows, is_public=true for collections). Without this
+// check the row would insert fine but the consumer endpoint would
+// filter it out, leaving the admin UI with a phantom success state —
+// "saved" toast but no active card on /explore. See validateReferent
+// for the mirrored predicates.
 func (s *FeaturedSlotService) SetActiveSlot(slotType string, entityID uint, curatorNote *string, userID uint) (*adminm.FeaturedSlot, error) {
 	if !adminm.IsValidFeaturedSlotType(slotType) {
 		return nil, fmt.Errorf("invalid slot type: %s", slotType)
@@ -112,6 +146,10 @@ func (s *FeaturedSlotService) SetActiveSlot(slotType string, entityID uint, cura
 	}
 	if curatorNote != nil && len(*curatorNote) > adminm.MaxFeaturedSlotCuratorNoteLength {
 		return nil, fmt.Errorf("curator_note exceeds maximum length of %d characters", adminm.MaxFeaturedSlotCuratorNoteLength)
+	}
+
+	if err := s.validateReferent(slotType, entityID); err != nil {
+		return nil, err
 	}
 
 	var created adminm.FeaturedSlot
@@ -144,6 +182,64 @@ func (s *FeaturedSlotService) SetActiveSlot(slotType string, entityID uint, cura
 	// Re-fetch with Creator preloaded so the response carries the same
 	// shape as GetActiveSlot.
 	return s.GetActiveSlot(slotType)
+}
+
+// validateReferent confirms the entity_id points at a row the /explore
+// consumer will actually surface. The predicates mirror
+// services/explore/explore.go: approved status for shows, is_public=true
+// for collections. Missing referents return ErrFeaturedSlotReferentNotFound;
+// the typed-but-not-visible cases return their own sentinels so the
+// handler can render distinct copy ("not approved" vs "is private").
+//
+// Lookups use a narrow Select to avoid pulling the full row when we
+// only need one column for the predicate check.
+func (s *FeaturedSlotService) validateReferent(slotType string, entityID uint) error {
+	switch slotType {
+	case adminm.FeaturedSlotTypeBill:
+		var status catalogm.ShowStatus
+		err := s.db.Model(&catalogm.Show{}).
+			Select("status").
+			Where("id = ?", entityID).
+			Limit(1).
+			Scan(&status).Error
+		if err != nil {
+			return fmt.Errorf("failed to load featured bill referent: %w", err)
+		}
+		if status == "" {
+			return ErrFeaturedSlotReferentNotFound
+		}
+		if status != catalogm.ShowStatusApproved {
+			return ErrFeaturedSlotReferentNotApproved
+		}
+		return nil
+
+	case adminm.FeaturedSlotTypeCollection:
+		// IsPublic defaults to true in the column, but the row may have
+		// been flipped private after creation. Scan into a *bool so
+		// "no row" (NULL pointer) is distinguishable from is_public=false.
+		var isPublic *bool
+		err := s.db.Model(&communitym.Collection{}).
+			Select("is_public").
+			Where("id = ?", entityID).
+			Limit(1).
+			Scan(&isPublic).Error
+		if err != nil {
+			return fmt.Errorf("failed to load featured collection referent: %w", err)
+		}
+		if isPublic == nil {
+			return ErrFeaturedSlotReferentNotFound
+		}
+		if !*isPublic {
+			return ErrFeaturedSlotReferentNotPublic
+		}
+		return nil
+
+	default:
+		// IsValidFeaturedSlotType already guarded this path in
+		// SetActiveSlot; an unknown slot_type reaching here means a new
+		// type was added upstream without a validation branch.
+		return fmt.Errorf("unsupported slot type for referent validation: %s", slotType)
+	}
 }
 
 // RetireActiveSlot retires the currently active row for slot_type
