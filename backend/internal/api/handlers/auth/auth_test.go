@@ -1136,6 +1136,13 @@ func TestRegisterHandler_Success(t *testing.T) {
 	}
 }
 
+// TestRegisterHandler_UserExists pins the INTENTIONAL enumeration-UX arm
+// (PSY-775 Option A): an already-registered email must stay HTTP 200 (nil
+// returned error) with the explicit "account already exists" message and the
+// USER_EXISTS code. This is the dual-direction counterpart to
+// TestRegisterHandler_UnknownServiceErrorFailsClosed — it guards against a
+// future fail-closed pass accidentally flipping this arm to a 5xx, which would
+// regress the "log in instead" guidance a returning user depends on.
 func TestRegisterHandler_UserExists(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &testhelpers.MockUserService{
@@ -1152,14 +1159,75 @@ func TestRegisterHandler_UserExists(t *testing.T) {
 	input.Body.TermsVersion = "2026-01-31"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
+	// Option A: HTTP 200, so the handler returns a nil error. A non-nil error
+	// here would mean the arm regressed into the fail-closed 5xx path.
 	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+		t.Fatalf("expected nil error (HTTP 200 enumeration-UX arm), got %v", err)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeUserExists {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeUserExists, resp.Body.ErrorCode)
+	}
+	// The explicit message is the user-facing guidance; it must not be replaced
+	// by the generic SERVICE_UNAVAILABLE copy.
+	if resp.Body.Message != autherrors.ErrUserExists(input.Body.Email).UserMessage() {
+		t.Errorf("expected explicit user-exists message, got %q", resp.Body.Message)
+	}
+}
+
+// TestRegisterHandler_UnknownServiceErrorFailsClosed locks in the PSY-900
+// fail-closed convention for the registration path: any CreateUser failure
+// OTHER than the intentional USER_EXISTS arm is an unexpected backend/service
+// error and MUST surface as a 5xx (non-nil returned error wrapping an
+// *AuthError of CodeServiceUnavailable) so monitoring sees the same uniform
+// shape as the rest of this handler family — not the prior silent HTTP-200 +
+// CodeUnknown body. The body stays byte-identical with the canonical
+// SERVICE_UNAVAILABLE shape; only the transport status flips.
+func TestRegisterHandler_UnknownServiceErrorFailsClosed(t *testing.T) {
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+				return nil, errors.New("db connection refused")
+			},
+		}
+	})
+
+	input := &RegisterRequest{}
+	input.Body.Email = "user@example.com"
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+
+	// Handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must wrap an *AuthError of CodeServiceUnavailable so
+	// the apperror mapper translates it to a 5xx with the structured body.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// External message must match the canonical SERVICE_UNAVAILABLE shape, not
+	// the prior "Failed to create user" leak.
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 
