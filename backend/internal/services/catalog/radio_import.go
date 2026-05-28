@@ -607,7 +607,11 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 		records = append(records, record)
 	}
 
-	summary := summarizeDrops(truncatedRows, missingArtistRows)
+	// droppedRows is computed from the actual delta so new sanitize-drop
+	// reasons (added later without a matching per-class counter) still get
+	// reflected in the N total — only the per-class breakdown will lag.
+	droppedRows := len(plays) - len(records)
+	summary := summarizeDrops(droppedRows, truncatedRows, missingArtistRows)
 
 	if len(records) == 0 {
 		return 0, summary, nil
@@ -712,12 +716,18 @@ func truncateOptionalRunes(s *string, max int) *string {
 //
 //	dropped N plays: X over-length titles truncated, Y missing artist_name
 //
-// N is the total count of rows the sanitize step touched (truncated +
-// rejected). Breakdown clauses describe the per-action subset. "Dropped"
-// reads loosely here — truncated rows are kept, just with shortened text —
-// but per-class breakdown lets admins distinguish salvage from data loss.
-func summarizeDrops(truncatedCount, missingArtistCount int) string {
-	total := truncatedCount + missingArtistCount
+// N is droppedCount + truncatedCount — the total count of rows the sanitize
+// step touched. "Dropped" reads loosely here: truncated rows are kept (just
+// with shortened text), but grouping under one number gives admins a single
+// "needed attention" magnitude. The per-class breakdown clauses distinguish
+// salvage (truncated) from data loss (missing artist_name).
+//
+// droppedCount is taken as the authoritative drop count from the caller (not
+// re-derived from missingArtistCount) so future sanitize-drop classes added
+// without a matching counter still appear in N — the breakdown will lag the
+// total in that case, surfacing the omission rather than hiding it.
+func summarizeDrops(droppedCount, truncatedCount, missingArtistCount int) string {
+	total := droppedCount + truncatedCount
 	if total == 0 {
 		return ""
 	}
