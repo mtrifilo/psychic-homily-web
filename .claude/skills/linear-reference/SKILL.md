@@ -91,7 +91,16 @@ linear issue view PSY-823 --json                   # pipeable
 linear issue list --sort priority --all-states --all-assignees
 linear issue list --project "Project Name" --all-states
 linear issue list --label "frontend" --label "Improvement"
+
+# Filter by workflow state — use the LOWERCASE enum, NOT the display name:
+linear issue list --state started --all-assignees           # ✓ works (display = "In Progress")
+linear issue list --state "In Progress" --all-assignees     # ✗ errors
+
+# Valid --state values: triage, backlog, unstarted, started, completed, canceled
+# (--all-states overrides the default of "unstarted")
 ```
+
+> **State name asymmetry**: `linear issue list --state` takes the workflow-state **enum** (`started`, `completed`, etc.); `linear issue update --state` takes the **display name** (`"In Progress"`, `"Done"`, etc.). Easy to mix up. The enum is fixed across all Linear teams; display names are per-team workflow customization.
 
 ### Create
 
@@ -258,7 +267,7 @@ Label groups are NOT directly addressable via CLI in v1.11.x — they're a Web-U
 
 - **`--no-interactive` on `issue comment add` / `project create` / `project update` / `project-update create`**: rejected. For these surfaces, providing other flags = non-interactive; `-i/--interactive` is the OPT-IN.
 - **`project create` + `project update` `--description` 255-char cap**: Linear enforces this server-side. For long-form rationale, post a `project-update` (status post) as a kickoff instead — `--body-file`, no length cap.
-- **State names are case-sensitive**: `"In Progress"` not `"in progress"`.
+- **State name asymmetry between `list` and `update`**: `linear issue list --state` takes the **lowercase enum** (`triage` / `backlog` / `unstarted` / `started` / `completed` / `canceled`); `linear issue update --state` takes the **display name** (`"In Progress"` / `"Done"` / `"Cancelled"` / etc.) and is case-sensitive on those. The enum is fixed across all Linear teams; display names are per-team customization. Mixing them up errors loudly: `--state "In Progress"` on list returns `Option "--state" must be of type "state"`.
 - **`--description-file` vs `--body-file` vs `--content-file`**: inconsistent across `issue create` / `project-update create` / `document create`, AND `project create` / `project update` accept NEITHER (only inline `-d/--description`). Run `--help` once per new surface.
 - **Project slug-ID is the hex tail** of the project URL (`/project/name-and-hex` → grab everything after the last `-`). Or `linear project list` and read column 1.
 - **Don't pass `--team` from outside the repo** if it's pinned in `.linear.toml`. Inside the repo, the flag is redundant but harmless.
