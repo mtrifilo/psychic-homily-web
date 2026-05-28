@@ -12,6 +12,21 @@ import (
 	communitym "psychic-homily-backend/internal/models/community"
 )
 
+// requestEntityTables maps a request's declared entity_type to the
+// physical table the FulfilledEntityID is expected to point at. Used by
+// FulfillRequest for the entity-existence + type-match check (PSY-748).
+// Keep aligned with validRequestEntityTypes — any new entity type added
+// to the request enum must also map to a table here or fulfillment will
+// silently fail-closed with a misleading error.
+var requestEntityTables = map[string]string{
+	communitym.RequestEntityArtist:   "artists",
+	communitym.RequestEntityVenue:    "venues",
+	communitym.RequestEntityShow:     "shows",
+	communitym.RequestEntityRelease:  "releases",
+	communitym.RequestEntityLabel:    "labels",
+	communitym.RequestEntityFestival: "festivals",
+}
+
 // RequestService handles community request business logic.
 type RequestService struct {
 	db *gorm.DB
@@ -279,7 +294,24 @@ func (s *RequestService) RemoveVote(requestID, userID uint) error {
 	})
 }
 
-// FulfillRequest marks a request as fulfilled.
+// FulfillRequest submits a proposed fulfillment for community review.
+//
+// Authorization: any authenticated user may submit; this is the
+// community-contribution side of the workflow. The original requester
+// (or an admin) still has to call ApproveFulfillment to flip the
+// request to "fulfilled" — see PSY-748 for the threat model that
+// motivated the two-step gate (Finding 7: pre-PSY-748 any user could
+// directly mark any request as fulfilled and hijack the entity link).
+//
+// Validation: when fulfilledEntityID is provided, the referenced entity
+// MUST exist AND its table MUST match the request's declared
+// EntityType. Mismatch → ErrRequestEntityTypeMismatch (400). Missing
+// row → ErrRequestEntityNotFound (400). This stops a caller from
+// pointing an "artist" request at a venue ID.
+//
+// State transition: pending | in_progress → pending_fulfillment.
+// Already-fulfilled or already-pending-fulfillment requests return
+// ErrRequestAlreadyFulfilled (409).
 func (s *RequestService) FulfillRequest(requestID, fulfillerID uint, fulfilledEntityID *uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
@@ -294,23 +326,144 @@ func (s *RequestService) FulfillRequest(requestID, fulfillerID uint, fulfilledEn
 		return fmt.Errorf("failed to get request: %w", err)
 	}
 
-	// Only pending or in_progress requests can be fulfilled
+	// Only pending or in_progress requests can enter pending_fulfillment.
+	// Anything in pending_fulfillment / fulfilled / cancelled / rejected is
+	// out of scope for a fresh submission and surfaces as 409.
 	if request.Status != communitym.RequestStatusPending && request.Status != communitym.RequestStatusInProgress {
 		return apperrors.ErrRequestAlreadyFulfilled(requestID)
 	}
 
-	now := time.Now()
+	// Validate the proposed entity exists AND matches the request's type
+	// before any state mutation, so a bad payload can't poison the row.
+	if fulfilledEntityID != nil {
+		if err := s.validateFulfillmentEntity(requestID, request.EntityType, *fulfilledEntityID); err != nil {
+			return err
+		}
+	}
+
 	updates := map[string]interface{}{
-		"status":       communitym.RequestStatusFulfilled,
+		"status":       communitym.RequestStatusPendingFulfillment,
 		"fulfiller_id": fulfillerID,
-		"fulfilled_at": now,
 	}
 	if fulfilledEntityID != nil {
 		updates["requested_entity_id"] = *fulfilledEntityID
 	}
 
 	if err := s.db.Model(&request).Updates(updates).Error; err != nil {
-		return fmt.Errorf("failed to fulfill request: %w", err)
+		return fmt.Errorf("failed to submit fulfillment: %w", err)
+	}
+
+	return nil
+}
+
+// validateFulfillmentEntity confirms that entityID exists in the table
+// associated with requestType. Returns ErrRequestEntityTypeMismatch when
+// the request's EntityType isn't in the supported map (defensive: should
+// never trip in production because CreateRequest gates entity_type up
+// front, but the guard keeps the failure mode loud if a new type is
+// added to one map but not the other). Returns ErrRequestEntityNotFound
+// when the row doesn't exist.
+func (s *RequestService) validateFulfillmentEntity(requestID uint, requestType string, entityID uint) error {
+	table, ok := requestEntityTables[requestType]
+	if !ok {
+		return apperrors.ErrRequestEntityTypeMismatch(requestID, requestType, "<unknown>")
+	}
+
+	var count int64
+	if err := s.db.Table(table).Where("id = ?", entityID).Count(&count).Error; err != nil {
+		return fmt.Errorf("failed to validate fulfillment entity: %w", err)
+	}
+	if count == 0 {
+		return apperrors.ErrRequestEntityNotFound(requestID, requestType, entityID)
+	}
+	return nil
+}
+
+// ApproveFulfillment finalizes a pending_fulfillment request, flipping
+// it to fulfilled and stamping fulfilled_at. Only the original requester
+// or an admin may approve — non-requester non-admin returns
+// ErrRequestForbidden (403). Request must be in pending_fulfillment
+// state; any other state returns ErrRequestInvalidState (409). PSY-748.
+func (s *RequestService) ApproveFulfillment(requestID, userID uint, isAdmin bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	var request communitym.Request
+	err := s.db.First(&request, requestID).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return apperrors.ErrRequestNotFound(requestID)
+		}
+		return fmt.Errorf("failed to get request: %w", err)
+	}
+
+	if request.RequesterID != userID && !isAdmin {
+		return apperrors.ErrRequestForbidden(requestID)
+	}
+
+	if request.Status != communitym.RequestStatusPendingFulfillment {
+		return apperrors.ErrRequestInvalidState(requestID, request.Status, communitym.RequestStatusPendingFulfillment)
+	}
+
+	now := time.Now()
+	updates := map[string]interface{}{
+		"status":       communitym.RequestStatusFulfilled,
+		"fulfilled_at": now,
+	}
+
+	if err := s.db.Model(&request).Updates(updates).Error; err != nil {
+		return fmt.Errorf("failed to approve fulfillment: %w", err)
+	}
+
+	return nil
+}
+
+// RejectFulfillment returns a pending_fulfillment request to the
+// pending state, clearing the proposed fulfiller and (if it was set
+// during submission) the proposed entity link. Only the original
+// requester or an admin may reject. State must be pending_fulfillment.
+// PSY-748.
+//
+// We zero requested_entity_id on reject because the value was overwritten
+// by FulfillRequest with the proposed fulfilling entity (the same column
+// is reused — see model comment). Restoring it would require persisting
+// the pre-fulfill value separately; the simpler and safer default is to
+// clear it so the requester can re-link if they want. Documented as a
+// known constraint in the ticket.
+func (s *RequestService) RejectFulfillment(requestID, userID uint, isAdmin bool) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+
+	var request communitym.Request
+	err := s.db.First(&request, requestID).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return apperrors.ErrRequestNotFound(requestID)
+		}
+		return fmt.Errorf("failed to get request: %w", err)
+	}
+
+	if request.RequesterID != userID && !isAdmin {
+		return apperrors.ErrRequestForbidden(requestID)
+	}
+
+	if request.Status != communitym.RequestStatusPendingFulfillment {
+		return apperrors.ErrRequestInvalidState(requestID, request.Status, communitym.RequestStatusPendingFulfillment)
+	}
+
+	// GORM Updates with map skips zero values for pointer fields, so use
+	// Update with nil/typed-zero to actually clear fulfiller_id and
+	// requested_entity_id back to NULL. Status drops back to pending so
+	// the request reappears in browse listings as an open contribution
+	// surface.
+	if err := s.db.Model(&request).Updates(map[string]interface{}{
+		"status":              communitym.RequestStatusPending,
+		"fulfiller_id":        gorm.Expr("NULL"),
+		"requested_entity_id": gorm.Expr("NULL"),
+	}).Error; err != nil {
+		return fmt.Errorf("failed to reject fulfillment: %w", err)
 	}
 
 	return nil

@@ -9,11 +9,12 @@ import (
 
 // Request status constants
 const (
-	RequestStatusPending    = "pending"
-	RequestStatusInProgress = "in_progress"
-	RequestStatusFulfilled  = "fulfilled"
-	RequestStatusRejected   = "rejected"
-	RequestStatusCancelled  = "cancelled"
+	RequestStatusPending             = "pending"
+	RequestStatusInProgress          = "in_progress"
+	RequestStatusPendingFulfillment  = "pending_fulfillment"
+	RequestStatusFulfilled           = "fulfilled"
+	RequestStatusRejected            = "rejected"
+	RequestStatusCancelled           = "cancelled"
 )
 
 // Request entity type constants (reuse collection entity types)

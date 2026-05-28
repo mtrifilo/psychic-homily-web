@@ -39,6 +39,15 @@ type RequestResponse struct {
 }
 
 // RequestServiceInterface defines the contract for community request operations.
+//
+// Fulfillment is a two-step flow (PSY-748):
+//  1. Any authenticated user calls FulfillRequest with the entity they
+//     believe satisfies the request. Status moves to pending_fulfillment.
+//  2. The original requester or an admin calls ApproveFulfillment (→ fulfilled)
+//     or RejectFulfillment (→ pending, clearing fulfiller/entity).
+//
+// This makes contribution community-open while keeping the original
+// requester in the loop so they can't have their request silently hijacked.
 type RequestServiceInterface interface {
 	CreateRequest(userID uint, title, description, entityType string, requestedEntityID *uint) (*communitym.Request, error)
 	GetRequest(requestID uint) (*communitym.Request, error)
@@ -47,7 +56,17 @@ type RequestServiceInterface interface {
 	DeleteRequest(requestID, userID uint, isAdmin bool) error
 	Vote(requestID, userID uint, isUpvote bool) error
 	RemoveVote(requestID, userID uint) error
+	// FulfillRequest moves a pending/in_progress request into pending_fulfillment
+	// state and records the proposed entity. Open to any authenticated user;
+	// entity-type validation enforced. Approval by requester or admin still required.
 	FulfillRequest(requestID, fulfillerID uint, fulfilledEntityID *uint) error
+	// ApproveFulfillment finalizes a pending_fulfillment request as fulfilled.
+	// Only the original requester or an admin may approve.
+	ApproveFulfillment(requestID, userID uint, isAdmin bool) error
+	// RejectFulfillment returns a pending_fulfillment request to pending,
+	// clearing the fulfiller and proposed entity link. Only the original
+	// requester or an admin may reject.
+	RejectFulfillment(requestID, userID uint, isAdmin bool) error
 	CloseRequest(requestID, userID uint, isAdmin bool) error
 	GetUserVote(requestID, userID uint) (*communitym.RequestVote, error)
 }

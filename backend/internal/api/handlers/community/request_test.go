@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
 )
@@ -55,6 +56,14 @@ func TestRequestHandler_RequiresAuth(t *testing.T) {
 		}},
 		{"FulfillRequest", func(ctx context.Context) error {
 			_, err := h.FulfillRequestHandler(ctx, &FulfillRequestHandlerRequest{RequestID: "1"})
+			return err
+		}},
+		{"ApproveFulfillment", func(ctx context.Context) error {
+			_, err := h.ApproveFulfillmentHandler(ctx, &ApproveFulfillmentHandlerRequest{RequestID: "1"})
+			return err
+		}},
+		{"RejectFulfillment", func(ctx context.Context) error {
+			_, err := h.RejectFulfillmentHandler(ctx, &RejectFulfillmentHandlerRequest{RequestID: "1"})
 			return err
 		}},
 		{"CloseRequest", func(ctx context.Context) error {
@@ -522,6 +531,206 @@ func TestRequestHandler_Fulfill_ServiceError(t *testing.T) {
 	}, nil)
 
 	_, err := h.FulfillRequestHandler(requestUserCtx(), &FulfillRequestHandlerRequest{RequestID: "1"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// PSY-748: typed errors from the service must surface as the right HTTP
+// status. EntityTypeMismatch + EntityNotFound → 400 (caller payload
+// problem); the request itself is fine and still exists.
+func TestRequestHandler_Fulfill_EntityTypeMismatch_400(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		FulfillRequestFn: func(requestID, fulfillerID uint, fulfilledEntityID *uint) error {
+			return apperrors.ErrRequestEntityTypeMismatch(requestID, "artist", "venue")
+		},
+	}, nil)
+
+	_, err := h.FulfillRequestHandler(requestUserCtx(), &FulfillRequestHandlerRequest{RequestID: "1"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestRequestHandler_Fulfill_EntityNotFound_400(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		FulfillRequestFn: func(requestID, fulfillerID uint, fulfilledEntityID *uint) error {
+			return apperrors.ErrRequestEntityNotFound(requestID, "artist", 9999)
+		},
+	}, nil)
+
+	_, err := h.FulfillRequestHandler(requestUserCtx(), &FulfillRequestHandlerRequest{RequestID: "1"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+// ============================================================================
+// Tests: ApproveFulfillmentHandler (PSY-748)
+// ============================================================================
+
+func TestRequestHandler_ApproveFulfillment_Success(t *testing.T) {
+	var sawIsAdmin bool
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ApproveFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			if requestID != 42 {
+				t.Errorf("expected requestID=42, got %d", requestID)
+			}
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			sawIsAdmin = isAdmin
+			return nil
+		},
+	}, nil)
+
+	_, err := h.ApproveFulfillmentHandler(requestUserCtx(), &ApproveFulfillmentHandlerRequest{RequestID: "42"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sawIsAdmin {
+		t.Errorf("expected isAdmin=false (default test user is non-admin), got true")
+	}
+}
+
+func TestRequestHandler_ApproveFulfillment_AdminFlagPropagates(t *testing.T) {
+	// Admin users approve via the same handler — the IsAdmin flag from
+	// the context user must thread through to the service so admin
+	// take-overs work.
+	var sawIsAdmin bool
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ApproveFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			sawIsAdmin = isAdmin
+			return nil
+		},
+	}, nil)
+
+	adminCtx := testhelpers.CtxWithUser(&authm.User{ID: 7, IsAdmin: true})
+	_, err := h.ApproveFulfillmentHandler(adminCtx, &ApproveFulfillmentHandlerRequest{RequestID: "1"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !sawIsAdmin {
+		t.Errorf("expected isAdmin=true, got false")
+	}
+}
+
+func TestRequestHandler_ApproveFulfillment_InvalidID(t *testing.T) {
+	h := testRequestHandler()
+
+	_, err := h.ApproveFulfillmentHandler(requestUserCtx(), &ApproveFulfillmentHandlerRequest{RequestID: "abc"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestRequestHandler_ApproveFulfillment_Forbidden_403(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ApproveFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			return apperrors.ErrRequestForbidden(requestID)
+		},
+	}, nil)
+
+	_, err := h.ApproveFulfillmentHandler(requestUserCtx(), &ApproveFulfillmentHandlerRequest{RequestID: "1"})
+	testhelpers.AssertHumaError(t, err, 403)
+}
+
+func TestRequestHandler_ApproveFulfillment_InvalidState_409(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ApproveFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			return apperrors.ErrRequestInvalidState(requestID, "pending", "pending_fulfillment")
+		},
+	}, nil)
+
+	_, err := h.ApproveFulfillmentHandler(requestUserCtx(), &ApproveFulfillmentHandlerRequest{RequestID: "1"})
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
+func TestRequestHandler_ApproveFulfillment_NotFound_404(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ApproveFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			return apperrors.ErrRequestNotFound(requestID)
+		},
+	}, nil)
+
+	_, err := h.ApproveFulfillmentHandler(requestUserCtx(), &ApproveFulfillmentHandlerRequest{RequestID: "999"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestRequestHandler_ApproveFulfillment_ServiceError_500(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		ApproveFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			return fmt.Errorf("db error")
+		},
+	}, nil)
+
+	_, err := h.ApproveFulfillmentHandler(requestUserCtx(), &ApproveFulfillmentHandlerRequest{RequestID: "1"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
+// Tests: RejectFulfillmentHandler (PSY-748)
+// ============================================================================
+
+func TestRequestHandler_RejectFulfillment_Success(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		RejectFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			if requestID != 33 {
+				t.Errorf("expected requestID=33, got %d", requestID)
+			}
+			if userID != 1 {
+				t.Errorf("expected userID=1, got %d", userID)
+			}
+			return nil
+		},
+	}, nil)
+
+	_, err := h.RejectFulfillmentHandler(requestUserCtx(), &RejectFulfillmentHandlerRequest{RequestID: "33"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestRequestHandler_RejectFulfillment_InvalidID(t *testing.T) {
+	h := testRequestHandler()
+
+	_, err := h.RejectFulfillmentHandler(requestUserCtx(), &RejectFulfillmentHandlerRequest{RequestID: "abc"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestRequestHandler_RejectFulfillment_Forbidden_403(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		RejectFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			return apperrors.ErrRequestForbidden(requestID)
+		},
+	}, nil)
+
+	_, err := h.RejectFulfillmentHandler(requestUserCtx(), &RejectFulfillmentHandlerRequest{RequestID: "1"})
+	testhelpers.AssertHumaError(t, err, 403)
+}
+
+func TestRequestHandler_RejectFulfillment_InvalidState_409(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		RejectFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			return apperrors.ErrRequestInvalidState(requestID, "pending", "pending_fulfillment")
+		},
+	}, nil)
+
+	_, err := h.RejectFulfillmentHandler(requestUserCtx(), &RejectFulfillmentHandlerRequest{RequestID: "1"})
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
+func TestRequestHandler_RejectFulfillment_NotFound_404(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		RejectFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			return apperrors.ErrRequestNotFound(requestID)
+		},
+	}, nil)
+
+	_, err := h.RejectFulfillmentHandler(requestUserCtx(), &RejectFulfillmentHandlerRequest{RequestID: "999"})
+	testhelpers.AssertHumaError(t, err, 404)
+}
+
+func TestRequestHandler_RejectFulfillment_ServiceError_500(t *testing.T) {
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		RejectFulfillmentFn: func(requestID, userID uint, isAdmin bool) error {
+			return fmt.Errorf("db error")
+		},
+	}, nil)
+
+	_, err := h.RejectFulfillmentHandler(requestUserCtx(), &RejectFulfillmentHandlerRequest{RequestID: "1"})
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
