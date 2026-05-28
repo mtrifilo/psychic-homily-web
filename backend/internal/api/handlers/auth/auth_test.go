@@ -1944,15 +1944,27 @@ func TestDeleteAccountHandler_WrongPassword(t *testing.T) {
 	}
 }
 
-func TestDeleteAccountHandler_SoftDeleteFails(t *testing.T) {
+// TestDeleteAccountHandler_SoftDeleteFailureReturnsServerError asserts that an
+// unexpected service-layer failure on the destructive SoftDeleteAccount call
+// propagates as a 5xx (not a silent HTTP 200 + ErrorCode downgrade) so:
+//   - on-call monitoring sees the failure signal (5xx is the alerting hook),
+//   - the user is NOT told "deletion scheduled" when nothing was persisted,
+//   - the auth cookie remains set so the user stays logged in (the deletion
+//     did not actually happen — clearing the cookie would log them out of an
+//     account they still have, which is a worse UX than a clear service error).
+//
+// The four pre-destruction validation/auth branches above this point
+// intentionally stay 200 + ErrorCode and are exercised by sibling tests.
+func TestDeleteAccountHandler_SoftDeleteFailureReturnsServerError(t *testing.T) {
 	hash := "$2a$10$fakehash"
+	rawErr := fmt.Errorf("db error")
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &testhelpers.MockUserService{
 			VerifyPasswordFn: func(hashedPassword, password string) error {
 				return nil
 			},
 			SoftDeleteAccountFn: func(userID uint, reason *string) error {
-				return fmt.Errorf("db error")
+				return rawErr
 			},
 		}
 	})
@@ -1962,14 +1974,44 @@ func TestDeleteAccountHandler_SoftDeleteFails(t *testing.T) {
 	input.Body.Password = "correct"
 
 	resp, err := h.DeleteAccountHandler(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	// The handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must wrap an *AuthError of CodeServiceUnavailable so
+	// the apperror mapper translates it to a 5xx with the canonical shape.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+		t.Errorf("expected response error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// External message must match the canonical SERVICE_UNAVAILABLE shape so we
+	// do not leak which internal step failed.
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+	// Regression guard on the cookie-clear UX invariant. On the success path
+	// the handler sets resp.SetCookie = ClearAuthCookie() (MaxAge=-1). On this
+	// failure path the destructive op did NOT complete, so the cookie MUST NOT
+	// be cleared — the user stays logged in. The zero-value http.Cookie left
+	// on resp has MaxAge=0, which is distinct from the cleared cookie's -1.
+	if resp.SetCookie.MaxAge == -1 {
+		t.Error("regression: failed SoftDeleteAccount must not clear the auth cookie (user must stay logged in)")
+	}
+	if resp.SetCookie.Name != "" {
+		t.Errorf("expected zero-value cookie (Name=\"\"), got Name=%q", resp.SetCookie.Name)
 	}
 }
 

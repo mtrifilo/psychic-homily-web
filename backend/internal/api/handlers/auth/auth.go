@@ -1265,13 +1265,28 @@ func (h *AuthHandler) DeleteAccountHandler(ctx context.Context, input *DeleteAcc
 
 	// Perform soft delete
 	if err := h.userService.SoftDeleteAccount(contextUser.ID, input.Body.Reason); err != nil {
+		// Fail-closed on the post-authentication destructive operation. The
+		// four pre-destruction branches above intentionally return 200 + a
+		// structured ErrorCode (validation / no-enumeration / middleware
+		// contract). This branch is different: by the time we reach it the
+		// caller is authenticated and password-verified, and an unexpected
+		// service-layer failure here means the destructive operation did NOT
+		// complete. Returning HTTP 200 would (a) hide the failure from on-call
+		// monitoring (5xx is the alerting signal), and (b) tell the user
+		// "deletion scheduled" when nothing was actually persisted. Surface
+		// it as a 5xx via the apperror wrapper; the body's external message
+		// + ErrorCode match the existing SERVICE_UNAVAILABLE shape so we do
+		// not leak which internal step failed. Cookie-clear ordering stays
+		// after this block — on failure, the cookie remains set and the user
+		// stays logged in because the deletion did not actually happen.
+		authErr := autherrors.ErrServiceUnavailable("delete_account", err)
 		logger.AuthError(ctx, "delete_account_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to delete account"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	// Clear auth cookie to log out the user
