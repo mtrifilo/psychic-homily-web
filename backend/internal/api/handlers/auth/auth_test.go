@@ -1806,11 +1806,13 @@ func TestVerifyMagicLinkHandler_SessionTokenMintFailsClosed(t *testing.T) {
 	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
 		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
-	// Regression guard: a JWT mint failure past the enumeration-safety gates
-	// must not silently downgrade to HTTP 200 — that was the pre-existing
-	// behavior and the convention this test locks in.
-	if err == nil {
-		t.Error("regression: jwt mint failure must not downgrade to HTTP 200")
+	// Regression guard: the previous branch hard-coded the message
+	// "Failed to create session" and returned a nil error so the response
+	// rode HTTP 200. The handler must no longer surface that literal — the
+	// canonical SERVICE_UNAVAILABLE external message is the only acceptable
+	// shape now that the branch is fail-closed.
+	if resp.Body.Message == "Failed to create session" {
+		t.Error("regression: handler must not surface the pre-fix \"Failed to create session\" message")
 	}
 }
 
