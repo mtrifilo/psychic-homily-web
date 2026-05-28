@@ -147,19 +147,35 @@ The brief tells you WHAT to put on the page; the existing app tells you HOW. Bef
 
 Skipping this step costs an entire iteration cycle. Caught the hard way 2026-05-23 (PSY-370 v1 mock was a marketing landing with 56px headlines and bg-photo hero — completely off-idiom; full rebuild required after surfacing the gap).
 
-### File conventions (updated 2026-05-27 after Figma-org audit)
+### File conventions (revised 2026-05-27 — page-per-AREA, not page-per-ticket)
 
 - **Single file** for all product mocks (no per-feature files at this team scale).
+- **Pages organized by product area, NOT by ticket.** Each area page is a vertical-stack auto-layout container holding labeled ticket sections. Multiple tickets contributing to the same surface stack on one page so cross-ticket patterns (component reuse, copy drift, recurring UX questions, state evolution) are visible at a glance.
 - **Pages, in order:**
-  - `Cover` — workspace explainer (this stays; helps onboarding for new agents).
-  - `📑 Index` — curated TOC, position 1 (after Cover). One block per feature, hyperlinked. Added 2026-05-27 once the file crossed ~10 pages; keep it updated as new features land.
-  - `PSY-XXX — <Feature>` — one page per feature/surface, in **ascending PSY order**. Examples: `PSY-370 — /explore`, `PSY-823 — Collections: Create Drawer`, `PSY-871 — Admin: entity_requests moderation queue`.
-  - `PSY-XXX — <Feature> · Decisions & Notes` — **legacy companion page convention only**. New features do NOT create a companion page; see "Decisions documentation pattern" below.
-- **Page-naming: ticket-first.** `PSY-XXX — <Feature>` puts the ticket ID as the leftmost scannable token, alpha-sorts by PSY number, matches the git branch convention (`PSY-XXX/foo`) and Figma's own Jira/Linear integration example. Within `<Feature>`: lead with the route if the feature is route-specific (`/explore`); lead with the feature area + surface if it spans routes (`Collections: Create Drawer`, `Show editor: Edit modal`).
+  - `Cover` — workspace explainer (Figma's auto-generated; stays as page 0).
+  - `📑 Index` — curated TOC at page 1. Lists each area page with the tickets that contributed, plus cross-refs to legacy companion pages.
+  - **Area pages**, single-word PascalCase names: `Discovery`, `Collections`, `Admin`, … Each is a vertical-stack auto-layout with `[page header, ticket section heading, ticket wrapper, ticket section heading, ticket wrapper, …]`. Section heading format: `PSY-XXX — <short description>`.
+  - **Legacy** `PSY-XXX — <Feature> · Decisions & Notes` pages — 4 exist as historical mirrors (PSY-370, PSY-845, PSY-853, PSY-871). Preserved as-is. New work uses the HYBRID Decisions pattern below; do NOT create new companion pages.
+- **Why area pages, not per-ticket pages** (revised from the original 2026-05-27 morning convention): the page-per-ticket pattern fragmented work — Collections curation surfaces lived across 4 separate pages (PSY-823, PSY-845, PSY-853, parts of PSY-871) and you couldn't see "what does Collections look like as a whole." Per the 2025/2026 Figma-org research, state iterations and cross-ticket evolution of the same surface conventionally live as stacked frames on one area page, not page-per-iteration. The morning convention was a session invention; this revision corrects it after user pushback. The skill PR (#861) shipped the morning convention; a follow-up PR ships this revision.
+- **Page naming**: areas use single-word PascalCase. Section headings inside an area page use `PSY-XXX — <short description>` so the ticket origin is visible while scrolling. Legacy companion pages retain their old `PSY-XXX — <Feature> · Decisions & Notes` names (don't rename — they're historical artifacts).
 
-### Page header convention (set on each feature page)
+### Page header convention
 
-Inside each feature page, place a small documentation header above the mock frames:
+**Each area page's header** documents the area:
+
+```
+<Area name>
+area: <Area>  ·  routes: <routes touched>  ·  contributing tickets: PSY-XXX, PSY-YYY, …
+<one paragraph: what surfaces this area covers, how it evolves across tickets>
+```
+
+**Each ticket section heading inside an area page** is a single Inter Semi Bold 22pt text node sitting on the workspace bg between sections:
+
+```
+PSY-XXX — <short description of what this ticket added>
+```
+
+**Each ticket's own wrapper** (the existing inner Page Header convention) still applies, just nested inside the area page's stack rather than at page root:
 
 ```
 PSY-XXX — <Title>
@@ -169,24 +185,24 @@ linear: PSY-XXX  ·  project: <Linear project name>  ·  DS: isfHz0oyFK1ALX19IRG
 
 ### Decisions documentation pattern — HYBRID (adopted 2026-05-27)
 
-Two surfaces hold a feature's design decisions:
+Two surfaces hold a ticket's design decisions:
 
-1. **Short "Locked decisions" sidebar on the design page itself** — a single primary-bordered card inserted at position 1 of the page wrapper (right after the Page Header). Title `🔒 Locked decisions` + a compact bulleted list of *just the headline locks* (no rationale, no NOT BUILDING, no open questions). One line per decision. Footer pointer: `↗ Canonical long-form: Linear comment on PSY-XXX` with URL. This is the in-context quick-scan.
+1. **Short "Locked decisions" sidebar on the ticket's wrapper** — a single primary-bordered card inserted at position 1 of the ticket wrapper (right after the wrapper's Page Header section). Note the wrapper itself now lives nested inside an area page's vertical stack — the sidebar is at position 1 *within the wrapper*, not at the area page level. Title `🔒 Locked decisions` + a compact bulleted list of *just the headline locks* (no rationale, no NOT BUILDING, no open questions). One line per decision. Footer pointer: `↗ Canonical long-form: Linear comment on PSY-XXX` with URL. This is the in-context quick-scan, visible when you scroll to that ticket's section on the area page.
 
 2. **Long-form as a Linear comment on the ticket** — full structure: Decisions locked (with rationale per item), NOT BUILDING (deferred), Open questions (forks awaiting input), Follow-ups & cross-references (related tickets, code paths, prior memory). This is the canonical source of truth.
 
-The previous convention (`PSY-XXX — <Feature> · Decisions & Notes` companion page in Figma) is **legacy**. Existing companion pages stay (PSY-370, PSY-823 implicit, PSY-845, PSY-853, PSY-871) — preserve as historical mirrors. The PSY-871 companion was migrated to the hybrid pattern (banner stub points to its canonical Linear comment); apply the same migration retroactively to prior companions if they need an update.
+The previous convention (`PSY-XXX — <Feature> · Decisions & Notes` companion page in Figma) is **legacy**. Existing companion pages stay (PSY-370, PSY-845, PSY-853, PSY-871) — preserve as historical mirrors. The PSY-871 companion was migrated to the hybrid pattern (banner stub points to its canonical Linear comment); apply the same migration retroactively to prior companions if they need an update.
 
 **Why hybrid:** the in-Figma adjacency of decisions to the design is real value (zero-context-switch when looking at the mock); but duplicating the full rationale across Figma + Linear is friction-prone, and Linear is already where the rest of the ticket conversation happens. Hybrid keeps the adjacency for the headline, pushes deep work to its natural home.
 
 **Industry context:** the original Figma-companion pattern was a session invention. Late-2025 / early-2026 research (Notion design-system guides, Specify, Vercel design-engineering posts, zeroheight) confirms the industry default is to push decision docs to Linear / Notion / Confluence and embed Figma frames INTO those docs (not the reverse). Our hybrid is a compromise — preserve a quick-scan in Figma, canonical in Linear.
 
-**Workflow for a new feature's decisions:**
+**Workflow for a new ticket's decisions:**
 1. As design surfaces decisions, capture them informally during the session.
 2. At lock time, draft the long-form once as a Markdown file (e.g. `/tmp/psy-XXX-decisions.md`).
 3. Post as a Linear comment on the ticket via `linear issue comment add PSY-XXX --body-file /tmp/...`. Capture the returned comment URL.
-4. Build the short sidebar on the design page with just the headline locks + footer pointer to the Linear comment URL.
-5. **Do NOT create a separate Figma companion page** for new work. Index page (TOC) lists only the design page for new features; the Linear ticket carries the decisions doc.
+4. Build the short sidebar inside the ticket's wrapper at position 1 (right after the wrapper's own Page Header). Just the headline locks + footer pointer to the Linear comment URL. The wrapper itself lives nested in its area page's vertical stack — the sidebar travels with it.
+5. **Do NOT create a separate Figma companion page** for new work. The area page's section heading already names the ticket; the wrapper-internal sidebar covers the in-Figma scan; the Linear ticket carries the canonical decisions doc.
 
 ### Workflow steps
 
@@ -194,7 +210,7 @@ The previous convention (`PSY-XXX — <Feature> · Decisions & Notes` companion 
 
 2. **Read the actual app** per the "Read the actual app FIRST" subsection above.
 
-3. **Create the feature page in the Product Designs file** via one `use_figma` call: page + header + 2 wrapper frames (desktop e.g. 1440-wide, mobile e.g. 375-wide). Save the wrapper IDs — subsequent calls will append sections to them.
+3. **Append to the appropriate area page** in the Product Designs file (or create a new area page if the work introduces a previously-undesigned product surface area). One `use_figma` call: get the area page's stack container by id, append a `PSY-XXX — <description>` section heading text node, then append the ticket's own wrapper frame (1440-wide, with the standard inner Page Header + scope). Save the wrapper id — subsequent calls will append sub-sections to it. Do NOT create a new page per ticket.
 
 4. **Build sections incrementally** per the `figma-generate-design` skill (one section per call, ~10 logical ops max). Inside each section:
    - Use `figma.variables.importVariableByKeyAsync(<key>)` for colors / spacing / radius (DS library variables — no manual "Add to file" needed in the consumer; see G11).
