@@ -37,3 +37,28 @@ export async function createMagicLinkToken(
     .setExpirationTime('15m')
     .sign(JWT_SECRET)
 }
+
+/**
+ * Create a valid account-recovery JWT matching the Go backend's
+ * AccountRecoveryTokenClaims structure (internal/services/auth/jwt.go
+ * CreateAccountRecoveryToken + internal/services/contracts/auth.go).
+ *
+ * Minting the token directly (instead of triggering a recovery email and
+ * scraping it) mirrors the magic-link / verification helpers above: no real
+ * email is sent in the E2E env, so the backend's recovery email is never
+ * delivered. The token is the only thing the page consumes (`?token=` →
+ * ConfirmAccountRecoveryHandler), so reproducing the claims here exercises
+ * the same code path the real email link would hit.
+ */
+export async function createAccountRecoveryToken(
+  userId: number,
+  email: string
+): Promise<string> {
+  return new SignJWT({ user_id: userId, email })
+    .setProtectedHeader({ alg: 'HS256' })
+    .setIssuedAt()
+    .setIssuer('psychic-homily-backend')
+    .setSubject('account-recovery')
+    .setExpirationTime('1h')
+    .sign(JWT_SECRET)
+}
