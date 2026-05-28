@@ -15,15 +15,17 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
-// nameNormalizer strips combining marks after NFKD decomposition. Constructed
-// once and reused; the runes filter is stateless and the transform.Chain
-// itself is safe to reuse across calls (each String invocation creates its
-// own state).
-var nameNormalizer = transform.Chain(
-	norm.NFKD,
-	runes.Remove(runes.In(unicode.Mn)),
-	norm.NFC,
-)
+// markStripper is the runes filter used to drop combining marks after NFKD
+// decomposition. It's stateless and safe to share across calls.
+//
+// The transform.Chain wrapper that combines NFKD → markStripper → NFC is
+// NOT shared, however — `chain` keeps mutable per-call state (link buffers
+// + position counters), so two goroutines using one Chain instance would
+// race. Two radio background loops (runFetchLoop + runReMatchLoop) plus
+// admin-HTTP-triggered imports satisfy that scenario, so we construct a
+// fresh chain on each normalizeName call. Construction is cheap (three
+// transformer values + a small slice).
+var markStripper = runes.Remove(runes.In(unicode.Mn))
 
 // normalizeName produces the canonical form used for radio-matching name
 // lookups. The pipeline:
@@ -45,7 +47,9 @@ func normalizeName(s string) string {
 	if s == "" {
 		return ""
 	}
-	folded, _, err := transform.String(nameNormalizer, s)
+	// Per-call chain — see markStripper comment for why this isn't shared.
+	normalizer := transform.Chain(norm.NFKD, markStripper, norm.NFC)
+	folded, _, err := transform.String(normalizer, s)
 	if err != nil {
 		// transform.String only errors when the chain itself errors; norm /
 		// runes.Remove cannot fail on valid UTF-8, but if Go ever sees

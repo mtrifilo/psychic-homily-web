@@ -1,6 +1,7 @@
 package catalog
 
 import (
+	"sync"
 	"testing"
 
 	"github.com/stretchr/testify/suite"
@@ -144,6 +145,41 @@ func TestNormalizeName_PositiveMatches(t *testing.T) {
 			}
 		})
 	}
+}
+
+// TestNormalizeName_ConcurrentSafe drives normalizeName from many goroutines
+// at once. transform.Chain has mutable per-instance state, so an earlier
+// implementation that shared one chain instance across goroutines was a
+// data race (run with `go test -race` to verify the regression guard).
+// Each goroutine asserts its own deterministic input/output mapping; a race
+// would either trip the race detector or produce a mismatched output.
+func TestNormalizeName_ConcurrentSafe(t *testing.T) {
+	cases := []struct{ in, want string }{
+		{"José González", "jose gonzalez"},
+		{"Mötley Crüe", "motley crue"},
+		{"The Who!", "the who"},
+		{"AC/DC", "ac/dc"},
+		{"Beyoncé", "beyonce"},
+		{"  Stereolab  ", "stereolab"},
+	}
+
+	const goroutines = 50
+	const iters = 200
+	var wg sync.WaitGroup
+	wg.Add(goroutines)
+	for g := 0; g < goroutines; g++ {
+		go func() {
+			defer wg.Done()
+			for i := 0; i < iters; i++ {
+				tc := cases[i%len(cases)]
+				if got := normalizeName(tc.in); got != tc.want {
+					t.Errorf("normalizeName(%q) = %q, want %q", tc.in, got, tc.want)
+					return
+				}
+			}
+		}()
+	}
+	wg.Wait()
 }
 
 // Note: the nil-DB error path is covered by TestRadioMatchingEngine_NilDB in
