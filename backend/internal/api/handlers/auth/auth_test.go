@@ -856,6 +856,51 @@ func TestLoginHandler_AccountLocked(t *testing.T) {
 	}
 }
 
+// TestLoginHandler_AccountInactive asserts the PSY-866 contract: when
+// AuthenticateUserWithPassword returns a CodeAccountInactive AuthError
+// (deactivated account, is_active = false), the handler returns HTTP 200
+// (nil error) with Success=false, the distinct ACCOUNT_INACTIVE code, and the
+// chosen contact-support message — NOT a fail-closed 5xx via the default arm.
+func TestLoginHandler_AccountInactive(t *testing.T) {
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			AuthenticateUserWithPasswordFn: func(email, password string) (*authm.User, error) {
+				return nil, autherrors.ErrAccountInactive()
+			},
+		}
+	})
+
+	input := &LoginRequest{}
+	input.Body.Email = "inactive@example.com"
+	input.Body.Password = "CorrectPassword1!"
+
+	resp, err := h.LoginHandler(context.Background(), input)
+
+	// HTTP 200: the account state is known and the service is healthy, so the
+	// handler must NOT return an error (which would push Huma into the 5xx band).
+	if err != nil {
+		t.Fatalf("expected nil error (HTTP 200), got %v", err)
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeAccountInactive {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAccountInactive, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != "Account unavailable. Please contact support." {
+		t.Errorf("expected contact-support message, got %q", resp.Body.Message)
+	}
+	// Regression guard: an inactive account must NOT be downgraded to the
+	// fail-closed SERVICE_UNAVAILABLE shape (the default-arm behavior before
+	// the explicit case was added).
+	if resp.Body.ErrorCode == autherrors.CodeServiceUnavailable {
+		t.Error("regression: ACCOUNT_INACTIVE must not be downgraded to SERVICE_UNAVAILABLE")
+	}
+}
+
 // TestLoginHandler_ServiceUnavailable asserts that a CodeServiceUnavailable
 // AuthError from AuthenticateUserWithPassword (the PSY-861 fail-closed signal
 // emitted when IncrementFailedAttempts errors) propagates as a real error to

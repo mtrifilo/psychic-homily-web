@@ -989,7 +989,40 @@ func (suite *UserServiceIntegrationTestSuite) TestAuthenticate_InactiveUser() {
 
 	suite.Require().Error(err)
 	suite.Nil(user)
-	suite.Contains(err.Error(), "user account is not active")
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr))
+	suite.Equal(apperrors.CodeAccountInactive, authErr.Code)
+}
+
+// TestAuthenticateUserWithPassword_InactiveAccountReturnsTyped asserts the
+// PSY-866 contract: a deactivated account (is_active = false) that passes the
+// password check MUST surface a typed *apperrors.AuthError with
+// CodeAccountInactive — NOT a bare fmt.Errorf. The typed error lets
+// LoginHandler return HTTP 200 + ACCOUNT_INACTIVE instead of falling through
+// the post-PSY-864 fail-closed outer fallback to a 5xx.
+func (suite *UserServiceIntegrationTestSuite) TestAuthenticateUserWithPassword_InactiveAccountReturnsTyped() {
+	_, err := suite.userService.CreateUserWithPassword(
+		"inactive-typed@example.com", "CorrectPassword1!", "Inactive", "Typed",
+	)
+	suite.Require().NoError(err)
+
+	// Deactivate the account (is_active = false) AFTER creation so the
+	// password verification still runs — exercising the !user.IsActive branch
+	// that fires only once the credentials match.
+	suite.db.Model(&authm.User{}).Where("email = ?", "inactive-typed@example.com").
+		Update("is_active", false)
+
+	user, err := suite.userService.AuthenticateUserWithPassword(
+		"inactive-typed@example.com", "CorrectPassword1!",
+	)
+
+	suite.Require().Error(err)
+	suite.Nil(user)
+
+	var authErr *apperrors.AuthError
+	suite.Require().True(errors.As(err, &authErr),
+		"expected *apperrors.AuthError, got %T", err)
+	suite.Equal(apperrors.CodeAccountInactive, authErr.Code)
 }
 
 // TestAuthenticateUserWithPassword_IncrementErrorFailsClosed asserts the

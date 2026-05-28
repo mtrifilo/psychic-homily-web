@@ -115,6 +115,20 @@ func (h *AuthHandler) LoginHandler(ctx context.Context, input *LoginRequest) (*L
 				resp.Body.Message = authErr.UserMessage()
 				resp.Body.ErrorCode = autherrors.ToExternalCode(autherrors.CodeInvalidCredentials)
 				return resp, nil
+			case autherrors.CodeAccountInactive:
+				// Deactivated account (is_active = false). The account exists in
+				// a known state and the service is healthy, so this is NOT a
+				// fail-closed 5xx — return HTTP 200 with the distinct
+				// ACCOUNT_INACTIVE code so the frontend can show contact-support
+				// copy. The password check already ran (no extra enumeration
+				// signal); the user-facing message stays intentionally vague.
+				logger.AuthWarn(ctx, "login_account_inactive",
+					"email_hash", logger.HashEmail(input.Body.Email),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = authErr.UserMessage()
+				resp.Body.ErrorCode = autherrors.CodeAccountInactive
+				return resp, nil
 			case autherrors.CodeServiceUnavailable:
 				// Fail-closed surface from AuthenticateUserWithPassword: the
 				// lockout-counter write failed, so we cannot let the request
