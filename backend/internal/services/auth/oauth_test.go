@@ -1,6 +1,8 @@
 package auth
 
 import (
+	"errors"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -8,8 +10,10 @@ import (
 	"github.com/markbates/goth"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/mock"
+	"gorm.io/gorm"
 
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 )
 
@@ -166,6 +170,123 @@ func TestAuthService_RefreshUserToken(t *testing.T) {
 			assert.NotEmpty(t, token)
 		}
 	})
+}
+
+// stubUserServiceWithGetByID embeds nilDBUserService (so all unused methods
+// return the "database not initialized" sentinel) and overrides GetUserByID
+// with an injectable function. Lets GetUserProfile tests pick the exact error
+// shape the userService surfaces — gorm.ErrRecordNotFound vs a raw DB error.
+type stubUserServiceWithGetByID struct {
+	nilDBUserService
+	getByID func(userID uint) (*authm.User, error)
+}
+
+func (s *stubUserServiceWithGetByID) GetUserByID(userID uint) (*authm.User, error) {
+	return s.getByID(userID)
+}
+
+// TestAuthService_GetUserProfile_DeletedUserReturnsTyped asserts the
+// deleted-user case is discriminated as a typed *AuthError{Code:
+// CodeUserNotFound}. The handler layer relies on this typed shape to route
+// the response to HTTP 401 + CodeUnauthorized instead of the fail-closed 5xx
+// reserved for generic backend failures.
+func TestAuthService_GetUserProfile_DeletedUserReturnsTyped(t *testing.T) {
+	cfg := &config.Config{
+		JWT: config.JWTConfig{
+			SecretKey: "test-secret-key-32-chars-minimum",
+			Expiry:    24,
+		},
+	}
+	userSvc := &stubUserServiceWithGetByID{
+		getByID: func(userID uint) (*authm.User, error) {
+			// Mirror UserService.GetUserByID's actual wrapping
+			// (fmt.Errorf("failed to get user: %w", result.Error))
+			// so errors.Is(err, gorm.ErrRecordNotFound) discrimination
+			// flows through %w unwrap, not raw equality.
+			return nil, fmt.Errorf("failed to get user: %w", gorm.ErrRecordNotFound)
+		},
+	}
+	authService := NewAuthService(nil, cfg, userSvc)
+
+	user, err := authService.GetUserProfile(42)
+
+	assert.Nil(t, user)
+	assert.Error(t, err)
+
+	var authErr *apperrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap *AuthError, got %T (%v)", err, err)
+	}
+	assert.Equal(t, apperrors.CodeUserNotFound, authErr.Code,
+		"deleted-user must surface as typed CodeUserNotFound so handlers route to 401")
+	// The underlying gorm sentinel must remain reachable via the standard
+	// error chain so future callers can additionally drill down if needed.
+	assert.True(t, errors.Is(err, gorm.ErrRecordNotFound),
+		"typed AuthError must keep gorm.ErrRecordNotFound in the unwrap chain")
+}
+
+// TestAuthService_GetUserProfile_GenericErrorPassthrough asserts that any
+// non-not-found failure (DB connection lost, etc.) does NOT get wrapped in
+// the typed CodeUserNotFound shape — those continue to propagate as generic
+// errors so RefreshTokenHandler's fail-closed branch emits 5xx instead of
+// 401. Protects the dual-direction contract from a regression that
+// blanket-wraps every GetUserByID failure as not-found.
+func TestAuthService_GetUserProfile_GenericErrorPassthrough(t *testing.T) {
+	cfg := &config.Config{
+		JWT: config.JWTConfig{
+			SecretKey: "test-secret-key-32-chars-minimum",
+			Expiry:    24,
+		},
+	}
+	rawErr := fmt.Errorf("connection refused: pq: server is starting up")
+	userSvc := &stubUserServiceWithGetByID{
+		getByID: func(userID uint) (*authm.User, error) {
+			return nil, rawErr
+		},
+	}
+	authService := NewAuthService(nil, cfg, userSvc)
+
+	user, err := authService.GetUserProfile(42)
+
+	assert.Nil(t, user)
+	assert.Error(t, err)
+
+	// Must NOT be a typed CodeUserNotFound. Either a non-AuthError or some
+	// other AuthError code is acceptable; the contract is "not CodeUserNotFound
+	// for non-not-found failures".
+	var authErr *apperrors.AuthError
+	if errors.As(err, &authErr) && authErr.Code == apperrors.CodeUserNotFound {
+		t.Errorf("generic error must NOT be wrapped as CodeUserNotFound (got code=%s) — handler would misroute to 401", authErr.Code)
+	}
+	// The original error must remain reachable so handler logs and the
+	// fail-closed branch can wrap it with the service-specific context.
+	assert.True(t, errors.Is(err, rawErr),
+		"original error must remain in the chain so callers can log root cause")
+}
+
+// TestAuthService_GetUserProfile_Success asserts the happy path returns the
+// user unchanged. Locks in that the typed-error wiring did not accidentally
+// drop the success-case pass-through.
+func TestAuthService_GetUserProfile_Success(t *testing.T) {
+	cfg := &config.Config{
+		JWT: config.JWTConfig{
+			SecretKey: "test-secret-key-32-chars-minimum",
+			Expiry:    24,
+		},
+	}
+	expected := &authm.User{ID: 7, Email: stringPtr("ok@example.com")}
+	userSvc := &stubUserServiceWithGetByID{
+		getByID: func(userID uint) (*authm.User, error) {
+			assert.Equal(t, uint(7), userID)
+			return expected, nil
+		},
+	}
+	authService := NewAuthService(nil, cfg, userSvc)
+
+	user, err := authService.GetUserProfile(7)
+
+	assert.NoError(t, err)
+	assert.Same(t, expected, user)
 }
 
 // TestAuthService_Logout tests the Logout functionality

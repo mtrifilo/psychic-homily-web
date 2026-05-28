@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/danielgtaylor/huma/v2"
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -284,16 +285,18 @@ func (s *AuthHandlerIntegrationSuite) TestRefreshToken_UserDeletedFromDB() {
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
 
-	// Fail-closed: profile fetch against a deleted user surfaces as a 5xx so
-	// the HTTP layer does not hand callers an HTTP 200 with a sad-path body.
-	// The body shape still carries SERVICE_UNAVAILABLE for the structured
-	// error-code branch on clients; only the transport status flips.
+	// Deleted-user-during-refresh is the canonical 401 case: the token is
+	// cryptographically valid but the principal it represents no longer
+	// exists, so the right transport status is 401 (client clears session +
+	// redirects to login). A 5xx would (incorrectly) tell the client
+	// "backend is broken; retry". Generic backend failures stay on the 5xx
+	// fail-closed path (covered by TestRefreshTokenHandler_ProfileFails).
 	s.Require().Error(err)
-	var authErr *autherrors.AuthError
-	s.Require().True(errors.As(err, &authErr), "expected returned error to wrap *AuthError")
-	s.Equal(autherrors.CodeServiceUnavailable, authErr.Code)
+	var statusErr huma.StatusError
+	s.Require().True(errors.As(err, &statusErr), "expected returned error to satisfy huma.StatusError")
+	s.Equal(401, statusErr.GetStatus())
 	s.False(resp.Body.Success)
-	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	s.Equal(autherrors.CodeUnauthorized, resp.Body.ErrorCode)
 }
 
 // --- SendVerificationEmailHandler ---
