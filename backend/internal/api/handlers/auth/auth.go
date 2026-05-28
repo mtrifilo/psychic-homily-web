@@ -909,13 +909,30 @@ type VerifyMagicLinkResponse struct {
 	}
 }
 
-// VerifyMagicLinkHandler verifies a magic link token and logs the user in
+// VerifyMagicLinkHandler verifies a magic link token and logs the user in.
+//
+// The five pre-eligibility-check error paths below (validation, invalid
+// token, user lookup, email mismatch, inactive account) intentionally
+// return 200 + ErrorCode rather than a 5xx. Each path could otherwise
+// be turned into an enumeration oracle by an attacker varying the token
+// claim contents: a 5xx on "invalid token" vs 200 on "valid token but
+// inactive user" would leak account state, and a 5xx on email mismatch
+// would leak that the email-on-file changed. Per the enumeration-safe
+// response convention established by the magic-link send and account-
+// recovery handlers, these stay 200 + ErrorCode with terse generic
+// copy so the response shape is identical across the failure modes.
+//
+// Only the post-eligibility-check session-token mint path below them
+// fails closed as 5xx: by that point the user has cleared every gate
+// and a JWT-service failure is genuinely unexpected — surfacing 200 +
+// SERVICE_UNAVAILABLE there would silently mask infrastructure
+// failures from on-call monitoring without any enumeration benefit.
 func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyMagicLinkRequest) (*VerifyMagicLinkResponse, error) {
 	resp := &VerifyMagicLinkResponse{}
 	requestID := logger.GetRequestID(ctx)
 	resp.Body.RequestID = requestID
 
-	// Validate token presence
+	// Enumeration-safe: empty token → 200 + ErrorCode (validation).
 	if input.Body.Token == "" {
 		logger.AuthWarn(ctx, "magic_link_no_token")
 		resp.Body.Success = false
@@ -924,7 +941,9 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Validate the magic link token
+	// Enumeration-safe: invalid or expired token → 200 + INVALID_TOKEN.
+	// UX prompts user to request a new link without leaking whether the
+	// token was malformed, expired, or signed with a rotated key.
 	claims, err := h.jwtService.ValidateMagicLinkToken(input.Body.Token)
 	if err != nil {
 		logger.AuthWarn(ctx, "magic_link_invalid_token",
@@ -936,7 +955,9 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Get the user
+	// Enumeration-safe: user lookup failure → 200 + CodeUnauthorized.
+	// A 5xx here would let an attacker probe which user_id claims map to
+	// real rows; the 200 shape mirrors a valid-but-rejected token.
 	user, err := h.userService.GetUserByID(claims.UserID)
 	if err != nil {
 		logger.AuthError(ctx, "magic_link_user_not_found", err,
@@ -948,7 +969,9 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Verify the email still matches (in case user changed email)
+	// Enumeration-safe: email mismatch → 200 + INVALID_TOKEN. Suppresses
+	// any signal that the user's email-on-file has changed since the
+	// magic link was minted.
 	if user.Email == nil || *user.Email != claims.Email {
 		logger.AuthWarn(ctx, "magic_link_email_mismatch",
 			"user_id", user.ID,
@@ -960,7 +983,9 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Check user is still active
+	// Enumeration-safe: inactive account → 200 + CodeUnauthorized.
+	// Identical shape to a wrong-user response so account-state cannot
+	// be inferred from the response shape alone.
 	if !user.IsActive {
 		logger.AuthWarn(ctx, "magic_link_user_inactive",
 			"user_id", user.ID,
@@ -971,16 +996,24 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Generate JWT token for session
+	// Post-eligibility-check JWT-mint failure → 5xx (fail-closed).
+	// By this point the user has cleared every enumeration-safety gate
+	// above, so a CreateToken failure is genuine infrastructure error
+	// territory — config / key-rotation / dependency outage — not an
+	// attacker probe. Wrap via ErrServiceUnavailable so the apperror
+	// mapper produces a 5xx; the body's external message + ErrorCode
+	// match the shipped SERVICE_UNAVAILABLE shape so legacy clients
+	// branching on ErrorCode continue to work.
 	token, err := h.jwtService.CreateToken(user)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("verify_magic_link_session_token", err)
 		logger.AuthError(ctx, "magic_link_session_token_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to create session"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr // Return actual error for 5xx HTTP status
 	}
 
 	// Set HTTP-only cookie
