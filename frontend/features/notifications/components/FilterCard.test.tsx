@@ -223,7 +223,9 @@ describe('FilterCard', () => {
       <FilterCard filter={filter} onEdit={mockOnEdit} />
     )
 
-    await user.click(screen.getByTitle('Edit filter'))
+    await user.click(
+      screen.getByRole('button', { name: /edit filter phx punk shows/i })
+    )
 
     expect(mockOnEdit).toHaveBeenCalledWith(filter)
   })
@@ -246,15 +248,11 @@ describe('FilterCard', () => {
       <FilterCard filter={makeFilter()} onEdit={mockOnEdit} />
     )
 
-    // Open dropdown menu (the "more" button)
-    const moreButtons = screen.getAllByRole('button')
-    // The dropdown trigger is the last button in the actions area
-    const dropdownTrigger = moreButtons.find(
-      b => b.querySelector('svg') && !b.getAttribute('title')
+    // Open the More-actions dropdown menu via accessible name
+    // (PSY-878: trigger now exposes aria-label="More actions for ...").
+    await user.click(
+      screen.getByRole('button', { name: /more actions for phx punk shows/i })
     )
-    if (dropdownTrigger) {
-      await user.click(dropdownTrigger)
-    }
 
     // Click Delete in dropdown
     const deleteMenuItem = await screen.findByText('Delete')
@@ -271,14 +269,10 @@ describe('FilterCard', () => {
       <FilterCard filter={makeFilter({ id: 42 })} onEdit={mockOnEdit} />
     )
 
-    // Open dropdown
-    const moreButtons = screen.getAllByRole('button')
-    const dropdownTrigger = moreButtons.find(
-      b => b.querySelector('svg') && !b.getAttribute('title')
+    // Open the More-actions dropdown menu via accessible name
+    await user.click(
+      screen.getByRole('button', { name: /more actions for phx punk shows/i })
     )
-    if (dropdownTrigger) {
-      await user.click(dropdownTrigger)
-    }
 
     // Click Delete in dropdown
     const deleteMenuItem = await screen.findByText('Delete')
@@ -306,14 +300,10 @@ describe('FilterCard', () => {
       <FilterCard filter={makeFilter()} onEdit={mockOnEdit} />
     )
 
-    // Open dropdown and click Delete
-    const moreButtons = screen.getAllByRole('button')
-    const dropdownTrigger = moreButtons.find(
-      b => b.querySelector('svg') && !b.getAttribute('title')
+    // Open the More-actions dropdown menu via accessible name
+    await user.click(
+      screen.getByRole('button', { name: /more actions for phx punk shows/i })
     )
-    if (dropdownTrigger) {
-      await user.click(dropdownTrigger)
-    }
     const deleteMenuItem = await screen.findByText('Delete')
     await user.click(deleteMenuItem)
 

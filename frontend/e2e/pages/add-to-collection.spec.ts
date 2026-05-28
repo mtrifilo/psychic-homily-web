@@ -90,9 +90,9 @@ test.describe('Add to Collection', () => {
       // card (CollectionItemCard) doesn't expose a per-item Remove control;
       // only the list-view row does. Switch to list view so the cleanup
       // selectors below — which target the list-view row layout
-      // (div.rounded-lg wrapper + title="Remove from collection") — keep
-      // working. The view toggle renders unconditionally in the items
-      // header, so awaiting the click is safe.
+      // (div.rounded-lg wrapper + per-item aria-label) — keep working.
+      // The view toggle renders unconditionally in the items header, so
+      // awaiting the click is safe.
       await authenticatedPage.getByTestId('view-mode-list').click()
 
       // 6. Verify the show appears in the collection's items list.
@@ -107,16 +107,27 @@ test.describe('Add to Collection', () => {
       )
 
       // 7. Cleanup — remove the item so the test is idempotent across reruns.
-      // The remove flow is two-step: click the X (title="Remove from collection"),
-      // then confirm by clicking the "Remove" button that replaces it. Scope to
-      // the item row so the selectors stay specific even if other items land
-      // in the collection in the future.
+      // The remove flow is two-step: click the per-item X (PSY-878:
+      // aria-label="Remove <entity_name> from collection"), then confirm by
+      // clicking the "Remove" button that replaces it. Scope to the item row
+      // so the selectors stay specific even if other items land in the
+      // collection in the future.
       const itemRow = authenticatedPage
         .locator('div.rounded-lg')
         .filter({ has: itemLink })
         .first()
 
-      await itemRow.getByTitle('Remove from collection').click()
+      // Escape regex special chars in title ('[' and ']') so the literal
+      // square brackets are matched (and not interpreted as a char class).
+      const escapedTitle = RESERVED_SHOW_TITLE.replace(
+        /[.*+?^${}()|[\]\\]/g,
+        '\\$&'
+      )
+      await itemRow
+        .getByRole('button', {
+          name: new RegExp(`Remove ${escapedTitle} from collection`, 'i'),
+        })
+        .click()
 
       await Promise.all([
         authenticatedPage.waitForResponse(

@@ -352,7 +352,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                         size="sm"
                         onClick={() => setIsExpanded(!isExpanded)}
                         className="h-7 w-7 p-0"
-                        title={
+                        aria-label={
                           isExpanded ? 'Hide artist music' : 'Discover artist music'
                         }
                       >
@@ -377,7 +377,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                     <Link
                       href={detailsHref}
                       className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-primary hover:bg-muted transition-colors"
-                      title="View details"
+                      aria-label="View show details"
                     >
                       <ExternalLink className="h-3.5 w-3.5" />
                     </Link>
@@ -390,7 +390,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                         size="sm"
                         onClick={() => setIsEditing(!isEditing)}
                         className="h-7 w-7 p-0"
-                        title={isEditing ? 'Cancel editing' : 'Edit show'}
+                        aria-label={isEditing ? 'Cancel editing' : 'Edit show'}
                       >
                         {isEditing ? (
                           <X className="h-4 w-4" />
@@ -419,7 +419,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                         size="sm"
                         onClick={() => setIsDeleteDialogOpen(true)}
                         className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                        title="Delete show"
+                        aria-label="Delete show"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </Button>
@@ -591,7 +591,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                       size="sm"
                       onClick={() => setIsExpanded(!isExpanded)}
                       className="h-7 w-7 p-0"
-                      title={
+                      aria-label={
                         isExpanded ? 'Hide artist music' : 'Discover artist music'
                       }
                     >
@@ -618,7 +618,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                   <Link
                     href={detailsHref}
                     className="inline-flex items-center justify-center h-7 w-7 rounded-md text-muted-foreground hover:text-primary hover:bg-muted transition-colors"
-                    title="View details"
+                    aria-label="View show details"
                   >
                     <ExternalLink className="h-3.5 w-3.5" />
                   </Link>
@@ -632,7 +632,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                       size="sm"
                       onClick={() => setIsEditing(!isEditing)}
                       className="h-7 w-7 p-0"
-                      title={isEditing ? 'Cancel editing' : 'Edit show'}
+                      aria-label={isEditing ? 'Cancel editing' : 'Edit show'}
                     >
                       {isEditing ? (
                         <X className="h-4 w-4" />
@@ -663,7 +663,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
                       size="sm"
                       onClick={() => setIsDeleteDialogOpen(true)}
                       className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
-                      title="Delete show"
+                      aria-label="Delete show"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>

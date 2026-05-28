@@ -505,7 +505,7 @@ function SubmissionShowCard({
                   size="sm"
                   onClick={() => setIsEditing(false)}
                   className="h-7 w-7 p-0"
-                  title="Cancel editing"
+                  aria-label="Cancel editing"
                 >
                   <X className="h-4 w-4" />
                 </Button>
@@ -833,7 +833,6 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
           onClick={handleUnfollow}
           disabled={unfollow.isPending}
           className="text-muted-foreground hover:text-destructive shrink-0"
-          title="Unfollow"
           aria-label={`Unfollow ${entity.name}`}
         >
           {unfollow.isPending ? (

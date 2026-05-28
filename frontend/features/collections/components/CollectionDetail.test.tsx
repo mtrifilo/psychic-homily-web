@@ -1088,7 +1088,7 @@ describe('CollectionDetail', () => {
       render(<CollectionDetail slug="test-collection" />)
 
       // First Move down button (corresponds to index 0 → swap with index 1)
-      const moveDownButtons = screen.getAllByRole('button', { name: 'Move down' })
+      const moveDownButtons = screen.getAllByRole('button', { name: /move .* down/i })
       await user.click(moveDownButtons[0])
 
       expect(mockReorderMutate).toHaveBeenCalledWith({
@@ -1111,7 +1111,7 @@ describe('CollectionDetail', () => {
       render(<CollectionDetail slug="test-collection" />)
 
       // Last Move up button corresponds to index 2 → swap with index 1
-      const moveUpButtons = screen.getAllByRole('button', { name: 'Move up' })
+      const moveUpButtons = screen.getAllByRole('button', { name: /move .* up/i })
       await user.click(moveUpButtons[moveUpButtons.length - 1])
 
       expect(mockReorderMutate).toHaveBeenCalledWith({
@@ -1131,7 +1131,7 @@ describe('CollectionDetail', () => {
         error: null,
       })
       render(<CollectionDetail slug="test-collection" />)
-      const moveUpButtons = screen.getAllByRole('button', { name: 'Move up' })
+      const moveUpButtons = screen.getAllByRole('button', { name: /move .* up/i })
       expect(moveUpButtons[0]).toBeDisabled()
     })
 
@@ -1142,7 +1142,7 @@ describe('CollectionDetail', () => {
         error: null,
       })
       render(<CollectionDetail slug="test-collection" />)
-      const moveDownButtons = screen.getAllByRole('button', { name: 'Move down' })
+      const moveDownButtons = screen.getAllByRole('button', { name: /move .* down/i })
       expect(moveDownButtons[moveDownButtons.length - 1]).toBeDisabled()
     })
 
@@ -1925,7 +1925,7 @@ describe('CollectionDetail', () => {
       render(<CollectionDetail slug="test-collection" />)
 
       const moveDownButtons = screen.getAllByRole('button', {
-        name: 'Move down',
+        name: /move .* down/i,
       })
       expect(moveDownButtons).toHaveLength(3)
       await user.click(moveDownButtons[0])
@@ -1949,7 +1949,7 @@ describe('CollectionDetail', () => {
       const user = userEvent.setup()
       render(<CollectionDetail slug="test-collection" />)
 
-      const moveUpButtons = screen.getAllByRole('button', { name: 'Move up' })
+      const moveUpButtons = screen.getAllByRole('button', { name: /move .* up/i })
       await user.click(moveUpButtons[moveUpButtons.length - 1])
 
       expect(mockReorderMutate).toHaveBeenCalledWith({
@@ -1970,7 +1970,7 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
 
-      const moveUpButtons = screen.getAllByRole('button', { name: 'Move up' })
+      const moveUpButtons = screen.getAllByRole('button', { name: /move .* up/i })
       expect(moveUpButtons[0]).toBeDisabled()
     })
 
@@ -1983,7 +1983,7 @@ describe('CollectionDetail', () => {
       render(<CollectionDetail slug="test-collection" />)
 
       const moveDownButtons = screen.getAllByRole('button', {
-        name: 'Move down',
+        name: /move .* down/i,
       })
       expect(moveDownButtons[moveDownButtons.length - 1]).toBeDisabled()
     })

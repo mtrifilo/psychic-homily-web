@@ -65,6 +65,7 @@ function AliasManager({ artist }: { artist: Artist }) {
                 }
                 disabled={deleteAlias.isPending}
                 className="ml-1 rounded-full p-0.5 hover:bg-destructive/20"
+                aria-label={`Remove alias ${alias.alias}`}
               >
                 <X className="h-3 w-3" />
               </button>
@@ -88,6 +89,7 @@ function AliasManager({ artist }: { artist: Artist }) {
           size="sm"
           onClick={handleAdd}
           disabled={createAlias.isPending || !newAlias.trim()}
+          aria-label="Add alias"
         >
           {createAlias.isPending ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -136,6 +138,7 @@ function ArtistSelector({
               onSelect(null)
               setQuery('')
             }}
+            aria-label={`Clear selected artist ${selected.name}`}
           >
             <X className="h-4 w-4" />
           </Button>

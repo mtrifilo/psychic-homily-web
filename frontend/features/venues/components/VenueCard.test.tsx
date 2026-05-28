@@ -327,8 +327,12 @@ describe('VenueCard', () => {
         logout: vi.fn(),
       })
       render(<VenueCard venue={makeVenue()} />)
-      expect(screen.getByTitle('Edit venue')).toBeInTheDocument()
-      expect(screen.getByTitle('Delete venue')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /edit the rebel lounge/i })
+      ).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /delete the rebel lounge/i })
+      ).toBeInTheDocument()
     })
 
     it('hides edit button for non-admin venue owner (PSY-503: direct edit is admin-only; owners suggest via VenueDetail drawer)', () => {
@@ -339,8 +343,12 @@ describe('VenueCard', () => {
         logout: vi.fn(),
       })
       render(<VenueCard venue={makeVenue({ submitted_by: 42 })} />)
-      expect(screen.queryByTitle('Edit venue')).not.toBeInTheDocument()
-      expect(screen.queryByTitle('Delete venue')).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /edit the rebel lounge/i })
+      ).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /delete the rebel lounge/i })
+      ).not.toBeInTheDocument()
     })
 
     it('opens edit form when edit button clicked', async () => {
@@ -354,7 +362,9 @@ describe('VenueCard', () => {
       render(<VenueCard venue={makeVenue()} />)
 
       expect(screen.queryByTestId('edit-form')).not.toBeInTheDocument()
-      await user.click(screen.getByTitle('Edit venue'))
+      await user.click(
+        screen.getByRole('button', { name: /edit the rebel lounge/i })
+      )
       expect(screen.getByTestId('edit-form')).toBeInTheDocument()
     })
 
@@ -369,7 +379,9 @@ describe('VenueCard', () => {
       render(<VenueCard venue={makeVenue()} />)
 
       expect(screen.queryByTestId('delete-dialog')).not.toBeInTheDocument()
-      await user.click(screen.getByTitle('Delete venue'))
+      await user.click(
+        screen.getByRole('button', { name: /delete the rebel lounge/i })
+      )
       expect(screen.getByTestId('delete-dialog')).toBeInTheDocument()
     })
   })

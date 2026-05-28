@@ -967,6 +967,7 @@ export function LabelManagement() {
                       size="sm"
                       onClick={() => openEdit(label.id)}
                       className="h-8 w-8 p-0"
+                      aria-label={`Edit ${label.name}`}
                     >
                       <Pencil className="h-3.5 w-3.5" />
                     </Button>
@@ -975,6 +976,7 @@ export function LabelManagement() {
                       size="sm"
                       onClick={() => openDelete(label.id, label.name)}
                       className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Delete ${label.name}`}
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                     </Button>
