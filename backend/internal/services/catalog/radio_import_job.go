@@ -60,29 +60,48 @@ func (s *RadioService) CreateImportJob(showID uint, since, until string) (*contr
 }
 
 // StartImportJob transitions a pending job to running and launches the background goroutine.
+//
+// The pending→running transition is performed as a single conditional UPDATE
+// (WHERE status = pending) and the launch only fires when RowsAffected == 1.
+// Two concurrent callers therefore cannot both succeed: the loser sees
+// RowsAffected == 0, reads the row to surface the actual current status, and
+// returns an error without spawning a duplicate runImportJob goroutine.
 func (s *RadioService) StartImportJob(jobID uint) error {
 	if s.db == nil {
 		return fmt.Errorf("database not initialized")
 	}
 
+	// First confirm the job exists so the not-found path returns a clear error
+	// rather than the generic "not in pending status" RowsAffected==0 fallback.
 	var job catalogm.RadioImportJob
 	if err := s.db.First(&job, jobID).Error; err != nil {
 		return fmt.Errorf("job not found: %w", err)
 	}
 
-	if job.Status != catalogm.RadioImportJobStatusPending {
+	now := time.Now()
+	result := s.db.Model(&catalogm.RadioImportJob{}).
+		Where("id = ? AND status = ?", jobID, catalogm.RadioImportJobStatusPending).
+		Updates(map[string]interface{}{
+			"status":     catalogm.RadioImportJobStatusRunning,
+			"started_at": now,
+		})
+	if result.Error != nil {
+		return fmt.Errorf("starting import job: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		// Either the status changed between First() and Updates() (race with
+		// another StartImportJob/CancelImportJob call), or it was never
+		// pending. Re-read to report the actual current status.
+		if err := s.db.Select("status").First(&job, jobID).Error; err != nil {
+			return fmt.Errorf("job not found: %w", err)
+		}
 		return fmt.Errorf("job is not in pending status (current: %s)", job.Status)
 	}
 
-	now := time.Now()
-	s.db.Model(&job).Updates(map[string]interface{}{
-		"status":     catalogm.RadioImportJobStatusRunning,
-		"started_at": now,
-	})
-
-	// Launch the import goroutine
+	// Launch the import goroutine. Safe to do unconditionally now: only the
+	// caller that won the conditional UPDATE reaches this line.
 	shared.GoSafe(context.Background(), "radio_import_job", func() {
-		s.runImportJob(job.ID)
+		s.runImportJob(jobID)
 	})
 
 	return nil

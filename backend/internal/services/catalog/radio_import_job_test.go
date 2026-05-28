@@ -162,6 +162,91 @@ func (suite *RadioImportJobIntegrationTestSuite) TestCreateImportJob_InvalidUnti
 	suite.Contains(err.Error(), "invalid until date")
 }
 
+// ─── StartImportJob Tests ──────────────────────────────────────────────────
+
+// TestStartImportJob_RejectsAlreadyRunning verifies that StartImportJob refuses
+// to start a job whose status is already 'running'. The conditional UPDATE on
+// (status = pending) must fail with RowsAffected == 0 and surface the actual
+// current status without spawning a duplicate runImportJob goroutine.
+func (suite *RadioImportJobIntegrationTestSuite) TestStartImportJob_RejectsAlreadyRunning() {
+	station := suite.createStation("Test Station")
+	show := suite.createShow(station.ID, "Test Show")
+
+	job, err := suite.radioService.CreateImportJob(show.ID, "2025-01-01", "2025-06-30")
+	suite.Require().NoError(err)
+
+	// Pretend a prior StartImportJob call already won the race.
+	suite.db.Model(&catalogm.RadioImportJob{}).Where("id = ?", job.ID).
+		Update("status", catalogm.RadioImportJobStatusRunning)
+
+	err = suite.radioService.StartImportJob(job.ID)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "not in pending status")
+	suite.Contains(err.Error(), catalogm.RadioImportJobStatusRunning)
+}
+
+// TestStartImportJob_NotFound verifies the not-found path returns a clear
+// "job not found" error before reaching the conditional UPDATE.
+func (suite *RadioImportJobIntegrationTestSuite) TestStartImportJob_NotFound() {
+	err := suite.radioService.StartImportJob(99999)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "job not found")
+}
+
+// TestStartImportJob_RaceOnlyOneWins simulates two concurrent StartImportJob
+// callers for the same pending job and verifies exactly one wins. This is the
+// core race-condition guard: without the conditional UPDATE both callers could
+// pass an unguarded check-then-act, transition the job to RUNNING, and spawn
+// duplicate runImportJob goroutines that would import the same episodes twice.
+//
+// The winner does spawn a runImportJob goroutine via shared.GoSafe, but with a
+// no-PlaylistSource test station that goroutine fails fast inside
+// importShowEpisodesWithProgress and calls failJob, so the final status is
+// FAILED rather than RUNNING. The race-condition assertion lives in the
+// success/failure counts (1/1) — the post-state is captured loosely.
+func (suite *RadioImportJobIntegrationTestSuite) TestStartImportJob_RaceOnlyOneWins() {
+	station := suite.createStation("Test Station")
+	show := suite.createShow(station.ID, "Test Show")
+
+	job, err := suite.radioService.CreateImportJob(show.ID, "2025-01-01", "2025-06-30")
+	suite.Require().NoError(err)
+
+	// Two parallel starters race on the same job.
+	type startResult struct{ err error }
+	results := make(chan startResult, 2)
+	start := make(chan struct{})
+	for i := 0; i < 2; i++ {
+		go func() {
+			<-start
+			results <- startResult{err: suite.radioService.StartImportJob(job.ID)}
+		}()
+	}
+	close(start)
+
+	var successes, failures int
+	for i := 0; i < 2; i++ {
+		r := <-results
+		if r.err == nil {
+			successes++
+		} else {
+			failures++
+			suite.Contains(r.err.Error(), "not in pending status",
+				"loser should report status-precondition failure")
+		}
+	}
+	suite.Equal(1, successes, "exactly one caller should win")
+	suite.Equal(1, failures, "exactly one caller should lose")
+
+	// The winner spawned exactly one runImportJob goroutine. With a test
+	// station that has no PlaylistSource, that goroutine fails fast inside
+	// importShowEpisodesWithProgress and the job ends up FAILED. The job
+	// MUST NOT remain in pending — the conditional UPDATE always fired once.
+	updated, err := suite.radioService.GetImportJob(job.ID)
+	suite.Require().NoError(err)
+	suite.NotEqual(catalogm.RadioImportJobStatusPending, updated.Status,
+		"job should have transitioned out of pending exactly once")
+}
+
 // ─── CancelImportJob Tests ─────────────────────────────────────────────────
 
 func (suite *RadioImportJobIntegrationTestSuite) TestCancelImportJob_Success() {
