@@ -1944,7 +1944,15 @@ func TestDeleteAccountHandler_WrongPassword(t *testing.T) {
 	}
 }
 
-func TestDeleteAccountHandler_SoftDeleteFails(t *testing.T) {
+// TestDeleteAccountHandler_SoftDeleteFailsClosed asserts that a SoftDeleteAccount
+// service failure propagates as a 5xx instead of being silently returned as
+// HTTP 200 + SERVICE_UNAVAILABLE in the body. By the time execution reaches
+// this branch the user is authenticated and password-verified, so this is the
+// DESTRUCTIVE step — an unexpected service failure here must fire alerting
+// rather than masquerade as a successful response. Locks in the fail-closed
+// convention so a future "silent 200 on destructive op" regression is caught.
+func TestDeleteAccountHandler_SoftDeleteFailsClosed(t *testing.T) {
+	rawErr := fmt.Errorf("db error")
 	hash := "$2a$10$fakehash"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &testhelpers.MockUserService{
@@ -1952,7 +1960,7 @@ func TestDeleteAccountHandler_SoftDeleteFails(t *testing.T) {
 				return nil
 			},
 			SoftDeleteAccountFn: func(userID uint, reason *string) error {
-				return fmt.Errorf("db error")
+				return rawErr
 			},
 		}
 	})
@@ -1962,14 +1970,35 @@ func TestDeleteAccountHandler_SoftDeleteFails(t *testing.T) {
 	input.Body.Password = "correct"
 
 	resp, err := h.DeleteAccountHandler(ctx, input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	// The handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must wrap an *AuthError of CodeServiceUnavailable so
+	// the apperror mapper translates it to a 5xx with the structured shape
+	// clients branch on.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
-		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+		t.Errorf("expected response error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// External message must match the canonical SERVICE_UNAVAILABLE shape — no
+	// leak about which internal step failed and consistent with the LoginHandler
+	// fail-closed branches so clients render one error consistently.
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 

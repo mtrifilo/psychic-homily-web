@@ -1263,15 +1263,19 @@ func (h *AuthHandler) DeleteAccountHandler(ctx context.Context, input *DeleteAcc
 		return resp, nil
 	}
 
-	// Perform soft delete
+	// Perform soft delete. Fail-closed on service failure: by the time we get
+	// here, the user is authenticated and password-verified, so this is the
+	// destructive step. Surface as a 5xx so on-call alerting fires instead of
+	// silently returning HTTP 200 on a destructive op that didn't complete.
 	if err := h.userService.SoftDeleteAccount(contextUser.ID, input.Body.Reason); err != nil {
+		authErr := autherrors.ErrServiceUnavailable("delete_account", err)
 		logger.AuthError(ctx, "delete_account_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to delete account"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr // Return actual error for 5xx HTTP status
 	}
 
 	// Clear auth cookie to log out the user
