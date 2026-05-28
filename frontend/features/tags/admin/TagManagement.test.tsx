@@ -1,8 +1,14 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { TagListItem, TagAlias, TagAliasListing } from '../types'
+import type {
+  TagAlias,
+  TagAliasListing,
+  TagDetailResponse,
+  TagListItem,
+} from '../types'
 
 const mockUseTags = vi.fn()
 vi.mock('../hooks', () => ({
@@ -32,7 +38,7 @@ vi.mock('./useAdminTags', () => ({
   useSetTagParent: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
-import { TagManagement } from './TagManagement'
+import { TagManagement, EditTagFormFields } from './TagManagement'
 
 function makeTag(overrides: Partial<TagListItem> = {}): TagListItem {
   return {
@@ -43,6 +49,25 @@ function makeTag(overrides: Partial<TagListItem> = {}): TagListItem {
     is_official: false,
     usage_count: 42,
     created_at: '2025-01-01T00:00:00Z',
+    ...overrides,
+  }
+}
+
+function makeTagDetail(
+  overrides: Partial<TagDetailResponse> = {}
+): TagDetailResponse {
+  return {
+    id: 1,
+    name: 'rock',
+    slug: 'rock',
+    category: 'genre',
+    is_official: false,
+    usage_count: 42,
+    created_at: '2025-01-01T00:00:00Z',
+    description: 'A genre.',
+    child_count: 0,
+    aliases: [],
+    updated_at: '2025-01-01T00:00:00Z',
     ...overrides,
   }
 }
@@ -85,5 +110,82 @@ describe('TagManagement — official indicator', () => {
     renderWithProviders(<TagManagement />)
 
     expect(screen.queryByRole('img', { name: 'Official tag' })).not.toBeInTheDocument()
+  })
+})
+
+describe('EditTagFormFields: tag switch resets fields via key prop', () => {
+  // Pins PSY-768: the inner form initializes local state from the tag prop
+  // on mount, with no useEffect and no `initialized` ratchet. Callers pass
+  // `key={tag.id}` so React unmounts + remounts with fresh state when the
+  // tag switches. The two assertions below are the load-bearing pair —
+  // without both, a future maintainer could re-add a tag-prop-based reset
+  // and the tests would still pass.
+
+  it('resets fields when re-rendered with a different tag (via key prop)', async () => {
+    const user = userEvent.setup()
+    const tagA = makeTagDetail({ id: 1, name: 'rock', description: 'A' })
+    const tagB = makeTagDetail({
+      id: 2,
+      name: 'jazz',
+      description: 'B',
+      category: 'genre',
+    })
+
+    const { rerender } = renderWithProviders(
+      <EditTagFormFields
+        key={tagA.id}
+        tag={tagA}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    const nameInput = screen.getByLabelText('Name *')
+    expect(nameInput).toHaveValue('rock')
+
+    await user.clear(nameInput)
+    await user.type(nameInput, 'dirty-edit')
+    expect(nameInput).toHaveValue('dirty-edit')
+
+    rerender(
+      <EditTagFormFields
+        key={tagB.id}
+        tag={tagB}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Name *')).toHaveValue('jazz')
+    expect(screen.getByLabelText('Description')).toHaveValue('B')
+  })
+
+  it('preserves dirty edits when re-rendered with the same key', async () => {
+    const user = userEvent.setup()
+    const tag = makeTagDetail({ id: 1, name: 'rock' })
+
+    const { rerender } = renderWithProviders(
+      <EditTagFormFields
+        key={tag.id}
+        tag={tag}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    const nameInput = screen.getByLabelText('Name *')
+    await user.clear(nameInput)
+    await user.type(nameInput, 'dirty-edit')
+
+    rerender(
+      <EditTagFormFields
+        key={tag.id}
+        tag={tag}
+        onSuccess={vi.fn()}
+        onCancel={vi.fn()}
+      />
+    )
+
+    expect(screen.getByLabelText('Name *')).toHaveValue('dirty-edit')
   })
 })

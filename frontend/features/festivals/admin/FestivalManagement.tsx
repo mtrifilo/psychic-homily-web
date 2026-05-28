@@ -52,6 +52,7 @@ import {
   BILLING_TIERS,
   BILLING_TIER_LABELS,
   getBillingTierLabel,
+  type FestivalDetail,
   type FestivalStatus,
   type FestivalArtist,
   type FestivalVenue,
@@ -351,6 +352,12 @@ function CreateFestivalForm({
 // Edit Festival Form
 // ============================================================================
 
+// Outer fetches the festival; once loaded, mounts EditFestivalFormFields
+// with `key={festival.id}` so a switch-festival-without-closing-dialog
+// scenario remounts with fresh state. The inner component initializes
+// local state from props inline (React's preferred "calculate during
+// render" path — see https://react.dev/learn/you-might-not-need-an-effect).
+// No useEffect, no `initialized` ratchet.
 function EditFestivalForm({
   festivalId,
   onSuccess,
@@ -364,45 +371,66 @@ function EditFestivalForm({
     idOrSlug: festivalId,
     enabled: festivalId > 0,
   })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!festival) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        Festival not found.
+      </div>
+    )
+  }
+
+  return (
+    <EditFestivalFormFields
+      key={festival.id}
+      festival={festival}
+      onSuccess={onSuccess}
+      onCancel={onCancel}
+    />
+  )
+}
+
+// Exported only for direct regression-test access (rerender-with-different-key
+// resets fields; rerender-with-same-key preserves dirty edits). Not part of
+// the surface's public API — production callers use EditFestivalForm.
+export function EditFestivalFormFields({
+  festival,
+  onSuccess,
+  onCancel,
+}: {
+  festival: FestivalDetail
+  onSuccess: () => void
+  onCancel: () => void
+}) {
   const updateMutation = useUpdateFestival()
 
-  const [name, setName] = useState('')
-  const [seriesSlug, setSeriesSlug] = useState('')
-  const [editionYear, setEditionYear] = useState('')
-  const [description, setDescription] = useState('')
-  const [locationName, setLocationName] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
-  const [country, setCountry] = useState('')
-  const [startDate, setStartDate] = useState('')
-  const [endDate, setEndDate] = useState('')
-  const [website, setWebsite] = useState('')
-  const [ticketUrl, setTicketUrl] = useState('')
-  const [flyerUrl, setFlyerUrl] = useState('')
-  const [status, setStatus] = useState<string>('announced')
+  const [name, setName] = useState(festival.name)
+  const [seriesSlug, setSeriesSlug] = useState(festival.series_slug)
+  const [editionYear, setEditionYear] = useState(
+    festival.edition_year.toString()
+  )
+  const [description, setDescription] = useState(festival.description || '')
+  const [locationName, setLocationName] = useState(festival.location_name || '')
+  const [city, setCity] = useState(festival.city || '')
+  const [state, setState] = useState(festival.state || '')
+  const [country, setCountry] = useState(festival.country || '')
+  const [startDate, setStartDate] = useState(festival.start_date || '')
+  const [endDate, setEndDate] = useState(festival.end_date || '')
+  const [website, setWebsite] = useState(festival.website || '')
+  const [ticketUrl, setTicketUrl] = useState(festival.ticket_url || '')
+  const [flyerUrl, setFlyerUrl] = useState(festival.flyer_url || '')
+  const [status, setStatus] = useState<string>(festival.status || 'announced')
   const [error, setError] = useState<string | null>(null)
-  const [initialized, setInitialized] = useState(false)
 
-  // Populate form when festival data loads
-  useEffect(() => {
-    if (festival && !initialized) {
-      setName(festival.name)
-      setSeriesSlug(festival.series_slug)
-      setEditionYear(festival.edition_year.toString())
-      setDescription(festival.description || '')
-      setLocationName(festival.location_name || '')
-      setCity(festival.city || '')
-      setState(festival.state || '')
-      setCountry(festival.country || '')
-      setStartDate(festival.start_date || '')
-      setEndDate(festival.end_date || '')
-      setWebsite(festival.website || '')
-      setTicketUrl(festival.ticket_url || '')
-      setFlyerUrl(festival.flyer_url || '')
-      setStatus(festival.status || 'announced')
-      setInitialized(true)
-    }
-  }, [festival, initialized])
+  const festivalId = festival.id
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -452,22 +480,6 @@ function EditFestivalForm({
       ticketUrl, flyerUrl, status, festivalId, updateMutation, onSuccess,
     ]
   )
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!festival) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Festival not found.
-      </div>
-    )
-  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">

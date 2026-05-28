@@ -36,6 +36,7 @@ import {
   getLabelStatusLabel,
   getLabelStatusVariant,
   formatLabelLocation,
+  type LabelDetail,
   type LabelStatus,
 } from '../types'
 
@@ -346,6 +347,12 @@ function CreateLabelForm({
 // Edit Label Form
 // ============================================================================
 
+// Outer fetches the label; once loaded, mounts EditLabelFormFields with
+// `key={label.id}` so a switch-label-without-closing-dialog scenario
+// remounts with fresh state. The inner component initializes local state
+// from props inline (React's preferred "calculate during render" path —
+// see https://react.dev/learn/you-might-not-need-an-effect). No useEffect,
+// no `initialized` ratchet.
 function EditLabelForm({
   labelId,
   onSuccess,
@@ -359,47 +366,67 @@ function EditLabelForm({
     idOrSlug: labelId,
     enabled: labelId > 0,
   })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!label) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        Label not found.
+      </div>
+    )
+  }
+
+  return (
+    <EditLabelFormFields
+      key={label.id}
+      label={label}
+      onSuccess={onSuccess}
+      onCancel={onCancel}
+    />
+  )
+}
+
+// Exported only for direct regression-test access (rerender-with-different-key
+// resets fields; rerender-with-same-key preserves dirty edits). Not part of
+// the surface's public API — production callers use EditLabelForm.
+export function EditLabelFormFields({
+  label,
+  onSuccess,
+  onCancel,
+}: {
+  label: LabelDetail
+  onSuccess: () => void
+  onCancel: () => void
+}) {
   const updateMutation = useUpdateLabel()
 
-  const [name, setName] = useState('')
-  const [city, setCity] = useState('')
-  const [state, setState] = useState('')
-  const [country, setCountry] = useState('')
-  const [foundedYear, setFoundedYear] = useState('')
-  const [status, setStatus] = useState<string>('active')
-  const [description, setDescription] = useState('')
-  const [instagram, setInstagram] = useState('')
-  const [facebook, setFacebook] = useState('')
-  const [twitter, setTwitter] = useState('')
-  const [youtube, setYoutube] = useState('')
-  const [spotify, setSpotify] = useState('')
-  const [soundcloud, setSoundcloud] = useState('')
-  const [bandcamp, setBandcamp] = useState('')
-  const [website, setWebsite] = useState('')
+  const [name, setName] = useState(label.name)
+  const [city, setCity] = useState(label.city || '')
+  const [state, setState] = useState(label.state || '')
+  const [country, setCountry] = useState(label.country || '')
+  const [foundedYear, setFoundedYear] = useState(
+    label.founded_year?.toString() || ''
+  )
+  const [status, setStatus] = useState<string>(label.status || 'active')
+  const [description, setDescription] = useState(label.description || '')
+  const [instagram, setInstagram] = useState(label.social?.instagram || '')
+  const [facebook, setFacebook] = useState(label.social?.facebook || '')
+  const [twitter, setTwitter] = useState(label.social?.twitter || '')
+  const [youtube, setYoutube] = useState(label.social?.youtube || '')
+  const [spotify, setSpotify] = useState(label.social?.spotify || '')
+  const [soundcloud, setSoundcloud] = useState(label.social?.soundcloud || '')
+  const [bandcamp, setBandcamp] = useState(label.social?.bandcamp || '')
+  const [website, setWebsite] = useState(label.social?.website || '')
   const [error, setError] = useState<string | null>(null)
-  const [initialized, setInitialized] = useState(false)
 
-  // Populate form when label data loads
-  useEffect(() => {
-    if (label && !initialized) {
-      setName(label.name)
-      setCity(label.city || '')
-      setState(label.state || '')
-      setCountry(label.country || '')
-      setFoundedYear(label.founded_year?.toString() || '')
-      setStatus(label.status || 'active')
-      setDescription(label.description || '')
-      setInstagram(label.social?.instagram || '')
-      setFacebook(label.social?.facebook || '')
-      setTwitter(label.social?.twitter || '')
-      setYoutube(label.social?.youtube || '')
-      setSpotify(label.social?.spotify || '')
-      setSoundcloud(label.social?.soundcloud || '')
-      setBandcamp(label.social?.bandcamp || '')
-      setWebsite(label.social?.website || '')
-      setInitialized(true)
-    }
-  }, [label, initialized])
+  const labelId = label.id
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -465,22 +492,6 @@ function EditLabelForm({
       onSuccess,
     ]
   )
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!label) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Label not found.
-      </div>
-    )
-  }
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">

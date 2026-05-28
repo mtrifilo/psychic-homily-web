@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import type { FestivalListItem } from '../types'
+import type { FestivalDetail, FestivalListItem } from '../types'
 
 // Read hooks
 const mockUseFestivals = vi.fn()
@@ -40,7 +40,7 @@ vi.mock('@/features/venues', () => ({
   useVenueSearch: () => ({ data: { venues: [] as unknown[] }, isLoading: false }),
 }))
 
-import { FestivalManagement } from './FestivalManagement'
+import { FestivalManagement, EditFestivalFormFields } from './FestivalManagement'
 
 function makeFestival(overrides: Partial<FestivalListItem> = {}): FestivalListItem {
   return {
@@ -56,6 +56,35 @@ function makeFestival(overrides: Partial<FestivalListItem> = {}): FestivalListIt
     status: 'confirmed',
     artist_count: 12,
     venue_count: 1,
+    ...overrides,
+  }
+}
+
+function makeFestivalDetail(
+  overrides: Partial<FestivalDetail> = {}
+): FestivalDetail {
+  return {
+    id: 1,
+    name: 'FORM Arcosanti',
+    slug: 'form-arcosanti-2025',
+    series_slug: 'form-arcosanti',
+    edition_year: 2025,
+    description: 'A music + arts festival.',
+    location_name: 'Arcosanti',
+    city: 'Mayer',
+    state: 'AZ',
+    country: 'US',
+    start_date: '2025-05-09',
+    end_date: '2025-05-11',
+    website: 'https://experienceform.com',
+    ticket_url: null,
+    flyer_url: null,
+    status: 'confirmed',
+    social: null,
+    artist_count: 0,
+    venue_count: 0,
+    created_at: '2024-01-01T00:00:00Z',
+    updated_at: '2024-01-01T00:00:00Z',
     ...overrides,
   }
 }
@@ -291,6 +320,89 @@ describe('FestivalManagement', () => {
     expect(mockUseFestivalVenues).toHaveBeenCalledWith({
       festivalIdOrSlug: 7,
       enabled: true,
+    })
+  })
+
+  describe('EditFestivalFormFields: festival switch resets fields via key prop', () => {
+    // Pins PSY-768: the inner form initializes local state from the festival
+    // prop on mount, with no useEffect and no `initialized` ratchet. Callers
+    // pass `key={festival.id}` so React unmounts + remounts with fresh state
+    // when the festival switches. The two assertions below are the
+    // load-bearing pair — without both, a future maintainer could re-add a
+    // festival-prop-based reset and the tests would still pass.
+
+    it('resets fields when re-rendered with a different festival (via key prop)', async () => {
+      const user = userEvent.setup()
+      const festivalA = makeFestivalDetail({
+        id: 1,
+        name: 'FORM Arcosanti',
+        city: 'Mayer',
+        edition_year: 2025,
+      })
+      const festivalB = makeFestivalDetail({
+        id: 2,
+        name: 'M3F',
+        city: 'Phoenix',
+        edition_year: 2026,
+      })
+
+      const { rerender } = renderWithProviders(
+        <EditFestivalFormFields
+          key={festivalA.id}
+          festival={festivalA}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText('Name *')
+      expect(nameInput).toHaveValue('FORM Arcosanti')
+
+      await user.clear(nameInput)
+      await user.type(nameInput, 'Dirty Edit')
+      expect(nameInput).toHaveValue('Dirty Edit')
+
+      rerender(
+        <EditFestivalFormFields
+          key={festivalB.id}
+          festival={festivalB}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText('Name *')).toHaveValue('M3F')
+      expect(screen.getByLabelText('City')).toHaveValue('Phoenix')
+      expect(screen.getByLabelText('Edition Year')).toHaveValue(2026)
+    })
+
+    it('preserves dirty edits when re-rendered with the same key', async () => {
+      const user = userEvent.setup()
+      const festival = makeFestivalDetail({ id: 1, name: 'FORM Arcosanti' })
+
+      const { rerender } = renderWithProviders(
+        <EditFestivalFormFields
+          key={festival.id}
+          festival={festival}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      const nameInput = screen.getByLabelText('Name *')
+      await user.clear(nameInput)
+      await user.type(nameInput, 'Dirty Edit')
+
+      rerender(
+        <EditFestivalFormFields
+          key={festival.id}
+          festival={festival}
+          onSuccess={vi.fn()}
+          onCancel={vi.fn()}
+        />
+      )
+
+      expect(screen.getByLabelText('Name *')).toHaveValue('Dirty Edit')
     })
   })
 })

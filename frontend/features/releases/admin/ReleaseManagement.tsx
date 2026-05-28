@@ -637,6 +637,12 @@ function CreateReleaseForm({
 // Edit Release Form
 // ============================================================================
 
+// Outer fetches the release; once loaded, mounts EditReleaseFormFields with
+// `key={release.id}` so a switch-release-without-closing-dialog scenario
+// remounts with fresh state. The inner component initializes local state
+// from props inline (React's preferred "calculate during render" path —
+// see https://react.dev/learn/you-might-not-need-an-effect). No useEffect,
+// no `initialized` ratchet.
 function EditReleaseForm({
   releaseId,
   onSuccess,
@@ -650,29 +656,60 @@ function EditReleaseForm({
     idOrSlug: releaseId,
     enabled: releaseId > 0,
   })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!release) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        Release not found.
+      </div>
+    )
+  }
+
+  return (
+    <EditReleaseFormFields
+      key={release.id}
+      release={release}
+      onSuccess={onSuccess}
+      onCancel={onCancel}
+    />
+  )
+}
+
+// Exported only for direct regression-test access (rerender-with-different-key
+// resets fields; rerender-with-same-key preserves dirty edits). Not part of
+// the surface's public API — production callers use EditReleaseForm.
+export function EditReleaseFormFields({
+  release,
+  onSuccess,
+  onCancel,
+}: {
+  release: ReleaseDetail
+  onSuccess: () => void
+  onCancel: () => void
+}) {
   const updateMutation = useUpdateRelease()
 
-  const [title, setTitle] = useState('')
-  const [releaseType, setReleaseType] = useState<string>('lp')
-  const [releaseYear, setReleaseYear] = useState('')
-  const [releaseDate, setReleaseDate] = useState('')
-  const [coverArtUrl, setCoverArtUrl] = useState('')
-  const [description, setDescription] = useState('')
+  const [title, setTitle] = useState(release.title)
+  const [releaseType, setReleaseType] = useState<string>(
+    release.release_type || 'lp'
+  )
+  const [releaseYear, setReleaseYear] = useState(
+    release.release_year?.toString() || ''
+  )
+  const [releaseDate, setReleaseDate] = useState(release.release_date || '')
+  const [coverArtUrl, setCoverArtUrl] = useState(release.cover_art_url || '')
+  const [description, setDescription] = useState(release.description || '')
   const [error, setError] = useState<string | null>(null)
-  const [initialized, setInitialized] = useState(false)
 
-  // Populate form when release data loads
-  useEffect(() => {
-    if (release && !initialized) {
-      setTitle(release.title)
-      setReleaseType(release.release_type || 'lp')
-      setReleaseYear(release.release_year?.toString() || '')
-      setReleaseDate(release.release_date || '')
-      setCoverArtUrl(release.cover_art_url || '')
-      setDescription(release.description || '')
-      setInitialized(true)
-    }
-  }, [release, initialized])
+  const releaseId = release.id
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -720,22 +757,6 @@ function EditReleaseForm({
       onSuccess,
     ]
   )
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!release) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Release not found.
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-4">

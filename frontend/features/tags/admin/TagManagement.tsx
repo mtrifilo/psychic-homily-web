@@ -47,6 +47,7 @@ import {
   getCategoryColor,
   getCategoryLabel,
   type TagCategory,
+  type TagDetailResponse,
 } from '../types'
 
 type DialogMode = 'create' | 'edit' | 'delete' | 'merge' | null
@@ -308,6 +309,12 @@ function CreateTagForm({
 // Edit Tag Form
 // ============================================================================
 
+// Outer fetches the tag; once loaded, mounts EditTagFormFields with
+// `key={tag.id}` so a switch-tag-without-closing-dialog scenario
+// remounts with fresh state. The inner component initializes local state
+// from props inline (React's preferred "calculate during render" path —
+// see https://react.dev/learn/you-might-not-need-an-effect). No useEffect,
+// no `initialized` ratchet.
 function EditTagForm({
   tagId,
   onSuccess,
@@ -318,24 +325,54 @@ function EditTagForm({
   onCancel: () => void
 }) {
   const { data: tag, isLoading } = useTag(tagId, { enabled: tagId > 0 })
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center py-8">
+        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      </div>
+    )
+  }
+
+  if (!tag) {
+    return (
+      <div className="text-center py-8 text-muted-foreground">
+        Tag not found.
+      </div>
+    )
+  }
+
+  return (
+    <EditTagFormFields
+      key={tag.id}
+      tag={tag}
+      onSuccess={onSuccess}
+      onCancel={onCancel}
+    />
+  )
+}
+
+// Exported only for direct regression-test access (rerender-with-different-key
+// resets fields; rerender-with-same-key preserves dirty edits). Not part of
+// the surface's public API — production callers use EditTagForm.
+export function EditTagFormFields({
+  tag,
+  onSuccess,
+  onCancel,
+}: {
+  tag: TagDetailResponse
+  onSuccess: () => void
+  onCancel: () => void
+}) {
   const updateMutation = useUpdateTag()
 
-  const [name, setName] = useState('')
-  const [description, setDescription] = useState('')
-  const [category, setCategory] = useState<string>('genre')
-  const [isOfficial, setIsOfficial] = useState(false)
+  const [name, setName] = useState(tag.name)
+  const [description, setDescription] = useState(tag.description || '')
+  const [category, setCategory] = useState<string>(tag.category)
+  const [isOfficial, setIsOfficial] = useState(tag.is_official)
   const [error, setError] = useState<string | null>(null)
-  const [initialized, setInitialized] = useState(false)
 
-  useEffect(() => {
-    if (tag && !initialized) {
-      setName(tag.name)
-      setDescription(tag.description || '')
-      setCategory(tag.category)
-      setIsOfficial(tag.is_official)
-      setInitialized(true)
-    }
-  }, [tag, initialized])
+  const tagId = tag.id
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -369,22 +406,6 @@ function EditTagForm({
     },
     [name, description, category, isOfficial, tagId, updateMutation, onSuccess]
   )
-
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!tag) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Tag not found.
-      </div>
-    )
-  }
 
   return (
     <div className="space-y-4">

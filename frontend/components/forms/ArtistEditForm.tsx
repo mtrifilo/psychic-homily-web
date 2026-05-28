@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import { Loader2, Edit2, AlertCircle, CheckCircle2 } from 'lucide-react'
@@ -55,6 +55,10 @@ interface ArtistEditFormProps {
   onSuccess?: () => void
 }
 
+// Callers MUST pass `key={artist.id}` so React unmounts + remounts with
+// fresh state when the artist switches. The form deliberately does NOT
+// useEffect to reset prop-derived state — see React's "You Might Not
+// Need an Effect" guide for the rationale.
 export function ArtistEditForm({
   artist,
   open,
@@ -142,13 +146,6 @@ export function ArtistEditForm({
       onSubmit: artistEditSchema,
     },
   })
-
-  // Reset form when dialog opens
-  useEffect(() => {
-    if (open) {
-      form.reset()
-    }
-  }, [open, artist.id])
 
   const handleDialogOpenChange = (nextOpen: boolean) => {
     if (!nextOpen) {
