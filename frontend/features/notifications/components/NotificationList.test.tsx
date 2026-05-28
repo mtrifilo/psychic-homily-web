@@ -49,6 +49,20 @@ function showFilter(overrides: Partial<NotificationLogEntry> = {}): Notification
   }
 }
 
+function requestFulfillment(overrides: Partial<NotificationLogEntry> = {}): NotificationLogEntry {
+  return {
+    id: 5,
+    entity_type: 'request_fulfillment_proposed',
+    entity_id: 300,
+    channel: 'in_app',
+    sent_at: new Date(Date.now() - 10 * 60 * 1000).toISOString(),
+    read_at: null,
+    request_title: 'Add Local Band XYZ',
+    request_url: 'https://example.com/requests/300',
+    ...overrides,
+  }
+}
+
 describe('NotificationList', () => {
   it('renders empty state when no entries', () => {
     render(<NotificationList entries={[]} />)
@@ -85,6 +99,31 @@ describe('NotificationList', () => {
     render(<NotificationList entries={[showFilter()]} />)
     expect(screen.getByText('My Filter')).toBeInTheDocument()
     expect(screen.getByText(/new match for/i)).toBeInTheDocument()
+  })
+
+  it('renders a request_fulfillment_proposed row with title + approve/reject prompt', () => {
+    render(<NotificationList entries={[requestFulfillment()]} />)
+    expect(screen.getByText(/a fulfillment was proposed for/i)).toBeInTheDocument()
+    expect(screen.getByText('Add Local Band XYZ')).toBeInTheDocument()
+    expect(screen.getByText(/review it to approve or reject/i)).toBeInTheDocument()
+  })
+
+  it('uses request_url as the deep-link target for request rows', () => {
+    render(<NotificationList entries={[requestFulfillment()]} />)
+    expect(screen.getByRole('link')).toHaveAttribute(
+      'href',
+      'https://example.com/requests/300'
+    )
+  })
+
+  it('falls back to "your request" + /requests when request fields are missing', () => {
+    render(
+      <NotificationList
+        entries={[requestFulfillment({ request_title: undefined, request_url: undefined })]}
+      />
+    )
+    expect(screen.getByText('your request')).toBeInTheDocument()
+    expect(screen.getByRole('link')).toHaveAttribute('href', '/requests')
   })
 
   it('marks unread rows visually (Unread label) and read rows without', () => {

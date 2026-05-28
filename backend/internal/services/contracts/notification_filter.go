@@ -96,6 +96,12 @@ type NotificationLogEntry struct {
 	CommentEntityType string `json:"comment_entity_type,omitempty"`
 	CommentEntityID   uint   `json:"comment_entity_id,omitempty"`
 	CommentEntityName string `json:"comment_entity_name,omitempty"`
+
+	// Request-driven enrichment fields (populated only for
+	// request_fulfillment_proposed rows; entity_id holds the request_id). The
+	// requester is notified that a fulfillment awaits their approval. PSY-890.
+	RequestTitle string `json:"request_title,omitempty"`
+	RequestURL   string `json:"request_url,omitempty"`
 }
 
 // NotificationFilterServiceInterface defines the contract for notification filter operations.

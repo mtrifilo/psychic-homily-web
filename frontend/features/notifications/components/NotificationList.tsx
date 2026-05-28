@@ -7,11 +7,12 @@
  */
 
 import Link from 'next/link'
-import { MessageCircle, AtSign, Calendar, BellRing, ExternalLink } from 'lucide-react'
+import { MessageCircle, AtSign, Calendar, BellRing, ExternalLink, PackageCheck } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import {
   formatTimeAgo,
   isCommentNotification,
+  isRequestNotification,
   NOTIFICATION_ENTITY_COMMENT_MENTION,
 } from '../types'
 import type { NotificationLogEntry } from '../types'
@@ -109,6 +110,49 @@ function NotificationRow({ entry, variant, onItemClick }: RowProps) {
                 {entry.comment_excerpt}
               </p>
             )}
+            <p className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground/70">
+              {formatTimeAgo(entry.sent_at)}
+            </p>
+          </div>
+          {unread && (
+            <span
+              className="mt-2 h-2 w-2 shrink-0 rounded-full bg-primary"
+              aria-label="Unread"
+            />
+          )}
+        </Link>
+      </li>
+    )
+  }
+
+  if (isRequestNotification(entry)) {
+    const href = entry.request_url ?? '/requests'
+    const requestTitle = entry.request_title || 'your request'
+    return (
+      <li>
+        <Link
+          href={href}
+          onClick={() => onItemClick?.(entry)}
+          className={cn(
+            'flex items-start gap-3 transition-colors hover:bg-accent/40',
+            padding,
+            unread && 'bg-accent/20'
+          )}
+        >
+          <div
+            className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary"
+            aria-hidden
+          >
+            <PackageCheck className="h-3.5 w-3.5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm leading-snug">
+              <span className="text-muted-foreground">A fulfillment was proposed for</span>{' '}
+              <span className="font-medium">{requestTitle}</span>
+            </p>
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Review it to approve or reject.
+            </p>
             <p className="mt-1 text-[11px] uppercase tracking-wide text-muted-foreground/70">
               {formatTimeAgo(entry.sent_at)}
             </p>

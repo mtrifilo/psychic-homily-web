@@ -2698,18 +2698,19 @@ func (m *MockReleaseService) RemoveExternalLink(linkID uint) error {
 // ============================================================================
 
 type MockRequestService struct {
-	CreateRequestFn      func(uint, string, string, string, *uint) (*communitym.Request, error)
-	GetRequestFn         func(uint) (*communitym.Request, error)
-	ListRequestsFn       func(string, string, string, int, int) ([]communitym.Request, int64, error)
-	UpdateRequestFn      func(uint, uint, *string, *string) (*communitym.Request, error)
-	DeleteRequestFn      func(uint, uint, bool) error
-	VoteFn               func(uint, uint, bool) error
-	RemoveVoteFn         func(uint, uint) error
-	FulfillRequestFn     func(uint, uint, *uint) error
-	ApproveFulfillmentFn func(uint, uint, bool) error
-	RejectFulfillmentFn  func(uint, uint, bool) error
-	CloseRequestFn       func(uint, uint, bool) error
-	GetUserVoteFn        func(uint, uint) (*communitym.RequestVote, error)
+	CreateRequestFn                      func(uint, string, string, string, *uint) (*communitym.Request, error)
+	GetRequestFn                         func(uint) (*communitym.Request, error)
+	ListRequestsFn                       func(string, string, string, int, int) ([]communitym.Request, int64, error)
+	UpdateRequestFn                      func(uint, uint, *string, *string) (*communitym.Request, error)
+	DeleteRequestFn                      func(uint, uint, bool) error
+	VoteFn                               func(uint, uint, bool) error
+	RemoveVoteFn                         func(uint, uint) error
+	FulfillRequestFn                     func(uint, uint, *uint) error
+	ApproveFulfillmentFn                 func(uint, uint, bool) error
+	RejectFulfillmentFn                  func(uint, uint, bool) error
+	NotifyRequesterFulfillmentProposedFn func(uint, uint, uint) error
+	CloseRequestFn                       func(uint, uint, bool) error
+	GetUserVoteFn                        func(uint, uint) (*communitym.RequestVote, error)
 }
 
 func (m *MockRequestService) CreateRequest(userID uint, title string, description string, entityType string, requestedEntityID *uint) (*communitym.Request, error) {
@@ -2786,6 +2787,12 @@ func (m *MockRequestService) ApproveFulfillment(requestID uint, userID uint, isA
 func (m *MockRequestService) RejectFulfillment(requestID uint, userID uint, isAdmin bool) error {
 	if m.RejectFulfillmentFn != nil {
 		return m.RejectFulfillmentFn(requestID, userID, isAdmin)
+	}
+	return nil
+}
+func (m *MockRequestService) NotifyRequesterFulfillmentProposed(requestID uint, requesterID uint, fulfillerID uint) error {
+	if m.NotifyRequesterFulfillmentProposedFn != nil {
+		return m.NotifyRequesterFulfillmentProposedFn(requestID, requesterID, fulfillerID)
 	}
 	return nil
 }
