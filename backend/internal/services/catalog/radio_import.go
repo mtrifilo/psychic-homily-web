@@ -3,7 +3,10 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"log/slog"
+	"strings"
 	"time"
+	"unicode/utf8"
 
 	"gorm.io/gorm"
 
@@ -11,6 +14,12 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/utils"
 )
+
+// PSY-885: VARCHAR(500) limit on radio_plays text columns (artist_name,
+// track_title, album_title, label_name). Counted in runes (not bytes) so
+// truncation respects multi-byte boundaries — matches the Postgres semantics
+// for varchar length, which is character-count, not byte-count.
+const radioPlayVarcharMaxRunes = 500
 
 // getProvider returns the appropriate RadioPlaylistProvider for a station's playlist_source.
 func (s *RadioService) getProvider(source string) (RadioPlaylistProvider, error) {
@@ -85,6 +94,9 @@ func (s *RadioService) ImportStation(stationID uint, backfillDays int) (*contrac
 			result.EpisodesImported++
 			result.PlaysImported += epResult.PlaysImported
 			result.PlaysMatched += epResult.PlaysMatched
+			if epResult.DropSummary != "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("episode %s: %s", ep.ExternalID, epResult.DropSummary))
+			}
 		}
 	}
 
@@ -150,6 +162,9 @@ func (s *RadioService) FetchNewEpisodes(stationID uint) (*contracts.RadioImportR
 			result.EpisodesImported++
 			result.PlaysImported += epResult.PlaysImported
 			result.PlaysMatched += epResult.PlaysMatched
+			if epResult.DropSummary != "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("episode %s: %s", ep.ExternalID, epResult.DropSummary))
+			}
 		}
 	}
 
@@ -195,7 +210,7 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 		return nil, fmt.Errorf("fetching playlist: %w", err)
 	}
 
-	imported, err := s.importPlays(episode.ID, plays)
+	imported, dropSummary, err := s.importPlays(episode.ID, plays)
 	if err != nil {
 		return nil, fmt.Errorf("importing plays: %w", err)
 	}
@@ -204,12 +219,13 @@ func (s *RadioService) ImportEpisodePlaylist(showID uint, episodeExternalID stri
 	matcher := NewRadioMatchingEngine(s.db)
 	matchResult, err := matcher.MatchPlaysForEpisode(episode.ID)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported}, nil
+		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
 	}
 
 	return &contracts.EpisodeImportResult{
 		PlaysImported: imported,
 		PlaysMatched:  matchResult.Matched,
+		DropSummary:   dropSummary,
 	}, nil
 }
 
@@ -351,6 +367,9 @@ func (s *RadioService) importShowEpisodesWithProgress(
 			result.EpisodesImported++
 			result.PlaysImported += epResult.PlaysImported
 			result.PlaysMatched += epResult.PlaysMatched
+			if epResult.DropSummary != "" {
+				result.Errors = append(result.Errors, fmt.Sprintf("episode %s: %s", ep.ExternalID, epResult.DropSummary))
+			}
 		}
 
 		if progressFn != nil {
@@ -522,9 +541,9 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 		return &contracts.EpisodeImportResult{}, nil // non-fatal: episode created but no plays
 	}
 
-	imported, err := s.importPlays(episode.ID, plays)
+	imported, dropSummary, err := s.importPlays(episode.ID, plays)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported}, nil
+		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
 	}
 
 	// Update play count on episode
@@ -534,50 +553,192 @@ func (s *RadioService) importEpisode(showID uint, ep RadioEpisodeImport, provide
 	matcher := NewRadioMatchingEngine(s.db)
 	matchResult, err := matcher.MatchPlaysForEpisode(episode.ID)
 	if err != nil {
-		return &contracts.EpisodeImportResult{PlaysImported: imported}, nil
+		return &contracts.EpisodeImportResult{PlaysImported: imported, DropSummary: dropSummary}, nil
 	}
 
 	return &contracts.EpisodeImportResult{
 		PlaysImported: imported,
 		PlaysMatched:  matchResult.Matched,
+		DropSummary:   dropSummary,
 	}, nil
 }
 
 // importPlays batch-creates play records for an episode.
-func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int, error) {
+//
+// PSY-885: validate-at-the-boundary semantics. Each provider-returned play is
+// passed through sanitizePlay BEFORE the batch insert so a single malformed
+// row (NULL artist_name, over-length VARCHAR field) can no longer poison its
+// 100-row CreateInBatches batch and silently drop all 99 sibling rows. CLAUDE.md:
+// "defensive programming at boundaries, trust internally".
+//
+// Returns (rowsCommitted, summary, err). rowsCommitted is the count of rows
+// actually written to the database — rejected rows are excluded; truncated
+// rows ARE included (they were salvaged with shortened text). summary is a
+// human-readable per-episode aggregate of "dropped N plays: ..." or "" when
+// no intervention was needed; callers append it to RadioImportResult.Errors
+// so the outcome is visible in admin job logs without per-row noise.
+func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int, string, error) {
 	if len(plays) == 0 {
-		return 0, nil
+		return 0, "", nil
 	}
 
 	records := make([]catalogm.RadioPlay, 0, len(plays))
+	truncatedRows := 0
+	missingArtistRows := 0
+
 	for _, p := range plays {
-		record := catalogm.RadioPlay{
-			EpisodeID:              episodeID,
-			Position:               p.Position,
-			ArtistName:             p.ArtistName,
-			TrackTitle:             p.TrackTitle,
-			AlbumTitle:             p.AlbumTitle,
-			LabelName:              p.LabelName,
-			ReleaseYear:            p.ReleaseYear,
-			IsNew:                  p.IsNew,
-			RotationStatus:         p.RotationStatus,
-			DJComment:              p.DJComment,
-			IsLivePerformance:      p.IsLivePerformance,
-			IsRequest:              p.IsRequest,
-			MusicBrainzArtistID:    p.MusicBrainzArtistID,
-			MusicBrainzRecordingID: p.MusicBrainzRecordingID,
-			MusicBrainzReleaseID:   p.MusicBrainzReleaseID,
-			AirTimestamp:           p.AirTimestamp,
+		record, err := sanitizePlay(episodeID, p)
+		if err != nil {
+			// Per-row diagnostic at WARN — surfaces the actual culprit in logs
+			// while the per-episode summary stays compact.
+			slog.Warn("radio import: dropping play row",
+				"episode_id", episodeID,
+				"position", p.Position,
+				"reason", err.Error(),
+			)
+			if errors.Is(err, errMissingArtistName) {
+				missingArtistRows++
+			}
+			continue
+		}
+		if playNeededTruncation(p) {
+			truncatedRows++
 		}
 		records = append(records, record)
 	}
 
-	// Batch insert
-	if err := s.db.CreateInBatches(records, 100).Error; err != nil {
-		return 0, fmt.Errorf("batch inserting plays: %w", err)
+	// droppedRows is computed from the actual delta so new sanitize-drop
+	// reasons (added later without a matching per-class counter) still get
+	// reflected in the N total — only the per-class breakdown will lag.
+	droppedRows := len(plays) - len(records)
+	summary := summarizeDrops(droppedRows, truncatedRows, missingArtistRows)
+
+	if len(records) == 0 {
+		return 0, summary, nil
 	}
 
-	return len(records), nil
+	// Batch insert. Records are pre-validated, so a constraint failure here
+	// is a hard infrastructural error (FK gone, conn lost) — bubble it up.
+	if err := s.db.CreateInBatches(records, 100).Error; err != nil {
+		return 0, summary, fmt.Errorf("batch inserting plays: %w", err)
+	}
+
+	return len(records), summary, nil
+}
+
+// errMissingArtistName flags a play with no artist_name. radio_plays.artist_name
+// is NOT NULL in the schema — we can't make up an artist, so the row is dropped.
+var errMissingArtistName = errors.New("missing artist_name")
+
+// sanitizePlay validates and normalizes a provider-returned play DTO for safe
+// insertion into radio_plays. It is the single boundary checkpoint where bad
+// provider data is rejected (NULL artist_name) or salvaged (truncate
+// over-length VARCHAR fields to the column's 500-rune width). All downstream
+// code can then trust that any RadioPlay it sees is schema-valid.
+//
+// Returns the sanitized record on success, or an error explaining why the row
+// must be dropped. Truncation does NOT produce an error — it's a non-fatal
+// repair, surfaced via playNeededTruncation for the caller's per-episode
+// summary counter.
+func sanitizePlay(episodeID uint, p RadioPlayImport) (catalogm.RadioPlay, error) {
+	// artist_name is NOT NULL in the schema. Trimmed empty / whitespace-only
+	// names can't be salvaged — drop the row.
+	if strings.TrimSpace(p.ArtistName) == "" {
+		return catalogm.RadioPlay{}, errMissingArtistName
+	}
+
+	return catalogm.RadioPlay{
+		EpisodeID:              episodeID,
+		Position:               p.Position,
+		ArtistName:             truncateRunes(p.ArtistName, radioPlayVarcharMaxRunes),
+		TrackTitle:             truncateOptionalRunes(p.TrackTitle, radioPlayVarcharMaxRunes),
+		AlbumTitle:             truncateOptionalRunes(p.AlbumTitle, radioPlayVarcharMaxRunes),
+		LabelName:              truncateOptionalRunes(p.LabelName, radioPlayVarcharMaxRunes),
+		ReleaseYear:            p.ReleaseYear,
+		IsNew:                  p.IsNew,
+		RotationStatus:         p.RotationStatus,
+		DJComment:              p.DJComment, // TEXT column, no length cap
+		IsLivePerformance:      p.IsLivePerformance,
+		IsRequest:              p.IsRequest,
+		MusicBrainzArtistID:    p.MusicBrainzArtistID,
+		MusicBrainzRecordingID: p.MusicBrainzRecordingID,
+		MusicBrainzReleaseID:   p.MusicBrainzReleaseID,
+		AirTimestamp:           p.AirTimestamp,
+	}, nil
+}
+
+// playNeededTruncation reports whether sanitizePlay had to shorten any of the
+// four VARCHAR(500) text fields on p. Used by importPlays to count
+// truncated-row count for the per-episode summary without re-running the
+// sanitize logic.
+func playNeededTruncation(p RadioPlayImport) bool {
+	if utf8.RuneCountInString(p.ArtistName) > radioPlayVarcharMaxRunes {
+		return true
+	}
+	if p.TrackTitle != nil && utf8.RuneCountInString(*p.TrackTitle) > radioPlayVarcharMaxRunes {
+		return true
+	}
+	if p.AlbumTitle != nil && utf8.RuneCountInString(*p.AlbumTitle) > radioPlayVarcharMaxRunes {
+		return true
+	}
+	if p.LabelName != nil && utf8.RuneCountInString(*p.LabelName) > radioPlayVarcharMaxRunes {
+		return true
+	}
+	return false
+}
+
+// truncateRunes shortens s to at most max runes, respecting rune boundaries
+// (no split multi-byte sequences). Returns s unchanged when within budget.
+func truncateRunes(s string, max int) string {
+	if utf8.RuneCountInString(s) <= max {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:max])
+}
+
+// truncateOptionalRunes is the *string variant of truncateRunes, preserving
+// nil semantics for Huma-style optional pointers.
+func truncateOptionalRunes(s *string, max int) *string {
+	if s == nil {
+		return nil
+	}
+	if utf8.RuneCountInString(*s) <= max {
+		return s
+	}
+	truncated := truncateRunes(*s, max)
+	return &truncated
+}
+
+// summarizeDrops formats a single-line per-episode aggregate of plays that
+// required boundary intervention (PSY-885). Returns "" when nothing needed
+// intervention. Format is stable for log scraping:
+//
+//	dropped N plays: X over-length titles truncated, Y missing artist_name
+//
+// N is droppedCount + truncatedCount — the total count of rows the sanitize
+// step touched. "Dropped" reads loosely here: truncated rows are kept (just
+// with shortened text), but grouping under one number gives admins a single
+// "needed attention" magnitude. The per-class breakdown clauses distinguish
+// salvage (truncated) from data loss (missing artist_name).
+//
+// droppedCount is taken as the authoritative drop count from the caller (not
+// re-derived from missingArtistCount) so future sanitize-drop classes added
+// without a matching counter still appear in N — the breakdown will lag the
+// total in that case, surfacing the omission rather than hiding it.
+func summarizeDrops(droppedCount, truncatedCount, missingArtistCount int) string {
+	total := droppedCount + truncatedCount
+	if total == 0 {
+		return ""
+	}
+	var parts []string
+	if truncatedCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d over-length titles truncated", truncatedCount))
+	}
+	if missingArtistCount > 0 {
+		parts = append(parts, fmt.Sprintf("%d missing artist_name", missingArtistCount))
+	}
+	return fmt.Sprintf("dropped %d plays: %s", total, strings.Join(parts, ", "))
 }
 
 // closeProvider closes a provider if it implements a Close method.

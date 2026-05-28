@@ -353,9 +353,17 @@ type RadioDiscoverResult struct {
 }
 
 // EpisodeImportResult summarizes the result of importing a single episode's playlist.
+//
+// DropSummary, when non-empty, is a single-line per-episode aggregate of plays
+// that were dropped or truncated at the import boundary (PSY-885). Format:
+// "dropped N plays: X over-length titles truncated, Y missing artist_name".
+// The summary is also bubbled up to RadioImportResult.Errors by the batch
+// orchestrators so partial-import outcomes are visible in admin job logs
+// without ballooning the field with per-play entries.
 type EpisodeImportResult struct {
-	PlaysImported int `json:"plays_imported"`
-	PlaysMatched  int `json:"plays_matched"`
+	PlaysImported int    `json:"plays_imported"`
+	PlaysMatched  int    `json:"plays_matched"`
+	DropSummary   string `json:"drop_summary,omitempty"`
 }
 
 // MatchResult summarizes the result of running the matching engine.
