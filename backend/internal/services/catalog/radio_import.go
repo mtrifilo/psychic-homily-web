@@ -9,6 +9,7 @@ import (
 	"unicode/utf8"
 
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
@@ -617,12 +618,31 @@ func (s *RadioService) importPlays(episodeID uint, plays []RadioPlayImport) (int
 		return 0, summary, nil
 	}
 
-	// Batch insert. Records are pre-validated, so a constraint failure here
-	// is a hard infrastructural error (FK gone, conn lost) — bubble it up.
-	if err := s.db.CreateInBatches(records, 100).Error; err != nil {
+	// Batch insert with ON CONFLICT DO NOTHING so duplicate rows (re-imports
+	// of the same playlist; chronic during dev / scheduled re-fetches) are
+	// silently skipped rather than rolling back the entire 100-row batch.
+	// Dedup is enforced by the idx_radio_plays_unique UNIQUE index on
+	// (episode_id, position, air_timestamp, artist_name, track_title) NULLS
+	// NOT DISTINCT (PSY-888 migration). Records are pre-validated (PSY-885), so
+	// a non-UNIQUE constraint violation here (FK gone, NOT NULL) is a hard
+	// infrastructural error — bubble it up.
+	result := s.db.Clauses(clause.OnConflict{DoNothing: true}).CreateInBatches(records, 100)
+	if err := result.Error; err != nil {
 		return 0, summary, fmt.Errorf("batch inserting plays: %w", err)
 	}
 
+	if skipped := len(records) - int(result.RowsAffected); skipped > 0 {
+		slog.Info("radio import: skipped duplicate plays",
+			"episode_id", episodeID,
+			"skipped", skipped,
+			"total", len(records),
+		)
+	}
+
+	// Return len(records) (attempted) rather than RowsAffected (newly
+	// inserted) so callers like importEpisode keep using it to set
+	// play_count on the episode without regressing on re-imports where
+	// most rows are duplicates. summary carries the PSY-885 drop aggregate.
 	return len(records), summary, nil
 }
 

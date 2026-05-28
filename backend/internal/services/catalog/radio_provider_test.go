@@ -1618,6 +1618,106 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_MixedBatch() {
 	suite.Equal("Sonic Youth", dbPlays[3].ArtistName)
 }
 
+// PSY-888: Re-importing the same playlist must succeed without error and
+// without inserting duplicate rows. Before the ON CONFLICT DO NOTHING +
+// idx_radio_plays_unique migration, the second call rolled back the whole
+// 100-row batch and returned an error.
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_DedupOnReimport() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	track1 := "Karma Police"
+	track2 := "Cover Me"
+	ts1 := time.Date(2026, 1, 15, 9, 5, 0, 0, time.UTC)
+	ts2 := time.Date(2026, 1, 15, 9, 10, 0, 0, time.UTC)
+
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: "Radiohead", TrackTitle: &track1, AirTimestamp: &ts1},
+		{Position: 1, ArtistName: "Deerhunter", TrackTitle: &track2, AirTimestamp: &ts2},
+		// NULL track + NULL air_timestamp — covers the NTS-style case where
+		// NULLS NOT DISTINCT must engage for dedup to work.
+		{Position: 2, ArtistName: "Sonic Youth"},
+	}
+
+	// First import — all three rows inserted.
+	count, _, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err)
+	suite.Equal(3, count)
+
+	var dbCount int64
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&dbCount)
+	suite.Equal(int64(3), dbCount, "first import should insert all 3 rows")
+
+	// Second import (re-fetch) — same playlist, no new rows, no error.
+	count2, _, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err, "re-importing duplicates must not error")
+	suite.Equal(3, count2, "importPlays returns attempted count for play_count stability")
+
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&dbCount)
+	suite.Equal(int64(3), dbCount, "re-import must not insert duplicate rows")
+}
+
+// PSY-888: A mixed batch (some duplicates of prior rows + some genuinely
+// new rows) should insert ONLY the new rows and not fail. This is the
+// real-world re-fetch-with-new-songs case.
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_PartialOverlapInsertsNewOnly() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	track1 := "Karma Police"
+	track2 := "Cover Me"
+	track3 := "Mountain"
+	ts1 := time.Date(2026, 1, 15, 9, 5, 0, 0, time.UTC)
+	ts2 := time.Date(2026, 1, 15, 9, 10, 0, 0, time.UTC)
+	ts3 := time.Date(2026, 1, 15, 9, 15, 0, 0, time.UTC)
+
+	firstBatch := []RadioPlayImport{
+		{Position: 0, ArtistName: "Radiohead", TrackTitle: &track1, AirTimestamp: &ts1},
+		{Position: 1, ArtistName: "Deerhunter", TrackTitle: &track2, AirTimestamp: &ts2},
+	}
+	_, _, err := suite.radioService.importPlays(ep.ID, firstBatch)
+	suite.Require().NoError(err)
+
+	// Second fetch — first two are dupes, third is new.
+	secondBatch := []RadioPlayImport{
+		{Position: 0, ArtistName: "Radiohead", TrackTitle: &track1, AirTimestamp: &ts1},
+		{Position: 1, ArtistName: "Deerhunter", TrackTitle: &track2, AirTimestamp: &ts2},
+		{Position: 2, ArtistName: "Cocteau Twins", TrackTitle: &track3, AirTimestamp: &ts3},
+	}
+	_, _, err = suite.radioService.importPlays(ep.ID, secondBatch)
+	suite.Require().NoError(err, "partial overlap must not roll back the batch")
+
+	var dbCount int64
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&dbCount)
+	suite.Equal(int64(3), dbCount, "must end with 3 rows (2 original + 1 new)")
+}
+
+// PSY-888: ON CONFLICT DO NOTHING only masks UNIQUE violations. Other
+// constraint failures (e.g. NOT NULL or FK) must still surface as errors
+// to the caller — they indicate a genuine data bug, not a re-import
+// collision. AC explicitly calls this out.
+//
+// Real-world plays always carry a non-empty ArtistName (providers skip
+// blank artists), so we use a FK violation instead — a play with a
+// non-existent episode_id triggers the FK to radio_episodes. FK is a
+// different constraint kind than UNIQUE, so ON CONFLICT DO NOTHING does
+// NOT swallow it.
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_NonUniqueConstraintViolationErrors() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: "Radiohead"},
+	}
+
+	// Use a non-existent episode ID so the FK to radio_episodes fires.
+	_, _, err := suite.radioService.importPlays(ep.ID+99999, plays)
+	suite.Require().Error(err, "non-UNIQUE constraint failures must still surface as errors")
+}
+
 func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_LabelCaseInsensitive() {
 	station := suite.createStation("KEXP")
 	show := suite.createShow(station.ID, "Morning Show")
