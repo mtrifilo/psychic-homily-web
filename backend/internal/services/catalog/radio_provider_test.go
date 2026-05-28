@@ -5,8 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -1442,10 +1444,11 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_BatchInsert() {
 		{Position: 2, ArtistName: "Sonic Youth"},
 	}
 
-	count, err := suite.radioService.importPlays(ep.ID, plays)
+	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
 
 	suite.Require().NoError(err)
 	suite.Equal(3, count)
+	suite.Empty(dropSummary, "clean batch should produce no drop summary")
 
 	// Verify plays in DB
 	var dbPlays []catalogm.RadioPlay
@@ -1463,10 +1466,156 @@ func (suite *RadioImportIntegrationTestSuite) TestImportPlays_Empty() {
 	show := suite.createShow(station.ID, "Morning Show")
 	ep := suite.createEpisode(show.ID, "2026-01-15")
 
-	count, err := suite.radioService.importPlays(ep.ID, []RadioPlayImport{})
+	count, dropSummary, err := suite.radioService.importPlays(ep.ID, []RadioPlayImport{})
 
 	suite.Require().NoError(err)
 	suite.Equal(0, count)
+	suite.Empty(dropSummary)
+}
+
+// PSY-885: validate-at-boundary tests for importPlays. Cover the four cases
+// enumerated in the ticket:
+//   - clean batch       → full count, empty summary
+//   - over-length title → truncated to 500 runes, summary records "truncated"
+//   - NULL artist_name  → row dropped, summary records "missing artist_name"
+//   - mixed batch       → only valid rows committed, summary reflects both
+//
+// Returned count is rows COMMITTED — drops are excluded.
+
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_TruncatesOverLengthArtistName() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	// 600-char artist name (overflows VARCHAR(500))
+	overLength := strings.Repeat("a", 600)
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: overLength},
+	}
+
+	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err)
+	suite.Equal(1, count, "truncated row should still be committed")
+	// Summary counts truncated rows in N (per PSY-885 format spec) — "dropped"
+	// is used loosely to mean "required boundary intervention", with the
+	// per-class breakdown distinguishing salvage from data loss.
+	suite.Contains(dropSummary, "dropped 1 plays")
+	suite.Contains(dropSummary, "1 over-length titles truncated")
+
+	var dbPlays []catalogm.RadioPlay
+	suite.db.Where("episode_id = ?", ep.ID).Find(&dbPlays)
+	suite.Len(dbPlays, 1)
+	suite.Equal(strings.Repeat("a", 500), dbPlays[0].ArtistName, "artist_name should be trimmed to 500 runes")
+}
+
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_TruncatesOverLengthOptionalFields() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	overTitle := strings.Repeat("b", 600)
+	overAlbum := strings.Repeat("c", 700)
+	overLabel := strings.Repeat("d", 501)
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: "Boundary Band", TrackTitle: &overTitle, AlbumTitle: &overAlbum, LabelName: &overLabel},
+	}
+
+	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err)
+	suite.Equal(1, count)
+	suite.Contains(dropSummary, "1 over-length titles truncated", "a single row with multiple over-length fields counts once")
+
+	var dbPlays []catalogm.RadioPlay
+	suite.db.Where("episode_id = ?", ep.ID).Find(&dbPlays)
+	suite.Len(dbPlays, 1)
+	suite.Equal("Boundary Band", dbPlays[0].ArtistName)
+	suite.Require().NotNil(dbPlays[0].TrackTitle)
+	suite.Len([]rune(*dbPlays[0].TrackTitle), 500)
+	suite.Require().NotNil(dbPlays[0].AlbumTitle)
+	suite.Len([]rune(*dbPlays[0].AlbumTitle), 500)
+	suite.Require().NotNil(dbPlays[0].LabelName)
+	suite.Len([]rune(*dbPlays[0].LabelName), 500)
+}
+
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_TruncatesMultiByteRunesAtBoundary() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	// Each "é" is 2 UTF-8 bytes but 1 rune. 600 runes overflows.
+	overLength := strings.Repeat("é", 600)
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: overLength},
+	}
+
+	count, _, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err, "truncation must respect rune boundaries, not split a multi-byte char")
+	suite.Equal(1, count)
+
+	var dbPlays []catalogm.RadioPlay
+	suite.db.Where("episode_id = ?", ep.ID).Find(&dbPlays)
+	suite.Len(dbPlays, 1)
+	// Postgres counts characters (runes), not bytes — should fit 500 "é"s exactly.
+	suite.Equal(500, len([]rune(dbPlays[0].ArtistName)), "trimmed to 500 runes")
+	suite.True(utf8.ValidString(dbPlays[0].ArtistName), "trimmed string must remain valid UTF-8")
+}
+
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_DropsMissingArtistName() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: ""},
+		{Position: 1, ArtistName: "   "}, // whitespace-only also dropped
+	}
+
+	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err)
+	suite.Equal(0, count, "rows with NULL/blank artist_name must be dropped")
+	suite.Contains(dropSummary, "dropped 2 plays")
+	suite.Contains(dropSummary, "2 missing artist_name")
+
+	var playCount int64
+	suite.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&playCount)
+	suite.Equal(int64(0), playCount)
+}
+
+func (suite *RadioImportIntegrationTestSuite) TestImportPlays_MixedBatch() {
+	station := suite.createStation("KEXP")
+	show := suite.createShow(station.ID, "Morning Show")
+	ep := suite.createEpisode(show.ID, "2026-01-15")
+
+	overLength := strings.Repeat("x", 600)
+	plays := []RadioPlayImport{
+		{Position: 0, ArtistName: "Radiohead"},          // clean
+		{Position: 1, ArtistName: ""},                   // dropped: blank artist
+		{Position: 2, ArtistName: overLength},           // truncated
+		{Position: 3, ArtistName: "Deerhunter"},         // clean
+		{Position: 4, ArtistName: "Sonic Youth"},        // clean
+		{Position: 5, ArtistName: "  \t  "},             // dropped: whitespace-only
+	}
+
+	count, dropSummary, err := suite.radioService.importPlays(ep.ID, plays)
+	suite.Require().NoError(err)
+	// 4 rows commit: Radiohead, Deerhunter, Sonic Youth, truncated overLength row.
+	// 2 rows drop: the two blank artist_name rows.
+	suite.Equal(4, count, "return value must reflect rows COMMITTED, not rows received")
+
+	// Summary covers BOTH classes in one line, no per-play entries. The
+	// PSY-885 format counts truncated + missing as the leading N: 1 + 2 = 3.
+	suite.Contains(dropSummary, "dropped 3 plays")
+	suite.Contains(dropSummary, "1 over-length titles truncated")
+	suite.Contains(dropSummary, "2 missing artist_name")
+	suite.Equal(1, strings.Count(dropSummary, "\n")+1, "summary must be a single line")
+
+	var dbPlays []catalogm.RadioPlay
+	suite.db.Where("episode_id = ?", ep.ID).Order("position ASC").Find(&dbPlays)
+	suite.Len(dbPlays, 4)
+	suite.Equal("Radiohead", dbPlays[0].ArtistName)
+	suite.Equal(strings.Repeat("x", 500), dbPlays[1].ArtistName, "truncated row preserved at its position")
+	suite.Equal("Deerhunter", dbPlays[2].ArtistName)
+	suite.Equal("Sonic Youth", dbPlays[3].ArtistName)
 }
 
 func (suite *RadioImportIntegrationTestSuite) TestMatchPlays_LabelCaseInsensitive() {
