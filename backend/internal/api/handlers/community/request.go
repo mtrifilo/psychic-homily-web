@@ -99,7 +99,7 @@ func (h *RequestHandler) CreateRequestHandler(ctx context.Context, req *CreateRe
 
 // ListRequestsHandlerRequest represents the request for listing requests
 type ListRequestsHandlerRequest struct {
-	Status     string `query:"status" required:"false" doc:"Filter by status (pending, in_progress, fulfilled, rejected, cancelled)"`
+	Status     string `query:"status" required:"false" doc:"Filter by status (pending, in_progress, pending_fulfillment, fulfilled, rejected, cancelled)"`
 	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, release, label, show, venue, festival)"`
 	Sort       string `query:"sort" required:"false" doc:"Sort by: newest, votes, oldest (default: votes)" example:"votes"`
 	Limit      int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
@@ -362,7 +362,13 @@ type FulfillRequestHandlerRequest struct {
 	}
 }
 
-// FulfillRequestHandler handles POST /requests/{request_id}/fulfill
+// FulfillRequestHandler handles POST /requests/{request_id}/fulfill.
+//
+// PSY-748: open to any authenticated user. Submitting a fulfillment
+// moves the request into pending_fulfillment; the original requester
+// or an admin then has to approve (or reject) via the dedicated
+// endpoints below. The pre-748 behavior — direct, unguarded write to
+// fulfilled — let any caller hijack the request's entity link.
 func (h *RequestHandler) FulfillRequestHandler(ctx context.Context, req *FulfillRequestHandlerRequest) (*struct{}, error) {
 	user := middleware.GetUserFromContext(ctx)
 	if user == nil {
@@ -374,19 +380,176 @@ func (h *RequestHandler) FulfillRequestHandler(ctx context.Context, req *Fulfill
 		return nil, huma.Error400BadRequest("Invalid request ID")
 	}
 
+	// Resolve the request up front so the audit log can capture
+	// requester_id + entity_type even if the fulfillment is later
+	// rejected. Failing here is non-fatal: we degrade to logging just
+	// what we have from the handler context.
+	var requesterID uint
+	var entityType string
+	if r, getErr := h.requestService.GetRequest(uint(id)); getErr == nil && r != nil {
+		requesterID = r.RequesterID
+		entityType = r.EntityType
+	}
+
 	err = h.requestService.FulfillRequest(uint(id), user.ID, req.Body.FulfilledEntityID)
 	if err != nil {
 		mappedErr := mapRequestError(err)
 		if mappedErr != nil {
 			return nil, mappedErr
 		}
-		return nil, huma.Error500InternalServerError("Failed to fulfill request")
+		return nil, huma.Error500InternalServerError("Failed to submit fulfillment")
 	}
 
-	// Audit log (fire and forget)
+	// Audit log (fire and forget). Includes requester_id (so the
+	// observer can see WHO is being asked to approve), fulfiller_id
+	// (the submitter), the proposed entity payload, and the resolved
+	// entity_type — see Finding 7 / PSY-748 acceptance criteria.
 	if h.auditLog != nil {
+		metadata := map[string]interface{}{
+			"requester_id": requesterID,
+			"fulfiller_id": user.ID,
+			"entity_type":  entityType,
+		}
+		if req.Body.FulfilledEntityID != nil {
+			metadata["fulfilled_entity_id"] = *req.Body.FulfilledEntityID
+		}
+		// Audit action name stays "fulfill_request" for backward compat
+		// with ContributionTimeline (frontend already maps that
+		// discriminator to a contribution-feed entry). The metadata
+		// expanded under PSY-748 — adding requester_id / fulfiller_id /
+		// entity_type / fulfilled_entity_id so reviewers can see who is
+		// being asked to approve what.
 		shared.GoSafe(ctx, "audit_log", func() {
-			h.auditLog.LogAction(user.ID, "fulfill_request", "request", uint(id), nil)
+			h.auditLog.LogAction(user.ID, "fulfill_request", "request", uint(id), metadata)
+		})
+	}
+
+	return nil, nil
+}
+
+// ============================================================================
+// Approve Fulfillment (PSY-748)
+// ============================================================================
+
+// ApproveFulfillmentHandlerRequest represents the request for approving
+// a pending fulfillment.
+type ApproveFulfillmentHandlerRequest struct {
+	RequestID string `path:"request_id" doc:"Request ID" example:"1"`
+}
+
+// ApproveFulfillmentHandler handles POST /requests/{request_id}/approve-fulfillment.
+// PSY-748: only the original requester or an admin may approve.
+func (h *RequestHandler) ApproveFulfillmentHandler(ctx context.Context, req *ApproveFulfillmentHandlerRequest) (*struct{}, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	id, err := strconv.ParseUint(req.RequestID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid request ID")
+	}
+
+	// Resolve audit context before mutation so we log fulfiller +
+	// entity even if the request row later changes.
+	var fulfillerID *uint
+	var entityType string
+	var requesterID uint
+	var fulfilledEntityID *uint
+	if r, getErr := h.requestService.GetRequest(uint(id)); getErr == nil && r != nil {
+		fulfillerID = r.FulfillerID
+		entityType = r.EntityType
+		requesterID = r.RequesterID
+		fulfilledEntityID = r.RequestedEntityID
+	}
+
+	err = h.requestService.ApproveFulfillment(uint(id), user.ID, user.IsAdmin)
+	if err != nil {
+		mappedErr := mapRequestError(err)
+		if mappedErr != nil {
+			return nil, mappedErr
+		}
+		return nil, huma.Error500InternalServerError("Failed to approve fulfillment")
+	}
+
+	if h.auditLog != nil {
+		metadata := map[string]interface{}{
+			"requester_id": requesterID,
+			"entity_type":  entityType,
+		}
+		if fulfillerID != nil {
+			metadata["fulfiller_id"] = *fulfillerID
+		}
+		if fulfilledEntityID != nil {
+			metadata["fulfilled_entity_id"] = *fulfilledEntityID
+		}
+		shared.GoSafe(ctx, "audit_log", func() {
+			h.auditLog.LogAction(user.ID, "approve_fulfillment", "request", uint(id), metadata)
+		})
+	}
+
+	return nil, nil
+}
+
+// ============================================================================
+// Reject Fulfillment (PSY-748)
+// ============================================================================
+
+// RejectFulfillmentHandlerRequest represents the request for rejecting
+// a pending fulfillment.
+type RejectFulfillmentHandlerRequest struct {
+	RequestID string `path:"request_id" doc:"Request ID" example:"1"`
+}
+
+// RejectFulfillmentHandler handles POST /requests/{request_id}/reject-fulfillment.
+// PSY-748: only the original requester or an admin may reject. On
+// success the request returns to "pending" with fulfiller_id and
+// requested_entity_id cleared.
+func (h *RequestHandler) RejectFulfillmentHandler(ctx context.Context, req *RejectFulfillmentHandlerRequest) (*struct{}, error) {
+	user := middleware.GetUserFromContext(ctx)
+	if user == nil {
+		return nil, huma.Error401Unauthorized("Authentication required")
+	}
+
+	id, err := strconv.ParseUint(req.RequestID, 10, 32)
+	if err != nil {
+		return nil, huma.Error400BadRequest("Invalid request ID")
+	}
+
+	// Resolve audit context before the mutation clears it.
+	var fulfillerID *uint
+	var entityType string
+	var requesterID uint
+	var fulfilledEntityID *uint
+	if r, getErr := h.requestService.GetRequest(uint(id)); getErr == nil && r != nil {
+		fulfillerID = r.FulfillerID
+		entityType = r.EntityType
+		requesterID = r.RequesterID
+		fulfilledEntityID = r.RequestedEntityID
+	}
+
+	err = h.requestService.RejectFulfillment(uint(id), user.ID, user.IsAdmin)
+	if err != nil {
+		mappedErr := mapRequestError(err)
+		if mappedErr != nil {
+			return nil, mappedErr
+		}
+		return nil, huma.Error500InternalServerError("Failed to reject fulfillment")
+	}
+
+	if h.auditLog != nil {
+		metadata := map[string]interface{}{
+			"requester_id": requesterID,
+			"entity_type":  entityType,
+		}
+		if fulfillerID != nil {
+			metadata["fulfiller_id"] = *fulfillerID
+		}
+		if fulfilledEntityID != nil {
+			metadata["fulfilled_entity_id"] = *fulfilledEntityID
+		}
+		shared.GoSafe(ctx, "audit_log", func() {
+			h.auditLog.LogAction(user.ID, "reject_fulfillment", "request", uint(id), metadata)
 		})
 	}
 
@@ -471,7 +634,13 @@ func buildRequestResponse(request *communitym.Request, userVote *int) *contracts
 	return resp
 }
 
-// mapRequestError converts a RequestError to an appropriate Huma HTTP error
+// mapRequestError converts a RequestError to an appropriate Huma HTTP error.
+//
+// EntityTypeMismatch + EntityNotFound surface as 400 because the request
+// itself is fine — the caller's payload references the wrong target. We
+// don't return 404 there because the request resource still exists.
+// InvalidState (e.g. approving a non-pending_fulfillment request) is 409:
+// a precondition on the resource state failed.
 func mapRequestError(err error) error {
 	var requestErr *apperrors.RequestError
 	if errors.As(err, &requestErr) {
@@ -481,6 +650,11 @@ func mapRequestError(err error) error {
 		case apperrors.CodeRequestForbidden:
 			return huma.Error403Forbidden(requestErr.Message)
 		case apperrors.CodeRequestAlreadyFulfilled:
+			return huma.Error409Conflict(requestErr.Message)
+		case apperrors.CodeRequestEntityTypeMismatch,
+			apperrors.CodeRequestEntityNotFound:
+			return huma.Error400BadRequest(requestErr.Message)
+		case apperrors.CodeRequestInvalidState:
 			return huma.Error409Conflict(requestErr.Message)
 		}
 	}

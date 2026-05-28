@@ -26,5 +26,11 @@ func setupRequestRoutes(rc RouteContext) {
 	huma.Post(rc.Protected, "/requests/{request_id}/vote", requestHandler.VoteRequestHandler)
 	huma.Delete(rc.Protected, "/requests/{request_id}/vote", requestHandler.RemoveVoteRequestHandler)
 	huma.Post(rc.Protected, "/requests/{request_id}/fulfill", requestHandler.FulfillRequestHandler)
+	// PSY-748: two-step fulfillment workflow. Submit (above) is open to
+	// any authed user; approve/reject is requester-or-admin only — auth
+	// is enforced in the service layer so the route registration only
+	// needs the standard Protected gate.
+	huma.Post(rc.Protected, "/requests/{request_id}/approve-fulfillment", requestHandler.ApproveFulfillmentHandler)
+	huma.Post(rc.Protected, "/requests/{request_id}/reject-fulfillment", requestHandler.RejectFulfillmentHandler)
 	huma.Post(rc.Protected, "/requests/{request_id}/close", requestHandler.CloseRequestHandler)
 }

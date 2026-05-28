@@ -10,9 +10,34 @@ import (
 
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/testutil"
 )
+
+// createTestArtist seeds a minimal artist row and returns its ID. Used by
+// PSY-748 fulfillment tests that need a real catalog entity for the
+// type-match check to pass.
+func createTestArtist(db *gorm.DB) uint {
+	name := fmt.Sprintf("test-artist-%d", time.Now().UnixNano())
+	artist := &catalogm.Artist{Name: name}
+	if err := db.Create(artist).Error; err != nil {
+		panic(fmt.Sprintf("seed artist failed: %v", err))
+	}
+	return artist.ID
+}
+
+// createTestVenue seeds a minimal venue row and returns its ID. Used by
+// PSY-748 fulfillment tests to prove the type-mismatch path rejects
+// when caller supplies the wrong table's row.
+func createTestVenue(db *gorm.DB) uint {
+	name := fmt.Sprintf("test-venue-%d", time.Now().UnixNano())
+	venue := &catalogm.Venue{Name: name, City: "Phoenix", State: "AZ"}
+	if err := db.Create(venue).Error; err != nil {
+		panic(fmt.Sprintf("seed venue failed: %v", err))
+	}
+	return venue.ID
+}
 
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
@@ -38,10 +63,15 @@ func (suite *RequestServiceIntegrationTestSuite) TearDownSuite() {
 }
 
 func (suite *RequestServiceIntegrationTestSuite) SetupTest() {
-	// Clean up between tests
+	// Clean up between tests. Artists/venues live downstream of the
+	// request fulfillment entity-type checks (PSY-748) so they must be
+	// purged too — leaving them around would let the per-test ID
+	// counters drift across runs and break the not-found assertions.
 	sqlDB, _ := suite.db.DB()
 	_, _ = sqlDB.Exec("DELETE FROM request_votes")
 	_, _ = sqlDB.Exec("DELETE FROM requests")
+	_, _ = sqlDB.Exec("DELETE FROM artists")
+	_, _ = sqlDB.Exec("DELETE FROM venues")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -473,7 +503,11 @@ func (suite *RequestServiceIntegrationTestSuite) TestRemoveVote_NotFound() {
 // Test: FulfillRequest
 // ============================================================================
 
-func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_Success() {
+// PSY-748: FulfillRequest is now a SUBMIT step that lands the request in
+// pending_fulfillment. The two-step approve/reject flow below proves the
+// transition to terminal "fulfilled" requires requester or admin approval.
+
+func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_SubmitsForApproval() {
 	user := suite.createTestUser("requester")
 	fulfiller := suite.createTestUser("fulfiller")
 	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
@@ -482,36 +516,89 @@ func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_Success() {
 	suite.Require().NoError(err)
 
 	request, _ := suite.requestService.GetRequest(created.ID)
-	suite.Assert().Equal(communitym.RequestStatusFulfilled, request.Status)
+	// Pre-748 this would have been Fulfilled — the new gate moves it to
+	// pending_fulfillment so the requester can confirm.
+	suite.Assert().Equal(communitym.RequestStatusPendingFulfillment, request.Status)
 	suite.Assert().NotNil(request.FulfillerID)
 	suite.Assert().Equal(fulfiller.ID, *request.FulfillerID)
-	suite.Assert().NotNil(request.FulfilledAt)
+	// fulfilled_at is only stamped on approval, not submission.
+	suite.Assert().Nil(request.FulfilledAt)
 }
 
-func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_WithEntityID() {
+func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_WithEntityID_TypeMatches() {
 	user := suite.createTestUser("requester")
 	fulfiller := suite.createTestUser("fulfiller")
 	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
 
-	entityID := uint(42)
-	err := suite.requestService.FulfillRequest(created.ID, fulfiller.ID, &entityID)
+	// Seed a real artist so the entity-existence + type-match check
+	// passes — pre-748 the service blindly accepted any ID.
+	artistID := createTestArtist(suite.db)
+	err := suite.requestService.FulfillRequest(created.ID, fulfiller.ID, &artistID)
 	suite.Require().NoError(err)
 
 	request, _ := suite.requestService.GetRequest(created.ID)
-	suite.Assert().Equal(communitym.RequestStatusFulfilled, request.Status)
+	suite.Assert().Equal(communitym.RequestStatusPendingFulfillment, request.Status)
 	suite.Assert().NotNil(request.RequestedEntityID)
-	suite.Assert().Equal(uint(42), *request.RequestedEntityID)
+	suite.Assert().Equal(artistID, *request.RequestedEntityID)
 }
 
-func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_AlreadyFulfilled() {
+func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_EntityTypeMismatch_Rejected() {
+	// PSY-748: caller proposes a venue ID to fulfill an artist request.
+	// Should reject with REQUEST_ENTITY_TYPE_MISMATCH and leave the
+	// request unchanged (no row poisoning).
 	user := suite.createTestUser("requester")
 	fulfiller := suite.createTestUser("fulfiller")
+	created, _ := suite.requestService.CreateRequest(user.ID, "Artist Request", "desc", "artist", nil)
+
+	// venueID exists in venues — but the request expects an artist.
+	venueID := createTestVenue(suite.db)
+	err := suite.requestService.FulfillRequest(created.ID, fulfiller.ID, &venueID)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Require().ErrorAs(err, &requestErr)
+	// Mismatch surfaces as a missing artist with that ID — caller sees a
+	// 400 from EntityNotFound. The exact code depends on whether there
+	// happens to be an artist with the same numeric ID as the venue; the
+	// happy path is the explicit ENTITY_NOT_FOUND code.
+	suite.Assert().Contains([]string{
+		apperrors.CodeRequestEntityNotFound,
+		apperrors.CodeRequestEntityTypeMismatch,
+	}, requestErr.Code)
+
+	// Crucially: request state and fulfiller stayed pristine.
+	request, _ := suite.requestService.GetRequest(created.ID)
+	suite.Assert().Equal(communitym.RequestStatusPending, request.Status)
+	suite.Assert().Nil(request.FulfillerID)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_EntityNotFound_Rejected() {
+	// PSY-748: caller proposes an artist ID that doesn't exist.
+	user := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	created, _ := suite.requestService.CreateRequest(user.ID, "Artist Request", "desc", "artist", nil)
+
+	nonExistentID := uint(999999)
+	err := suite.requestService.FulfillRequest(created.ID, fulfiller.ID, &nonExistentID)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Require().ErrorAs(err, &requestErr)
+	suite.Assert().Equal(apperrors.CodeRequestEntityNotFound, requestErr.Code)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_AlreadyPendingFulfillment_Rejected() {
+	// Once a request is in pending_fulfillment, a second submitter
+	// can't overwrite the proposal — they'd have to wait for the
+	// reject path.
+	user := suite.createTestUser("requester")
+	fulfiller1 := suite.createTestUser("fulfiller1")
+	fulfiller2 := suite.createTestUser("fulfiller2")
 	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
 
-	_ = suite.requestService.FulfillRequest(created.ID, fulfiller.ID, nil)
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller1.ID, nil)
 
-	// Try to fulfill again
-	err := suite.requestService.FulfillRequest(created.ID, fulfiller.ID, nil)
+	err := suite.requestService.FulfillRequest(created.ID, fulfiller2.ID, nil)
 	suite.Assert().Error(err)
 
 	var requestErr *apperrors.RequestError
@@ -527,6 +614,210 @@ func (suite *RequestServiceIntegrationTestSuite) TestFulfillRequest_NotFound() {
 	var requestErr *apperrors.RequestError
 	suite.Assert().ErrorAs(err, &requestErr)
 	suite.Assert().Equal(apperrors.CodeRequestNotFound, requestErr.Code)
+}
+
+// ============================================================================
+// Test: ApproveFulfillment (PSY-748)
+// ============================================================================
+
+func (suite *RequestServiceIntegrationTestSuite) TestApproveFulfillment_ByRequester() {
+	user := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	// Submitter lands the request in pending_fulfillment.
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller.ID, nil)
+
+	// Requester approves → terminal fulfilled.
+	err := suite.requestService.ApproveFulfillment(created.ID, user.ID, false)
+	suite.Require().NoError(err)
+
+	request, _ := suite.requestService.GetRequest(created.ID)
+	suite.Assert().Equal(communitym.RequestStatusFulfilled, request.Status)
+	suite.Assert().NotNil(request.FulfilledAt)
+	// Fulfiller preserved across the approval.
+	suite.Assert().NotNil(request.FulfillerID)
+	suite.Assert().Equal(fulfiller.ID, *request.FulfillerID)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestApproveFulfillment_ByAdmin() {
+	user := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	admin := suite.createTestUser("admin")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller.ID, nil)
+
+	// Admin can approve on behalf of the requester (e.g. requester
+	// went inactive).
+	err := suite.requestService.ApproveFulfillment(created.ID, admin.ID, true)
+	suite.Require().NoError(err)
+
+	request, _ := suite.requestService.GetRequest(created.ID)
+	suite.Assert().Equal(communitym.RequestStatusFulfilled, request.Status)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestApproveFulfillment_NonRequesterNonAdmin_Forbidden() {
+	// PSY-748 acceptance: a random user can't approve someone else's
+	// pending fulfillment.
+	user := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	stranger := suite.createTestUser("stranger")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller.ID, nil)
+
+	err := suite.requestService.ApproveFulfillment(created.ID, stranger.ID, false)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Require().ErrorAs(err, &requestErr)
+	suite.Assert().Equal(apperrors.CodeRequestForbidden, requestErr.Code)
+
+	// State must NOT have moved.
+	request, _ := suite.requestService.GetRequest(created.ID)
+	suite.Assert().Equal(communitym.RequestStatusPendingFulfillment, request.Status)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestApproveFulfillment_FulfillerCannotSelfApprove() {
+	// The same user who submitted the fulfillment may not also approve
+	// it — that would defeat the whole point of the two-step gate. They
+	// can only approve via the admin path or if they happen to also be
+	// the requester (small corner case, but explicit so the model is
+	// clear).
+	user := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller.ID, nil)
+
+	err := suite.requestService.ApproveFulfillment(created.ID, fulfiller.ID, false)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Require().ErrorAs(err, &requestErr)
+	suite.Assert().Equal(apperrors.CodeRequestForbidden, requestErr.Code)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestApproveFulfillment_WrongState() {
+	// Can't approve a request that isn't actually in pending_fulfillment.
+	user := suite.createTestUser("requester")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	err := suite.requestService.ApproveFulfillment(created.ID, user.ID, false)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Require().ErrorAs(err, &requestErr)
+	suite.Assert().Equal(apperrors.CodeRequestInvalidState, requestErr.Code)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestApproveFulfillment_NotFound() {
+	user := suite.createTestUser("requester")
+	err := suite.requestService.ApproveFulfillment(99999, user.ID, false)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Assert().ErrorAs(err, &requestErr)
+	suite.Assert().Equal(apperrors.CodeRequestNotFound, requestErr.Code)
+}
+
+// ============================================================================
+// Test: RejectFulfillment (PSY-748)
+// ============================================================================
+
+func (suite *RequestServiceIntegrationTestSuite) TestRejectFulfillment_ByRequester() {
+	user := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	artistID := createTestArtist(suite.db)
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller.ID, &artistID)
+
+	// Requester sees the proposal, decides it's wrong, rejects.
+	err := suite.requestService.RejectFulfillment(created.ID, user.ID, false)
+	suite.Require().NoError(err)
+
+	request, _ := suite.requestService.GetRequest(created.ID)
+	// Back to pending — request is open for someone else to try again.
+	suite.Assert().Equal(communitym.RequestStatusPending, request.Status)
+	// Fulfiller + entity link cleared so the next submitter starts clean.
+	suite.Assert().Nil(request.FulfillerID)
+	suite.Assert().Nil(request.RequestedEntityID)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestRejectFulfillment_ByAdmin() {
+	user := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	admin := suite.createTestUser("admin")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller.ID, nil)
+
+	err := suite.requestService.RejectFulfillment(created.ID, admin.ID, true)
+	suite.Require().NoError(err)
+
+	request, _ := suite.requestService.GetRequest(created.ID)
+	suite.Assert().Equal(communitym.RequestStatusPending, request.Status)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestRejectFulfillment_NonRequesterNonAdmin_Forbidden() {
+	user := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	stranger := suite.createTestUser("stranger")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller.ID, nil)
+
+	err := suite.requestService.RejectFulfillment(created.ID, stranger.ID, false)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Require().ErrorAs(err, &requestErr)
+	suite.Assert().Equal(apperrors.CodeRequestForbidden, requestErr.Code)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestRejectFulfillment_WrongState() {
+	user := suite.createTestUser("requester")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	err := suite.requestService.RejectFulfillment(created.ID, user.ID, false)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Require().ErrorAs(err, &requestErr)
+	suite.Assert().Equal(apperrors.CodeRequestInvalidState, requestErr.Code)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestRejectFulfillment_NotFound() {
+	user := suite.createTestUser("requester")
+	err := suite.requestService.RejectFulfillment(99999, user.ID, false)
+	suite.Assert().Error(err)
+
+	var requestErr *apperrors.RequestError
+	suite.Assert().ErrorAs(err, &requestErr)
+	suite.Assert().Equal(apperrors.CodeRequestNotFound, requestErr.Code)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestRejectFulfillment_AllowsResubmission() {
+	// Lifecycle round-trip: reject puts the request back into the
+	// community pool, where another fulfiller can try again.
+	user := suite.createTestUser("requester")
+	fulfiller1 := suite.createTestUser("fulfiller1")
+	fulfiller2 := suite.createTestUser("fulfiller2")
+	created, _ := suite.requestService.CreateRequest(user.ID, "To Fulfill", "desc", "artist", nil)
+
+	_ = suite.requestService.FulfillRequest(created.ID, fulfiller1.ID, nil)
+	_ = suite.requestService.RejectFulfillment(created.ID, user.ID, false)
+
+	// Second fulfiller succeeds now.
+	err := suite.requestService.FulfillRequest(created.ID, fulfiller2.ID, nil)
+	suite.Require().NoError(err)
+
+	request, _ := suite.requestService.GetRequest(created.ID)
+	suite.Assert().Equal(communitym.RequestStatusPendingFulfillment, request.Status)
+	suite.Assert().NotNil(request.FulfillerID)
+	suite.Assert().Equal(fulfiller2.ID, *request.FulfillerID)
 }
 
 // ============================================================================
