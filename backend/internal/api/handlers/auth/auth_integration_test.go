@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -282,7 +283,15 @@ func (s *AuthHandlerIntegrationSuite) TestRefreshToken_UserDeletedFromDB() {
 	_, _ = sqlDB.Exec("DELETE FROM users WHERE id = $1", user.ID)
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
-	s.Require().NoError(err)
+
+	// Fail-closed: profile fetch against a deleted user surfaces as a 5xx so
+	// the HTTP layer does not hand callers an HTTP 200 with a sad-path body.
+	// The body shape still carries SERVICE_UNAVAILABLE for the structured
+	// error-code branch on clients; only the transport status flips.
+	s.Require().Error(err)
+	var authErr *autherrors.AuthError
+	s.Require().True(errors.As(err, &authErr), "expected returned error to wrap *AuthError")
+	s.Equal(autherrors.CodeServiceUnavailable, authErr.Code)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 }

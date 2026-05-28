@@ -313,28 +313,37 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 		"user_id", contextUser.ID,
 	)
 
-	// Fetch fresh user data and generate new token
+	// Fetch fresh user data and generate new token.
+	// Fail-closed: an unexpected DB/service failure here propagates as a 5xx so
+	// the HTTP layer cannot hand callers (or monitoring) a misleading HTTP 200
+	// SERVICE_UNAVAILABLE body. The response body shape is unchanged; only the
+	// transport-level status flips from 200 to 5xx.
 	user, err := h.authService.GetUserProfile(contextUser.ID)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("refresh_token_profile", err)
 		logger.AuthError(ctx, "refresh_token_profile_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to refresh token"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
-	// Generate new JWT token using the JWT service
+	// Generate new JWT token using the JWT service.
+	// Fail-closed: same rationale as the profile-fetch branch above — JWT
+	// service outages must surface as 5xx, not as HTTP 200 with a sad-path
+	// body.
 	newToken, err := h.authService.RefreshUserToken(user)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("refresh_token_generation", err)
 		logger.AuthError(ctx, "refresh_token_generation_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to generate new token"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	logger.AuthInfo(ctx, "refresh_token_success",

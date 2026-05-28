@@ -1202,19 +1202,40 @@ func TestRefreshTokenHandler_Success(t *testing.T) {
 	}
 }
 
+// TestRefreshTokenHandler_ProfileFails asserts that an unexpected service
+// failure in GetUserProfile (DB outage, raw error from the user service)
+// propagates as a 5xx so the HTTP layer does not hand callers an HTTP 200
+// with a SERVICE_UNAVAILABLE body. The body shape stays the same as the old
+// HTTP-200 path; only the transport status flips. Locks in the fail-closed
+// convention for the token-refresh session-lifecycle surface.
 func TestRefreshTokenHandler_ProfileFails(t *testing.T) {
+	rawErr := fmt.Errorf("db error")
 	h := authHandler(func(ah *AuthHandler) {
 		ah.authService = &testhelpers.MockAuthService{
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
-				return nil, fmt.Errorf("db error")
+				return nil, rawErr
 			},
 		}
 	})
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	// Handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must wrap an *AuthError of CodeServiceUnavailable so
+	// the apperror mapper translates it to a 5xx with the structured body.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
@@ -1222,30 +1243,61 @@ func TestRefreshTokenHandler_ProfileFails(t *testing.T) {
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 	}
+	// External message must match the canonical SERVICE_UNAVAILABLE shape so
+	// callers do not see "Failed to refresh token" as an internal-step leak.
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
 }
 
+// TestRefreshTokenHandler_TokenFails asserts that an unexpected failure in
+// RefreshUserToken (JWT service outage, signing failure) propagates as a 5xx
+// for the same reason as the profile-failure branch — a session-lifecycle
+// surface returning HTTP 200 on a transport-level outage hides a real
+// incident from monitoring.
 func TestRefreshTokenHandler_TokenFails(t *testing.T) {
+	rawErr := fmt.Errorf("token error")
 	h := authHandler(func(ah *AuthHandler) {
 		ah.authService = &testhelpers.MockAuthService{
 			GetUserProfileFn: func(userID uint) (*authm.User, error) {
 				return &authm.User{ID: userID}, nil
 			},
 			RefreshUserTokenFn: func(user *authm.User) (string, error) {
-				return "", fmt.Errorf("token error")
+				return "", rawErr
 			},
 		}
 	})
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	// Handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must wrap an *AuthError of CodeServiceUnavailable so
+	// the apperror mapper translates it to a 5xx with the structured body.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// External message must match the canonical SERVICE_UNAVAILABLE shape so
+	// callers do not see "Failed to generate new token" as an internal-step
+	// leak.
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 
