@@ -1,0 +1,31 @@
+-- PSY-888: Unique index for radio_plays dedup so importPlays can use
+-- ON CONFLICT DO NOTHING on re-imports.
+--
+-- Re-running a radio playlist fetch (chronic during dev / scheduled re-fetches)
+-- previously rolled back the entire 100-row batch insert on any duplicate row.
+--
+-- Dedup key shape: (episode_id, position, air_timestamp, artist_name,
+-- track_title). Including `position` is necessary because:
+--   * `position` is non-nullable; the other three are nullable/NULL across
+--     providers (NTS never sets air_timestamp).
+--   * Real radio episodes legitimately play the same artist multiple
+--     times in one episode (different tracks, same artist). Without
+--     position in the key, two such plays would collide and one would be
+--     silently lost on re-import.
+--   * Providers assign `position` deterministically from the parsed
+--     playlist index, so identical re-fetches produce identical
+--     positions, making this a stable dedup key for the re-import case.
+--
+-- NULLS NOT DISTINCT (Postgres 15+) is still required because for the
+-- common case (same row re-inserted with NULL air_timestamp / NULL
+-- track_title), Postgres' default NULL-is-distinct semantics would treat
+-- the new row as non-conflicting and insert it.
+--
+-- CONCURRENTLY is safe here because this file contains a single statement;
+-- golang-migrate v4 wraps multi-statement .up.sql files in a transaction
+-- which is incompatible with CREATE INDEX CONCURRENTLY. See the
+-- 20260528160326 unaccent migration for the multi-statement case where
+-- CONCURRENTLY was intentionally dropped.
+CREATE UNIQUE INDEX CONCURRENTLY IF NOT EXISTS idx_radio_plays_unique
+  ON radio_plays (episode_id, position, air_timestamp, artist_name, track_title)
+  NULLS NOT DISTINCT;

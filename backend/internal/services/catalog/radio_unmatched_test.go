@@ -115,13 +115,19 @@ func (s *RadioUnmatchedSuite) createTestEpisode(showID uint, airDate string) *ca
 	return ep
 }
 
-// createTestPlay creates a radio play for testing.
+// createTestPlay creates a radio play for testing. Position is auto-assigned
+// based on existing plays for the episode so the PSY-888 unique index
+// (episode_id, position, air_timestamp, artist_name, track_title) NULLS NOT
+// DISTINCT is satisfied when a test inserts multiple plays for the same
+// artist in one episode — real providers always assign distinct positions.
 func (s *RadioUnmatchedSuite) createTestPlay(episodeID uint, artistName string, artistID *uint) *catalogm.RadioPlay {
+	var existing int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", episodeID).Count(&existing).Error)
 	play := &catalogm.RadioPlay{
 		EpisodeID:  episodeID,
 		ArtistName: artistName,
 		ArtistID:   artistID,
-		Position:   0,
+		Position:   int(existing),
 	}
 	s.Require().NoError(s.db.Create(play).Error)
 	return play
