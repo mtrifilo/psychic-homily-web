@@ -1318,7 +1318,6 @@ function CollectionItemRow({
               {...listeners}
               className="touch-none cursor-grab active:cursor-grabbing h-7 w-5 flex items-center justify-center text-muted-foreground hover:text-foreground rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               aria-label={`Drag to reorder ${item.entity_name}. Use space to lift, arrow keys to move.`}
-              title="Drag to reorder"
               data-testid="drag-handle"
             >
               <GripVertical className="h-4 w-4" />
@@ -1330,8 +1329,7 @@ function CollectionItemRow({
                 className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
                 onClick={() => onMoveUp(index)}
                 disabled={index === 0 || isReordering}
-                title="Move up"
-                aria-label="Move up"
+                aria-label={`Move ${item.entity_name} up`}
               >
                 <ChevronUp className="h-3.5 w-3.5" />
               </Button>
@@ -1341,8 +1339,7 @@ function CollectionItemRow({
                 className="h-5 w-5 p-0 text-muted-foreground hover:text-foreground"
                 onClick={() => onMoveDown(index)}
                 disabled={index === totalItems - 1 || isReordering}
-                title="Move down"
-                aria-label="Move down"
+                aria-label={`Move ${item.entity_name} down`}
               >
                 <ChevronDown className="h-3.5 w-3.5" />
               </Button>
@@ -1403,7 +1400,7 @@ function CollectionItemRow({
                   setNotesValue(item.notes ?? '')
                   setIsEditingNotes(true)
                 }}
-                title="Edit notes"
+                aria-label={`Edit notes for ${item.entity_name}`}
               >
                 <Pencil className="h-3.5 w-3.5" />
               </Button>
@@ -1417,7 +1414,7 @@ function CollectionItemRow({
                 className="h-7 w-7 p-0 text-muted-foreground hover:text-destructive"
                 onClick={() => setShowRemoveConfirm(true)}
                 disabled={removeMutation.isPending}
-                title="Remove from collection"
+                aria-label={`Remove ${item.entity_name} from collection`}
               >
                 <X className="h-4 w-4" />
               </Button>

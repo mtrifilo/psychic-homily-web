@@ -237,12 +237,16 @@ describe('ShowCard', () => {
 
   it('does not show admin edit button for non-admin', () => {
     render(<ShowCard show={makeShow()} isAdmin={false} />)
-    expect(screen.queryByTitle('Edit show')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /edit show/i })
+    ).not.toBeInTheDocument()
   })
 
   it('shows admin edit button for admin', () => {
     render(<ShowCard show={makeShow()} isAdmin={true} />)
-    expect(screen.getByTitle('Edit show')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /edit show/i })
+    ).toBeInTheDocument()
   })
 
   it('toggles inline edit form when admin clicks edit', async () => {
@@ -251,17 +255,19 @@ describe('ShowCard', () => {
 
     expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
 
-    await user.click(screen.getByTitle('Edit show'))
+    await user.click(screen.getByRole('button', { name: /edit show/i }))
     expect(screen.getByTestId('show-form')).toBeInTheDocument()
 
-    // Title changes to "Cancel editing"
-    await user.click(screen.getByTitle('Cancel editing'))
+    // Label changes to "Cancel editing"
+    await user.click(screen.getByRole('button', { name: /cancel editing/i }))
     expect(screen.queryByTestId('show-form')).not.toBeInTheDocument()
   })
 
   it('shows delete button for admin', () => {
     render(<ShowCard show={makeShow()} isAdmin={true} />)
-    expect(screen.getByTitle('Delete show')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /delete show/i })
+    ).toBeInTheDocument()
   })
 
   it('shows delete button for show owner', () => {
@@ -273,7 +279,9 @@ describe('ShowCard', () => {
     })
     const show = makeShow({ submitted_by: 42 })
     render(<ShowCard show={show} isAdmin={false} userId="42" />)
-    expect(screen.getByTitle('Delete show')).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /delete show/i })
+    ).toBeInTheDocument()
   })
 
   it('does not show delete button for non-owner non-admin', () => {
@@ -285,7 +293,9 @@ describe('ShowCard', () => {
     })
     const show = makeShow({ submitted_by: 42 })
     render(<ShowCard show={show} isAdmin={false} userId="99" />)
-    expect(screen.queryByTitle('Delete show')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /delete show/i })
+    ).not.toBeInTheDocument()
   })
 
   it('opens delete dialog when delete button clicked', async () => {
@@ -293,7 +303,7 @@ describe('ShowCard', () => {
     render(<ShowCard show={makeShow()} isAdmin={true} />)
 
     expect(screen.queryByTestId('delete-dialog')).not.toBeInTheDocument()
-    await user.click(screen.getByTitle('Delete show'))
+    await user.click(screen.getByRole('button', { name: /delete show/i }))
     expect(screen.getByTestId('delete-dialog')).toBeInTheDocument()
   })
 
@@ -344,7 +354,9 @@ describe('ShowCard', () => {
         ],
       })
       render(<ShowCard show={show} isAdmin={false} />)
-      expect(screen.getByTitle('Discover artist music')).toBeInTheDocument()
+      expect(
+        screen.getByRole('button', { name: /discover artist music/i })
+      ).toBeInTheDocument()
     })
 
     it('does not show expand button when no artist has music', () => {
@@ -360,7 +372,9 @@ describe('ShowCard', () => {
         ],
       })
       render(<ShowCard show={show} isAdmin={false} />)
-      expect(screen.queryByTitle('Discover artist music')).not.toBeInTheDocument()
+      expect(
+        screen.queryByRole('button', { name: /discover artist music/i })
+      ).not.toBeInTheDocument()
     })
 
     it('toggles expanded music section on click', async () => {
@@ -379,10 +393,14 @@ describe('ShowCard', () => {
 
       expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
 
-      await user.click(screen.getByTitle('Discover artist music'))
+      await user.click(
+        screen.getByRole('button', { name: /discover artist music/i })
+      )
       expect(screen.getByTestId('music-embed')).toBeInTheDocument()
 
-      await user.click(screen.getByTitle('Hide artist music'))
+      await user.click(
+        screen.getByRole('button', { name: /hide artist music/i })
+      )
       expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
     })
   })

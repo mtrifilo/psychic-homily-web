@@ -201,6 +201,7 @@ function ArtistPicker({
                 size="sm"
                 onClick={() => onRemove(index)}
                 className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                aria-label={`Remove ${artist.artist_name}`}
               >
                 <X className="h-3.5 w-3.5" />
               </Button>
@@ -271,7 +272,13 @@ function LinkEditor({
             }}
           />
         </div>
-        <Button type="button" variant="outline" size="sm" onClick={handleAdd}>
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={handleAdd}
+          aria-label="Add external link"
+        >
           <Plus className="h-4 w-4" />
         </Button>
       </div>
@@ -297,6 +304,7 @@ function LinkEditor({
                 size="sm"
                 onClick={() => onRemove(index)}
                 className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                aria-label={`Remove link ${link.url}`}
               >
                 <X className="h-3.5 w-3.5" />
               </Button>
@@ -379,6 +387,7 @@ function ExistingLinkManager({
           size="sm"
           onClick={handleAdd}
           disabled={addLinkMutation.isPending}
+          aria-label="Add external link"
         >
           {addLinkMutation.isPending ? (
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -416,6 +425,7 @@ function ExistingLinkManager({
                 onClick={() => handleRemove(link.id)}
                 disabled={removeLinkMutation.isPending}
                 className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                aria-label={`Remove link ${link.url}`}
               >
                 <X className="h-3.5 w-3.5" />
               </Button>
@@ -1158,6 +1168,7 @@ export function ReleaseManagement() {
                     size="sm"
                     onClick={() => openEdit(release.id)}
                     className="h-8 w-8 p-0"
+                    aria-label={`Edit ${release.title}`}
                   >
                     <Pencil className="h-3.5 w-3.5" />
                   </Button>
@@ -1166,6 +1177,7 @@ export function ReleaseManagement() {
                     size="sm"
                     onClick={() => openDelete(release.id, release.title)}
                     className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                    aria-label={`Delete ${release.title}`}
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                   </Button>

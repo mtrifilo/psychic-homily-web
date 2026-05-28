@@ -268,7 +268,6 @@ export function CollectionItemCard({
             {...listeners}
             className="touch-none cursor-grab active:cursor-grabbing h-6 w-6 flex items-center justify-center rounded text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={`Drag to reorder ${item.entity_name}. Use space to lift, arrow keys to move.`}
-            title="Drag to reorder"
             data-testid="collection-item-card-drag-handle"
           >
             <GripVertical className="h-3.5 w-3.5" />
@@ -279,8 +278,7 @@ export function CollectionItemCard({
             className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
             onClick={() => reorder.onMoveUp(reorder.index)}
             disabled={reorder.index === 0 || reorder.isPending}
-            title="Move up"
-            aria-label="Move up"
+            aria-label={`Move ${item.entity_name} up`}
           >
             <ChevronUp className="h-3.5 w-3.5" />
           </Button>
@@ -290,8 +288,7 @@ export function CollectionItemCard({
             className="h-6 w-6 p-0 text-muted-foreground hover:text-foreground"
             onClick={() => reorder.onMoveDown(reorder.index)}
             disabled={reorder.index === reorder.totalItems - 1 || reorder.isPending}
-            title="Move down"
-            aria-label="Move down"
+            aria-label={`Move ${item.entity_name} down`}
           >
             <ChevronDown className="h-3.5 w-3.5" />
           </Button>

@@ -96,7 +96,7 @@ export function VenueCard({ venue }: VenueCardProps) {
                       setIsEditingVenue(true)
                     }}
                     className="p-1 rounded-md hover:bg-muted transition-colors"
-                    title="Edit venue"
+                    aria-label={`Edit ${venue.name}`}
                   >
                     <Pencil className="h-3.5 w-3.5 text-muted-foreground hover:text-foreground" />
                   </button>
@@ -106,7 +106,7 @@ export function VenueCard({ venue }: VenueCardProps) {
                       setIsDeleteVenueOpen(true)
                     }}
                     className="p-1 rounded-md hover:bg-destructive/10 transition-colors"
-                    title="Delete venue"
+                    aria-label={`Delete ${venue.name}`}
                   >
                     <Trash2 className="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
                   </button>

@@ -87,7 +87,7 @@ export function FilterCard({ filter, onEdit }: FilterCardProps) {
             size="sm"
             onClick={() => onEdit(filter)}
             className="h-8 w-8 p-0"
-            title="Edit filter"
+            aria-label={`Edit filter ${filter.name}`}
           >
             <Pencil className="h-3.5 w-3.5" />
           </Button>
@@ -98,6 +98,7 @@ export function FilterCard({ filter, onEdit }: FilterCardProps) {
                 variant="ghost"
                 size="sm"
                 className="h-8 w-8 p-0"
+                aria-label={`More actions for ${filter.name}`}
               >
                 <MoreHorizontal className="h-3.5 w-3.5" />
               </Button>

@@ -1037,6 +1037,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
                   size="sm"
                   onClick={() => openEditArtist(artist)}
                   className="h-8 w-8 p-0"
+                  aria-label={`Edit lineup entry for ${artist.artist_name}`}
                 >
                   <Pencil className="h-3.5 w-3.5" />
                 </Button>
@@ -1046,6 +1047,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
                   onClick={() => handleRemoveArtist(artist.artist_id)}
                   disabled={removeArtistMutation.isPending}
                   className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                  aria-label={`Remove ${artist.artist_name} from lineup`}
                 >
                   <Trash2 className="h-3.5 w-3.5" />
                 </Button>
@@ -1342,6 +1344,7 @@ function VenueManagement({ festivalId }: { festivalId: number }) {
                 onClick={() => handleRemoveVenue(venue.venue_id)}
                 disabled={removeVenueMutation.isPending}
                 className="h-8 w-8 p-0 text-muted-foreground hover:text-destructive"
+                aria-label={`Remove ${venue.venue_name} from venues`}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </Button>
