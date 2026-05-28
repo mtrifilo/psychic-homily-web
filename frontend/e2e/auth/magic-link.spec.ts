@@ -40,6 +40,28 @@ test.describe('Magic Link Authentication', () => {
     ).toBeVisible({ timeout: 10_000 })
   })
 
+  test('completes sign-in: session persists past the redirect', { tag: '@smoke' }, async ({
+    page,
+  }) => {
+    // PSY-719: the success-message + redirect assertion above covers the
+    // *verification* leg. This asserts *completion* — that the authenticated
+    // session actually took effect: after the redirect to home, the logged-in
+    // marker (avatar dropdown) is present and the login link is gone, mirroring
+    // the email/password login spec's post-login assertion.
+    const userId = getUserId(TEST_USER_EMAIL)
+    const token = await createMagicLinkToken(userId, TEST_USER_EMAIL)
+
+    await page.goto(`/auth/magic-link?token=${token}`)
+    await page.waitForURL('/', { timeout: 15_000 })
+
+    await expect(
+      page.getByRole('button', { name: 'User menu' })
+    ).toBeVisible({ timeout: 10_000 })
+    await expect(
+      page.getByRole('link', { name: /login/i })
+    ).not.toBeVisible()
+  })
+
   test('shows error for expired/invalid magic link', async ({ page }) => {
     await page.goto('/auth/magic-link?token=expired-invalid-token')
 

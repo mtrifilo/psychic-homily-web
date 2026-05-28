@@ -461,12 +461,21 @@ INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_ad
 VALUES ('e2e-unverified@test.local', '${BCRYPT_HASH}', 'Test', 'Unverified', true, false, false, NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
 
--- Create user_preferences for all seeded test users (regular worker users + admin + unverified)
+-- Soft-deleted, still-recoverable test user (PSY-719: account-recovery
+-- completion flow). is_active=false + deleted_at=NOW() puts the account inside
+-- the 30-day AccountRecoveryGracePeriod, so ConfirmAccountRecoveryHandler
+-- restores it and logs in. Dedicated user (not a worker login) so restoring it
+-- mid-suite can't disturb the parallel worker auth state.
+INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_admin, email_verified, deleted_at, deletion_reason, created_at, updated_at)
+VALUES ('e2e-recovery@test.local', '${BCRYPT_HASH}', 'Test', 'Recovery', false, false, true, NOW(), 'e2e recovery fixture', NOW(), NOW())
+ON CONFLICT (email) DO NOTHING;
+
+-- Create user_preferences for all seeded test users (regular worker users + admin + unverified + recovery)
 INSERT INTO user_preferences (user_id, notification_email, notification_push, show_reminders, theme, timezone, language, created_at, updated_at)
 SELECT id, true, false, false, 'system', 'America/Phoenix', 'en', NOW(), NOW()
 FROM users
 WHERE email LIKE 'e2e-user%@test.local'
-   OR email IN ('e2e-admin@test.local', 'e2e-unverified@test.local')
+   OR email IN ('e2e-admin@test.local', 'e2e-unverified@test.local', 'e2e-recovery@test.local')
 ON CONFLICT (user_id) DO NOTHING;
 SQL
 
