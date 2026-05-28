@@ -2,7 +2,9 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"log/slog"
+	"net"
 	"os"
 	"strconv"
 	"sync"
@@ -38,9 +40,92 @@ const DefaultAutoBackfillDays = 90
 // 10 episodes; 5s is comfortably finer-grained than typical job tick rates.
 const autoBackfillPollInterval = 5 * time.Second
 
-// radioCircuitBreakerThreshold is the number of consecutive failures before
-// a station is temporarily skipped during fetch cycles.
+// radioCircuitBreakerThreshold is the number of consecutive PERMANENT failures
+// before a station is temporarily skipped during fetch cycles. Transient errors
+// (timeout, connection refused, 429) bump a separate counter and trigger a
+// single in-cycle retry instead of incrementing this one (PSY-887).
 const radioCircuitBreakerThreshold = 5
+
+// radioTransientRetryBackoff is the brief delay before retrying a station once
+// after a transient error. Single retry per station per cycle; we don't carry
+// transient-retry state across cycles (no exponential backoff) — that's an
+// explicit non-goal of PSY-887 to keep the fetch loop's failure modes obvious.
+const radioTransientRetryBackoff = 500 * time.Millisecond
+
+// errorKind classifies a radio provider error for circuit-breaker routing.
+// kindTransient → bump transientFailures + retry once, do NOT trip breaker.
+// kindPermanent → bump consecutiveFailures, trip breaker at threshold.
+type errorKind int
+
+const (
+	kindPermanent errorKind = iota // default — string-only errors land here too
+	kindTransient
+)
+
+// classifyError routes a radio provider error to transient vs permanent per
+// PSY-887. Type-assertion-based, not string-matching:
+//   - context.DeadlineExceeded                  → transient
+//   - any error implementing net.Error.Timeout() → transient
+//   - *net.OpError                              → transient (covers connection refused,
+//     network unreachable, EOF on idle socket — all worth one retry)
+//   - *RadioHTTPError                           → 429 transient, other non-OK permanent
+//   - errors.Is(err, ErrTransient)              → transient (manual provider tag)
+//   - errors.Is(err, ErrPermanent)              → permanent (manual provider tag)
+//   - anything else (parse, schema, db, setup)  → permanent
+//
+// Operates on the WHOLE error chain via errors.As / errors.Is so wrapped
+// errors (fmt.Errorf("...: %w", err)) classify correctly. A non-2xx HTTP
+// response wrapped in five layers of fmt.Errorf still routes by status code.
+func classifyError(err error) errorKind {
+	if err == nil {
+		return kindPermanent // caller shouldn't pass nil; default safely
+	}
+
+	// Context-level timeout — the surrounding ctx hit its deadline mid-request.
+	if errors.Is(err, context.DeadlineExceeded) {
+		return kindTransient
+	}
+
+	// HTTP-level classification via RadioHTTPError.Unwrap() chain. Has to come
+	// before the net.Error check because http.Client errors can satisfy
+	// net.Error too (via *url.Error.Timeout()) — but we want 429 routed
+	// specifically, not lumped in with generic "network timeout".
+	var httpErr *RadioHTTPError
+	if errors.As(err, &httpErr) {
+		// Unwrap() returns ErrTransient for 429, ErrPermanent otherwise.
+		if errors.Is(httpErr, ErrTransient) {
+			return kindTransient
+		}
+		return kindPermanent
+	}
+
+	// Generic net.Error.Timeout() catches both *url.Error (http.Client.Timeout)
+	// and any other net-package error chain. The interface is the idiomatic
+	// classifier; *url.Error implements it directly.
+	var netErr net.Error
+	if errors.As(err, &netErr) && netErr.Timeout() {
+		return kindTransient
+	}
+
+	// *net.OpError catches connection refused, network unreachable, EOF on
+	// an idle socket, etc. — anything dial-level worth one retry.
+	var opErr *net.OpError
+	if errors.As(err, &opErr) {
+		return kindTransient
+	}
+
+	// Last resort: manual provider tags. If a provider wraps an error with
+	// errors.Join(ErrTransient, ...) without RadioHTTPError, honor it.
+	if errors.Is(err, ErrTransient) {
+		return kindTransient
+	}
+	if errors.Is(err, ErrPermanent) {
+		return kindPermanent
+	}
+
+	// Parse failures, schema mismatches, db setup errors — all permanent.
+	return kindPermanent
+}
 
 // RadioFetchService is a background service that periodically:
 //  1. Fetches new episodes from all active stations with playlist sources (every 6h)
@@ -66,12 +151,22 @@ type RadioFetchService struct {
 	wg     sync.WaitGroup
 	logger *slog.Logger
 
-	// consecutiveFailures tracks per-station failures within a fetch cycle
-	// Reset on success, incremented on failure. Stations with >= threshold
-	// failures are skipped until the counter resets. Shared across the fetch
-	// and discover loops so a wedged provider gets one circuit breaker, not two.
+	// consecutiveFailures tracks per-station PERMANENT failures within a fetch
+	// cycle. Reset on success. Stations with >= threshold permanent failures are
+	// skipped until the counter resets. Shared across the fetch and discover
+	// loops so a wedged provider gets one circuit breaker, not two (per the
+	// shared-failures-map design intent from PSY-671).
+	//
+	// transientFailures (PSY-887): tracks transient errors (timeout, conn
+	// refused, 429) separately. These do NOT trip the breaker; they trigger a
+	// single in-cycle retry with brief backoff. Reset on success alongside
+	// consecutiveFailures. Exposed via GetTransientFailures for testing /
+	// observability. Kept as a separate map so a station with intermittent
+	// network blips on a healthy provider doesn't get wedged for the rest of
+	// the 6h cycle (the original PSY-887 bug).
 	mu                  sync.Mutex
 	consecutiveFailures map[uint]int
+	transientFailures   map[uint]int
 }
 
 // NewRadioFetchService creates a new radio fetch background service.
@@ -133,6 +228,7 @@ func NewRadioFetchService(
 		stopCh:              make(chan struct{}),
 		logger:              slog.Default(),
 		consecutiveFailures: make(map[uint]int),
+		transientFailures:   make(map[uint]int),
 	}
 }
 
@@ -197,6 +293,96 @@ func (s *RadioFetchService) runDiscoverLoop(ctx context.Context) {
 	})
 }
 
+// stationBreakerSkip reports whether the station should be skipped this cycle
+// because its PERMANENT failure count is at threshold. Transient failures are
+// tracked separately and do NOT cause skip (PSY-887).
+//
+// Locks/unlocks internally — caller MUST NOT hold s.mu.
+func (s *RadioFetchService) stationBreakerSkip(stationID uint) (skip bool, failures int) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	failures = s.consecutiveFailures[stationID]
+	return failures >= radioCircuitBreakerThreshold, failures
+}
+
+// recordStationSuccess resets BOTH counters for a station after a successful
+// fetch. Reset transientFailures too so a station that recovered from a
+// transient blip doesn't carry the count into the next blip (PSY-887).
+func (s *RadioFetchService) recordStationSuccess(stationID uint) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.consecutiveFailures[stationID] = 0
+	s.transientFailures[stationID] = 0
+}
+
+// recordStationFailure routes a fetch error to the right counter per PSY-887.
+// Returns the classification so callers can branch on retry-or-skip without a
+// second classifyError call.
+func (s *RadioFetchService) recordStationFailure(stationID uint, err error) errorKind {
+	kind := classifyError(err)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if kind == kindTransient {
+		s.transientFailures[stationID]++
+	} else {
+		s.consecutiveFailures[stationID]++
+	}
+	return kind
+}
+
+// fetchStationWithRetry calls FetchNewEpisodes. On a transient error, sleeps
+// radioTransientRetryBackoff and tries ONCE more. Returns the final result/err
+// pair. Counter updates are the caller's responsibility — this helper only
+// owns the retry decision so the two loops (fetch + discover) can share it
+// even though they call different RadioService methods (PSY-887).
+//
+// Single retry, not exponential — explicit non-goal of the PSY-887 design.
+// Cross-cycle backoff would require persisting transientFailures state, which
+// the ticket explicitly defers ("DO NOT add persistent state").
+func (s *RadioFetchService) fetchStationWithRetry(
+	stationID uint,
+	stationName string,
+	op string, // "fetch" or "discover" — for log clarity
+	call func() (any, error),
+) (any, error) {
+	result, err := call()
+	if err == nil {
+		return result, nil
+	}
+
+	if classifyError(err) != kindTransient {
+		return nil, err
+	}
+
+	// Transient — one retry after brief backoff. Use a stopCh-aware sleep so
+	// a service shutdown mid-backoff doesn't waste 500ms before returning.
+	s.logger.Warn("transient station error, retrying after backoff",
+		"station_id", stationID,
+		"station_name", stationName,
+		"op", op,
+		"backoff", radioTransientRetryBackoff,
+		"error", err,
+	)
+	select {
+	case <-time.After(radioTransientRetryBackoff):
+	case <-s.stopCh:
+		return nil, err // caller will record the original transient failure
+	}
+
+	result, retryErr := call()
+	if retryErr == nil {
+		s.logger.Info("station recovered after transient retry",
+			"station_id", stationID,
+			"station_name", stationName,
+			"op", op,
+		)
+		return result, nil
+	}
+	// Return the retry error so the caller's log/counter reflects the
+	// post-retry state.
+	return nil, retryErr
+}
+
 // runFetchCycle fetches new episodes from all active stations sequentially.
 func (s *RadioFetchService) runFetchCycle() {
 	cycleStart := time.Now()
@@ -219,16 +405,14 @@ func (s *RadioFetchService) runFetchCycle() {
 		totalPlays     int
 		totalMatched   int
 		totalFailed    int
+		totalTransient int
 	)
 
 	// Process stations sequentially to respect per-provider rate limits
 	for _, station := range stations {
-		// Check circuit breaker
-		s.mu.Lock()
-		failures := s.consecutiveFailures[station.ID]
-		s.mu.Unlock()
-
-		if failures >= radioCircuitBreakerThreshold {
+		// PSY-887: breaker only trips on PERMANENT failures. A station with
+		// transient blips can still attempt this cycle.
+		if skip, failures := s.stationBreakerSkip(station.ID); skip {
 			s.logger.Warn("skipping station (circuit breaker)",
 				"station_id", station.ID,
 				"station_name", station.Name,
@@ -243,26 +427,28 @@ func (s *RadioFetchService) runFetchCycle() {
 			"station_name", station.Name,
 		)
 
-		result, err := s.radioService.FetchNewEpisodes(station.ID)
+		raw, err := s.fetchStationWithRetry(station.ID, station.Name, "fetch",
+			func() (any, error) {
+				return s.radioService.FetchNewEpisodes(station.ID)
+			},
+		)
 		if err != nil {
 			totalFailed++
+			kind := s.recordStationFailure(station.ID, err)
+			if kind == kindTransient {
+				totalTransient++
+			}
 			s.logger.Error("station fetch failed",
 				"station_id", station.ID,
 				"station_name", station.Name,
+				"error_kind", errorKindName(kind),
 				"error", err,
 			)
-
-			s.mu.Lock()
-			s.consecutiveFailures[station.ID]++
-			s.mu.Unlock()
-
 			continue
 		}
 
-		// Reset circuit breaker on success
-		s.mu.Lock()
-		s.consecutiveFailures[station.ID] = 0
-		s.mu.Unlock()
+		result := raw.(*contracts.RadioImportResult)
+		s.recordStationSuccess(station.ID)
 
 		totalEpisodes += result.EpisodesImported
 		totalPlays += result.PlaysImported
@@ -292,8 +478,17 @@ func (s *RadioFetchService) runFetchCycle() {
 		"plays_imported", totalPlays,
 		"plays_matched", totalMatched,
 		"failures", totalFailed,
+		"transient_retries", totalTransient,
 		"duration", cycleDuration,
 	)
+}
+
+// errorKindName returns a stable log key for an errorKind classification.
+func errorKindName(k errorKind) string {
+	if k == kindTransient {
+		return "transient"
+	}
+	return "permanent"
 }
 
 // runAffinityCycle computes the artist affinity table and syncs to artist relationships.
@@ -369,15 +564,14 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		totalDiscovered  int
 		totalNew         int
 		totalFailed      int
+		totalTransient   int
 		stationsNotified int
 	)
 
 	for _, station := range stations {
-		s.mu.Lock()
-		failures := s.consecutiveFailures[station.ID]
-		s.mu.Unlock()
-
-		if failures >= radioCircuitBreakerThreshold {
+		// PSY-887: same shared-counter policy as runFetchCycle — breaker only
+		// trips on PERMANENT failures.
+		if skip, failures := s.stationBreakerSkip(station.ID); skip {
 			s.logger.Warn("skipping station for discover (circuit breaker)",
 				"station_id", station.ID,
 				"station_name", station.Name,
@@ -392,24 +586,28 @@ func (s *RadioFetchService) runDiscoverCycle() {
 			"station_name", station.Name,
 		)
 
-		result, err := s.radioService.DiscoverStationShows(station.ID)
+		raw, err := s.fetchStationWithRetry(station.ID, station.Name, "discover",
+			func() (any, error) {
+				return s.radioService.DiscoverStationShows(station.ID)
+			},
+		)
 		if err != nil {
 			totalFailed++
+			kind := s.recordStationFailure(station.ID, err)
+			if kind == kindTransient {
+				totalTransient++
+			}
 			s.logger.Error("station discover failed",
 				"station_id", station.ID,
 				"station_name", station.Name,
+				"error_kind", errorKindName(kind),
 				"error", err,
 			)
-
-			s.mu.Lock()
-			s.consecutiveFailures[station.ID]++
-			s.mu.Unlock()
 			continue
 		}
 
-		s.mu.Lock()
-		s.consecutiveFailures[station.ID] = 0
-		s.mu.Unlock()
+		result := raw.(*contracts.RadioDiscoverResult)
+		s.recordStationSuccess(station.ID)
 
 		totalDiscovered += result.ShowsDiscovered
 		totalNew += result.ShowsNew
@@ -453,6 +651,7 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		"shows_discovered", totalDiscovered,
 		"shows_new", totalNew,
 		"failures", totalFailed,
+		"transient_retries", totalTransient,
 		"stations_notified", stationsNotified,
 		"duration", time.Since(cycleStart),
 	)
@@ -585,18 +784,28 @@ func (s *RadioFetchService) waitForJobCompletion(jobID uint) (*contracts.RadioIm
 	}
 }
 
-// GetConsecutiveFailures returns the failure count for a station. Exported for testing.
+// GetConsecutiveFailures returns the PERMANENT failure count for a station.
+// Exported for testing.
 func (s *RadioFetchService) GetConsecutiveFailures(stationID uint) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.consecutiveFailures[stationID]
 }
 
-// SetConsecutiveFailures sets the failure count for a station. Exported for testing.
+// SetConsecutiveFailures sets the PERMANENT failure count for a station.
+// Exported for testing.
 func (s *RadioFetchService) SetConsecutiveFailures(stationID uint, count int) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.consecutiveFailures[stationID] = count
+}
+
+// GetTransientFailures returns the TRANSIENT failure count for a station
+// (PSY-887). Exported for testing.
+func (s *RadioFetchService) GetTransientFailures(stationID uint) int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.transientFailures[stationID]
 }
 
 // RunFetchCycleNow triggers an immediate fetch cycle (useful for testing/admin).

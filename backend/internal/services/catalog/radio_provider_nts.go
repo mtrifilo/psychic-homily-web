@@ -240,7 +240,10 @@ func (p *NTSProvider) doGet(url string) ([]byte, error) {
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("NTS API returned status %d: %s", resp.StatusCode, string(body))
+		// PSY-887: wrap with RadioHTTPError so the fetch-service circuit
+		// breaker can classify (429 → transient, other non-OK → permanent)
+		// via errors.As without parsing the error string.
+		return nil, newRadioHTTPError("NTS API", resp.StatusCode, string(body))
 	}
 
 	body, err := io.ReadAll(resp.Body)
