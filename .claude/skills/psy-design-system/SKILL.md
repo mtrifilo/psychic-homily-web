@@ -147,24 +147,46 @@ The brief tells you WHAT to put on the page; the existing app tells you HOW. Bef
 
 Skipping this step costs an entire iteration cycle. Caught the hard way 2026-05-23 (PSY-370 v1 mock was a marketing landing with 56px headlines and bg-photo hero — completely off-idiom; full rebuild required after surfacing the gap).
 
-### File conventions
+### File conventions (updated 2026-05-27 after Figma-org audit)
 
 - **Single file** for all product mocks (no per-feature files at this team scale).
-- **Pages, one per feature**:
+- **Pages, in order:**
   - `Cover` — workspace explainer (this stays; helps onboarding for new agents).
-  - `<Feature ref> (PSY-XXX)` — one page per feature/surface. Examples that have shipped: `/explore (PSY-370)`, `Collections: Create Drawer (PSY-823)`.
-  - `<Feature ref> — Decisions & Notes (PSY-XXX)` — companion decisions doc per feature. NEVER a single shared decisions page; rename early once a second feature lands.
-- **Page-naming**: lead with the route if the feature is route-specific (`/explore`); lead with the feature area + surface if it spans routes (`Collections: Create Drawer`, `Show editor: Edit modal`). Multi-route surfaces (drawers, modals, sheets) deserve the feature-area form.
+  - `📑 Index` — curated TOC, position 1 (after Cover). One block per feature, hyperlinked. Added 2026-05-27 once the file crossed ~10 pages; keep it updated as new features land.
+  - `PSY-XXX — <Feature>` — one page per feature/surface, in **ascending PSY order**. Examples: `PSY-370 — /explore`, `PSY-823 — Collections: Create Drawer`, `PSY-871 — Admin: entity_requests moderation queue`.
+  - `PSY-XXX — <Feature> · Decisions & Notes` — **legacy companion page convention only**. New features do NOT create a companion page; see "Decisions documentation pattern" below.
+- **Page-naming: ticket-first.** `PSY-XXX — <Feature>` puts the ticket ID as the leftmost scannable token, alpha-sorts by PSY number, matches the git branch convention (`PSY-XXX/foo`) and Figma's own Jira/Linear integration example. Within `<Feature>`: lead with the route if the feature is route-specific (`/explore`); lead with the feature area + surface if it spans routes (`Collections: Create Drawer`, `Show editor: Edit modal`).
 
 ### Page header convention (set on each feature page)
 
 Inside each feature page, place a small documentation header above the mock frames:
 
 ```
-<Title> (PSY-XXX)
+PSY-XXX — <Title>
 linear: PSY-XXX  ·  project: <Linear project name>  ·  DS: isfHz0oyFK1ALX19IRGg51
 <one-sentence scope>
 ```
+
+### Decisions documentation pattern — HYBRID (adopted 2026-05-27)
+
+Two surfaces hold a feature's design decisions:
+
+1. **Short "Locked decisions" sidebar on the design page itself** — a single primary-bordered card inserted at position 1 of the page wrapper (right after the Page Header). Title `🔒 Locked decisions` + a compact bulleted list of *just the headline locks* (no rationale, no NOT BUILDING, no open questions). One line per decision. Footer pointer: `↗ Canonical long-form: Linear comment on PSY-XXX` with URL. This is the in-context quick-scan.
+
+2. **Long-form as a Linear comment on the ticket** — full structure: Decisions locked (with rationale per item), NOT BUILDING (deferred), Open questions (forks awaiting input), Follow-ups & cross-references (related tickets, code paths, prior memory). This is the canonical source of truth.
+
+The previous convention (`PSY-XXX — <Feature> · Decisions & Notes` companion page in Figma) is **legacy**. Existing companion pages stay (PSY-370, PSY-823 implicit, PSY-845, PSY-853, PSY-871) — preserve as historical mirrors. The PSY-871 companion was migrated to the hybrid pattern (banner stub points to its canonical Linear comment); apply the same migration retroactively to prior companions if they need an update.
+
+**Why hybrid:** the in-Figma adjacency of decisions to the design is real value (zero-context-switch when looking at the mock); but duplicating the full rationale across Figma + Linear is friction-prone, and Linear is already where the rest of the ticket conversation happens. Hybrid keeps the adjacency for the headline, pushes deep work to its natural home.
+
+**Industry context:** the original Figma-companion pattern was a session invention. Late-2025 / early-2026 research (Notion design-system guides, Specify, Vercel design-engineering posts, zeroheight) confirms the industry default is to push decision docs to Linear / Notion / Confluence and embed Figma frames INTO those docs (not the reverse). Our hybrid is a compromise — preserve a quick-scan in Figma, canonical in Linear.
+
+**Workflow for a new feature's decisions:**
+1. As design surfaces decisions, capture them informally during the session.
+2. At lock time, draft the long-form once as a Markdown file (e.g. `/tmp/psy-XXX-decisions.md`).
+3. Post as a Linear comment on the ticket via `linear issue comment add PSY-XXX --body-file /tmp/...`. Capture the returned comment URL.
+4. Build the short sidebar on the design page with just the headline locks + footer pointer to the Linear comment URL.
+5. **Do NOT create a separate Figma companion page** for new work. Index page (TOC) lists only the design page for new features; the Linear ticket carries the decisions doc.
 
 ### Workflow steps
 
@@ -182,15 +204,15 @@ linear: PSY-XXX  ·  project: <Linear project name>  ·  DS: isfHz0oyFK1ALX19IRG
 
 5. **Screenshot after each section** via `get_screenshot` on the wrapper. Validate visually before moving on.
 
-6. **Capture decisions on the companion page** as the mock surfaces them. Each open question from the brief gets an answer + a one-sentence rationale. Each iteration that revises a prior decision gets a v-bump and "REVISED:" marker.
+6. **Capture decisions per the HYBRID pattern** (see §"Decisions documentation pattern" above) — long-form as a Linear comment on the ticket, short sidebar on the design page itself. Each open question from the brief gets an answer + one-sentence rationale in the Linear comment; the sidebar carries only the headline lock.
 
 7. **User checkpoint** — present screenshot, await explicit blessing before filing impl ticket(s).
 
 ### When the brief is wrong
 
-The brief is a starting point, not scripture. The mock pass often surfaces that the brief over-specified something speculative (e.g. PSY-370's "trending algorithm" with no users to train on) or under-specified something important (PSY-370's traveler use case → city filter). Capture both kinds on the Decisions page:
+The brief is a starting point, not scripture. The mock pass often surfaces that the brief over-specified something speculative (e.g. PSY-370's "trending algorithm" with no users to train on) or under-specified something important (PSY-370's traveler use case → city filter). Capture both kinds in the **Linear comment** (per the hybrid pattern):
 - "NOT BUILDING:" sections for over-spec the mock removed.
-- "FOLLOW-UP TICKET:" sections for under-spec the mock surfaced.
+- "FOLLOW-UP TICKET:" sections for under-spec the mock surfaced — and file those tickets.
 
 Then update the brief inline as part of each impl PR — don't ship a docs-only PR; brief paragraphs decay fastest when they're edited far from the code they describe.
 
@@ -358,6 +380,37 @@ Figma policy (since Oct 2024): the **Publish library** button is hidden when the
 **Plugin API can import by key without `Add to file`:** once a library is published, `figma.importComponentSetByKeyAsync(<key>)` and `figma.variables.importVariableByKeyAsync(<key>)` work from any other file the user has access to — no need to manually enable the library in the consumer file's Libraries modal. The manual "Add to file" UI step is only needed for designers dragging from the Assets panel; programmatic imports succeed against any published key.
 
 **Verifying a library is reachable** before relying on it: `get_libraries(fileKey: <consumer>)` shows what's added/available. But the import-by-key test is more direct — if the import succeeds, you're set, regardless of what `get_libraries` shows.
+
+### G12. Wrapping text + nested-card FILL — two recipes that bit PSY-853/845 mocks
+
+Two related "things default to HUG" surprises in product mocks. Both look identical to a script error from the agent's side (text overflows the wrapper, card sits at minimum width) but are configuration, not bugs.
+
+**Recipe 1 — Wrapping body/paragraph text in auto-layout:**
+
+A `figma.createText()` node defaults to `textAutoResize = 'WIDTH_AND_HEIGHT'` (grows horizontally, no wrapping). Inside an auto-layout parent, this means the text overflows the parent's bounds instead of wrapping. The fix is **both** of these, in this order:
+
+```js
+const para = figma.createText();
+parent.appendChild(para);
+para.fontName = {...}; para.fontSize = 14;
+para.characters = '<long paragraph>';
+para.textAutoResize = 'HEIGHT';          // wrap, grow vertically
+para.layoutSizingHorizontal = 'FILL';    // take parent's width
+```
+
+Setting only `textAutoResize = 'HEIGHT'` leaves the text at its current (likely too-narrow) width. Setting only `layoutSizingHorizontal = 'FILL'` does effectively the same (FILL implicitly switches autoresize off WIDTH_AND_HEIGHT to HEIGHT), but being explicit avoids surprise. Apply to every multi-line text node — page-header scopes, card descriptions, decision body copy, tooltip popovers, etc. PSY-853 + PSY-845 both shipped this fix after seeing overflow in the first screenshot pass.
+
+**Recipe 2 — Cards nested inside FILL sections still default to HUG:**
+
+`figma.createAutoLayout(...)` always returns a frame with both axes HUG, regardless of where you append it. A section wrapper set to `FILL` does NOT propagate to the cards inside it. Cards stay HUG'd to their content (typically the widest child text), often rendering at ~25% of the intended width.
+
+```js
+const card = figma.createAutoLayout('VERTICAL', {...});
+sectionWrapper.appendChild(card);
+card.layoutSizingHorizontal = 'FILL';    // REQUIRED — otherwise card is HUG
+```
+
+Easy to forget when you're focused on the FILL set on the OUTER wrapper. PSY-845's heuristic card shipped at ~400px wide on the first pass because this was missed; fixed with a one-line edit. When building a section card, set FILL right after appendChild as a reflex.
 
 ## Resume protocol (for new agents picking this up cold)
 

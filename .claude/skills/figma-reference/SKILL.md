@@ -59,6 +59,21 @@ Examples of when this bit us:
 
 **Always ask the user to confirm the file is open in desktop before any READ if the first call returns suspiciously empty results.**
 
+### Disambiguator — `get_metadata` "only Cover" ≠ proof that desktop is wrong
+
+`get_metadata` (no nodeId) can return only the Cover page **even when desktop IS on the right file** — observed PSY-853 session 2026-05-26 with a file that actually had 4 pages. `use_figma` reading `figma.root.children` on the same file returned all 4 correctly. So `get_metadata`'s "only Cover" symptom has at least two causes (desktop on wrong file, AND some cache/staleness path in the metadata route itself).
+
+Before asking the user to fix desktop state, run a `use_figma` read-only inventory as the disambiguator:
+
+```js
+return figma.root.children.map(p => ({ name: p.name, id: p.id, childCount: p.children?.length ?? 0 }));
+```
+
+- If `use_figma` shows **more pages than `get_metadata`** → `get_metadata` was stale. Proceed with `use_figma` reads; don't bother the user.
+- If `use_figma` **also** shows only Cover → desktop IS on the wrong file (or closed). Ask the user to switch.
+
+This avoids the false-positive "please check your desktop" interruption when the real problem is the metadata route.
+
 ## URL parsing
 
 Figma URLs encode the file key + an optional node ID:

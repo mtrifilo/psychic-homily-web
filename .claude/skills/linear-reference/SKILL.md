@@ -65,7 +65,7 @@ linear <command> --body-file /tmp/my-body.md ...
 | `issue update` | ✓ |
 | `project create` | ✓ |
 | `project update` (the metadata-edit subcommand) | ✓ |
-| `project-update create` (status post) | ✓ |
+| `project-update create` (status post) | **✗** — rejects the flag (only `--interactive` exists; non-interactive is the default) |
 | `issue comment add` | **✗** — rejects the flag |
 | `document create` | ✓ |
 | `milestone create` | ✓ |
