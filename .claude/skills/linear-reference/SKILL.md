@@ -63,8 +63,8 @@ linear <command> --body-file /tmp/my-body.md ...
 |---|---|
 | `issue create` | ✓ |
 | `issue update` | ✓ |
-| `project create` | ✓ |
-| `project update` (the metadata-edit subcommand) | ✓ |
+| `project create` | **✗** — rejects the flag; non-interactive when other flags provided. Also rejects `--description-file` (only `-d/--description` inline). |
+| `project update` (the metadata-edit subcommand) | **✗** — same shape as `project create`. Only `-d/--description` inline; no `--no-interactive`. |
 | `project-update create` (status post) | **✗** — rejects the flag (only `--interactive` exists; non-interactive is the default) |
 | `issue comment add` | **✗** — rejects the flag |
 | `document create` | ✓ |
@@ -141,22 +141,43 @@ linear project view <slugId> --json                  # pipeable
 ### Create
 
 ```bash
+# Short description only — Linear caps `--description` at 255 chars
 linear project create \
   --team PSY \
   --name "Project Name — YYYY-MM" \
-  --description-file /tmp/project-description.md \
-  --no-interactive
+  --description "One-paragraph summary (≤255 chars)." \
+  --status started
 ```
 
-Returns the new project's slug-ID. Capture it for follow-up commands.
+**Gotchas:**
+- `--description-file` does NOT exist (verified PSY-cohesion-project session 2026-05-27). Only `-d/--description` inline.
+- `--description` is server-side capped at **255 characters** — errors with `description must be shorter than or equal to 255 characters`. For richer kickoff context, post a **project-update** (status post, takes `--body-file`, no length cap) as soon as the project is created. The first project-update functions as the long-form "why this project exists" doc; the description is the elevator pitch.
+- `--no-interactive` does not exist; providing other flags = non-interactive. `-i/--interactive` opts INTO interactive mode.
+- Useful optional flags: `--status started|planned|paused|completed|canceled|backlog`, `-l/--lead @me`, `--start-date YYYY-MM-DD`, `--target-date YYYY-MM-DD`, `--initiative <id-or-name>`, `-j/--json` (for capturing slug-ID programmatically).
+
+Returns the new project's slug-ID + URL. Capture for follow-up commands.
+
+### Recommended pattern: create + immediately post kickoff project-update
+
+```bash
+# 1. Short description for the project itself
+linear project create --team PSY --name "..." --description "..." --status started
+
+# 2. Long-form rationale as the kickoff status post (no 255-char cap)
+linear project-update create <slugId> --body-file /tmp/kickoff.md --health onTrack
+```
+
+Future agents read both: description for quick orient, kickoff project-update for full context.
 
 ### Edit metadata
 
 ```bash
 linear project update <slugId> --name "New name"
-linear project update <slugId> --state "In Progress"
-linear project update <slugId> --description-file /tmp/new-desc.md
+linear project update <slugId> --status started
+linear project update <slugId> --description "Short edit ≤255 chars (same cap as create)"
 ```
+
+Same gotchas as `create`: only `-d/--description` inline (≤255 chars), no `--description-file`, no `--no-interactive`. For longer updates, post another project-update instead of editing the description.
 
 ## Project status updates (timeline posts)
 
@@ -235,9 +256,10 @@ Label groups are NOT directly addressable via CLI in v1.11.x — they're a Web-U
 
 ## Common gotchas
 
-- **`--no-interactive` on `issue comment add`**: rejected. Pass only `--body-file`.
+- **`--no-interactive` on `issue comment add` / `project create` / `project update` / `project-update create`**: rejected. For these surfaces, providing other flags = non-interactive; `-i/--interactive` is the OPT-IN.
+- **`project create` + `project update` `--description` 255-char cap**: Linear enforces this server-side. For long-form rationale, post a `project-update` (status post) as a kickoff instead — `--body-file`, no length cap.
 - **State names are case-sensitive**: `"In Progress"` not `"in progress"`.
-- **`--description-file` vs `--body-file` vs `--content-file`**: inconsistent across `issue create` / `project-update create` / `document create`. Run `--help` once per new surface.
+- **`--description-file` vs `--body-file` vs `--content-file`**: inconsistent across `issue create` / `project-update create` / `document create`, AND `project create` / `project update` accept NEITHER (only inline `-d/--description`). Run `--help` once per new surface.
 - **Project slug-ID is the hex tail** of the project URL (`/project/name-and-hex` → grab everything after the last `-`). Or `linear project list` and read column 1.
 - **Don't pass `--team` from outside the repo** if it's pinned in `.linear.toml`. Inside the repo, the flag is redundant but harmless.
 - **`linear` won't follow stdin for interactive mode in agent sessions** — always pass `--no-interactive` when scripting (except where the surface rejects it).
