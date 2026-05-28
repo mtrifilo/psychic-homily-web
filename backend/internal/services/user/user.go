@@ -383,7 +383,7 @@ func (s *UserService) AuthenticateUserWithPassword(email, password string) (*aut
 	}
 
 	if !user.IsActive {
-		return nil, fmt.Errorf("user account is not active")
+		return nil, apperrors.ErrAccountInactive()
 	}
 
 	// Reset failed attempts on successful login. Log + continue on failure:

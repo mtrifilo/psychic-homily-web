@@ -29,6 +29,11 @@ const (
 	CodeUnknown = "UNKNOWN"
 	// CodeAccountLocked indicates the account is locked due to too many failed attempts
 	CodeAccountLocked = "ACCOUNT_LOCKED"
+	// CodeAccountInactive indicates the account exists but has been deactivated
+	// (is_active = false). Distinct from CodeInvalidCredentials so the frontend
+	// can special-case the copy; the password check still ran, so this is not an
+	// enumeration oracle beyond what login already exposes.
+	CodeAccountInactive = "ACCOUNT_INACTIVE"
 	// CodeNoPasswordSet indicates the user has no password (OAuth-only account)
 	CodeNoPasswordSet = "NO_PASSWORD_SET"
 	// CodeTermsAcceptanceRequired indicates an OAuth signup arrived without the
@@ -159,6 +164,18 @@ func ErrAccountLockedWithMinutes(minutes int) *AuthError {
 	}
 }
 
+// ErrAccountInactive creates an error for a deactivated account (is_active = false).
+// The user-facing message is intentionally vague ("Account unavailable. Please
+// contact support.") rather than naming deactivation: the password check has
+// already run, so this carries no enumeration signal beyond what login leaks,
+// but the vaguer copy avoids confirming the deactivation reason to a guesser.
+func ErrAccountInactive() *AuthError {
+	return &AuthError{
+		Code:    CodeAccountInactive,
+		Message: "Account unavailable. Please contact support.",
+	}
+}
+
 // ErrNoPasswordSet creates an error for OAuth-only accounts that don't have a password.
 func ErrNoPasswordSet() *AuthError {
 	return NewAuthError(CodeNoPasswordSet, "Cannot change password for OAuth-only accounts", nil)
@@ -187,6 +204,11 @@ func ToExternalCode(code string) string {
 	switch code {
 	case CodeUserNotFound:
 		return CodeInvalidCredentials
+	case CodeAccountInactive:
+		// Deactivated accounts are NOT enumeration-sensitive: the password
+		// check already ran, so login already leaks existence on a correct
+		// password. Keep the code distinct so the frontend can special-case it.
+		return CodeAccountInactive
 	default:
 		return code
 	}
@@ -211,6 +233,8 @@ func ToExternalMessage(code string) string {
 		return "Validation failed"
 	case CodeAccountLocked:
 		return "Account temporarily locked. Please try again later."
+	case CodeAccountInactive:
+		return "Account unavailable. Please contact support."
 	case CodeNoPasswordSet:
 		return "Cannot change password for OAuth-only accounts"
 	default:
