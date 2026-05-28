@@ -130,13 +130,15 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   /**
-   * Intercept ONLY `/shows/...` (Phase 1). Excludes everything else — the
-   * homepage, other entity routes (`/venues/...` etc.), and crucially
-   * `api`, `_next/static`, `_next/image`, and metadata files — so the proxy
-   * cannot block CSS/JS/images or re-intercept its own rewrite target. The
-   * negative-lookahead guards `_next`-prefixed and metadata paths even though
-   * the `/shows/` prefix already scopes the match, matching Next's documented
-   * exclusion pattern for defense-in-depth.
+   * Intercept ONLY `/shows/...` (Phase 1). The `/shows/` prefix already scopes
+   * the match away from everything else — the homepage, other entity routes
+   * (`/venues/...`), `api`, `_next/static`, `_next/image`, metadata files, and
+   * the `/_psy-not-found` rewrite target — so none of those can be blocked or
+   * re-intercepted. (A root-level matcher would need a negative-lookahead to
+   * exclude `api`/`_next`/metadata; scoping to `/shows/` makes that
+   * unnecessary.) The `proxy()` body further narrows to the exact
+   * `/shows/<slug>` detail shape — bare `/shows` and `/shows/<slug>/<sub>` pass
+   * through untouched.
    *
    * `missing` excludes RSC prefetch requests (`next-router-prefetch` /
    * `purpose: prefetch` headers) so client-side route prefetches don't fire a
@@ -144,8 +146,7 @@ export const config = {
    */
   matcher: [
     {
-      source:
-        '/shows/((?!api|_next/static|_next/image|favicon.ico|sitemap.xml|robots.txt).*)',
+      source: '/shows/:path*',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },
