@@ -478,7 +478,10 @@ func (s *RadioFetchService) runFetchCycle() {
 		"plays_imported", totalPlays,
 		"plays_matched", totalMatched,
 		"failures", totalFailed,
-		"transient_retries", totalTransient,
+		// PSY-887: counts stations whose error STILL classified as transient
+		// after the in-cycle retry — NOT total retries fired. A station that
+		// recovered on retry is not counted (success path resets the counter).
+		"transient_failures_after_retry", totalTransient,
 		"duration", cycleDuration,
 	)
 }
@@ -651,7 +654,8 @@ func (s *RadioFetchService) runDiscoverCycle() {
 		"shows_discovered", totalDiscovered,
 		"shows_new", totalNew,
 		"failures", totalFailed,
-		"transient_retries", totalTransient,
+		// PSY-887: same semantics as runFetchCycle — see fetch-cycle log note.
+		"transient_failures_after_retry", totalTransient,
 		"stations_notified", stationsNotified,
 		"duration", time.Since(cycleStart),
 	)

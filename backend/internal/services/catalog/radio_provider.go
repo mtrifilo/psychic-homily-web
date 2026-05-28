@@ -41,8 +41,14 @@ var (
 type RadioHTTPError struct {
 	Provider   string // "KEXP" / "WFMU" / "NTS"
 	StatusCode int
-	Body       string // may be truncated; included for debugging
+	Body       string // truncated to radioHTTPErrorBodyLimit; included for debugging
 }
+
+// radioHTTPErrorBodyLimit caps the body slice retained on a RadioHTTPError so
+// a provider that returns a multi-MB error page (e.g. an HTML 503 page from
+// WFMU) doesn't pin that memory in every log line for the rest of the cycle.
+// 512 bytes is enough to capture the "error reason" intro most providers ship.
+const radioHTTPErrorBodyLimit = 512
 
 func (e *RadioHTTPError) Error() string {
 	return fmt.Sprintf("%s returned status %d: %s", e.Provider, e.StatusCode, e.Body)
@@ -58,9 +64,12 @@ func (e *RadioHTTPError) Unwrap() error {
 }
 
 // newRadioHTTPError builds a RadioHTTPError for use by provider doGet helpers.
-// Body is included unmodified — providers truncate before calling if the body
-// is large.
+// Body is truncated to radioHTTPErrorBodyLimit to keep error chains compact —
+// providers SHOULD NOT pre-truncate; this helper does it centrally.
 func newRadioHTTPError(provider string, statusCode int, body string) *RadioHTTPError {
+	if len(body) > radioHTTPErrorBodyLimit {
+		body = body[:radioHTTPErrorBodyLimit] + "...[truncated]"
+	}
 	return &RadioHTTPError{Provider: provider, StatusCode: statusCode, Body: body}
 }
 
