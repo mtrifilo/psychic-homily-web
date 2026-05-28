@@ -617,33 +617,40 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		},
 	)
 	if err != nil {
-		// Silent-downgrade convention intentionally preserved here pending the
-		// email-enumeration design lock for the registration path. Whether
-		// unknown service-failure codes should surface as 5xx, or stay folded
-		// into the CodeUnknown / CodeUserExists shape (to avoid leaking
-		// registered-email state via transport-status differences), is tied
-		// to that broader enumeration-safety decision — which has not landed
-		// yet. Revisit alongside the registration enumeration work; the rest
-		// of this handler family has been converted to the fail-closed
-		// pattern (see GetProfileHandler / SendVerificationEmailHandler / et al.).
-		errorCode := autherrors.CodeUnknown
-		message := "Failed to create user"
-
+		// "Account already exists" is an INTENTIONAL HTTP-200 UX response, not a
+		// fail-closed condition. PSY-775 locked the registration-enumeration
+		// decision as Option A: keep the explicit message + USER_EXISTS code so a
+		// returning user gets clear "log in instead" guidance. The transport-status
+		// enumeration oracle is accepted here. This arm MUST NOT change to a 5xx.
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserExists {
-			errorCode = autherrors.CodeUserExists
-			message = authErr.UserMessage()
+			logger.AuthWarn(ctx, "register_failed",
+				"email_hash", logger.HashEmail(input.Body.Email),
+				"error", err.Error(),
+				"error_code", autherrors.CodeUserExists,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = authErr.UserMessage()
+			resp.Body.ErrorCode = autherrors.CodeUserExists
+			return resp, nil
 		}
 
-		logger.AuthWarn(ctx, "register_failed",
+		// Any other failure is an unexpected backend/service error, not a UX
+		// condition. Fail-closed (PSY-900): surface it as a 5xx so monitoring
+		// sees the same uniform shape as the rest of this handler family
+		// (GetProfileHandler / RefreshTokenHandler / SendVerificationEmailHandler
+		// et al.) instead of the prior silent HTTP-200 + CodeUnknown body. The
+		// response body stays byte-identical with the canonical SERVICE_UNAVAILABLE
+		// shape; only the transport status flips.
+		svcErr := autherrors.ErrServiceUnavailable("register_create_user", err)
+		logger.AuthError(ctx, "register_failed", err,
 			"email_hash", logger.HashEmail(input.Body.Email),
-			"error", err.Error(),
-			"error_code", errorCode,
+			"error_code", autherrors.CodeServiceUnavailable,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = message
-		resp.Body.ErrorCode = errorCode
-		return resp, nil
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, svcErr
 	}
 
 	// Generate JWT token for immediate authentication
