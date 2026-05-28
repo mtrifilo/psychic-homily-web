@@ -100,6 +100,21 @@ func ErrUserNotFound(email string) *AuthError {
 	return NewAuthError(CodeUserNotFound, "User not found", fmt.Errorf("no user with email: %s", email))
 }
 
+// ErrUserNotFoundByID creates a user-not-found error for the by-ID lookup
+// case (session refresh after the principal was hard- or soft-deleted).
+//
+// Distinct from ErrUserNotFound(email) because the by-ID lookup does NOT have
+// the enumeration-safety concern that maps CodeUserNotFound to
+// CodeInvalidCredentials externally — the user already proved possession of
+// a token signed for this userID, so there is no email-enumeration oracle to
+// protect. Routes that need "this session principal is gone" semantics
+// (RefreshTokenHandler, eventually GetProfileHandler) inspect the typed
+// AuthError and emit HTTP 401 + CodeUnauthorized so the client clears the
+// session and redirects to login rather than retrying against a 5xx.
+func ErrUserNotFoundByID(userID uint, internal error) *AuthError {
+	return NewAuthError(CodeUserNotFound, "User not found", fmt.Errorf("no user with id %d: %w", userID, internal))
+}
+
 // ErrTokenExpired creates a token expired error.
 func ErrTokenExpired(internal error) *AuthError {
 	return NewAuthError(CodeTokenExpired, "Your session has expired. Please log in again.", internal)

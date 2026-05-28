@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/danielgtaylor/huma/v2"
+
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	"psychic-homily-backend/internal/config"
 	autherrors "psychic-homily-backend/internal/errors"
@@ -1316,6 +1318,59 @@ func TestRefreshTokenHandler_ProfileFails(t *testing.T) {
 	// callers do not see "Failed to refresh token" as an internal-step leak.
 	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
 		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
+// TestRefreshTokenHandler_DeletedUserReturns401 asserts the typed
+// CodeUserNotFound path: when GetUserProfile reports the principal was
+// deleted between token issuance and this refresh, the handler routes to
+// HTTP 401 + CodeUnauthorized rather than the fail-closed 5xx +
+// CodeServiceUnavailable reserved for generic backend failures.
+//
+// The 5xx contract for non-typed errors stays covered by
+// TestRefreshTokenHandler_ProfileFails. Both directions must remain
+// asserted to prevent a future fail-closed pass from collapsing the 401
+// discrimination back into the generic 5xx bucket.
+func TestRefreshTokenHandler_DeletedUserReturns401(t *testing.T) {
+	notFoundErr := autherrors.ErrUserNotFoundByID(1, fmt.Errorf("record not found"))
+	h := authHandler(func(ah *AuthHandler) {
+		ah.authService = &testhelpers.MockAuthService{
+			GetUserProfileFn: func(userID uint) (*authm.User, error) {
+				return nil, notFoundErr
+			},
+		}
+	})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	resp, err := h.RefreshTokenHandler(ctx, &struct{}{})
+
+	// Handler MUST return a non-nil StatusError so Huma emits HTTP 401.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits HTTP 401")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	var statusErr huma.StatusError
+	if !errors.As(err, &statusErr) {
+		t.Fatalf("expected returned error to satisfy huma.StatusError, got %T (%v)", err, err)
+	}
+	if got := statusErr.GetStatus(); got != 401 {
+		t.Errorf("expected HTTP status 401, got %d", got)
+	}
+	// Body shape carries the canonical CodeUnauthorized envelope. Huma drops
+	// the resp body when the handler returns a non-nil error, but the body
+	// fields are still asserted here so a downstream change that switches
+	// to a body-preserving error-emit (e.g. embedding the resp shape in a
+	// custom StatusError) cannot quietly drop the discriminator.
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeUnauthorized {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeUnauthorized, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeUnauthorized) {
+		t.Errorf("expected canonical UNAUTHORIZED message, got %q", resp.Body.Message)
 	}
 }
 

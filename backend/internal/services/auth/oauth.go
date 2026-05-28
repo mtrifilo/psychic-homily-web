@@ -1,6 +1,7 @@
 package auth
 
 import (
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 
 	"psychic-homily-backend/db"
 	"psychic-homily-backend/internal/config"
+	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
@@ -120,9 +122,24 @@ func (s *AuthService) oauthCallbackInternal(
 	return user, token, nil
 }
 
-// GetUserProfile retrieves user profile using the user service
+// GetUserProfile retrieves user profile using the user service.
+//
+// Discriminates the not-found case (the principal was hard- or soft-deleted
+// between token issuance and this lookup) from generic backend failures by
+// returning a typed *AuthError{Code: CodeUserNotFound}. Callers that need
+// session-invalidation semantics (RefreshTokenHandler) route the typed
+// error to HTTP 401 + CodeUnauthorized so the client clears the session and
+// redirects to login. Generic backend errors (DB outage, etc.) keep flowing
+// through as wrapped errors so handlers' fail-closed branches emit 5xx.
 func (s *AuthService) GetUserProfile(userID uint) (*authm.User, error) {
-	return s.userService.GetUserByID(userID)
+	user, err := s.userService.GetUserByID(userID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrUserNotFoundByID(userID, err)
+		}
+		return nil, err
+	}
+	return user, nil
 }
 
 // RefreshUserToken generates a new JWT token for the user
