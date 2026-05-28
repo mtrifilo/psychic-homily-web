@@ -159,18 +159,44 @@ func TestLogoutHandler_WithUser(t *testing.T) {
 
 // --- RefreshTokenHandler ---
 
-func TestRefreshTokenHandler_NilAuthService(t *testing.T) {
+// TestRefreshTokenHandler_NilAuthServiceReturnsServerError locks in the
+// fail-closed convention for the unwired-auth-service early exit: a nil
+// authService is a server-config defect, and the handler must surface it as a
+// 5xx (non-nil returned error wrapping an *AuthError of CodeServiceUnavailable)
+// so monitoring sees the same uniform shape as the post-service-call failure
+// branches. The body shape stays byte-identical with the prior HTTP-200
+// SERVICE_UNAVAILABLE path; only the transport status flips.
+func TestRefreshTokenHandler_NilAuthServiceReturnsServerError(t *testing.T) {
 	h := testAuthHandler() // authService is nil
 
 	resp, err := h.RefreshTokenHandler(context.Background(), &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	// Handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must wrap an *AuthError of CodeServiceUnavailable so
+	// the apperror mapper translates it to a 5xx with the structured body.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// External message must match the canonical SERVICE_UNAVAILABLE shape so
+	// callers do not see an internal-step leak (e.g. "Auth service not available").
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 

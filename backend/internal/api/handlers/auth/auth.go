@@ -291,15 +291,24 @@ func (h *AuthHandler) RefreshTokenHandler(ctx context.Context, input *struct{}) 
 	requestID := logger.GetRequestID(ctx)
 	resp.Body.RequestID = requestID
 
+	// Fail-closed: an unwired auth service is a server-config defect; surface it
+	// as 5xx so monitoring and on-call see the incident with the same uniform
+	// shape as the post-service-call failure branches below. The response body
+	// stays byte-identical with the prior HTTP-200 SERVICE_UNAVAILABLE path;
+	// only the transport-level status flips.
 	if h.authService == nil {
-		logger.AuthError(ctx, "refresh_token_failed", autherrors.ErrServiceUnavailable("auth", nil))
+		authErr := autherrors.ErrServiceUnavailable("refresh_token_auth_service_unwired", nil)
+		logger.AuthError(ctx, "refresh_token_failed", authErr)
 		resp.Body.Success = false
-		resp.Body.Message = "Auth service not available"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
-	// Extract user from JWT context (set by middleware)
+	// Extract user from JWT context (set by middleware). A nil contextUser here
+	// means the middleware contract was violated (route mounted without auth
+	// middleware, or middleware bug) — fundamentally different from a service
+	// failure, so this stays HTTP 200 + CodeUnauthorized rather than a 5xx.
 	contextUser := middleware.GetUserFromContext(ctx)
 	if contextUser == nil {
 		logger.AuthWarn(ctx, "refresh_token_no_user")
