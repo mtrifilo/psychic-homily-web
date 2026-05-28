@@ -1216,7 +1216,7 @@ function StationDetailPanel({
                     <Button
                       variant="ghost"
                       size="sm"
-                      title="Import episodes"
+                      aria-label={`Import episodes for ${show.name}`}
                       onClick={() => toggleShowExpanded(show.id)}
                     >
                       <Upload className="h-4 w-4" />
@@ -1224,6 +1224,7 @@ function StationDetailPanel({
                     <Button
                       variant="ghost"
                       size="sm"
+                      aria-label={`Edit ${show.name}`}
                       onClick={() => { setSelectedShow(show); setDialogMode('edit-show') }}
                     >
                       <Pencil className="h-4 w-4" />
@@ -1232,6 +1233,7 @@ function StationDetailPanel({
                       variant="ghost"
                       size="sm"
                       className="text-destructive"
+                      aria-label={`Delete ${show.name}`}
                       onClick={() => { setSelectedShow(show); setDialogMode('delete-show') }}
                     >
                       <Trash2 className="h-4 w-4" />
