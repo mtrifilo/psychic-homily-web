@@ -430,20 +430,46 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 	)
 
 	// Fetch fresh user data from database with all relationships.
-	// Fail-closed: an unexpected DB/service failure here propagates as a 5xx so
-	// the HTTP layer cannot hand callers (or monitoring) a misleading HTTP 200
-	// SERVICE_UNAVAILABLE body. The response body shape is unchanged; only the
-	// transport-level status flips from 200 to 5xx.
+	//
+	// Two discriminated outcomes:
+	//   - Typed CodeUserNotFound  → HTTP 401 + CodeUnauthorized. The session
+	//     principal was hard- or soft-deleted between token issuance and this
+	//     profile fetch. The token itself is still cryptographically valid,
+	//     but the account it represents no longer exists, so the right
+	//     transport status is 401 (not 5xx) — the client clears the session
+	//     and routes the user back to login. A 5xx would tell the client
+	//     "backend is broken; retry", but retrying with the same token is
+	//     futile.
+	//   - Any other error      → HTTP 5xx + CodeServiceUnavailable. Real
+	//     backend defect (DB outage, etc.); fail-closed so monitoring sees
+	//     the incident with the same uniform shape and the client retries.
 	user, err := h.authService.GetUserProfile(contextUser.ID)
 	if err != nil {
-		authErr := autherrors.ErrServiceUnavailable("get_profile", err)
+		var authErr *autherrors.AuthError
+		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUserNotFound {
+			logger.AuthWarn(ctx, "get_profile_user_deleted",
+				"user_id", contextUser.ID,
+			)
+			resp.Body.Success = false
+			resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeUnauthorized)
+			resp.Body.ErrorCode = autherrors.CodeUnauthorized
+			return resp, huma.Error401Unauthorized(
+				autherrors.ToExternalMessage(autherrors.CodeUnauthorized),
+				authErr,
+			)
+		}
+
+		// Fail-closed for non-typed failures so the HTTP layer cannot hand
+		// callers (or monitoring) a misleading HTTP 200 SERVICE_UNAVAILABLE
+		// body.
+		svcErr := autherrors.ErrServiceUnavailable("get_profile", err)
 		logger.AuthError(ctx, "get_profile_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
 		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, authErr
+		return resp, svcErr
 	}
 
 	logger.AuthDebug(ctx, "get_profile_success",
