@@ -371,15 +371,24 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 	requestID := logger.GetRequestID(ctx)
 	resp.Body.RequestID = requestID
 
+	// Fail-closed: an unwired auth service is a server-config defect; surface it
+	// as 5xx so monitoring and on-call see the incident with the same uniform
+	// shape as the post-service-call failure branch below. The response body
+	// stays byte-identical with the prior HTTP-200 SERVICE_UNAVAILABLE path;
+	// only the transport-level status flips.
 	if h.authService == nil {
-		logger.AuthError(ctx, "get_profile_failed", autherrors.ErrServiceUnavailable("auth", nil))
+		authErr := autherrors.ErrServiceUnavailable("get_profile_auth_service_unwired", nil)
+		logger.AuthError(ctx, "get_profile_failed", authErr)
 		resp.Body.Success = false
-		resp.Body.Message = "Auth service not available"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
-	// Extract user from JWT context (set by middleware)
+	// Extract user from JWT context (set by middleware). A nil contextUser here
+	// means the middleware contract was violated (route mounted without auth
+	// middleware, or middleware bug) — fundamentally different from a service
+	// failure, so this stays HTTP 200 + CodeUnauthorized rather than a 5xx.
 	contextUser := middleware.GetUserFromContext(ctx)
 	if contextUser == nil {
 		logger.AuthWarn(ctx, "get_profile_no_user")
@@ -393,16 +402,21 @@ func (h *AuthHandler) GetProfileHandler(ctx context.Context, input *struct{}) (*
 		"user_id", contextUser.ID,
 	)
 
-	// Fetch fresh user data from database with all relationships
+	// Fetch fresh user data from database with all relationships.
+	// Fail-closed: an unexpected DB/service failure here propagates as a 5xx so
+	// the HTTP layer cannot hand callers (or monitoring) a misleading HTTP 200
+	// SERVICE_UNAVAILABLE body. The response body shape is unchanged; only the
+	// transport-level status flips from 200 to 5xx.
 	user, err := h.authService.GetUserProfile(contextUser.ID)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("get_profile", err)
 		logger.AuthError(ctx, "get_profile_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to fetch user profile"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	logger.AuthDebug(ctx, "get_profile_success",
@@ -536,6 +550,15 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		},
 	)
 	if err != nil {
+		// Silent-downgrade convention intentionally preserved here pending the
+		// email-enumeration design lock for the registration path. Whether
+		// unknown service-failure codes should surface as 5xx, or stay folded
+		// into the CodeUnknown / CodeUserExists shape (to avoid leaking
+		// registered-email state via transport-status differences), is tied
+		// to that broader enumeration-safety decision — which has not landed
+		// yet. Revisit alongside the registration enumeration work; the rest
+		// of this handler family has been converted to the fail-closed
+		// pattern (see GetProfileHandler / SendVerificationEmailHandler / et al.).
 		errorCode := autherrors.CodeUnknown
 		message := "Failed to create user"
 
@@ -647,27 +670,35 @@ func (h *AuthHandler) SendVerificationEmailHandler(ctx context.Context, input *s
 
 	email := *contextUser.Email
 
-	// Generate verification token
+	// Generate verification token.
+	// Fail-closed: a JWT-service outage here is an unexpected backend failure,
+	// not a UX condition. Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides
+	// the incident from monitoring; propagating a 5xx keeps the response body
+	// byte-identical with the prior path and forces on-call visibility.
 	token, err := h.jwtService.CreateVerificationToken(contextUser.ID, email)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("send_verification_token", err)
 		logger.AuthError(ctx, "send_verification_token_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to generate verification token"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
-	// Send verification email
+	// Send verification email.
+	// Fail-closed: same rationale as the token-mint branch above. Email-service
+	// outages must surface as 5xx, not as HTTP 200 with a sad-path body.
 	if err := h.emailService.SendVerificationEmail(email, token); err != nil {
+		authErr := autherrors.ErrServiceUnavailable("send_verification_email", err)
 		logger.AuthError(ctx, "send_verification_email_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to send verification email"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	logger.AuthInfo(ctx, "send_verification_email_success",
@@ -758,15 +789,25 @@ func (h *AuthHandler) ConfirmVerificationHandler(ctx context.Context, input *Con
 		return resp, nil
 	}
 
-	// Update user to mark email as verified
+	// Update user to mark email as verified.
+	// Fail-closed: the token has already been validated and the user/email
+	// match has already been confirmed by this point, so a SetEmailVerified
+	// failure is an unexpected backend defect rather than a UX condition.
+	// Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides the incident from
+	// monitoring; propagating a 5xx keeps the response body byte-identical
+	// with the prior path and forces on-call visibility. The intentional UX
+	// shapes above (INVALID_TOKEN, UNAUTHORIZED, EMAIL_MISMATCH, already-
+	// verified) intentionally stay HTTP 200 with structured ErrorCode so the
+	// frontend can render the corresponding form state.
 	if err := h.userService.SetEmailVerified(user.ID, true); err != nil {
+		authErr := autherrors.ErrServiceUnavailable("confirm_verification_set_verified", err)
 		logger.AuthError(ctx, "confirm_verification_update_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to verify email"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	logger.AuthInfo(ctx, "confirm_verification_success",
@@ -1113,29 +1154,57 @@ func (h *AuthHandler) ChangePasswordHandler(ctx context.Context, input *ChangePa
 
 	// Update password
 	if err := h.userService.UpdatePassword(contextUser.ID, input.Body.CurrentPassword, input.Body.NewPassword); err != nil {
-		errorMessage := "Failed to change password"
-		errorCode := autherrors.CodeUnknown
-
 		var authErr *autherrors.AuthError
 		if errors.As(err, &authErr) {
 			switch authErr.Code {
 			case autherrors.CodeInvalidCredentials:
-				errorMessage = "Current password is incorrect"
-				errorCode = autherrors.CodeInvalidCredentials
+				logger.AuthWarn(ctx, "change_password_failed",
+					"user_id", contextUser.ID,
+					"error", err.Error(),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = "Current password is incorrect"
+				resp.Body.ErrorCode = autherrors.CodeInvalidCredentials
+				return resp, nil
 			case autherrors.CodeNoPasswordSet:
-				errorMessage = authErr.UserMessage()
-				errorCode = autherrors.CodeNoPasswordSet
+				logger.AuthWarn(ctx, "change_password_failed",
+					"user_id", contextUser.ID,
+					"error", err.Error(),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = authErr.UserMessage()
+				resp.Body.ErrorCode = autherrors.CodeNoPasswordSet
+				return resp, nil
+			default:
+				// Fail-closed: any AuthError code without an explicit handler
+				// case is treated as "we don't know what went wrong" and
+				// propagates as 5xx. Adding a new AuthError code that SHOULD
+				// be 401-shaped requires an explicit case here — code review
+				// forces a UX decision per code instead of accepting a silent
+				// CodeUnknown downgrade.
+				logger.AuthError(ctx, "change_password_unhandled_authcode", err,
+					"user_id", contextUser.ID,
+					"auth_code", string(authErr.Code),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+				return resp, authErr
 			}
 		}
 
-		logger.AuthWarn(ctx, "change_password_failed",
+		// Outer fallback: err is NOT an AuthError. Genuine "unexpected error"
+		// territory — config failures, raw DB errors, or any service path that
+		// has not been promoted to a typed AuthError. Fail-closed with a
+		// generic message so we do not leak which internal step failed, and
+		// surface a 5xx so the client retries.
+		logger.AuthError(ctx, "change_password_unexpected_error", err,
 			"user_id", contextUser.ID,
-			"error", err.Error(),
 		)
 		resp.Body.Success = false
-		resp.Body.Message = errorMessage
-		resp.Body.ErrorCode = errorCode
-		return resp, nil
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+		return resp, autherrors.ErrServiceUnavailable("change_password", err)
 	}
 
 	logger.AuthInfo(ctx, "change_password_success",
@@ -1181,16 +1250,22 @@ func (h *AuthHandler) GetDeletionSummaryHandler(ctx context.Context, input *stru
 		"user_id", contextUser.ID,
 	)
 
-	// Get deletion summary from user service
+	// Get deletion summary from user service.
+	// Fail-closed: a service-call failure here is an unexpected backend defect.
+	// Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides the incident from
+	// monitoring and lets clients keep reading a sad-path body as if it were
+	// the canonical shape; propagating a 5xx forces on-call visibility while
+	// the body shape stays byte-identical with the prior path.
 	summary, err := h.userService.GetDeletionSummary(contextUser.ID)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("get_deletion_summary", err)
 		logger.AuthError(ctx, "deletion_summary_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to retrieve deletion summary"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	resp.Body.Success = true
@@ -1394,7 +1469,12 @@ type ConfirmAccountRecoveryResponse struct {
 func (h *AuthHandler) ExportDataHandler(ctx context.Context, input *struct{}) (*ExportDataResponse, error) {
 	resp := &ExportDataResponse{}
 
-	// Get authenticated user from context
+	// Extract user from JWT context (set by middleware). A nil contextUser here
+	// means the middleware contract was violated (route mounted without auth
+	// middleware, or middleware bug) — fundamentally different from a service
+	// failure, so this stays HTTP 200 with an inline JSON error body rather
+	// than a 5xx. The byte-body shape is the user-visible behavior here (file
+	// download), so we preserve it as a structured JSON sad-path.
 	contextUser := middleware.GetUserFromContext(ctx)
 	if contextUser == nil {
 		logger.AuthWarn(ctx, "export_data_no_user")
@@ -1408,15 +1488,20 @@ func (h *AuthHandler) ExportDataHandler(ctx context.Context, input *struct{}) (*
 		"user_id", contextUser.ID,
 	)
 
-	// Export user data as JSON
+	// Export user data as JSON.
+	// Fail-closed: a service-call failure here is an unexpected backend defect,
+	// not a UX condition. Surfacing it as HTTP 200 + an inline JSON error body
+	// hides the incident from monitoring; propagating a 5xx via Huma's error
+	// path lets on-call see the actual failure. We do NOT set ContentType /
+	// Body on the resp because Huma's error mapper builds the response from
+	// the returned error directly, producing a canonical JSON 5xx instead of
+	// the byte-body file-download shape.
 	exportData, err := h.userService.ExportUserDataJSON(contextUser.ID)
 	if err != nil {
 		logger.AuthError(ctx, "export_data_failed", err,
 			"user_id", contextUser.ID,
 		)
-		resp.ContentType = "application/json"
-		resp.Body = []byte(`{"success":false,"error":"export_failed","message":"Failed to export user data"}`)
-		return resp, nil
+		return resp, autherrors.ErrServiceUnavailable("export_data", err)
 	}
 
 	logger.AuthInfo(ctx, "export_data_success",
@@ -1513,39 +1598,56 @@ func (h *AuthHandler) RecoverAccountHandler(ctx context.Context, input *RecoverA
 		return invalidCredentials()
 	}
 
-	// Restore the account
+	// Restore the account.
+	// Fail-closed: the post-eligibility surface is NO LONGER enumeration-
+	// sensitive — the caller has already provided correct credentials, so a
+	// RestoreAccount failure is an unexpected backend defect rather than a
+	// guessable account-state. Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE
+	// hides the incident from monitoring; propagating a 5xx forces on-call
+	// visibility while the response body shape stays byte-identical with the
+	// prior path. The enumeration-safe invalidCredentials() closure above
+	// intentionally stays HTTP 200 for the pre-success branches.
 	if err := h.userService.RestoreAccount(user.ID); err != nil {
+		authErr := autherrors.ErrServiceUnavailable("recover_account_restore", err)
 		logger.AuthError(ctx, "recover_account_restore_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to restore account"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
-	// Fetch the restored user
+	// Fetch the restored user.
+	// Fail-closed: same rationale as the RestoreAccount branch above — a
+	// post-restore lookup failure is a service-layer defect, not a UX
+	// condition or an enumeration surface.
 	restoredUser, err := h.userService.GetUserByID(user.ID)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("recover_account_fetch", err)
 		logger.AuthError(ctx, "recover_account_fetch_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Account restored but failed to fetch user data"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
-	// Generate JWT token and log user in
+	// Generate JWT token and log user in.
+	// Fail-closed: same rationale as the RestoreAccount / fetch branches
+	// above — a JWT-service outage at this stage is a backend failure, not a
+	// UX condition or an enumeration surface.
 	token, err := h.jwtService.CreateToken(restoredUser)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("recover_account_token", err)
 		logger.AuthError(ctx, "recover_account_token_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Account restored but failed to generate authentication token"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
@@ -1739,39 +1841,57 @@ func (h *AuthHandler) ConfirmAccountRecoveryHandler(ctx context.Context, input *
 		return resp, nil
 	}
 
-	// Restore the account
+	// Restore the account.
+	// Fail-closed: the token + user ID match + recovery eligibility have all
+	// been confirmed by this point, so a RestoreAccount failure is an
+	// unexpected backend defect rather than a UX condition. Surfacing it as
+	// HTTP 200 + SERVICE_UNAVAILABLE hides the incident from monitoring;
+	// propagating a 5xx keeps the response body byte-identical and forces
+	// on-call visibility. The intentional UX shapes above (INVALID_TOKEN,
+	// UNAUTHORIZED, ACCOUNT_ACTIVE, ACCOUNT_NOT_RECOVERABLE) intentionally
+	// stay HTTP 200 with structured ErrorCode so the frontend can render the
+	// corresponding form state.
 	if err := h.userService.RestoreAccount(user.ID); err != nil {
+		authErr := autherrors.ErrServiceUnavailable("confirm_recovery_restore", err)
 		logger.AuthError(ctx, "confirm_recovery_restore_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to restore account"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
-	// Fetch the restored user
+	// Fetch the restored user.
+	// Fail-closed: same rationale as the RestoreAccount branch above — a
+	// post-restore lookup failure is a service-layer defect, not a UX
+	// condition.
 	restoredUser, err := h.userService.GetUserByID(user.ID)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("confirm_recovery_fetch", err)
 		logger.AuthError(ctx, "confirm_recovery_fetch_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Account restored but failed to fetch user data"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
-	// Generate JWT token and log user in
+	// Generate JWT token and log user in.
+	// Fail-closed: same rationale as the RestoreAccount / fetch branches
+	// above — a JWT-service outage at this stage is a backend failure, not a
+	// UX condition.
 	token, err := h.jwtService.CreateToken(restoredUser)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("confirm_recovery_token", err)
 		logger.AuthError(ctx, "confirm_recovery_token_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Account restored but failed to generate authentication token"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	resp.SetCookie = h.config.Session.NewAuthCookie(token, 24*time.Hour)
@@ -1824,16 +1944,21 @@ func (h *AuthHandler) GenerateCLITokenHandler(ctx context.Context, input *struct
 		"user_id", contextUser.ID,
 	)
 
-	// Generate a fresh JWT token for CLI use (24 hour expiry)
+	// Generate a fresh JWT token for CLI use (24 hour expiry).
+	// Fail-closed: a JWT-service outage here is an unexpected backend failure,
+	// not a UX condition. Surfacing it as HTTP 200 + SERVICE_UNAVAILABLE hides
+	// the incident from monitoring; propagating a 5xx keeps the response body
+	// byte-identical with the prior path and forces on-call visibility.
 	token, err := h.jwtService.CreateToken(contextUser)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("generate_cli_token", err)
 		logger.AuthError(ctx, "generate_cli_token_failed", err,
 			"user_id", contextUser.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to generate CLI token"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr
 	}
 
 	logger.AuthInfo(ctx, "generate_cli_token_success",
@@ -1945,16 +2070,39 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 		// CodeUsernameTaken from the user service (the driver-string match
 		// lives there now, isolated to the DB boundary).
 		var authErr *autherrors.AuthError
-		if errors.As(err, &authErr) && authErr.Code == autherrors.CodeUsernameTaken {
-			resp.Body.Success = false
-			resp.Body.Message = authErr.UserMessage()
-			resp.Body.ErrorCode = autherrors.CodeValidationFailed
-			return resp, nil
+		if errors.As(err, &authErr) {
+			switch authErr.Code {
+			case autherrors.CodeUsernameTaken:
+				resp.Body.Success = false
+				resp.Body.Message = authErr.UserMessage()
+				resp.Body.ErrorCode = autherrors.CodeValidationFailed
+				return resp, nil
+			default:
+				// Fail-closed: any AuthError code without an explicit handler
+				// case is treated as "we don't know what went wrong" and
+				// propagates as 5xx. Adding a new AuthError code that SHOULD
+				// be 4xx-shaped requires an explicit case here — code review
+				// forces a UX decision per code instead of accepting a silent
+				// SERVICE_UNAVAILABLE downgrade.
+				logger.AuthError(ctx, "update_profile_unhandled_authcode", err,
+					"user_id", user.ID,
+					"auth_code", string(authErr.Code),
+				)
+				resp.Body.Success = false
+				resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
+				resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
+				return resp, authErr
+			}
 		}
+		// Outer fallback: err is NOT an AuthError. Genuine "unexpected error"
+		// territory — config failures, raw DB errors, or any service path that
+		// has not been promoted to a typed AuthError. Fail-closed with a
+		// generic message so we do not leak which internal step failed, and
+		// surface a 5xx so the client retries.
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to update profile"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, autherrors.ErrServiceUnavailable("update_profile", err)
 	}
 
 	logger.FromContext(ctx).Info("profile_updated",

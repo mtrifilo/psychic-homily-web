@@ -219,12 +219,33 @@ func TestRefreshTokenHandler_NoUserContext(t *testing.T) {
 
 // --- GetProfileHandler ---
 
-func TestGetProfileHandler_NilAuthService(t *testing.T) {
-	h := testAuthHandler()
+// TestGetProfileHandler_NilAuthServiceReturnsServerError locks in the
+// fail-closed convention for the unwired-auth-service early exit: a nil
+// authService is a server-config defect, and the handler must surface it as a
+// 5xx (non-nil returned error wrapping an *AuthError of CodeServiceUnavailable)
+// so monitoring sees the same uniform shape as the post-service-call failure
+// branch. The body shape stays byte-identical with the prior HTTP-200
+// SERVICE_UNAVAILABLE path; only the transport status flips.
+func TestGetProfileHandler_NilAuthServiceReturnsServerError(t *testing.T) {
+	h := testAuthHandler() // authService is nil
 
 	resp, err := h.GetProfileHandler(context.Background(), &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	// Handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must wrap an *AuthError of CodeServiceUnavailable so
+	// the apperror mapper translates it to a 5xx with the structured body.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
@@ -232,7 +253,13 @@ func TestGetProfileHandler_NilAuthService(t *testing.T) {
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 	}
+	// External message must match the canonical SERVICE_UNAVAILABLE shape so
+	// callers do not see an internal-step leak (e.g. "Auth service not available").
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
 }
+
 
 func TestGetProfileHandler_NoUserContext(t *testing.T) {
 	authSvc := auth.NewAuthService(nil, testConfig(), usersvc.NewUserService(nil))
@@ -1179,6 +1206,11 @@ func TestGetProfileHandler_Success(t *testing.T) {
 	}
 }
 
+// TestGetProfileHandler_ServiceError asserts that a service-call failure from
+// authService.GetUserProfile propagates as a 5xx rather than the prior silent
+// HTTP-200 SERVICE_UNAVAILABLE downgrade. Locks in the fail-closed convention
+// so an unexpected backend defect surfaces in monitoring instead of being
+// read by the client as the canonical body shape.
 func TestGetProfileHandler_ServiceError(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.authService = &testhelpers.MockAuthService{
@@ -1190,14 +1222,25 @@ func TestGetProfileHandler_ServiceError(t *testing.T) {
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetProfileHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 
@@ -1396,6 +1439,12 @@ func TestSendVerificationEmailHandler_NoEmail(t *testing.T) {
 	}
 }
 
+// TestSendVerificationEmailHandler_TokenFails asserts that a JWT-service
+// failure at the verification-token mint step propagates as a 5xx rather
+// than the prior silent HTTP-200 SERVICE_UNAVAILABLE downgrade. Locks in
+// the fail-closed convention for the post-input-validation backend-failure
+// branches; the intentional UX shapes (ALREADY_VERIFIED, NO_EMAIL, etc.)
+// still return HTTP 200 with structured ErrorCode.
 func TestSendVerificationEmailHandler_TokenFails(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
@@ -1411,14 +1460,69 @@ func TestSendVerificationEmailHandler_TokenFails(t *testing.T) {
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, Email: &email, EmailVerified: false})
 
 	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
+// TestSendVerificationEmailHandler_EmailSendFailsClosed asserts that an
+// email-service failure at the send step propagates as a 5xx rather than the
+// prior silent HTTP-200 SERVICE_UNAVAILABLE downgrade. Same convention as the
+// token-mint branch above; both backend-failure paths now fail closed.
+func TestSendVerificationEmailHandler_EmailSendFailsClosed(t *testing.T) {
+	email := "test@example.com"
+	h := authHandler(func(ah *AuthHandler) {
+		ah.emailService = &testhelpers.MockEmailService{
+			IsConfiguredFn: func() bool { return true },
+			SendVerificationEmailFn: func(toEmail, token string) error {
+				return fmt.Errorf("smtp connection refused")
+			},
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateVerificationTokenFn: func(userID uint, e string) (string, error) {
+				return "valid-token", nil
+			},
+		}
+	})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, Email: &email, EmailVerified: false})
+
+	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 
@@ -1513,7 +1617,15 @@ func TestConfirmVerificationHandler_AlreadyVerified(t *testing.T) {
 	}
 }
 
-func TestConfirmVerificationHandler_SetVerifiedFails(t *testing.T) {
+// TestConfirmVerificationHandler_SetVerifiedFailsClosed asserts that a
+// SetEmailVerified failure at the final write step propagates as a 5xx
+// rather than the prior silent HTTP-200 SERVICE_UNAVAILABLE downgrade. The
+// token, user, and email have all been validated by this point — a write
+// failure is an unexpected backend defect, not a UX condition. The
+// intentional UX shapes earlier in the handler (INVALID_TOKEN, UNAUTHORIZED,
+// EMAIL_MISMATCH, already-verified) still return HTTP 200 with structured
+// ErrorCode so the frontend can render the corresponding form state.
+func TestConfirmVerificationHandler_SetVerifiedFailsClosed(t *testing.T) {
 	email := "test@example.com"
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &testhelpers.MockJWTService{
@@ -1535,14 +1647,66 @@ func TestConfirmVerificationHandler_SetVerifiedFails(t *testing.T) {
 	input.Body.Token = "valid-token"
 
 	resp, err := h.ConfirmVerificationHandler(context.Background(), input)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
+// TestConfirmVerificationHandler_AlreadyVerifiedStillSucceeds locks in the
+// intentional UX shape for the "already verified" branch: the response stays
+// HTTP 200 with success=true and a human-readable message even though no
+// write happens. Regression guard against the fail-closed conversion
+// accidentally tipping over the intentional 200-shape branches.
+func TestConfirmVerificationHandler_AlreadyVerifiedStillSucceeds(t *testing.T) {
+	email := "test@example.com"
+	h := authHandler(func(ah *AuthHandler) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateVerificationTokenFn: func(tokenString string) (*contracts.VerificationTokenClaims, error) {
+				return &contracts.VerificationTokenClaims{UserID: 1, Email: email}, nil
+			},
+		}
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*authm.User, error) {
+				return &authm.User{ID: 1, Email: &email, EmailVerified: true}, nil
+			},
+			// SetEmailVerifiedFn intentionally absent — the handler must not
+			// reach this call when the email is already verified.
+			SetEmailVerifiedFn: func(userID uint, verified bool) error {
+				t.Fatal("SetEmailVerified must not be called when email is already verified")
+				return nil
+			},
+		}
+	})
+
+	input := &ConfirmVerificationRequest{}
+	input.Body.Token = "valid-token"
+
+	resp, err := h.ConfirmVerificationHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error on already-verified path: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Error("expected success=true on already-verified branch")
+	}
+	if !strings.Contains(resp.Body.Message, "already verified") {
+		t.Errorf("expected message about already verified, got %q", resp.Body.Message)
 	}
 }
 
@@ -1971,6 +2135,86 @@ func TestChangePasswordHandler_NoPasswordSet(t *testing.T) {
 	}
 }
 
+// TestChangePasswordHandler_UnknownAuthCodeFailsClosed asserts that an
+// AuthError whose Code is not explicitly handled by the ChangePasswordHandler
+// switch propagates as a 5xx instead of falling through to the prior silent
+// CodeUnknown HTTP-200 downgrade. Locks in the convention so a new AuthError
+// code added without a dedicated handler case must surface as 5xx — code
+// review forces a UX decision per code.
+func TestChangePasswordHandler_UnknownAuthCodeFailsClosed(t *testing.T) {
+	unknownErr := &autherrors.AuthError{Code: autherrors.CodeUnknown, Message: "unrouted auth code"}
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			UpdatePasswordFn: func(userID uint, currentPassword, newPassword string) error {
+				return unknownErr
+			},
+		}
+	})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	input := &ChangePasswordRequest{}
+	input.Body.CurrentPassword = "old-password-123"
+	input.Body.NewPassword = "new-password-456"
+
+	resp, err := h.ChangePasswordHandler(ctx, input)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
+// TestChangePasswordHandler_NonAuthErrorFailsClosed asserts that a raw
+// (non-AuthError) service-call failure propagates as a 5xx via the apperror
+// wrapper rather than the prior silent CodeUnknown HTTP-200 downgrade. Locks
+// in the fail-closed outer fallback so unexpected backend defects surface in
+// monitoring instead of being read by the client as a canonical sad-path body.
+func TestChangePasswordHandler_NonAuthErrorFailsClosed(t *testing.T) {
+	rawErr := fmt.Errorf("simulated db outage")
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			UpdatePasswordFn: func(userID uint, currentPassword, newPassword string) error {
+				return rawErr
+			},
+		}
+	})
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+
+	input := &ChangePasswordRequest{}
+	input.Body.CurrentPassword = "old-password-123"
+	input.Body.NewPassword = "new-password-456"
+
+	resp, err := h.ChangePasswordHandler(ctx, input)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
 // --- GetDeletionSummaryHandler mock tests ---
 
 func TestGetDeletionSummaryHandler_Success(t *testing.T) {
@@ -2009,6 +2253,11 @@ func TestGetDeletionSummaryHandler_Success(t *testing.T) {
 	}
 }
 
+// TestGetDeletionSummaryHandler_ServiceError asserts that a service-call
+// failure from userService.GetDeletionSummary propagates as a 5xx rather
+// than the prior silent HTTP-200 SERVICE_UNAVAILABLE downgrade. Locks in the
+// fail-closed convention so an unexpected backend defect surfaces in
+// monitoring instead of being read by the client as the canonical body shape.
 func TestGetDeletionSummaryHandler_ServiceError(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &testhelpers.MockUserService{
@@ -2020,14 +2269,25 @@ func TestGetDeletionSummaryHandler_ServiceError(t *testing.T) {
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.GetDeletionSummaryHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 
@@ -2177,7 +2437,13 @@ func TestExportDataHandler_Success(t *testing.T) {
 	}
 }
 
-func TestExportDataHandler_ServiceError(t *testing.T) {
+// TestExportDataHandler_ServiceErrorFailsClosed asserts that a service-call
+// failure from userService.ExportUserDataJSON propagates as a 5xx via the
+// apperror wrapper rather than the prior silent HTTP-200 with an inline JSON
+// error body. The byte-body file-download shape is the user-visible behavior
+// of the happy path; on failure, Huma's error mapper builds a canonical JSON
+// 5xx from the returned error directly so monitoring sees the incident.
+func TestExportDataHandler_ServiceErrorFailsClosed(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.userService = &testhelpers.MockUserService{
 			ExportUserDataJSONFn: func(userID uint) ([]byte, error) {
@@ -2188,11 +2454,42 @@ func TestExportDataHandler_ServiceError(t *testing.T) {
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
 
 	resp, err := h.ExportDataHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
 	}
-	if !strings.Contains(string(resp.Body), "export_failed") {
-		t.Errorf("expected error body, got %s", string(resp.Body))
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
+	}
+	// The response Body must NOT carry the prior inline JSON "export_failed"
+	// shape — Huma builds the response from the returned error directly. The
+	// happy-path file-download shape is reserved for success.
+	if len(resp.Body) != 0 {
+		t.Errorf("expected empty resp.Body on service failure (Huma builds the body), got %q", string(resp.Body))
+	}
+}
+
+// TestExportDataHandler_NoUserContextPreservesByteBodyShape locks in the
+// intentional middleware-contract-violation path: a nil contextUser is NOT
+// a service failure, so the response stays HTTP 200 with the inline JSON
+// "unauthorized" body. Regression guard against the fail-closed conversion
+// tipping over the unauthorized branch as well.
+func TestExportDataHandler_NoUserContextPreservesByteBodyShape(t *testing.T) {
+	h := testAuthHandler()
+
+	resp, err := h.ExportDataHandler(context.Background(), &struct{}{})
+	if err != nil {
+		t.Fatalf("unexpected error on no-user-context path: %v", err)
+	}
+	if resp.ContentType != "application/json" {
+		t.Errorf("expected content-type application/json, got %s", resp.ContentType)
+	}
+	if !strings.Contains(string(resp.Body), "unauthorized") {
+		t.Errorf("expected body to contain 'unauthorized', got %q", string(resp.Body))
 	}
 }
 
@@ -2320,6 +2617,113 @@ func TestRecoverAccountHandler_ResponseIdenticalAcrossAccountStates(t *testing.T
 				state.name, states[0].name, got.Body, want.Body)
 		}
 	}
+}
+
+// recoverAccountSuccessfulSetup builds an authHandler whose pre-success
+// branches are all green (known recoverable account, correct password). The
+// `tweak` callback flips one of the three post-success-eligibility service
+// calls into a failure so each fail-closed regression test exercises a
+// single specific branch.
+func recoverAccountSuccessfulSetup(email string, tweak func(*testhelpers.MockUserService, *testhelpers.MockJWTService)) *AuthHandler {
+	hash := "$2a$10$fakehash"
+	return authHandler(func(ah *AuthHandler) {
+		us := &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(string) (*authm.User, error) {
+				return &authm.User{ID: 1, Email: &email, PasswordHash: &hash, IsActive: false}, nil
+			},
+			IsAccountRecoverableFn: func(*authm.User) bool { return true },
+			VerifyPasswordFn:       func(string, string) error { return nil },
+			RestoreAccountFn:       func(uint) error { return nil },
+			GetUserByIDFn: func(uint) (*authm.User, error) {
+				return &authm.User{ID: 1, Email: &email, IsActive: true}, nil
+			},
+		}
+		js := &testhelpers.MockJWTService{
+			CreateTokenFn: func(*authm.User) (string, error) { return "session-token", nil },
+		}
+		tweak(us, js)
+		ah.userService = us
+		ah.jwtService = js
+	})
+}
+
+// assertRecoverAccountFailedClosed factors out the regression-shape assertion
+// reused by each of the three RecoverAccount post-success-eligibility failure
+// branches: handler must return a non-nil error wrapping an *AuthError of
+// CodeServiceUnavailable, and the response body must match the canonical
+// SERVICE_UNAVAILABLE shape.
+func assertRecoverAccountFailedClosed(t *testing.T, resp *RecoverAccountResponse, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
+// TestRecoverAccountHandler_RestoreFailsClosed locks in the post-success-
+// eligibility fail-closed convention for the RestoreAccount branch: the
+// caller has already authenticated (pre-success enumeration safety holds via
+// invalidCredentials), so a service-level failure here is no longer an
+// existence oracle and must surface as 5xx instead of HTTP 200.
+func TestRecoverAccountHandler_RestoreFailsClosed(t *testing.T) {
+	email := "test@example.com"
+	h := recoverAccountSuccessfulSetup(email, func(us *testhelpers.MockUserService, _ *testhelpers.MockJWTService) {
+		us.RestoreAccountFn = func(uint) error { return fmt.Errorf("db error") }
+	})
+
+	input := &RecoverAccountRequest{}
+	input.Body.Email = email
+	input.Body.Password = "correct"
+
+	resp, err := h.RecoverAccountHandler(context.Background(), input)
+	assertRecoverAccountFailedClosed(t, resp, err)
+}
+
+// TestRecoverAccountHandler_FetchFailsClosed mirrors the RestoreFailsClosed
+// regression for the GetUserByID branch.
+func TestRecoverAccountHandler_FetchFailsClosed(t *testing.T) {
+	email := "test@example.com"
+	h := recoverAccountSuccessfulSetup(email, func(us *testhelpers.MockUserService, _ *testhelpers.MockJWTService) {
+		us.GetUserByIDFn = func(uint) (*authm.User, error) { return nil, fmt.Errorf("db error") }
+	})
+
+	input := &RecoverAccountRequest{}
+	input.Body.Email = email
+	input.Body.Password = "correct"
+
+	resp, err := h.RecoverAccountHandler(context.Background(), input)
+	assertRecoverAccountFailedClosed(t, resp, err)
+}
+
+// TestRecoverAccountHandler_TokenFailsClosed mirrors the RestoreFailsClosed
+// regression for the JWT-token-mint branch.
+func TestRecoverAccountHandler_TokenFailsClosed(t *testing.T) {
+	email := "test@example.com"
+	h := recoverAccountSuccessfulSetup(email, func(_ *testhelpers.MockUserService, js *testhelpers.MockJWTService) {
+		js.CreateTokenFn = func(*authm.User) (string, error) { return "", fmt.Errorf("jwt error") }
+	})
+
+	input := &RecoverAccountRequest{}
+	input.Body.Email = email
+	input.Body.Password = "correct"
+
+	resp, err := h.RecoverAccountHandler(context.Background(), input)
+	assertRecoverAccountFailedClosed(t, resp, err)
 }
 
 // --- RequestAccountRecoveryHandler mock tests ---
@@ -2621,6 +3025,113 @@ func TestConfirmAccountRecoveryHandler_AlreadyActive(t *testing.T) {
 	}
 }
 
+// confirmAccountRecoverySuccessfulSetup builds an authHandler whose pre-
+// success branches are all green (valid token, matching user, recoverable
+// inactive account). The `tweak` callback flips one of the three post-
+// success-eligibility service calls into a failure so each fail-closed
+// regression test exercises a single specific branch.
+func confirmAccountRecoverySuccessfulSetup(email string, tweak func(*testhelpers.MockUserService, *testhelpers.MockJWTService)) *AuthHandler {
+	return authHandler(func(ah *AuthHandler) {
+		us := &testhelpers.MockUserService{
+			GetUserByEmailIncludingDeletedFn: func(string) (*authm.User, error) {
+				return &authm.User{ID: 1, Email: &email, IsActive: false}, nil
+			},
+			IsAccountRecoverableFn: func(*authm.User) bool { return true },
+			RestoreAccountFn:       func(uint) error { return nil },
+			GetUserByIDFn: func(uint) (*authm.User, error) {
+				return &authm.User{ID: 1, Email: &email, IsActive: true}, nil
+			},
+		}
+		js := &testhelpers.MockJWTService{
+			ValidateAccountRecoveryTokenFn: func(string) (*contracts.AccountRecoveryTokenClaims, error) {
+				return &contracts.AccountRecoveryTokenClaims{UserID: 1, Email: email}, nil
+			},
+			CreateTokenFn: func(*authm.User) (string, error) { return "session-token", nil },
+		}
+		tweak(us, js)
+		ah.userService = us
+		ah.jwtService = js
+	})
+}
+
+// assertConfirmAccountRecoveryFailedClosed factors out the regression-shape
+// assertion reused by each of the three ConfirmAccountRecovery post-success-
+// eligibility failure branches.
+func assertConfirmAccountRecoveryFailedClosed(t *testing.T, resp *ConfirmAccountRecoveryResponse, err error) {
+	t.Helper()
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
+// TestConfirmAccountRecoveryHandler_RestoreFailsClosed asserts that a
+// RestoreAccount service failure at the final write step propagates as a 5xx
+// rather than the prior silent HTTP-200 SERVICE_UNAVAILABLE downgrade. By
+// this point the token + user-ID + recoverability checks have all passed, so
+// a service failure is an unexpected backend defect — not a UX condition.
+// The intentional UX shapes earlier in the handler (INVALID_TOKEN,
+// UNAUTHORIZED, ACCOUNT_ACTIVE, ACCOUNT_NOT_RECOVERABLE) still return HTTP
+// 200 with structured ErrorCode so the frontend can render the corresponding
+// form state.
+func TestConfirmAccountRecoveryHandler_RestoreFailsClosed(t *testing.T) {
+	email := "test@example.com"
+	h := confirmAccountRecoverySuccessfulSetup(email, func(us *testhelpers.MockUserService, _ *testhelpers.MockJWTService) {
+		us.RestoreAccountFn = func(uint) error { return fmt.Errorf("db error") }
+	})
+
+	input := &ConfirmAccountRecoveryRequest{}
+	input.Body.Token = "valid-token"
+
+	resp, err := h.ConfirmAccountRecoveryHandler(context.Background(), input)
+	assertConfirmAccountRecoveryFailedClosed(t, resp, err)
+}
+
+// TestConfirmAccountRecoveryHandler_FetchFailsClosed mirrors the
+// RestoreFailsClosed regression for the GetUserByID branch.
+func TestConfirmAccountRecoveryHandler_FetchFailsClosed(t *testing.T) {
+	email := "test@example.com"
+	h := confirmAccountRecoverySuccessfulSetup(email, func(us *testhelpers.MockUserService, _ *testhelpers.MockJWTService) {
+		us.GetUserByIDFn = func(uint) (*authm.User, error) { return nil, fmt.Errorf("db error") }
+	})
+
+	input := &ConfirmAccountRecoveryRequest{}
+	input.Body.Token = "valid-token"
+
+	resp, err := h.ConfirmAccountRecoveryHandler(context.Background(), input)
+	assertConfirmAccountRecoveryFailedClosed(t, resp, err)
+}
+
+// TestConfirmAccountRecoveryHandler_TokenFailsClosed mirrors the
+// RestoreFailsClosed regression for the JWT-token-mint branch.
+func TestConfirmAccountRecoveryHandler_TokenFailsClosed(t *testing.T) {
+	email := "test@example.com"
+	h := confirmAccountRecoverySuccessfulSetup(email, func(_ *testhelpers.MockUserService, js *testhelpers.MockJWTService) {
+		js.CreateTokenFn = func(*authm.User) (string, error) { return "", fmt.Errorf("jwt error") }
+	})
+
+	input := &ConfirmAccountRecoveryRequest{}
+	input.Body.Token = "valid-token"
+
+	resp, err := h.ConfirmAccountRecoveryHandler(context.Background(), input)
+	assertConfirmAccountRecoveryFailedClosed(t, resp, err)
+}
+
 // --- GenerateCLITokenHandler mock tests ---
 
 func TestGenerateCLITokenHandler_Success(t *testing.T) {
@@ -2648,6 +3159,11 @@ func TestGenerateCLITokenHandler_Success(t *testing.T) {
 	}
 }
 
+// TestGenerateCLITokenHandler_TokenFails asserts that a JWT-service failure
+// at the CLI-token mint step propagates as a 5xx rather than the prior
+// silent HTTP-200 SERVICE_UNAVAILABLE downgrade. Locks in the fail-closed
+// convention so an unexpected backend defect surfaces in monitoring instead
+// of being read by the CLI client as the canonical body shape.
 func TestGenerateCLITokenHandler_TokenFails(t *testing.T) {
 	h := authHandler(func(ah *AuthHandler) {
 		ah.jwtService = &testhelpers.MockJWTService{
@@ -2659,14 +3175,25 @@ func TestGenerateCLITokenHandler_TokenFails(t *testing.T) {
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1, IsAdmin: true})
 
 	resp, err := h.GenerateCLITokenHandler(ctx, &struct{}{})
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success {
 		t.Error("expected success=false")
 	}
 	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }
 
@@ -2797,6 +3324,11 @@ func TestUpdateProfileHandler_DuplicateUsername(t *testing.T) {
 	}
 }
 
+// TestUpdateProfileHandler_ServiceError asserts that a raw (non-AuthError)
+// service-call failure propagates as a 5xx via the apperror wrapper rather
+// than the prior silent HTTP-200 SERVICE_UNAVAILABLE downgrade. Locks in the
+// fail-closed outer fallback so unexpected backend defects surface in
+// monitoring instead of being read by the client as a canonical sad-path body.
 func TestUpdateProfileHandler_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockUserService{
 		UpdateUserFn: func(_ uint, _ map[string]any) (*authm.User, error) {
@@ -2809,10 +3341,55 @@ func TestUpdateProfileHandler_ServiceError(t *testing.T) {
 	req.Body.FirstName = strPtr("Jane")
 
 	resp, err := h.UpdateProfileHandler(ctx, req)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
 	}
 	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
 		t.Errorf("expected service-unavailable failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+}
+
+// TestUpdateProfileHandler_UnknownAuthCodeFailsClosed asserts that an
+// AuthError whose Code is not explicitly handled by the UpdateProfileHandler
+// switch propagates as a 5xx instead of falling through to the silent
+// SERVICE_UNAVAILABLE downgrade. Locks in the convention so a new AuthError
+// code added without a dedicated handler case must surface as 5xx — code
+// review forces a UX decision per code.
+func TestUpdateProfileHandler_UnknownAuthCodeFailsClosed(t *testing.T) {
+	unknownErr := &autherrors.AuthError{Code: autherrors.CodeUnknown, Message: "unrouted auth code"}
+	mock := &testhelpers.MockUserService{
+		UpdateUserFn: func(_ uint, _ map[string]any) (*authm.User, error) {
+			return nil, unknownErr
+		},
+	}
+	h := NewAuthHandler(nil, nil, mock, nil, nil, nil, testConfig())
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.FirstName = strPtr("Jane")
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
 	}
 }

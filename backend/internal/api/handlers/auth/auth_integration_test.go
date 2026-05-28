@@ -332,7 +332,14 @@ func (s *AuthHandlerIntegrationSuite) TestSendVerification_SendFails() {
 	ctx := s.ctxWithUser(user)
 
 	resp, err := h.SendVerificationEmailHandler(ctx, &struct{}{})
-	s.Require().NoError(err)
+
+	// Fail-closed: a real email-send failure surfaces as a 5xx so monitoring
+	// sees the incident; the response body carries the canonical
+	// SERVICE_UNAVAILABLE shape even though the transport-level status is 5xx.
+	s.Require().Error(err)
+	var authErr *autherrors.AuthError
+	s.Require().True(errors.As(err, &authErr), "expected returned error to wrap *AuthError")
+	s.Equal(autherrors.CodeServiceUnavailable, authErr.Code)
 	s.False(resp.Body.Success)
 	s.Equal(autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
 }
