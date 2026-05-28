@@ -971,16 +971,22 @@ func (h *AuthHandler) VerifyMagicLinkHandler(ctx context.Context, input *VerifyM
 		return resp, nil
 	}
 
-	// Generate JWT token for session
+	// Generate JWT token for session. By this point the request has cleared
+	// every enumeration-safety gate (token valid, email still matches, account
+	// active) — the user is genuinely authorized. A JWT mint failure here is
+	// not part of the enumeration-safe surface; it is an unexpected internal
+	// fault. Fail-closed with a 5xx so the client retries and on-call sees
+	// the signal, instead of silently downgrading to HTTP 200.
 	token, err := h.jwtService.CreateToken(user)
 	if err != nil {
+		authErr := autherrors.ErrServiceUnavailable("verify_magic_link_session_token", err)
 		logger.AuthError(ctx, "magic_link_session_token_failed", err,
 			"user_id", user.ID,
 		)
 		resp.Body.Success = false
-		resp.Body.Message = "Failed to create session"
+		resp.Body.Message = autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable)
 		resp.Body.ErrorCode = autherrors.CodeServiceUnavailable
-		return resp, nil
+		return resp, authErr // Return actual error for 5xx HTTP status
 	}
 
 	// Set HTTP-only cookie

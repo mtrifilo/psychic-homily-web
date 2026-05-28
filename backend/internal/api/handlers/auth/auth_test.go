@@ -1747,6 +1747,75 @@ func TestVerifyMagicLinkHandler_InactiveUser(t *testing.T) {
 	}
 }
 
+// TestVerifyMagicLinkHandler_SessionTokenMintFailsClosed asserts that once a
+// magic-link request has cleared every enumeration-safety gate (token valid,
+// email matches, account active), a downstream JWT mint failure surfaces as
+// a 5xx instead of a silent HTTP 200 + SERVICE_UNAVAILABLE downgrade. The
+// gates above this branch deliberately return HTTP 200 so the response shape
+// does not leak whether an account exists or its state; this branch is past
+// those gates and a failure here is a genuine internal fault that on-call
+// must see.
+func TestVerifyMagicLinkHandler_SessionTokenMintFailsClosed(t *testing.T) {
+	email := "test@example.com"
+	mintErr := fmt.Errorf("simulated jwt mint failure")
+	h := authHandler(func(ah *AuthHandler) {
+		ah.jwtService = &testhelpers.MockJWTService{
+			ValidateMagicLinkTokenFn: func(tokenString string) (*contracts.MagicLinkTokenClaims, error) {
+				return &contracts.MagicLinkTokenClaims{UserID: 1, Email: email}, nil
+			},
+			CreateTokenFn: func(u *authm.User) (string, error) {
+				return "", mintErr
+			},
+		}
+		ah.userService = &testhelpers.MockUserService{
+			GetUserByIDFn: func(userID uint) (*authm.User, error) {
+				return &authm.User{ID: 1, Email: &email, IsActive: true}, nil
+			},
+		}
+	})
+
+	input := &VerifyMagicLinkRequest{}
+	input.Body.Token = "valid-magic-token"
+
+	resp, err := h.VerifyMagicLinkHandler(context.Background(), input)
+
+	// The handler MUST return a non-nil error so Huma emits a 5xx HTTP status.
+	if err == nil {
+		t.Fatal("expected non-nil error so Huma emits a 5xx HTTP status")
+	}
+	if resp == nil {
+		t.Fatal("expected non-nil response body")
+	}
+	// The returned error must wrap an *AuthError of CodeServiceUnavailable so
+	// the apperror mapper translates it to a 5xx.
+	var authErr *autherrors.AuthError
+	if !errors.As(err, &authErr) {
+		t.Fatalf("expected returned error to wrap an *AuthError, got %T", err)
+	}
+	if authErr.Code != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected wrapped error code=%s, got %s", autherrors.CodeServiceUnavailable, authErr.Code)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeServiceUnavailable {
+		t.Errorf("expected response error_code=%s, got %s", autherrors.CodeServiceUnavailable, resp.Body.ErrorCode)
+	}
+	// External message must match the canonical SERVICE_UNAVAILABLE shape so
+	// no leak about which internal step failed.
+	if resp.Body.Message != autherrors.ToExternalMessage(autherrors.CodeServiceUnavailable) {
+		t.Errorf("expected generic SERVICE_UNAVAILABLE message, got %q", resp.Body.Message)
+	}
+	// Regression guard: the previous branch hard-coded the message
+	// "Failed to create session" and returned a nil error so the response
+	// rode HTTP 200. The handler must no longer surface that literal — the
+	// canonical SERVICE_UNAVAILABLE external message is the only acceptable
+	// shape now that the branch is fail-closed.
+	if resp.Body.Message == "Failed to create session" {
+		t.Error("regression: handler must not surface the pre-fix \"Failed to create session\" message")
+	}
+}
+
 // --- ChangePasswordHandler mock tests ---
 
 func TestChangePasswordHandler_Success(t *testing.T) {
