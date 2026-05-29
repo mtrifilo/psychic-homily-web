@@ -29,10 +29,11 @@ import { API_BASE_URL } from '@/lib/api-base'
  * impossible because the trapping Suspense is the root-layout ancestor of every
  * page, and B regresses the PSY-797/PSY-841 PPR/ISR architecture).
  *
- * Phase 1 scope: SHOWS ONLY (proof-of-approach). Venues/artists/releases/
- * labels/festivals/tags are Phase 2 — adding one is a single `ENTITY_CHECKS`
- * entry. Collections (auth-gated), blog/dj-sets (local MDX), and scenes
- * (separate soft-404) are Phase 3 and have distinct semantics.
+ * Scope: Phase 1 proved the approach on SHOWS. Phase 2 extends it to the five
+ * uniform-shape entities (venues, artists, releases, labels, festivals) plus
+ * `tags`. Adding an entity is a single `ENTITY_CHECKS` entry + a single
+ * `config.matcher` source. Collections (auth-gated), blog/dj-sets (local MDX),
+ * and scenes (separate soft-404) are Phase 3 and have distinct semantics.
  *
  * How the 404 is produced
  * ------------------------
@@ -43,8 +44,9 @@ import { API_BASE_URL } from '@/lib/api-base'
  * subject to the streaming-commits-200 trap that breaks page-level
  * `notFound()`). We also pass `{ status: 404 }` to `rewrite` as belt-and-
  * suspenders for Next versions that honor a rewrite status override. The
- * synthetic target lives OUTSIDE this proxy's matcher (which only intercepts
- * `/shows/...`), so the rewrite cannot re-trigger the proxy — no loop.
+ * synthetic target lives OUTSIDE this proxy's matcher (which intercepts only
+ * the enumerated entity prefixes), so the rewrite cannot re-trigger the
+ * proxy — no loop.
  */
 
 /**
@@ -56,16 +58,32 @@ import { API_BASE_URL } from '@/lib/api-base'
 const NOT_FOUND_REWRITE_PATH = '/_psy-not-found'
 
 /**
- * Per-entity existence check. Phase 1 maps only `shows`. The `endpoint`
- * function returns the backend URL whose non-2xx response means "slug does not
- * exist". `shows` reuses the SAME `GET ${API_BASE_URL}/shows/<slug>` the page
- * itself calls (`app/shows/[slug]/page.tsx`). The spike flagged that a backend
- * HEAD / `/exists` endpoint would be cheaper than a full GET; using the
- * existing GET is acceptable for Phase 1 (latency noted as a follow-up). Adding
- * an entity in Phase 2 is one entry here (e.g. tags → `/tags/<slug>/detail`).
+ * Per-entity existence check. The function returns the backend URL whose
+ * non-2xx response means "slug does not exist". Each entry reuses the SAME
+ * backend GET the corresponding `app/<type>/[slug]/page.tsx` already calls in
+ * its server-side `cache()`'d fetch, so the proxy's notion of existence matches
+ * the page's exactly (each of these pages calls `notFound()` when that fetch
+ * misses — verified per type). The spike flagged that a backend HEAD /
+ * `/exists` endpoint would be cheaper than a full GET; using the existing GET
+ * is acceptable for now (latency noted as a follow-up). Adding an entity is one
+ * entry here plus one `config.matcher` source.
+ *
+ * Every type uses the uniform `/<type>/<slug>` backend shape EXCEPT `tags`,
+ * whose page fetches the enriched `/tags/<slug>/detail` endpoint (the shape its
+ * `useTagDetail` hook consumes) — see `app/tags/[slug]/page.tsx`. Collections
+ * (auth-gated), blog/dj-sets (local MDX, no backend existence endpoint), and
+ * scenes (separate soft-404) are deliberately absent — they are Phase 3.
  */
 const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
   shows: (slug) => `${API_BASE_URL}/shows/${encodeURIComponent(slug)}`,
+  venues: (slug) => `${API_BASE_URL}/venues/${encodeURIComponent(slug)}`,
+  artists: (slug) => `${API_BASE_URL}/artists/${encodeURIComponent(slug)}`,
+  releases: (slug) => `${API_BASE_URL}/releases/${encodeURIComponent(slug)}`,
+  labels: (slug) => `${API_BASE_URL}/labels/${encodeURIComponent(slug)}`,
+  festivals: (slug) => `${API_BASE_URL}/festivals/${encodeURIComponent(slug)}`,
+  // NOTE: tags is the lone non-uniform endpoint — `/tags/<slug>/detail`, not
+  // `/tags/<slug>`. Matches the tag page's getTagDetail fetch.
+  tags: (slug) => `${API_BASE_URL}/tags/${encodeURIComponent(slug)}/detail`,
 }
 
 /**
@@ -81,16 +99,17 @@ function notFoundResponse(request: NextRequest): NextResponse {
 export async function proxy(request: NextRequest): Promise<NextResponse> {
   const { pathname } = request.nextUrl
 
-  // pathname is `/shows/<slug>` (matcher guarantees the `/shows/` prefix).
-  // Split into ["", "shows", "<slug>", ...optional sub-segments].
+  // pathname is `/<entity>/<slug>` (matcher guarantees one of the enumerated
+  // entity prefixes). Split into ["", "<entity>", "<slug>", ...optional
+  // sub-segments].
   const segments = pathname.split('/')
   const entityType = segments[1]
   const slug = segments[2]
 
   const buildCheckUrl = ENTITY_CHECKS[entityType]
 
-  // Not a Phase-1 entity, or a sub-route like `/shows/<slug>/edit`, or the
-  // bare `/shows` list (no slug): leave untouched. Only the exact
+  // Not a mapped entity, or a sub-route like `/<entity>/<slug>/edit`, or the
+  // bare `/<entity>` list (no slug): leave untouched. Only the exact
   // `/<entity>/<slug>` detail shape is existence-checked.
   if (!buildCheckUrl || !slug || segments.length !== 3) {
     return NextResponse.next()
@@ -117,9 +136,9 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
     }
 
     // Any other non-ok (5xx, 403, 429, opaqueredirect, …): fail OPEN — let the
-    // page render and apply its own handling (the page's `getShow` reports 5xx
-    // to Sentry, renders its own not-found on null, etc.). Producing a 404 here
-    // on a transient backend blip would mask real outages as "not found".
+    // page render and apply its own handling (each page's server fetch reports
+    // 5xx to Sentry, renders its own not-found on null, etc.). Producing a 404
+    // here on a transient backend blip would mask real outages as "not found".
     return NextResponse.next()
   } catch {
     // Network error reaching the backend: fail OPEN. The proxy must never take
@@ -130,23 +149,72 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
 export const config = {
   /**
-   * Intercept ONLY `/shows/...` (Phase 1). The `/shows/` prefix already scopes
-   * the match away from everything else — the homepage, other entity routes
-   * (`/venues/...`), `api`, `_next/static`, `_next/image`, metadata files, and
-   * the `/_psy-not-found` rewrite target — so none of those can be blocked or
-   * re-intercepted. (A root-level matcher would need a negative-lookahead to
-   * exclude `api`/`_next`/metadata; scoping to `/shows/` makes that
-   * unnecessary.) The `proxy()` body further narrows to the exact
-   * `/shows/<slug>` detail shape — bare `/shows` and `/shows/<slug>/<sub>` pass
-   * through untouched.
+   * Intercept ONLY the enumerated entity prefixes (`/shows/...`, `/venues/...`,
+   * `/artists/...`, `/releases/...`, `/labels/...`, `/festivals/...`,
+   * `/tags/...`). Each prefix scopes its match away from everything else — the
+   * homepage, non-Phase-2 routes (`/collections/...`, `/blog/...`,
+   * `/dj-sets/...`, `/scenes/...`), `api`, `_next/static`, `_next/image`,
+   * metadata files, and the `/_psy-not-found` rewrite target — so none of those
+   * can be blocked or re-intercepted. (A root-level matcher would need a
+   * negative-lookahead to exclude `api`/`_next`/metadata; enumerating exact
+   * prefixes makes that unnecessary.) The `proxy()` body further narrows each
+   * to the exact `/<entity>/<slug>` detail shape — bare `/<entity>` list pages
+   * and `/<entity>/<slug>/<sub>` routes pass through untouched.
    *
-   * `missing` excludes RSC prefetch requests (`next-router-prefetch` /
-   * `purpose: prefetch` headers) so client-side route prefetches don't fire a
-   * backend existence lookup on every hovered link.
+   * Each entry's `missing` excludes RSC prefetch requests (`next-router-
+   * prefetch` / `purpose: prefetch` headers) so client-side route prefetches
+   * don't fire a backend existence lookup on every hovered link.
+   *
+   * Keep this list in lockstep with `ENTITY_CHECKS` above: a source here with
+   * no matching `ENTITY_CHECKS` entry would intercept the route only to fall
+   * through `NextResponse.next()` (wasted match), and an `ENTITY_CHECKS` entry
+   * with no source here would never run.
    */
   matcher: [
     {
       source: '/shows/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/venues/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/artists/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/releases/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/labels/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/festivals/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/tags/:path*',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },
