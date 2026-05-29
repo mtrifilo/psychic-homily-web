@@ -588,6 +588,19 @@ BEGIN
     )
     RETURNING id INTO s_id;
     INSERT INTO show_venues (show_id, venue_id) VALUES (s_id, v_id);
+    -- PSY-636 / PSY-576 carveout — DO NOT naively populate this row's denorm
+    -- cols. PSY-576 added denormalized event_date + venue_id to show_artists
+    -- plus a partial unique index on (artist_id, venue_id, event_date)
+    -- `WHERE event_date IS NOT NULL AND venue_id IS NOT NULL`. This seed leaves
+    -- those denorm cols NULL on every show_artists row, so the partial index
+    -- excludes them and they pass straight through. That is INTENTIONAL here:
+    -- every iteration of this loop inserts one distinct show per worker-user
+    -- but reuses the SAME (artist_id=a_id, venue_id=v_id, event_date=NOW()+85d)
+    -- triple, so populating the denorm cols would make all of these rows
+    -- collide on the unique index and fail the seed. If a future change needs
+    -- the denorm cols populated, first give each iteration a DISTINCT
+    -- event_date (e.g. stagger by minute) on both the shows row above and this
+    -- show_artists row. See PSY-636 (and PSY-628 for the partial-index design).
     INSERT INTO show_artists (show_id, artist_id, position, set_type) VALUES (s_id, a_id, 0, 'headliner');
   END LOOP;
 
