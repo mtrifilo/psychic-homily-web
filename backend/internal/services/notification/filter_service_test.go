@@ -13,6 +13,7 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	communitym "psychic-homily-backend/internal/models/community"
 	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
@@ -744,6 +745,64 @@ func (s *NotificationFilterSuite) TestGetUserNotifications() {
 	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
 	s.Require().NoError(err)
 	s.Assert().Len(entries, 3)
+}
+
+// TestGetUserNotifications_EnrichesRequestFulfillment verifies request-driven
+// rows (entity_type=request_fulfillment_proposed, entity_id=request_id) get
+// their request_title + request_url populated for the bell/inbox UI. PSY-890.
+func (s *NotificationFilterSuite) TestGetUserNotifications_EnrichesRequestFulfillment() {
+	userID := s.createTestUser()
+
+	req := communitym.Request{
+		Title:       "Add Local Band XYZ",
+		EntityType:  "artist",
+		Status:      communitym.RequestStatusPendingFulfillment,
+		RequesterID: userID,
+	}
+	s.Require().NoError(s.db.Create(&req).Error)
+
+	s.Require().NoError(s.db.Create(&notificationm.NotificationLog{
+		UserID:     userID,
+		EntityType: notificationm.NotificationEntityRequestFulfillmentProposed,
+		EntityID:   req.ID,
+		Channel:    notificationm.NotificationChannelInApp,
+		SentAt:     time.Now().UTC(),
+	}).Error)
+
+	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 1)
+
+	e := entries[0]
+	s.Assert().Equal(notificationm.NotificationEntityRequestFulfillmentProposed, e.EntityType)
+	s.Assert().Equal("Add Local Band XYZ", e.RequestTitle)
+	s.Assert().Equal(fmt.Sprintf("http://localhost:3000/requests/%d", req.ID), e.RequestURL)
+}
+
+// TestGetUserNotifications_RequestFulfillment_DeletedRequest verifies a
+// request_fulfillment_proposed row whose underlying request no longer exists
+// enriches to empty fields with NO error — the inbox degrades to a plain line
+// rather than crashing the request. PSY-890.
+func (s *NotificationFilterSuite) TestGetUserNotifications_RequestFulfillment_DeletedRequest() {
+	userID := s.createTestUser()
+
+	// notification_log row pointing at a request_id that does not exist.
+	s.Require().NoError(s.db.Create(&notificationm.NotificationLog{
+		UserID:     userID,
+		EntityType: notificationm.NotificationEntityRequestFulfillmentProposed,
+		EntityID:   999999, // no such request
+		Channel:    notificationm.NotificationChannelInApp,
+		SentAt:     time.Now().UTC(),
+	}).Error)
+
+	entries, err := s.svc.GetUserNotifications(userID, 10, 0)
+	s.Require().NoError(err)
+	s.Require().Len(entries, 1)
+
+	e := entries[0]
+	s.Assert().Equal(notificationm.NotificationEntityRequestFulfillmentProposed, e.EntityType)
+	s.Assert().Empty(e.RequestTitle, "deleted request leaves title empty")
+	s.Assert().Empty(e.RequestURL, "deleted request leaves url empty")
 }
 
 func (s *NotificationFilterSuite) TestGetUnreadCount() {

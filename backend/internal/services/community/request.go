@@ -10,6 +10,7 @@ import (
 	"psychic-homily-backend/db"
 	apperrors "psychic-homily-backend/internal/errors"
 	communitym "psychic-homily-backend/internal/models/community"
+	notificationm "psychic-homily-backend/internal/models/notification"
 )
 
 // requestEntityTables maps a request's declared entity_type to the
@@ -466,6 +467,41 @@ func (s *RequestService) RejectFulfillment(requestID, userID uint, isAdmin bool)
 		return fmt.Errorf("failed to reject fulfillment: %w", err)
 	}
 
+	return nil
+}
+
+// NotifyRequesterFulfillmentProposed writes an in-app notification_log row to
+// the request's owner letting them know a fulfillment was proposed and is
+// awaiting their approval. Surfaces in the bell/inbox built for PSY-595.
+//
+// No-op when requesterID is 0 (the handler couldn't resolve it) or when the
+// fulfiller IS the requester (self-fulfill — they already know). Fire-and-
+// forget: the caller invokes this via shared.GoSafe; the returned error is for
+// logging only and never blocks the fulfillment response. PSY-890.
+func (s *RequestService) NotifyRequesterFulfillmentProposed(requestID, requesterID, fulfillerID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	if requesterID == 0 || requesterID == fulfillerID {
+		return nil
+	}
+
+	entry := notificationm.NotificationLog{
+		UserID:     requesterID,
+		EntityType: notificationm.NotificationEntityRequestFulfillmentProposed,
+		EntityID:   requestID,
+		Channel:    notificationm.NotificationChannelInApp,
+		SentAt:     time.Now().UTC(),
+	}
+	// Plain insert — one row per proposal. FulfillRequest only succeeds on a
+	// pending/in_progress → pending_fulfillment transition and the handler
+	// fires this exactly once per success, so no dedup clause is needed. (A
+	// re-proposal after a reject is a genuinely new event and SHOULD produce a
+	// fresh notification; an ON CONFLICT clause would be a no-op here anyway
+	// because filter_id is NULL and Postgres treats NULLs as distinct.)
+	if err := s.db.Create(&entry).Error; err != nil {
+		return fmt.Errorf("failed to write request-fulfillment notification: %w", err)
+	}
 	return nil
 }
 

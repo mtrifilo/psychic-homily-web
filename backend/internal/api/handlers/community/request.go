@@ -424,6 +424,16 @@ func (h *RequestHandler) FulfillRequestHandler(ctx context.Context, req *Fulfill
 		})
 	}
 
+	// Notify the requester (in-app, fire-and-forget) that a fulfillment now
+	// awaits their approval. No-op on self-fulfill or when requesterID didn't
+	// resolve above; never blocks the fulfillment response. PSY-890.
+	shared.GoSafe(ctx, "request_fulfillment_notify", func() {
+		if notifyErr := h.requestService.NotifyRequesterFulfillmentProposed(uint(id), requesterID, user.ID); notifyErr != nil {
+			logger.FromContext(ctx).Warn("request_fulfillment_notify_failed",
+				"request_id", id, "error", notifyErr.Error())
+		}
+	})
+
 	return nil, nil
 }
 

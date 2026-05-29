@@ -60,3 +60,23 @@ type NotificationLog struct {
 func (NotificationLog) TableName() string {
 	return "notification_log"
 }
+
+// In-app notification_log discriminators shared across domain services that
+// write rows and the notification read service that enriches them. Kept here
+// (next to the NotificationLog model) so a domain service can mint a row
+// without importing another service package. The comment-driven channel +
+// entity-type constants predate this and live in the engagement package
+// (engagement.NotificationChannelInApp / NotificationEntityCommentReply); the
+// channel value is identical by design.
+const (
+	// NotificationChannelInApp is the channel value for in-app notification_log
+	// rows surfaced by the bell/inbox (vs the "email" channel used by the
+	// show-filter matcher).
+	NotificationChannelInApp = "in_app"
+
+	// NotificationEntityRequestFulfillmentProposed marks a notification_log row
+	// created when someone proposes a fulfillment for a community request (the
+	// request enters pending_fulfillment). entity_id holds the request_id; the
+	// requester is notified so they can approve or reject. PSY-890.
+	NotificationEntityRequestFulfillmentProposed = "request_fulfillment_proposed"
+)

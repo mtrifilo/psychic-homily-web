@@ -653,9 +653,66 @@ func (s *NotificationFilterService) GetUserNotifications(userID uint, limit, off
 		}
 	}
 
-	// Enrich comment-driven rows in a single batched pass.
+	// Enrich comment-driven + request-driven rows in batched passes.
 	s.enrichCommentNotifications(entries)
+	s.enrichRequestNotifications(entries)
 	return entries, nil
+}
+
+// enrichRequestNotifications populates request_title + request_url on
+// request_fulfillment_proposed rows (entity_id holds the request_id) via a
+// single batched lookup against the requests table. Missing requests (deleted
+// after the row was minted) leave the fields empty so the UI degrades to a
+// plain "fulfillment proposed" line. PSY-890.
+func (s *NotificationFilterService) enrichRequestNotifications(entries []contracts.NotificationLogEntry) {
+	if len(entries) == 0 {
+		return
+	}
+
+	ids := make([]uint, 0, len(entries))
+	seen := make(map[uint]struct{}, len(entries))
+	for _, e := range entries {
+		if e.EntityType != notificationm.NotificationEntityRequestFulfillmentProposed {
+			continue
+		}
+		if _, dup := seen[e.EntityID]; dup {
+			continue
+		}
+		seen[e.EntityID] = struct{}{}
+		ids = append(ids, e.EntityID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+
+	var rows []struct {
+		ID    uint
+		Title string
+	}
+	if err := s.db.Table("requests").
+		Select("id, title").
+		Where("id IN ?", ids).
+		Scan(&rows).Error; err != nil {
+		log.Printf("warning: failed to load requests for inbox enrichment: %v", err)
+		return
+	}
+	titleByID := make(map[uint]string, len(rows))
+	for _, r := range rows {
+		titleByID[r.ID] = r.Title
+	}
+
+	for i := range entries {
+		e := &entries[i]
+		if e.EntityType != notificationm.NotificationEntityRequestFulfillmentProposed {
+			continue
+		}
+		title, found := titleByID[e.EntityID]
+		if !found {
+			continue // request deleted — leave fields empty; UI degrades gracefully
+		}
+		e.RequestTitle = title
+		e.RequestURL = fmt.Sprintf("%s/requests/%d", s.frontendURL, e.EntityID)
+	}
 }
 
 // commentInboxExcerptMaxRunes is the rune cap for the bell/inbox excerpt.

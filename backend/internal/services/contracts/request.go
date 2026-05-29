@@ -67,6 +67,11 @@ type RequestServiceInterface interface {
 	// clearing the fulfiller and proposed entity link. Only the original
 	// requester or an admin may reject.
 	RejectFulfillment(requestID, userID uint, isAdmin bool) error
+	// NotifyRequesterFulfillmentProposed writes an in-app notification to the
+	// request's owner that a fulfillment has been proposed and awaits their
+	// approval. No-op when the fulfiller IS the requester (self-fulfill) or
+	// when requesterID is 0. Fire-and-forget: the error is for logging only.
+	NotifyRequesterFulfillmentProposed(requestID, requesterID, fulfillerID uint) error
 	CloseRequest(requestID, userID uint, isAdmin bool) error
 	GetUserVote(requestID, userID uint) (*communitym.RequestVote, error)
 }

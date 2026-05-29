@@ -12,6 +12,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
+	notificationm "psychic-homily-backend/internal/models/notification"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -72,6 +73,7 @@ func (suite *RequestServiceIntegrationTestSuite) SetupTest() {
 	_, _ = sqlDB.Exec("DELETE FROM requests")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	_, _ = sqlDB.Exec("DELETE FROM notification_log")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
 
@@ -927,6 +929,64 @@ func (suite *RequestServiceIntegrationTestSuite) TestWilsonScore_Computed() {
 	wilsonScore := request.WilsonScore()
 	suite.Assert().Greater(wilsonScore, 0.0)
 	suite.Assert().LessOrEqual(wilsonScore, 1.0)
+}
+
+// ============================================================================
+// Test: NotifyRequesterFulfillmentProposed (PSY-890)
+// ============================================================================
+
+// countRequestFulfillmentNotifications returns how many in-app
+// request_fulfillment_proposed notification_log rows exist for (userID, requestID).
+func (suite *RequestServiceIntegrationTestSuite) countRequestFulfillmentNotifications(userID, requestID uint) int64 {
+	var n int64
+	err := suite.db.Model(&notificationm.NotificationLog{}).
+		Where("user_id = ? AND entity_type = ? AND entity_id = ? AND channel = ?",
+			userID, notificationm.NotificationEntityRequestFulfillmentProposed, requestID,
+			notificationm.NotificationChannelInApp).
+		Count(&n).Error
+	suite.Require().NoError(err)
+	return n
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestNotifyRequesterFulfillmentProposed_WritesInAppRow() {
+	requester := suite.createTestUser("requester")
+	fulfiller := suite.createTestUser("fulfiller")
+	created, _ := suite.requestService.CreateRequest(requester.ID, "Notify Me", "desc", "artist", nil)
+
+	err := suite.requestService.NotifyRequesterFulfillmentProposed(created.ID, requester.ID, fulfiller.ID)
+	suite.Require().NoError(err)
+
+	suite.Assert().Equal(int64(1), suite.countRequestFulfillmentNotifications(requester.ID, created.ID),
+		"requester should have one in-app fulfillment-proposed notification")
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestNotifyRequesterFulfillmentProposed_SkipsSelfFulfill() {
+	requester := suite.createTestUser("requester")
+	created, _ := suite.requestService.CreateRequest(requester.ID, "Self Fulfill", "desc", "artist", nil)
+
+	// Fulfiller IS the requester — they already know, so no self-notify.
+	err := suite.requestService.NotifyRequesterFulfillmentProposed(created.ID, requester.ID, requester.ID)
+	suite.Require().NoError(err)
+
+	suite.Assert().Equal(int64(0), suite.countRequestFulfillmentNotifications(requester.ID, created.ID),
+		"self-fulfillment should not notify the requester")
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestNotifyRequesterFulfillmentProposed_SkipsZeroRequester() {
+	fulfiller := suite.createTestUser("fulfiller")
+	created, _ := suite.requestService.CreateRequest(fulfiller.ID, "Unresolved Requester", "desc", "artist", nil)
+
+	// requesterID 0 simulates the handler failing to resolve the request owner;
+	// the notification must be skipped rather than writing a row for user 0.
+	err := suite.requestService.NotifyRequesterFulfillmentProposed(created.ID, 0, fulfiller.ID)
+	suite.Require().NoError(err)
+
+	var n int64
+	suite.Require().NoError(suite.db.Model(&notificationm.NotificationLog{}).
+		Where("entity_type = ? AND entity_id = ?",
+			notificationm.NotificationEntityRequestFulfillmentProposed, created.ID).
+		Count(&n).Error)
+	suite.Assert().Equal(int64(0), n, "zero requesterID should not write a notification row")
 }
 
 // ============================================================================

@@ -37,6 +37,10 @@ export interface NotificationLogEntry {
   comment_entity_type?: string
   comment_entity_id?: number
   comment_entity_name?: string
+  // Request-driven enrichment (PSY-890): entity_id holds the request_id; the
+  // backend populates request_title + request_url for the inbox row + link.
+  request_title?: string
+  request_url?: string
 }
 
 /** GET /me/notifications response shape */
@@ -59,12 +63,25 @@ export interface MarkReadResponse {
 export const NOTIFICATION_ENTITY_COMMENT_REPLY = 'comment_reply' as const
 export const NOTIFICATION_ENTITY_COMMENT_MENTION = 'comment_mention' as const
 
+/**
+ * Backend notification_log entity_type for the PSY-890 request-fulfillment
+ * in-app row. Must stay in sync with
+ * models/notification.NotificationEntityRequestFulfillmentProposed.
+ */
+export const NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED =
+  'request_fulfillment_proposed' as const
+
 /** isCommentNotification returns true for the PSY-595 comment row types. */
 export function isCommentNotification(entry: NotificationLogEntry): boolean {
   return (
     entry.entity_type === NOTIFICATION_ENTITY_COMMENT_REPLY ||
     entry.entity_type === NOTIFICATION_ENTITY_COMMENT_MENTION
   )
+}
+
+/** isRequestNotification returns true for the PSY-890 request-fulfillment row. */
+export function isRequestNotification(entry: NotificationLogEntry): boolean {
+  return entry.entity_type === NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED
 }
 
 /** Notification filter response from the API */

@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import {
   NOTIFICATION_ENTITY_COMMENT_REPLY,
   NOTIFICATION_ENTITY_COMMENT_MENTION,
+  NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED,
   isCommentNotification,
+  isRequestNotification,
   NOTIFY_ENTITY_TYPES,
   formatTimeAgo,
   getFilterSummary,
@@ -42,6 +44,12 @@ describe('notification entity constants', () => {
     expect(NOTIFICATION_ENTITY_COMMENT_MENTION).toBe('comment_mention')
   })
 
+  it('exposes the PSY-890 request-fulfillment row type', () => {
+    expect(NOTIFICATION_ENTITY_REQUEST_FULFILLMENT_PROPOSED).toBe(
+      'request_fulfillment_proposed'
+    )
+  })
+
   it('lists the quick-create entity types', () => {
     expect(NOTIFY_ENTITY_TYPES).toEqual(['artist', 'venue', 'label', 'tag'])
   })
@@ -68,6 +76,34 @@ describe('isCommentNotification', () => {
     expect(isCommentNotification(logEntry({ entity_type: 'venue' }))).toBe(
       false
     )
+  })
+
+  it('returns false for a request-fulfillment row', () => {
+    expect(
+      isCommentNotification(
+        logEntry({ entity_type: 'request_fulfillment_proposed' })
+      )
+    ).toBe(false)
+  })
+})
+
+describe('isRequestNotification', () => {
+  it('returns true for a request_fulfillment_proposed row', () => {
+    expect(
+      isRequestNotification(
+        logEntry({ entity_type: 'request_fulfillment_proposed' })
+      )
+    ).toBe(true)
+  })
+
+  it('returns false for a comment row', () => {
+    expect(
+      isRequestNotification(logEntry({ entity_type: 'comment_reply' }))
+    ).toBe(false)
+  })
+
+  it('returns false for a show-filter row', () => {
+    expect(isRequestNotification(logEntry({ entity_type: 'show' }))).toBe(false)
   })
 })
 
