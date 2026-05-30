@@ -3,6 +3,7 @@
 import { Loader2, ScrollText, Inbox } from 'lucide-react'
 import { useAuditLogs } from '@/lib/hooks/admin/useAdminAuditLogs'
 import { AuditLogEntry } from '@/app/admin/audit-log/_components/AuditLogEntry'
+import { AdminEmptyState } from '@/components/admin'
 
 export default function AdminAuditLogPage() {
   const { data, isLoading, error } = useAuditLogs()
@@ -31,16 +32,11 @@ export default function AdminAuditLogPage() {
 
   if (logs.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
-          <Inbox className="h-8 w-8 text-muted-foreground" />
-        </div>
-        <h3 className="text-lg font-medium mb-1">No Audit Logs</h3>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          Admin actions will be recorded here. Approve a show, verify a venue,
-          or resolve a report to see entries appear.
-        </p>
-      </div>
+      <AdminEmptyState
+        icon={Inbox}
+        title="No Audit Logs"
+        message="Admin actions will be recorded here. Approve a show, verify a venue, or resolve a report to see entries appear."
+      />
     )
   }
 

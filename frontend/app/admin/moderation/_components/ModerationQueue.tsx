@@ -4,19 +4,17 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Loader2,
   Inbox,
-  Pencil,
-  Flag,
   Check,
   X,
   ChevronDown,
   ChevronRight,
   ExternalLink,
-  MessageSquare,
   History,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
+import { AdminEmptyState, CategoryBadge } from '@/components/admin'
 import { UserAttribution } from '@/components/shared'
 import {
   useAdminPendingEdits,
@@ -169,10 +167,7 @@ function PendingEditCard({
         {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <Badge variant="secondary" className="shrink-0 bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800">
-              <Pencil className="h-3 w-3 mr-1" />
-              Edit
-            </Badge>
+            <CategoryBadge kind="edit" />
             <Badge variant="outline" className="shrink-0">
               {entityTypeLabel(edit.entity_type)}
             </Badge>
@@ -353,10 +348,7 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
         {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <Badge variant="secondary" className="shrink-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-              <Flag className="h-3 w-3 mr-1" />
-              Report
-            </Badge>
+            <CategoryBadge kind="report" />
             <Badge variant="outline" className="shrink-0">
               {entityTypeLabel(report.entity_type)}
             </Badge>
@@ -504,10 +496,7 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
         {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <Badge variant="secondary" className="shrink-0 bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800">
-              <MessageSquare className="h-3 w-3 mr-1" />
-              Comment
-            </Badge>
+            <CategoryBadge kind="comment" />
             <Badge variant="outline" className="shrink-0">
               {entityTypeLabel(comment.entity_type)}
             </Badge>
@@ -690,10 +679,7 @@ function CommentReportCard({ report }: { report: EntityReportResponse }) {
         {/* Header row */}
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <Badge variant="secondary" className="shrink-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-              <Flag className="h-3 w-3 mr-1" />
-              Report
-            </Badge>
+            <CategoryBadge kind="report" />
             <Badge variant="outline" className="shrink-0">
               Comment
             </Badge>
@@ -875,10 +861,7 @@ function CollectionReportCard({ report }: { report: EntityReportResponse }) {
       <CardContent className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-center gap-2 min-w-0 flex-1">
-            <Badge variant="secondary" className="shrink-0 bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800">
-              <Flag className="h-3 w-3 mr-1" />
-              Report
-            </Badge>
+            <CategoryBadge kind="report" />
             <Badge variant="outline" className="shrink-0">
               Collection
             </Badge>
@@ -1182,21 +1165,19 @@ export function ModerationQueue() {
 
       {/* Empty state */}
       {items.length === 0 && (
-        <div className="flex flex-col items-center justify-center py-12 text-center">
-          <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
-            <Inbox className="h-8 w-8 text-muted-foreground" />
-          </div>
-          <h3 className="text-lg font-medium mb-1">Queue Clear</h3>
-          <p className="text-sm text-muted-foreground max-w-sm">
-            {itemTypeFilter === 'edits'
+        <AdminEmptyState
+          icon={Inbox}
+          title="Queue Clear"
+          message={
+            itemTypeFilter === 'edits'
               ? 'No pending entity edits to review.'
               : itemTypeFilter === 'reports'
                 ? 'No pending entity reports to review.'
                 : itemTypeFilter === 'comments'
                   ? 'No pending comments to review.'
-                  : 'No items need moderation. Pending entity edits, reports, and comments will appear here when users submit them.'}
-          </p>
-        </div>
+                  : 'No items need moderation. Pending entity edits, reports, and comments will appear here when users submit them.'
+          }
+        />
       )}
 
       {/* Items list */}

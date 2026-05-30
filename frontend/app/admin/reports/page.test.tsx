@@ -32,6 +32,7 @@ vi.mock('@/components/admin', () => ({
   ArtistReportCard: ({ report }: { report: { id: number } }) => (
     <div data-testid="artist-report-card">{report.id}</div>
   ),
+  AdminEmptyState: ({ title }: { title: string }) => <h3>{title}</h3>,
 }))
 
 describe('AdminReportsPage (app/admin/reports)', () => {
