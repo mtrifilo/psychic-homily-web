@@ -109,6 +109,30 @@ VALUES
   ('Sundressed EP', 'sundressed-ep', 'ep', 2014, NOW(), NOW())
 ON CONFLICT DO NOTHING;
 
+-- Festival fixture (PSY-904): the festivals table is a real DB-stored entity
+-- (migration 000039), unlike blog/dj-sets (local MDX) and scenes (derived from
+-- venue/show/artist aggregates). The /festivals/[slug] detail page fetches
+-- /festivals/<slug> (backend GetFestivalHandler falls back to GetFestivalBySlug
+-- for a non-numeric path), so a deterministic slug here gives content-detail.spec
+-- a stable festival URL to assert H1 + canonical + JSON-LD against. NOT NULL
+-- columns per the migration: name, slug, series_slug, edition_year, start_date,
+-- end_date. City/state = Phoenix, AZ matches the rest of the seed (and increments
+-- the phoenix-az scene's festival_count — a harmless side benefit, not relied on).
+INSERT INTO festivals (
+  name, slug, series_slug, edition_year,
+  description, city, state, country,
+  start_date, end_date, status,
+  created_at, updated_at
+)
+VALUES (
+  'E2E Test Fest 2026', 'e2e-test-fest-2026', 'e2e-test-fest', 2026,
+  'Seeded festival fixture for content-detail E2E coverage (PSY-904).',
+  'Phoenix', 'AZ', 'US',
+  '2026-09-18', '2026-09-20', 'confirmed',
+  NOW(), NOW()
+)
+ON CONFLICT DO NOTHING;
+
 -- Link artists to releases (artist_releases junction)
 DO $$
 DECLARE
