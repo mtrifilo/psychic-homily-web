@@ -54,8 +54,9 @@ var (
 // happens at the rendering boundary, mirroring how CollectionService
 // treats Collection.Description.
 type FeaturedSlotService struct {
-	db *gorm.DB
-	md *utils.MarkdownRenderer
+	db       *gorm.DB
+	md       *utils.MarkdownRenderer
+	auditLog *AuditLogService
 }
 
 // NewFeaturedSlotService creates a new featured-slot service. The DB
@@ -66,8 +67,9 @@ func NewFeaturedSlotService(database *gorm.DB) *FeaturedSlotService {
 		database = db.GetDB()
 	}
 	return &FeaturedSlotService{
-		db: database,
-		md: utils.NewMarkdownRenderer(),
+		db:       database,
+		md:       utils.NewMarkdownRenderer(),
+		auditLog: NewAuditLogService(database),
 	}
 }
 
@@ -149,6 +151,7 @@ func (s *FeaturedSlotService) SetActiveSlot(slotType string, entityID uint, cura
 	}
 
 	if err := s.validateReferent(slotType, entityID); err != nil {
+		s.logRejectedSetActiveSlot(slotType, entityID, userID, featuredSlotReferentRejectionReason(err))
 		return nil, err
 	}
 
@@ -182,6 +185,31 @@ func (s *FeaturedSlotService) SetActiveSlot(slotType string, entityID uint, cura
 	// Re-fetch with Creator preloaded so the response carries the same
 	// shape as GetActiveSlot.
 	return s.GetActiveSlot(slotType)
+}
+
+func (s *FeaturedSlotService) logRejectedSetActiveSlot(slotType string, entityID uint, userID uint, reason string) {
+	if s.auditLog == nil {
+		s.auditLog = NewAuditLogService(s.db)
+	}
+	s.auditLog.LogAction(userID, "set_featured_slot_rejected", "featured_slot", entityID, map[string]interface{}{
+		"user_id":   userID,
+		"slot_type": slotType,
+		"entity_id": entityID,
+		"reason":    reason,
+	})
+}
+
+func featuredSlotReferentRejectionReason(err error) string {
+	switch {
+	case errors.Is(err, ErrFeaturedSlotReferentNotFound):
+		return "not_found"
+	case errors.Is(err, ErrFeaturedSlotReferentNotApproved):
+		return "not_approved"
+	case errors.Is(err, ErrFeaturedSlotReferentNotPublic):
+		return "not_public"
+	default:
+		return "validation_error"
+	}
 }
 
 // validateReferent confirms the entity_id points at a row the /explore

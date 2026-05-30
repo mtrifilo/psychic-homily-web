@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"testing"
@@ -40,6 +41,7 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TearDownSuite() {
 func (suite *FeaturedSlotServiceIntegrationTestSuite) TearDownTest() {
 	sqlDB, err := suite.db.DB()
 	suite.Require().NoError(err)
+	_, _ = sqlDB.Exec("DELETE FROM audit_logs")
 	_, _ = sqlDB.Exec("DELETE FROM featured_slots")
 	// Referent-validation tests seed shows + collections; tear them
 	// down so each case starts from a clean slate.
@@ -102,6 +104,27 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) createCollection(creatorID
 	return coll
 }
 
+func (suite *FeaturedSlotServiceIntegrationTestSuite) assertRejectedSetActiveSlotAuditLog(userID uint, slotType string, entityID uint, reason string) {
+	var logs []adminm.AuditLog
+	suite.Require().NoError(suite.db.Order("created_at ASC").Find(&logs).Error)
+	suite.Require().Len(logs, 1, "rejected SetActiveSlot attempt should write exactly one audit row")
+
+	log := logs[0]
+	suite.Require().NotNil(log.ActorID)
+	suite.Equal(userID, *log.ActorID)
+	suite.Equal("set_featured_slot_rejected", log.Action)
+	suite.Equal("featured_slot", log.EntityType)
+	suite.Equal(entityID, log.EntityID)
+	suite.Require().NotNil(log.Metadata)
+
+	var metadata map[string]interface{}
+	suite.Require().NoError(json.Unmarshal(*log.Metadata, &metadata))
+	suite.Equal(float64(userID), metadata["user_id"])
+	suite.Equal(slotType, metadata["slot_type"])
+	suite.Equal(float64(entityID), metadata["entity_id"])
+	suite.Equal(reason, metadata["reason"])
+}
+
 // =============================================================================
 // GetActiveSlot
 // =============================================================================
@@ -150,6 +173,10 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_FirstPic
 	suite.Equal("Killer bill", *slot.CuratorNote)
 	suite.Nil(slot.ActiveUntil, "first active row must have NULL active_until")
 	suite.Equal(admin.ID, slot.CreatedBy)
+
+	var auditCount int64
+	suite.db.Model(&adminm.AuditLog{}).Count(&auditCount)
+	suite.Equal(int64(0), auditCount, "service success path audit behavior remains handler-owned")
 }
 
 func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_ReplacesPriorAtomically() {
@@ -426,6 +453,7 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_BillReje
 	var count int64
 	suite.db.Model(&adminm.FeaturedSlot{}).Count(&count)
 	suite.Equal(int64(0), count)
+	suite.assertRejectedSetActiveSlotAuditLog(admin.ID, adminm.FeaturedSlotTypeBill, pending.ID, "not_approved")
 }
 
 func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_BillRejectsRejectedShow() {
@@ -435,6 +463,7 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_BillReje
 	_, err := suite.featuredSlotService.SetActiveSlot(adminm.FeaturedSlotTypeBill, rejected.ID, nil, admin.ID)
 	suite.Require().Error(err)
 	suite.True(errors.Is(err, ErrFeaturedSlotReferentNotApproved))
+	suite.assertRejectedSetActiveSlotAuditLog(admin.ID, adminm.FeaturedSlotTypeBill, rejected.ID, "not_approved")
 }
 
 func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_BillRejectsPrivateShow() {
@@ -444,6 +473,7 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_BillReje
 	_, err := suite.featuredSlotService.SetActiveSlot(adminm.FeaturedSlotTypeBill, private.ID, nil, admin.ID)
 	suite.Require().Error(err)
 	suite.True(errors.Is(err, ErrFeaturedSlotReferentNotApproved))
+	suite.assertRejectedSetActiveSlotAuditLog(admin.ID, adminm.FeaturedSlotTypeBill, private.ID, "not_approved")
 }
 
 func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_BillRejectsMissingShow() {
@@ -453,6 +483,7 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_BillReje
 	suite.Require().Error(err)
 	suite.True(errors.Is(err, ErrFeaturedSlotReferentNotFound),
 		"non-existent show must surface the not-found sentinel, got %v", err)
+	suite.assertRejectedSetActiveSlotAuditLog(admin.ID, adminm.FeaturedSlotTypeBill, 9999, "not_found")
 }
 
 func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_BillAcceptsApprovedShow() {
@@ -476,6 +507,7 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_Collecti
 	var count int64
 	suite.db.Model(&adminm.FeaturedSlot{}).Count(&count)
 	suite.Equal(int64(0), count)
+	suite.assertRejectedSetActiveSlotAuditLog(admin.ID, adminm.FeaturedSlotTypeCollection, private.ID, "not_public")
 }
 
 func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_CollectionRejectsMissing() {
@@ -484,6 +516,7 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_Collecti
 	_, err := suite.featuredSlotService.SetActiveSlot(adminm.FeaturedSlotTypeCollection, 9999, nil, admin.ID)
 	suite.Require().Error(err)
 	suite.True(errors.Is(err, ErrFeaturedSlotReferentNotFound))
+	suite.assertRejectedSetActiveSlotAuditLog(admin.ID, adminm.FeaturedSlotTypeCollection, 9999, "not_found")
 }
 
 func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_CollectionAcceptsPublic() {
@@ -513,6 +546,7 @@ func (suite *FeaturedSlotServiceIntegrationTestSuite) TestSetActiveSlot_Replacem
 	_, err = suite.featuredSlotService.SetActiveSlot(adminm.FeaturedSlotTypeBill, pending.ID, nil, admin.ID)
 	suite.Require().Error(err)
 	suite.True(errors.Is(err, ErrFeaturedSlotReferentNotApproved))
+	suite.assertRejectedSetActiveSlotAuditLog(admin.ID, adminm.FeaturedSlotTypeBill, pending.ID, "not_approved")
 
 	// Original row is still active.
 	active, err := suite.featuredSlotService.GetActiveSlot(adminm.FeaturedSlotTypeBill)
