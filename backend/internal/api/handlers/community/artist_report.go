@@ -175,8 +175,8 @@ func (h *ArtistReportHandler) GetMyArtistReportHandler(ctx context.Context, req 
 
 // GetPendingArtistReportsRequest represents the HTTP request for listing pending artist reports
 type GetPendingArtistReportsRequest struct {
-	Limit  int `query:"limit" default:"50" doc:"Number of reports to return (max 100)"`
-	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of reports to return (max 100)"`
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetPendingArtistReportsResponse represents the HTTP response for listing pending artist reports

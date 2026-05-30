@@ -43,8 +43,8 @@ type GetPublicProfileResponse struct {
 
 type GetContributionHistoryRequest struct {
 	Username   string `path:"username" doc:"Username of the contributor"`
-	Limit      int    `query:"limit" default:"20" doc:"Number of contributions per page (max 100)"`
-	Offset     int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of contributions per page (max 100)"`
+	Offset     int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	EntityType string `query:"entity_type" default:"" doc:"Filter by entity type (show, venue, artist, release, label, festival)"`
 }
 
@@ -62,8 +62,8 @@ type GetOwnProfileResponse struct {
 }
 
 type GetOwnContributionsRequest struct {
-	Limit      int    `query:"limit" default:"20" doc:"Number of contributions per page (max 100)"`
-	Offset     int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of contributions per page (max 100)"`
+	Offset     int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	EntityType string `query:"entity_type" default:"" doc:"Filter by entity type"`
 }
 

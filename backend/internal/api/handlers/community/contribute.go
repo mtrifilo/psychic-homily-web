@@ -69,8 +69,8 @@ func (h *ContributeHandler) GetOpportunitiesHandler(ctx context.Context, _ *GetO
 // GetOpportunityCategoryRequest is the Huma request for GET /contribute/opportunities/{category}
 type GetOpportunityCategoryRequest struct {
 	Category string `path:"category" doc:"Contribution opportunity category key"`
-	Limit    int    `query:"limit" required:"false" doc:"Max results (default 20, max 200)"`
-	Offset   int    `query:"offset" required:"false" doc:"Offset for pagination"`
+	Limit    int    `query:"limit" required:"false" minimum:"1" maximum:"200" doc:"Max results (default 20, max 200)"`
+	Offset   int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetOpportunityCategoryResponse is the Huma response for GET /contribute/opportunities/{category}

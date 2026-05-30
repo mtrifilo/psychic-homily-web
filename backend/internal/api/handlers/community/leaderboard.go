@@ -31,7 +31,7 @@ func NewLeaderboardHandler(
 type GetLeaderboardRequest struct {
 	Dimension string `query:"dimension" required:"false" doc:"Leaderboard dimension: overall, shows, venues, tags, edits, requests (default: overall)"`
 	Period    string `query:"period" required:"false" doc:"Time period: all_time, month, week (default: all_time)"`
-	Limit     int    `query:"limit" required:"false" doc:"Number of results (default 25, max 100)"`
+	Limit     int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Number of results (default 25, max 100)"`
 }
 
 // LeaderboardEntryResponse is a single entry in the leaderboard response.
