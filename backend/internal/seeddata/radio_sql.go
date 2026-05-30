@@ -103,10 +103,97 @@ func RenderRadioSeedSQL(w io.Writer) error {
 		}
 		b.WriteString("\n")
 	}
-	b.WriteString("ON CONFLICT (slug) DO NOTHING;\n")
+	b.WriteString("ON CONFLICT (slug) DO NOTHING;\n\n")
+
+	// Radio episodes. radio_episodes has no slug; the dedup key is the
+	// idx_radio_episodes_unique expression index on
+	// (show_id, air_date, COALESCE(external_id, '')), which is the ON
+	// CONFLICT target below so re-runs are no-ops. show_id is resolved from
+	// the show slug at insert time. radio_episodes has no updated_at column.
+	b.WriteString("-- Radio episodes (generated from backend/internal/seeddata/radio.go)\n")
+	b.WriteString("INSERT INTO radio_episodes (show_id, title, air_date, description, archive_url, external_id, play_count, created_at) VALUES\n")
+	for i, e := range RadioEpisodes {
+		b.WriteString("  ((SELECT id FROM radio_shows WHERE slug = ")
+		b.WriteString(sqlString(e.ShowSlug))
+		b.WriteString("), ")
+		b.WriteString(sqlStringOrNull(e.Title))
+		b.WriteString(", ")
+		b.WriteString(sqlString(e.AirDate))
+		b.WriteString(", ")
+		b.WriteString(sqlStringOrNull(e.Description))
+		b.WriteString(", ")
+		b.WriteString(sqlStringOrNull(e.ArchiveURL))
+		b.WriteString(", ")
+		b.WriteString(sqlString(e.ExternalID))
+		// play_count is set to the number of seeded plays on this episode so
+		// the denormalized count the detail page shows matches the tracklist.
+		b.WriteString(", ")
+		b.WriteString(strconv.Itoa(countPlaysForEpisode(e.ShowSlug, e.AirDate)))
+		b.WriteString(", NOW())")
+		if i < len(RadioEpisodes)-1 {
+			b.WriteString(",")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("ON CONFLICT (show_id, air_date, COALESCE(external_id, '')) DO NOTHING;\n\n")
+
+	// Radio plays. episode_id is resolved from the parent episode's
+	// (show_id, air_date) natural key; artist_id is resolved from the
+	// (optional) artist slug — empty slug -> NULL (unmatched play). The ON
+	// CONFLICT target matches idx_radio_plays_unique
+	// (episode_id, position, air_timestamp, artist_name, track_title) so
+	// re-runs are no-ops. radio_plays has no updated_at column.
+	b.WriteString("-- Radio plays (generated from backend/internal/seeddata/radio.go)\n")
+	b.WriteString("INSERT INTO radio_plays (episode_id, position, artist_name, track_title, artist_id, air_timestamp, created_at) VALUES\n")
+	for i, p := range RadioPlays {
+		b.WriteString("  ((SELECT id FROM radio_episodes WHERE show_id = (SELECT id FROM radio_shows WHERE slug = ")
+		b.WriteString(sqlString(p.EpisodeShowSlug))
+		b.WriteString(") AND air_date = ")
+		b.WriteString(sqlString(p.EpisodeAirDate))
+		b.WriteString("), ")
+		b.WriteString(strconv.Itoa(p.Position))
+		b.WriteString(", ")
+		b.WriteString(sqlString(p.ArtistName))
+		b.WriteString(", ")
+		b.WriteString(sqlStringOrNull(p.TrackTitle))
+		b.WriteString(", ")
+		b.WriteString(sqlArtistIDFromSlug(p.ArtistSlug))
+		b.WriteString(", ")
+		b.WriteString(sqlStringOrNull(p.AirTimestamp))
+		b.WriteString(", NOW())")
+		if i < len(RadioPlays)-1 {
+			b.WriteString(",")
+		}
+		b.WriteString("\n")
+	}
+	b.WriteString("ON CONFLICT (episode_id, position, air_timestamp, artist_name, track_title) DO NOTHING;\n")
 
 	_, err := io.WriteString(w, b.String())
 	return err
+}
+
+// countPlaysForEpisode returns how many seeded RadioPlays belong to the
+// episode identified by (showSlug, airDate). Used to set radio_episodes
+// .play_count so the denormalized count matches the seeded tracklist.
+func countPlaysForEpisode(showSlug, airDate string) int {
+	n := 0
+	for _, p := range RadioPlays {
+		if p.EpisodeShowSlug == showSlug && p.EpisodeAirDate == airDate {
+			n++
+		}
+	}
+	return n
+}
+
+// sqlArtistIDFromSlug returns NULL for an unmatched play (empty slug), else
+// a subquery resolving the artist slug to artists.id at insert time. This
+// is what populates radio_plays.artist_id — the column GetAsHeardOnForArtist
+// joins on — so the artist "As Heard On" cross-link renders.
+func sqlArtistIDFromSlug(slug string) string {
+	if slug == "" {
+		return "NULL"
+	}
+	return "(SELECT id FROM artists WHERE slug = " + sqlString(slug) + ")"
 }
 
 // sqlString quotes a value as an SQL string literal, escaping any embedded

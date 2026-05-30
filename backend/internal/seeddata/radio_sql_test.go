@@ -38,6 +38,19 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 		"'wfmu-drummer'",
 		"'Rock''n''Soul Radio'",
 		"'Sheena''s Jungle Room'",
+		// PSY-899: episode + play fixtures
+		"INSERT INTO radio_episodes",
+		"INSERT INTO radio_plays",
+		// episode show_id FK resolved by show slug subquery
+		"(SELECT id FROM radio_shows WHERE slug = 'the-morning-show')",
+		// episode dedup ON CONFLICT target matches idx_radio_episodes_unique
+		"ON CONFLICT (show_id, air_date, COALESCE(external_id, '')) DO NOTHING",
+		// play episode_id FK resolved by parent episode's (show_id, air_date)
+		"AND air_date = '2025-01-15'",
+		// matched play: artist_id resolved from seeded artist slug
+		"(SELECT id FROM artists WHERE slug = 'calexico')",
+		// play dedup ON CONFLICT target matches idx_radio_plays_unique
+		"ON CONFLICT (episode_id, position, air_timestamp, artist_name, track_title) DO NOTHING",
 	}
 	for _, want := range mustContain {
 		if !strings.Contains(sql, want) {
@@ -45,9 +58,18 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 		}
 	}
 
-	// Three ON CONFLICT clauses: networks + stations + shows.
-	if got := strings.Count(sql, "ON CONFLICT"); got != 3 {
-		t.Errorf("want 3 ON CONFLICT clauses (networks + stations + shows), got %d", got)
+	// Five ON CONFLICT clauses: networks + stations + shows + episodes + plays.
+	if got := strings.Count(sql, "ON CONFLICT"); got != 5 {
+		t.Errorf("want 5 ON CONFLICT clauses (networks + stations + shows + episodes + plays), got %d", got)
+	}
+
+	// PSY-899: at least one play must be unmatched (artist_id NULL) so the
+	// generator covers the common source-metadata-only case. The matched
+	// play's artist_id is a subquery, so a bare ", NULL, " in the plays
+	// VALUES list is the unmatched signal.
+	playsSection := sql[strings.Index(sql, "INSERT INTO radio_plays"):]
+	if !strings.Contains(playsSection, "'Beach House', 'Space Song', NULL,") {
+		t.Errorf("expected an unmatched play (artist_id NULL) in the plays VALUES list")
 	}
 }
 
