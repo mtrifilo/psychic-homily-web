@@ -329,3 +329,98 @@ var RadioShows = []RadioShow{
 		ExternalID:      "anu",
 	},
 }
+
+// RadioEpisode is the canonical description of a single broadcast of a
+// RadioShow to seed. ShowSlug is the FK by slug (resolved to
+// radio_shows.id at insert time) so episodes can be defined without
+// knowing the show's autoincrement id.
+//
+// An episode is addressed in the public UI by its AirDate — the
+// /radio/{station}/{show}/{date} route segment is the air_date string and
+// GetEpisodeByShowAndDate looks it up via (show_id, air_date). There is no
+// separate episode slug column. AirDate must be a Postgres DATE literal
+// (YYYY-MM-DD).
+//
+// ExternalID participates in the episode dedup unique index
+// (idx_radio_episodes_unique on show_id, air_date, COALESCE(external_id,
+// '')), so it carries a deterministic value here rather than NULL to give
+// the ON CONFLICT target a stable expression.
+type RadioEpisode struct {
+	ShowSlug    string // resolved to radio_shows.id at insert time
+	Title       string // empty -> NULL
+	AirDate     string // Postgres DATE literal, e.g. "2025-01-15"
+	Description string // empty -> NULL
+	ArchiveURL  string // empty -> NULL
+	ExternalID  string // provider-specific episode id
+}
+
+// RadioPlay is the canonical description of a single track played in a
+// seeded RadioEpisode. EpisodeShowSlug + EpisodeAirDate together identify
+// the parent episode by its (show_id, air_date) natural key, mirroring how
+// the episode itself is addressed.
+//
+// ArtistSlug, when non-empty, resolves to artists.id and populates the
+// play's artist_id FK — this is what GetAsHeardOnForArtist joins on
+// (WHERE rp.artist_id = ?), so a seeded play MUST set ArtistSlug to a
+// real seeded artist for the artist "As Heard On" cross-link to render.
+// The raw ArtistName is always stored regardless (it's the never-
+// overwritten source metadata); leaving ArtistSlug empty models the
+// common "unmatched play" case where the matching engine found no
+// knowledge-graph artist (artist_id NULL).
+//
+// (EpisodeShowSlug, EpisodeAirDate, Position, ArtistName, TrackTitle,
+// AirTimestamp) keep each row distinct under the radio_plays dedup unique
+// index (idx_radio_plays_unique). Distinct Position values are sufficient
+// on their own.
+type RadioPlay struct {
+	EpisodeShowSlug string // parent episode's show slug
+	EpisodeAirDate  string // parent episode's air_date
+	Position        int    // 1-based play order within the episode
+	ArtistName      string // raw source metadata, always stored
+	TrackTitle      string // empty -> NULL
+	ArtistSlug      string // empty -> artist_id NULL (unmatched play)
+	AirTimestamp    string // Postgres TIMESTAMPTZ literal; empty -> NULL
+}
+
+// RadioEpisodes is the seed set of radio episodes. Currently a single
+// KEXP "The Morning Show" episode exists so the deep radio browse chain
+// (episode detail + tracklist) is E2E-reachable (PSY-899). Production
+// episodes are produced by the live fetch/import pipeline, not seeded;
+// this fixture exists solely to give the read-only browse flow a row to
+// click into.
+var RadioEpisodes = []RadioEpisode{
+	{
+		ShowSlug:    "the-morning-show",
+		Title:       "The Morning Show — January 15, 2025",
+		AirDate:     "2025-01-15",
+		Description: "Seeded fixture episode for E2E coverage of the radio episode detail + tracklist flow.",
+		ArchiveURL:  "https://www.kexp.org/shows/the-morning-show/",
+		ExternalID:  "e2e-the-morning-show-2025-01-15",
+	},
+}
+
+// RadioPlays is the seed set of radio plays. The first play links to the
+// seeded "Calexico" artist (ArtistSlug "calexico") so the artist "As Heard
+// On" cross-link (GetAsHeardOnForArtist, which joins on artist_id) renders
+// for that artist; the second is an intentionally unmatched play
+// (artist_id NULL) covering the common source-metadata-only case (PSY-899).
+var RadioPlays = []RadioPlay{
+	{
+		EpisodeShowSlug: "the-morning-show",
+		EpisodeAirDate:  "2025-01-15",
+		Position:        1,
+		ArtistName:      "Calexico",
+		TrackTitle:      "Crystal Frontier",
+		ArtistSlug:      "calexico", // matches seeded artist -> artist_id populated -> AsHeardOn renders
+		AirTimestamp:    "2025-01-15 06:05:00+00",
+	},
+	{
+		EpisodeShowSlug: "the-morning-show",
+		EpisodeAirDate:  "2025-01-15",
+		Position:        2,
+		ArtistName:      "Beach House",
+		TrackTitle:      "Space Song",
+		ArtistSlug:      "", // unmatched: no seeded artist -> artist_id NULL
+		AirTimestamp:    "2025-01-15 06:09:00+00",
+	},
+}
