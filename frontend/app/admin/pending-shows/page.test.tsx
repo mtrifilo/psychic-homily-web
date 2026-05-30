@@ -35,6 +35,7 @@ vi.mock('@/components/admin', () => ({
   RejectedShowCard: ({ show }: { show: { id: number } }) => (
     <div data-testid="rejected-show-card">{show.id}</div>
   ),
+  AdminEmptyState: ({ title }: { title: string }) => <h3>{title}</h3>,
 }))
 
 vi.mock('@/components/admin/BatchRejectDialog', () => ({

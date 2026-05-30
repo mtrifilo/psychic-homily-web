@@ -26,7 +26,7 @@ The MCP exposes three read-shaped tools. They overlap in purpose; pick by what y
 
 | Tool | Returns | Use when |
 |---|---|---|
-| `mcp__plugin_figma_figma__get_metadata` | XML structure (no design tokens, no code) | You need to find a node by name, or enumerate a frame's children. Cheap; defaults to listing top-level pages when `nodeId` is omitted. |
+| `mcp__plugin_figma_figma__get_metadata` | XML structure (no design tokens, no code) | You need to find a node by name, or enumerate a frame's children. Cheap. Omitting `nodeId` is *supposed* to list all top-level pages, but in practice it frequently returns only `Cover` (see the "only Cover" gotcha below) — for a reliable page inventory, read `figma.root.children` via `use_figma` instead. |
 | `mcp__plugin_figma_figma__get_screenshot` | Short-lived PNG URL + dimensions | You want to visually confirm a frame's layout, or capture an asset for a PR body. Pass `maxDimension` (default 1024) for resolution. |
 | `mcp__plugin_figma_figma__get_design_context` | Reference code + screenshot + asset URLs | You're translating Figma → code (the canonical design-to-code workflow). |
 
@@ -61,7 +61,7 @@ Examples of when this bit us:
 
 ### Disambiguator — `get_metadata` "only Cover" ≠ proof that desktop is wrong
 
-`get_metadata` (no nodeId) can return only the Cover page **even when desktop IS on the right file** — observed PSY-853 session 2026-05-26 with a file that actually had 4 pages. `use_figma` reading `figma.root.children` on the same file returned all 4 correctly. So `get_metadata`'s "only Cover" symptom has at least two causes (desktop on wrong file, AND some cache/staleness path in the metadata route itself).
+`get_metadata` (no nodeId) can return only the Cover page **even when desktop IS on the right file** — observed PSY-853 session 2026-05-26 with a file that actually had 4 pages. `use_figma` reading `figma.root.children` on the same file returned all 4 correctly. Re-confirmed 2026-05-28 (PSY-872): `get_metadata` (no nodeId) on the Product Designs file returned only `0:1: Cover`, while a `use_figma` `figma.root.children` read on the same file returned all 10 pages. So `get_metadata`'s "only Cover" symptom has at least two causes (desktop on wrong file, AND some cache/staleness path in the metadata route itself) — and note the MCP tool's *own* schema description still claims it lists all top-level pages, which is the misleading part, not the skill.
 
 Before asking the user to fix desktop state, run a `use_figma` read-only inventory as the disambiguator:
 

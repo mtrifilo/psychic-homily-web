@@ -14,6 +14,7 @@ import { useUnverifiedVenues, useVerifyVenue } from '@/lib/hooks/admin/useAdminV
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { UnverifiedVenue } from '@/features/venues'
 import { Card, CardContent, CardHeader } from '@/components/ui/card'
+import { AdminEmptyState } from '@/components/admin'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { formatShortDate } from '@/lib/utils/formatters'
@@ -229,16 +230,11 @@ export default function UnverifiedVenuesPage() {
       )}
 
       {!isLoading && !error && data?.venues.length === 0 && (
-        <div className="rounded-lg border border-border bg-card/50 p-8 text-center">
-          <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-            <BadgeCheck className="h-6 w-6 text-muted-foreground" />
-          </div>
-          <h3 className="font-medium mb-1">All Venues Verified</h3>
-          <p className="text-sm text-muted-foreground">
-            All venues have been verified. Check back later for new venue
-            submissions.
-          </p>
-        </div>
+        <AdminEmptyState
+          icon={BadgeCheck}
+          title="All Venues Verified"
+          message="All venues have been verified. Check back later for new venue submissions."
+        />
       )}
 
       {!isLoading && !error && data?.venues && data.venues.length > 0 && (

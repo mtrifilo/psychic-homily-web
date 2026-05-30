@@ -4,7 +4,7 @@ import { useMemo } from 'react'
 import { Loader2, Flag, Inbox } from 'lucide-react'
 import { usePendingReports } from '@/lib/hooks/admin/useAdminReports'
 import { usePendingArtistReports } from '@/lib/hooks/admin/useAdminArtistReports'
-import { ShowReportCard, ArtistReportCard } from '@/components/admin'
+import { ShowReportCard, ArtistReportCard, AdminEmptyState } from '@/components/admin'
 import type { ShowReportResponse } from '@/features/shows'
 import type { ArtistReportResponse } from '@/features/artists'
 
@@ -68,16 +68,11 @@ export default function AdminReportsPage() {
 
   if (mergedReports.length === 0) {
     return (
-      <div className="flex flex-col items-center justify-center py-12 text-center">
-        <div className="flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
-          <Inbox className="h-8 w-8 text-muted-foreground" />
-        </div>
-        <h3 className="text-lg font-medium mb-1">No Pending Reports</h3>
-        <p className="text-sm text-muted-foreground max-w-sm">
-          All user reports have been reviewed. New reports will appear here when
-          users flag shows or artists with issues.
-        </p>
-      </div>
+      <AdminEmptyState
+        icon={Inbox}
+        title="No Pending Reports"
+        message="All user reports have been reviewed. New reports will appear here when users flag shows or artists with issues."
+      />
     )
   }
 

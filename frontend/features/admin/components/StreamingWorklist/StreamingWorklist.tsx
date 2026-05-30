@@ -46,6 +46,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Label } from '@/components/ui/label'
+import { AdminEmptyState } from '@/components/admin'
 import { InlineErrorBanner, StatusBanner } from '@/components/shared'
 import { formatAdminDate } from '@/lib/utils/formatters'
 import {
@@ -508,20 +509,16 @@ export function StreamingWorklist() {
         )}
 
         {!isLoading && !errorMessage && entries.length === 0 && (
-          <div
-            className="rounded-lg border border-border bg-card/50 p-8 text-center"
-            data-testid="streaming-worklist-empty"
-          >
-            <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <Inbox className="h-6 w-6 text-muted-foreground" />
-            </div>
-            <h3 className="font-medium mb-1">Worklist clear</h3>
-            <p className="text-sm text-muted-foreground">
-              {status
+          <AdminEmptyState
+            icon={Inbox}
+            title="Worklist clear"
+            message={
+              status
                 ? `No artists in "${status}" with an upcoming show.`
-                : 'No artists with non-terminal status have upcoming shows right now.'}
-            </p>
-          </div>
+                : 'No artists with non-terminal status have upcoming shows right now.'
+            }
+            testId="streaming-worklist-empty"
+          />
         )}
 
         {!isLoading && !errorMessage && entries.length > 0 && (

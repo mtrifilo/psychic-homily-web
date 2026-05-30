@@ -8,7 +8,7 @@ import {
   useBatchApproveShows,
   useBatchRejectShows,
 } from '@/lib/hooks/admin/useAdminShows'
-import { PendingShowCard, RejectedShowCard } from '@/components/admin'
+import { PendingShowCard, RejectedShowCard, AdminEmptyState } from '@/components/admin'
 import { BatchRejectDialog } from '@/components/admin/BatchRejectDialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -202,16 +202,11 @@ export default function PendingShowsPage() {
       {view === 'pending' && !pendingLoading && !pendingError && (
         <>
           {pendingData?.shows.length === 0 ? (
-            <div className="rounded-lg border border-border bg-card/50 p-8 text-center">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <Inbox className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <h3 className="font-medium mb-1">No Pending Shows</h3>
-              <p className="text-sm text-muted-foreground">
-                All show submissions have been reviewed. Check back later for new
-                submissions.
-              </p>
-            </div>
+            <AdminEmptyState
+              icon={Inbox}
+              title="No Pending Shows"
+              message="All show submissions have been reviewed. Check back later for new submissions."
+            />
           ) : (
             <div className="space-y-4">
               {/* Filter bar */}
@@ -339,15 +334,11 @@ export default function PendingShowsPage() {
       {view === 'rejected' && !rejectedLoading && !rejectedError && (
         <>
           {rejectedData?.shows.length === 0 ? (
-            <div className="rounded-lg border border-border bg-card/50 p-8 text-center">
-              <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-                <Inbox className="h-6 w-6 text-muted-foreground" />
-              </div>
-              <h3 className="font-medium mb-1">No Rejected Shows</h3>
-              <p className="text-sm text-muted-foreground">
-                No shows have been rejected yet.
-              </p>
-            </div>
+            <AdminEmptyState
+              icon={Inbox}
+              title="No Rejected Shows"
+              message="No shows have been rejected yet."
+            />
           ) : (
             <div className="space-y-2">
               <p className="text-sm text-muted-foreground">
