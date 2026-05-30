@@ -13,6 +13,10 @@ vi.mock('@/lib/api', () => ({
       GET: (id: string | number) => `/requests/${id}`,
       VOTE: (id: string | number) => `/requests/${id}/vote`,
       FULFILL: (id: string | number) => `/requests/${id}/fulfill`,
+      APPROVE_FULFILLMENT: (id: string | number) =>
+        `/requests/${id}/approve-fulfillment`,
+      REJECT_FULFILLMENT: (id: string | number) =>
+        `/requests/${id}/reject-fulfillment`,
       CLOSE: (id: string | number) => `/requests/${id}/close`,
     },
   },
@@ -38,6 +42,8 @@ import {
   useVoteRequest,
   useRemoveVoteRequest,
   useFulfillRequest,
+  useApproveFulfillment,
+  useRejectFulfillment,
   useCloseRequest,
 } from './index'
 

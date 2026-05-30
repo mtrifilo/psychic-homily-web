@@ -14,6 +14,7 @@ export const REQUEST_ENTITY_TYPES = [
 export const REQUEST_STATUSES = [
   'pending',
   'in_progress',
+  'pending_fulfillment',
   'fulfilled',
   'rejected',
   'cancelled',
@@ -84,6 +85,8 @@ export function getStatusLabel(status: string): string {
       return 'Pending'
     case 'in_progress':
       return 'In Progress'
+    case 'pending_fulfillment':
+      return 'Pending review'
     case 'fulfilled':
       return 'Fulfilled'
     case 'rejected':
@@ -122,6 +125,8 @@ export function getStatusColor(status: string): string {
       return 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-400'
     case 'in_progress':
       return 'bg-blue-500/15 text-blue-700 dark:text-blue-400'
+    case 'pending_fulfillment':
+      return 'bg-primary/15 text-primary'
     case 'fulfilled':
       return 'bg-green-500/15 text-green-700 dark:text-green-400'
     case 'rejected':
