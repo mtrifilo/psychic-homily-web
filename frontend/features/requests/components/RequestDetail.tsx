@@ -356,19 +356,14 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                             ` · ${formatTimeAgo(request.updated_at)}`}
                         </p>
                       )}
-                      {request.requested_entity_id && (
-                        <Link
-                          href={getEntityUrl(
-                            request.entity_type,
-                            request.requested_entity_id
-                          )}
-                          className="mt-1 inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          View proposed{' '}
-                          {getEntityTypeLabel(request.entity_type).toLowerCase()}
-                        </Link>
-                      )}
+                      {/*
+                        PSY-891: no "view proposed entity" link here yet — the
+                        current "Propose a fulfillment" flow doesn't capture a
+                        distinct entity (it submits without fulfilled_entity_id),
+                        so request.requested_entity_id holds the ORIGINAL request
+                        target, not what the fulfiller proposed. A propose-with-
+                        entity-picker flow is the follow-up (see PSY-891 comment).
+                      */}
                       <div className="mt-3 flex items-center gap-2">
                         <Button
                           size="sm"
