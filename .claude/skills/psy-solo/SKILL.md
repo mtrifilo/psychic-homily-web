@@ -35,11 +35,12 @@ which agent-browser               # if any UI screenshots are planned
 1. **One issue = one PR.** Branch name `PSY-{N}/{kebab-description}`. PR body includes `Closes PSY-{N}`.
 2. **Pull latest main BEFORE starting.** `git -C <repo> checkout main && git pull --ff-only origin main`. Stale main inherits stale-fallout CI from anything that merged in between (see psy-dispatch anti-pattern catalog for the canonical incident).
 3. **Surface ambiguity via `AskUserQuestion` BEFORE writing code.** When the ticket has a design fork (Option A vs B, taxonomy/threshold/UX choice not already decided), batch the questions into a single `AskUserQuestion` call. See `feedback_no_speculative_implementation.md` and `feedback_plan_mode_questions_first.md`. Do not guess — file a follow-up rather than implementing speculative scope.
-4. **`/code-review` AND relevant local tests run before push; failure blocks push.** Same rule as `psy-dispatch`. Never push past a failing local test, even one you believe is pre-existing on main — escalate to the user instead of triaging via GitHub CI. See `feedback_code_review_before_pr.md`.
+4. **`/code-review`, `/adversarial-review`, AND relevant local tests run before push; failure blocks push.** Same rule as `psy-dispatch`. Never push past a failing local test, even one you believe is pre-existing on main — escalate to the user instead of triaging via GitHub CI. See `feedback_code_review_before_pr.md`. The `PreToolUse` hook (`~/.claude/hooks/require-adversarial-review.sh`) will block `gh pr create` until `/adversarial-review` has written a pass-marker for the branch.
 5. **Never mark Done in Linear.** Transition to "In Progress" on start; the user moves it to Done on merge.
 6. **Never merge the PR yourself.** Push and open the PR; the user merges.
 7. **Document deferred scope explicitly in the PR body.** If the implementation Q&A produced a "skip this and file a follow-up" decision, link the follow-up ticket(s) in a `## Deferred` section.
 8. **For UI changes: capture screenshots when feasible.** UI tickets benefit from rendered visual evidence in the PR. Use the [Screenshot workflow](#phase-6-screenshots-ui-tickets-only) — skip for backend-only / docs-only / config-only tickets (note "no UI surface" in the test plan instead).
+9. **Adversarial-review fixes ship as a SEPARATE commit, referenced in the PR body.** The implementation (incl. `/code-review` fixes) is committed first; `/adversarial-review`'s findings + fixes land in their own commit (`PSY-{N}: adversarial-review fixes`) so the adversarial pass stays visible in history. The PR body's `## Adversarial review` section names the findings and how each was resolved. See [Phase 5.5](#phase-55-adversarial-review).
 
 ## Workflow
 
@@ -121,6 +122,37 @@ bash scripts/dispatch/stack-down.sh "$(git rev-parse --show-toplevel)"
 Invoke `Skill` with `skill: "code-review"`. The code-review skill spawns 3 parallel reviewer agents (reuse / quality / efficiency) against your diff. Aggregate their findings; fix the actionable ones directly. For findings that are pre-existing peer-wide gaps (e.g. inline `<h2>` headings vs `SectionHeader` primitive when the peer pages all use inline) — note in the PR body, do NOT expand scope.
 
 If `/code-review` produced code changes, re-run the relevant test commands from phase 4.
+
+### Phase 5.5: /adversarial-review
+
+The hostile pre-PR gate — distinct from `/code-review` (balanced quality) and `/psy-self-review` (evidence audit). It spawns a panel of **fresh sub-agents with none of this session's context**, each attacking the diff from a different lens (Saboteur / Future-Maintainer / Security / Completeness) and competing to find the most *real* problems. The change must EARN a clean verdict — it does not get the benefit of the doubt. See `~/.claude/skills/adversarial-review/SKILL.md`.
+
+Because the review's fixes must land in a **separate commit** (non-negotiable 9), **commit the implementation first** — this commit always happens, even when the review comes back CLEAN with no fixes:
+
+```bash
+# 1. Commit implementation + /code-review fixes as the implementation commit
+git -C <repo> add <impl files>                       # specific paths, never `git add .`
+git -C <repo> commit -m "PSY-{N}: <imperative summary>
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+```
+
+Then invoke `Skill` with `skill: "adversarial-review"`. As the orchestrator you have the Agent tool, so it spawns the panel in parallel. Aggregate the verdict:
+
+- **BLOCK** (any CRITICAL/HIGH) — the change has not earned the pass. Fix the findings (or reject a wrong one with a concrete technical counter-argument), then re-run the panel (cap 3 rounds; if severity won't decline, STOP and surface to the user).
+- **CONCERNS** (MEDIUM only) — fix what's cheap; disclose any deferral in the PR body.
+- **CLEAN** — proceed.
+
+Commit the fixes the review produced as their own commit, and re-run the relevant phase-4 tests if it changed anything substantive:
+
+```bash
+git -C <repo> add <files the review fixed>
+git -C <repo> commit -m "PSY-{N}: adversarial-review fixes
+
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+```
+
+The skill writes the branch pass-marker on a passing verdict (CLEAN, or fixed/disclosed CONCERNS) — this is what unblocks `gh pr create` at phase 8. Capture the findings + dispositions for the PR body's `## Adversarial review` section (phase 7.5). If the verdict was CLEAN with no fixes, there's no second commit — note "CLEAN, no findings" in the section.
 
 ### Phase 6: Screenshots (UI tickets only)
 
@@ -255,12 +287,12 @@ Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` clai
 The PR body is the file you wrote in phase 7.5 and refined in phase 7.6 — use `--body-file`, not an inline heredoc.
 
 ```bash
-git -C <repo> add <specific files>                # NOT `git add .` — never accidentally add untracked
-git -C <repo> commit -m "PSY-{N}: <imperative summary>
-
-Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
+# Implementation (phase 5.5) + any adversarial-review fixes should already be committed.
+# If ANY code changed after Phase 5.5 (e.g. a Phase 6 screenshot-driven fix), re-run
+# /adversarial-review first so the pass-marker reflects exactly what you're pushing.
+git -C <repo> status                               # if this shows uncommitted implementation, COMMIT it now (specific paths) before pushing — never `git add .`
 git -C <repo> push -u origin PSY-{N}/<branch>
-gh pr create --title "PSY-{N}: <under-70-char summary>" --body-file /tmp/psy-{N}-pr-body.md
+gh pr create --title "PSY-{N}: <under-70-char summary>" --body-file /tmp/psy-{N}-pr-body.md   # hook checks the /adversarial-review pass-marker
 ```
 
 #### PR body template (use as starting point for the phase 7.5 draft)
@@ -278,10 +310,17 @@ Closes PSY-{N}.
 ## Heads up from `/code-review`
 <only include this section if /code-review surfaced a non-blocking concern worth flagging — e.g. an efficiency regression that's intrinsic to the design. Omit if /code-review was clean.>
 
+## Adversarial review
+`/adversarial-review` — <CLEAN, no findings | N findings addressed in commit `<sha>`>.
+- [HIGH] <finding> → fixed in `<short-sha>` (<one line>)
+- [MEDIUM] <finding> → <fixed | deferred: reason>
+Panel: Saboteur · Future-Maintainer · Security<· Completeness>. Reviewers ran with no prior session context against the branch diff.
+
 ## Test plan
 - [x] `bun run typecheck` — clean
 - [x] `bun run test:run features/<scope>` — N/N passing
 - [x] `/code-review` — <outcome>
+- [x] `/adversarial-review` — <CLEAN | CONCERNS addressed; fixes in separate commit `<sha>`>
 - [x] `/psy-self-review` — <outcome: clean / N findings addressed>
 - [x] Manual repro against local dev stack with <entity>: <one-sentence description of what was visually verified>
 
@@ -343,6 +382,7 @@ Do NOT delete the draft release after the PR is open — the asset URLs depend o
 - **`psy-ticket`** — ticket creation; pair with phase 7 to file the follow-ups this skill identifies.
 - **`linear-reference`** — workspace-agnostic `linear` CLI reference. Drop down to it when you need a command shape outside `psy-ticket`'s ticket-creation focus — posting status updates via `linear project-update create --health onTrack|atRisk|offTrack`, posting an issue comment via `linear issue comment add` (note: rejects `--no-interactive`), milestone / initiative-update / document ops. Pair with `psy-ticket` when PSY conventions also apply.
 - **`code-review`** — invoked in phase 5; spawns 3 parallel reviewer agents (reuse / quality / efficiency) against the diff.
+- **`/adversarial-review`** — invoked in phase 5.5 (after `/code-review`, before push); spawns a competitive panel of fresh hostile-lens sub-agents (Saboteur / Future-Maintainer / Security / Completeness) that must be convinced the change earned the pass. Fixes land in a separate commit referenced in the PR body; the `PreToolUse` hook blocks `gh pr create` until it passes. User-level skill at `~/.claude/skills/adversarial-review/SKILL.md` — available in every project on this machine.
 - **`agent-browser` CLI** — `which agent-browser` to confirm install; pre-installed in this dev environment. Reliable Chrome automation that doesn't depend on a running Chrome instance.
 - `feedback_code_review_before_pr.md` — non-negotiable rule 4 above.
 - `feedback_no_speculative_implementation.md` — non-negotiable rule 3 above (ask, don't guess).

@@ -39,7 +39,7 @@ These are the non-negotiables. They are encoded in the per-agent prompt template
 
 1. **Resolve ambiguity BEFORE dispatch.** If any ticket has an explicit design fork ("Option A or B", "pick one and document", taxonomy/threshold/UX choice not already decided), the orchestrator MUST surface those forks via `AskUserQuestion` in a single batched call before spawning any agents. See `feedback_no_speculative_implementation.md` and `feedback_plan_mode_questions_first.md`.
 2. **Move tickets to In Progress on dispatch.** Before spawning agents, transition every dispatched ticket to the team's "In Progress" state. The state transition is the canonical signal to other humans/agents that work has started.
-3. **Both `/code-review` AND relevant local tests run before every PR opens; failure blocks push.** No exceptions. The code-review pass lands as a SEPARATE commit if it produced edits. Local tests must be the relevant suite for what the PR touches (backend test packages, frontend unit + typecheck, plus the E2E spec if a file under `frontend/e2e/` was modified). If ANY test fails — even one the agent believes is pre-existing on main — the agent must STOP, leave the branch unpushed, and report the failure for orchestrator-level escalation. The judgment "this is pre-existing, safe to push" is NOT the agent's call to make unilaterally; pushing first and triaging via GitHub CI wastes cycles, masks the diff's true signal, and fails the engineering bar. See `feedback_code_review_before_pr.md`.
+3. **`/code-review`, `/adversarial-review`, AND relevant local tests run before every PR opens; failure blocks push.** No exceptions. The code-review pass lands as a SEPARATE commit if it produced edits; the adversarial-review fixes land as their OWN separate commit (`PSY-{N}: adversarial-review fixes`), referenced in the PR body's `## Adversarial review` section. A BLOCK verdict (surviving CRITICAL/HIGH finding) the agent can't clear is a STOP-and-escalate, exactly like a failing test. Local tests must be the relevant suite for what the PR touches (backend test packages, frontend unit + typecheck, plus the E2E spec if a file under `frontend/e2e/` was modified). If ANY test fails — even one the agent believes is pre-existing on main — the agent must STOP, leave the branch unpushed, and report the failure for orchestrator-level escalation. The judgment "this is pre-existing, safe to push" is NOT the agent's call to make unilaterally; pushing first and triaging via GitHub CI wastes cycles, masks the diff's true signal, and fails the engineering bar. See `feedback_code_review_before_pr.md`.
 4. **One ticket = one PR.** Never bundle multiple PSY tickets into a single PR.
 5. **Agents never mark Done.** Linear ticket transitions to Done happen on PR merge (which is a human call). Agents leave the ticket In Progress.
 6. **Agents never merge their own PRs.** PR creation is the agent's last step; merging is the user's.
@@ -377,6 +377,11 @@ Fix PSY-{N}: {ticket title}.
    - Continue from your worktree.
 7. Commit the implementation.
 8. Run `/code-review` (Skill tool, skill: "code-review"). If it edited files, commit them as a SEPARATE commit `PSY-{N}: code-review pass`. **Re-run the relevant local tests from step 4** if code-review changed anything substantive. Re-run the manual repro from step 5 only if code-review edited a file you exercised in step 5.
+8.5. Run `/adversarial-review` (Skill tool, skill: "adversarial-review") — the hostile pre-PR gate; the change must EARN a clean verdict, not get the benefit of the doubt. **You are a dispatched sub-agent WITHOUT the Agent tool, so you cannot spawn the parallel panel — run the four lenses INLINE** (Saboteur / Future-Maintainer / Security / Completeness) against your branch diff, applying the skill's finding bar. This is expected, not an error (same inline fallback as `/code-review` from a worktree — see `pattern_subagent_inline_code_review.md`). Verdict handling:
+   - **BLOCK** (any surviving CRITICAL/HIGH): fix the findings (or reject a wrong one with a concrete technical counter-argument), then re-run the lenses; cap 3 rounds. If you cannot clear the BLOCK, STOP and report — do NOT push (rule 3).
+   - **CONCERNS** (MEDIUM only): fix what's cheap; disclose any deferral in the PR body.
+   - **CLEAN**: proceed.
+   Commit the review's fixes as a SEPARATE commit `PSY-{N}: adversarial-review fixes`, and re-run the relevant step-4 tests if it changed anything substantive. The skill writes the branch pass-marker on a passing verdict. If you cannot reach a passing verdict, STOP and report to the orchestrator — do NOT bypass the gate (any bypass is a human-only escape hatch documented in the skill itself, never something a dispatched agent invokes to self-clear a BLOCK). Record findings + dispositions for the PR body's `## Adversarial review` section.
 9. Push branch with `-u origin <branch>`.
 10. Open PR with `gh pr create`. Body template:
     ```
@@ -387,12 +392,19 @@ Fix PSY-{N}: {ticket title}.
     ## Test plan
     - [x] <command you ran locally> — passed
     - [x] <command you ran locally> — passed
+    - [x] `/adversarial-review` — CLEAN (or CONCERNS addressed; fixes in separate commit)
 
     ## Manual repro
     <Frontend: link to screenshot at `dogfood-output/PSY-{N}/screenshots/<name>.png` + one-sentence description of what the screenshot shows. Backend: exact `curl` command + response body verbatim, OR test name + relevant assertion output. State what you exercised — the canonical failing path from the ticket — and what you saw. "docs-only, no manual repro applicable" is the only valid placeholder.>
 
     ## Code review
     <one-line outcome: "no changes" OR "edited N files, -M net lines, <one-phrase summary>". Post-code-review retest commands belong in the Test plan above with [x].>
+
+    ## Adversarial review
+    `/adversarial-review` — <CLEAN, no findings | N findings addressed in separate commit `<sha>`>.
+    - [HIGH] <finding> → fixed in `<short-sha>` (<one line>)
+    - [MEDIUM] <finding> → <fixed | deferred: reason>
+    Panel: Saboteur · Future-Maintainer · Security · Completeness — run inline (no Agent tool in a worktree).
 
     Closes PSY-{N}
     ```
@@ -447,6 +459,7 @@ These supplement the ironclad rules with tactical guidance from observed batch f
 - **`psy-ticket`** — ticket *creation* (this skill is for ticket *execution*).
 - **`linear-reference`** — workspace-agnostic `linear` CLI reference. Drop down to it when you need a command shape outside `psy-ticket`'s ticket-creation focus — `linear issue update --state` flags, posting comments on dispatched tickets (`linear issue comment add` rejects `--no-interactive`), project-update posts, milestone / document ops.
 - **`code-review`** — invoked by every dispatched agent before opening its PR.
+- **`/adversarial-review`** — invoked per-agent in step 8.5 (after `/code-review`, before push); the hostile "earn the pass" gate. Runs its lenses inline in a worktree (no Agent tool); fixes ship in a separate commit referenced in the PR body; the `PreToolUse` hook blocks `gh pr create` until it passes. User-level skill at `~/.claude/skills/adversarial-review/SKILL.md`.
 - `feedback_code_review_before_pr.md` — `/code-review` AND relevant local tests run before every PR (single-ticket or batched); failure blocks push, escalate to orchestrator instead of pushing past it.
 - `feedback_no_speculative_implementation.md` — when a ticket is ambiguous about WHAT to build, STOP and ask.
 - `feedback_plan_mode_questions_first.md` — surface forks via `AskUserQuestion` before exiting plan mode / dispatching.
