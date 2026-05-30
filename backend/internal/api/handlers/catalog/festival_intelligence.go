@@ -37,7 +37,7 @@ func NewFestivalIntelligenceHandler(
 
 type GetSimilarFestivalsRequest struct {
 	FestivalID string `path:"festival_id" doc:"Festival ID or slug" example:"m3f-2026"`
-	Limit      int    `query:"limit" required:"false" doc:"Maximum number of similar festivals to return" example:"10"`
+	Limit      int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Maximum number of similar festivals to return" example:"10"`
 }
 
 // GetSimilarFestivalsResponse keeps a bespoke struct because the body wraps

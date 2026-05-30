@@ -255,7 +255,7 @@ type GetShowsResponse struct {
 type GetUpcomingShowsRequest struct {
 	Timezone string `query:"timezone" default:"UTC" doc:"IANA timezone (e.g., 'America/Phoenix', 'America/New_York'). Defaults to UTC."`
 	Cursor   string `query:"cursor" doc:"Pagination cursor from previous response. Omit for first page."`
-	Limit    int    `query:"limit" default:"50" doc:"Number of shows per page (max 200). Defaults to 50."`
+	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of shows per page (max 200). Defaults to 50."`
 	City     string `query:"city" doc:"Filter by city name (exact match). Legacy — prefer 'cities' param."`
 	State    string `query:"state" doc:"Filter by state code (exact match, e.g., 'AZ'). Legacy — prefer 'cities' param."`
 	Cities   string `query:"cities" doc:"Filter by multiple cities. Pipe-delimited pairs: 'Phoenix,AZ|Mesa,AZ|Tucson,AZ'. Max 10 cities."`
@@ -1405,8 +1405,8 @@ func (h *ShowHandler) ExportShowHandler(ctx context.Context, req *ExportShowRequ
 
 // GetMySubmissionsRequest represents the HTTP request for getting user's submitted shows
 type GetMySubmissionsRequest struct {
-	Limit  int `query:"limit" default:"50" doc:"Maximum number of shows to return"`
-	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Maximum number of shows to return"`
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetMySubmissionsResponse represents the HTTP response for user's submitted shows

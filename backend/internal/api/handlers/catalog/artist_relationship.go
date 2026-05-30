@@ -134,7 +134,7 @@ func splitAndTrim(s string) []string {
 type GetRelatedArtistsRequest struct {
 	ArtistID string `path:"artist_id" doc:"Artist ID" example:"1"`
 	Type     string `query:"type" required:"false" doc:"Filter by relationship type (similar, shared_bills, shared_label, side_project, member_of)"`
-	Limit    int    `query:"limit" required:"false" doc:"Max results (default 30)" example:"30"`
+	Limit    int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 30)" example:"30"`
 }
 
 type GetRelatedArtistsResponse struct {
