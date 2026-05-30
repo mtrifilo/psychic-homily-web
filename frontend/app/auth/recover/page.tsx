@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useEffect, useState } from 'react'
+import { Suspense, useEffect, useRef, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { useForm } from '@tanstack/react-form'
@@ -141,11 +141,32 @@ function TokenConfirmation({ token }: { token: string }) {
   const router = useRouter()
   const confirmMutation = useConfirmAccountRecovery()
   const { setUser } = useAuthContext()
+  const attemptedTokenRef = useRef<string | null>(null)
+
   const [error, setError] = useState<string | null>(null)
+  const { mutateAsync: confirmRecovery } = confirmMutation
 
   useEffect(() => {
-    confirmMutation.mutate(token, {
-      onSuccess: data => {
+    // Confirm exactly once per token value. Without this guard, React
+    // strict-mode double-invoke (dev + E2E) re-fires the mutation: the first
+    // call restores + logs in, the redundant second hits the now-active
+    // account → "already active" banner, never completing the redirect home
+    // (PSY-902).
+    //
+    // The result is consumed through mutateAsync's returned promise — NOT the
+    // mutation's reactive state (isSuccess/isError) or a per-`.mutate()`-call
+    // onSuccess/onError. Under strict mode the guard fires the mutation on the
+    // discarded mount, and React Query then leaves the surviving mount's
+    // observer stuck on `pending` (its inline callbacks never run, isSuccess/
+    // isError never flip) — which left the page frozen on the spinner. The
+    // promise from mutateAsync settles in this effect's own closure regardless
+    // of observer lifecycle, so success/error always lands.
+    if (!token || attemptedTokenRef.current === token) {
+      return
+    }
+    attemptedTokenRef.current = token
+    confirmRecovery(token)
+      .then(data => {
         if (data.user) {
           setUser({
             id: data.user.id,
@@ -156,12 +177,11 @@ function TokenConfirmation({ token }: { token: string }) {
           })
         }
         router.push('/')
-      },
-      onError: err => {
-        setError(err.message)
-      },
-    })
-  }, [token]) // eslint-disable-line react-hooks/exhaustive-deps
+      })
+      .catch(err => {
+        setError(err instanceof Error ? err.message : 'Account recovery failed')
+      })
+  }, [token, confirmRecovery, setUser, router])
 
   if (error) {
     return (
