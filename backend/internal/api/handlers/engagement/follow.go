@@ -112,8 +112,8 @@ type BatchFollowResponse struct {
 // GetMyFollowingRequest is the request for GET /me/following
 type GetMyFollowingRequest struct {
 	Type   string `query:"type" default:"all" doc:"Entity type filter: artist, venue, label, festival, or all"`
-	Limit  int    `query:"limit" default:"20" doc:"Number of items per page"`
-	Offset int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of items per page"`
+	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetMyFollowingResponse is the response for GET /me/following
@@ -130,8 +130,8 @@ type GetMyFollowingResponse struct {
 type GetFollowersListRequest struct {
 	EntityType string `path:"entity_type" doc:"Entity type (artists, venues, labels, festivals)"`
 	EntityID   string `path:"entity_id" doc:"Entity ID"`
-	Limit      int    `query:"limit" default:"20" doc:"Number of followers per page"`
-	Offset     int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of followers per page"`
+	Offset     int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetFollowersListResponse is the response for GET /{entity_type}/{entity_id}/followers/list

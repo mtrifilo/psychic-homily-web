@@ -52,8 +52,8 @@ type UnsaveShowResponse struct {
 
 // GetSavedShowsRequest represents the HTTP request for listing saved shows
 type GetSavedShowsRequest struct {
-	Limit  int `query:"limit" default:"50" doc:"Number of shows per page"`
-	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of shows per page"`
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetSavedShowsResponse represents the HTTP response for listing saved shows

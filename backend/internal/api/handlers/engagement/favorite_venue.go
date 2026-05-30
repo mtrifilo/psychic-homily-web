@@ -52,8 +52,8 @@ type UnfavoriteVenueResponse struct {
 
 // GetFavoriteVenuesRequest represents the HTTP request for listing favorite venues
 type GetFavoriteVenuesRequest struct {
-	Limit  int `query:"limit" default:"50" doc:"Number of venues per page"`
-	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of venues per page"`
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetFavoriteVenuesResponse represents the HTTP response for listing favorite venues
@@ -81,8 +81,8 @@ type CheckFavoritedResponse struct {
 // GetFavoriteVenueShowsRequest represents the HTTP request for getting shows from favorite venues
 type GetFavoriteVenueShowsRequest struct {
 	Timezone string `query:"timezone" default:"America/Phoenix" doc:"Timezone for date filtering"`
-	Limit    int    `query:"limit" default:"50" doc:"Number of shows per page"`
-	Offset   int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of shows per page"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetFavoriteVenueShowsResponse represents the HTTP response for getting shows from favorite venues

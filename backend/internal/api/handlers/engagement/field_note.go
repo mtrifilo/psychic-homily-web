@@ -134,8 +134,8 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 // ListFieldNotesRequest represents the Huma request for listing field notes on a show.
 type ListFieldNotesRequest struct {
 	ShowID string `path:"show_id" doc:"Show ID" example:"42"`
-	Limit  int    `query:"limit" required:"false" doc:"Page size (default 25, max 100)" example:"25"`
-	Offset int    `query:"offset" required:"false" doc:"Pagination offset" example:"0"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Page size (default 25, max 100)" example:"25"`
+	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Pagination offset" example:"0"`
 }
 
 // ListFieldNotesResponse represents the response for listing field notes.
