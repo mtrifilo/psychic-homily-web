@@ -25,6 +25,7 @@ import {
   CheckCircle2,
   History,
 } from 'lucide-react'
+import { AdminEmptyState } from '@/components/admin'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -1192,10 +1193,10 @@ function StationDetailPanel({
             <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
           </div>
         ) : shows.length === 0 ? (
-          <div className="rounded-lg border border-dashed p-6 text-center text-muted-foreground text-sm">
-            <Inbox className="mx-auto mb-2 h-8 w-8 opacity-50" />
-            No shows for this station yet.
-          </div>
+          <AdminEmptyState
+            icon={Inbox}
+            message="No shows for this station yet."
+          />
         ) : (
           <div className="rounded-lg border divide-y">
             {shows.map((show) => (
@@ -1788,12 +1789,14 @@ export function RadioManagement() {
               <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
             </div>
           ) : filteredStations.length === 0 ? (
-            <div className="rounded-lg border border-dashed p-12 text-center">
-              <Inbox className="mx-auto mb-3 h-10 w-10 text-muted-foreground opacity-50" />
-              <p className="text-muted-foreground">
-                {searchQuery ? 'No stations match your search.' : 'No radio stations yet. Add one to get started.'}
-              </p>
-            </div>
+            <AdminEmptyState
+              icon={Inbox}
+              message={
+                searchQuery
+                  ? 'No stations match your search.'
+                  : 'No radio stations yet. Add one to get started.'
+              }
+            />
           ) : (
             <div className="rounded-lg border">
               <table className="w-full">

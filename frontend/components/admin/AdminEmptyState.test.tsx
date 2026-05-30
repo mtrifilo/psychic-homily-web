@@ -47,6 +47,15 @@ describe('AdminEmptyState', () => {
     expect(screen.queryByRole('button')).not.toBeInTheDocument()
   })
 
+  it('omits the heading when no title is provided (message-only variant)', () => {
+    render(<AdminEmptyState icon={Inbox} message="No shows for this station yet." />)
+
+    expect(screen.queryByRole('heading')).not.toBeInTheDocument()
+    expect(
+      screen.getByText('No shows for this station yet.')
+    ).toBeInTheDocument()
+  })
+
   it('applies the canonical card + square-icon-chip shape', () => {
     render(
       <AdminEmptyState
