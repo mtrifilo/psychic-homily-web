@@ -219,8 +219,8 @@ func (h *PendingEditHandler) suggestEdit(ctx context.Context, entityType string,
 
 // GetMyPendingEditsRequest is the Huma request for GET /my/pending-edits
 type GetMyPendingEditsRequest struct {
-	Limit  int `query:"limit" required:"false" doc:"Max results (default 20, max 100)"`
-	Offset int `query:"offset" required:"false" doc:"Offset for pagination"`
+	Limit  int `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20, max 100)"`
+	Offset int `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetMyPendingEditsResponse is the Huma response for GET /my/pending-edits
@@ -302,8 +302,8 @@ func (h *PendingEditHandler) CancelMyPendingEditHandler(ctx context.Context, req
 type AdminListPendingEditsRequest struct {
 	Status     string `query:"status" required:"false" doc:"Filter by status (pending, approved, rejected)"`
 	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, venue, festival, release, label)"`
-	Limit      int    `query:"limit" required:"false" doc:"Max results (default 20, max 100)"`
-	Offset     int    `query:"offset" required:"false" doc:"Offset for pagination"`
+	Limit      int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20, max 100)"`
+	Offset     int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
 // AdminListPendingEditsResponse is the Huma response for GET /admin/pending-edits

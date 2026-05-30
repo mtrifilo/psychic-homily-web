@@ -47,8 +47,8 @@ func NewAdminShowHandler(
 
 // GetPendingShowsRequest represents the HTTP request for listing pending shows
 type GetPendingShowsRequest struct {
-	Limit   int    `query:"limit" default:"50" doc:"Number of shows to return (max 100)"`
-	Offset  int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit   int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of shows to return (max 100)"`
+	Offset  int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	VenueID uint   `query:"venue_id" required:"false" doc:"Filter by venue ID (0 = no filter)"`
 	Source  string `query:"source" required:"false" doc:"Filter by source (discovery or user)"`
 }
@@ -603,8 +603,8 @@ func (h *AdminShowHandler) ImportShowConfirmHandler(ctx context.Context, req *Im
 
 // GetAdminShowsRequest represents the HTTP request for listing all shows (admin)
 type GetAdminShowsRequest struct {
-	Limit    int    `query:"limit" default:"50" doc:"Number of shows to return (max 100)"`
-	Offset   int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of shows to return (max 100)"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	Status   string `query:"status" doc:"Filter by status (pending, approved, rejected, private)"`
 	FromDate string `query:"from_date" doc:"Filter shows from this date (RFC3339 format)"`
 	ToDate   string `query:"to_date" doc:"Filter shows until this date (RFC3339 format)"`

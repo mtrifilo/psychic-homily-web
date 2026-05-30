@@ -145,8 +145,8 @@ func mapRevisionToResponse(r adminm.Revision) RevisionResponseItem {
 type GetEntityHistoryRequest struct {
 	EntityType string `path:"entity_type" doc:"Entity type (artist, venue, show, release, label, festival)"`
 	EntityID   string `path:"entity_id" doc:"Entity ID"`
-	Limit      int    `query:"limit" required:"false" doc:"Max results (default 20, max 100)"`
-	Offset     int    `query:"offset" required:"false" doc:"Offset for pagination"`
+	Limit      int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20, max 100)"`
+	Offset     int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetEntityHistoryResponse is the Huma response for GET /revisions/{entity_type}/{entity_id}
@@ -235,8 +235,8 @@ func (h *RevisionHandler) GetRevisionHandler(ctx context.Context, req *GetRevisi
 // GetUserRevisionsRequest is the Huma request for GET /users/{user_id}/revisions
 type GetUserRevisionsRequest struct {
 	UserID string `path:"user_id" doc:"User ID"`
-	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20, max 100)"`
-	Offset int    `query:"offset" required:"false" doc:"Offset for pagination"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20, max 100)"`
+	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetUserRevisionsResponse is the Huma response for GET /users/{user_id}/revisions

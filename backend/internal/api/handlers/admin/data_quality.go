@@ -77,8 +77,8 @@ func (h *DataQualityHandler) GetDataQualitySummaryHandler(ctx context.Context, _
 // GetDataQualityCategoryRequest is the Huma request for GET /admin/data-quality/{category}
 type GetDataQualityCategoryRequest struct {
 	Category string `path:"category" doc:"Data quality category key"`
-	Limit    int    `query:"limit" required:"false" doc:"Max results (default 50, max 200)"`
-	Offset   int    `query:"offset" required:"false" doc:"Offset for pagination"`
+	Limit    int    `query:"limit" required:"false" minimum:"1" maximum:"200" doc:"Max results (default 50, max 200)"`
+	Offset   int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
 // DataQualityItemResponse is the response format for a data quality item.

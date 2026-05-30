@@ -41,8 +41,8 @@ type VerifyVenueResponse struct {
 
 // GetUnverifiedVenuesRequest represents the HTTP request for listing unverified venues
 type GetUnverifiedVenuesRequest struct {
-	Limit  int `query:"limit" default:"50" doc:"Number of venues to return (max 100)"`
-	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of venues to return (max 100)"`
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetUnverifiedVenuesResponse represents the HTTP response for listing unverified venues
