@@ -15,27 +15,22 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
 	engagementm "psychic-homily-backend/internal/models/engagement"
+	"psychic-homily-backend/internal/testenv"
 )
 
-// Env flag + allowed environment list for the test-fixtures reset endpoint.
-// See PSY-432 for the layered-defense rationale. The check is default-deny:
-// `ENABLE_TEST_FIXTURES=1` is only honored when ENVIRONMENT is one of the
-// allowed values. Unset and unknown values both refuse.
+// Env flag for the test-fixtures reset endpoint. See PSY-432 for the
+// layered-defense rationale. The check is default-deny: `ENABLE_TEST_FIXTURES=1`
+// is only honored when ENVIRONMENT is in the shared allow-list
+// (internal/testenv.AllowedEnvironments: test, ci, development). Unset and
+// unknown values both refuse. PSY-914 moved the allow-list + boot guard into
+// internal/testenv (shared with DISABLE_AUTH_RATE_LIMITS and
+// ENABLE_OAUTH_TEST_PROVIDER); these wrappers keep a flag-specific name.
 const (
 	EnableTestFixturesEnvVar           = "ENABLE_TEST_FIXTURES"
 	TestFixturesHeader                 = "X-Test-Fixtures"
 	TestUserEmailSuffix                = "@test.local"
 	ReservedWorkerCollectionSlugPrefix = "e2e-worker-collection-"
 )
-
-// TestFixturesAllowedEnvironments is the whitelist of ENVIRONMENT values that
-// may set ENABLE_TEST_FIXTURES=1. Blacklisting "production" would miss
-// staging/preview and other envs that host real data, so allow-list instead.
-var TestFixturesAllowedEnvironments = map[string]bool{
-	"test":        true,
-	"ci":          true,
-	"development": true,
-}
 
 // testFixtureScope is the subset of a delete query that varies per allowlisted
 // "table" (some entries map to a logical scope, e.g. pending shows, rather
@@ -133,10 +128,10 @@ func testFixtureScopeByName(name string) (testFixtureScope, bool) {
 // Callers should also invoke ValidateTestFixturesEnvironment at startup to
 // panic if the flag is combined with a non-allowed ENVIRONMENT.
 func IsTestFixturesEnabled(getenv func(string) string) bool {
-	return getenv(EnableTestFixturesEnvVar) == "1"
+	return testenv.IsFlagEnabled(EnableTestFixturesEnvVar, getenv)
 }
 
-// ValidateTestFixturesEnvironment panics unless the combination of
+// ValidateTestFixturesEnvironment returns an error unless the combination of
 // ENABLE_TEST_FIXTURES and ENVIRONMENT is safe. Rules:
 //   - ENABLE_TEST_FIXTURES=0 (or unset): always safe, returns nil.
 //   - ENABLE_TEST_FIXTURES=1 AND ENVIRONMENT in {test, ci, development}: safe.
@@ -145,21 +140,7 @@ func IsTestFixturesEnabled(getenv func(string) string) bool {
 // Call this from cmd/server/main.go before route setup. A returned error
 // should cause the server to refuse to boot.
 func ValidateTestFixturesEnvironment(getenv func(string) string) error {
-	if !IsTestFixturesEnabled(getenv) {
-		return nil
-	}
-	env := getenv("ENVIRONMENT")
-	if !TestFixturesAllowedEnvironments[env] {
-		allowed := make([]string, 0, len(TestFixturesAllowedEnvironments))
-		for k := range TestFixturesAllowedEnvironments {
-			allowed = append(allowed, k)
-		}
-		return fmt.Errorf(
-			"%s=1 requires ENVIRONMENT to be one of %v (got %q); refusing to boot",
-			EnableTestFixturesEnvVar, allowed, env,
-		)
-	}
-	return nil
+	return testenv.ValidateFlagEnvironment(EnableTestFixturesEnvVar, getenv)
 }
 
 // TestFixtureHandler serves the admin-only, test-env-only reset endpoint.

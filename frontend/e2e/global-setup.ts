@@ -156,6 +156,13 @@ function startBackend(): ChildProcess {
       // ENABLE_TEST_FIXTURES — the server refuses to boot if the flag is
       // set in anything other than test/ci/development.
       DISABLE_AUTH_RATE_LIMITS: '1',
+      // PSY-914: register the faux "google" OAuth provider so
+      // oauth-google.spec.ts can exercise the real login -> callback ->
+      // session flow without a live Google IdP. Same default-deny ENVIRONMENT
+      // guard as the two flags above — the server refuses to boot if this is
+      // set outside {test, ci, development}, so the fake provider can never
+      // reach production.
+      ENABLE_OAUTH_TEST_PROVIDER: '1',
     },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
