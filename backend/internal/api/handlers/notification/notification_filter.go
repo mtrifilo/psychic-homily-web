@@ -119,8 +119,8 @@ type QuickCreateFilterResponse struct {
 
 // GetNotificationsRequest is the request for GET /me/notifications
 type GetNotificationsRequest struct {
-	Limit  int `query:"limit" default:"20" doc:"Number of notifications per page"`
-	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of notifications per page"`
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetNotificationsResponse is the response for GET /me/notifications
