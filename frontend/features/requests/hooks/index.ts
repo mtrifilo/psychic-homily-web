@@ -286,6 +286,48 @@ export function useFulfillRequest() {
   })
 }
 
+/**
+ * Approve a proposed fulfillment (requester or admin) — PSY-891.
+ * Transitions pending_fulfillment → fulfilled. Backend gates to the original
+ * requester or an admin (403 otherwise).
+ */
+export function useApproveFulfillment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ requestId }: { requestId: number }) =>
+      apiRequest<void>(API_ENDPOINTS.REQUESTS.APPROVE_FULFILLMENT(requestId), {
+        method: 'POST',
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.requests.detail(variables.requestId),
+      })
+    },
+  })
+}
+
+/**
+ * Reject a proposed fulfillment (requester or admin) — PSY-891.
+ * Transitions pending_fulfillment → pending (clears fulfiller + proposed
+ * entity), reopening the request. Backend gates to requester or admin.
+ */
+export function useRejectFulfillment() {
+  const queryClient = useQueryClient()
+  return useMutation({
+    mutationFn: ({ requestId }: { requestId: number }) =>
+      apiRequest<void>(API_ENDPOINTS.REQUESTS.REJECT_FULFILLMENT(requestId), {
+        method: 'POST',
+      }),
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.requests.all })
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.requests.detail(variables.requestId),
+      })
+    },
+  })
+}
+
 /** Close a request (admin) */
 export function useCloseRequest() {
   const queryClient = useQueryClient()

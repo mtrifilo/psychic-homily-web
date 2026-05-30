@@ -320,6 +320,10 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/requests/${requestId}/vote`,
     FULFILL: (requestId: string | number) =>
       `${API_BASE_URL}/requests/${requestId}/fulfill`,
+    APPROVE_FULFILLMENT: (requestId: string | number) =>
+      `${API_BASE_URL}/requests/${requestId}/approve-fulfillment`,
+    REJECT_FULFILLMENT: (requestId: string | number) =>
+      `${API_BASE_URL}/requests/${requestId}/reject-fulfillment`,
     CLOSE: (requestId: string | number) =>
       `${API_BASE_URL}/requests/${requestId}/close`,
   },

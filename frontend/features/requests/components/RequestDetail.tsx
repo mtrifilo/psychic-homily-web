@@ -19,6 +19,14 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog'
 import { Breadcrumb, UserAttribution } from '@/components/shared'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
@@ -28,6 +36,8 @@ import {
   useVoteRequest,
   useRemoveVoteRequest,
   useFulfillRequest,
+  useApproveFulfillment,
+  useRejectFulfillment,
   useCloseRequest,
 } from '../hooks'
 import {
@@ -52,9 +62,12 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
   const voteMutation = useVoteRequest()
   const removeVoteMutation = useRemoveVoteRequest()
   const fulfillMutation = useFulfillRequest()
+  const approveMutation = useApproveFulfillment()
+  const rejectMutation = useRejectFulfillment()
   const closeMutation = useCloseRequest()
 
   const [isEditing, setIsEditing] = useState(false)
+  const [isRejectModalOpen, setIsRejectModalOpen] = useState(false)
 
   if (isLoading) {
     return (
@@ -110,7 +123,16 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
   const isAdmin = user?.is_admin === true
   const canEdit = isRequester || isAdmin
   const canDelete = isRequester || isAdmin
-  const canFulfill = isAdmin && request.status !== 'fulfilled'
+  // PSY-748/PSY-891: submitting a fulfillment is open to ANY authenticated
+  // user (it proposes, not finalizes — the requester/admin then approves).
+  // Available only while the request is open for proposals.
+  const canSubmitFulfillment =
+    isAuthenticated &&
+    (request.status === 'pending' || request.status === 'in_progress')
+  // PSY-891: approving/rejecting a proposed fulfillment is gated to the
+  // original requester or an admin, and only when one is pending review.
+  const canReviewFulfillment =
+    request.status === 'pending_fulfillment' && (isRequester || isAdmin)
   const canClose = isAdmin && request.status !== 'cancelled' && request.status !== 'fulfilled'
 
   const userVote = request.user_vote ?? 0
@@ -149,6 +171,17 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
 
   const handleFulfill = () => {
     fulfillMutation.mutate({ requestId: request.id })
+  }
+
+  const handleApprove = () => {
+    approveMutation.mutate({ requestId: request.id })
+  }
+
+  const handleReject = () => {
+    rejectMutation.mutate(
+      { requestId: request.id },
+      { onSuccess: () => setIsRejectModalOpen(false) }
+    )
   }
 
   const handleClose = () => {
@@ -304,6 +337,97 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                       )}
                     </div>
                   )}
+
+                  {/* PSY-891: pending-fulfillment review panel (requester/admin) */}
+                  {canReviewFulfillment && (
+                    <div className="mt-4 rounded-lg border border-primary/60 p-4">
+                      <p className="text-sm font-semibold text-primary">
+                        A fulfillment is awaiting your approval
+                      </p>
+                      {request.fulfiller_name && (
+                        <p className="mt-1 text-sm text-foreground">
+                          <UserAttribution
+                            name={request.fulfiller_name}
+                            username={request.fulfiller_username}
+                            className="text-foreground"
+                          />{' '}
+                          proposed a fulfillment
+                          {request.updated_at &&
+                            ` · ${formatTimeAgo(request.updated_at)}`}
+                        </p>
+                      )}
+                      {/*
+                        PSY-891: no "view proposed entity" link here yet — the
+                        current "Propose a fulfillment" flow doesn't capture a
+                        distinct entity (it submits without fulfilled_entity_id),
+                        so request.requested_entity_id holds the ORIGINAL request
+                        target, not what the fulfiller proposed. A propose-with-
+                        entity-picker flow is the follow-up (see PSY-891 comment).
+                      */}
+                      <div className="mt-3 flex items-center gap-2">
+                        <Button
+                          size="sm"
+                          onClick={handleApprove}
+                          disabled={
+                            approveMutation.isPending || rejectMutation.isPending
+                          }
+                        >
+                          {approveMutation.isPending && (
+                            <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                          )}
+                          Approve fulfillment
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => setIsRejectModalOpen(true)}
+                          disabled={
+                            approveMutation.isPending || rejectMutation.isPending
+                          }
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                      {approveMutation.error && (
+                        <p className="mt-2 text-sm text-destructive">
+                          {approveMutation.error instanceof Error
+                            ? approveMutation.error.message
+                            : 'Failed to approve fulfillment'}
+                        </p>
+                      )}
+                    </div>
+                  )}
+
+                  {/* PSY-891: pending-fulfillment, viewer is NOT requester/admin */}
+                  {request.status === 'pending_fulfillment' &&
+                    !canReviewFulfillment && (
+                      <p className="mt-4 text-sm text-muted-foreground">
+                        A fulfillment has been proposed — awaiting the
+                        requester&apos;s approval.
+                      </p>
+                    )}
+
+                  {/* PSY-748/PSY-891: any authed user can propose a fulfillment */}
+                  {canSubmitFulfillment && (
+                    <div className="mt-4">
+                      <p className="mb-2 text-sm text-muted-foreground">
+                        Found the{' '}
+                        {getEntityTypeLabel(request.entity_type).toLowerCase()} in
+                        the graph? Propose it — the requester reviews and
+                        approves.
+                      </p>
+                      <Button
+                        size="sm"
+                        onClick={handleFulfill}
+                        disabled={fulfillMutation.isPending}
+                      >
+                        {fulfillMutation.isPending && (
+                          <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+                        )}
+                        Propose a fulfillment
+                      </Button>
+                    </div>
+                  )}
                 </div>
               </div>
 
@@ -317,19 +441,6 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                   >
                     <Pencil className="h-4 w-4 mr-1.5" />
                     Edit
-                  </Button>
-                )}
-
-                {canFulfill && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleFulfill}
-                    disabled={fulfillMutation.isPending}
-                    className="text-green-700 hover:text-green-700 dark:text-green-400 dark:hover:text-green-400"
-                  >
-                    <CheckCircle className="h-4 w-4 mr-1.5" />
-                    Fulfill
                   </Button>
                 )}
 
@@ -362,6 +473,46 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
           </div>
         )}
       </header>
+
+      {/* PSY-891: reject-fulfillment confirm modal (no required reason) */}
+      <Dialog open={isRejectModalOpen} onOpenChange={setIsRejectModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Reject this fulfillment?</DialogTitle>
+            <DialogDescription>
+              The request will reopen so anyone can propose a fulfillment, and
+              the contributor will be notified. You can approve a different
+              proposal later.
+            </DialogDescription>
+          </DialogHeader>
+          {rejectMutation.error && (
+            <p className="text-sm text-destructive">
+              {rejectMutation.error instanceof Error
+                ? rejectMutation.error.message
+                : 'Failed to reject fulfillment'}
+            </p>
+          )}
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setIsRejectModalOpen(false)}
+              disabled={rejectMutation.isPending}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={handleReject}
+              disabled={rejectMutation.isPending}
+            >
+              {rejectMutation.isPending && (
+                <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
+              )}
+              Reject fulfillment
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   )
 }

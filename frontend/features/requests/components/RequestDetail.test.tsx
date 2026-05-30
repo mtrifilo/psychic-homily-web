@@ -72,6 +72,8 @@ const mockDeleteMutate = vi.fn()
 const mockVoteMutate = vi.fn()
 const mockRemoveVoteMutate = vi.fn()
 const mockFulfillMutate = vi.fn()
+const mockApproveMutate = vi.fn()
+const mockRejectMutate = vi.fn()
 const mockCloseMutate = vi.fn()
 const mockUpdateMutate = vi.fn()
 
@@ -97,6 +99,16 @@ const mockFulfillMutation = vi.fn<() => MutationStub>(() => ({
   mutate: mockFulfillMutate,
   isPending: false,
 }))
+const mockApproveMutation = vi.fn<() => MutationStub>(() => ({
+  mutate: mockApproveMutate,
+  isPending: false,
+  error: null,
+}))
+const mockRejectMutation = vi.fn<() => MutationStub>(() => ({
+  mutate: mockRejectMutate,
+  isPending: false,
+  error: null,
+}))
 const mockCloseMutation = vi.fn<() => MutationStub>(() => ({
   mutate: mockCloseMutate,
   isPending: false,
@@ -114,6 +126,8 @@ vi.mock('../hooks', () => ({
   useVoteRequest: () => mockVoteMutation(),
   useRemoveVoteRequest: () => mockRemoveVoteMutation(),
   useFulfillRequest: () => mockFulfillMutation(),
+  useApproveFulfillment: () => mockApproveMutation(),
+  useRejectFulfillment: () => mockRejectMutation(),
   useCloseRequest: () => mockCloseMutation(),
 }))
 
@@ -178,6 +192,16 @@ describe('RequestDetail', () => {
     mockFulfillMutation.mockReturnValue({
       mutate: mockFulfillMutate,
       isPending: false,
+    })
+    mockApproveMutation.mockReturnValue({
+      mutate: mockApproveMutate,
+      isPending: false,
+      error: null,
+    })
+    mockRejectMutation.mockReturnValue({
+      mutate: mockRejectMutate,
+      isPending: false,
+      error: null,
     })
     mockCloseMutation.mockReturnValue({
       mutate: mockCloseMutate,
@@ -325,9 +349,12 @@ describe('RequestDetail', () => {
         screen.getByRole('button', { name: /Edit/i })
       ).toBeInTheDocument()
       expect(getDeleteButton()).toBeInTheDocument()
-      // Fulfill/Close are admin-only and must stay hidden for a plain requester.
+      // Close is admin-only and must stay hidden for a plain requester. (Note:
+      // "Propose a fulfillment" DOES show for the requester on an open request
+      // — submit is open to any authed user post-PSY-748 — so we assert on
+      // Close, the genuinely admin-only action, rather than /Fulfill/i.)
       expect(
-        screen.queryByRole('button', { name: /Fulfill/i })
+        screen.queryByRole('button', { name: /Close/i })
       ).not.toBeInTheDocument()
     })
 

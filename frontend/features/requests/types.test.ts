@@ -24,10 +24,11 @@ describe('request type constants', () => {
     ])
   })
 
-  it('exposes the five lifecycle statuses', () => {
+  it('exposes the six lifecycle statuses', () => {
     expect(REQUEST_STATUSES).toEqual([
       'pending',
       'in_progress',
+      'pending_fulfillment',
       'fulfilled',
       'rejected',
       'cancelled',
@@ -60,6 +61,7 @@ describe('getStatusLabel', () => {
   it.each([
     ['pending', 'Pending'],
     ['in_progress', 'In Progress'],
+    ['pending_fulfillment', 'Pending review'],
     ['fulfilled', 'Fulfilled'],
     ['rejected', 'Rejected'],
     ['cancelled', 'Cancelled'],
@@ -90,6 +92,10 @@ describe('getEntityTypeColor', () => {
 describe('getStatusColor', () => {
   it('returns a yellow class for pending', () => {
     expect(getStatusColor('pending')).toContain('yellow')
+  })
+
+  it('returns a primary class for pending_fulfillment', () => {
+    expect(getStatusColor('pending_fulfillment')).toContain('primary')
   })
 
   it('returns a green class for fulfilled', () => {
