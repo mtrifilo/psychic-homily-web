@@ -27,17 +27,19 @@ import { expect } from '@playwright/test'
  *   - radio_networks: 1 (wfmu)
  *   - radio_stations: 6 (kexp, wfmu + 3 wfmu sub-channels, nts-radio)
  *   - radio_shows:   13 (6 KEXP, 4 WFMU, 3 NTS)
- *   - radio_episodes: 0   <-- NOT seeded
- *   - radio_plays:    0   <-- NOT seeded
+ *   - radio_episodes: 1 (the-morning-show, air date 2025-01-15)  [PSY-899]
+ *   - radio_plays:    2 (Calexico "Crystal Frontier" matched +
+ *                        Beach House "Space Song" unmatched)     [PSY-899]
  *
- * Consequence: there is no episode row to click into, no tracklist to
- * assert, and no artist with radio plays to surface an "As Heard On" link.
- * Those two acceptance-criteria cases (episode detail + tracklist; artist
- * "As Heard On" → station) are therefore NOT covered here — exercising them
- * would require seeding episode + play fixtures the pipeline only produces
- * live in prod. The show-detail test instead asserts the page renders its
- * "Recent Episodes" section gracefully with the seeded (empty) episode set.
- * See the PR's scope-deviation note for the recommended seed follow-up.
+ * PSY-899 seeds one KEXP episode + two plays so the deep radio browse chain
+ * is E2E-reachable. The show-detail test below therefore asserts the
+ * populated "Recent Episodes" state (a row linking into the dated episode
+ * route), not an empty state.
+ *
+ * Out of scope here (deliberate — see the PR scope note): the deeper chain
+ * the seed now also enables — episode-detail navigation, tracklist render,
+ * and the artist "As Heard On" → station cross-link — is left to a follow-up
+ * so this spec stays focused on the radio → station → show browse path.
  *
  * Stable seeded slugs used below:
  *   - station "KEXP"             -> /radio/kexp        (network-less, 1-segment URL)
@@ -48,6 +50,9 @@ const KEXP_STATION_NAME = 'KEXP'
 const KEXP_SLUG = 'kexp'
 const KEXP_SHOW_NAME = 'The Morning Show'
 const KEXP_SHOW_SLUG = 'the-morning-show'
+// PSY-899 seeds exactly one episode for the-morning-show, keyed by air date.
+// Episodes are addressed by air date, so this is also the deep-chain route.
+const KEXP_EPISODE_AIR_DATE = '2025-01-15'
 
 test.describe('Radio browse flow', () => {
   test('/radio loads and lists seeded stations', async ({ page }) => {
@@ -136,15 +141,25 @@ test.describe('Radio browse flow', () => {
       main.getByRole('link', { name: KEXP_STATION_NAME }).first()
     ).toBeVisible()
 
-    // "Recent Episodes" section renders. The E2E seed has no episodes, so
-    // this asserts the empty-state path resolves gracefully (the section
-    // heading shows + the "No episodes yet" copy renders) rather than
-    // erroring. The populated-episode + tracklist flow is not seedable here
-    // (see file header + PR scope note).
+    // "Recent Episodes" section renders. PSY-899 seeds one KEXP episode for
+    // this show (air date 2025-01-15), so this asserts the populated path:
+    // the section heading shows + the `RadioEpisodeRow` link into the dated
+    // episode route resolves. The episode list is CLIENT-fetched
+    // (RadioShowDetail.tsx useRadioEpisodes), so the row appears
+    // asynchronously — allow up to 10s. Target the row by its href to the
+    // dated episode route (`/radio/kexp/the-morning-show/2025-01-15`): that
+    // URL is the exact deep-chain link the seed makes reachable and is immune
+    // to date-format / play-count text variation. (The row's accessible name
+    // includes the title "The Morning Show — …", so a name query would be a
+    // weaker assertion that also reads as colliding with the show H1.)
     await expect(
       main.getByRole('heading', { name: /recent episodes/i })
     ).toBeVisible({ timeout: 10_000 })
-    await expect(main.getByText('No episodes yet')).toBeVisible()
+    await expect(
+      main.locator(
+        `a[href="/radio/${KEXP_SLUG}/${KEXP_SHOW_SLUG}/${KEXP_EPISODE_AIR_DATE}"]`
+      )
+    ).toBeVisible({ timeout: 10_000 })
   })
 
   test('station detail breadcrumb returns to the radio hub', async ({
