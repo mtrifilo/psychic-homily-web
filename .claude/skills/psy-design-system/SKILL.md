@@ -108,7 +108,9 @@ const effectStyles = (await figma.getLocalEffectStylesAsync()).map(s => s.name);
 return { pages, collections: collInfo, components, textStyles, effectStyles };
 ```
 
-`get_metadata` without a `nodeId` only lists the FIRST page — don't trust it for full inventory. Use the script above.
+`get_metadata` without a `nodeId` only lists the FIRST page (re-confirmed 2026-05-28: returns only `Cover` even on a 10-page file) — don't trust it for full inventory. Use the script above.
+
+**⚠ Multi-page-loop caveat (added 2026-05-28):** the script above loops `setCurrentPageAsync` over every page (lines `for (const page of figma.root.children) { await figma.setCurrentPageAsync(page); … }`), which the current `figma:figma-use` skill explicitly discourages ("call `setCurrentPageAsync` at most once per `use_figma` invocation; never switch pages inside a loop — fan out in parallel instead"). It still *works* and is fine for a quick one-shot inventory of a small file (the DS file is ~10 pages). To follow the rule on larger files, split it: the `pages` / `collections` / `textStyles` / `effectStyles` parts need **no** page switch and run in one call; for the per-page `components` walk, do a first read-only call that returns `figma.root.children` page IDs, then emit N parallel `use_figma` calls (one per page) that each set the page once via `setCurrentPageAsync` and collect that page's `COMPONENT`/`COMPONENT_SET` nodes (use `findAllWithCriteria({ types: [...] })` — far faster than the `findAll` predicate).
 
 ## Component-build workflow (mirror Button + Badge shape)
 
