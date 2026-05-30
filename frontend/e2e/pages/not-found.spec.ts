@@ -165,4 +165,65 @@ test.describe('Not-found pages — HTTP 404 status', () => {
       ).toBeVisible({ timeout: 10_000 })
     })
   }
+
+  /**
+   * PSY-913 over-404 guard for RESERVED static routes under a proxied prefix.
+   *
+   * `proxy.ts`'s `/shows/:path*` matcher intercepts `/shows/submit` and
+   * `/shows/saved` — both are REAL Next routes (`app/shows/submit/page.tsx`,
+   * `app/shows/saved/page.tsx`), NOT entity slugs. PSY-897's shows phase made
+   * the proxy existence-check `submit`/`saved` as if they were slugs → backend
+   * 404 → rewrote the genuine page to a 404, breaking the full E2E suite on
+   * main (`submit-show.spec.ts`). `RESERVED_SEGMENTS` excludes them. These tests
+   * pin that the proxy lets each real page through. (Distinct from the seeded-
+   * slug guard above: a slug-existence backend call would 404 these; the
+   * exclusion is what saves them.)
+   */
+  test.describe('Reserved static routes under proxied prefixes (PSY-913)', () => {
+    test('/shows/submit is NOT 404-ed by proxy (real route renders, anon → client-redirect to /auth)', async ({
+      page,
+    }) => {
+      // `/shows/submit` is a client component with no server `notFound()`, so the
+      // INITIAL document is HTTP 200 (pre-fix the proxy rewrote it to the
+      // synthetic no-route path → 404). The page then client-redirects anon
+      // visitors to `/auth` (verified: app/shows/submit/page.tsx useEffect
+      // router.push('/auth?returnTo=%2Fshows%2Fsubmit')). Both assertions
+      // together prove the proxy let the real page render+hydrate, not 404.
+      const response = await page.goto('/shows/submit')
+      expect(
+        response?.status(),
+        '/shows/submit must return 200 — proxy.ts must not existence-check this static route (PSY-913)'
+      ).toBe(200)
+
+      // The anon client-redirect only fires if the real page hydrated. A 404
+      // body would never reach this useEffect.
+      await page.waitForURL(/\/auth/, { timeout: 10_000 })
+      await expect(
+        page.getByText('Sign in to your account')
+      ).toBeVisible({ timeout: 5_000 })
+    })
+
+    test('/shows/saved is NOT 404-ed by proxy (server-redirects to /library → anon lands on /auth)', async ({
+      page,
+    }) => {
+      // `/shows/saved` is a server component that unconditionally
+      // `redirect('/library')` (no auth gate — verified app/shows/saved/page.tsx).
+      // `page.goto` follows the server redirect; the final document is the
+      // `/library` 200 (its own client-side anon-redirect to /auth fires after).
+      // Pre-fix the proxy rewrote `/shows/saved` to the synthetic no-route path
+      // → 404, so the redirect chain never ran. The 200 below is the load-bearing
+      // proof the exclusion let the real route through (PSY-913).
+      const response = await page.goto('/shows/saved')
+      expect(
+        response?.status(),
+        '/shows/saved must resolve to 200 (server redirect to /library) — proxy.ts must not existence-check this static route (PSY-913)'
+      ).toBe(200)
+
+      // Settle point: /library is a client component that redirects anon
+      // visitors to /auth (verified app/library/page.tsx LibraryContent). A
+      // 404 body would never reach that redirect, so landing on /auth confirms
+      // the real route rendered.
+      await page.waitForURL(/\/auth/, { timeout: 10_000 })
+    })
+  })
 })
