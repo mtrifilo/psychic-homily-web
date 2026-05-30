@@ -32,8 +32,8 @@ func NewAdminDataHandler(
 
 // ExportShowsRequest represents the HTTP request for exporting shows
 type ExportShowsRequest struct {
-	Limit    int    `query:"limit" default:"50" doc:"Number of shows to return (max 200)"`
-	Offset   int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit    int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of shows to return (max 200)"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	Status   string `query:"status" doc:"Filter by status: approved, pending, rejected, all"`
 	FromDate string `query:"from_date" doc:"Filter shows from this date (YYYY-MM-DD)"`
 	City     string `query:"city" doc:"Filter by city"`

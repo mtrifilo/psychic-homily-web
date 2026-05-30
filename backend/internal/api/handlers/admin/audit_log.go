@@ -24,8 +24,8 @@ func NewAuditLogHandler(auditLogService contracts.AuditLogServiceInterface) *Aud
 
 // GetAuditLogsRequest represents the HTTP request for listing audit logs
 type GetAuditLogsRequest struct {
-	Limit      int    `query:"limit" default:"50" doc:"Number of logs to return (max 100)"`
-	Offset     int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit      int    `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of logs to return (max 100)"`
+	Offset     int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 	EntityType string `query:"entity_type" doc:"Filter by entity type (show, venue, venue_edit, show_report)"`
 	Action     string `query:"action" doc:"Filter by action (approve_show, reject_show, etc.)"`
 }
