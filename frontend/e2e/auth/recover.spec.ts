@@ -109,19 +109,20 @@ test.describe('Account Recovery', () => {
     // Following the recovery link auto-fires confirmation on mount.
     await page.goto(`/auth/recover?token=${token}`)
 
-    // Completion = the recovery established a logged-in session. Assert that
-    // durable signal (the global-nav avatar dropdown, set from auth context on
-    // confirm success) rather than the post-success redirect to "/".
+    // Completion has two durable signals; assert BOTH:
+    //   1. The post-success redirect to "/" actually lands.
+    //   2. A logged-in session was established (the global-nav avatar dropdown,
+    //      set from auth context on confirm success).
     //
-    // We intentionally do NOT assert waitForURL('/'): the recover page's
-    // TokenConfirmation effect lacks the once-per-token guard that the
-    // magic-link page has (attemptedTokenRef), so under React strict mode the
-    // confirm can fire twice — the first restores + logs in, a redundant
-    // second hits the now-active account and flips the page into an
-    // "already active" banner without completing the redirect. The session
-    // (setUser) from the first confirm still persists, so the User-menu marker
-    // is the stable completion signal. Page-side guard tracked as a follow-up
-    // (see PR notes).
+    // PSY-902 added the once-per-token guard (attemptedTokenRef) the recover
+    // page previously lacked. Before that guard, React strict-mode double-invoke
+    // re-fired the confirm: the first call restored + logged in, but a redundant
+    // second hit the now-active account and flipped the page into an "already
+    // active" banner WITHOUT completing the redirect — so this test could only
+    // assert the surviving session, not the redirect. With the guard, the
+    // redirect completes deterministically, so the waitForURL assertion below is
+    // the regression that proves the double-fire is fixed.
+    await page.waitForURL('/', { timeout: 15_000 })
     await expect(
       page.getByRole('button', { name: 'User menu' })
     ).toBeVisible({ timeout: 15_000 })
