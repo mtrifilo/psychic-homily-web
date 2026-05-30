@@ -30,17 +30,18 @@ import { expect } from '@playwright/test'
  *
  * Scope (verified against frontend/proxy.ts on this branch's base)
  * ---------------------------------------------------------------
- * `ENTITY_CHECKS` maps exactly SEVEN types — shows, venues, artists, releases,
- * labels, festivals, tags — each `config.matcher`-intercepted. Six fetch the
- * backend `/<type>/<slug>`; tags is the lone exception, fetching the enriched
- * `/tags/<slug>/detail`, so the invalid-tag case exercises that distinct path.
- * All seven are covered below.
+ * `ENTITY_CHECKS` maps exactly EIGHT types — shows, venues, artists, releases,
+ * labels, festivals, tags, scenes — each `config.matcher`-intercepted. Seven
+ * fetch the backend `/<type>/<slug>`; tags is the lone exception, fetching the
+ * enriched `/tags/<slug>/detail`, so the invalid-tag case exercises that
+ * distinct path. `scenes` (PSY-906) is a derived city/state aggregation whose
+ * `/scenes/<slug>` backend call 404s for an unresolvable or below-threshold
+ * slug. All eight are covered below.
  *
  * Intentionally EXCLUDED (still soft-404 / 200 — asserting 404 would FAIL):
  *   - collections (auth-gated soft-404)
  *   - blog, dj-sets (local MDX soft-404)
- *   - scenes (renders a fabricated page — separate bug PSY-906)
- * These are PSY-897 Phase 3 / PSY-906 and get coverage when their fixes land.
+ * These get coverage when their fixes land.
  *
  * The `error-detection` fixture (no auth — these are public, read-only routes)
  * auto-fails on console.error / failed browser request / 5xx. A clean 404 page
@@ -61,10 +62,11 @@ import { expect } from '@playwright/test'
 const NONCE = `psy721-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`
 
 /**
- * The seven entity types `proxy.ts` existence-checks. An invalid slug on each
+ * The eight entity types `proxy.ts` existence-checks. An invalid slug on each
  * must yield a TRUE HTTP 404 (backend 404 -> proxy rewrite -> no-route 404).
  * `tags` is listed because it alone takes the `/tags/<slug>/detail` backend
- * path — covering it guards that branch specifically.
+ * path — covering it guards that branch specifically. `scenes` (PSY-906) is a
+ * derived aggregation; an unresolvable slug 404s at `/scenes/<slug>`.
  */
 const PROXY_FIXED_ENTITIES = [
   'shows',
@@ -74,6 +76,7 @@ const PROXY_FIXED_ENTITIES = [
   'labels',
   'festivals',
   'tags',
+  'scenes',
 ] as const
 
 /**
@@ -86,6 +89,11 @@ const PROXY_FIXED_ENTITIES = [
 const VALID_SEEDED = [
   { label: 'show', path: '/shows/e2e-attendance-test' },
   { label: 'venue', path: '/venues/e2e-favorite-venue-test' },
+  // Phoenix, AZ qualifies as a scene: setup-db.sh seeds 3 verified Phoenix
+  // venues (Rebel Lounge / Crescent Ballroom / Valley Bar) — above the ≥2
+  // verified-venue threshold — plus approved Phoenix shows. The slug is derived
+  // (city+state), so no single row a parallel worker could delete gates it.
+  { label: 'scene', path: '/scenes/phoenix-az' },
 ] as const
 
 test.describe('Not-found pages — HTTP 404 status', () => {

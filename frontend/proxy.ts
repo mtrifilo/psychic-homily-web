@@ -31,9 +31,12 @@ import { API_BASE_URL } from '@/lib/api-base'
  *
  * Scope: Phase 1 proved the approach on SHOWS. Phase 2 extends it to the five
  * uniform-shape entities (venues, artists, releases, labels, festivals) plus
- * `tags`. Adding an entity is a single `ENTITY_CHECKS` entry + a single
- * `config.matcher` source. Collections (auth-gated), blog/dj-sets (local MDX),
- * and scenes (separate soft-404) are Phase 3 and have distinct semantics.
+ * `tags`. Phase 3 adds `scenes` (PSY-906) — a derived city/state aggregation,
+ * not a stored entity, whose `GET /scenes/<slug>` already 404s for an
+ * unresolvable slug or a location below the scene threshold. Adding an entity
+ * is a single `ENTITY_CHECKS` entry + a single `config.matcher` source.
+ * Collections (auth-gated) and blog/dj-sets (local MDX) remain out of scope and
+ * have distinct semantics.
  *
  * How the 404 is produced
  * ------------------------
@@ -70,9 +73,12 @@ const NOT_FOUND_REWRITE_PATH = '/_psy-not-found'
  *
  * Every type uses the uniform `/<type>/<slug>` backend shape EXCEPT `tags`,
  * whose page fetches the enriched `/tags/<slug>/detail` endpoint (the shape its
- * `useTagDetail` hook consumes) — see `app/tags/[slug]/page.tsx`. Collections
- * (auth-gated), blog/dj-sets (local MDX, no backend existence endpoint), and
- * scenes (separate soft-404) are deliberately absent — they are Phase 3.
+ * `useTagDetail` hook consumes) — see `app/tags/[slug]/page.tsx`. `scenes` is
+ * also uniform: `GET /scenes/<slug>` is the same backend call the scene page's
+ * `getScene` fetch makes, and it already 404s for an unresolvable slug or a
+ * below-threshold location (≥2 verified venues). Collections (auth-gated) and
+ * blog/dj-sets (local MDX, no backend existence endpoint) are deliberately
+ * absent — they have distinct semantics.
  */
 const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
   shows: (slug) => `${API_BASE_URL}/shows/${encodeURIComponent(slug)}`,
@@ -84,6 +90,10 @@ const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
   // NOTE: tags is the lone non-uniform endpoint — `/tags/<slug>/detail`, not
   // `/tags/<slug>`. Matches the tag page's getTagDetail fetch.
   tags: (slug) => `${API_BASE_URL}/tags/${encodeURIComponent(slug)}/detail`,
+  // scenes are derived city/state aggregations; the backend resolves the slug
+  // against verified venues and 404s when it doesn't qualify (PSY-906). Matches
+  // the scene page's getScene fetch.
+  scenes: (slug) => `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}`,
 }
 
 /**
@@ -176,9 +186,9 @@ export const config = {
   /**
    * Intercept ONLY the enumerated entity prefixes (`/shows/...`, `/venues/...`,
    * `/artists/...`, `/releases/...`, `/labels/...`, `/festivals/...`,
-   * `/tags/...`). Each prefix scopes its match away from everything else — the
-   * homepage, non-Phase-2 routes (`/collections/...`, `/blog/...`,
-   * `/dj-sets/...`, `/scenes/...`), `api`, `_next/static`, `_next/image`,
+   * `/tags/...`, `/scenes/...`). Each prefix scopes its match away from
+   * everything else — the homepage, out-of-scope routes (`/collections/...`,
+   * `/blog/...`, `/dj-sets/...`), `api`, `_next/static`, `_next/image`,
    * metadata files, and the `/_psy-not-found` rewrite target — so none of those
    * can be blocked or re-intercepted. (A root-level matcher would need a
    * negative-lookahead to exclude `api`/`_next`/metadata; enumerating exact
@@ -240,6 +250,13 @@ export const config = {
     },
     {
       source: '/tags/:path*',
+      missing: [
+        { type: 'header', key: 'next-router-prefetch' },
+        { type: 'header', key: 'purpose', value: 'prefetch' },
+      ],
+    },
+    {
+      source: '/scenes/:path*',
       missing: [
         { type: 'header', key: 'next-router-prefetch' },
         { type: 'header', key: 'purpose', value: 'prefetch' },
