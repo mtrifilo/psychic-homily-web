@@ -36,6 +36,7 @@ type ServiceContainer struct {
 	AuditLog               *adminsvc.AuditLogService
 	FeaturedSlot           *adminsvc.FeaturedSlotService
 	Explore                *exploresvc.ExploreService
+	EntityExistence        *catalog.EntityExistenceService
 	Bookmark               *engagement.BookmarkService
 	Calendar               *engagement.CalendarService
 	Collection             *community.CollectionService
@@ -177,6 +178,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		AuditLog:               adminsvc.NewAuditLogService(database),
 		FeaturedSlot:           featuredSlotSvc,
 		Explore:                exploreService,
+		EntityExistence:        catalog.NewEntityExistenceService(database),
 		Bookmark:               engagement.NewBookmarkService(database),
 		Calendar:               engagement.NewCalendarService(database, savedShow),
 		Collection:             collectionSvc,

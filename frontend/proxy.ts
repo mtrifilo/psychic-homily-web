@@ -61,39 +61,36 @@ import { API_BASE_URL } from '@/lib/api-base'
 const NOT_FOUND_REWRITE_PATH = '/_psy-not-found'
 
 /**
- * Per-entity existence check. The function returns the backend URL whose
- * non-2xx response means "slug does not exist". Each entry reuses the SAME
- * backend GET the corresponding `app/<type>/[slug]/page.tsx` already calls in
- * its server-side `cache()`'d fetch, so the proxy's notion of existence matches
- * the page's exactly (each of these pages calls `notFound()` when that fetch
- * misses — verified per type). The spike flagged that a backend HEAD /
- * `/exists` endpoint would be cheaper than a full GET; using the existing GET
- * is acceptable for now (latency noted as a follow-up). Adding an entity is one
- * entry here plus one `config.matcher` source.
+ * Per-entity existence check. The function returns the backend HEAD probe URL
+ * whose 404 response means "slug does not exist". The probe uses direct backend
+ * existence queries instead of duplicating each page's full `GET /<type>/<slug>`
+ * fetch and its response hydration. Adding an entity is one entry here plus one
+ * `config.matcher` source.
  *
- * Every type uses the uniform `/<type>/<slug>` backend shape EXCEPT `tags`,
- * whose page fetches the enriched `/tags/<slug>/detail` endpoint (the shape its
- * `useTagDetail` hook consumes) — see `app/tags/[slug]/page.tsx`. `scenes` is
- * also uniform: `GET /scenes/<slug>` is the same backend call the scene page's
- * `getScene` fetch makes, and it already 404s for an unresolvable slug or a
- * below-threshold location (≥2 verified venues). Collections (auth-gated) and
+ * The backend probe centralizes the historical non-uniform cases: tags still
+ * resolve by tag ID/slug without loading `/tags/<slug>/detail`, and scenes still
+ * resolve derived city/state slugs against the same qualifying venue threshold
+ * without loading the full computed scene detail. Collections (auth-gated) and
  * blog/dj-sets (local MDX, no backend existence endpoint) are deliberately
  * absent — they have distinct semantics.
  */
 const ENTITY_CHECKS: Record<string, (slug: string) => string> = {
-  shows: (slug) => `${API_BASE_URL}/shows/${encodeURIComponent(slug)}`,
-  venues: (slug) => `${API_BASE_URL}/venues/${encodeURIComponent(slug)}`,
-  artists: (slug) => `${API_BASE_URL}/artists/${encodeURIComponent(slug)}`,
-  releases: (slug) => `${API_BASE_URL}/releases/${encodeURIComponent(slug)}`,
-  labels: (slug) => `${API_BASE_URL}/labels/${encodeURIComponent(slug)}`,
-  festivals: (slug) => `${API_BASE_URL}/festivals/${encodeURIComponent(slug)}`,
-  // NOTE: tags is the lone non-uniform endpoint — `/tags/<slug>/detail`, not
-  // `/tags/<slug>`. Matches the tag page's getTagDetail fetch.
-  tags: (slug) => `${API_BASE_URL}/tags/${encodeURIComponent(slug)}/detail`,
-  // scenes are derived city/state aggregations; the backend resolves the slug
-  // against verified venues and 404s when it doesn't qualify (PSY-906). Matches
-  // the scene page's getScene fetch.
-  scenes: (slug) => `${API_BASE_URL}/scenes/${encodeURIComponent(slug)}`,
+  shows: slug =>
+    `${API_BASE_URL}/entities/shows/${encodeURIComponent(slug)}/exists`,
+  venues: slug =>
+    `${API_BASE_URL}/entities/venues/${encodeURIComponent(slug)}/exists`,
+  artists: slug =>
+    `${API_BASE_URL}/entities/artists/${encodeURIComponent(slug)}/exists`,
+  releases: slug =>
+    `${API_BASE_URL}/entities/releases/${encodeURIComponent(slug)}/exists`,
+  labels: slug =>
+    `${API_BASE_URL}/entities/labels/${encodeURIComponent(slug)}/exists`,
+  festivals: slug =>
+    `${API_BASE_URL}/entities/festivals/${encodeURIComponent(slug)}/exists`,
+  tags: slug =>
+    `${API_BASE_URL}/entities/tags/${encodeURIComponent(slug)}/exists`,
+  scenes: slug =>
+    `${API_BASE_URL}/entities/scenes/${encodeURIComponent(slug)}/exists`,
 }
 
 /**
@@ -152,10 +149,11 @@ export async function proxy(request: NextRequest): Promise<NextResponse> {
 
   try {
     const res = await fetch(buildCheckUrl(slug), {
+      method: 'HEAD',
       // `next: { revalidate }` has NO effect inside proxy (per Next docs), so
       // we don't set it. `redirect: 'manual'` keeps the check cheap and avoids
-      // following any backend redirect chain. A 2xx/3xx means the slug
-      // resolves; only a hard non-ok (4xx/5xx) is treated as "missing".
+      // following any backend redirect chain. A 2xx means the slug resolves;
+      // only a backend 404 is treated as "missing".
       redirect: 'manual',
     })
 
