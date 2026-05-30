@@ -874,7 +874,7 @@ func (h *CollectionHandler) GetUserCollectionsContainingHandler(ctx context.Cont
 type GetEntityCollectionsHandlerRequest struct {
 	EntityType string `path:"entity_type" doc:"Entity type (artist, release, label, show, venue, festival)" example:"artist"`
 	EntityID   string `path:"entity_id" doc:"Entity ID" example:"42"`
-	Limit      int    `query:"limit" required:"false" doc:"Max results (default 10)" example:"10"`
+	Limit      int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 10)" example:"10"`
 }
 
 // GetEntityCollectionsHandlerResponse represents the response for entity collections
@@ -930,8 +930,8 @@ func (h *CollectionHandler) GetEntityCollectionsHandler(ctx context.Context, req
 // GetUserPublicCollectionsHandlerRequest represents the request for getting a user's public collections
 type GetUserPublicCollectionsHandlerRequest struct {
 	Username string `path:"username" doc:"Username" example:"johndoe"`
-	Limit    int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
-	Offset   int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	Limit    int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20)" example:"20"`
+	Offset   int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
 
 // GetUserPublicCollectionsHandlerResponse represents the response for user public collections

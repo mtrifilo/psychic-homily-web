@@ -175,8 +175,8 @@ func (h *ShowReportHandler) GetMyReportHandler(ctx context.Context, req *GetMyRe
 
 // GetPendingReportsRequest represents the HTTP request for listing pending reports
 type GetPendingReportsRequest struct {
-	Limit  int `query:"limit" default:"50" doc:"Number of reports to return (max 100)"`
-	Offset int `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int `query:"limit" default:"50" minimum:"1" maximum:"100" doc:"Number of reports to return (max 100)"`
+	Offset int `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetPendingReportsResponse represents the HTTP response for listing pending reports

@@ -102,8 +102,8 @@ type ListRequestsHandlerRequest struct {
 	Status     string `query:"status" required:"false" doc:"Filter by status (pending, in_progress, pending_fulfillment, fulfilled, rejected, cancelled)"`
 	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, release, label, show, venue, festival)"`
 	Sort       string `query:"sort" required:"false" doc:"Sort by: newest, votes, oldest (default: votes)" example:"votes"`
-	Limit      int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
-	Offset     int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	Limit      int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20)" example:"20"`
+	Offset     int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
 
 // ListRequestsHandlerResponse represents the response for listing requests

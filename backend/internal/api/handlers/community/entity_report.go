@@ -144,8 +144,8 @@ func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType strin
 type AdminListEntityReportsRequest struct {
 	Status     string `query:"status" required:"false" doc:"Filter by status (pending, resolved, dismissed)"`
 	EntityType string `query:"entity_type" required:"false" doc:"Filter by entity type (artist, venue, festival, show)"`
-	Limit      int    `query:"limit" required:"false" doc:"Max results (default 20, max 100)"`
-	Offset     int    `query:"offset" required:"false" doc:"Offset for pagination"`
+	Limit      int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20, max 100)"`
+	Offset     int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
 // AdminListEntityReportsResponse is the Huma response for GET /admin/entity-reports
