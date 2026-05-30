@@ -62,6 +62,16 @@ func main() {
 		log.Fatalf("PSY-475 auth-rate-limit misconfiguration: %v", err)
 	}
 
+	// PSY-914: keystone guard for the faux OAuth "google" provider. Refuses
+	// to boot if ENABLE_OAUTH_TEST_PROVIDER=1 outside {test, ci, development}.
+	// Without this, the fake provider (which mints a session as a fixed email)
+	// could be a critical auth bypass in production. SetupGoth also re-checks,
+	// but the registration only matters if the process starts — this is the
+	// real safety net.
+	if err := auth.ValidateOAuthTestProviderEnvironment(os.Getenv); err != nil {
+		log.Fatalf("PSY-914 oauth-test-provider misconfiguration: %v", err)
+	}
+
 	// Initialize structured logger
 	// Use JSON format in production, text format with debug in development
 	isProduction := environment == config.EnvProduction

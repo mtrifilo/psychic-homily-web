@@ -3,6 +3,7 @@ package auth
 import (
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/gorilla/sessions"
 	"github.com/markbates/goth"
@@ -66,6 +67,22 @@ func SetupGoth(cfg *config.Config) error {
 		)
 		providers = append(providers, githubProvider)
 		log.Printf("DEBUG: GitHub provider configured with callback URL: %s", cfg.OAuth.GitHubCallbackURL)
+	}
+
+	// PSY-914: E2E-only faux "google" provider. Double-gated for safety:
+	// the flag must be set AND ValidateOAuthTestProviderEnvironment must pass
+	// (ENVIRONMENT in {test,ci,development}). Re-validating here — not just
+	// checking the flag — means the faux provider can never register in
+	// production even if a future caller skips the main.go boot guard. When
+	// registered, it appends as "google" and (because UseProviders keys on
+	// Name() and "last wins") shadows any real google.New provider; in E2E
+	// there is no GOOGLE_CLIENT_ID so the real one never gets added anyway.
+	if IsOAuthTestProviderEnabled(os.Getenv) {
+		if err := ValidateOAuthTestProviderEnvironment(os.Getenv); err != nil {
+			return err
+		}
+		providers = append(providers, newTestProvider())
+		log.Printf("DEBUG: PSY-914 faux OAuth test provider registered as %q (ENABLE_OAUTH_TEST_PROVIDER=1)", TestProviderName)
 	}
 
 	// Register providers with Goth

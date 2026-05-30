@@ -494,12 +494,24 @@ INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_ad
 VALUES ('e2e-recovery@test.local', '${BCRYPT_HASH}', 'Test', 'Recovery', false, false, true, NOW(), 'e2e recovery fixture', NOW(), NOW())
 ON CONFLICT (email) DO NOTHING;
 
--- Create user_preferences for all seeded test users (regular worker users + admin + unverified + recovery)
+-- OAuth login fixture (PSY-914). The faux "google" provider
+-- (ENABLE_OAUTH_TEST_PROVIDER=1, backend/internal/auth/oauth_test_provider.go)
+-- always returns email e2e-oauth@test.local. Pre-seeding that user means the
+-- first faux login resolves to an EXISTING user (linkOAuthAccount = a login),
+-- NOT a new signup — so oauth-google.spec.ts never hits the terms/consent flow.
+-- Dedicated user (not a worker login) so linking an oauth_accounts row to it
+-- can't disturb the parallel worker auth state. No password login is expected
+-- (OAuth only); the shared hash is set just for parity with the other fixtures.
+INSERT INTO users (email, password_hash, first_name, last_name, is_active, is_admin, email_verified, user_tier, created_at, updated_at)
+VALUES ('e2e-oauth@test.local', '${BCRYPT_HASH}', 'Test', 'OAuth', true, false, true, 'contributor', NOW(), NOW())
+ON CONFLICT (email) DO NOTHING;
+
+-- Create user_preferences for all seeded test users (regular worker users + admin + unverified + recovery + oauth)
 INSERT INTO user_preferences (user_id, notification_email, notification_push, show_reminders, theme, timezone, language, created_at, updated_at)
 SELECT id, true, false, false, 'system', 'America/Phoenix', 'en', NOW(), NOW()
 FROM users
 WHERE email LIKE 'e2e-user%@test.local'
-   OR email IN ('e2e-admin@test.local', 'e2e-unverified@test.local', 'e2e-recovery@test.local')
+   OR email IN ('e2e-admin@test.local', 'e2e-unverified@test.local', 'e2e-recovery@test.local', 'e2e-oauth@test.local')
 ON CONFLICT (user_id) DO NOTHING;
 SQL
 
