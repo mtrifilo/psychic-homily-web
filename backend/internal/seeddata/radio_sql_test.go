@@ -66,8 +66,15 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 	// PSY-899: at least one play must be unmatched (artist_id NULL) so the
 	// generator covers the common source-metadata-only case. The matched
 	// play's artist_id is a subquery, so a bare ", NULL, " in the plays
-	// VALUES list is the unmatched signal.
-	playsSection := sql[strings.Index(sql, "INSERT INTO radio_plays"):]
+	// VALUES list is the unmatched signal. Guard the marker lookup so a
+	// missing plays INSERT fails cleanly here instead of panicking on a
+	// negative slice index (the mustContain loop above uses Errorf, not
+	// Fatalf, so execution reaches this point even when the marker is gone).
+	playsStart := strings.Index(sql, "INSERT INTO radio_plays")
+	if playsStart < 0 {
+		t.Fatalf("plays INSERT not found in generated SQL")
+	}
+	playsSection := sql[playsStart:]
 	if !strings.Contains(playsSection, "'Beach House', 'Space Song', NULL,") {
 		t.Errorf("expected an unmatched play (artist_id NULL) in the plays VALUES list")
 	}
