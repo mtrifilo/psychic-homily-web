@@ -122,6 +122,18 @@ Invoke `Skill` with `skill: "code-review"`. The code-review skill spawns 3 paral
 
 If `/code-review` produced code changes, re-run the relevant test commands from phase 4.
 
+### Phase 5.5: /adversarial-review (gate — required before PR)
+
+Invoke `Skill` with `skill: "adversarial-review"`. It spawns a fresh panel of sub-agents (Saboteur / Future-Maintainer / Security / Completeness) with NONE of this session's context — they see only the branch diff + a one-line intent and attack it. This is distinct from `/code-review`: `/code-review` polishes; `/adversarial-review` tries to break the polished result and asks "what did we miss?".
+
+- **Order matters:** run this AFTER `/code-review` (phase 5) and BEFORE `/psy-self-review` (phase 7.6). The chain is `/code-review` → `/adversarial-review` → (separate commit) → `/psy-self-review` → push.
+- **Fixes go in their own commit** (`PSY-{N}: adversarial-review fixes`), separate from the implementation, so the pass is auditable in history.
+- **Re-run if the diff changes** after the marker is written — the pass-marker is per-branch (existence check), so its honesty depends on you re-running when you push something different from what the panel saw.
+- **Put the findings + fixes in the PR body** under a `## Adversarial review` section (the skill emits a ready-to-paste block). This is a standing requirement — reviewers audit the adversarial pass from the PR alone.
+- **Enforcement:** the `PreToolUse(Bash)` hook blocks `gh pr create` in any repo until the marker exists for repo+branch. Genuine docs/config-only bypass: `ADVERSARIAL_REVIEW_SKIP=1 gh pr create …`.
+
+If `/adversarial-review` produced code changes, re-run the relevant test commands from phase 4 before proceeding.
+
 ### Phase 6: Screenshots (UI tickets only)
 
 Skip this phase entirely for backend-only / docs-only / config-only tickets — note `"no UI surface, screenshots skipped"` in the test plan.
