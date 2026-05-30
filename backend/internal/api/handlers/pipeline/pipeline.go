@@ -310,7 +310,7 @@ func (h *PipelineHandler) UpdateVenueConfigHandler(ctx context.Context, req *Upd
 // GetVenueRunsRequest is the Huma request for GET /admin/pipeline/venues/{venue_id}/runs
 type GetVenueRunsRequest struct {
 	VenueID string `path:"venue_id" validate:"required" doc:"Venue ID"`
-	Limit   int    `query:"limit" doc:"Max runs to return (default 10, max 100)"`
+	Limit   int    `query:"limit" minimum:"1" maximum:"100" doc:"Max runs to return (default 10, max 100)"`
 }
 
 // GetVenueRunsResponse is the Huma response for GET /admin/pipeline/venues/{venue_id}/runs
@@ -352,8 +352,8 @@ func (h *PipelineHandler) GetVenueRunsHandler(ctx context.Context, req *GetVenue
 
 // GetImportHistoryRequest is the Huma request for GET /admin/pipeline/imports
 type GetImportHistoryRequest struct {
-	Limit  int `query:"limit" doc:"Max entries to return (default 20, max 100)"`
-	Offset int `query:"offset" doc:"Number of entries to skip for pagination"`
+	Limit  int `query:"limit" minimum:"1" maximum:"100" doc:"Max entries to return (default 20, max 100)"`
+	Offset int `query:"offset" minimum:"0" doc:"Number of entries to skip for pagination"`
 }
 
 // GetImportHistoryResponse is the Huma response for GET /admin/pipeline/imports

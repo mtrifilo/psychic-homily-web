@@ -44,8 +44,8 @@ func NewStreamingWorklistHandler(
 // rows are excluded by definition).
 type GetStreamingWorklistRequest struct {
 	Status string `query:"status" doc:"Optional non-terminal status filter: 'unreviewed' or 'candidates_pending'. Empty means both."`
-	Limit  int    `query:"limit" default:"50" doc:"Number of artists to return (1–200; default 50)"`
-	Offset int    `query:"offset" default:"0" doc:"Pagination offset"`
+	Limit  int    `query:"limit" default:"50" minimum:"1" maximum:"200" doc:"Number of artists to return (1–200; default 50)"`
+	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Pagination offset"`
 }
 
 // GetStreamingWorklistResponse wraps the service result for OpenAPI.
