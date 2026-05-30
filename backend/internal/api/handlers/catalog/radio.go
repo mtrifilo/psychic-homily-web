@@ -275,8 +275,8 @@ func (h *RadioHandler) GetRadioShowHandler(ctx context.Context, req *GetRadioSho
 // GetRadioShowEpisodesRequest represents the request for listing episodes of a show.
 type GetRadioShowEpisodesRequest struct {
 	Slug   string `path:"slug" doc:"Radio show slug or numeric ID" example:"morning-show"`
-	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
-	Offset int    `query:"offset" required:"false" doc:"Offset for pagination" example:"0"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20)" example:"20"`
+	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
 }
 
 // GetRadioShowEpisodesResponse represents the response for listing episodes.
@@ -361,7 +361,7 @@ func (h *RadioHandler) GetRadioEpisodeByDateHandler(ctx context.Context, req *Ge
 type GetRadioShowTopArtistsRequest struct {
 	Slug   string `path:"slug" doc:"Radio show slug or numeric ID" example:"morning-show"`
 	Period int    `query:"period" required:"false" doc:"Period in days (default 90)" example:"90"`
-	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20)" example:"20"`
 }
 
 // GetRadioShowTopArtistsResponse represents the response for top artists.
@@ -409,7 +409,7 @@ func (h *RadioHandler) GetRadioShowTopArtistsHandler(ctx context.Context, req *G
 type GetRadioShowTopLabelsRequest struct {
 	Slug   string `path:"slug" doc:"Radio show slug or numeric ID" example:"morning-show"`
 	Period int    `query:"period" required:"false" doc:"Period in days (default 90)" example:"90"`
-	Limit  int    `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20)" example:"20"`
 }
 
 // GetRadioShowTopLabelsResponse represents the response for top labels.
@@ -530,7 +530,7 @@ func (h *RadioHandler) GetReleaseRadioPlaysHandler(ctx context.Context, req *Get
 // GetRadioNewReleaseRadarRequest represents the request for new release radar.
 type GetRadioNewReleaseRadarRequest struct {
 	StationID uint `query:"station_id" required:"false" doc:"Filter by station ID (0 for all)" example:"1"`
-	Limit     int  `query:"limit" required:"false" doc:"Max results (default 20)" example:"20"`
+	Limit     int  `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Max results (default 20)" example:"20"`
 }
 
 // GetRadioNewReleaseRadarResponse represents the response for new release radar.

@@ -28,7 +28,7 @@ func NewChartsHandler(
 
 // GetTrendingShowsRequest is the Huma request for GET /charts/trending-shows
 type GetTrendingShowsRequest struct {
-	Limit int `query:"limit" required:"false" doc:"Number of results (default 20, max 50)"`
+	Limit int `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
 }
 
 // TrendingShowResponse is a single trending show in the response.
@@ -87,7 +87,7 @@ func (h *ChartsHandler) GetTrendingShowsHandler(ctx context.Context, req *GetTre
 
 // GetPopularArtistsRequest is the Huma request for GET /charts/popular-artists
 type GetPopularArtistsRequest struct {
-	Limit int `query:"limit" required:"false" doc:"Number of results (default 20, max 50)"`
+	Limit int `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
 }
 
 // PopularArtistResponse is a single popular artist in the response.
@@ -138,7 +138,7 @@ func (h *ChartsHandler) GetPopularArtistsHandler(ctx context.Context, req *GetPo
 
 // GetActiveVenuesRequest is the Huma request for GET /charts/active-venues
 type GetActiveVenuesRequest struct {
-	Limit int `query:"limit" required:"false" doc:"Number of results (default 20, max 50)"`
+	Limit int `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
 }
 
 // ActiveVenueResponse is a single active venue in the response.
@@ -191,7 +191,7 @@ func (h *ChartsHandler) GetActiveVenuesHandler(ctx context.Context, req *GetActi
 
 // GetHotReleasesRequest is the Huma request for GET /charts/hot-releases
 type GetHotReleasesRequest struct {
-	Limit int `query:"limit" required:"false" doc:"Number of results (default 20, max 50)"`
+	Limit int `query:"limit" required:"false" minimum:"1" maximum:"50" doc:"Number of results (default 20, max 50)"`
 }
 
 // HotReleaseResponse is a single hot release in the response.
