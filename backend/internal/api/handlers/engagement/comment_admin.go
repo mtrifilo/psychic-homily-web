@@ -141,8 +141,8 @@ func (h *CommentAdminHandler) AdminRestoreCommentHandler(ctx context.Context, re
 
 // AdminListPendingCommentsRequest represents the request for listing pending comments.
 type AdminListPendingCommentsRequest struct {
-	Limit  int `query:"limit" required:"false" doc:"Page size (default 20, max 100)" example:"20"`
-	Offset int `query:"offset" required:"false" doc:"Pagination offset" example:"0"`
+	Limit  int `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Page size (default 20, max 100)" example:"20"`
+	Offset int `query:"offset" required:"false" minimum:"0" doc:"Pagination offset" example:"0"`
 }
 
 // AdminListPendingCommentsResponse represents the response for listing pending comments.

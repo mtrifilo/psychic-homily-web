@@ -105,8 +105,8 @@ type ListCommentsRequest struct {
 	EntityType string `path:"entity_type" doc:"Entity type (artist, venue, show, release, label, festival, collection)" example:"show"`
 	EntityID   string `path:"entity_id" doc:"Entity ID" example:"1"`
 	Sort       string `query:"sort" required:"false" doc:"Sort order: best, new, top, controversial (default: best)" example:"best"`
-	Limit      int    `query:"limit" required:"false" doc:"Page size (default 25, max 100)" example:"25"`
-	Offset     int    `query:"offset" required:"false" doc:"Pagination offset" example:"0"`
+	Limit      int    `query:"limit" required:"false" minimum:"1" maximum:"100" doc:"Page size (default 25, max 100)" example:"25"`
+	Offset     int    `query:"offset" required:"false" minimum:"0" doc:"Pagination offset" example:"0"`
 }
 
 // ListCommentsResponse represents the response for listing comments.

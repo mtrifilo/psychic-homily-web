@@ -95,8 +95,8 @@ type BatchAttendanceResponse struct {
 // GetMyShowsRequest is the request for GET /attendance/my-shows
 type GetMyShowsRequest struct {
 	Status string `query:"status" default:"all" doc:"Filter: going, interested, or all"`
-	Limit  int    `query:"limit" default:"20" doc:"Number of shows per page"`
-	Offset int    `query:"offset" default:"0" doc:"Offset for pagination"`
+	Limit  int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of shows per page"`
+	Offset int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
 }
 
 // GetMyShowsResponse is the response for GET /attendance/my-shows
