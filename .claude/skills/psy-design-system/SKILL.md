@@ -236,6 +236,12 @@ Then update the brief inline as part of each impl PR — don't ship a docs-only 
 
 ## Gotchas (read all before building)
 
+### G0. Figma DESKTOP crashes on MCP-call bursts (HIGH — caught PSY-891, 2026-05-29)
+
+The Figma MCP routes through the desktop app's plugin host. Firing **many MCP calls in quick succession — especially multiple `use_figma` mutations and/or `get_screenshot` calls in a single parallel message — crashes the desktop app**, dropping the MCP write path while `whoami` keeps working (misleading "still up" signal). Signatures: `use_figma` → `MCP error -32602: Tool use_figma not found` (recurs), `get_screenshot` URLs 404, `-32601` on resource reads.
+
+**Prevention (this is the fix):** ONE mutating `use_figma` per message, strictly sequential (already the figma-use rule — but easy to violate when building fast). Minimize `get_screenshot` — verify in batches, not after every micro-edit. Never fan out Figma tool calls in one assistant message. **On 3 consecutive `-32602`s, STOP** — the path is down; ask the user to reconnect (`/mcp` + re-open desktop on the file), confirm with `whoami`, re-read the last node to confirm the write landed (atomic — may have been dropped), then resume. Full recovery decision tree: `figma-reference` SKILL → "Recovery patterns".
+
 ### G1. Bound-paint cache mismatch (HIGH — has bitten this project twice)
 
 `figma.variables.setBoundVariableForPaint(placeholder, 'color', variable)` does **NOT** refresh the paint's cached `color` field when the paint was already bound to the same variable (common after `clone()`-then-rebind). Figma renders the cached `color`, NOT the bound variable's resolved value.

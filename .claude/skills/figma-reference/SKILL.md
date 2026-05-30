@@ -133,6 +133,11 @@ Download via `curl -o /tmp/<name>.png "<url>"` then `Read` the PNG to verify vis
 
 ## Recovery patterns
 
+**Figma DESKTOP APP CRASHES during MCP interaction (HIGH — caught PSY-891, 2026-05-29).** The Figma MCP routes through the desktop app's plugin host. A **burst of MCP calls — reads (`get_screenshot`, inventory `use_figma`) AND writes (`use_figma`) — can crash the desktop app**, which silently drops the MCP write path while `whoami` keeps succeeding (misleading partial-up state). Observed signatures: `use_figma` → `MCP error -32602: Tool use_figma not found` (recurs while `whoami` works), `ReadMcpResourceTool` → `-32601: Method not found`, `get_screenshot` asset URLs 404 on download, stale-`nodeId` "invalid node" after reconnect.
+- **Primary cause is agent-side and preventable:** firing multiple `use_figma` mutations and/or `get_screenshot` calls **in one parallel message** violates the `figma-use` "never parallelize `use_figma`" rule and overwhelms the plugin host. **Mitigation: strictly ONE mutating `use_figma` per message, sequential; minimize `get_screenshot` (batch verification — don't screenshot after every micro-edit); never fan out Figma calls in a single message.**
+- **Recovery when it crashes:** STOP hammering retries (3 consecutive `-32602`s = the path is down, not a transient). Ask the user to **reconnect the plugin / re-open the Figma desktop app on the target file** (`/mcp` to reconnect the server). Confirm with a cheap `whoami`, then re-verify the last write landed (re-read the node — don't assume) before continuing, because the crash may have dropped an in-flight mutation.
+- Work is NOT lost on crash: `use_figma` is atomic, and committed nodes persist in the file. After reconnect, re-read state (don't trust your last in-memory node-ids — re-fetch) and resume.
+
 **MCP server disconnected mid-session** (e.g. system-reminder says "deferred tools are no longer available"):
 - Read-only inspection is blocked until the MCP reconnects.
 - Workaround: ask the user to paste a screenshot of the relevant Figma frame into the chat, then `Read` the screenshot image directly.
