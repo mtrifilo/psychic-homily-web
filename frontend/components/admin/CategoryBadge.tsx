@@ -41,6 +41,7 @@ const KIND_CONFIG: Record<AdminCategoryKind, KindConfig> = {
 export interface CategoryBadgeProps {
   kind: AdminCategoryKind
   className?: string
+  testId?: string
 }
 
 /**
@@ -49,11 +50,15 @@ export interface CategoryBadgeProps {
  * previously hard-coded these colors per card. Visual output is identical
  * to the originals — see PSY-908 for migrating the tones to DS tokens.
  */
-export function CategoryBadge({ kind, className }: CategoryBadgeProps) {
+export function CategoryBadge({ kind, className, testId }: CategoryBadgeProps) {
   const { label, icon: Icon, tone } = KIND_CONFIG[kind]
 
   return (
-    <Badge variant="secondary" className={cn('shrink-0', tone, className)}>
+    <Badge
+      variant="secondary"
+      className={cn('shrink-0', tone, className)}
+      data-testid={testId}
+    >
       <Icon className="h-3 w-3 mr-1" />
       {label}
     </Badge>

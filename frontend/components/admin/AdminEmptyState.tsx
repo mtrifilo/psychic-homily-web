@@ -20,9 +20,15 @@ export interface AdminEmptyStateProps {
  * Canonical admin empty state — bordered card + square muted icon chip +
  * heading + message. Replaces the per-surface hand-rolled variants
  * (card+icon on Pending Shows, bare-centered on Reports/Moderation, etc.)
- * so every "nothing to review" surface reads identically. Matches the
- * PSY-912 Figma mock (rounded-md icon chip — `rounded-full` is banned by
- * the editorial design direction).
+ * so every "nothing to review" surface reads identically.
+ *
+ * This is a deliberate visual NORMALIZATION to the PSY-912 mock, not a
+ * pixel-for-pixel dedup: it standardizes the icon chip to `rounded-md`
+ * (`rounded-full` is banned by the editorial direction), the card fill to
+ * full-opacity `bg-card` (some originals used `bg-card/50`), and the
+ * heading to `text-base font-semibold` (originals varied between
+ * `text-lg font-medium` and `font-medium`). Copy + heading level (`h3`)
+ * are preserved per call site.
  */
 export function AdminEmptyState({
   icon: Icon,
