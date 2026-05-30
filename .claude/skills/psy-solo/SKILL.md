@@ -127,14 +127,14 @@ If `/code-review` produced code changes, re-run the relevant test commands from 
 
 The hostile pre-PR gate — distinct from `/code-review` (balanced quality) and `/psy-self-review` (evidence audit). It spawns a panel of **fresh sub-agents with none of this session's context**, each attacking the diff from a different lens (Saboteur / Future-Maintainer / Security / Completeness) and competing to find the most *real* problems. The change must EARN a clean verdict — it does not get the benefit of the doubt. See `~/.claude/skills/adversarial-review/SKILL.md`.
 
-Because the review's fixes must land in a **separate commit** (non-negotiable 9), commit the implementation first:
+Because the review's fixes must land in a **separate commit** (non-negotiable 9), **commit the implementation first** — this commit always happens, even when the review comes back CLEAN with no fixes:
 
 ```bash
 # 1. Commit implementation + /code-review fixes as the implementation commit
 git -C <repo> add <impl files>                       # specific paths, never `git add .`
 git -C <repo> commit -m "PSY-{N}: <imperative summary>
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
 
 Then invoke `Skill` with `skill: "adversarial-review"`. As the orchestrator you have the Agent tool, so it spawns the panel in parallel. Aggregate the verdict:
@@ -149,7 +149,7 @@ Commit the fixes the review produced as their own commit, and re-run the relevan
 git -C <repo> add <files the review fixed>
 git -C <repo> commit -m "PSY-{N}: adversarial-review fixes
 
-Co-Authored-By: Claude Opus 4.8 (1M context) <noreply@anthropic.com>"
+Co-Authored-By: Claude Opus 4.7 (1M context) <noreply@anthropic.com>"
 ```
 
 The skill writes the branch pass-marker on a passing verdict (CLEAN, or fixed/disclosed CONCERNS) — this is what unblocks `gh pr create` at phase 8. Capture the findings + dispositions for the PR body's `## Adversarial review` section (phase 7.5). If the verdict was CLEAN with no fixes, there's no second commit — note "CLEAN, no findings" in the section.
@@ -287,9 +287,10 @@ Born out of the May 16–17 retro: PSY-658 shipped with an unverified `[x]` clai
 The PR body is the file you wrote in phase 7.5 and refined in phase 7.6 — use `--body-file`, not an inline heredoc.
 
 ```bash
-# Implementation + adversarial-review fixes were already committed in phases 5 / 5.5.
-git -C <repo> status                               # confirm nothing unexpected is uncommitted
-# (commit any stragglers with specific paths — never `git add .`)
+# Implementation (phase 5.5) + any adversarial-review fixes should already be committed.
+# If ANY code changed after Phase 5.5 (e.g. a Phase 6 screenshot-driven fix), re-run
+# /adversarial-review first so the pass-marker reflects exactly what you're pushing.
+git -C <repo> status                               # if this shows uncommitted implementation, COMMIT it now (specific paths) before pushing — never `git add .`
 git -C <repo> push -u origin PSY-{N}/<branch>
 gh pr create --title "PSY-{N}: <under-70-char summary>" --body-file /tmp/psy-{N}-pr-body.md   # hook checks the /adversarial-review pass-marker
 ```

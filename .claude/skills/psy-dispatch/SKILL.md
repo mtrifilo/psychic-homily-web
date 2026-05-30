@@ -381,7 +381,7 @@ Fix PSY-{N}: {ticket title}.
    - **BLOCK** (any surviving CRITICAL/HIGH): fix the findings (or reject a wrong one with a concrete technical counter-argument), then re-run the lenses; cap 3 rounds. If you cannot clear the BLOCK, STOP and report — do NOT push (rule 3).
    - **CONCERNS** (MEDIUM only): fix what's cheap; disclose any deferral in the PR body.
    - **CLEAN**: proceed.
-   Commit the review's fixes as a SEPARATE commit `PSY-{N}: adversarial-review fixes`, and re-run the relevant step-4 tests if it changed anything substantive. The skill writes the branch pass-marker on a passing verdict — this is REQUIRED: the `PreToolUse` hook blocks your `gh pr create` in step 10 without it (bypass only for a genuine docs-only PR via `ADVERSARIAL_REVIEW_SKIP=1`). Record findings + dispositions for the PR body's `## Adversarial review` section.
+   Commit the review's fixes as a SEPARATE commit `PSY-{N}: adversarial-review fixes`, and re-run the relevant step-4 tests if it changed anything substantive. The skill writes the branch pass-marker on a passing verdict. If you cannot reach a passing verdict, STOP and report to the orchestrator — do NOT bypass the gate (any bypass is a human-only escape hatch documented in the skill itself, never something a dispatched agent invokes to self-clear a BLOCK). Record findings + dispositions for the PR body's `## Adversarial review` section.
 9. Push branch with `-u origin <branch>`.
 10. Open PR with `gh pr create`. Body template:
     ```
@@ -401,7 +401,10 @@ Fix PSY-{N}: {ticket title}.
     <one-line outcome: "no changes" OR "edited N files, -M net lines, <one-phrase summary>". Post-code-review retest commands belong in the Test plan above with [x].>
 
     ## Adversarial review
-    <verdict; findings + how each was resolved; fixes in separate commit `<sha>`. Panel run inline — no Agent tool in a worktree.>
+    `/adversarial-review` — <CLEAN, no findings | N findings addressed in separate commit `<sha>`>.
+    - [HIGH] <finding> → fixed in `<short-sha>` (<one line>)
+    - [MEDIUM] <finding> → <fixed | deferred: reason>
+    Panel: Saboteur · Future-Maintainer · Security · Completeness — run inline (no Agent tool in a worktree).
 
     Closes PSY-{N}
     ```
