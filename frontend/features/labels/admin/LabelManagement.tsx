@@ -12,6 +12,13 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -186,18 +193,18 @@ function CreateLabelForm({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="create-status">Status</Label>
-          <select
-            id="create-status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-          >
-            {LABEL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {LABEL_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger id="create-status" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LABEL_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {LABEL_STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="create-founded-year">Founded Year</Label>
@@ -542,18 +549,18 @@ export function EditLabelFormFields({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="edit-status">Status</Label>
-          <select
-            id="edit-status"
-            value={status}
-            onChange={(e) => setStatus(e.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-          >
-            {LABEL_STATUSES.map((s) => (
-              <option key={s} value={s}>
-                {LABEL_STATUS_LABELS[s]}
-              </option>
-            ))}
-          </select>
+          <Select value={status} onValueChange={setStatus}>
+            <SelectTrigger id="edit-status" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {LABEL_STATUSES.map((s) => (
+                <SelectItem key={s} value={s}>
+                  {LABEL_STATUS_LABELS[s]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="edit-founded-year">Founded Year</Label>

@@ -14,6 +14,13 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -243,18 +250,18 @@ function CreateTagForm({
 
       <div className="space-y-2">
         <Label htmlFor="create-category">Category *</Label>
-        <select
-          id="create-category"
-          value={category}
-          onChange={(e) => setCategory(e.target.value)}
-          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-        >
-          {TAG_CATEGORIES.map((cat) => (
-            <option key={cat} value={cat}>
-              {getCategoryLabel(cat)}
-            </option>
-          ))}
-        </select>
+        <Select value={category} onValueChange={setCategory}>
+          <SelectTrigger id="create-category" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {TAG_CATEGORIES.map((cat) => (
+              <SelectItem key={cat} value={cat}>
+                {getCategoryLabel(cat)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">
@@ -423,18 +430,18 @@ export function EditTagFormFields({
 
         <div className="space-y-2">
           <Label htmlFor="edit-category">Category *</Label>
-          <select
-            id="edit-category"
-            value={category}
-            onChange={(e) => setCategory(e.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-          >
-            {TAG_CATEGORIES.map((cat) => (
-              <option key={cat} value={cat}>
-                {getCategoryLabel(cat)}
-              </option>
-            ))}
-          </select>
+          <Select value={category} onValueChange={setCategory}>
+            <SelectTrigger id="edit-category" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {TAG_CATEGORIES.map((cat) => (
+                <SelectItem key={cat} value={cat}>
+                  {getCategoryLabel(cat)}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
 
         <div className="space-y-2">
