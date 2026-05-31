@@ -94,7 +94,9 @@ export function HomeShowList() {
 
   return (
     <div className="w-full">
-      {cities.length > 1 && (
+      {/* Show the filter whenever ≥1 city has shows (PSY-932) — consistent
+          with /venues and /artists; hidden only when there are no cities. */}
+      {cities.length > 0 && (
         <div className="mb-6">
           <CityFilters
             cities={cities}

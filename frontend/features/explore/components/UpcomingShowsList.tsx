@@ -42,7 +42,7 @@ import type { CityState, CityWithCount } from '@/components/filters/CityFilters'
 // tree on the critical path, which pushed the TTI gate (error-level,
 // PSY-868) over budget. dynamic(ssr:false) defers the filter's hydration
 // off the initial /explore hydration path; since the bar only appears
-// after the useShowCities fetch resolves (cities.length > 1), the
+// after the useShowCities fetch resolves (cities.length > 0), the
 // deferral is effectively invisible. See PSY-840.
 const CityFilters = dynamic(
   () =>
@@ -139,7 +139,9 @@ export function UpcomingShowsList({ limit = 5 }: UpcomingShowsListProps) {
   )
 
   const filterBar =
-    cities.length > 1 ? (
+    // Show the filter whenever ≥1 city has shows (PSY-932) — consistent with
+    // /venues and /artists; hidden only when there are no cities.
+    cities.length > 0 ? (
       <div className="mb-5">
         <CityFilters
           cities={cities}

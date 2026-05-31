@@ -166,8 +166,20 @@ describe('UpcomingShowsList', () => {
     expect(await screen.findByTestId('city-filters')).toBeInTheDocument()
   })
 
-  it('hides the city filter when only one city has shows', () => {
+  it('renders the city filter when one city has shows (PSY-932)', async () => {
     mockShowCities = [{ city: 'Phoenix', state: 'AZ', show_count: 5 }]
+    mockUseExploreUpcomingShows.mockReturnValue({
+      data: sampleResponse,
+      isLoading: false,
+      error: null,
+    })
+    render(<UpcomingShowsList />)
+    // CityFilters is dynamic-imported (ssr:false) — await its async mount.
+    expect(await screen.findByTestId('city-filters')).toBeInTheDocument()
+  })
+
+  it('hides the city filter when no cities have shows', () => {
+    mockShowCities = []
     mockUseExploreUpcomingShows.mockReturnValue({
       data: sampleResponse,
       isLoading: false,
