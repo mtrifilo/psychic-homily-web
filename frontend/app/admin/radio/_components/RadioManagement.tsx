@@ -43,6 +43,11 @@ import {
 } from './playlistSourceSelect'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
+import {
+  AdminFormLayout,
+  AdminFormRow,
+  AdminFormField,
+} from '@/components/admin/AdminFormLayout'
 import { Badge } from '@/components/ui/badge'
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
@@ -105,11 +110,13 @@ type DialogMode = 'create-station' | 'edit-station' | 'delete-station' | 'create
 // ============================================================================
 
 function CreateStationForm({
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const createMutation = useCreateRadioStation()
 
@@ -181,49 +188,56 @@ function CreateStationForm({
   )
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
-      )}
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="station-name">Name *</Label>
+    <AdminFormLayout
+      variant="sheet"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Add Radio Station"
+      description="Create a new radio station."
+      error={error || undefined}
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Create Station
+          </Button>
+        </>
+      }
+    >
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Name *" htmlFor="station-name">
           <Input id="station-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="KEXP" />
-        </div>
-        <div>
-          <Label htmlFor="station-slug">Slug (auto if empty)</Label>
+        </AdminFormField>
+        <AdminFormField label="Slug (auto if empty)" htmlFor="station-slug">
           <Input id="station-slug" value={slug} onChange={(e) => setSlug(e.target.value)} placeholder="kexp" />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div>
-        <Label htmlFor="station-description">Description</Label>
+      <AdminFormField label="Description" htmlFor="station-description">
         <Textarea id="station-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="Station description..." rows={2} />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-4 gap-4">
-        <div>
-          <Label htmlFor="station-city">City</Label>
+      <AdminFormRow cols={4}>
+        <AdminFormField label="City" htmlFor="station-city">
           <Input id="station-city" value={city} onChange={(e) => setCity(e.target.value)} placeholder="Seattle" />
-        </div>
-        <div>
-          <Label htmlFor="station-state">State</Label>
+        </AdminFormField>
+        <AdminFormField label="State" htmlFor="station-state">
           <Input id="station-state" value={state} onChange={(e) => setState(e.target.value)} placeholder="WA" />
-        </div>
-        <div>
-          <Label htmlFor="station-country">Country</Label>
+        </AdminFormField>
+        <AdminFormField label="Country" htmlFor="station-country">
           <Input id="station-country" value={country} onChange={(e) => setCountry(e.target.value)} placeholder="US" />
-        </div>
-        <div>
-          <Label htmlFor="station-timezone">Timezone</Label>
+        </AdminFormField>
+        <AdminFormField label="Timezone" htmlFor="station-timezone">
           <Input id="station-timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)} placeholder="America/Los_Angeles" />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="station-broadcast-type">Broadcast Type *</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Broadcast Type *" htmlFor="station-broadcast-type">
           <Select value={broadcastType} onValueChange={setBroadcastType}>
             <SelectTrigger id="station-broadcast-type" className="w-full">
               <SelectValue />
@@ -234,38 +248,32 @@ function CreateStationForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div>
-          <Label htmlFor="station-frequency">Frequency (MHz)</Label>
+        </AdminFormField>
+        <AdminFormField label="Frequency (MHz)" htmlFor="station-frequency">
           <Input id="station-frequency" type="number" step="0.1" value={frequencyMHz} onChange={(e) => setFrequencyMHz(e.target.value)} placeholder="90.3" />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="station-stream-url">Stream URL</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Stream URL" htmlFor="station-stream-url">
           <Input id="station-stream-url" value={streamUrl} onChange={(e) => setStreamUrl(e.target.value)} placeholder="https://..." />
-        </div>
-        <div>
-          <Label htmlFor="station-website">Website</Label>
+        </AdminFormField>
+        <AdminFormField label="Website" htmlFor="station-website">
           <Input id="station-website" value={website} onChange={(e) => setWebsite(e.target.value)} placeholder="https://..." />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="station-donation-url">Donation URL</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Donation URL" htmlFor="station-donation-url">
           <Input id="station-donation-url" value={donationUrl} onChange={(e) => setDonationUrl(e.target.value)} placeholder="https://..." />
-        </div>
-        <div>
-          <Label htmlFor="station-logo-url">Logo URL</Label>
+        </AdminFormField>
+        <AdminFormField label="Logo URL" htmlFor="station-logo-url">
           <Input id="station-logo-url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} placeholder="https://..." />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="station-playlist-source">Playlist Source</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Playlist Source" htmlFor="station-playlist-source">
           <Select
             value={toPlaylistSelectValue(playlistSource)}
             onValueChange={(v) => setPlaylistSource(fromPlaylistSelectValue(v))}
@@ -280,21 +288,12 @@ function CreateStationForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div>
-          <Label htmlFor="station-playlist-config">Playlist Config (JSON)</Label>
+        </AdminFormField>
+        <AdminFormField label="Playlist Config (JSON)" htmlFor="station-playlist-config">
           <Input id="station-playlist-config" value={playlistConfigJson} onChange={(e) => setPlaylistConfigJson(e.target.value)} placeholder='{"api_key": "..."}' />
-        </div>
-      </div>
-
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button type="submit" disabled={createMutation.isPending}>
-          {createMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Create Station
-        </Button>
-      </DialogFooter>
-    </form>
+        </AdminFormField>
+      </AdminFormRow>
+    </AdminFormLayout>
   )
 }
 
@@ -1860,19 +1859,12 @@ export function RadioManagement() {
           )}
         </div>
 
-        {/* Create Station Dialog */}
-        <Dialog open={dialogMode === 'create-station'} onOpenChange={(open) => !open && setDialogMode(null)}>
-          <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-            <DialogHeader>
-              <DialogTitle>Add Radio Station</DialogTitle>
-              <DialogDescription>Create a new radio station.</DialogDescription>
-            </DialogHeader>
-            <CreateStationForm
-              onSuccess={() => setDialogMode(null)}
-              onCancel={() => setDialogMode(null)}
-            />
-          </DialogContent>
-        </Dialog>
+        {/* Create Station — right-anchored Sheet (PSY-911 AdminFormLayout) */}
+        <CreateStationForm
+          open={dialogMode === 'create-station'}
+          onOpenChange={(open) => !open && setDialogMode(null)}
+          onSuccess={() => setDialogMode(null)}
+        />
       </TabsContent>
 
       <TabsContent value="matching">
