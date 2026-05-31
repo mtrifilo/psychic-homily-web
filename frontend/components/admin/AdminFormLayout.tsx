@@ -23,11 +23,17 @@ import { cn } from '@/lib/utils'
 /**
  * AdminFormLayout — the canonical scaffold for admin entity create/edit forms
  * (PSY-911). Per the PSY-912 Hybrid decision, long multi-field forms use a
- * right-anchored Sheet (`variant="sheet"`, the default) and short confirm /
- * simple-edit forms use a centered Dialog (`variant="modal"`). Either way the
- * chrome is identical: header (title + optional description), a scrollable form
- * body, and a footer button row pinned to the bottom. The caller supplies the
- * fields (composed with AdminFormRow / AdminFormField) and the footer buttons.
+ * right-anchored Sheet (`variant="sheet"`, the default); the `variant="modal"`
+ * (centered Dialog) path is available for short confirm / simple-edit forms as
+ * they migrate — no admin form consumes it yet. Either way the chrome is
+ * identical: header (title + optional description), a scrollable form body, and
+ * a footer button row pinned to the bottom. The caller supplies the fields
+ * (composed with AdminFormRow / AdminFormField) and the footer buttons.
+ *
+ * This is the admin-CRUD scaffold (plain-useState forms). It is intentionally
+ * separate from EntityEditDrawer (features/contributions/) — the trusted-tier
+ * *suggest-edit* drawer with change-diff preview, a summary field, and trust
+ * routing. Different flow, not a second generic drawer to reconcile (PSY-911).
  */
 export interface AdminFormLayoutProps {
   /** Container shape. Sheet (default) for long forms, Modal for short ones. */

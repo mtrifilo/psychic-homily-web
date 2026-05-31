@@ -109,7 +109,7 @@ type DialogMode = 'create-station' | 'edit-station' | 'delete-station' | 'create
 // Create Station Form
 // ============================================================================
 
-function CreateStationForm({
+export function CreateStationForm({
   open,
   onOpenChange,
   onSuccess,
@@ -136,6 +136,36 @@ function CreateStationForm({
   const [playlistSource, setPlaylistSource] = useState('')
   const [playlistConfigJson, setPlaylistConfigJson] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  // Reset the form when the Sheet (re)opens. AdminFormLayout keeps this component
+  // mounted (so the Sheet's close animation can run), so — unlike the old
+  // unmount-on-close Dialog — its state would otherwise persist a prior session's
+  // input (or a just-created station's values) into the next "Add Station".
+  // This is the React "adjust state during render" pattern: resetting here rather
+  // than in an effect avoids a cascading re-render (react-hooks/set-state-in-effect)
+  // and an extra paint. (PSY-911)
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setName('')
+      setSlug('')
+      setDescription('')
+      setCity('')
+      setState('')
+      setCountry('US')
+      setTimezone('')
+      setBroadcastType('both')
+      setFrequencyMHz('')
+      setStreamUrl('')
+      setWebsite('')
+      setDonationUrl('')
+      setLogoUrl('')
+      setPlaylistSource('')
+      setPlaylistConfigJson('')
+      setError(null)
+    }
+  }
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -300,6 +330,12 @@ function CreateStationForm({
 // ============================================================================
 // Edit Station Form
 // ============================================================================
+//
+// NOTE: still on the raw <form> + Dialog pattern. CreateStationForm migrated to
+// AdminFormLayout (Sheet) in PSY-911; the Edit migration is deferred to PSY-930
+// because it loads through EditStationFormWrapper (async detail fetch) and needs
+// careful state-init-on-load handling. Create = Sheet / Edit = Modal is a
+// temporary split until PSY-930 lands.
 
 function EditStationForm({
   station,
