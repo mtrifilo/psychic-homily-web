@@ -191,7 +191,9 @@ export function ShowList() {
 
   return (
     <section className="w-full max-w-6xl">
-      {cities.length > 1 && (
+      {/* Show the filter whenever ≥1 city has shows (PSY-932) — consistent
+          with /venues and /artists; hidden only when there are no cities. */}
+      {cities.length > 0 && (
         <div className="mb-6">
           <CityFilters
             cities={cities}

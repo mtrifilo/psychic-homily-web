@@ -369,11 +369,31 @@ describe('ShowList', () => {
       expect(screen.getByTestId('city-filters')).toBeInTheDocument()
     })
 
-    it('hides city filters when only one city', () => {
+    it('shows city filters when one city has shows (PSY-932)', () => {
       mockUseShowCities.mockReturnValue({
         data: {
           cities: [{ city: 'Phoenix', state: 'AZ', show_count: 10 }],
         },
+        isLoading: false,
+        isFetching: false,
+      })
+      mockUseUpcomingShows.mockReturnValue({
+        data: {
+          shows: [makeShow()],
+          pagination: { has_more: false, next_cursor: null, limit: 20 },
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+      render(<ShowList />)
+      expect(screen.getByTestId('city-filters')).toBeInTheDocument()
+    })
+
+    it('hides city filters when no cities have shows', () => {
+      mockUseShowCities.mockReturnValue({
+        data: { cities: [] },
         isLoading: false,
         isFetching: false,
       })

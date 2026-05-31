@@ -214,7 +214,7 @@ describe('HomeShowList', () => {
       expect(screen.getByTestId('city-filters')).toBeInTheDocument()
     })
 
-    it('hides city filters when only one city', () => {
+    it('shows city filters when one city has shows (PSY-932)', () => {
       mockUseShowCities.mockReturnValue({
         data: {
           cities: [{ city: 'Phoenix', state: 'AZ', show_count: 10 }],
@@ -227,7 +227,7 @@ describe('HomeShowList', () => {
         error: null,
       })
       render(<HomeShowList />)
-      expect(screen.queryByTestId('city-filters')).not.toBeInTheDocument()
+      expect(screen.getByTestId('city-filters')).toBeInTheDocument()
     })
 
     it('hides city filters when no cities', () => {
