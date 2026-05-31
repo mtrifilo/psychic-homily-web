@@ -15,6 +15,29 @@ import (
 // UNIT TESTS (No Database Required)
 // =============================================================================
 
+func TestParseImportDate(t *testing.T) {
+	// Date-only (the API request form).
+	if d, err := parseImportDate("2026-03-02"); err != nil {
+		t.Fatalf("date-only should parse, got %v", err)
+	} else if got := d.Format("2006-01-02"); got != "2026-03-02" {
+		t.Fatalf("expected 2026-03-02, got %s", got)
+	}
+
+	// PSY-927: the DATE-column round-trip form, as read back from a persisted
+	// import job. This exact value previously failed every auto-backfill job
+	// with `parsing time "...": extra text "T00:00:00Z"`.
+	if d, err := parseImportDate("2026-03-02T00:00:00Z"); err != nil {
+		t.Fatalf("DATE round-trip form should parse, got %v", err)
+	} else if got := d.Format("2006-01-02"); got != "2026-03-02" {
+		t.Fatalf("expected 2026-03-02, got %s", got)
+	}
+
+	// Genuinely malformed input still errors.
+	if _, err := parseImportDate("not-a-date"); err == nil {
+		t.Fatal("expected error for invalid date, got nil")
+	}
+}
+
 func TestRadioService_NilDB_ImportJob(t *testing.T) {
 	svc := &RadioService{db: nil}
 

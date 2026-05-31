@@ -238,6 +238,20 @@ func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_InvalidBroadcas
 	suite.Contains(err.Error(), "invalid broadcast type")
 }
 
+func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_InvalidPlaylistSource() {
+	// PSY-927: reject the bad value that broke WFMU import. A valid broadcast
+	// type is supplied so the failure is attributable to playlist_source.
+	bad := "wfmu_html"
+	_, err := suite.radioService.CreateStation(&contracts.CreateRadioStationRequest{
+		Name:           "Bad Source Station",
+		BroadcastType:  catalogm.BroadcastTypeInternet,
+		PlaylistSource: &bad,
+	})
+
+	suite.Error(err)
+	suite.Contains(err.Error(), "invalid playlist source")
+}
+
 func (suite *RadioServiceIntegrationTestSuite) TestCreateStation_UniqueSlugCollision() {
 	suite.createStation("KEXP")
 
@@ -337,6 +351,19 @@ func (suite *RadioServiceIntegrationTestSuite) TestUpdateStation_InvalidBroadcas
 
 	suite.Error(err)
 	suite.Contains(err.Error(), "invalid broadcast type")
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestUpdateStation_InvalidPlaylistSource() {
+	// PSY-927: an existing station can't be updated to the invalid value either.
+	station := suite.createStation("KEXP")
+
+	bad := "wfmu_html"
+	_, err := suite.radioService.UpdateStation(station.ID, &contracts.UpdateRadioStationRequest{
+		PlaylistSource: &bad,
+	})
+
+	suite.Error(err)
+	suite.Contains(err.Error(), "invalid playlist source")
 }
 
 func (suite *RadioServiceIntegrationTestSuite) TestUpdateStation_NotFound() {
