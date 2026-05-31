@@ -174,8 +174,11 @@ func main() {
 			}
 			return false
 		},
-		AllowedMethods:   cfg.CORS.AllowedMethods,
-		AllowedHeaders:   cfg.CORS.AllowedHeaders,
+		AllowedMethods: cfg.CORS.AllowedMethods,
+		// Non-prod also allows the Lighthouse perf gate's Vercel SSO
+		// bypass header so its cross-origin API calls pass preflight
+		// (PSY-929). Prod stays tight — see config.CORSAllowedHeaders.
+		AllowedHeaders:   config.CORSAllowedHeaders(cfg.CORS.AllowedHeaders, isProduction),
 		AllowCredentials: cfg.CORS.AllowCredentials,
 		MaxAge:           300,           // Cache preflight for 5 minutes
 		Debug:            !isProduction, // Only enable debug logging in development
