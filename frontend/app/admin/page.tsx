@@ -6,6 +6,7 @@ import dynamic from 'next/dynamic'
 import { Shield, Loader2 } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
+import { isValidTab } from '@/components/layout/adminNav'
 
 // Dynamic imports for heavy components - only loaded when their tab is active
 const ShowImportPanel = dynamic(
@@ -161,19 +162,6 @@ const CollectionManagementComponent = dynamic(
   }
 )
 
-const VALID_TABS = [
-  'dashboard', 'moderation', 'pending-shows', 'unverified-venues',
-  'reports', 'import-show', 'releases', 'labels', 'festivals', 'pipeline',
-  'collections', 'tags', 'data-quality', 'analytics', 'artists-admin', 'radio',
-  'users', 'audit-log',
-] as const
-
-type AdminTab = (typeof VALID_TABS)[number]
-
-function isValidTab(value: string | null): value is AdminTab {
-  return value !== null && (VALID_TABS as readonly string[]).includes(value)
-}
-
 function AdminPageContent() {
   const searchParams = useSearchParams()
   const tabParam = searchParams.get('tab')
@@ -232,7 +220,8 @@ function AdminPageContent() {
           {/* Section navigation lives in the context-aware Sidebar / mobile
               drawer (PSY-933) — the old horizontal ScrollableTabBar (18 tabs,
               past NN/G's 3–6 limit) was retired. Tabs stay value-controlled:
-              sidebar links set ?tab=, the searchParams effect syncs activeTab. */}
+              sidebar links / quick-links set ?tab=, and activeTab is derived
+              from it above (no mirrored state, no sync effect). */}
 
           <TabsContent value="dashboard" className="space-y-4" data-testid="admin-tab-dashboard">
             <DashboardPage onNavigate={handleTabChange} />

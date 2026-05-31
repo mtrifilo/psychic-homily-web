@@ -14,12 +14,34 @@ import type { AdminNavCounts } from '@/lib/hooks/admin/useAdminNavCounts'
  * a nav-chrome change only; `app/admin/page.tsx` still owns the tab content.
  */
 
+/**
+ * The admin section tabs — the `?tab=` values on /admin. Single source of truth
+ * for valid sections: app/admin/page.tsx imports isValidTab to resolve the
+ * active section, and adminNavGroups below must cover exactly these (enforced by
+ * adminNav.test.ts). Adding a section = add it here + its TabsContent in
+ * page.tsx + a nav item below. Lives here (not page.tsx) so the always-mounted
+ * Sidebar can type its nav items against it without importing the page module.
+ */
+export const VALID_TABS = [
+  'dashboard', 'moderation', 'pending-shows', 'unverified-venues',
+  'reports', 'import-show', 'releases', 'labels', 'festivals', 'pipeline',
+  'collections', 'tags', 'data-quality', 'analytics', 'artists-admin', 'radio',
+  'users', 'audit-log',
+] as const
+
+export type AdminTab = (typeof VALID_TABS)[number]
+
+export function isValidTab(value: string | null): value is AdminTab {
+  return value !== null && (VALID_TABS as readonly string[]).includes(value)
+}
+
 /** Sections whose tab carries an attention-count badge. Keys match AdminNavCounts. */
 export type AdminBadgeKey = keyof AdminNavCounts
 
 export interface AdminNavItem {
-  /** The `?tab=` value on /admin (also the VALID_TABS member). */
-  tab: string
+  /** The `?tab=` value on /admin. Typed against VALID_TABS so a typo or a
+   *  renamed section is a compile error, not a silent dead nav link. */
+  tab: AdminTab
   label: string
   icon: LucideIcon
   /** When set, the item shows the matching count from useAdminNavCounts. */
