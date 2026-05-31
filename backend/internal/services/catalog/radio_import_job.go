@@ -218,6 +218,10 @@ func (s *RadioService) runImportJob(jobID uint) {
 		return false
 	}
 
+	// job.Since/job.Until are read straight from Postgres DATE columns and
+	// round-trip as "...T00:00:00Z"; importShowEpisodesWithProgress normalizes
+	// them via parseImportDate before parsing, so passing the raw values is safe
+	// (do NOT add a bare time.Parse here). (PSY-927)
 	result, err := s.importShowEpisodesWithProgress(job.ShowID, job.Since, job.Until, episodesFoundFn, progressFn)
 	if err != nil {
 		s.failJob(jobID, err.Error())

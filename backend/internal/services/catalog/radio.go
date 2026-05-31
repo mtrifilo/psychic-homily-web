@@ -51,6 +51,10 @@ func (s *RadioService) CreateStation(req *contracts.CreateRadioStationRequest) (
 		return nil, fmt.Errorf("invalid broadcast type: %s", req.BroadcastType)
 	}
 
+	if req.PlaylistSource != nil && !catalogm.IsValidPlaylistSource(*req.PlaylistSource) {
+		return nil, fmt.Errorf("invalid playlist source: %s", *req.PlaylistSource)
+	}
+
 	station := &catalogm.RadioStation{
 		Name:             req.Name,
 		Slug:             slug,
@@ -282,6 +286,9 @@ func (s *RadioService) UpdateStation(stationID uint, req *contracts.UpdateRadioS
 		updates["frequency_mhz"] = *req.FrequencyMHz
 	}
 	if req.PlaylistSource != nil {
+		if !catalogm.IsValidPlaylistSource(*req.PlaylistSource) {
+			return nil, fmt.Errorf("invalid playlist source: %s", *req.PlaylistSource)
+		}
 		updates["playlist_source"] = *req.PlaylistSource
 	}
 	if req.PlaylistConfig != nil {

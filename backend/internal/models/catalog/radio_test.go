@@ -52,6 +52,23 @@ func TestIsValidBroadcastType_Invalid(t *testing.T) {
 	assert.False(t, IsValidBroadcastType("satellite"))
 }
 
+func TestIsValidPlaylistSource_Valid(t *testing.T) {
+	for _, ps := range PlaylistSources {
+		assert.True(t, IsValidPlaylistSource(ps), "expected %q to be valid", ps)
+	}
+	// Empty means "no automated provider" (link-only) and is accepted.
+	assert.True(t, IsValidPlaylistSource(""))
+}
+
+func TestIsValidPlaylistSource_Invalid(t *testing.T) {
+	// PSY-927: 'wfmu_html' was the runtime bad value that silently broke WFMU
+	// playlist import — exactly what this validation now rejects.
+	assert.False(t, IsValidPlaylistSource("wfmu_html"))
+	assert.False(t, IsValidPlaylistSource("invalid"))
+	assert.False(t, IsValidPlaylistSource("WFMU_SCRAPE")) // case-sensitive
+	assert.False(t, IsValidPlaylistSource("kexp"))
+}
+
 // =============================================================================
 // Broadcast Type Constants Tests
 // =============================================================================

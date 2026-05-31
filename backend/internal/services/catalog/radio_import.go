@@ -31,9 +31,36 @@ func (s *RadioService) getProvider(source string) (RadioPlaylistProvider, error)
 		return NewWFMUProvider(), nil
 	case catalogm.PlaylistSourceNTS:
 		return NewNTSProvider(), nil
+	case catalogm.PlaylistSourceManual:
+		// "manual" is a valid, intentional source: playlists are curated by hand,
+		// so there is no automated provider. The scheduled cycle never reaches
+		// here for manual stations — GetActiveStationsWithPlaylistSource excludes
+		// them — so this guards the manual import-job trigger path, returning a
+		// clear error without the default branch's misconfiguration alert.
+		return nil, fmt.Errorf("playlist source %q is manual; no automated provider", source)
 	default:
+		// A truly unrecognized playlist_source silently breaks ALL playlist
+		// import for the station — every show imports 0 tracks with no obvious
+		// cause. (PSY-927: the value "wfmu_html", which no provider handles, had
+		// been set on the WFMU station and zeroed out every show's tracks.) Log
+		// loudly with the offending value so a misconfigured station is visible
+		// rather than disappearing into a per-cycle error count.
+		slog.Default().Error("radio import: unsupported playlist source",
+			"playlist_source", source,
+			"valid", catalogm.PlaylistSources,
+		)
 		return nil, fmt.Errorf("unsupported playlist source: %s", source)
 	}
+}
+
+// parseImportDate parses an import-window bound (since/until). The value may
+// arrive date-only ("2026-03-02") from the API, or as a Postgres DATE-column
+// round-trip ("2026-03-02T00:00:00Z") when read back from a persisted import
+// job — normalizeDateString trims the time suffix so both forms parse. Without
+// it the auto-backfill job-execution path failed on every job, since
+// radio_import_job.go feeds job.Since/job.Until straight from the DB. (PSY-927)
+func parseImportDate(s string) (time.Time, error) {
+	return time.Parse("2006-01-02", normalizeDateString(s))
 }
 
 // ImportStation runs a full import: discover shows + fetch episodes for the last N days.
@@ -308,11 +335,11 @@ func (s *RadioService) importShowEpisodesWithProgress(
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	sinceTime, err := time.Parse("2006-01-02", since)
+	sinceTime, err := parseImportDate(since)
 	if err != nil {
 		return nil, fmt.Errorf("invalid since date %q: %w", since, err)
 	}
-	untilTime, err := time.Parse("2006-01-02", until)
+	untilTime, err := parseImportDate(until)
 	if err != nil {
 		return nil, fmt.Errorf("invalid until date %q: %w", until, err)
 	}

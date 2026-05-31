@@ -46,6 +46,34 @@ func IsValidBroadcastType(s string) bool {
 	return false
 }
 
+// PlaylistSources is the list of valid playlist sources. getProvider dispatches
+// the three scraper/API sources (kexp_api, nts_api, wfmu_scrape) to a provider;
+// "manual" is a valid value meaning hand-curated playlists with no automated
+// provider. The empty string is also accepted by IsValidPlaylistSource and
+// likewise means "no automated provider" (a link-only station not auto-imported).
+var PlaylistSources = []string{
+	PlaylistSourceKEXP,
+	PlaylistSourceNTS,
+	PlaylistSourceWFMU,
+	PlaylistSourceManual,
+}
+
+// IsValidPlaylistSource reports whether s is an accepted playlist_source. The
+// empty string is valid (no automated provider / link-only). Rejecting anything
+// else stops invalid values like "wfmu_html" from being persisted and silently
+// breaking all playlist import for the station. (PSY-927)
+func IsValidPlaylistSource(s string) bool {
+	if s == "" {
+		return true
+	}
+	for _, ps := range PlaylistSources {
+		if ps == s {
+			return true
+		}
+	}
+	return false
+}
+
 // RadioStation represents a radio station entity in the knowledge graph
 type RadioStation struct {
 	ID                  uint             `gorm:"primaryKey"`

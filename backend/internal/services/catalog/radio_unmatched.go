@@ -423,14 +423,20 @@ func (s *RadioService) ReMatchUnmatched() (*contracts.MatchResult, error) {
 	return matcher.MatchAllUnmatched()
 }
 
-// GetActiveStationsWithPlaylistSource returns all active stations that have a playlist_source set.
+// GetActiveStationsWithPlaylistSource returns all active stations that have an
+// AUTOMATED playlist provider (an actual scraper/API source). 'manual'
+// (hand-curated, no provider) and empty/NULL (link-only) are excluded so the
+// scheduled discover/fetch cycle never dispatches a station getProvider can't
+// serve — which would otherwise log a permanent failure and trip the circuit
+// breaker every cycle for a deliberately-configured manual station. (PSY-927)
 func (s *RadioService) GetActiveStationsWithPlaylistSource() ([]catalogm.RadioStation, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 
 	var stations []catalogm.RadioStation
-	err := s.db.Where("is_active = TRUE AND playlist_source IS NOT NULL AND playlist_source != ''").
+	err := s.db.
+		Where("is_active = TRUE AND playlist_source IS NOT NULL AND playlist_source != '' AND playlist_source != ?", catalogm.PlaylistSourceManual).
 		Find(&stations).Error
 	if err != nil {
 		return nil, fmt.Errorf("querying active stations: %w", err)
