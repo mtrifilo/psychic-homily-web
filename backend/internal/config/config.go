@@ -355,6 +355,28 @@ func getCORSOrigins() []string {
 	}
 }
 
+// LighthouseBypassHeader is the Vercel SSO automation-bypass header the
+// /explore Lighthouse perf gate (.github/workflows/lighthouse-explore.yml)
+// injects into EVERY request via Lighthouse extraHeaders — including the
+// cross-origin calls to the stage API. Without it in the CORS allowlist
+// those calls fail preflight, the client retries, and the network never
+// goes quiet so TTI blows the budget (PSY-929).
+const LighthouseBypassHeader = "X-Vercel-Protection-Bypass"
+
+// CORSAllowedHeaders returns the configured CORS request headers, adding
+// the Lighthouse bypass header in NON-production only. Production stays
+// tight — real clients never send that header, so it must not widen the
+// prod allowlist (mirrors the !isProduction `.vercel.app` origin guard in
+// cmd/server/main.go). Does not mutate base.
+func CORSAllowedHeaders(base []string, isProduction bool) []string {
+	if isProduction {
+		return base
+	}
+	out := make([]string, len(base), len(base)+1)
+	copy(out, base)
+	return append(out, LighthouseBypassHeader)
+}
+
 // getWebAuthnRPID returns the WebAuthn Relying Party ID based on environment
 func getWebAuthnRPID() string {
 	if rpID := os.Getenv(EnvWebAuthnRPID); rpID != "" {

@@ -154,34 +154,11 @@ func main() {
 	log.Printf("CORS Configuration: Origins=%v, Methods=%v, Headers=%v, Credentials=%v",
 		cfg.CORS.AllowedOrigins, cfg.CORS.AllowedMethods, cfg.CORS.AllowedHeaders, cfg.CORS.AllowCredentials)
 
-	// Create a map for fast origin lookup
-	allowedOriginsMap := make(map[string]bool)
-	for _, origin := range cfg.CORS.AllowedOrigins {
-		allowedOriginsMap[origin] = true
-	}
-
-	// CORS middleware with dynamic origin validation
-	corsMiddleware := cors.New(cors.Options{
-		AllowOriginFunc: func(r *http.Request, origin string) bool {
-			// Check explicit allowed origins (from CORS_ALLOWED_ORIGINS or env defaults)
-			if allowedOriginsMap[origin] {
-				return true
-			}
-			// Allow Vercel preview deployments only in non-production environments.
-			// For production, add specific preview URLs to CORS_ALLOWED_ORIGINS instead.
-			if !isProduction && strings.HasSuffix(origin, ".vercel.app") {
-				return true
-			}
-			return false
-		},
-		AllowedMethods:   cfg.CORS.AllowedMethods,
-		AllowedHeaders:   cfg.CORS.AllowedHeaders,
-		AllowCredentials: cfg.CORS.AllowCredentials,
-		MaxAge:           300,           // Cache preflight for 5 minutes
-		Debug:            !isProduction, // Only enable debug logging in development
-	})
-
-	router.Use(corsMiddleware.Handler)
+	// CORS middleware with dynamic origin validation. Construction is
+	// extracted to newCORSMiddleware so the preflight contract — notably
+	// that non-prod echoes the Lighthouse x-vercel-protection-bypass header
+	// (PSY-929) — is unit-testable.
+	router.Use(newCORSMiddleware(cfg.CORS, isProduction).Handler)
 
 	// Add security headers middleware
 	// Adds headers like X-Content-Type-Options, X-Frame-Options, CSP, HSTS (in production)
@@ -355,6 +332,43 @@ func main() {
 	}
 
 	log.Println("Server gracefully stopped.")
+}
+
+// newCORSMiddleware builds the chi CORS middleware from the configured
+// allowlists. Extracted from main() so the preflight behaviour is
+// unit-testable end-to-end (cmd/server/main_test.go) rather than only the
+// CORSAllowedHeaders helper in isolation: a wiring drop or a go-chi/cors
+// version bump that stopped echoing the Lighthouse bypass header would slip
+// past a helper-only test and silently re-break the /explore gate (PSY-929).
+func newCORSMiddleware(corsCfg config.CORSConfig, isProduction bool) *cors.Cors {
+	// Map for fast origin lookup against the explicit allowlist.
+	allowedOriginsMap := make(map[string]bool)
+	for _, origin := range corsCfg.AllowedOrigins {
+		allowedOriginsMap[origin] = true
+	}
+
+	return cors.New(cors.Options{
+		AllowOriginFunc: func(r *http.Request, origin string) bool {
+			// Check explicit allowed origins (from CORS_ALLOWED_ORIGINS or env defaults)
+			if allowedOriginsMap[origin] {
+				return true
+			}
+			// Allow Vercel preview deployments only in non-production environments.
+			// For production, add specific preview URLs to CORS_ALLOWED_ORIGINS instead.
+			if !isProduction && strings.HasSuffix(origin, ".vercel.app") {
+				return true
+			}
+			return false
+		},
+		AllowedMethods: corsCfg.AllowedMethods,
+		// Non-prod also allows the Lighthouse perf gate's Vercel SSO
+		// bypass header so its cross-origin API calls pass preflight
+		// (PSY-929). Prod stays tight — see config.CORSAllowedHeaders.
+		AllowedHeaders:   config.CORSAllowedHeaders(corsCfg.AllowedHeaders, isProduction),
+		AllowCredentials: corsCfg.AllowCredentials,
+		MaxAge:           300,           // Cache preflight for 5 minutes
+		Debug:            !isProduction, // Only enable debug logging in development
+	})
 }
 
 // Helper function (you can move this to config package if you prefer)

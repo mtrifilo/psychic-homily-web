@@ -86,8 +86,8 @@ func TestGetEnvAsInt(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set up environment variable
 			if tt.envValue != "" {
-				os.Setenv(tt.envKey, tt.envValue)         //nolint:errcheck // test setup; failure would manifest as test failure below
-				defer os.Unsetenv(tt.envKey)              //nolint:errcheck // test teardown best-effort
+				os.Setenv(tt.envKey, tt.envValue) //nolint:errcheck // test setup; failure would manifest as test failure below
+				defer os.Unsetenv(tt.envKey)      //nolint:errcheck // test teardown best-effort
 			} else {
 				// Ensure the environment variable is not set
 				os.Unsetenv(tt.envKey) //nolint:errcheck // test teardown best-effort
@@ -738,6 +738,36 @@ func TestLoad(t *testing.T) {
 		_, err := Load()
 		if err == nil {
 			t.Error("expected validation error for production with placeholder secrets, got nil")
+		}
+	})
+}
+
+func TestCORSAllowedHeaders(t *testing.T) {
+	base := []string{"Accept", "Content-Type"}
+	contains := func(s []string, v string) bool {
+		for _, x := range s {
+			if x == v {
+				return true
+			}
+		}
+		return false
+	}
+
+	t.Run("non-production includes the Lighthouse bypass header", func(t *testing.T) {
+		got := CORSAllowedHeaders(base, false)
+		if !contains(got, LighthouseBypassHeader) {
+			t.Errorf("non-prod CORS headers must include %q; got %v", LighthouseBypassHeader, got)
+		}
+		// base must not be mutated by the append.
+		if len(base) != 2 || base[0] != "Accept" || base[1] != "Content-Type" {
+			t.Errorf("base slice was mutated: %v", base)
+		}
+	})
+
+	t.Run("production excludes the bypass header", func(t *testing.T) {
+		got := CORSAllowedHeaders(base, true)
+		if contains(got, LighthouseBypassHeader) {
+			t.Errorf("prod CORS headers must NOT include %q; got %v", LighthouseBypassHeader, got)
 		}
 	})
 }
