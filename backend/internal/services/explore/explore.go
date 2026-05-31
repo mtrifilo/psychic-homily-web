@@ -288,15 +288,24 @@ func (s *ExploreService) headlinerNameByShow(showIDs []uint) map[uint]string {
 // IMPORTANT: featured_slots.entity_id is polymorphic with NO database
 // FK (the referent table varies by slot_type — shows or collections).
 // The referent may have been deleted, made private, or otherwise
-// removed from the public surface after the slot was set. We defensively
-// LEFT-JOIN here so a stale slot returns nil for that field rather
-// than 500-ing the entire response.
+// removed from the public surface after the slot was set. Each
+// resolveFeatured* re-queries the referent with the same visibility
+// predicate and maps gorm.ErrRecordNotFound to nil, so a stale slot
+// collapses to an empty field rather than 500-ing the entire response.
 //
 // Privacy rule for the collection slot: a collection that has been
 // flipped to private (is_public=false) is excluded — we don't want to
 // leak a private collection's title/description through the /explore
 // landing just because someone privately featured it earlier. A new
 // admin pick or a flip back to public restores visibility.
+//
+// The "publicly visible" predicate (approved status for bills,
+// is_public=true for collections) MUST stay in sync with the write-side
+// guard in services/admin/featured_slot.go validateReferent — otherwise
+// an admin "save" succeeds but the slot never surfaces here (phantom
+// save). Parity along the existing predicate dimensions is backed by
+// TestPredicateParity_* in predicate_parity_test.go (PSY-880); a new
+// dimension added to only one side still needs the same-PR sync above.
 func (s *ExploreService) GetFeatured() (*contracts.ExploreFeaturedResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")

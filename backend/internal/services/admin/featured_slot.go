@@ -30,7 +30,12 @@ var ErrFeaturedSlotNotFound = errors.New("featured slot not found")
 // The predicates here MUST stay in sync with services/explore/explore.go
 // resolveFeaturedBill / resolveFeaturedCollection — those are the only
 // reason this validation exists. If the consumer's "publicly visible"
-// rule changes, change this file in the same PR.
+// rule changes, change this file in the same PR. Parity along the
+// existing predicate dimensions (show status, collection visibility,
+// referent existence) is backed by TestPredicateParity_* in
+// services/explore/predicate_parity_test.go (PSY-880); a brand-new
+// dimension added to only one side still relies on the same-PR discipline
+// above, since fixture-based tests can't see a column they don't vary.
 var (
 	// ErrFeaturedSlotReferentNotFound — the referenced show/collection
 	// does not exist. Handler maps to 404.
