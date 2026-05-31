@@ -186,11 +186,19 @@ func (s *ExploreService) GetUpcomingShows(limit, offset int, cities []contracts.
 // applyUpcomingCityFilter ANDs a multi-city (city, state) predicate onto
 // q when cities is non-empty, mirroring services/catalog/show.go's
 // GetUpcomingShows: it matches on shows.city / shows.state — the same
-// columns the /explore response surfaces and the same columns
-// GetShowCities groups by, so the picker's counts line up with the
-// filtered results (PSY-840). Empty slice ⇒ q unchanged (all cities).
-// The grouped OR-conditions are built on a fresh s.db session per the
-// GORM group-condition idiom.
+// columns the /explore response surfaces and GetShowCities groups by, so
+// the picker offers exactly the cities this filter keys on (PSY-840).
+//
+// Count caveat: GetShowCities (the picker) counts with
+// event_date >= start-of-today in the viewer's timezone, while this list
+// uses event_date >= NOW() UTC — explore stays timezone-free so the
+// page's SSR prefetch stays seedable. A city's picker count can therefore
+// slightly exceed its filtered row count for a show that already started
+// earlier today; the empty-state "Show all cities" affordance recovers
+// the edge case where a selected city's only show has already started.
+//
+// Empty slice ⇒ q unchanged (all cities). The grouped OR-conditions are
+// built on a fresh s.db session per the GORM group-condition idiom.
 func (s *ExploreService) applyUpcomingCityFilter(q *gorm.DB, cities []contracts.CityStateFilter) *gorm.DB {
 	if len(cities) == 0 {
 		return q

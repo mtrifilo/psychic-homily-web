@@ -2,26 +2,32 @@ import type { CityState } from './CityFilters'
 
 /**
  * Shared `?cities=` URL-param helpers, co-located with the `CityState`
- * type + `CityFilters` component they serve (PSY-840). Several surfaces
- * still carry local copies of some of these — ShowList, VenueList,
- * ArtistList, HomeShowList, and useShows (buildCitiesParam) — so the
- * pipe-delimited wire format has 6 definitions today. A follow-up
- * (filed alongside PSY-840) should migrate all of them onto these shared
- * exports so the format has a single definition.
+ * type + `CityFilters` component they serve (PSY-840).
  *
  * Wire format: `Phoenix,AZ|Mesa,AZ` — comma between city/state, pipe
- * between pairs. Mirrors the backend parser (handlers/explore,
- * handlers/catalog/show).
+ * between pairs; each segment must be exactly city,state, matching the
+ * /explore backend parser in handlers/explore/explore.go.
+ *
+ * Duplication: ShowList, VenueList, and ArtistList keep local
+ * parse+build copies; useShows keeps a local buildCitiesParam;
+ * HomeShowList keeps a local citiesEqual (it holds selection in
+ * component state, not the URL). PSY-928 tracks migrating all of them
+ * onto these shared exports so the wire format has one definition.
  */
 
-/** Parse the `?cities=` param ("Phoenix,AZ|Mesa,AZ") into typed pairs. */
+/** Parse the `?cities=` param ("Phoenix,AZ|Mesa,AZ") into typed pairs.
+ * Each segment must be exactly city,state — segments with extra commas
+ * or a blank half are dropped, matching the /explore backend parser. */
 export function parseCitiesParam(param: string | null | undefined): CityState[] {
   if (!param) return []
   return param
     .split('|')
     .map(pair => {
-      const [city, state] = pair.split(',')
-      return city && state ? { city: city.trim(), state: state.trim() } : null
+      const parts = pair.split(',')
+      if (parts.length !== 2) return null
+      const city = parts[0].trim()
+      const state = parts[1].trim()
+      return city && state ? { city, state } : null
     })
     .filter((c): c is CityState => c !== null)
 }
