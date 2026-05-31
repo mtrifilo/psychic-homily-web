@@ -47,6 +47,11 @@ func (s *ExploreServiceIntegrationSuite) TearDownTest() {
 	// they're referenced by show_artists/show_venues children.
 	for _, stmt := range []string{
 		"DELETE FROM featured_slots",
+		// The predicate-parity rejection tests write a rejected-attempt
+		// audit row via SetActiveSlot; clean it so any audit-counting test
+		// added to this suite later stays order-independent. actor_id is
+		// ON DELETE SET NULL so ordering vs. users below doesn't matter.
+		"DELETE FROM audit_logs",
 		"DELETE FROM show_artists",
 		"DELETE FROM show_venues",
 		"DELETE FROM shows",

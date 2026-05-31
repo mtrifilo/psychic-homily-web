@@ -288,9 +288,10 @@ func (s *ExploreService) headlinerNameByShow(showIDs []uint) map[uint]string {
 // IMPORTANT: featured_slots.entity_id is polymorphic with NO database
 // FK (the referent table varies by slot_type — shows or collections).
 // The referent may have been deleted, made private, or otherwise
-// removed from the public surface after the slot was set. We defensively
-// LEFT-JOIN here so a stale slot returns nil for that field rather
-// than 500-ing the entire response.
+// removed from the public surface after the slot was set. Each
+// resolveFeatured* re-queries the referent with the same visibility
+// predicate and maps gorm.ErrRecordNotFound to nil, so a stale slot
+// collapses to an empty field rather than 500-ing the entire response.
 //
 // Privacy rule for the collection slot: a collection that has been
 // flipped to private (is_public=false) is excluded — we don't want to
