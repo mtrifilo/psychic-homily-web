@@ -297,6 +297,14 @@ func (s *ExploreService) headlinerNameByShow(showIDs []uint) map[uint]string {
 // leak a private collection's title/description through the /explore
 // landing just because someone privately featured it earlier. A new
 // admin pick or a flip back to public restores visibility.
+//
+// The "publicly visible" predicate (approved status for bills,
+// is_public=true for collections) MUST stay in sync with the write-side
+// guard in services/admin/featured_slot.go validateReferent — otherwise
+// an admin "save" succeeds but the slot never surfaces here (phantom
+// save). Parity along the existing predicate dimensions is backed by
+// TestPredicateParity_* in predicate_parity_test.go (PSY-880); a new
+// dimension added to only one side still needs the same-PR sync above.
 func (s *ExploreService) GetFeatured() (*contracts.ExploreFeaturedResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
