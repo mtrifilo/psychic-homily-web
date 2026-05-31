@@ -10,6 +10,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { showEndpoints, showQueryKeys } from '@/features/shows/api'
 import type { UpcomingShowsResponse, ShowResponse, ShowCitiesResponse } from '../types'
+import { buildCitiesParam } from '@/components/filters/cityParams'
 
 interface UseUpcomingShowsOptions {
   timezone?: string
@@ -25,13 +26,6 @@ interface UseUpcomingShowsOptions {
   tags?: string[]
   /** Set to 'any' to switch the tag filter to OR semantics. */
   tagMatch?: 'all' | 'any'
-}
-
-/**
- * Build pipe-delimited cities param: "Phoenix,AZ|Mesa,AZ"
- */
-function buildCitiesParam(cities: Array<{ city: string; state: string }>): string {
-  return cities.map(c => `${c.city},${c.state}`).join('|')
 }
 
 /**

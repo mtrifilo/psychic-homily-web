@@ -10,6 +10,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
 import { venueEndpoints, venueQueryKeys } from '@/features/venues/api'
+import { buildCitiesParam } from '@/components/filters/cityParams'
 import type {
   Venue,
   VenuesListResponse,
@@ -46,8 +47,7 @@ export const useVenues = (options: UseVenuesOptions = {}) => {
   // Build query params
   const params = new URLSearchParams()
   if (cities && cities.length > 0) {
-    // Multi-city filter: "Phoenix,AZ|Tucson,AZ"
-    params.set('cities', cities.map(c => `${c.city},${c.state}`).join('|'))
+    params.set('cities', buildCitiesParam(cities))
   } else {
     if (state) params.set('state', state)
     if (city) params.set('city', city)

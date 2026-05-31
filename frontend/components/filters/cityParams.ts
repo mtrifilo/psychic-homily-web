@@ -8,11 +8,12 @@ import type { CityState } from './CityFilters'
  * between pairs; each segment must be exactly city,state, matching the
  * /explore backend parser in handlers/explore/explore.go.
  *
- * Duplication: ShowList, VenueList, and ArtistList keep local
- * parse+build copies; useShows keeps a local buildCitiesParam;
- * HomeShowList keeps a local citiesEqual (it holds selection in
- * component state, not the URL). PSY-928 tracks migrating all of them
- * onto these shared exports so the wire format has one definition.
+ * Single source of truth for the `?cities=` wire format (PSY-928):
+ * every surface that reads or writes the param — the shows/venues/
+ * artists list components and their data hooks, HomeShowList, and
+ * /explore's UpcomingShowsList — imports these, so a format change
+ * lands in exactly one place. (The local CityState *type* is still
+ * duplicated in useVenues + SaveDefaultsButton — separate follow-up.)
  */
 
 /** Parse the `?cities=` param ("Phoenix,AZ|Mesa,AZ") into typed pairs.

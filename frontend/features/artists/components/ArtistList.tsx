@@ -6,6 +6,7 @@ import { useArtists, useArtistCities } from '../hooks/useArtists'
 import { ArtistCard } from './ArtistCard'
 import { ArtistSearch } from './ArtistSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
+import { parseCitiesParam, buildCitiesParam } from '@/components/filters/cityParams'
 import { LoadingSpinner, DensityToggle } from '@/components/shared'
 import { useDensity } from '@/lib/hooks/common/useDensity'
 import { Button } from '@/components/ui/button'
@@ -15,23 +16,6 @@ import {
   parseTagsParam,
   buildTagsParam,
 } from '@/features/tags'
-
-/** Parse cities param from URL: "Phoenix,AZ|Mesa,AZ" -> CityState[] */
-function parseCitiesParam(param: string | null): CityState[] {
-  if (!param) return []
-  return param
-    .split('|')
-    .map(pair => {
-      const [city, state] = pair.split(',')
-      return city && state ? { city: city.trim(), state: state.trim() } : null
-    })
-    .filter((c): c is CityState => c !== null)
-}
-
-/** Build cities param for URL: CityState[] -> "Phoenix,AZ|Mesa,AZ" */
-function buildCitiesParam(cities: CityState[]): string {
-  return cities.map(c => `${c.city},${c.state}`).join('|')
-}
 
 export function ArtistList() {
   const router = useRouter()
