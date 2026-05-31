@@ -67,3 +67,11 @@ Object.defineProperty(window, 'ResizeObserver', {
   writable: true,
   value: MockResizeObserver,
 })
+
+// jsdom doesn't implement these, but Radix popover/listbox primitives
+// (Select, etc.) call them when opening. No-op stubs keep popover-based
+// component tests working without per-file boilerplate.
+Element.prototype.scrollIntoView = vi.fn()
+Element.prototype.hasPointerCapture = vi.fn(() => false)
+Element.prototype.setPointerCapture = vi.fn()
+Element.prototype.releasePointerCapture = vi.fn()

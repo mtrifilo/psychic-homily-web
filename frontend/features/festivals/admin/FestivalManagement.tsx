@@ -17,6 +17,13 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -219,18 +226,18 @@ function CreateFestivalForm({
 
       <div className="space-y-2">
         <Label htmlFor="create-status">Status</Label>
-        <select
-          id="create-status"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-        >
-          {FESTIVAL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {FESTIVAL_STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger id="create-status" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {FESTIVAL_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {FESTIVAL_STATUS_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">
@@ -544,18 +551,18 @@ export function EditFestivalFormFields({
 
       <div className="space-y-2">
         <Label htmlFor="edit-status">Status</Label>
-        <select
-          id="edit-status"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-        >
-          {FESTIVAL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {FESTIVAL_STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
+        <Select value={status} onValueChange={setStatus}>
+          <SelectTrigger id="edit-status" className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {FESTIVAL_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {FESTIVAL_STATUS_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       <div className="space-y-2">
@@ -890,6 +897,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Billing Tier</Label>
+            {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
             <select
               value={addBillingTier}
               onChange={(e) => setAddBillingTier(e.target.value)}
@@ -1080,6 +1088,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Billing Tier</Label>
+                {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
                 <select
                   value={editBillingTier}
                   onChange={(e) => setEditBillingTier(e.target.value)}
@@ -1508,6 +1517,7 @@ export function FestivalManagement() {
             className="pl-9"
           />
         </div>
+        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}

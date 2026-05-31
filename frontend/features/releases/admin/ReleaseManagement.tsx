@@ -15,6 +15,13 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -184,6 +191,7 @@ function ArtistPicker({
               <span className="text-sm font-medium flex-1">
                 {artist.artist_name}
               </span>
+              {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
               <select
                 value={artist.role}
                 onChange={(e) => onRoleChange(index, e.target.value)}
@@ -247,17 +255,18 @@ function LinkEditor({
       {/* Add new link */}
       <div className="flex items-end gap-2">
         <div className="w-36">
-          <select
-            value={platform}
-            onChange={(e) => setPlatform(e.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-          >
-            {EXTERNAL_LINK_PLATFORMS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+          <Select value={platform} onValueChange={setPlatform}>
+            <SelectTrigger className="w-full" aria-label="External link platform">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EXTERNAL_LINK_PLATFORMS.map((p) => (
+                <SelectItem key={p.value} value={p.value}>
+                  {p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex-1">
           <Input
@@ -356,17 +365,18 @@ function ExistingLinkManager({
       {/* Add new link */}
       <div className="flex items-end gap-2">
         <div className="w-36">
-          <select
-            value={platform}
-            onChange={(e) => setPlatform(e.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-2 text-sm"
-          >
-            {EXTERNAL_LINK_PLATFORMS.map((p) => (
-              <option key={p.value} value={p.value}>
-                {p.label}
-              </option>
-            ))}
-          </select>
+          <Select value={platform} onValueChange={setPlatform}>
+            <SelectTrigger className="w-full" aria-label="External link platform">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {EXTERNAL_LINK_PLATFORMS.map((p) => (
+                <SelectItem key={p.value} value={p.value}>
+                  {p.label}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="flex-1">
           <Input
@@ -540,18 +550,18 @@ function CreateReleaseForm({
       <div className="grid grid-cols-2 gap-4">
         <div className="space-y-2">
           <Label htmlFor="create-type">Release Type</Label>
-          <select
-            id="create-type"
-            value={releaseType}
-            onChange={(e) => setReleaseType(e.target.value)}
-            className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-          >
-            {RELEASE_TYPES.map((type) => (
-              <option key={type} value={type}>
-                {RELEASE_TYPE_LABELS[type]}
-              </option>
-            ))}
-          </select>
+          <Select value={releaseType} onValueChange={setReleaseType}>
+            <SelectTrigger id="create-type" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RELEASE_TYPES.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {RELEASE_TYPE_LABELS[type]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div className="space-y-2">
           <Label htmlFor="create-year">Year</Label>
@@ -788,18 +798,18 @@ export function EditReleaseFormFields({
         <div className="grid grid-cols-2 gap-4">
           <div className="space-y-2">
             <Label htmlFor="edit-type">Release Type</Label>
-            <select
-              id="edit-type"
-              value={releaseType}
-              onChange={(e) => setReleaseType(e.target.value)}
-              className="h-9 w-full rounded-md border bg-background px-3 text-sm"
-            >
-              {RELEASE_TYPES.map((type) => (
-                <option key={type} value={type}>
-                  {RELEASE_TYPE_LABELS[type]}
-                </option>
-              ))}
-            </select>
+            <Select value={releaseType} onValueChange={setReleaseType}>
+              <SelectTrigger id="edit-type" className="w-full">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {RELEASE_TYPES.map((type) => (
+                  <SelectItem key={type} value={type}>
+                    {RELEASE_TYPE_LABELS[type]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-2">
             <Label htmlFor="edit-year">Year</Label>
@@ -1065,6 +1075,7 @@ export function ReleaseManagement() {
             className="pl-9"
           />
         </div>
+        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}

@@ -28,6 +28,19 @@ import {
 import { AdminEmptyState } from '@/components/admin'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
+import {
+  PLAYLIST_SOURCES,
+  PLAYLIST_SOURCE_NONE,
+  toPlaylistSelectValue,
+  fromPlaylistSelectValue,
+} from './playlistSourceSelect'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -83,13 +96,6 @@ const BROADCAST_TYPES = [
   { value: 'terrestrial', label: 'Terrestrial' },
   { value: 'internet', label: 'Internet' },
   { value: 'both', label: 'Both' },
-] as const
-
-const PLAYLIST_SOURCES = [
-  { value: 'kexp_api', label: 'KEXP API' },
-  { value: 'wfmu_scrape', label: 'WFMU Scrape' },
-  { value: 'nts_api', label: 'NTS API' },
-  { value: 'manual', label: 'Manual' },
 ] as const
 
 type DialogMode = 'create-station' | 'edit-station' | 'delete-station' | 'create-show' | 'edit-show' | 'delete-show' | null
@@ -218,16 +224,16 @@ function CreateStationForm({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="station-broadcast-type">Broadcast Type *</Label>
-          <select
-            id="station-broadcast-type"
-            value={broadcastType}
-            onChange={(e) => setBroadcastType(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          >
-            {BROADCAST_TYPES.map((bt) => (
-              <option key={bt.value} value={bt.value}>{bt.label}</option>
-            ))}
-          </select>
+          <Select value={broadcastType} onValueChange={setBroadcastType}>
+            <SelectTrigger id="station-broadcast-type" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BROADCAST_TYPES.map((bt) => (
+                <SelectItem key={bt.value} value={bt.value}>{bt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label htmlFor="station-frequency">Frequency (MHz)</Label>
@@ -260,17 +266,20 @@ function CreateStationForm({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="station-playlist-source">Playlist Source</Label>
-          <select
-            id="station-playlist-source"
-            value={playlistSource}
-            onChange={(e) => setPlaylistSource(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          <Select
+            value={toPlaylistSelectValue(playlistSource)}
+            onValueChange={(v) => setPlaylistSource(fromPlaylistSelectValue(v))}
           >
-            <option value="">None</option>
-            {PLAYLIST_SOURCES.map((ps) => (
-              <option key={ps.value} value={ps.value}>{ps.label}</option>
-            ))}
-          </select>
+            <SelectTrigger id="station-playlist-source" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={PLAYLIST_SOURCE_NONE}>None</SelectItem>
+              {PLAYLIST_SOURCES.map((ps) => (
+                <SelectItem key={ps.value} value={ps.value}>{ps.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label htmlFor="station-playlist-config">Playlist Config (JSON)</Label>
@@ -408,16 +417,16 @@ function EditStationForm({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="edit-station-broadcast-type">Broadcast Type</Label>
-          <select
-            id="edit-station-broadcast-type"
-            value={broadcastType}
-            onChange={(e) => setBroadcastType(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
-          >
-            {BROADCAST_TYPES.map((bt) => (
-              <option key={bt.value} value={bt.value}>{bt.label}</option>
-            ))}
-          </select>
+          <Select value={broadcastType} onValueChange={setBroadcastType}>
+            <SelectTrigger id="edit-station-broadcast-type" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {BROADCAST_TYPES.map((bt) => (
+                <SelectItem key={bt.value} value={bt.value}>{bt.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label htmlFor="edit-station-frequency">Frequency (MHz)</Label>
@@ -450,17 +459,20 @@ function EditStationForm({
       <div className="grid grid-cols-2 gap-4">
         <div>
           <Label htmlFor="edit-station-playlist-source">Playlist Source</Label>
-          <select
-            id="edit-station-playlist-source"
-            value={playlistSource}
-            onChange={(e) => setPlaylistSource(e.target.value)}
-            className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+          <Select
+            value={toPlaylistSelectValue(playlistSource)}
+            onValueChange={(v) => setPlaylistSource(fromPlaylistSelectValue(v))}
           >
-            <option value="">None</option>
-            {PLAYLIST_SOURCES.map((ps) => (
-              <option key={ps.value} value={ps.value}>{ps.label}</option>
-            ))}
-          </select>
+            <SelectTrigger id="edit-station-playlist-source" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value={PLAYLIST_SOURCE_NONE}>None</SelectItem>
+              {PLAYLIST_SOURCES.map((ps) => (
+                <SelectItem key={ps.value} value={ps.value}>{ps.label}</SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
         </div>
         <div>
           <Label htmlFor="edit-station-playlist-config">Playlist Config (JSON)</Label>
@@ -1433,6 +1445,7 @@ function RadioMatchingTab() {
             <Label htmlFor="station-filter" className="text-sm text-muted-foreground">
               Station:
             </Label>
+            {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
             <select
               id="station-filter"
               value={stationFilter}
