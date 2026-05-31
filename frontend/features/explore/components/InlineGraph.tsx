@@ -23,9 +23,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import { useShow } from '@/features/shows'
 import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
@@ -33,6 +33,34 @@ import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
 const GRAPH_BREAKPOINT_PX = 640
 const GRAPH_HEIGHT_PX = 480
 const INTERSECTION_ROOT_MARGIN = '200px'
+
+// Placeholder reserving the graph's natural height (CLS budget). Reused
+// as the dynamic-import loading fallback AND the pre-mount / data-loading
+// skeleton below, so the two can't drift apart.
+function GraphSkeleton() {
+  return (
+    <div
+      className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse"
+      style={{ minHeight: GRAPH_HEIGHT_PX }}
+      aria-hidden="true"
+    />
+  )
+}
+
+// ForceGraphView is /explore's only static reach into the shared graph
+// chunk: a static import keeps it (and that chunk) in /explore's initial
+// JS even though the graph is below the fold and IntersectionObserver-
+// gated. dynamic(ssr:false) splits the wrapper into its own async chunk
+// fetched only when the graph mounts; the heavy renderer underneath
+// (react-force-graph-2d) is already lazy. The canvas never renders
+// server-side, so ssr:false costs nothing. See PSY-868.
+const ForceGraphView = dynamic(
+  () =>
+    import('@/components/graph/ForceGraphView').then(m => ({
+      default: m.ForceGraphView,
+    })),
+  { ssr: false, loading: () => <GraphSkeleton /> },
+)
 
 interface InlineGraphProps {
   /** Featured bill slug — drives the show-detail fetch for lineup. */
@@ -127,15 +155,10 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
     </div>
   )
 
-  // Skeleton placeholder — reserves the graph's natural height so the
-  // section below doesn't shift when the canvas mounts (CLS budget).
-  const skeleton = (
-    <div
-      className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse"
-      style={{ minHeight: GRAPH_HEIGHT_PX }}
-      aria-hidden="true"
-    />
-  )
+  // Reserves the graph's natural height so the section below doesn't
+  // shift when the canvas mounts (CLS budget). Same element the dynamic
+  // import shows while the ForceGraphView chunk loads.
+  const skeleton = <GraphSkeleton />
 
   return (
     <div ref={containerRef} className="w-full">
