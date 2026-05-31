@@ -23,9 +23,9 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
-import { ForceGraphView } from '@/components/graph/ForceGraphView'
 import type { GraphNode } from '@/components/graph/ForceGraphView'
 import { useShow } from '@/features/shows'
 import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
@@ -33,6 +33,76 @@ import { useArtistGraph } from '@/features/artists/hooks/useArtistGraph'
 const GRAPH_BREAKPOINT_PX = 640
 const GRAPH_HEIGHT_PX = 480
 const INTERSECTION_ROOT_MARGIN = '200px'
+
+// Placeholder reserving the graph's natural height (CLS budget). Reused
+// as the dynamic-import loading fallback AND the pre-mount / data-loading
+// skeleton below, so the two can't drift apart.
+function GraphSkeleton() {
+  return (
+    <div
+      className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse"
+      style={{ minHeight: GRAPH_HEIGHT_PX }}
+      aria-hidden="true"
+    />
+  )
+}
+
+// Visible, announced fallback for when the ForceGraphView chunk fails to
+// load. next/dynamic does NOT throw a failed chunk fetch to an error
+// boundary — it re-invokes `loading` with `error` set — so without this
+// the user would sit on the aria-hidden skeleton forever. The graph is an
+// optional below-the-fold section, so a failure must be perceivable but
+// must not take down the rest of /explore.
+function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 flex flex-col items-center justify-center gap-3 text-center p-6"
+      style={{ minHeight: GRAPH_HEIGHT_PX }}
+    >
+      <p className="text-sm text-muted-foreground">
+        The lineup graph couldn&apos;t load.
+      </p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="text-sm text-primary hover:underline underline-offset-4"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  )
+}
+
+// ForceGraphView is /explore's only static reach into the shared graph
+// chunk: a static import keeps it (and that chunk) in /explore's initial
+// JS even though the graph is below the fold and IntersectionObserver-
+// gated. dynamic(ssr:false) splits the wrapper into its own async chunk
+// fetched only when the graph mounts; the heavy renderer underneath
+// (react-force-graph-2d) is already lazy. The canvas never renders
+// server-side, so ssr:false costs nothing. See PSY-868.
+//
+// Peer ForceGraphView consumers (Scene / Venue / Collection graphs) keep
+// the static import on purpose: there the graph IS the page's primary
+// content, not a below-the-fold widget on a perf-budgeted landing page,
+// so the split would only add a chunk round-trip. The divergence is
+// intentional and scoped to /explore.
+const ForceGraphView = dynamic(
+  () =>
+    import('@/components/graph/ForceGraphView').then(m => ({
+      default: m.ForceGraphView,
+    })),
+  {
+    ssr: false,
+    // Happy path: the height-reserving skeleton while the chunk downloads.
+    // Error path (e.g. a deploy rotated the hashed chunk while the page
+    // was open): a perceivable, recoverable state, not an infinite skeleton.
+    loading: ({ error, retry }) =>
+      error ? <GraphLoadError onRetry={retry} /> : <GraphSkeleton />,
+  },
+)
 
 interface InlineGraphProps {
   /** Featured bill slug — drives the show-detail fetch for lineup. */
@@ -127,15 +197,10 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
     </div>
   )
 
-  // Skeleton placeholder — reserves the graph's natural height so the
-  // section below doesn't shift when the canvas mounts (CLS budget).
-  const skeleton = (
-    <div
-      className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 animate-pulse"
-      style={{ minHeight: GRAPH_HEIGHT_PX }}
-      aria-hidden="true"
-    />
-  )
+  // Reserves the graph's natural height so the section below doesn't
+  // shift when the canvas mounts (CLS budget). Same element the dynamic
+  // import shows while the ForceGraphView chunk loads.
+  const skeleton = <GraphSkeleton />
 
   return (
     <div ref={containerRef} className="w-full">
