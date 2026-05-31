@@ -47,6 +47,35 @@ function GraphSkeleton() {
   )
 }
 
+// Visible, announced fallback for when the ForceGraphView chunk fails to
+// load. next/dynamic does NOT throw a failed chunk fetch to an error
+// boundary — it re-invokes `loading` with `error` set — so without this
+// the user would sit on the aria-hidden skeleton forever. The graph is an
+// optional below-the-fold section, so a failure must be perceivable but
+// must not take down the rest of /explore.
+function GraphLoadError({ onRetry }: { onRetry?: () => void }) {
+  return (
+    <div
+      role="alert"
+      className="aspect-[16/9] w-full rounded-lg border border-border/50 bg-muted/10 flex flex-col items-center justify-center gap-3 text-center p-6"
+      style={{ minHeight: GRAPH_HEIGHT_PX }}
+    >
+      <p className="text-sm text-muted-foreground">
+        The lineup graph couldn&apos;t load.
+      </p>
+      {onRetry && (
+        <button
+          type="button"
+          onClick={onRetry}
+          className="text-sm text-primary hover:underline underline-offset-4"
+        >
+          Try again
+        </button>
+      )}
+    </div>
+  )
+}
+
 // ForceGraphView is /explore's only static reach into the shared graph
 // chunk: a static import keeps it (and that chunk) in /explore's initial
 // JS even though the graph is below the fold and IntersectionObserver-
@@ -54,12 +83,25 @@ function GraphSkeleton() {
 // fetched only when the graph mounts; the heavy renderer underneath
 // (react-force-graph-2d) is already lazy. The canvas never renders
 // server-side, so ssr:false costs nothing. See PSY-868.
+//
+// Peer ForceGraphView consumers (Scene / Venue / Collection graphs) keep
+// the static import on purpose: there the graph IS the page's primary
+// content, not a below-the-fold widget on a perf-budgeted landing page,
+// so the split would only add a chunk round-trip. The divergence is
+// intentional and scoped to /explore.
 const ForceGraphView = dynamic(
   () =>
     import('@/components/graph/ForceGraphView').then(m => ({
       default: m.ForceGraphView,
     })),
-  { ssr: false, loading: () => <GraphSkeleton /> },
+  {
+    ssr: false,
+    // Happy path: the height-reserving skeleton while the chunk downloads.
+    // Error path (e.g. a deploy rotated the hashed chunk while the page
+    // was open): a perceivable, recoverable state, not an infinite skeleton.
+    loading: ({ error, retry }) =>
+      error ? <GraphLoadError onRetry={retry} /> : <GraphSkeleton />,
+  },
 )
 
 interface InlineGraphProps {
