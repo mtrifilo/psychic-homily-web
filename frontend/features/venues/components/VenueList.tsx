@@ -7,6 +7,7 @@ import type { VenueWithShowCount } from '../types'
 import { VenueCard } from './VenueCard'
 import { VenueSearch } from './VenueSearch'
 import { CityFilters, type CityWithCount, type CityState } from '@/components/filters'
+import { parseCitiesParam, buildCitiesParam } from '@/components/filters/cityParams'
 import { LoadingSpinner } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import {
@@ -17,23 +18,6 @@ import {
 } from '@/features/tags'
 
 const VENUES_PER_PAGE = 50
-
-/** Parse cities param from URL: "Phoenix,AZ|Tucson,AZ" -> CityState[] */
-function parseCitiesParam(param: string | null): CityState[] {
-  if (!param) return []
-  return param
-    .split('|')
-    .map(pair => {
-      const [city, state] = pair.split(',')
-      return city && state ? { city: city.trim(), state: state.trim() } : null
-    })
-    .filter((c): c is CityState => c !== null)
-}
-
-/** Build cities param for URL: CityState[] -> "Phoenix,AZ|Tucson,AZ" */
-function buildCitiesParam(cities: CityState[]): string {
-  return cities.map(c => `${c.city},${c.state}`).join('|')
-}
 
 export function VenueList() {
   const router = useRouter()

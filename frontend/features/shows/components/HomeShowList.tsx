@@ -11,14 +11,8 @@ import type { ShowResponse } from '../types'
 import type { CityState } from '@/components/filters'
 import { ShowCard } from './ShowCard'
 import { CityFilters, type CityWithCount } from '@/components/filters'
+import { citiesEqual } from '@/components/filters/cityParams'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
-
-/** Compare two city arrays for equality (order-insensitive) */
-function citiesEqual(a: CityState[], b: CityState[]): boolean {
-  if (a.length !== b.length) return false
-  const setA = new Set(a.map(c => `${c.city}|${c.state}`))
-  return b.every(c => setA.has(`${c.city}|${c.state}`))
-}
 
 export function HomeShowList() {
   const { user, isAuthenticated } = useAuthContext()

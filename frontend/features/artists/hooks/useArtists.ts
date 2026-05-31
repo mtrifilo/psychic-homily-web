@@ -10,6 +10,7 @@ import { useQuery, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { createNamedDetailHook } from '@/lib/hooks/factories'
 import { artistEndpoints, artistQueryKeys } from '@/features/artists/api'
+import { buildCitiesParam } from '@/components/filters/cityParams'
 import type { CityState } from '@/components/filters'
 import type {
   Artist,
@@ -36,7 +37,7 @@ export function useArtists(options: UseArtistsOptions = {}) {
   // Build query params
   const params = new URLSearchParams()
   if (cities && cities.length > 0) {
-    params.set('cities', cities.map(c => `${c.city},${c.state}`).join('|'))
+    params.set('cities', buildCitiesParam(cities))
   }
   if (tags && tags.length > 0) {
     params.set('tags', tags.join(','))

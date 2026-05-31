@@ -16,6 +16,11 @@ import { useDensity } from '@/lib/hooks/common/useDensity'
 import { ShowCard } from './ShowCard'
 import { ShowListSkeleton } from './ShowListSkeleton'
 import { CityFilters, type CityWithCount } from '@/components/filters'
+import {
+  parseCitiesParam,
+  buildCitiesParam,
+  citiesEqual,
+} from '@/components/filters/cityParams'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import {
   TagFacetPanel,
@@ -23,30 +28,6 @@ import {
   parseTagsParam,
   buildTagsParam,
 } from '@/features/tags'
-
-/** Parse cities param from URL: "Phoenix,AZ|Mesa,AZ" -> CityState[] */
-function parseCitiesParam(param: string | null): CityState[] {
-  if (!param) return []
-  return param
-    .split('|')
-    .map(pair => {
-      const [city, state] = pair.split(',')
-      return city && state ? { city: city.trim(), state: state.trim() } : null
-    })
-    .filter((c): c is CityState => c !== null)
-}
-
-/** Build cities param for URL: CityState[] -> "Phoenix,AZ|Mesa,AZ" */
-function buildCitiesParam(cities: CityState[]): string {
-  return cities.map(c => `${c.city},${c.state}`).join('|')
-}
-
-/** Compare two city arrays for equality (order-insensitive) */
-function citiesEqual(a: CityState[], b: CityState[]): boolean {
-  if (a.length !== b.length) return false
-  const setA = new Set(a.map(c => `${c.city}|${c.state}`))
-  return b.every(c => setA.has(`${c.city}|${c.state}`))
-}
 
 export function ShowList() {
   const router = useRouter()
