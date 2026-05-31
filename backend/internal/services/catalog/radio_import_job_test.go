@@ -125,6 +125,32 @@ func (suite *RadioImportJobIntegrationTestSuite) createShow(stationID uint, name
 	return show
 }
 
+// TestImportJob_PersistedDatesParse locks in the PSY-927 premise end-to-end:
+// since/until persist in Postgres DATE columns and round-trip through GORM with
+// a time component, and the value reloaded the way runImportJob reads it must
+// parse via parseImportDate. The helper-only TestParseImportDate hard-codes the
+// "T00:00:00Z" form; this catches a future driver/GORM change to that rendering
+// that the helper test would miss (which is exactly how the original bug broke
+// every auto-backfill job).
+func (suite *RadioImportJobIntegrationTestSuite) TestImportJob_PersistedDatesParse() {
+	station := suite.createStation("Test Station")
+	show := suite.createShow(station.ID, "Test Show")
+
+	job, err := suite.radioService.CreateImportJob(show.ID, "2026-03-02", "2026-03-31")
+	suite.Require().NoError(err)
+
+	var reloaded catalogm.RadioImportJob
+	suite.Require().NoError(suite.db.First(&reloaded, job.ID).Error)
+
+	since, serr := parseImportDate(reloaded.Since)
+	suite.Require().NoError(serr, "persisted Since %q must parse", reloaded.Since)
+	suite.Equal("2026-03-02", since.Format("2006-01-02"))
+
+	until, uerr := parseImportDate(reloaded.Until)
+	suite.Require().NoError(uerr, "persisted Until %q must parse", reloaded.Until)
+	suite.Equal("2026-03-31", until.Format("2006-01-02"))
+}
+
 // ─── CreateImportJob Tests ──────────────────────────────────────────────────
 
 func (suite *RadioImportJobIntegrationTestSuite) TestCreateImportJob_Success() {

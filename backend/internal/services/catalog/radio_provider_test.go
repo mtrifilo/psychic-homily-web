@@ -1751,6 +1751,17 @@ func (suite *RadioImportIntegrationTestSuite) TestGetProvider_Unsupported() {
 	suite.Contains(err.Error(), "unsupported playlist source")
 }
 
+func (suite *RadioImportIntegrationTestSuite) TestGetProvider_Manual() {
+	// PSY-927: 'manual' is a valid source with no automated provider. It must
+	// return its own error (caller skips the station) WITHOUT folding into the
+	// loud "unsupported playlist source" default branch reserved for typos.
+	_, err := suite.radioService.getProvider(catalogm.PlaylistSourceManual)
+	suite.Require().Error(err)
+	suite.Contains(err.Error(), "manual")
+	suite.Contains(err.Error(), "no automated provider")
+	suite.NotContains(err.Error(), "unsupported playlist source")
+}
+
 func (suite *RadioImportIntegrationTestSuite) TestGetProvider_KEXP() {
 	provider, err := suite.radioService.getProvider(catalogm.PlaylistSourceKEXP)
 	suite.Require().NoError(err)

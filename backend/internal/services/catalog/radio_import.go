@@ -33,9 +33,10 @@ func (s *RadioService) getProvider(source string) (RadioPlaylistProvider, error)
 		return NewNTSProvider(), nil
 	case catalogm.PlaylistSourceManual:
 		// "manual" is a valid, intentional source: playlists are curated by hand,
-		// so there is no automated provider to dispatch to. Return an error (the
-		// caller skips the station) but do NOT fall into the default branch's
-		// loud alert — this is a known value, not a misconfiguration.
+		// so there is no automated provider. The scheduled cycle never reaches
+		// here for manual stations — GetActiveStationsWithPlaylistSource excludes
+		// them — so this guards the manual import-job trigger path, returning a
+		// clear error without the default branch's misconfiguration alert.
 		return nil, fmt.Errorf("playlist source %q is manual; no automated provider", source)
 	default:
 		// A truly unrecognized playlist_source silently breaks ALL playlist
