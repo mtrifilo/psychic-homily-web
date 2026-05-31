@@ -86,7 +86,7 @@ func NewExploreService(database *gorm.DB, featuredSlots contracts.FeaturedSlotSe
 // per-show artist preload keeps the query at three round-trips total
 // (shows page, batch venue lookup, batch headliner lookup) instead of
 // the N+1 explosion the full ShowResponse builder would produce.
-func (s *ExploreService) GetUpcomingShows(limit, offset int) (*contracts.ExploreUpcomingShowsResponse, error) {
+func (s *ExploreService) GetUpcomingShows(limit, offset int, cities []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -107,15 +107,21 @@ func (s *ExploreService) GetUpcomingShows(limit, offset int) (*contracts.Explore
 	// without the page-size cap affecting it. Same WHERE clause as the
 	// data query — no JOINs needed.
 	var total int64
-	if err := s.db.Model(&catalogm.Show{}).
-		Where("event_date >= ? AND status = ?", now, catalogm.ShowStatusApproved).
-		Count(&total).Error; err != nil {
+	countQuery := s.applyUpcomingCityFilter(
+		s.db.Model(&catalogm.Show{}).
+			Where("event_date >= ? AND status = ?", now, catalogm.ShowStatusApproved),
+		cities,
+	)
+	if err := countQuery.Count(&total).Error; err != nil {
 		return nil, fmt.Errorf("failed to count upcoming shows: %w", err)
 	}
 
 	var shows []catalogm.Show
-	if err := s.db.
-		Where("event_date >= ? AND status = ?", now, catalogm.ShowStatusApproved).
+	dataQuery := s.applyUpcomingCityFilter(
+		s.db.Where("event_date >= ? AND status = ?", now, catalogm.ShowStatusApproved),
+		cities,
+	)
+	if err := dataQuery.
 		Order("event_date ASC, id ASC").
 		Limit(limit).
 		Offset(offset).
@@ -175,6 +181,37 @@ func (s *ExploreService) GetUpcomingShows(limit, offset int) (*contracts.Explore
 		Limit:  limit,
 		Offset: offset,
 	}, nil
+}
+
+// applyUpcomingCityFilter ANDs a multi-city (city, state) predicate onto
+// q when cities is non-empty, mirroring services/catalog/show.go's
+// GetUpcomingShows: it matches on shows.city / shows.state — the same
+// columns the /explore response surfaces and GetShowCities groups by, so
+// the picker offers exactly the cities this filter keys on (PSY-840).
+//
+// Count caveat: GetShowCities (the picker) counts with
+// event_date >= start-of-today in the viewer's timezone, while this list
+// uses event_date >= NOW() UTC — explore stays timezone-free so the
+// page's SSR prefetch stays seedable. A city's picker count can therefore
+// slightly exceed its filtered row count for a show that already started
+// earlier today; the empty-state "Show all cities" affordance recovers
+// the edge case where a selected city's only show has already started.
+//
+// Empty slice ⇒ q unchanged (all cities). The grouped OR-conditions are
+// built on a fresh s.db session per the GORM group-condition idiom.
+func (s *ExploreService) applyUpcomingCityFilter(q *gorm.DB, cities []contracts.CityStateFilter) *gorm.DB {
+	if len(cities) == 0 {
+		return q
+	}
+	conditions := s.db
+	for i, cs := range cities {
+		if i == 0 {
+			conditions = conditions.Where("(city = ? AND state = ?)", cs.City, cs.State)
+		} else {
+			conditions = conditions.Or("(city = ? AND state = ?)", cs.City, cs.State)
+		}
+	}
+	return q.Where(conditions)
 }
 
 // firstVenueByShow returns the lowest-ID venue per show ID. We index

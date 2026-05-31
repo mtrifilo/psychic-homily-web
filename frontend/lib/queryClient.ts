@@ -409,7 +409,11 @@ export const queryKeys = {
   // /explore landing read endpoints (PSY-835/836/837)
   explore: {
     featured: ['explore', 'featured'] as const,
-    upcomingShows: (params?: { limit?: number; offset?: number }) =>
+    upcomingShows: (params?: {
+      limit?: number
+      offset?: number
+      cities?: Array<{ city: string; state: string }>
+    }) =>
       params && Object.values(params).some(v => v != null)
         ? (['explore', 'upcomingShows', params] as const)
         : (['explore', 'upcomingShows'] as const),

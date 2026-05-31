@@ -12,12 +12,17 @@ package explore
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/danielgtaylor/huma/v2"
 
 	"psychic-homily-backend/internal/logger"
 	"psychic-homily-backend/internal/services/contracts"
 )
+
+// maxCityFilters caps the multi-city filter, mirroring the /shows
+// endpoint — a crafted query can't fan out into an unbounded OR-chain.
+const maxCityFilters = 10
 
 // ExploreHandler holds the service dependencies for the /explore
 // public endpoints. Constructed once at route-setup time.
@@ -38,11 +43,41 @@ func NewExploreHandler(exploreService contracts.ExploreServiceInterface) *Explor
 
 // GetUpcomingShowsRequest is the query envelope for the upcoming-shows
 // endpoint. Limit defaults to 20, capped at 50; offset is non-negative.
-// City filter is intentionally out of scope (PSY-840 follow-up) — adding
-// it later is additive and doesn't change the existing wire shape.
+// Cities is an optional pipe-delimited multi-city filter
+// ("Phoenix,AZ|Tucson,AZ", max 10), mirroring the /shows endpoint's
+// wire shape (PSY-840). Empty ⇒ all cities.
 type GetUpcomingShowsRequest struct {
-	Limit  int `query:"limit" minimum:"1" maximum:"50" default:"20" doc:"Number of shows per page (1-50)"`
-	Offset int `query:"offset" minimum:"0" default:"0" doc:"Offset for pagination"`
+	Limit  int    `query:"limit" minimum:"1" maximum:"50" default:"20" doc:"Number of shows per page (1-50)"`
+	Offset int    `query:"offset" minimum:"0" default:"0" doc:"Offset for pagination"`
+	Cities string `query:"cities" doc:"Pipe-delimited multi-city filter (max 10): Phoenix,AZ|Tucson,AZ"`
+}
+
+// parseCitiesParam turns the pipe-delimited "City,ST|City,ST" query
+// param into typed filters, using the same wire format as the /shows
+// handler. Malformed pairs (not exactly city,state, or blank after
+// trimming) are skipped — stricter than /shows, which forwards them.
+// The list is capped at maxCityFilters. Empty input ⇒ nil (no filter).
+func parseCitiesParam(raw string) []contracts.CityStateFilter {
+	if raw == "" {
+		return nil
+	}
+	var filters []contracts.CityStateFilter
+	for _, pair := range strings.Split(raw, "|") {
+		parts := strings.Split(pair, ",")
+		if len(parts) != 2 {
+			continue
+		}
+		city := strings.TrimSpace(parts[0])
+		state := strings.TrimSpace(parts[1])
+		if city == "" || state == "" {
+			continue
+		}
+		filters = append(filters, contracts.CityStateFilter{City: city, State: state})
+		if len(filters) >= maxCityFilters {
+			break
+		}
+	}
+	return filters
 }
 
 // GetUpcomingShowsResponse wraps the explore-shaped page response.
@@ -57,7 +92,9 @@ type GetUpcomingShowsResponse struct {
 func (h *ExploreHandler) GetUpcomingShowsHandler(ctx context.Context, req *GetUpcomingShowsRequest) (*GetUpcomingShowsResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	result, err := h.exploreService.GetUpcomingShows(req.Limit, req.Offset)
+	cities := parseCitiesParam(req.Cities)
+
+	result, err := h.exploreService.GetUpcomingShows(req.Limit, req.Offset, cities)
 	if err != nil {
 		logger.FromContext(ctx).Error("explore_upcoming_shows_failed",
 			"error", err.Error(),

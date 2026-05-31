@@ -127,8 +127,10 @@ type ExploreServiceInterface interface {
 	// GetUpcomingShows returns approved shows with event_date >= NOW(),
 	// ordered by (event_date ASC, id ASC) for deterministic pagination.
 	// Limit is clamped to [1, 50]; offset must be non-negative. Returns
-	// the page + total count for matching rows.
-	GetUpcomingShows(limit, offset int) (*ExploreUpcomingShowsResponse, error)
+	// the page + total count for matching rows. When cities is non-empty,
+	// results are restricted to shows whose (city, state) matches any
+	// pair — the same shows.city/state predicate /shows uses (PSY-840).
+	GetUpcomingShows(limit, offset int, cities []CityStateFilter) (*ExploreUpcomingShowsResponse, error)
 
 	// GetFeatured returns the currently-active bill + collection from
 	// featured_slots. Returns nil for either field when:

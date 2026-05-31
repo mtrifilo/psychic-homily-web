@@ -27,9 +27,10 @@ func TestExploreHandler_GetUpcomingShows_DelegatesToService(t *testing.T) {
 		Offset: 0,
 	}
 	mock := &testhelpers.MockExploreService{
-		GetUpcomingShowsFn: func(limit, offset int) (*contracts.ExploreUpcomingShowsResponse, error) {
+		GetUpcomingShowsFn: func(limit, offset int, cities []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error) {
 			assert.Equal(t, 20, limit)
 			assert.Equal(t, 0, offset)
+			assert.Empty(t, cities, "no cities param ⇒ nil filter")
 			return want, nil
 		},
 	}
@@ -43,7 +44,7 @@ func TestExploreHandler_GetUpcomingShows_DelegatesToService(t *testing.T) {
 
 func TestExploreHandler_GetUpcomingShows_PropagatesLimitOffset(t *testing.T) {
 	mock := &testhelpers.MockExploreService{
-		GetUpcomingShowsFn: func(limit, offset int) (*contracts.ExploreUpcomingShowsResponse, error) {
+		GetUpcomingShowsFn: func(limit, offset int, _ []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error) {
 			assert.Equal(t, 5, limit)
 			assert.Equal(t, 10, offset)
 			return &contracts.ExploreUpcomingShowsResponse{Limit: limit, Offset: offset}, nil
@@ -57,7 +58,7 @@ func TestExploreHandler_GetUpcomingShows_PropagatesLimitOffset(t *testing.T) {
 
 func TestExploreHandler_GetUpcomingShows_ServiceErrorBecomes500(t *testing.T) {
 	mock := &testhelpers.MockExploreService{
-		GetUpcomingShowsFn: func(int, int) (*contracts.ExploreUpcomingShowsResponse, error) {
+		GetUpcomingShowsFn: func(int, int, []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error) {
 			return nil, errors.New("db blew up")
 		},
 	}
@@ -66,6 +67,25 @@ func TestExploreHandler_GetUpcomingShows_ServiceErrorBecomes500(t *testing.T) {
 	resp, err := handler.GetUpcomingShowsHandler(context.Background(), &GetUpcomingShowsRequest{Limit: 20})
 	require.Error(t, err)
 	assert.Nil(t, resp)
+}
+
+func TestExploreHandler_GetUpcomingShows_ParsesCitiesParam(t *testing.T) {
+	var got []contracts.CityStateFilter
+	mock := &testhelpers.MockExploreService{
+		GetUpcomingShowsFn: func(_, _ int, cities []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error) {
+			got = cities
+			return &contracts.ExploreUpcomingShowsResponse{}, nil
+		},
+	}
+	handler := NewExploreHandler(mock)
+
+	_, err := handler.GetUpcomingShowsHandler(context.Background(),
+		&GetUpcomingShowsRequest{Limit: 20, Cities: " Phoenix , AZ |Omaha,NE| malformed |"})
+	require.NoError(t, err)
+	require.Equal(t, []contracts.CityStateFilter{
+		{City: "Phoenix", State: "AZ"},
+		{City: "Omaha", State: "NE"},
+	}, got, "trims whitespace, parses pairs, skips malformed segments")
 }
 
 // =============================================================================
