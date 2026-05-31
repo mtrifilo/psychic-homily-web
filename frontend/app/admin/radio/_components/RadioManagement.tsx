@@ -35,6 +35,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select'
+import {
+  PLAYLIST_SOURCES,
+  PLAYLIST_SOURCE_NONE,
+  toPlaylistSelectValue,
+  fromPlaylistSelectValue,
+} from './playlistSourceSelect'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
@@ -91,21 +97,6 @@ const BROADCAST_TYPES = [
   { value: 'internet', label: 'Internet' },
   { value: 'both', label: 'Both' },
 ] as const
-
-const PLAYLIST_SOURCES = [
-  { value: 'kexp_api', label: 'KEXP API' },
-  { value: 'wfmu_scrape', label: 'WFMU Scrape' },
-  { value: 'nts_api', label: 'NTS API' },
-  { value: 'manual', label: 'Manual' },
-] as const
-
-// Radix Select reserves the empty string for "no value", so the "None"
-// (no playlist source) state is represented by this sentinel in the Select
-// and mapped back to '' in component state.
-const PLAYLIST_SOURCE_NONE = 'none'
-const toPlaylistSelectValue = (source: string) => source || PLAYLIST_SOURCE_NONE
-const fromPlaylistSelectValue = (value: string) =>
-  value === PLAYLIST_SOURCE_NONE ? '' : value
 
 type DialogMode = 'create-station' | 'edit-station' | 'delete-station' | 'create-show' | 'edit-show' | 'delete-show' | null
 
@@ -1454,6 +1445,7 @@ function RadioMatchingTab() {
             <Label htmlFor="station-filter" className="text-sm text-muted-foreground">
               Station:
             </Label>
+            {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
             <select
               id="station-filter"
               value={stationFilter}

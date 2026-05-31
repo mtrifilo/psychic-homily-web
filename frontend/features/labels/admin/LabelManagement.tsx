@@ -870,6 +870,7 @@ export function LabelManagement() {
             className="pl-9"
           />
         </div>
+        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}

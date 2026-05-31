@@ -897,6 +897,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Billing Tier</Label>
+            {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
             <select
               value={addBillingTier}
               onChange={(e) => setAddBillingTier(e.target.value)}
@@ -1087,6 +1088,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Billing Tier</Label>
+                {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
                 <select
                   value={editBillingTier}
                   onChange={(e) => setEditBillingTier(e.target.value)}
@@ -1515,6 +1517,7 @@ export function FestivalManagement() {
             className="pl-9"
           />
         </div>
+        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
         <select
           value={statusFilter}
           onChange={(e) => setStatusFilter(e.target.value)}

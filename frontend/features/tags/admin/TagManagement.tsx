@@ -686,6 +686,7 @@ export function TagManagement() {
             className="pl-9"
           />
         </div>
+        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
         <select
           value={categoryFilter}
           onChange={(e) => setCategoryFilter(e.target.value)}

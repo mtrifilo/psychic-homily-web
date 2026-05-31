@@ -191,6 +191,7 @@ function ArtistPicker({
               <span className="text-sm font-medium flex-1">
                 {artist.artist_name}
               </span>
+              {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
               <select
                 value={artist.role}
                 onChange={(e) => onRoleChange(index, e.target.value)}
@@ -255,7 +256,7 @@ function LinkEditor({
       <div className="flex items-end gap-2">
         <div className="w-36">
           <Select value={platform} onValueChange={setPlatform}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" aria-label="External link platform">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -365,7 +366,7 @@ function ExistingLinkManager({
       <div className="flex items-end gap-2">
         <div className="w-36">
           <Select value={platform} onValueChange={setPlatform}>
-            <SelectTrigger className="w-full">
+            <SelectTrigger className="w-full" aria-label="External link platform">
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
@@ -1074,6 +1075,7 @@ export function ReleaseManagement() {
             className="pl-9"
           />
         </div>
+        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
         <select
           value={typeFilter}
           onChange={(e) => setTypeFilter(e.target.value)}
