@@ -45,27 +45,27 @@ vi.mock('@/features/auth', () => ({
   useProfile: () => ({ data: undefined }),
 }))
 
-// Stub the heavy filter UI (cmdk + Radix popover) but keep the real
-// parse/build/equal helpers so the component's URL→selection logic runs.
-vi.mock('@/components/filters', async importActual => {
-  const actual = await importActual<typeof import('@/components/filters')>()
-  return {
-    ...actual,
-    CityFilters: ({
-      selectedCities,
-      children,
-    }: {
-      selectedCities: unknown[]
-      children?: ReactNode
-    }) => (
-      <div data-testid="city-filters">
-        <span data-testid="selected-count">{selectedCities.length}</span>
-        {children}
-      </div>
-    ),
-    SaveDefaultsButton: () => <div data-testid="save-defaults" />,
-  }
-})
+// Stub the heavy filter UI (cmdk + Radix popover, dynamic-imported by the
+// component) at its specific module path. The parse/build/equal helpers
+// are imported from cityParams directly and kept real, so the component's
+// URL→selection logic runs against the real parser.
+vi.mock('@/components/filters/CityFilters', () => ({
+  CityFilters: ({
+    selectedCities,
+    children,
+  }: {
+    selectedCities: unknown[]
+    children?: ReactNode
+  }) => (
+    <div data-testid="city-filters">
+      <span data-testid="selected-count">{selectedCities.length}</span>
+      {children}
+    </div>
+  ),
+}))
+vi.mock('@/components/filters/SaveDefaultsButton', () => ({
+  SaveDefaultsButton: () => <div data-testid="save-defaults" />,
+}))
 
 const sampleResponse: ExploreUpcomingShowsResponse = {
   shows: [
@@ -151,7 +151,7 @@ describe('UpcomingShowsList', () => {
     expect(linkTwo).toHaveTextContent('Headliner B')
   })
 
-  it('renders the city filter when more than one city has upcoming shows', () => {
+  it('renders the city filter when more than one city has upcoming shows', async () => {
     mockShowCities = [
       { city: 'Phoenix', state: 'AZ', show_count: 5 },
       { city: 'Omaha', state: 'NE', show_count: 3 },
@@ -162,7 +162,8 @@ describe('UpcomingShowsList', () => {
       error: null,
     })
     render(<UpcomingShowsList />)
-    expect(screen.getByTestId('city-filters')).toBeInTheDocument()
+    // CityFilters is dynamic-imported (ssr:false) — await its async mount.
+    expect(await screen.findByTestId('city-filters')).toBeInTheDocument()
   })
 
   it('hides the city filter when only one city has shows', () => {
@@ -176,7 +177,7 @@ describe('UpcomingShowsList', () => {
     expect(screen.queryByTestId('city-filters')).not.toBeInTheDocument()
   })
 
-  it('parses the ?cities= URL param into the selected-city state', () => {
+  it('parses the ?cities= URL param into the selected-city state', async () => {
     mockCitiesParam = 'Omaha,NE'
     mockShowCities = [
       { city: 'Phoenix', state: 'AZ', show_count: 5 },
@@ -188,7 +189,7 @@ describe('UpcomingShowsList', () => {
       error: null,
     })
     render(<UpcomingShowsList />)
-    expect(screen.getByTestId('selected-count')).toHaveTextContent('1')
+    expect(await screen.findByTestId('selected-count')).toHaveTextContent('1')
   })
 
   it('shows a clear-filter affordance when a city filter yields no shows', () => {

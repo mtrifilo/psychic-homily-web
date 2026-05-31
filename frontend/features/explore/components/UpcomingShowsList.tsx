@@ -21,21 +21,45 @@
 import { useCallback, useEffect, useMemo, useRef, useTransition } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
+import dynamic from 'next/dynamic'
 import { useExploreUpcomingShows } from '../hooks'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { cn } from '@/lib/utils'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useProfile } from '@/features/auth'
 import { useShowCities } from '@/features/shows'
+import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import {
-  CityFilters,
-  SaveDefaultsButton,
   parseCitiesParam,
   buildCitiesParam,
   citiesEqual,
-  type CityState,
-  type CityWithCount,
-} from '@/components/filters'
+} from '@/components/filters/cityParams'
+import type { CityState, CityWithCount } from '@/components/filters/CityFilters'
+
+// CityFilters pulls in cmdk (Command) + Radix Popover. Those bytes are
+// already in the global bundle (CommandPalette in SidebarLayout), but
+// MOUNTING the combobox eagerly on /explore hydrates that interactive
+// tree on the critical path, which pushed the TTI gate (error-level,
+// PSY-868) over budget. dynamic(ssr:false) defers the filter's hydration
+// off the initial /explore hydration path; since the bar only appears
+// after the useShowCities fetch resolves (cities.length > 1), the
+// deferral is effectively invisible. See PSY-840.
+const CityFilters = dynamic(
+  () =>
+    import('@/components/filters/CityFilters').then(m => ({
+      default: m.CityFilters,
+    })),
+  {
+    ssr: false,
+    // Combobox-shaped placeholder — same border/padding/height as the
+    // real trigger so the bar doesn't shift when it hydrates (CLS).
+    loading: () => (
+      <div className="flex w-fit items-center gap-2 rounded-md border border-border/50 bg-muted/50 px-3 py-1.5 text-sm text-muted-foreground">
+        <span className="opacity-60">Filter by city…</span>
+      </div>
+    ),
+  },
+)
 
 interface UpcomingShowsListProps {
   limit?: number
