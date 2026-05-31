@@ -1,11 +1,25 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Sidebar, sidebarGroups } from './Sidebar'
 
 const mockPathname = vi.fn(() => '/shows')
+let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname(),
+  useSearchParams: () => mockSearchParams,
+}))
+
+// Admin nav counts are wired in the admin tests below; default to zeros so the
+// public-nav tests don't need a QueryClientProvider.
+const mockNavCounts = vi.fn(() => ({
+  moderation: 0,
+  pendingShows: 0,
+  unverifiedVenues: 0,
+  reports: 0,
+}))
+vi.mock('@/lib/hooks/admin/useAdminNavCounts', () => ({
+  useAdminNavCounts: () => mockNavCounts(),
 }))
 
 // Return type widened so individual tests can override `user`/`isAuthenticated`
@@ -67,6 +81,13 @@ describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPathname.mockReturnValue('/shows')
+    mockSearchParams = new URLSearchParams()
+    mockNavCounts.mockReturnValue({
+      moderation: 0,
+      pendingShows: 0,
+      unverifiedVenues: 0,
+      reports: 0,
+    })
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -270,5 +291,89 @@ describe('Sidebar', () => {
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     await user.click(screen.getByRole('button', { name: 'Collapse sidebar' }))
     expect(onToggleCollapse).toHaveBeenCalledTimes(1)
+  })
+
+  // Context-aware admin nav (PSY-933): under /admin the rail swaps the public
+  // Discover/Community groups for the 6 grouped admin sections + "Back to site".
+  describe('context-aware admin nav', () => {
+    const asAdmin = () =>
+      mockAuthContext.mockReturnValue({
+        user: { email: 'admin@test.com', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+
+    it('swaps to the admin groups (and hides public groups) for an admin in /admin', () => {
+      asAdmin()
+      mockPathname.mockReturnValue('/admin')
+      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+      // Admin group headers + a representative item.
+      expect(screen.getByText('Moderation & Queues')).toBeInTheDocument()
+      expect(screen.getByText('Catalog')).toBeInTheDocument()
+      expect(screen.getByText('Insights & System')).toBeInTheDocument()
+      expect(screen.getByText('Back to site')).toBeInTheDocument()
+      // Public groups are gone.
+      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
+      expect(screen.queryByText('Community')).not.toBeInTheDocument()
+    })
+
+    it('keeps the public nav for a NON-admin even at /admin (mid-redirect safety)', () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockPathname.mockReturnValue('/admin')
+      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+      expect(screen.getByText('Discover')).toBeInTheDocument()
+      expect(screen.queryByText('Moderation & Queues')).not.toBeInTheDocument()
+    })
+
+    it('marks the section matching ?tab= as active', () => {
+      asAdmin()
+      mockPathname.mockReturnValue('/admin')
+      mockSearchParams = new URLSearchParams('tab=moderation')
+      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+      const moderation = screen.getByText('Moderation').closest('a')!
+      expect(moderation.className).toContain('bg-sidebar-accent text-sidebar-accent-foreground')
+      const releases = screen.getByText('Releases').closest('a')!
+      expect(releases.className).not.toContain('bg-sidebar-accent text-sidebar-accent-foreground')
+    })
+
+    it('treats bare /admin (no tab) as Dashboard active', () => {
+      asAdmin()
+      mockPathname.mockReturnValue('/admin')
+      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+      const dashboard = screen.getByText('Dashboard').closest('a')!
+      expect(dashboard.className).toContain('bg-sidebar-accent text-sidebar-accent-foreground')
+    })
+
+    it('renders queue count badges from useAdminNavCounts (and omits zero counts)', () => {
+      asAdmin()
+      mockPathname.mockReturnValue('/admin')
+      mockNavCounts.mockReturnValue({
+        moderation: 5,
+        pendingShows: 2,
+        unverifiedVenues: 0, // zero → no badge
+        reports: 3,
+      })
+      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+      const moderation = screen.getByText('Moderation').closest('a')!
+      expect(within(moderation).getByText('5')).toBeInTheDocument()
+      const reports = screen.getByText('Reports').closest('a')!
+      expect(within(reports).getByText('3')).toBeInTheDocument()
+      // Unverified Venues has a zero count → no badge text beyond the label.
+      const unverified = screen.getByText('Unverified Venues').closest('a')!
+      expect(within(unverified).queryByText('0')).not.toBeInTheDocument()
+    })
+
+    it('points the back-to-site link at /', () => {
+      asAdmin()
+      mockPathname.mockReturnValue('/admin')
+      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+      expect(screen.getByText('Back to site').closest('a')).toHaveAttribute('href', '/')
+    })
   })
 })

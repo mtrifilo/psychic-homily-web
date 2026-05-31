@@ -85,7 +85,13 @@ const ADMIN_COMMENT_ENDPOINTS = {
 /**
  * Hook to fetch pending comments awaiting admin review.
  */
-export function useAdminPendingComments(limit = 25, offset = 0) {
+export function useAdminPendingComments(
+  limit = 25,
+  offset = 0,
+  // When false, the query does not fire (e.g. the admin nav badge off-route). Defaults to true.
+  options: { enabled?: boolean } = {}
+) {
+  const { enabled = true } = options
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
   params.set('offset', offset.toString())
@@ -100,6 +106,7 @@ export function useAdminPendingComments(limit = 25, offset = 0) {
       })
     },
     staleTime: 30 * 1000, // 30 seconds
+    enabled,
   })
 }
 

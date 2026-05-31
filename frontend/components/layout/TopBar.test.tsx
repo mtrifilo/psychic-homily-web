@@ -4,8 +4,16 @@ import userEvent from '@testing-library/user-event'
 import { TopBar } from './TopBar'
 
 let mockPathname = '/'
+let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+  useSearchParams: () => mockSearchParams,
+}))
+
+// Admin nav counts hook is exercised by its own unit + the Sidebar admin tests;
+// stub it here so the public TopBar tests don't need a QueryClientProvider.
+vi.mock('@/lib/hooks/admin/useAdminNavCounts', () => ({
+  useAdminNavCounts: () => ({ moderation: 0, pendingShows: 0, unverifiedVenues: 0, reports: 0 }),
 }))
 
 vi.mock('next/image', () => ({

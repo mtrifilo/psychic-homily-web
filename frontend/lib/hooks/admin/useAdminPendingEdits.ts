@@ -66,6 +66,8 @@ export interface PendingEditsFilters {
   entity_type?: string
   limit?: number
   offset?: number
+  /** When false, the query does not fire (e.g. the admin nav badge off-route). Defaults to true. */
+  enabled?: boolean
 }
 
 // ─── Hooks ───────────────────────────────────────────────────────────────────
@@ -74,7 +76,7 @@ export interface PendingEditsFilters {
  * Hook to fetch pending entity edits for admin review.
  */
 export function useAdminPendingEdits(filters: PendingEditsFilters = {}) {
-  const { status = 'pending', entity_type, limit = 50, offset = 0 } = filters
+  const { status = 'pending', entity_type, limit = 50, offset = 0, enabled = true } = filters
 
   const params = new URLSearchParams()
   if (status) params.set('status', status)
@@ -92,6 +94,7 @@ export function useAdminPendingEdits(filters: PendingEditsFilters = {}) {
       })
     },
     staleTime: 30 * 1000, // 30 seconds
+    enabled,
   })
 }
 

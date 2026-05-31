@@ -3,18 +3,19 @@ import { screen, waitFor } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import AdminPage from './page'
 
-// The admin index page (app/admin/page.tsx) is the tabbed shell. It reads the
-// active tab from the URL, gates on the authenticated admin, and lazy-loads
-// each tab's panel via next/dynamic. We mount it with an admin user + the
-// badge-count hooks mocked and assert the console shell + tab bar render, and
-// that the default (dashboard) panel resolves with its stats panels.
+// The admin index page (app/admin/page.tsx) is the tabbed shell. It derives the
+// active section from the URL ?tab= param, gates on the authenticated admin, and
+// lazy-loads each section's panel via next/dynamic. Section navigation now lives
+// in the context-aware Sidebar / mobile drawer (PSY-933), NOT an in-page tab bar.
+// We mount it with an admin user and assert the console shell renders and the
+// default (dashboard) panel resolves with its stats panels.
 //
 // The tab panels are dynamically imported via next/dynamic. We replace it with
 // a component that resolves the loader in an effect and renders the result.
 // (React.lazy would suspend the whole AdminPageContent tree — including the
-// eager tab bar — under the page's single top-level <Suspense>, so the tab bar
-// would not be queryable synchronously. An effect-driven swap keeps the shell
-// eager and resolves each panel asynchronously, matching next/dynamic's shape.)
+// eager shell header — under the page's single top-level <Suspense>, so the
+// header would not be queryable synchronously. An effect-driven swap keeps the
+// shell eager and resolves each panel asynchronously, matching next/dynamic's shape.)
 vi.mock('next/dynamic', async () => {
   const React = await import('react')
   return {
@@ -83,40 +84,13 @@ vi.mock('@/lib/context/AuthContext', () => ({
   }),
 }))
 
-// Badge-count hooks — the shell sums these into the moderation/reports badges.
-const emptyQuery = { data: undefined as unknown }
-
-vi.mock('@/lib/hooks/admin/useAdminVenues', () => ({
-  useUnverifiedVenues: () => emptyQuery,
-}))
-vi.mock('@/lib/hooks/admin/useAdminReports', () => ({
-  usePendingReports: () => emptyQuery,
-}))
-vi.mock('@/lib/hooks/admin/useAdminArtistReports', () => ({
-  usePendingArtistReports: () => emptyQuery,
-}))
-vi.mock('@/lib/hooks/admin/useAdminShows', () => ({
-  usePendingShows: () => emptyQuery,
-}))
-vi.mock('@/lib/hooks/admin/useAdminPendingEdits', () => ({
-  useAdminPendingEdits: () => emptyQuery,
-}))
-vi.mock('@/lib/hooks/admin/useAdminEntityReports', () => ({
-  useAdminEntityReports: () => emptyQuery,
-}))
-vi.mock('@/lib/hooks/admin/useAdminComments', () => ({
-  useAdminPendingComments: () => emptyQuery,
-}))
+// The badge-count hooks moved out of this page to the Sidebar (PSY-933), so the
+// shell no longer imports them — no mocks needed here.
 
 describe('AdminPage (app/admin shell)', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockSearchParams = new URLSearchParams()
-    // jsdom doesn't implement Element scroll methods. The page's
-    // ScrollableTabBar calls scrollTo/scrollBy from a layout effect to keep the
-    // active tab in view; stub them so those effects don't throw.
-    Element.prototype.scrollTo = vi.fn()
-    Element.prototype.scrollBy = vi.fn()
   })
 
   it('renders the Admin Console header for an authenticated admin', () => {
@@ -127,27 +101,13 @@ describe('AdminPage (app/admin shell)', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders the full tab bar', () => {
+  it('no longer renders an in-page tab bar (nav moved to the context-aware Sidebar, PSY-933)', () => {
     renderWithProviders(<AdminPage />)
 
-    for (const tab of [
-      'Dashboard',
-      'Moderation',
-      'Pending Shows',
-      'Unverified Venues',
-      'Reports',
-      'Releases',
-      'Labels',
-      'Festivals',
-      'Tags',
-      'Data Quality',
-      'Analytics',
-      'Radio',
-      'Users',
-      'Audit Log',
-    ]) {
-      expect(screen.getByRole('tab', { name: new RegExp(tab) })).toBeInTheDocument()
-    }
+    // The 18-tab ScrollableTabBar was retired; section navigation now lives in
+    // the Sidebar / mobile drawer. The page is a value-controlled content shell.
+    expect(screen.queryByRole('tablist')).not.toBeInTheDocument()
+    expect(screen.queryAllByRole('tab')).toHaveLength(0)
   })
 
   it('renders the dashboard skeleton panels on the default tab', async () => {
