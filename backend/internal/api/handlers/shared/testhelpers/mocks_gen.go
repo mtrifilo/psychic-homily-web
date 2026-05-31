@@ -1549,14 +1549,14 @@ func (m *MockEntityReportService) DismissEntityReport(reportID uint, reviewerID 
 // ============================================================================
 
 type MockExploreService struct {
-	GetUpcomingShowsFn func(int, int) (*contracts.ExploreUpcomingShowsResponse, error)
+	GetUpcomingShowsFn func(int, int, []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error)
 	GetFeaturedFn      func() (*contracts.ExploreFeaturedResponse, error)
 	GetShuffleTargetFn func() (*contracts.ExploreShuffleTargetResponse, error)
 }
 
-func (m *MockExploreService) GetUpcomingShows(limit int, offset int) (*contracts.ExploreUpcomingShowsResponse, error) {
+func (m *MockExploreService) GetUpcomingShows(limit int, offset int, cities []contracts.CityStateFilter) (*contracts.ExploreUpcomingShowsResponse, error) {
 	if m.GetUpcomingShowsFn != nil {
-		return m.GetUpcomingShowsFn(limit, offset)
+		return m.GetUpcomingShowsFn(limit, offset, cities)
 	}
 	return nil, nil
 }

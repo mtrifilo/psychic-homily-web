@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
+import type { ReactNode } from 'react'
 import { UpcomingShowsList } from './UpcomingShowsList'
 import type { ExploreUpcomingShowsResponse } from '../types'
 
@@ -18,6 +19,53 @@ const mockUseExploreUpcomingShows = vi.fn<() => MockHookResult>(() => ({
 vi.mock('../hooks', () => ({
   useExploreUpcomingShows: () => mockUseExploreUpcomingShows(),
 }))
+
+// City-filter dependencies. Defaults below keep the filter bar hidden
+// (≤1 city, no URL param, anon) so the list-focused tests are unaffected;
+// individual tests override the module-level vars.
+let mockCitiesParam: string | null = null
+const mockReplace = vi.fn()
+const mockPush = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ replace: mockReplace, push: mockPush }),
+  useSearchParams: () =>
+    new URLSearchParams(mockCitiesParam ? `cities=${mockCitiesParam}` : ''),
+}))
+
+let mockShowCities: Array<{ city: string; state: string; show_count: number }> = []
+vi.mock('@/features/shows', () => ({
+  useShowCities: () => ({ data: { cities: mockShowCities } }),
+}))
+
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ isAuthenticated: false, user: null }),
+}))
+
+vi.mock('@/features/auth', () => ({
+  useProfile: () => ({ data: undefined }),
+}))
+
+// Stub the heavy filter UI (cmdk + Radix popover) but keep the real
+// parse/build/equal helpers so the component's URL→selection logic runs.
+vi.mock('@/components/filters', async importActual => {
+  const actual = await importActual<typeof import('@/components/filters')>()
+  return {
+    ...actual,
+    CityFilters: ({
+      selectedCities,
+      children,
+    }: {
+      selectedCities: unknown[]
+      children?: ReactNode
+    }) => (
+      <div data-testid="city-filters">
+        <span data-testid="selected-count">{selectedCities.length}</span>
+        {children}
+      </div>
+    ),
+    SaveDefaultsButton: () => <div data-testid="save-defaults" />,
+  }
+})
 
 const sampleResponse: ExploreUpcomingShowsResponse = {
   shows: [
@@ -50,6 +98,10 @@ const sampleResponse: ExploreUpcomingShowsResponse = {
 describe('UpcomingShowsList', () => {
   beforeEach(() => {
     mockUseExploreUpcomingShows.mockReset()
+    mockCitiesParam = null
+    mockShowCities = []
+    mockReplace.mockReset()
+    mockPush.mockReset()
   })
 
   it('renders a loading spinner while fetching', () => {
@@ -97,5 +149,61 @@ describe('UpcomingShowsList', () => {
     const linkTwo = screen.getByRole('link', { name: 'Show Two' })
     expect(linkTwo).toHaveAttribute('href', '/shows/show-two')
     expect(linkTwo).toHaveTextContent('Headliner B')
+  })
+
+  it('renders the city filter when more than one city has upcoming shows', () => {
+    mockShowCities = [
+      { city: 'Phoenix', state: 'AZ', show_count: 5 },
+      { city: 'Omaha', state: 'NE', show_count: 3 },
+    ]
+    mockUseExploreUpcomingShows.mockReturnValue({
+      data: sampleResponse,
+      isLoading: false,
+      error: null,
+    })
+    render(<UpcomingShowsList />)
+    expect(screen.getByTestId('city-filters')).toBeInTheDocument()
+  })
+
+  it('hides the city filter when only one city has shows', () => {
+    mockShowCities = [{ city: 'Phoenix', state: 'AZ', show_count: 5 }]
+    mockUseExploreUpcomingShows.mockReturnValue({
+      data: sampleResponse,
+      isLoading: false,
+      error: null,
+    })
+    render(<UpcomingShowsList />)
+    expect(screen.queryByTestId('city-filters')).not.toBeInTheDocument()
+  })
+
+  it('parses the ?cities= URL param into the selected-city state', () => {
+    mockCitiesParam = 'Omaha,NE'
+    mockShowCities = [
+      { city: 'Phoenix', state: 'AZ', show_count: 5 },
+      { city: 'Omaha', state: 'NE', show_count: 3 },
+    ]
+    mockUseExploreUpcomingShows.mockReturnValue({
+      data: sampleResponse,
+      isLoading: false,
+      error: null,
+    })
+    render(<UpcomingShowsList />)
+    expect(screen.getByTestId('selected-count')).toHaveTextContent('1')
+  })
+
+  it('shows a clear-filter affordance when a city filter yields no shows', () => {
+    mockCitiesParam = 'Omaha,NE'
+    mockShowCities = [
+      { city: 'Phoenix', state: 'AZ', show_count: 5 },
+      { city: 'Omaha', state: 'NE', show_count: 3 },
+    ]
+    mockUseExploreUpcomingShows.mockReturnValue({
+      data: { shows: [], total: 0, limit: 5, offset: 0 },
+      isLoading: false,
+      error: null,
+    })
+    render(<UpcomingShowsList />)
+    expect(screen.getByText(/no upcoming shows in the selected city/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /show all cities/i })).toBeInTheDocument()
   })
 })

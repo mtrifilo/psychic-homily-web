@@ -12,6 +12,7 @@ import (
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	communitym "psychic-homily-backend/internal/models/community"
 	adminsvc "psychic-homily-backend/internal/services/admin"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -129,6 +130,23 @@ func (s *ExploreServiceIntegrationSuite) createShow(title string, daysFromNow in
 	return show, artist, venue
 }
 
+// createShowInCity inserts an approved, future-dated show in a specific
+// city/state with no venue/artist joins — the city filter only reads
+// shows.city/state. Used by the PSY-840 city-filter tests.
+func (s *ExploreServiceIntegrationSuite) createShowInCity(title string, daysFromNow int, city, state string) *catalogm.Show {
+	slug := fmt.Sprintf("show-%s-%d", title, time.Now().UnixNano())
+	show := &catalogm.Show{
+		Title:     title,
+		Slug:      &slug,
+		EventDate: time.Now().UTC().AddDate(0, 0, daysFromNow),
+		City:      &city,
+		State:     &state,
+		Status:    catalogm.ShowStatusApproved,
+	}
+	s.Require().NoError(s.db.Create(show).Error)
+	return show
+}
+
 // createCollection seeds a collection with the given visibility.
 // GORM-bool gotcha (per CLAUDE.md): IsPublic = false is the zero-value
 // so Create silently ignores it and the column default (true) wins.
@@ -153,7 +171,7 @@ func (s *ExploreServiceIntegrationSuite) createCollection(creatorID uint, title 
 // ──────────────────────────────────────────────
 
 func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_Empty() {
-	resp, err := s.exploreService.GetUpcomingShows(20, 0)
+	resp, err := s.exploreService.GetUpcomingShows(20, 0, nil)
 	s.Require().NoError(err)
 	s.Require().NotNil(resp)
 	s.Equal(int64(0), resp.Total)
@@ -168,7 +186,7 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_ChronologicalOrder
 	s.createShow("a-soon", 1)
 	s.createShow("b-mid", 7)
 
-	resp, err := s.exploreService.GetUpcomingShows(20, 0)
+	resp, err := s.exploreService.GetUpcomingShows(20, 0, nil)
 	s.Require().NoError(err)
 	s.Require().Len(resp.Shows, 3)
 	s.Equal(int64(3), resp.Total)
@@ -185,7 +203,7 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_ExcludesPast() {
 	s.createShow("past", -3)
 	future, _, _ := s.createShow("future", 5)
 
-	resp, err := s.exploreService.GetUpcomingShows(20, 0)
+	resp, err := s.exploreService.GetUpcomingShows(20, 0, nil)
 	s.Require().NoError(err)
 	s.Require().Len(resp.Shows, 1)
 	s.Equal(future.ID, resp.Shows[0].ID)
@@ -209,7 +227,7 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_ExcludesNonApprove
 	}
 	visible, _, _ := s.createShow("approved", 5)
 
-	resp, err := s.exploreService.GetUpcomingShows(20, 0)
+	resp, err := s.exploreService.GetUpcomingShows(20, 0, nil)
 	s.Require().NoError(err)
 	s.Require().Len(resp.Shows, 1)
 	s.Equal(visible.ID, resp.Shows[0].ID)
@@ -226,7 +244,7 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_DeterministicPagin
 	s.Require().NoError(s.db.Create(a).Error)
 	s.Require().NoError(s.db.Create(b).Error)
 
-	resp, err := s.exploreService.GetUpcomingShows(10, 0)
+	resp, err := s.exploreService.GetUpcomingShows(10, 0, nil)
 	s.Require().NoError(err)
 	s.Require().Len(resp.Shows, 2)
 	s.True(resp.Shows[0].ID < resp.Shows[1].ID, "tied shows must sort by id ASC")
@@ -235,7 +253,7 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_DeterministicPagin
 func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_HeadlinerAndVenueHydrated() {
 	show, artist, venue := s.createShow("primary", 5)
 
-	resp, err := s.exploreService.GetUpcomingShows(20, 0)
+	resp, err := s.exploreService.GetUpcomingShows(20, 0, nil)
 	s.Require().NoError(err)
 	s.Require().Len(resp.Shows, 1)
 	s.Equal(show.ID, resp.Shows[0].ID)
@@ -251,13 +269,13 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_LimitClamped() {
 	}
 
 	// Limit 2 only returns 2 shows but total stays accurate.
-	resp, err := s.exploreService.GetUpcomingShows(2, 0)
+	resp, err := s.exploreService.GetUpcomingShows(2, 0, nil)
 	s.Require().NoError(err)
 	s.Len(resp.Shows, 2)
 	s.Equal(int64(5), resp.Total)
 
 	// Out-of-range limit gets clamped to maxUpcomingShowsLimit.
-	resp, err = s.exploreService.GetUpcomingShows(9999, 0)
+	resp, err = s.exploreService.GetUpcomingShows(9999, 0, nil)
 	s.Require().NoError(err)
 	s.Equal(maxUpcomingShowsLimit, resp.Limit)
 }
@@ -267,11 +285,11 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_OffsetPaginates() 
 		s.createShow(fmt.Sprintf("show-%d", i), i+1)
 	}
 
-	page1, err := s.exploreService.GetUpcomingShows(2, 0)
+	page1, err := s.exploreService.GetUpcomingShows(2, 0, nil)
 	s.Require().NoError(err)
 	s.Len(page1.Shows, 2)
 
-	page2, err := s.exploreService.GetUpcomingShows(2, 2)
+	page2, err := s.exploreService.GetUpcomingShows(2, 2, nil)
 	s.Require().NoError(err)
 	s.Len(page2.Shows, 2)
 
@@ -280,6 +298,68 @@ func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_OffsetPaginates() 
 	for _, sh := range page2.Shows {
 		s.False(page1IDs[sh.ID], "page 2 must not overlap page 1")
 	}
+}
+
+// ──────────────────────────────────────────────
+// GetUpcomingShows — city filter (PSY-840)
+// ──────────────────────────────────────────────
+
+func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_FilterByCity() {
+	s.createShowInCity("phx-show", 3, "Phoenix", "AZ")
+	omaha := s.createShowInCity("omaha-show", 4, "Omaha", "NE")
+	s.createShowInCity("austin-show", 5, "Austin", "TX")
+
+	resp, err := s.exploreService.GetUpcomingShows(20, 0,
+		[]contracts.CityStateFilter{{City: "Omaha", State: "NE"}})
+	s.Require().NoError(err)
+	s.Require().Len(resp.Shows, 1)
+	s.Equal(omaha.ID, resp.Shows[0].ID)
+	s.Equal(int64(1), resp.Total, "total reflects the filter, not all rows")
+}
+
+func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_FilterByMultipleCities() {
+	s.createShowInCity("phx-show", 3, "Phoenix", "AZ")
+	s.createShowInCity("omaha-show", 4, "Omaha", "NE")
+	s.createShowInCity("austin-show", 5, "Austin", "TX")
+
+	resp, err := s.exploreService.GetUpcomingShows(20, 0, []contracts.CityStateFilter{
+		{City: "Omaha", State: "NE"},
+		{City: "Austin", State: "TX"},
+	})
+	s.Require().NoError(err)
+	s.Require().Len(resp.Shows, 2)
+	s.Equal(int64(2), resp.Total)
+	seen := map[string]bool{}
+	for _, sh := range resp.Shows {
+		if sh.City != nil {
+			seen[*sh.City] = true
+		}
+	}
+	s.True(seen["Omaha"] && seen["Austin"], "only the two selected cities surface")
+	s.False(seen["Phoenix"], "unselected city must be excluded")
+}
+
+func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_CityFilterRespectsStateDisambiguation() {
+	// Same city name, different states — the filter matches the (city,
+	// state) pair, not city alone (Phoenix AZ vs Phoenix IL).
+	azPhx := s.createShowInCity("phx-az", 3, "Phoenix", "AZ")
+	s.createShowInCity("phx-il", 4, "Phoenix", "IL")
+
+	resp, err := s.exploreService.GetUpcomingShows(20, 0,
+		[]contracts.CityStateFilter{{City: "Phoenix", State: "AZ"}})
+	s.Require().NoError(err)
+	s.Require().Len(resp.Shows, 1)
+	s.Equal(azPhx.ID, resp.Shows[0].ID)
+}
+
+func (s *ExploreServiceIntegrationSuite) TestGetUpcomingShows_CityFilterNoMatchReturnsEmpty() {
+	s.createShowInCity("phx-show", 3, "Phoenix", "AZ")
+
+	resp, err := s.exploreService.GetUpcomingShows(20, 0,
+		[]contracts.CityStateFilter{{City: "Nowhere", State: "ZZ"}})
+	s.Require().NoError(err)
+	s.Empty(resp.Shows)
+	s.Equal(int64(0), resp.Total)
 }
 
 // ──────────────────────────────────────────────
