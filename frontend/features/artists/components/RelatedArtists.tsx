@@ -227,7 +227,18 @@ export function ArtistGraphDialog({
         <DialogHeader>
           <DialogTitle>Similar artists · {artistName}</DialogTitle>
         </DialogHeader>
-        <div ref={containerRefCallback}>
+        {/*
+          PSY-949: `min-w-0` is load-bearing — do NOT remove it.
+          DialogContent is `display: grid`, so this div is a grid item whose
+          default `min-width: auto` resolves to its min-content width. The
+          ResizeObserver below feeds the measured width to ForceGraph2D as an
+          explicit pixel `width`; without `min-w-0` the canvas's min-content
+          width forces this item to grow past `max-w-5xl`, the observer fires
+          larger, and the canvas balloons every tick (measured 3036px→11254px).
+          `min-w-0` lets the item shrink to the grid track instead, capping the
+          measured width at the real dialog inner width and breaking the loop.
+        */}
+        <div ref={containerRefCallback} className="min-w-0 w-full overflow-hidden">
           {containerWidth !== null && (
             <RecenteringGraph
               originalArtistId={artistId}
