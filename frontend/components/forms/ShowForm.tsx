@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useRef } from 'react'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
@@ -46,6 +46,8 @@ import {
   removeArtistAtIndex,
   isVenueLocationEditable as computeVenueEditable,
   makeFormArtist,
+  mergeExtraction,
+  extractedVenueToSelected,
 } from './show-form-utils'
 
 // Form validation schema
@@ -134,21 +136,29 @@ export function ShowForm({
   const [orphanedArtists, setOrphanedArtists] = useState<OrphanedArtist[]>([])
   const [showOrphanDialog, setShowOrphanDialog] = useState(false)
 
-  // Track selected venue for editability checks
-  // Initialize from prefilledVenue, initialData (for edit mode), or null for create mode
+  // Track selected venue for editability checks.
+  // Initialize from prefilledVenue, initialData (edit mode), a matched AI
+  // extraction (create mode), or null. The form is remounted via `key` when a
+  // new extraction arrives, so this initializer runs once per extraction —
+  // mirroring what the old prop-derived effect did imperatively (PSY-795).
   const [selectedVenue, setSelectedVenue] = useState<VenueResponse | null>(
-    () =>
-      prefilledVenue
-        ? {
-            id: prefilledVenue.id,
-            slug: prefilledVenue.slug,
-            name: prefilledVenue.name,
-            city: prefilledVenue.city,
-            state: prefilledVenue.state,
-            address: prefilledVenue.address ?? null,
-            verified: prefilledVenue.verified ?? false,
-          }
-        : (initialData?.venues[0] ?? null)
+    () => {
+      if (prefilledVenue) {
+        return {
+          id: prefilledVenue.id,
+          slug: prefilledVenue.slug,
+          name: prefilledVenue.name,
+          city: prefilledVenue.city,
+          state: prefilledVenue.state,
+          address: prefilledVenue.address ?? null,
+          verified: prefilledVenue.verified ?? false,
+        }
+      }
+      if (initialData) {
+        return initialData.venues[0] ?? null
+      }
+      return extractedVenueToSelected(initialExtraction)
+    }
   )
 
   const isEditMode = mode === 'edit'
@@ -157,7 +167,12 @@ export function ShowForm({
 
   const isVenueLocationEditable = computeVenueEditable(isAdmin, selectedVenue, !!prefilledVenue)
 
-  // Compute initial values based on mode
+  // Compute initial values based on mode. In create mode, AI-extracted data
+  // (PSY-795) is folded into the defaults here so TanStack Form reads it as
+  // `defaultValues` at mount — the parent remounts the form via `key` on each
+  // new extraction. Edit / prefilled-venue paths take precedence; the
+  // AIFormFiller only renders on the create page so they never co-occur with
+  // an extraction in practice.
   const initialFormValues = (() => {
     if (isEditMode && initialData) {
       return showToFormValues(initialData)
@@ -174,11 +189,13 @@ export function ShowForm({
         },
       }
     }
-    return defaultFormValues
+    return mergeExtraction(defaultFormValues, initialExtraction)
   })()
 
-  // Track venue name for showing/hiding the "new venue" warning
-  const [venueName, setVenueName] = useState('')
+  // Track venue name for showing/hiding the "new venue" warning. Seed it from
+  // the extraction so the new/verified-venue banners render correctly on the
+  // first paint after a remount (mirrors the prior effect's setVenueName).
+  const [venueName, setVenueName] = useState(() => initialFormValues.venue.name)
 
   const form = useForm({
     defaultValues: initialFormValues,
@@ -294,91 +311,6 @@ export function ShowForm({
       onSubmit: showFormSchema,
     },
   })
-
-  // Populate form from AI extraction
-  // Using a ref to track the last applied extraction to avoid duplicate applications
-  const lastAppliedExtraction = useRef<ExtractedShowData | null>(null)
-
-  useEffect(() => {
-    if (!initialExtraction) return
-    // Skip if we've already applied this exact extraction
-    if (lastAppliedExtraction.current === initialExtraction) return
-    lastAppliedExtraction.current = initialExtraction
-
-    // Use requestAnimationFrame to batch state updates and avoid cascading renders
-    const rafId = requestAnimationFrame(() => {
-      // Set artists
-      if (initialExtraction.artists.length > 0) {
-        form.setFieldValue(
-          'artists',
-          initialExtraction.artists.map(a =>
-            makeFormArtist({
-              name: a.matched_name || a.name,
-              is_headliner: a.is_headliner,
-              matched_id: a.matched_id,
-              instagram_handle: a.matched_id ? undefined : a.instagram_handle,
-            })
-          )
-        )
-      }
-
-      // Set venue
-      if (initialExtraction.venue) {
-        const v = initialExtraction.venue
-        form.setFieldValue('venue.id', v.matched_id)
-        form.setFieldValue('venue.name', v.matched_name || v.name)
-        form.setFieldValue('venue.city', v.city || '')
-        form.setFieldValue('venue.state', v.state || '')
-        form.setFieldValue('venue.address', '')
-        // Update venue name for new venue warning
-        setVenueName(v.matched_name || v.name)
-        // Update selected venue if matched
-        if (v.matched_id && v.matched_name && v.matched_slug) {
-          setSelectedVenue({
-            id: v.matched_id,
-            slug: v.matched_slug,
-            name: v.matched_name,
-            address: null,
-            city: v.city || '',
-            state: v.state || '',
-            verified: true, // Assume matched venues are verified
-          })
-        } else {
-          setSelectedVenue(null)
-        }
-      }
-
-      // Set date
-      if (initialExtraction.date) {
-        form.setFieldValue('date', initialExtraction.date)
-      }
-
-      // Set time
-      if (initialExtraction.time) {
-        form.setFieldValue('time', initialExtraction.time)
-      }
-
-      // Set cost
-      if (initialExtraction.cost) {
-        form.setFieldValue('cost', initialExtraction.cost)
-      }
-
-      // Set ages
-      if (initialExtraction.ages) {
-        form.setFieldValue('ages', initialExtraction.ages)
-      }
-
-      // Set description
-      if (initialExtraction.description) {
-        form.setFieldValue('description', initialExtraction.description)
-      }
-    })
-
-    // Cancel the pending frame if the component unmounts (or the effect
-    // re-runs) before it fires, so setFieldValue never touches an unmounted
-    // form — avoids a dev warning and a StrictMode double-schedule.
-    return () => cancelAnimationFrame(rafId)
-  }, [initialExtraction, form])
 
   // Handle venue selection to auto-fill city/state and track selected venue
   const handleVenueSelect = (venue: Venue | null) => {

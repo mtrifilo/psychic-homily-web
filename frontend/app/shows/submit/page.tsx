@@ -95,6 +95,15 @@ export default function SubmitShowPage() {
   const [extractedData, setExtractedData] = useState<
     ExtractedShowData | undefined
   >()
+  // Bumped on each extraction so <ShowForm key={...}> remounts and re-seeds
+  // its defaultValues from the new extraction (PSY-795 — replaces the prior
+  // prop-derived useEffect inside ShowForm).
+  const [extractionVersion, setExtractionVersion] = useState(0)
+
+  const handleExtracted = (data: ExtractedShowData) => {
+    setExtractedData(data)
+    setExtractionVersion(v => v + 1)
+  }
 
   useEffect(() => {
     if (!isLoading && !isAuthenticated) {
@@ -135,11 +144,15 @@ export default function SubmitShowPage() {
           )}
         </div>
 
-        <AIFormFiller onExtracted={setExtractedData} />
+        <AIFormFiller onExtracted={handleExtracted} />
 
         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
           <CardContent className="pt-4">
-            <ShowForm mode="create" initialExtraction={extractedData} />
+            <ShowForm
+              key={extractionVersion}
+              mode="create"
+              initialExtraction={extractedData}
+            />
           </CardContent>
         </Card>
       </div>
