@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
-import { AnalyticsDashboard } from './AnalyticsDashboard'
+import { AnalyticsDashboard, COLORS } from './AnalyticsDashboard'
 
 // Mock recharts to avoid SVG rendering issues in JSDOM
 vi.mock('recharts', () => {
@@ -318,5 +318,45 @@ describe('AnalyticsDashboard', () => {
     expect(
       screen.getByText('No contributions in the last 30 days.')
     ).toBeInTheDocument()
+  })
+})
+
+describe('COLORS palette invariants (PSY-908)', () => {
+  // Series rendered in the SAME chart must use distinct tokens, or two lines
+  // become visually indistinguishable. Tokens are intentionally reused ACROSS
+  // charts (see the COLORS doc comment), so distinctness is asserted per chart.
+  const chartGroups: Record<string, (keyof typeof COLORS)[]> = {
+    'Entity Creation': [
+      'shows',
+      'artists',
+      'venues',
+      'releases',
+      'labels',
+      'users',
+    ],
+    'Content Curation': ['tags_added', 'tag_votes', 'collection_items'],
+    'Requests & Voting': ['requests', 'request_votes'],
+    'Social Engagement': ['bookmarks', 'follows', 'attendance', 'revisions'],
+    'Show Approval': ['approved', 'rejected'],
+  }
+
+  it.each(Object.entries(chartGroups))(
+    'assigns a distinct token to every series in the %s chart',
+    (_chart, keys) => {
+      const tokens = keys.map((k) => COLORS[k])
+      expect(new Set(tokens).size).toBe(keys.length)
+    }
+  )
+
+  it('binds every series to a design-system var() token (no raw hex / recharts defaults)', () => {
+    for (const value of Object.values(COLORS)) {
+      expect(value).toMatch(/^var\(--[a-z0-9-]+\)$/)
+    }
+  })
+
+  it('keeps approval trends semantic: approved = chart-2 (green), rejected = destructive (red)', () => {
+    expect(COLORS.approved).toBe('var(--chart-2)')
+    expect(COLORS.rejected).toBe('var(--destructive)')
+    expect(COLORS.approved).not.toBe(COLORS.rejected)
   })
 })
