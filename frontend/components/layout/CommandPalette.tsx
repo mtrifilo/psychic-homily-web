@@ -14,11 +14,12 @@ import {
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
-  TrendingUp, LayoutDashboard, Upload, BadgeCheck, Flag, ScrollText, Users, Workflow,
-  ClipboardCheck, BarChart3, Music, Bell, HeartHandshake, ShieldCheck, Loader2, Trophy, Radio,
+  TrendingUp, Music, Bell, HeartHandshake, Loader2, Trophy, Radio,
   Hash, Network,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
+import { adminNavGroups, adminTabHref } from '@/components/layout/adminNav'
+import type { AdminTab } from '@/components/layout/adminNav'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCommandPalette } from '@/lib/hooks/common/useCommandPalette'
 import {
@@ -187,134 +188,51 @@ const routes: RouteItem[] = [
   },
 ]
 
-const adminRoutes: RouteItem[] = [
-  {
-    label: 'Admin: Dashboard',
-    href: '/admin',
-    icon: LayoutDashboard,
-    keywords: ['admin', 'dashboard', 'overview', 'stats'],
+/**
+ * Cmd-K search keywords per admin section, keyed by AdminTab so a new section
+ * (added to VALID_TABS in adminNav.ts) is a compile error here until it gets
+ * search terms — the palette can never silently ship a keyword-less admin entry.
+ * 'admin' is prepended to every entry by the derivation below, so it's omitted here.
+ */
+const ADMIN_ROUTE_KEYWORDS: Record<AdminTab, string[]> = {
+  dashboard: ['dashboard', 'overview', 'stats'],
+  moderation: ['moderation', 'queue', 'review', 'pending', 'edits', 'reports', 'moderate', 'venue'],
+  'pending-shows': ['pending', 'shows', 'approve', 'review', 'moderate'],
+  'unverified-venues': ['unverified', 'venues', 'verify'],
+  reports: ['reports', 'flags', 'flagged', 'issues'],
+  'import-show': ['import', 'show', 'add', 'upload'],
+  releases: ['releases', 'albums', 'manage'],
+  labels: ['labels', 'record labels', 'manage'],
+  festivals: ['festivals', 'manage'],
+  pipeline: ['pipeline', 'extraction', 'scraping', 'venues', 'data', 'import'],
+  collections: ['collections', 'manage', 'featured'],
+  tags: ['tags', 'manage', 'genres'],
+  'data-quality': ['data', 'quality', 'health', 'issues'],
+  analytics: ['analytics', 'metrics', 'growth', 'engagement'],
+  'artists-admin': ['artists', 'manage', 'merge', 'aliases'],
+  radio: ['radio', 'stations', 'matching', 'kexp', 'wfmu', 'nts', 'manage'],
+  users: ['users', 'accounts', 'manage'],
+  'audit-log': ['audit', 'log', 'history', 'actions'],
+}
+
+// PSY-934: derive the admin palette entries from the nav SSOT (adminNavGroups +
+// adminTabHref in adminNav.ts) rather than maintaining a third hardcoded copy of
+// the admin route list. The prior copy carried a dead `?tab=pending-venue-edits`
+// link (not a valid section — pending edits live under Moderation) and was
+// MISSING the Radio section. Deriving from the SSOT makes a stale/missing tab a
+// compile error and keeps icons + coverage in lockstep with the sidebar.
+// adminNav.test.ts asserts the derived hrefs ⊆ VALID_TABS.
+// Exported for the parity test (adminNav hrefs ⊆ VALID_TABS) in
+// CommandPalette.test.tsx — not consumed elsewhere.
+export const adminRoutes: RouteItem[] = adminNavGroups.flatMap(group =>
+  group.items.map(item => ({
+    label: `Admin: ${item.label}`,
+    href: adminTabHref(item.tab),
+    icon: item.icon,
+    keywords: ['admin', ...ADMIN_ROUTE_KEYWORDS[item.tab]],
     requireAdmin: true,
-  },
-  {
-    label: 'Admin: Moderation Queue',
-    href: '/admin?tab=moderation',
-    icon: ShieldCheck,
-    keywords: ['admin', 'moderation', 'queue', 'review', 'pending', 'edits', 'reports', 'moderate'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Pending Shows',
-    href: '/admin?tab=pending-shows',
-    icon: Clock,
-    keywords: ['admin', 'pending', 'shows', 'approve', 'review', 'moderate'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Venue Edits',
-    href: '/admin?tab=pending-venue-edits',
-    icon: MapPin,
-    keywords: ['admin', 'venue', 'edits', 'pending', 'approve'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Unverified Venues',
-    href: '/admin?tab=unverified-venues',
-    icon: BadgeCheck,
-    keywords: ['admin', 'unverified', 'venues', 'verify'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Reports',
-    href: '/admin?tab=reports',
-    icon: Flag,
-    keywords: ['admin', 'reports', 'flags', 'flagged', 'issues'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Import Show',
-    href: '/admin?tab=import-show',
-    icon: Upload,
-    keywords: ['admin', 'import', 'show', 'add', 'upload'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Releases',
-    href: '/admin?tab=releases',
-    icon: Disc3,
-    keywords: ['admin', 'releases', 'albums', 'manage'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Labels',
-    href: '/admin?tab=labels',
-    icon: Tag,
-    keywords: ['admin', 'labels', 'record labels', 'manage'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Festivals',
-    href: '/admin?tab=festivals',
-    icon: Tent,
-    keywords: ['admin', 'festivals', 'manage'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Data Pipeline',
-    href: '/admin?tab=pipeline',
-    icon: Workflow,
-    keywords: ['admin', 'pipeline', 'extraction', 'scraping', 'venues', 'data', 'import'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Collections',
-    href: '/admin?tab=collections',
-    icon: Library,
-    keywords: ['admin', 'collections', 'manage', 'featured'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Tags',
-    href: '/admin?tab=tags',
-    icon: Tags,
-    keywords: ['admin', 'tags', 'manage', 'genres'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Data Quality',
-    href: '/admin?tab=data-quality',
-    icon: ClipboardCheck,
-    keywords: ['admin', 'data', 'quality', 'health', 'issues'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Analytics',
-    href: '/admin?tab=analytics',
-    icon: BarChart3,
-    keywords: ['admin', 'analytics', 'metrics', 'growth', 'engagement'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Artists',
-    href: '/admin?tab=artists-admin',
-    icon: Music,
-    keywords: ['admin', 'artists', 'manage', 'merge', 'aliases'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Users',
-    href: '/admin?tab=users',
-    icon: Users,
-    keywords: ['admin', 'users', 'accounts', 'manage'],
-    requireAdmin: true,
-  },
-  {
-    label: 'Admin: Audit Log',
-    href: '/admin?tab=audit-log',
-    icon: ScrollText,
-    keywords: ['admin', 'audit', 'log', 'history', 'actions'],
-    requireAdmin: true,
-  },
-]
+  }))
+)
 
 const allRoutes = [...routes, ...adminRoutes]
 

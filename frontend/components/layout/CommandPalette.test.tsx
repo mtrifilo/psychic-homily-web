@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest'
 import { screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import { CommandPalette } from './CommandPalette'
+import { CommandPalette, adminRoutes } from './CommandPalette'
+import { isValidTab, adminNavGroups, adminTabHref } from './adminNav'
 
 // jsdom does not implement scrollIntoView
 beforeAll(() => {
@@ -598,5 +599,49 @@ describe('CommandPalette — search outage banner (PSY-725)', () => {
     // Palette open with searchError=true but no query yet — banner must
     // stay hidden so users see the static routes, not a stale outage flag.
     expect(screen.queryByTestId('entity-search-error-banner')).not.toBeInTheDocument()
+  })
+})
+
+// PSY-934: the palette's admin routes are now DERIVED from the nav SSOT
+// (adminNavGroups + adminTabHref in adminNav.ts) instead of a third hardcoded
+// copy. This guards that coupling: every admin href must resolve to a real
+// section, so a dead link like the old `?tab=pending-venue-edits` (which fell
+// back to the Dashboard) can never ship again, and every nav section stays
+// reachable via Cmd-K.
+describe('CommandPalette — admin routes derived from nav SSOT (PSY-934)', () => {
+  // The `?tab=` value an admin href resolves to. Dashboard is the bare /admin
+  // (resolves to 'dashboard' in page.tsx via the isValidTab fallback).
+  const tabOf = (href: string): string => {
+    const url = new URL(href, 'https://x.test')
+    return url.searchParams.get('tab') ?? 'dashboard'
+  }
+
+  it('every admin href resolves to a valid section (⊆ VALID_TABS)', () => {
+    for (const route of adminRoutes) {
+      expect(route.href.startsWith('/admin')).toBe(true)
+      // isValidTab accepts the resolved tab — no Dashboard fallback for a
+      // stale/typo'd tab. This is what the dead `pending-venue-edits` link
+      // failed before this fix.
+      expect(isValidTab(tabOf(route.href))).toBe(true)
+    }
+  })
+
+  it('has no dead `pending-venue-edits` link (the PSY-934 regression)', () => {
+    expect(adminRoutes.some(r => r.href.includes('pending-venue-edits'))).toBe(false)
+  })
+
+  it('covers exactly the nav SSOT sections, in order (Radio reachable via Cmd-K)', () => {
+    const expectedTabs = adminNavGroups.flatMap(g => g.items.map(i => i.tab))
+    expect(adminRoutes.map(r => tabOf(r.href))).toEqual(expectedTabs)
+    // Radio was missing from the prior hardcoded copy; the SSOT includes it.
+    expect(adminRoutes.some(r => r.href === adminTabHref('radio'))).toBe(true)
+  })
+
+  it('every admin route is admin-gated and prefixed', () => {
+    for (const route of adminRoutes) {
+      expect(route.requireAdmin).toBe(true)
+      expect(route.label.startsWith('Admin: ')).toBe(true)
+      expect(route.keywords).toContain('admin')
+    }
   })
 })
