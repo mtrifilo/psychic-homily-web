@@ -24,6 +24,11 @@ import {
   type UpdatePrivacyInput,
 } from '@/features/auth'
 
+// Sentinel for the adjust-during-render sync below: a value guaranteed
+// distinct from any real `privacy_settings`, so the guard also fires on the
+// FIRST render (the prior effect always ran on mount and seeded).
+const UNSET = Symbol('unset')
+
 const privacyFields: {
   key: keyof Omit<PrivacySettings, 'last_active' | 'profile_sections'>
   label: string
@@ -122,7 +127,6 @@ export function PrivacySettingsPanel() {
   const [hasChanges, setHasChanges] = useState(false)
   const [saveSuccess, setSaveSuccess] = useState(false)
   const successTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const hasLocalEdits = useRef(false)
 
   // Clean up timeouts on unmount
   useEffect(() => {
@@ -133,12 +137,23 @@ export function PrivacySettingsPanel() {
     }
   }, [])
 
-  // Sync local privacy settings from profile, unless user has unsaved local edits
-  useEffect(() => {
-    if (profile?.privacy_settings && !hasLocalEdits.current) {
+  // Sync local privacy settings from profile, unless the user has unsaved
+  // local edits. React 19.2: adjust state during render via the canonical
+  // previous-value-guard idiom instead of a cascading effect. The tracker is
+  // initialized to a sentinel so the guard fires on the FIRST render too
+  // (matching the prior effect, which always ran on mount and seeded). We read
+  // the `hasChanges` STATE (not a ref) so the guard is render-safe; `hasChanges`
+  // already mirrors the prior `hasLocalEdits` ref (both flipped in lockstep in
+  // the field-change and save handlers).
+  const [prevPrivacySettings, setPrevPrivacySettings] = useState<
+    PrivacySettings | undefined | typeof UNSET
+  >(UNSET)
+  if (profile?.privacy_settings !== prevPrivacySettings) {
+    setPrevPrivacySettings(profile?.privacy_settings)
+    if (profile?.privacy_settings && !hasChanges) {
       setLocalPrivacy(profile.privacy_settings)
     }
-  }, [profile?.privacy_settings])
+  }
 
   const isPublic = profile?.profile_visibility === 'public'
 
@@ -164,7 +179,6 @@ export function PrivacySettingsPanel() {
     if (!localPrivacy) return
     setLocalPrivacy({ ...localPrivacy, [key]: value })
     setHasChanges(true)
-    hasLocalEdits.current = true
     setSaveSuccess(false)
   }
 
@@ -184,7 +198,6 @@ export function PrivacySettingsPanel() {
     updatePrivacy.mutate(input, {
       onSuccess: () => {
         setHasChanges(false)
-        hasLocalEdits.current = false
         setSaveSuccess(true)
         if (successTimeoutRef.current) {
           clearTimeout(successTimeoutRef.current)

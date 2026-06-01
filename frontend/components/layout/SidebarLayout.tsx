@@ -12,9 +12,23 @@ export function SidebarLayout({ children }: { children: React.ReactNode }) {
   const [collapsed, setCollapsed] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
 
+  // Hydrate the collapsed preference from localStorage AFTER mount. The first
+  // render is intentionally the default (expanded) on both server and client
+  // so hydration matches; the stored value (client-only) is applied a beat
+  // later. React 19.2: defer the setState to a microtask so it lands after the
+  // effect returns instead of synchronously in the effect body (which trips
+  // set-state-in-effect / cascading render). A lazy useState initializer is
+  // unsafe here — it would read localStorage during SSR and mismatch hydration.
   useEffect(() => {
     const stored = localStorage.getItem(STORAGE_KEY)
-    if (stored === 'true') setCollapsed(true)
+    if (stored !== 'true') return
+    let cancelled = false
+    Promise.resolve().then(() => {
+      if (!cancelled) setCollapsed(true)
+    })
+    return () => {
+      cancelled = true
+    }
   }, [])
 
   const toggleCollapse = useCallback(() => {

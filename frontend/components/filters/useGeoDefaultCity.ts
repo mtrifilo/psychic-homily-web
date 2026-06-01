@@ -131,12 +131,22 @@ function useGeoSource(
     hasFetched.current = true
 
     // sessionStorage cache: a prior page in this session already resolved geo.
+    // React 19.2: a synchronous setState in the effect body trips
+    // set-state-in-effect (cascading render). The cache read itself is sync,
+    // but applying it is deferred to a microtask so the state update lands
+    // after the effect returns — same render-timing as the fetch path below.
     try {
       const cached = window.sessionStorage.getItem(GEO_CACHE_KEY)
       if (cached !== null) {
         const parsed = JSON.parse(cached) as GeoApiResponse
-        setFetched(toCityState(parsed?.geo))
-        return
+        const cachedCity = toCityState(parsed?.geo)
+        let cacheCancelled = false
+        Promise.resolve().then(() => {
+          if (!cacheCancelled) setFetched(cachedCity)
+        })
+        return () => {
+          cacheCancelled = true
+        }
       }
     } catch {
       // Corrupted cache / sessionStorage unavailable — fall through to fetch.

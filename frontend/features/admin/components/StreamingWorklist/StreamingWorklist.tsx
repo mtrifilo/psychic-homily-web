@@ -30,7 +30,7 @@
  * session.
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
 import {
   ChevronLeft,
@@ -391,16 +391,18 @@ export function StreamingWorklist() {
   // Rewind to the last non-empty page when a mutation drops the only
   // visible row on a non-first page. Without this, total goes (e.g.) 26
   // → 25 but offset stays at 25 — the user sees the empty-state copy
-  // even though the queue isn't actually clear. We use useEffect rather
-  // than calculate-during-render because (a) offset is parent state we
-  // need to mutate via setOffset, and (b) the condition fires only when
-  // the query result lands, not on every render.
-  useEffect(() => {
-    if (data && entries.length === 0 && offset > 0 && total > 0) {
-      const lastValidOffset = Math.max(0, (Math.ceil(total / limit) - 1) * limit)
+  // even though the queue isn't actually clear. React 19.2: adjust state
+  // during render instead of a cascading effect. The `offset !==
+  // lastValidOffset` clause makes the correction idempotent — after the
+  // rewind, offset already equals the target, so the guard cannot re-fire
+  // (no infinite render loop) even before the query refetches for the new
+  // offset.
+  if (data && entries.length === 0 && offset > 0 && total > 0) {
+    const lastValidOffset = Math.max(0, (Math.ceil(total / limit) - 1) * limit)
+    if (offset !== lastValidOffset) {
       setOffset(lastValidOffset)
     }
-  }, [data, entries.length, offset, total, limit])
+  }
 
   const handleStatusChange = useCallback((value: StreamingWorklistStatusFilter) => {
     setStatus(value)

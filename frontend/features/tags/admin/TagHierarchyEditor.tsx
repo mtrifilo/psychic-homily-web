@@ -124,14 +124,24 @@ function ParentPickerDialog({
     return () => clearTimeout(t)
   }, [search])
 
-  useEffect(() => {
-    if (!open) return
-    setSearch('')
-    setDebounced('')
-    setSelected(null)
-    setError(null)
-    setWantsClear(false)
-  }, [open, tagId])
+  // Reset state whenever the dialog opens for a new tag. React 19.2: adjust
+  // state during render via the previous-value-guard idiom instead of a
+  // cascading effect. Guarding on [open, tagId] preserves the prior dependency
+  // semantics exactly.
+  const [prevResetKey, setPrevResetKey] = useState<{
+    open: boolean
+    tagId: number | null
+  }>({ open, tagId })
+  if (prevResetKey.open !== open || prevResetKey.tagId !== tagId) {
+    setPrevResetKey({ open, tagId })
+    if (open) {
+      setSearch('')
+      setDebounced('')
+      setSelected(null)
+      setError(null)
+      setWantsClear(false)
+    }
+  }
 
   // Genre-only search — hierarchy is genre-only end-to-end.
   const { data: searchData, isLoading: searching } = useSearchTags(

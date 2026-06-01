@@ -26,6 +26,16 @@ export default function PendingShowsPage() {
   const [quickRejectIds, setQuickRejectIds] = useState<number[]>([])
   const [showQuickRejectDialog, setShowQuickRejectDialog] = useState(false)
 
+  // Clear selection when filters change. React 19.2: adjust state during
+  // render via the canonical previous-value-guard idiom instead of a
+  // cascading effect.
+  const [prevFilterKey, setPrevFilterKey] = useState(`${sourceFilter}|${venueFilter}`)
+  const filterKey = `${sourceFilter}|${venueFilter}`
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey)
+    setSelectedIds(new Set())
+  }
+
   const { user } = useAuthContext()
   const isAdmin = !!user?.is_admin
   const {
@@ -96,11 +106,6 @@ export default function PendingShowsPage() {
   const allSelected = filteredShows.length > 0 && selectedIds.size === filteredShows.length
   const someSelected = selectedIds.size > 0
   const selectedCount = selectedIds.size
-
-  // Clear selection when filters change
-  useEffect(() => {
-    setSelectedIds(new Set())
-  }, [sourceFilter, venueFilter])
 
   // Batch approve
   const handleBatchApprove = useCallback(() => {

@@ -77,14 +77,24 @@ export function StatusBanner({
 }: StatusBannerProps) {
   const [hidden, setHidden] = useState(false)
 
-  // Reset visibility on every timer-config change so callers that re-arm
-  // (dismissAfterMs changes from one number to another) get the banner
-  // back; clear the timer on unmount so we never setState on an
-  // unmounted component.
+  // Reset visibility when the timer config changes so callers that re-arm
+  // (dismissAfterMs changes from one number to another) get the banner back.
+  // React 19.2: adjust state during render via the previous-value-guard idiom
+  // instead of a synchronous setState in the effect (cascading render). The
+  // reset keys on `dismissAfterMs` — the documented re-arm trigger; the timer
+  // itself still re-arms on any dep change in the effect below.
+  const [prevDismissAfterMs, setPrevDismissAfterMs] = useState(dismissAfterMs)
+  if (dismissAfterMs !== prevDismissAfterMs) {
+    setPrevDismissAfterMs(dismissAfterMs)
+    setHidden(false)
+  }
+
+  // Arm the auto-dismiss timer; clear it on unmount (and on re-arm) so we
+  // never setState on an unmounted component. The `setHidden(true)` here is
+  // inside the deferred timer callback, not synchronous in the effect body.
   useEffect(() => {
     if (dismissAfterMs === undefined) return
 
-    setHidden(false)
     const timer = setTimeout(() => {
       setHidden(true)
       onDismiss?.()
