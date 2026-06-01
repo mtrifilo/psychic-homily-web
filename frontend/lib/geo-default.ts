@@ -1,36 +1,55 @@
 /**
- * IP-geolocation default-city resolver for /explore (PSY-926).
+ * IP-geolocation default-city resolver (PSY-926 /explore, PSY-946 /shows + home).
  *
  * Why this exists
  * ---------------
- * The /explore Upcoming Shows city filter (PSY-840) needs a sensible default
- * for anonymous / first-visit users who have no `favorite_cities`. A static
- * Phoenix default wrong-foots the traveler the feature targets. We instead
- * derive the visitor's metro from Vercel's edge geo-IP headers and surface it
- * as an *overridable suggestion* — never a hard lock.
+ * The city filter (PSY-840 /explore, PSY-932 list pages) needs a sensible
+ * default for anonymous / first-visit users who have no `favorite_cities`. A
+ * static Phoenix default wrong-foots the traveler the feature targets. We
+ * instead derive the visitor's metro from Vercel's edge geo-IP headers and
+ * surface it as an *overridable suggestion* — never a hard lock.
  *
- * Dynamic-boundary contract
- * --------------------------
- * Vercel injects `X-Vercel-IP-City` / `X-Vercel-IP-Country-Region` /
- * `X-Vercel-IP-Country` onto the incoming request at the edge. This module is
- * read from `app/explore/page.tsx`, which is ALREADY a request-time (dynamic)
- * render — it `await`s `searchParams` (PSY-840's URL persistence). Reading one
- * more request-data source (`headers()`) there does not un-cache the upstream
- * `fetch(... { next: { revalidate: 300 } })` calls, so ISR on the /explore
- * *data* is preserved; only the per-request shell varies. This is the
- * "dynamic boundary" the PSY-926 AC requires, and it avoids touching
- * `frontend/proxy.ts`'s carefully-tuned soft-404 matcher (the proxy is not
- * needed because the page is already dynamic).
+ * Two read paths — both through `decodeGeoHeaders` (PSY-946)
+ * ----------------------------------------------------------
+ * The SAME decode logic (`decodeGeoHeaders`) feeds two transports, chosen per
+ * surface by its rendering mode. DO NOT "unify" these into one — the split is
+ * deliberate and load-bearing (each preserves a different route's cache mode):
+ *
+ *   1. `getGeoDefaultCity()` — server `next/headers()` read, used by
+ *      `app/explore/page.tsx`. /explore is ALREADY a request-time (dynamic)
+ *      render (it `await`s `searchParams`, PSY-840), so reading one more
+ *      request-data source there is free: the upstream
+ *      `fetch(... { revalidate: 300 })` calls keep their ISR hints, only the
+ *      per-request shell varies. Moving /explore to the route-handler path
+ *      would ADD a client request it doesn't need.
+ *
+ *   2. The edge route handler `app/api/geo/route.ts` — calls
+ *      `decodeGeoHeaders(request.headers)` and is fetched CLIENT-SIDE by
+ *      `useGeoDefaultCity`. Used by `/shows` (ISR, `app/shows/page.tsx`) and
+ *      home (`app/page.tsx`, fully static). Those PAGES must NOT read
+ *      `next/headers` — doing so opts the whole route into dynamic rendering
+ *      and defeats ISR/static (the anti-pattern that got PSY-834 cancelled).
+ *      A separate route handler is inherently dynamic without touching the
+ *      page's cache mode. ⚠️ If you ever try to make /shows or home read geo
+ *      server-side, you will silently un-ISR them — keep the client fetch.
+ *
+ * Either way the decoded value is a SUGGESTION only — it is reconciled against
+ * PH's has-shows data on the client (`useGeoDefaultCity` →
+ * `geoCityWithShows`) and only ever pre-selected as the canonical PH city,
+ * never the raw header (injection-safe).
  *
  * Privacy
  * -------
  * City + region only, read transiently per request, never stored against an
  * identity and never written to a cookie. The decoded value flows to the
- * client as a render prop and is discarded after render. Disclosed in the
- * privacy policy (§2.3 / §3).
+ * client as a render prop (/explore) or a no-store JSON response (route
+ * handler) and is discarded after use. Disclosed in the privacy policy
+ * (§2.3 / §3).
  *
- * Importing this from a client component throws at build time (it reads
- * `next/headers`), so the "server-only" boundary is enforced by the compiler.
+ * `getGeoDefaultCity` imports `next/headers`, so importing IT from a client
+ * component throws at build time — the "server-only" boundary is enforced by
+ * the compiler. `decodeGeoHeaders` is pure (takes a `Headers`) and is safe to
+ * call from the edge route handler.
  */
 
 import { headers } from 'next/headers'
@@ -42,16 +61,21 @@ const HEADER_REGION = 'x-vercel-ip-country-region'
 const HEADER_COUNTRY = 'x-vercel-ip-country'
 
 /**
- * Read the Vercel edge geo headers and decode them into a `{ city, state }`
- * suggestion, or `null` when geo is unavailable / ambiguous.
+ * Decode a `Headers`-like object carrying the Vercel edge geo headers into a
+ * `{ city, state }` suggestion, or `null` when geo is unavailable / ambiguous.
+ *
+ * Pure (no `next/headers`) so BOTH read paths share it (see file header):
+ * `getGeoDefaultCity` passes the server `headers()` store; the edge route
+ * handler passes `request.headers`. Anything with a `.get(name) => string |
+ * null` shape works.
  *
  * This is a SUGGESTION only — it is NOT validated against PH's shows data
- * here (the proxy/server has no cheap access to the cities-with-counts list).
- * The client (`UpcomingShowsList`) reconciles it against `useShowCities`
- * data and only pre-selects it when the city actually has upcoming shows;
- * otherwise it falls back to "All cities". Keeping the has-shows check on the
- * client reuses PSY-840's existing data source instead of inventing a server
- * lookup.
+ * here (neither the server nor the edge has cheap access to the
+ * cities-with-counts list). The client (`useGeoDefaultCity`) reconciles it
+ * against `useShowCities` data and only pre-selects it when the city actually
+ * has upcoming shows; otherwise it falls back to "All cities". Keeping the
+ * has-shows check on the client reuses PSY-840's existing data source instead
+ * of inventing a server lookup.
  *
  * Returns `null` (→ "All cities" fallback) when ANY of these hold:
  *   - the city header is missing or empty (no geo / proxy stripped it),
@@ -65,9 +89,9 @@ const HEADER_COUNTRY = 'x-vercel-ip-country'
  * Header values are URL-encoded by Vercel (e.g. "S%C3%A3o%20Paulo"); we
  * decode them. A malformed encoding yields `null` rather than throwing.
  */
-export async function getGeoDefaultCity(): Promise<CityState | null> {
-  const headerList = await headers()
-
+export function decodeGeoHeaders(
+  headerList: { get(name: string): string | null },
+): CityState | null {
   const country = decodeHeader(headerList.get(HEADER_COUNTRY))
   // Vercel returns ISO 3166-1 alpha-2 country codes. PH's city data is keyed
   // by US state / Canadian province codes; only US/CA can match, so reject
@@ -88,6 +112,17 @@ export async function getGeoDefaultCity(): Promise<CityState | null> {
   }
 
   return { city, state }
+}
+
+/**
+ * Server-side geo read for the /explore page (path 1 above). Reads the Vercel
+ * edge geo headers via `next/headers()` and decodes them with
+ * `decodeGeoHeaders`. Throws at build time if imported from a client component
+ * (compiler-enforced server-only boundary).
+ */
+export async function getGeoDefaultCity(): Promise<CityState | null> {
+  const headerList = await headers()
+  return decodeGeoHeaders(headerList)
 }
 
 /**

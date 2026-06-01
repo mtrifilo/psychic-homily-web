@@ -1,8 +1,13 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { ShowList } from './ShowList'
 import type { ShowResponse, ArtistResponse } from '../types'
+
+// Mock Sentry so a geo-fetch rejection in tests is observable & offline.
+vi.mock('@sentry/nextjs', () => ({
+  captureException: vi.fn(),
+}))
 
 // Mock AuthContext
 const mockAuthContext = vi.fn(() => ({
@@ -409,6 +414,95 @@ describe('ShowList', () => {
       })
       render(<ShowList />)
       expect(screen.queryByTestId('city-filters')).not.toBeInTheDocument()
+    })
+  })
+
+  // IP-geo soft default (PSY-946). ShowList consumes the real
+  // useGeoDefaultCity hook, driven here via a mocked /api/geo fetch + the
+  // useShowCities has-shows list, and seeds `?cities=` via router.replace.
+  describe('IP-geo default city (PSY-946)', () => {
+    function mockGeoFetch(geo: { city: string; state: string } | null) {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ geo }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }
+
+    beforeEach(() => {
+      window.sessionStorage.clear()
+      mockUseShowCities.mockReturnValue({
+        data: {
+          cities: [
+            { city: 'Phoenix', state: 'AZ', show_count: 5 },
+            { city: 'Omaha', state: 'NE', show_count: 3 },
+          ],
+        },
+        isLoading: false,
+        isFetching: false,
+      })
+      mockUseUpcomingShows.mockReturnValue({
+        data: {
+          shows: [makeShow()],
+          pagination: { has_more: false, next_cursor: null, limit: 20 },
+        },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      window.sessionStorage.clear()
+    })
+
+    it('seeds the canonical geo city onto ?cities= for an anon visitor with shows', async () => {
+      mockGeoFetch({ city: 'Omaha', state: 'NE' })
+      render(<ShowList />)
+      await waitFor(() =>
+        expect(mockReplace).toHaveBeenCalledWith('/shows?cities=Omaha%2CNE', {
+          scroll: false,
+        }),
+      )
+    })
+
+    it('does NOT seed when the geo city has no shows', async () => {
+      mockGeoFetch({ city: 'Tucson', state: 'AZ' })
+      render(<ShowList />)
+      // Let the fetch resolve, then assert no replace.
+      await waitFor(() =>
+        expect(
+          window.sessionStorage.getItem('ph-geo-default-city'),
+        ).not.toBeNull(),
+      )
+      expect(mockReplace).not.toHaveBeenCalled()
+    })
+
+    it('does NOT fetch geo or seed when ?cities= is already present', () => {
+      const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
+      mockSearchParams.mockReturnValue({
+        get: vi.fn((key: string): string | null =>
+          key === 'cities' ? 'Phoenix,AZ' : null,
+        ),
+      })
+      render(<ShowList />)
+      expect(fetchSpy).not.toHaveBeenCalled()
+      expect(mockReplace).not.toHaveBeenCalled()
+    })
+
+    it('does NOT fetch geo for an authed user (no wasted edge request)', () => {
+      const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
+      mockAuthContext.mockReturnValue({
+        user: { id: 1 } as never,
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      render(<ShowList />)
+      expect(fetchSpy).not.toHaveBeenCalled()
     })
   })
 })

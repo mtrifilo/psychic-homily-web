@@ -26,7 +26,6 @@ import {
   useEffect,
   useMemo,
   useRef,
-  useState,
   useTransition,
 } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
@@ -44,6 +43,11 @@ import {
   buildCitiesParam,
   citiesEqual,
 } from '@/components/filters/cityParams'
+import {
+  useGeoDefaultCity,
+  shouldShowGeoAffordance,
+} from '@/components/filters/useGeoDefaultCity'
+import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import type { CityState, CityWithCount } from '@/components/filters/CityFilters'
 
 // CityFilters pulls in cmdk (Command) + Radix Popover. Those bytes are
@@ -92,14 +96,7 @@ export function UpcomingShowsList({
   const { isAuthenticated, isLoading: authLoading } = useAuthContext()
   const { data: profileData } = useProfile()
   const [, startTransition] = useTransition()
-  const hasAppliedDefaults = useRef(false)
-  // Tracks that the CURRENT selection was auto-applied from the IP-geo
-  // suggestion (vs. a user/favorites/URL choice). Drives the "(from your
-  // location) — change" affordance. Cleared the moment the user touches the
-  // filter, so the affordance never lingers over a manual selection.
-  const [appliedGeoDefault, setAppliedGeoDefault] = useState<CityState | null>(
-    null,
-  )
+  const hasAppliedFavorites = useRef(false)
 
   const citiesParam = searchParams.get('cities')
   const selectedCities = useMemo(
@@ -127,60 +124,45 @@ export function UpcomingShowsList({
     [citiesData],
   )
 
-  // The IP-geo suggestion reconciled against PH's has-shows data: returns the
-  // CANONICAL `{city, state}` from the cities list (so the seeded `?cities=`
-  // matches the backend filter exactly) when the detected city has upcoming
-  // shows, else null. Match is case/whitespace-insensitive because Vercel's
-  // city spelling may differ slightly from PH's stored name.
-  const geoCityWithShows: CityState | null = useMemo(() => {
-    if (!geoDefaultCity || cities.length === 0) return null
-    const norm = (s: string) => s.trim().toLowerCase()
-    const wantCity = norm(geoDefaultCity.city)
-    const wantState = norm(geoDefaultCity.state)
-    const match = cities.find(
-      c => norm(c.city) === wantCity && norm(c.state) === wantState,
-    )
-    return match ? { city: match.city, state: match.state } : null
-  }, [geoDefaultCity, cities])
-
-  // Default selection on first load when the URL carries no `?cities=`:
-  //   1. authed + favorite cities → seed from favorites (unchanged),
-  //   2. anon + geo city that has shows → seed from geo (PSY-926),
-  //   3. otherwise → leave empty ("All cities").
-  // Runs once (guarded by hasAppliedDefaults) and only after the dependent
-  // data (favorites / cities-with-shows) has had a chance to load.
+  // Seed authed favorites onto the URL on first load (when no `?cities=`).
+  // Geo seeding for anon visitors is delegated to the shared hook below;
+  // favorites win because the hook stands down whenever favorites are present.
   useEffect(() => {
-    if (hasAppliedDefaults.current || citiesParam) return
-    // Wait for auth to settle. Applying the anon geo default while auth is
-    // still resolving could wrongly seed geo for a user who turns out to be
-    // authenticated (whose favorites should win, or who gets "All cities").
+    if (hasAppliedFavorites.current || citiesParam) return
     if (authLoading) return
+    if (favoriteCities.length === 0) return
 
-    let seed: CityState[] | null = null
-    let fromGeo = false
-    if (favoriteCities.length > 0) {
-      seed = favoriteCities
-    } else if (!isAuthenticated && geoCityWithShows) {
-      seed = [geoCityWithShows]
-      fromGeo = true
-    }
-    if (!seed) return
-
-    hasAppliedDefaults.current = true
-    if (fromGeo) setAppliedGeoDefault(geoCityWithShows)
+    hasAppliedFavorites.current = true
     const params = new URLSearchParams()
-    params.set('cities', buildCitiesParam(seed))
+    params.set('cities', buildCitiesParam(favoriteCities))
     startTransition(() => {
       router.replace(`/explore?${params.toString()}`, { scroll: false })
     })
-  }, [
-    favoriteCities,
-    geoCityWithShows,
+  }, [favoriteCities, authLoading, citiesParam, router])
+
+  // IP-geo soft default for anon visitors (PSY-926, shared hook PSY-946). The
+  // hook reconciles the server-read `geoDefaultCity` against the has-shows
+  // data and seeds the canonical city via router.replace. /explore reads geo
+  // server-side, so no client fetch here (enableClientFetch defaults false).
+  const onSeedGeo = useCallback(
+    (city: CityState) => {
+      const params = new URLSearchParams()
+      params.set('cities', buildCitiesParam([city]))
+      startTransition(() => {
+        router.replace(`/explore?${params.toString()}`, { scroll: false })
+      })
+    },
+    [router],
+  )
+  const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
+    cities,
     isAuthenticated,
     authLoading,
-    citiesParam,
-    router,
-  ])
+    favoriteCities,
+    hasExistingSelection: !!citiesParam,
+    geoFromServer: geoDefaultCity,
+    onSeed: onSeedGeo,
+  })
 
   const { data, isLoading, isFetching, error } = useExploreUpcomingShows({
     limit,
@@ -191,7 +173,7 @@ export function UpcomingShowsList({
     (cities: CityState[]) => {
       // Any manual filter change is an override — the geo affordance must
       // not linger over a user-chosen selection.
-      setAppliedGeoDefault(null)
+      notifyUserInteracted()
       const params = new URLSearchParams()
       if (cities.length > 0) params.set('cities', buildCitiesParam(cities))
       const qs = params.toString()
@@ -199,16 +181,16 @@ export function UpcomingShowsList({
         router.push(qs ? `/explore?${qs}` : '/explore', { scroll: false })
       })
     },
-    [router],
+    [router, notifyUserInteracted],
   )
 
   // True when the geo default is still the active selection (exactly the one
   // detected city, unchanged by the user) — drives the "(from your location)"
   // chip.
-  const showGeoAffordance =
-    appliedGeoDefault !== null &&
-    selectedCities.length === 1 &&
-    citiesEqual(selectedCities, [appliedGeoDefault])
+  const showGeoAffordance = shouldShowGeoAffordance(
+    appliedGeoDefault,
+    selectedCities,
+  )
   const selectionDiffersFromFavorites = !citiesEqual(
     selectedCities,
     favoriteCities,
@@ -231,22 +213,11 @@ export function UpcomingShowsList({
             />
           )}
         </CityFilters>
-        {showGeoAffordance && appliedGeoDefault && (
-          <p
-            className="mt-1.5 text-xs text-muted-foreground"
-            data-testid="geo-default-affordance"
-          >
-            Showing {appliedGeoDefault.city}, {appliedGeoDefault.state} (from
-            your location) —{' '}
-            <button
-              type="button"
-              onClick={() => handleFilterChange([])}
-              className="text-primary hover:underline underline-offset-4"
-              data-testid="geo-default-change"
-            >
-              change
-            </button>
-          </p>
+        {showGeoAffordance && (
+          <GeoDefaultAffordance
+            city={appliedGeoDefault}
+            onChange={() => handleFilterChange([])}
+          />
         )}
       </div>
     ) : null
