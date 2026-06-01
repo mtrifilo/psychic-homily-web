@@ -32,7 +32,11 @@ vi.mock('../hooks/useAdminReleases', () => ({
   useRemoveReleaseLink: () => ({ mutate: mockRemoveLink, isPending: false }),
 }))
 
-import { ReleaseManagement, EditReleaseFormFields } from './ReleaseManagement'
+import {
+  ReleaseManagement,
+  CreateReleaseForm,
+  EditReleaseFormFields,
+} from './ReleaseManagement'
 
 function makeListItem(
   overrides: Partial<ReleaseListItem> = {}
@@ -338,8 +342,9 @@ describe('ReleaseManagement', () => {
         <EditReleaseFormFields
           key={releaseA.id}
           release={releaseA}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -354,8 +359,9 @@ describe('ReleaseManagement', () => {
         <EditReleaseFormFields
           key={releaseB.id}
           release={releaseB}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -373,8 +379,9 @@ describe('ReleaseManagement', () => {
         <EditReleaseFormFields
           key={release.id}
           release={release}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -386,12 +393,40 @@ describe('ReleaseManagement', () => {
         <EditReleaseFormFields
           key={release.id}
           release={release}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
       expect(screen.getByLabelText(/Title \*/i)).toHaveValue('Dirty Edit')
+    })
+  })
+
+  // Pins the PSY-930 Dialog->Sheet migration: AdminFormLayout keeps the create
+  // form mounted across the Sheet close animation, so the form must clear its
+  // own state when it (re)opens. Mirrors CreateStationForm's reset-on-open test.
+  describe('CreateReleaseForm reset-on-open (PSY-930)', () => {
+    it('clears entered field values when the Sheet is closed and reopened', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(
+        <CreateReleaseForm open={false} onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+
+      rerender(
+        <CreateReleaseForm open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      const titleInput = screen.getByLabelText(/Title \*/i)
+      await user.type(titleInput, 'My Album')
+      expect(titleInput).toHaveValue('My Album')
+
+      rerender(
+        <CreateReleaseForm open={false} onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      rerender(
+        <CreateReleaseForm open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      expect(screen.getByLabelText(/Title \*/i)).toHaveValue('')
     })
   })
 })

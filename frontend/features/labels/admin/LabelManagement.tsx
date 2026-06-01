@@ -23,13 +23,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
+  AdminFormLayout,
+  AdminFormRow,
+  AdminFormField,
+} from '@/components/admin/AdminFormLayout'
 import { InlineErrorBanner } from '@/components/shared'
 import { useLabels, useLabel } from '../hooks/useLabels'
 import {
@@ -57,12 +54,16 @@ type DialogMode = 'create' | 'edit' | 'delete' | null
 // Create Label Form
 // ============================================================================
 
-function CreateLabelForm({
+// Exported only for direct regression-test access (reset-on-open). Production
+// callers render it from LabelManagement.
+export function CreateLabelForm({
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const createMutation = useCreateLabel()
 
@@ -82,6 +83,33 @@ function CreateLabelForm({
   const [bandcamp, setBandcamp] = useState('')
   const [website, setWebsite] = useState('')
   const [error, setError] = useState<string | null>(null)
+
+  // Reset on (re)open. AdminFormLayout keeps the form mounted across the Sheet's
+  // close animation, so without this the next "New Label" would show stale input.
+  // Adjusting state during render (not in an effect) avoids a cascading re-render
+  // and an extra paint — the canonical CreateStationForm pattern (PSY-911/930).
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setName('')
+      setCity('')
+      setState('')
+      setCountry('')
+      setFoundedYear('')
+      setStatus('active')
+      setDescription('')
+      setInstagram('')
+      setFacebook('')
+      setTwitter('')
+      setYoutube('')
+      setSpotify('')
+      setSoundcloud('')
+      setBandcamp('')
+      setWebsite('')
+      setError(null)
+    }
+  }
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -145,54 +173,75 @@ function CreateLabelForm({
   )
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <InlineErrorBanner>{error}</InlineErrorBanner>
-      )}
-
-      <div className="space-y-2">
-        <Label htmlFor="create-name">Name *</Label>
+    <AdminFormLayout
+      variant="sheet"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Create Label"
+      description="Add a new record label with location and social links."
+      error={error || undefined}
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={createMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              'Create Label'
+            )}
+          </Button>
+        </>
+      }
+    >
+      <AdminFormField label="Name *" htmlFor="create-name">
         <Input
           id="create-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Label name"
         />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="create-city">City</Label>
+      <AdminFormRow cols={3}>
+        <AdminFormField label="City" htmlFor="create-city">
           <Input
             id="create-city"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             placeholder="Seattle"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create-state">State</Label>
+        </AdminFormField>
+        <AdminFormField label="State" htmlFor="create-state">
           <Input
             id="create-state"
             value={state}
             onChange={(e) => setState(e.target.value)}
             placeholder="WA"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create-country">Country</Label>
+        </AdminFormField>
+        <AdminFormField label="Country" htmlFor="create-country">
           <Input
             id="create-country"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
             placeholder="US"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="create-status">Status</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Status" htmlFor="create-status">
           <Select value={status} onValueChange={setStatus}>
             <SelectTrigger id="create-status" className="w-full">
               <SelectValue />
@@ -205,9 +254,8 @@ function CreateLabelForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create-founded-year">Founded Year</Label>
+        </AdminFormField>
+        <AdminFormField label="Founded Year" htmlFor="create-founded-year">
           <Input
             id="create-founded-year"
             type="number"
@@ -217,11 +265,10 @@ function CreateLabelForm({
             min="1900"
             max="2100"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="space-y-2">
-        <Label htmlFor="create-desc">Description</Label>
+      <AdminFormField label="Description" htmlFor="create-desc">
         <Textarea
           id="create-desc"
           value={description}
@@ -229,124 +276,111 @@ function CreateLabelForm({
           placeholder="Optional description..."
           rows={3}
         />
-      </div>
+      </AdminFormField>
 
       {/* Social Links */}
       <div className="space-y-3">
         <Label>Social Links</Label>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label htmlFor="create-website" className="text-xs text-muted-foreground">
-              Website
-            </Label>
+        <AdminFormRow cols={2} className="gap-3">
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Website</span>}
+            htmlFor="create-website"
+          >
             <Input
               id="create-website"
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-bandcamp" className="text-xs text-muted-foreground">
-              Bandcamp
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Bandcamp</span>}
+            htmlFor="create-bandcamp"
+          >
             <Input
               id="create-bandcamp"
               value={bandcamp}
               onChange={(e) => setBandcamp(e.target.value)}
               placeholder="https://label.bandcamp.com"
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-instagram" className="text-xs text-muted-foreground">
-              Instagram
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Instagram</span>}
+            htmlFor="create-instagram"
+          >
             <Input
               id="create-instagram"
               value={instagram}
               onChange={(e) => setInstagram(e.target.value)}
               placeholder="@handle"
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-twitter" className="text-xs text-muted-foreground">
-              Twitter
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Twitter</span>}
+            htmlFor="create-twitter"
+          >
             <Input
               id="create-twitter"
               value={twitter}
               onChange={(e) => setTwitter(e.target.value)}
               placeholder="@handle"
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-spotify" className="text-xs text-muted-foreground">
-              Spotify
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Spotify</span>}
+            htmlFor="create-spotify"
+          >
             <Input
               id="create-spotify"
               value={spotify}
               onChange={(e) => setSpotify(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-facebook" className="text-xs text-muted-foreground">
-              Facebook
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Facebook</span>}
+            htmlFor="create-facebook"
+          >
             <Input
               id="create-facebook"
               value={facebook}
               onChange={(e) => setFacebook(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-youtube" className="text-xs text-muted-foreground">
-              YouTube
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">YouTube</span>}
+            htmlFor="create-youtube"
+          >
             <Input
               id="create-youtube"
               value={youtube}
               onChange={(e) => setYoutube(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-soundcloud" className="text-xs text-muted-foreground">
-              SoundCloud
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">SoundCloud</span>}
+            htmlFor="create-soundcloud"
+          >
             <Input
               id="create-soundcloud"
               value={soundcloud}
               onChange={(e) => setSoundcloud(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-        </div>
+          </AdminFormField>
+        </AdminFormRow>
       </div>
-
-      <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={createMutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" disabled={createMutation.isPending}>
-          {createMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Creating...
-            </>
-          ) : (
-            'Create Label'
-          )}
-        </Button>
-      </DialogFooter>
-    </form>
+    </AdminFormLayout>
   )
 }
 
@@ -354,39 +388,61 @@ function CreateLabelForm({
 // Edit Label Form
 // ============================================================================
 
-// Outer fetches the label; once loaded, mounts EditLabelFormFields with
-// `key={label.id}` so a switch-label-without-closing-dialog scenario
-// remounts with fresh state. The inner component initializes local state
-// from props inline (React's preferred "calculate during render" path —
-// see https://react.dev/learn/you-might-not-need-an-effect). No useEffect,
-// no `initialized` ratchet.
+// Owns the single AdminFormLayout Sheet. Per the PSY-930 decision the Sheet
+// opens immediately on click; while the label detail loads we render the SAME
+// <AdminFormLayout> with a spinner body (so React keeps one Sheet mounted
+// across the loading->loaded swap), then mount EditLabelFormFields with
+// `key={label.id}` so a switch-label-without-closing-dialog scenario remounts
+// with fresh state. The inner component initializes local state from props
+// inline (React's preferred "calculate during render" path — see
+// https://react.dev/learn/you-might-not-need-an-effect). No useEffect, no
+// `initialized` ratchet.
 function EditLabelForm({
   labelId,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   labelId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const { data: label, isLoading } = useLabel({
     idOrSlug: labelId,
     enabled: labelId > 0,
   })
 
-  if (isLoading) {
+  if (isLoading || !label) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!label) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Label not found.
-      </div>
+      <AdminFormLayout
+        variant="sheet"
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Edit Label"
+        description="Update label details and social links."
+        onSubmit={(e) => e.preventDefault()}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled>
+              Save Changes
+            </Button>
+          </>
+        }
+      >
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">
+            Label not found.
+          </div>
+        )}
+      </AdminFormLayout>
     )
   }
 
@@ -394,8 +450,9 @@ function EditLabelForm({
     <EditLabelFormFields
       key={label.id}
       label={label}
+      open={open}
+      onOpenChange={onOpenChange}
       onSuccess={onSuccess}
-      onCancel={onCancel}
     />
   )
 }
@@ -405,12 +462,14 @@ function EditLabelForm({
 // the surface's public API — production callers use EditLabelForm.
 export function EditLabelFormFields({
   label,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   label: LabelDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const updateMutation = useUpdateLabel()
 
@@ -501,54 +560,75 @@ export function EditLabelFormFields({
   )
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <InlineErrorBanner>{error}</InlineErrorBanner>
-      )}
-
-      <div className="space-y-2">
-        <Label htmlFor="edit-name">Name *</Label>
+    <AdminFormLayout
+      variant="sheet"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Edit Label"
+      description="Update label details and social links."
+      error={error || undefined}
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={updateMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={updateMutation.isPending}>
+            {updateMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Changes'
+            )}
+          </Button>
+        </>
+      }
+    >
+      <AdminFormField label="Name *" htmlFor="edit-name">
         <Input
           id="edit-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Label name"
         />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="edit-city">City</Label>
+      <AdminFormRow cols={3}>
+        <AdminFormField label="City" htmlFor="edit-city">
           <Input
             id="edit-city"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             placeholder="Seattle"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-state">State</Label>
+        </AdminFormField>
+        <AdminFormField label="State" htmlFor="edit-state">
           <Input
             id="edit-state"
             value={state}
             onChange={(e) => setState(e.target.value)}
             placeholder="WA"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-country">Country</Label>
+        </AdminFormField>
+        <AdminFormField label="Country" htmlFor="edit-country">
           <Input
             id="edit-country"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
             placeholder="US"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="edit-status">Status</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Status" htmlFor="edit-status">
           <Select value={status} onValueChange={setStatus}>
             <SelectTrigger id="edit-status" className="w-full">
               <SelectValue />
@@ -561,9 +641,8 @@ export function EditLabelFormFields({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-founded-year">Founded Year</Label>
+        </AdminFormField>
+        <AdminFormField label="Founded Year" htmlFor="edit-founded-year">
           <Input
             id="edit-founded-year"
             type="number"
@@ -573,11 +652,10 @@ export function EditLabelFormFields({
             min="1900"
             max="2100"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="space-y-2">
-        <Label htmlFor="edit-desc">Description</Label>
+      <AdminFormField label="Description" htmlFor="edit-desc">
         <Textarea
           id="edit-desc"
           value={description}
@@ -585,124 +663,111 @@ export function EditLabelFormFields({
           placeholder="Optional description..."
           rows={3}
         />
-      </div>
+      </AdminFormField>
 
       {/* Social Links */}
       <div className="space-y-3">
         <Label>Social Links</Label>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label htmlFor="edit-website" className="text-xs text-muted-foreground">
-              Website
-            </Label>
+        <AdminFormRow cols={2} className="gap-3">
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Website</span>}
+            htmlFor="edit-website"
+          >
             <Input
               id="edit-website"
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-bandcamp" className="text-xs text-muted-foreground">
-              Bandcamp
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Bandcamp</span>}
+            htmlFor="edit-bandcamp"
+          >
             <Input
               id="edit-bandcamp"
               value={bandcamp}
               onChange={(e) => setBandcamp(e.target.value)}
               placeholder="https://label.bandcamp.com"
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-instagram" className="text-xs text-muted-foreground">
-              Instagram
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Instagram</span>}
+            htmlFor="edit-instagram"
+          >
             <Input
               id="edit-instagram"
               value={instagram}
               onChange={(e) => setInstagram(e.target.value)}
               placeholder="@handle"
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-twitter" className="text-xs text-muted-foreground">
-              Twitter
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Twitter</span>}
+            htmlFor="edit-twitter"
+          >
             <Input
               id="edit-twitter"
               value={twitter}
               onChange={(e) => setTwitter(e.target.value)}
               placeholder="@handle"
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-spotify" className="text-xs text-muted-foreground">
-              Spotify
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Spotify</span>}
+            htmlFor="edit-spotify"
+          >
             <Input
               id="edit-spotify"
               value={spotify}
               onChange={(e) => setSpotify(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-facebook" className="text-xs text-muted-foreground">
-              Facebook
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Facebook</span>}
+            htmlFor="edit-facebook"
+          >
             <Input
               id="edit-facebook"
               value={facebook}
               onChange={(e) => setFacebook(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-youtube" className="text-xs text-muted-foreground">
-              YouTube
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">YouTube</span>}
+            htmlFor="edit-youtube"
+          >
             <Input
               id="edit-youtube"
               value={youtube}
               onChange={(e) => setYoutube(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-soundcloud" className="text-xs text-muted-foreground">
-              SoundCloud
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">SoundCloud</span>}
+            htmlFor="edit-soundcloud"
+          >
             <Input
               id="edit-soundcloud"
               value={soundcloud}
               onChange={(e) => setSoundcloud(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-        </div>
+          </AdminFormField>
+        </AdminFormRow>
       </div>
-
-      <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={updateMutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" disabled={updateMutation.isPending}>
-          {updateMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            'Save Changes'
-          )}
-        </Button>
-      </DialogFooter>
-    </form>
+    </AdminFormLayout>
   )
 }
 
@@ -710,16 +775,21 @@ export function EditLabelFormFields({
 // Delete Confirmation
 // ============================================================================
 
+// Short confirm form -> centered Modal (variant="modal"), per the PSY-912
+// Hybrid decision: long entity forms use the Sheet, short confirm/delete forms
+// stay a centered Dialog.
 function DeleteConfirmation({
   labelName,
   labelId,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   labelName: string
   labelId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const deleteMutation = useDeleteLabel()
   const [error, setError] = useState<string | null>(null)
@@ -739,11 +809,44 @@ function DeleteConfirmation({
   }, [labelId, deleteMutation, onSuccess])
 
   return (
-    <div className="space-y-4">
-      {error && (
-        <InlineErrorBanner>{error}</InlineErrorBanner>
-      )}
-
+    <AdminFormLayout
+      variant="modal"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete Label"
+      description="This action is permanent and cannot be undone."
+      error={error || undefined}
+      onSubmit={(e) => {
+        e.preventDefault()
+        handleDelete()
+      }}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={deleteMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="destructive"
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              'Delete Label'
+            )}
+          </Button>
+        </>
+      }
+    >
       <p className="text-sm text-muted-foreground">
         Are you sure you want to delete{' '}
         <span className="font-semibold text-foreground">
@@ -752,31 +855,7 @@ function DeleteConfirmation({
         ? This action cannot be undone. All artist and release associations will
         also be removed.
       </p>
-
-      <DialogFooter>
-        <Button
-          variant="outline"
-          onClick={onCancel}
-          disabled={deleteMutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="destructive"
-          onClick={handleDelete}
-          disabled={deleteMutation.isPending}
-        >
-          {deleteMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Deleting...
-            </>
-          ) : (
-            'Delete Label'
-          )}
-        </Button>
-      </DialogFooter>
-    </div>
+    </AdminFormLayout>
   )
 }
 
@@ -996,66 +1075,33 @@ export function LabelManagement() {
         </>
       )}
 
-      {/* Create Dialog */}
-      <Dialog
+      {/* Create — right-anchored Sheet (PSY-930 AdminFormLayout) */}
+      <CreateLabelForm
         open={dialogMode === 'create'}
         onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create Label</DialogTitle>
-            <DialogDescription>
-              Add a new record label with location and social links.
-            </DialogDescription>
-          </DialogHeader>
-          <CreateLabelForm onSuccess={closeDialog} onCancel={closeDialog} />
-        </DialogContent>
-      </Dialog>
+        onSuccess={closeDialog}
+      />
 
-      {/* Edit Dialog */}
-      <Dialog
-        open={dialogMode === 'edit'}
-        onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Label</DialogTitle>
-            <DialogDescription>
-              Update label details and social links.
-            </DialogDescription>
-          </DialogHeader>
-          {selectedLabelId && (
-            <EditLabelForm
-              labelId={selectedLabelId}
-              onSuccess={closeDialog}
-              onCancel={closeDialog}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Edit — right-anchored Sheet (PSY-930 AdminFormLayout) */}
+      {selectedLabelId && (
+        <EditLabelForm
+          labelId={selectedLabelId}
+          open={dialogMode === 'edit'}
+          onOpenChange={(open) => !open && closeDialog()}
+          onSuccess={closeDialog}
+        />
+      )}
 
-      {/* Delete Dialog */}
-      <Dialog
-        open={dialogMode === 'delete'}
-        onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Label</DialogTitle>
-            <DialogDescription>
-              This action is permanent and cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          {selectedLabelId && (
-            <DeleteConfirmation
-              labelName={selectedLabelName}
-              labelId={selectedLabelId}
-              onSuccess={closeDialog}
-              onCancel={closeDialog}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Delete — centered Modal (PSY-930 AdminFormLayout) */}
+      {selectedLabelId && (
+        <DeleteConfirmation
+          labelName={selectedLabelName}
+          labelId={selectedLabelId}
+          open={dialogMode === 'delete'}
+          onOpenChange={(open) => !open && closeDialog()}
+          onSuccess={closeDialog}
+        />
+      )}
     </div>
   )
 }

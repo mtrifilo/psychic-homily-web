@@ -26,13 +26,10 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogDescription,
-  DialogFooter,
-} from '@/components/ui/dialog'
+  AdminFormLayout,
+  AdminFormRow,
+  AdminFormField,
+} from '@/components/admin/AdminFormLayout'
 import { InlineErrorBanner } from '@/components/shared'
 import { useReleases, useRelease } from '../hooks/useReleases'
 import { useArtistSearch } from '@/features/artists'
@@ -455,12 +452,16 @@ function ExistingLinkManager({
 // Release Form (Create)
 // ============================================================================
 
-function CreateReleaseForm({
+// Exported only for direct regression-test access (reset-on-open). Production
+// callers render it from ReleaseManagement.
+export function CreateReleaseForm({
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const createMutation = useCreateRelease()
 
@@ -473,6 +474,27 @@ function CreateReleaseForm({
   const [artists, setArtists] = useState<ArtistEntry[]>([])
   const [links, setLinks] = useState<LinkEntry[]>([])
   const [error, setError] = useState<string | null>(null)
+
+  // Reset on (re)open — AdminFormLayout keeps the form mounted across the Sheet
+  // close animation. Adjust state during render (not in an effect) per the
+  // canonical CreateStationForm pattern (PSY-911/930). Note the embedded
+  // ArtistPicker / LinkEditor hold their own draft state and remount with the
+  // form, so the artists/links arrays here are the load-bearing reset.
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setTitle('')
+      setReleaseType('lp')
+      setReleaseYear('')
+      setReleaseDate('')
+      setCoverArtUrl('')
+      setDescription('')
+      setArtists([])
+      setLinks([])
+      setError(null)
+    }
+  }
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -532,24 +554,48 @@ function CreateReleaseForm({
   )
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <InlineErrorBanner>{error}</InlineErrorBanner>
-      )}
-
-      <div className="space-y-2">
-        <Label htmlFor="create-title">Title *</Label>
+    <AdminFormLayout
+      variant="sheet"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Create Release"
+      description="Add a new music release with artist associations and external links."
+      error={error || undefined}
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={createMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              'Create Release'
+            )}
+          </Button>
+        </>
+      }
+    >
+      <AdminFormField label="Title *" htmlFor="create-title">
         <Input
           id="create-title"
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Album title"
         />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="create-type">Release Type</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Release Type" htmlFor="create-type">
           <Select value={releaseType} onValueChange={setReleaseType}>
             <SelectTrigger id="create-type" className="w-full">
               <SelectValue />
@@ -562,9 +608,8 @@ function CreateReleaseForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create-year">Year</Label>
+        </AdminFormField>
+        <AdminFormField label="Year" htmlFor="create-year">
           <Input
             id="create-year"
             type="number"
@@ -574,31 +619,28 @@ function CreateReleaseForm({
             min="1900"
             max="2100"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="space-y-2">
-        <Label htmlFor="create-date">Release Date</Label>
+      <AdminFormField label="Release Date" htmlFor="create-date">
         <Input
           id="create-date"
           type="date"
           value={releaseDate}
           onChange={(e) => setReleaseDate(e.target.value)}
         />
-      </div>
+      </AdminFormField>
 
-      <div className="space-y-2">
-        <Label htmlFor="create-cover">Cover Art URL</Label>
+      <AdminFormField label="Cover Art URL" htmlFor="create-cover">
         <Input
           id="create-cover"
           value={coverArtUrl}
           onChange={(e) => setCoverArtUrl(e.target.value)}
           placeholder="https://..."
         />
-      </div>
+      </AdminFormField>
 
-      <div className="space-y-2">
-        <Label htmlFor="create-desc">Description</Label>
+      <AdminFormField label="Description" htmlFor="create-desc">
         <Textarea
           id="create-desc"
           value={description}
@@ -606,7 +648,7 @@ function CreateReleaseForm({
           placeholder="Optional description..."
           rows={3}
         />
-      </div>
+      </AdminFormField>
 
       <ArtistPicker
         artists={artists}
@@ -628,28 +670,7 @@ function CreateReleaseForm({
           setLinks((prev) => prev.filter((_, i) => i !== index))
         }
       />
-
-      <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={createMutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" disabled={createMutation.isPending}>
-          {createMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Creating...
-            </>
-          ) : (
-            'Create Release'
-          )}
-        </Button>
-      </DialogFooter>
-    </form>
+    </AdminFormLayout>
   )
 }
 
@@ -657,39 +678,61 @@ function CreateReleaseForm({
 // Edit Release Form
 // ============================================================================
 
-// Outer fetches the release; once loaded, mounts EditReleaseFormFields with
+// Owns the single AdminFormLayout Sheet. Per the PSY-930 decision the Sheet
+// opens immediately on click; while the release detail loads we render the SAME
+// <AdminFormLayout> with a spinner body (so React keeps one Sheet mounted
+// across the loading->loaded swap), then mount EditReleaseFormFields with
 // `key={release.id}` so a switch-release-without-closing-dialog scenario
-// remounts with fresh state. The inner component initializes local state
-// from props inline (React's preferred "calculate during render" path —
-// see https://react.dev/learn/you-might-not-need-an-effect). No useEffect,
-// no `initialized` ratchet.
+// remounts with fresh state. The inner component initializes local state from
+// props inline (React's preferred "calculate during render" path — see
+// https://react.dev/learn/you-might-not-need-an-effect). No useEffect, no
+// `initialized` ratchet.
 function EditReleaseForm({
   releaseId,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   releaseId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const { data: release, isLoading } = useRelease({
     idOrSlug: releaseId,
     enabled: releaseId > 0,
   })
 
-  if (isLoading) {
+  if (isLoading || !release) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!release) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Release not found.
-      </div>
+      <AdminFormLayout
+        variant="sheet"
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Edit Release"
+        description="Update release details and manage external links."
+        onSubmit={(e) => e.preventDefault()}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled>
+              Save Changes
+            </Button>
+          </>
+        }
+      >
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">
+            Release not found.
+          </div>
+        )}
+      </AdminFormLayout>
     )
   }
 
@@ -697,8 +740,9 @@ function EditReleaseForm({
     <EditReleaseFormFields
       key={release.id}
       release={release}
+      open={open}
+      onOpenChange={onOpenChange}
       onSuccess={onSuccess}
-      onCancel={onCancel}
     />
   )
 }
@@ -708,12 +752,14 @@ function EditReleaseForm({
 // the surface's public API — production callers use EditReleaseForm.
 export function EditReleaseFormFields({
   release,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   release: ReleaseDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const updateMutation = useUpdateRelease()
 
@@ -779,88 +825,20 @@ export function EditReleaseFormFields({
   )
 
   return (
-    <div className="space-y-4">
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {error && (
-          <InlineErrorBanner>{error}</InlineErrorBanner>
-        )}
-
-        <div className="space-y-2">
-          <Label htmlFor="edit-title">Title *</Label>
-          <Input
-            id="edit-title"
-            value={title}
-            onChange={(e) => setTitle(e.target.value)}
-            placeholder="Album title"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label htmlFor="edit-type">Release Type</Label>
-            <Select value={releaseType} onValueChange={setReleaseType}>
-              <SelectTrigger id="edit-type" className="w-full">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {RELEASE_TYPES.map((type) => (
-                  <SelectItem key={type} value={type}>
-                    {RELEASE_TYPE_LABELS[type]}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="space-y-2">
-            <Label htmlFor="edit-year">Year</Label>
-            <Input
-              id="edit-year"
-              type="number"
-              value={releaseYear}
-              onChange={(e) => setReleaseYear(e.target.value)}
-              placeholder="2024"
-              min="1900"
-              max="2100"
-            />
-          </div>
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="edit-date">Release Date</Label>
-          <Input
-            id="edit-date"
-            type="date"
-            value={releaseDate}
-            onChange={(e) => setReleaseDate(e.target.value)}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="edit-cover">Cover Art URL</Label>
-          <Input
-            id="edit-cover"
-            value={coverArtUrl}
-            onChange={(e) => setCoverArtUrl(e.target.value)}
-            placeholder="https://..."
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="edit-desc">Description</Label>
-          <Textarea
-            id="edit-desc"
-            value={description}
-            onChange={(e) => setDescription(e.target.value)}
-            placeholder="Optional description..."
-            rows={3}
-          />
-        </div>
-
-        <DialogFooter>
+    <AdminFormLayout
+      variant="sheet"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Edit Release"
+      description="Update release details and manage external links."
+      error={error || undefined}
+      onSubmit={handleSubmit}
+      footer={
+        <>
           <Button
             type="button"
             variant="outline"
-            onClick={onCancel}
+            onClick={() => onOpenChange(false)}
             disabled={updateMutation.isPending}
           >
             Cancel
@@ -875,8 +853,73 @@ export function EditReleaseFormFields({
               'Save Changes'
             )}
           </Button>
-        </DialogFooter>
-      </form>
+        </>
+      }
+    >
+      <AdminFormField label="Title *" htmlFor="edit-title">
+        <Input
+          id="edit-title"
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Album title"
+        />
+      </AdminFormField>
+
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Release Type" htmlFor="edit-type">
+          <Select value={releaseType} onValueChange={setReleaseType}>
+            <SelectTrigger id="edit-type" className="w-full">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {RELEASE_TYPES.map((type) => (
+                <SelectItem key={type} value={type}>
+                  {RELEASE_TYPE_LABELS[type]}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </AdminFormField>
+        <AdminFormField label="Year" htmlFor="edit-year">
+          <Input
+            id="edit-year"
+            type="number"
+            value={releaseYear}
+            onChange={(e) => setReleaseYear(e.target.value)}
+            placeholder="2024"
+            min="1900"
+            max="2100"
+          />
+        </AdminFormField>
+      </AdminFormRow>
+
+      <AdminFormField label="Release Date" htmlFor="edit-date">
+        <Input
+          id="edit-date"
+          type="date"
+          value={releaseDate}
+          onChange={(e) => setReleaseDate(e.target.value)}
+        />
+      </AdminFormField>
+
+      <AdminFormField label="Cover Art URL" htmlFor="edit-cover">
+        <Input
+          id="edit-cover"
+          value={coverArtUrl}
+          onChange={(e) => setCoverArtUrl(e.target.value)}
+          placeholder="https://..."
+        />
+      </AdminFormField>
+
+      <AdminFormField label="Description" htmlFor="edit-desc">
+        <Textarea
+          id="edit-desc"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="Optional description..."
+          rows={3}
+        />
+      </AdminFormField>
 
       {/* Artists (read-only in edit mode — artists are set at creation) */}
       {release.artists.length > 0 && (
@@ -905,7 +948,7 @@ export function EditReleaseFormFields({
           links={release.external_links || []}
         />
       </div>
-    </div>
+    </AdminFormLayout>
   )
 }
 
@@ -913,16 +956,20 @@ export function EditReleaseFormFields({
 // Delete Confirmation
 // ============================================================================
 
+// Short confirm form -> centered Modal (variant="modal"), per the PSY-912
+// Hybrid decision.
 function DeleteConfirmation({
   releaseTitle,
   releaseId,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   releaseTitle: string
   releaseId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const deleteMutation = useDeleteRelease()
   const [error, setError] = useState<string | null>(null)
@@ -942,11 +989,44 @@ function DeleteConfirmation({
   }, [releaseId, deleteMutation, onSuccess])
 
   return (
-    <div className="space-y-4">
-      {error && (
-        <InlineErrorBanner>{error}</InlineErrorBanner>
-      )}
-
+    <AdminFormLayout
+      variant="modal"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete Release"
+      description="This action is permanent and cannot be undone."
+      error={error || undefined}
+      onSubmit={(e) => {
+        e.preventDefault()
+        handleDelete()
+      }}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={deleteMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="destructive"
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              'Delete Release'
+            )}
+          </Button>
+        </>
+      }
+    >
       <p className="text-sm text-muted-foreground">
         Are you sure you want to delete{' '}
         <span className="font-semibold text-foreground">
@@ -955,31 +1035,7 @@ function DeleteConfirmation({
         ? This action cannot be undone. All artist associations and external
         links will also be removed.
       </p>
-
-      <DialogFooter>
-        <Button
-          variant="outline"
-          onClick={onCancel}
-          disabled={deleteMutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="destructive"
-          onClick={handleDelete}
-          disabled={deleteMutation.isPending}
-        >
-          {deleteMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Deleting...
-            </>
-          ) : (
-            'Delete Release'
-          )}
-        </Button>
-      </DialogFooter>
-    </div>
+    </AdminFormLayout>
   )
 }
 
@@ -1199,67 +1255,33 @@ export function ReleaseManagement() {
         </>
       )}
 
-      {/* Create Dialog */}
-      <Dialog
+      {/* Create — right-anchored Sheet (PSY-930 AdminFormLayout) */}
+      <CreateReleaseForm
         open={dialogMode === 'create'}
         onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create Release</DialogTitle>
-            <DialogDescription>
-              Add a new music release with artist associations and external
-              links.
-            </DialogDescription>
-          </DialogHeader>
-          <CreateReleaseForm onSuccess={closeDialog} onCancel={closeDialog} />
-        </DialogContent>
-      </Dialog>
+        onSuccess={closeDialog}
+      />
 
-      {/* Edit Dialog */}
-      <Dialog
-        open={dialogMode === 'edit'}
-        onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Release</DialogTitle>
-            <DialogDescription>
-              Update release details and manage external links.
-            </DialogDescription>
-          </DialogHeader>
-          {selectedReleaseId && (
-            <EditReleaseForm
-              releaseId={selectedReleaseId}
-              onSuccess={closeDialog}
-              onCancel={closeDialog}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Edit — right-anchored Sheet (PSY-930 AdminFormLayout) */}
+      {selectedReleaseId && (
+        <EditReleaseForm
+          releaseId={selectedReleaseId}
+          open={dialogMode === 'edit'}
+          onOpenChange={(open) => !open && closeDialog()}
+          onSuccess={closeDialog}
+        />
+      )}
 
-      {/* Delete Dialog */}
-      <Dialog
-        open={dialogMode === 'delete'}
-        onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Release</DialogTitle>
-            <DialogDescription>
-              This action is permanent and cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          {selectedReleaseId && (
-            <DeleteConfirmation
-              releaseTitle={selectedReleaseTitle}
-              releaseId={selectedReleaseId}
-              onSuccess={closeDialog}
-              onCancel={closeDialog}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Delete — centered Modal (PSY-930 AdminFormLayout) */}
+      {selectedReleaseId && (
+        <DeleteConfirmation
+          releaseTitle={selectedReleaseTitle}
+          releaseId={selectedReleaseId}
+          open={dialogMode === 'delete'}
+          onOpenChange={(open) => !open && closeDialog()}
+          onSuccess={closeDialog}
+        />
+      )}
     </div>
   )
 }
