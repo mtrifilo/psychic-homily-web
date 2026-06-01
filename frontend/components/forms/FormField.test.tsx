@@ -120,6 +120,14 @@ describe('FormField', () => {
     expect(screen.getByPlaceholderText('Enter value').tagName).toBe('TEXTAREA')
   })
 
+  it('routes type="date" through the DateInput primitive', () => {
+    renderWithProviders(<TestFormField type="date" />)
+    const input = screen.getByLabelText('Test Label')
+    expect(input.tagName).toBe('INPUT')
+    expect(input).toHaveAttribute('type', 'date')
+    expect(input).toHaveAttribute('data-slot', 'date-input')
+  })
+
   it('renders disabled input when disabled prop is true', () => {
     renderWithProviders(<TestFormField disabled />)
     expect(screen.getByPlaceholderText('Enter value')).toBeDisabled()
