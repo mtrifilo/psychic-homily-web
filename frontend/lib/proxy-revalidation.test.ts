@@ -725,6 +725,94 @@ describe('tag rules', () => {
   })
 })
 
+describe('collection tagging via the generic entities path (PSY-940)', () => {
+  /** Route lookup GETs to per-URL responses (tag 3 + collection 9). */
+  function mockLookups() {
+    fetchSpy.mockImplementation(((url: string | URL | Request) => {
+      const target = String(url)
+      if (target === `${BACKEND}/tags/3`) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 3, slug: 'post-punk' }), {
+            status: 200,
+          })
+        )
+      }
+      if (target === `${BACKEND}/collections/9`) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 9, slug: 'desert-punk-essentials' }), {
+            status: 200,
+          })
+        )
+      }
+      return Promise.resolve(new Response('not found', { status: 404 }))
+    }) as typeof fetch)
+  }
+
+  it('tag add on a collection revalidates BOTH the tag page and the collection page', async () => {
+    mockLookups()
+    await run({
+      method: 'POST',
+      path: '/entities/collection/9/tags',
+      requestText: JSON.stringify({ tag_id: 3 }),
+    })
+    // Collection ISR payloads embed tags[], unlike every other entity type.
+    expect(revalidated()).toEqual([
+      '/tags/post-punk',
+      '/collections/desert-punk-essentials',
+    ])
+  })
+
+  it('tag add by tag_name on a collection still revalidates the collection page', async () => {
+    mockLookups()
+    await run({
+      method: 'POST',
+      path: '/entities/collection/9/tags',
+      requestText: JSON.stringify({ tag_name: 'desert rock', category: 'genre' }),
+    })
+    expect(revalidated()).toEqual(['/collections/desert-punk-essentials'])
+  })
+
+  it('tag remove on a collection revalidates BOTH pages', async () => {
+    mockLookups()
+    await run({ method: 'DELETE', path: '/entities/collection/9/tags/3' })
+    expect(revalidated()).toEqual([
+      '/tags/post-punk',
+      '/collections/desert-punk-essentials',
+    ])
+  })
+
+  it('falls back to the tag page only when the collection lookup fails', async () => {
+    fetchSpy.mockImplementation(((url: string | URL | Request) => {
+      const target = String(url)
+      if (target === `${BACKEND}/tags/3`) {
+        return Promise.resolve(
+          new Response(JSON.stringify({ id: 3, slug: 'post-punk' }), {
+            status: 200,
+          })
+        )
+      }
+      return Promise.resolve(new Response('error', { status: 500 }))
+    }) as typeof fetch)
+
+    await run({ method: 'DELETE', path: '/entities/collection/9/tags/3' })
+    expect(revalidated()).toEqual(['/tags/post-punk'])
+    // The skipped collection page is observable via the lookup-failure warning.
+    expect(mockCaptureMessage).toHaveBeenCalledWith(
+      'isr-revalidation: slug lookup failed',
+      expect.objectContaining({ level: 'warning' })
+    )
+  })
+
+  it('non-collection entity tagging never looks up the entity', async () => {
+    mockLookupResponse('post-punk')
+    await run({ method: 'DELETE', path: '/entities/artist/10/tags/3' })
+    // Exactly one lookup (the tag) — never a second for the artist.
+    expect(fetchSpy).toHaveBeenCalledTimes(1)
+    expect(fetchSpy).toHaveBeenCalledWith(`${BACKEND}/tags/3`, expect.anything())
+    expect(revalidated()).toEqual(['/tags/post-punk'])
+  })
+})
+
 describe('explore curation rules', () => {
   it('featured slot set/delete revalidates /explore', async () => {
     await run({ method: 'POST', path: '/admin/featured-slots' })

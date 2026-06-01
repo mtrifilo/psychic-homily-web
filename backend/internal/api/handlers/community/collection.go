@@ -119,7 +119,7 @@ func (h *CollectionHandler) ListCollectionsHandler(ctx context.Context, req *Lis
 
 // GetCollectionHandlerRequest represents the request for getting a single collection
 type GetCollectionHandlerRequest struct {
-	Slug string `path:"slug" doc:"Collection slug" example:"my-favorite-artists"`
+	Slug string `path:"slug" doc:"Collection slug or numeric ID" example:"my-favorite-artists"`
 }
 
 // GetCollectionHandlerResponse represents the response for the get collection endpoint
@@ -127,7 +127,8 @@ type GetCollectionHandlerResponse struct {
 	Body *contracts.CollectionDetailResponse
 }
 
-// GetCollectionHandler handles GET /collections/{slug}
+// GetCollectionHandler handles GET /collections/{slug} - returns a single
+// collection by slug or numeric ID
 func (h *CollectionHandler) GetCollectionHandler(ctx context.Context, req *GetCollectionHandlerRequest) (*GetCollectionHandlerResponse, error) {
 	var viewerID uint
 	user := middleware.GetUserFromContext(ctx)
@@ -135,7 +136,15 @@ func (h *CollectionHandler) GetCollectionHandler(ctx context.Context, req *GetCo
 		viewerID = user.ID
 	}
 
-	collection, err := h.collectionService.GetBySlug(req.Slug, viewerID)
+	// Try to parse as numeric ID first (PSY-940), matching the other entity
+	// GET handlers; fall back to slug lookup.
+	var collection *contracts.CollectionDetailResponse
+	var err error
+	if id, parseErr := strconv.ParseUint(req.Slug, 10, 32); parseErr == nil {
+		collection, err = h.collectionService.GetByID(uint(id), viewerID)
+	} else {
+		collection, err = h.collectionService.GetBySlug(req.Slug, viewerID)
+	}
 	if err != nil {
 		return nil, shared.MapCollectionError(err)
 	}

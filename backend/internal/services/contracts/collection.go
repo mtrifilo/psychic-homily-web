@@ -460,6 +460,11 @@ type CollectionServiceInterface interface {
 	CreateCollection(creatorID uint, req *CreateCollectionRequest) (*CollectionDetailResponse, error)
 	CloneCollection(srcSlug string, callerID uint) (*CollectionDetailResponse, error)
 	GetBySlug(slug string, viewerID uint) (*CollectionDetailResponse, error)
+	// GetByID retrieves a collection by numeric ID with the same
+	// access-control semantics as GetBySlug. Lets GET /collections/{slug}
+	// accept ID-or-slug like the other entity GET endpoints (PSY-940 —
+	// enables ID→slug lookups for ISR revalidation).
+	GetByID(id uint, viewerID uint) (*CollectionDetailResponse, error)
 	ListCollections(filters CollectionFilters, limit, offset int) ([]*CollectionListResponse, int64, error)
 	UpdateCollection(slug string, userID uint, isAdmin bool, req *UpdateCollectionRequest) (*CollectionDetailResponse, error)
 	DeleteCollection(slug string, userID uint, isAdmin bool) error

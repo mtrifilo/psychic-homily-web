@@ -431,6 +431,29 @@ func (s *CollectionService) CloneCollection(srcSlug string, callerID uint) (*con
 	return s.GetBySlug(newSlug, callerID)
 }
 
+// GetByID retrieves a collection by numeric ID with full detail.
+//
+// Resolves the slug first and delegates to GetBySlug so the access-control
+// and detail-building logic lives in exactly one place. Added so
+// GET /collections/{slug} can accept ID-or-slug like the other entity GET
+// endpoints (PSY-940 — enables ID→slug lookups for ISR revalidation).
+func (s *CollectionService) GetByID(id uint, viewerID uint) (*contracts.CollectionDetailResponse, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	var collection communitym.Collection
+	err := s.db.Select("slug").Where("id = ?", id).First(&collection).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrCollectionNotFound(strconv.FormatUint(uint64(id), 10))
+		}
+		return nil, fmt.Errorf("failed to get collection: %w", err)
+	}
+
+	return s.GetBySlug(collection.Slug, viewerID)
+}
+
 // GetBySlug retrieves a collection by slug with full detail
 func (s *CollectionService) GetBySlug(slug string, viewerID uint) (*contracts.CollectionDetailResponse, error) {
 	if s.db == nil {
