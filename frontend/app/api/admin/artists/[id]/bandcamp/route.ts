@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import * as Sentry from '@sentry/nextjs'
+import { revalidateArtistDetail } from '@/lib/revalidate-entity'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -14,6 +15,7 @@ interface UserProfile {
 
 interface Artist {
   id: number
+  slug: string
   name: string
   bandcamp_embed_url: string | null
 }
@@ -152,6 +154,8 @@ export async function POST(
 
     const artist: Artist = await response.json()
 
+    revalidateArtistDetail(artist.slug)
+
     return NextResponse.json({
       success: true,
       artist,
@@ -216,6 +220,8 @@ export async function DELETE(
     }
 
     const artist: Artist = await response.json()
+
+    revalidateArtistDetail(artist.slug)
 
     return NextResponse.json({
       success: true,
