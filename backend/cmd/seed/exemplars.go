@@ -53,6 +53,16 @@ const (
 	exemplarCollectionSlug = "psychic-homily-staff-picks-exemplar"
 )
 
+// tagSpec is one tag to create-and-apply: display name, URL slug, and
+// category (genre / locale / other). Used by applyTags and every exemplar's
+// tag list so the shape is named once instead of repeated as an anonymous
+// struct literal at each call site.
+type tagSpec struct {
+	Name     string
+	Slug     string
+	Category string
+}
+
 // strptr is a tiny helper to take the address of a string literal inline.
 func strptr(s string) *string { return &s }
 
@@ -107,7 +117,7 @@ func seedRichExemplars(db *gorm.DB) {
 // once and reused across entities so the tag graph is shared, matching how
 // real tagging works. Idempotent via the (tag_id, entity_type, entity_id)
 // unique index.
-func applyTags(db *gorm.DB, entityType string, entityID, userID uint, tags []struct{ Name, Slug, Category string }) {
+func applyTags(db *gorm.DB, entityType string, entityID, userID uint, tags []tagSpec) {
 	for _, t := range tags {
 		var tag catalogm.Tag
 		err := db.Where("slug = ?", t.Slug).First(&tag).Error
@@ -176,7 +186,7 @@ func seedExemplarVenue(db *gorm.DB, userID uint) uint {
 		return 0
 	}
 
-	applyTags(db, catalogm.TagEntityVenue, venue.ID, userID, []struct{ Name, Slug, Category string }{
+	applyTags(db, catalogm.TagEntityVenue, venue.ID, userID, []tagSpec{
 		{"Blues", "blues", catalogm.TagCategoryGenre},
 		{"Roots", "roots", catalogm.TagCategoryGenre},
 		{"All Ages Sometimes", "all-ages-sometimes", catalogm.TagCategoryOther},
@@ -215,7 +225,7 @@ func seedExemplarLabel(db *gorm.DB, userID uint) uint {
 		return 0
 	}
 
-	applyTags(db, catalogm.TagEntityLabel, label.ID, userID, []struct{ Name, Slug, Category string }{
+	applyTags(db, catalogm.TagEntityLabel, label.ID, userID, []tagSpec{
 		{"Post-Punk", "post-punk", catalogm.TagCategoryGenre},
 		{"Drone", "drone", catalogm.TagCategoryGenre},
 		{"Dark Folk", "dark-folk", catalogm.TagCategoryGenre},
@@ -272,7 +282,7 @@ func seedExemplarArtist(db *gorm.DB, userID, labelID uint) uint {
 	}
 
 	// 5+ tags across multiple categories (genre / locale / other).
-	applyTags(db, catalogm.TagEntityArtist, artist.ID, userID, []struct{ Name, Slug, Category string }{
+	applyTags(db, catalogm.TagEntityArtist, artist.ID, userID, []tagSpec{
 		{"Dream Folk", "dream-folk", catalogm.TagCategoryGenre},
 		{"Gothic", "gothic", catalogm.TagCategoryGenre},
 		{"Singer-Songwriter", "singer-songwriter", catalogm.TagCategoryGenre},
@@ -387,7 +397,7 @@ func seedExemplarRelease(db *gorm.DB, userID, mainArtistID, labelID uint) {
 
 	// 5+ tags (applied outside the transaction; applyTags is independently
 	// idempotent and a tag failure shouldn't roll back the release).
-	applyTags(db, catalogm.TagEntityRelease, release.ID, userID, []struct{ Name, Slug, Category string }{
+	applyTags(db, catalogm.TagEntityRelease, release.ID, userID, []tagSpec{
 		{"Dream Folk", "dream-folk", catalogm.TagCategoryGenre},
 		{"Gothic", "gothic", catalogm.TagCategoryGenre},
 		{"True Crime", "true-crime", catalogm.TagCategoryOther},
@@ -507,7 +517,7 @@ func seedExemplarFestival(db *gorm.DB, userID, exemplarArtistID, primaryVenueID 
 		}
 	}
 
-	applyTags(db, catalogm.TagEntityFestival, festival.ID, userID, []struct{ Name, Slug, Category string }{
+	applyTags(db, catalogm.TagEntityFestival, festival.ID, userID, []tagSpec{
 		{"Experimental", "experimental", catalogm.TagCategoryGenre},
 		{"Psych", "psych", catalogm.TagCategoryGenre},
 		{"Desert Festival", "desert-festival", catalogm.TagCategoryOther},
@@ -639,7 +649,7 @@ func seedExemplarShow(db *gorm.DB, userID, headlinerID, venueID uint) uint {
 		return 0
 	}
 
-	applyTags(db, catalogm.TagEntityShow, show.ID, userID, []struct{ Name, Slug, Category string }{
+	applyTags(db, catalogm.TagEntityShow, show.ID, userID, []tagSpec{
 		{"Dream Folk", "dream-folk", catalogm.TagCategoryGenre},
 		{"Experimental", "experimental", catalogm.TagCategoryGenre},
 		{"21 And Over", "21-and-over", catalogm.TagCategoryOther},
@@ -818,7 +828,7 @@ func seedExemplarCollection(db *gorm.DB, userID, artistID, venueID, labelID, sho
 		pos++
 	}
 
-	applyTags(db, catalogm.TagEntityCollection, coll.ID, userID, []struct{ Name, Slug, Category string }{
+	applyTags(db, catalogm.TagEntityCollection, coll.ID, userID, []tagSpec{
 		{"Staff Picks", "staff-picks", catalogm.TagCategoryOther},
 		{"Dream Folk", "dream-folk", catalogm.TagCategoryGenre},
 		{"Experimental", "experimental", catalogm.TagCategoryGenre},
