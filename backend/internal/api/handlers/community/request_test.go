@@ -9,6 +9,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ============================================================================
@@ -222,6 +223,108 @@ func TestRequestHandler_Get_ServiceError(t *testing.T) {
 
 	_, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "1"})
 	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// PSY-917: when the request references an entity, the detail handler resolves
+// it to a slug + name so the review panel can render a "View proposed" link.
+func TestRequestHandler_Get_ResolvesProposedEntity(t *testing.T) {
+	entityID := uint(7)
+	slug := "kendrick-lamar"
+	var resolveCalls int
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		GetRequestFn: func(requestID uint) (*communitym.Request, error) {
+			return &communitym.Request{
+				ID:                requestID,
+				Title:             "Test Request",
+				EntityType:        "artist",
+				RequestedEntityID: &entityID,
+				Status:            communitym.RequestStatusPendingFulfillment,
+				RequesterID:       1,
+			}, nil
+		},
+		ResolveEntityRefFn: func(entityType string, id uint) (*contracts.EntityRef, error) {
+			resolveCalls++
+			if entityType != "artist" || id != entityID {
+				t.Errorf("expected ResolveEntityRef(artist, %d), got (%s, %d)", entityID, entityType, id)
+			}
+			return &contracts.EntityRef{Slug: &slug, Name: "Kendrick Lamar"}, nil
+		},
+	}, nil)
+
+	resp, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "42"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resolveCalls != 1 {
+		t.Errorf("expected ResolveEntityRef to be called once, got %d", resolveCalls)
+	}
+	if resp.Body.RequestedEntitySlug == nil || *resp.Body.RequestedEntitySlug != slug {
+		t.Errorf("expected slug %q, got %v", slug, resp.Body.RequestedEntitySlug)
+	}
+	if resp.Body.RequestedEntityName == nil || *resp.Body.RequestedEntityName != "Kendrick Lamar" {
+		t.Errorf("expected name %q, got %v", "Kendrick Lamar", resp.Body.RequestedEntityName)
+	}
+}
+
+// PSY-917: a NULL-slug entity (catalog slug is nullable) resolves with a name
+// but no slug — the handler leaves the slug nil so the frontend suppresses
+// the broken link.
+func TestRequestHandler_Get_ProposedEntityNullSlug(t *testing.T) {
+	entityID := uint(7)
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		GetRequestFn: func(requestID uint) (*communitym.Request, error) {
+			return &communitym.Request{
+				ID:                requestID,
+				EntityType:        "artist",
+				RequestedEntityID: &entityID,
+				Status:            communitym.RequestStatusPendingFulfillment,
+				RequesterID:       1,
+			}, nil
+		},
+		ResolveEntityRefFn: func(entityType string, id uint) (*contracts.EntityRef, error) {
+			return &contracts.EntityRef{Slug: nil, Name: "No Slug Artist"}, nil
+		},
+	}, nil)
+
+	resp, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "42"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.RequestedEntitySlug != nil {
+		t.Errorf("expected nil slug, got %v", *resp.Body.RequestedEntitySlug)
+	}
+	if resp.Body.RequestedEntityName == nil || *resp.Body.RequestedEntityName != "No Slug Artist" {
+		t.Errorf("expected name to survive, got %v", resp.Body.RequestedEntityName)
+	}
+}
+
+// PSY-917: a stale RequestedEntityID (entity since deleted → resolver returns
+// nil) must not crash the detail fetch; the request renders link-less.
+func TestRequestHandler_Get_ProposedEntityResolveFailureNonFatal(t *testing.T) {
+	entityID := uint(7)
+	h := NewRequestHandler(&testhelpers.MockRequestService{
+		GetRequestFn: func(requestID uint) (*communitym.Request, error) {
+			return &communitym.Request{
+				ID:                requestID,
+				EntityType:        "artist",
+				RequestedEntityID: &entityID,
+				Status:            communitym.RequestStatusPendingFulfillment,
+				RequesterID:       1,
+			}, nil
+		},
+		ResolveEntityRefFn: func(entityType string, id uint) (*contracts.EntityRef, error) {
+			return nil, fmt.Errorf("db blew up")
+		},
+	}, nil)
+
+	resp, err := h.GetRequestHandler(requestUserCtx(), &GetRequestHandlerRequest{RequestID: "42"})
+	if err != nil {
+		t.Fatalf("resolver failure should not fail the request fetch, got: %v", err)
+	}
+	if resp.Body.RequestedEntitySlug != nil || resp.Body.RequestedEntityName != nil {
+		t.Errorf("expected no entity ref on resolver failure, got slug=%v name=%v",
+			resp.Body.RequestedEntitySlug, resp.Body.RequestedEntityName)
+	}
 }
 
 // ============================================================================

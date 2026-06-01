@@ -16,9 +16,23 @@ type RequestResponse struct {
 	Description       *string `json:"description,omitempty"`
 	EntityType        string  `json:"entity_type"`
 	RequestedEntityID *uint   `json:"requested_entity_id,omitempty"`
-	Status            string  `json:"status"`
-	RequesterID       uint    `json:"requester_id"`
-	RequesterName     string  `json:"requester_name"`
+	// RequestedEntitySlug / RequestedEntityName resolve RequestedEntityID to
+	// the linkable slug + display name of the referenced entity. Populated
+	// only by the single-request detail path (GetRequestHandler) when
+	// RequestedEntityID is set and the row still exists — list responses
+	// leave them nil to avoid an N+1 resolve per row. PSY-917.
+	//
+	// Why this is needed: entity detail pages route by SLUG
+	// (/artists/<slug>), not by numeric ID, and the requests table only
+	// stores the ID. Without the resolved slug the "View proposed {entity}"
+	// link in the fulfillment review panel can't be built. Slug is a pointer
+	// because catalog rows can have a NULL slug — when it's nil the frontend
+	// omits the link rather than emitting a broken /artists/<id> href.
+	RequestedEntitySlug *string `json:"requested_entity_slug,omitempty"`
+	RequestedEntityName *string `json:"requested_entity_name,omitempty"`
+	Status              string  `json:"status"`
+	RequesterID         uint    `json:"requester_id"`
+	RequesterName       string  `json:"requester_name"`
 	// RequesterUsername is the requester's username when set — pointer so
 	// the JSON encodes null (not "") for accounts that never set a username.
 	// Frontend uses this to render the byline as a link to /users/:username
@@ -36,6 +50,16 @@ type RequestResponse struct {
 	UserVote          *int       `json:"user_vote,omitempty"`
 	CreatedAt         time.Time  `json:"created_at"`
 	UpdatedAt         time.Time  `json:"updated_at"`
+}
+
+// EntityRef is the resolved, linkable identity of a knowledge-graph entity
+// referenced by a request — the slug used to build its detail-page URL plus
+// its display name. Returned by ResolveEntityRef. Slug is a pointer so the
+// caller can distinguish "row exists but has no slug" (link suppressed) from
+// "resolved with a slug" (link rendered). PSY-917.
+type EntityRef struct {
+	Slug *string
+	Name string
 }
 
 // RequestServiceInterface defines the contract for community request operations.
@@ -74,4 +98,9 @@ type RequestServiceInterface interface {
 	NotifyRequesterFulfillmentProposed(requestID, requesterID, fulfillerID uint) error
 	CloseRequest(requestID, userID uint, isAdmin bool) error
 	GetUserVote(requestID, userID uint) (*communitym.RequestVote, error)
+	// ResolveEntityRef looks up the slug + display name of the entity
+	// referenced by a request (entityType + entityID). Returns nil (no
+	// error) when the row doesn't exist, so a stale RequestedEntityID
+	// degrades to "no link" rather than a 500. PSY-917.
+	ResolveEntityRef(entityType string, entityID uint) (*EntityRef, error)
 }

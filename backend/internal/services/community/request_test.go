@@ -40,6 +40,33 @@ func createTestVenue(db *gorm.DB) uint {
 	return venue.ID
 }
 
+// createTestArtistWithSlug seeds an artist row carrying an explicit name +
+// slug and returns both. PSY-917 ResolveEntityRef tests need a slug to
+// assert the linkable-ref happy path (the plain createTestArtist helper
+// leaves slug NULL, which exercises the suppress-link branch instead).
+func createTestArtistWithSlug(db *gorm.DB) (id uint, name, slug string) {
+	name = fmt.Sprintf("Slug Artist %d", time.Now().UnixNano())
+	slug = fmt.Sprintf("slug-artist-%d", time.Now().UnixNano())
+	artist := &catalogm.Artist{Name: name, Slug: &slug}
+	if err := db.Create(artist).Error; err != nil {
+		panic(fmt.Sprintf("seed artist-with-slug failed: %v", err))
+	}
+	return artist.ID, name, slug
+}
+
+// createTestReleaseWithSlug seeds a release row (title + slug) and returns
+// both. Releases store their display name in `title`, not `name`, so this
+// proves ResolveEntityRef reads the right column for that entity type.
+func createTestReleaseWithSlug(db *gorm.DB) (id uint, title, slug string) {
+	title = fmt.Sprintf("Slug Release %d", time.Now().UnixNano())
+	slug = fmt.Sprintf("slug-release-%d", time.Now().UnixNano())
+	release := &catalogm.Release{Title: title, Slug: &slug}
+	if err := db.Create(release).Error; err != nil {
+		panic(fmt.Sprintf("seed release-with-slug failed: %v", err))
+	}
+	return release.ID, title, slug
+}
+
 // =============================================================================
 // INTEGRATION TESTS (With Real Database)
 // =============================================================================
@@ -73,6 +100,9 @@ func (suite *RequestServiceIntegrationTestSuite) SetupTest() {
 	_, _ = sqlDB.Exec("DELETE FROM requests")
 	_, _ = sqlDB.Exec("DELETE FROM artists")
 	_, _ = sqlDB.Exec("DELETE FROM venues")
+	// PSY-917: ResolveEntityRef tests seed releases; purge them too so IDs
+	// don't drift across runs.
+	_, _ = sqlDB.Exec("DELETE FROM releases")
 	_, _ = sqlDB.Exec("DELETE FROM notification_log")
 	_, _ = sqlDB.Exec("DELETE FROM users")
 }
@@ -987,6 +1017,63 @@ func (suite *RequestServiceIntegrationTestSuite) TestNotifyRequesterFulfillmentP
 			notificationm.NotificationEntityRequestFulfillmentProposed, created.ID).
 		Count(&n).Error)
 	suite.Assert().Equal(int64(0), n, "zero requesterID should not write a notification row")
+}
+
+// ============================================================================
+// Test: ResolveEntityRef (PSY-917)
+// ============================================================================
+
+func (suite *RequestServiceIntegrationTestSuite) TestResolveEntityRef_ArtistWithSlug() {
+	artistID, name, slug := createTestArtistWithSlug(suite.db)
+
+	ref, err := suite.requestService.ResolveEntityRef("artist", artistID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(ref)
+	suite.Require().NotNil(ref.Slug)
+	suite.Assert().Equal(slug, *ref.Slug)
+	suite.Assert().Equal(name, ref.Name)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestResolveEntityRef_ReleaseUsesTitleColumn() {
+	// Releases store their display name in `title`, not `name`. Proves the
+	// per-type name-column map resolves the right column.
+	releaseID, title, slug := createTestReleaseWithSlug(suite.db)
+
+	ref, err := suite.requestService.ResolveEntityRef("release", releaseID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(ref)
+	suite.Require().NotNil(ref.Slug)
+	suite.Assert().Equal(slug, *ref.Slug)
+	suite.Assert().Equal(title, ref.Name)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestResolveEntityRef_NullSlugSuppressesLink() {
+	// createTestArtist seeds an artist with a NULL slug (no service-level
+	// slug generation in the helper). The ref should still resolve with the
+	// name but a nil Slug so the frontend omits the broken link.
+	artistID := createTestArtist(suite.db)
+
+	ref, err := suite.requestService.ResolveEntityRef("artist", artistID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(ref)
+	suite.Assert().Nil(ref.Slug)
+	suite.Assert().NotEmpty(ref.Name)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestResolveEntityRef_MissingRowReturnsNil() {
+	// A stale RequestedEntityID (entity since deleted) degrades to "no link"
+	// rather than an error.
+	ref, err := suite.requestService.ResolveEntityRef("artist", 999999)
+	suite.Require().NoError(err)
+	suite.Assert().Nil(ref)
+}
+
+func (suite *RequestServiceIntegrationTestSuite) TestResolveEntityRef_UnknownTypeReturnsNil() {
+	// Defensive: an unsupported entity_type can't be resolved, but it must
+	// not error — CreateRequest already gates the type.
+	ref, err := suite.requestService.ResolveEntityRef("mixtape", 1)
+	suite.Require().NoError(err)
+	suite.Assert().Nil(ref)
 }
 
 // ============================================================================

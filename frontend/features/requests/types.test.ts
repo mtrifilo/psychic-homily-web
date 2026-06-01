@@ -4,10 +4,12 @@ import {
   REQUEST_STATUSES,
   REQUEST_SORT_OPTIONS,
   getEntityTypeLabel,
+  getEntityTypeArticle,
   getStatusLabel,
   getEntityTypeColor,
   getStatusColor,
   getEntityUrl,
+  getEntityUrlBySlug,
   formatTimeAgo,
   formatDate,
 } from './types'
@@ -126,6 +128,42 @@ describe('getEntityUrl', () => {
 
   it('returns "#" for an unknown entity type', () => {
     expect(getEntityUrl('mixtape', 7)).toBe('#')
+  })
+})
+
+describe('getEntityTypeArticle', () => {
+  it('returns "an" for the vowel-initial label (artist)', () => {
+    expect(getEntityTypeArticle('artist')).toBe('an')
+  })
+
+  it.each(['venue', 'show', 'release', 'label', 'festival'])(
+    'returns "a" for consonant-initial label (%s)',
+    (type) => {
+      expect(getEntityTypeArticle(type)).toBe('a')
+    }
+  )
+})
+
+describe('getEntityUrlBySlug', () => {
+  it.each([
+    ['artist', 'slowdive', '/artists/slowdive'],
+    ['venue', 'valley-bar', '/venues/valley-bar'],
+    ['show', 'a-show', '/shows/a-show'],
+    ['release', 'souvlaki', '/releases/souvlaki'],
+    ['label', 'creation', '/labels/creation'],
+    ['festival', 'fyf', '/festivals/fyf'],
+  ])('builds %s url from slug', (type, slug, expected) => {
+    expect(getEntityUrlBySlug(type, slug)).toBe(expected)
+  })
+
+  it('returns null for an unknown entity type', () => {
+    expect(getEntityUrlBySlug('mixtape', 'foo')).toBeNull()
+  })
+
+  it('returns null for an empty/nullish slug so the caller can suppress the link', () => {
+    expect(getEntityUrlBySlug('artist', null)).toBeNull()
+    expect(getEntityUrlBySlug('artist', undefined)).toBeNull()
+    expect(getEntityUrlBySlug('artist', '')).toBeNull()
   })
 })
 

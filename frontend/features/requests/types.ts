@@ -29,6 +29,17 @@ export interface Request {
   description?: string
   entity_type: string
   requested_entity_id?: number
+  /**
+   * PSY-917: slug + display name of the entity `requested_entity_id` points
+   * at, resolved server-side on the single-request detail fetch (null on
+   * list rows). After a fulfillment is proposed with an entity, this is the
+   * PROPOSED entity. Entity detail pages route by slug, so the slug — not the
+   * numeric id — is what builds a working "View proposed {entity}" link. Slug
+   * is nullable because catalog rows can lack a slug; when null, suppress the
+   * link. Name is the label for the link text.
+   */
+  requested_entity_slug?: string | null
+  requested_entity_name?: string | null
   status: string
   requester_id: number
   requester_name: string
@@ -76,6 +87,18 @@ export function getEntityTypeLabel(entityType: string): string {
     default:
       return entityType
   }
+}
+
+/**
+ * Helper: the indefinite article ("a"/"an") for an entity type's label, so UI
+ * copy reads "Propose an artist" / "Propose a venue" instead of the
+ * always-"a" version. Of the six request entity types only "artist" starts
+ * with a vowel sound, but we check the resolved label's first letter so the
+ * helper stays correct if the label set grows. PSY-917.
+ */
+export function getEntityTypeArticle(entityType: string): 'a' | 'an' {
+  const first = getEntityTypeLabel(entityType).charAt(0).toLowerCase()
+  return 'aeiou'.includes(first) ? 'an' : 'a'
 }
 
 /** Helper: get a display label for a request status */
@@ -158,7 +181,15 @@ export function formatDate(dateString: string): string {
   })
 }
 
-/** Helper: build entity URL from entity type and ID */
+/**
+ * Helper: build an entity URL from entity type and ID.
+ *
+ * @deprecated PSY-917 — entity detail pages route by SLUG, not numeric ID, so
+ * a `/artists/<id>` URL doesn't resolve (the backend looks rows up by slug).
+ * Use {@link getEntityUrlBySlug} with the resolved `requested_entity_slug`
+ * instead. Retained only so the historical signature stays covered; not used
+ * for any live link.
+ */
 export function getEntityUrl(entityType: string, entityId: number): string {
   switch (entityType) {
     case 'artist':
@@ -175,5 +206,36 @@ export function getEntityUrl(entityType: string, entityId: number): string {
       return `/festivals/${entityId}`
     default:
       return '#'
+  }
+}
+
+/**
+ * Helper: build an entity detail URL from entity type and SLUG.
+ *
+ * This is the correct way to link to a knowledge-graph entity — detail pages
+ * are `/<type>/[slug]` routes resolved against the slug column. Returns null
+ * for an unknown type or an empty slug so callers can suppress the link
+ * rather than emit a dead `#` href. PSY-917.
+ */
+export function getEntityUrlBySlug(
+  entityType: string,
+  slug: string | null | undefined
+): string | null {
+  if (!slug) return null
+  switch (entityType) {
+    case 'artist':
+      return `/artists/${slug}`
+    case 'venue':
+      return `/venues/${slug}`
+    case 'show':
+      return `/shows/${slug}`
+    case 'release':
+      return `/releases/${slug}`
+    case 'label':
+      return `/labels/${slug}`
+    case 'festival':
+      return `/festivals/${slug}`
+    default:
+      return null
   }
 }

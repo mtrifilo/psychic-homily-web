@@ -11,6 +11,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	communitym "psychic-homily-backend/internal/models/community"
 	notificationm "psychic-homily-backend/internal/models/notification"
+	"psychic-homily-backend/internal/services/contracts"
 )
 
 // requestEntityTables maps a request's declared entity_type to the
@@ -26,6 +27,20 @@ var requestEntityTables = map[string]string{
 	communitym.RequestEntityRelease:  "releases",
 	communitym.RequestEntityLabel:    "labels",
 	communitym.RequestEntityFestival: "festivals",
+}
+
+// requestEntityNameColumns maps a request's entity_type to the column that
+// holds the entity's human-readable display name. Most catalog tables use
+// `name`, but releases and shows use `title`. Used by ResolveEntityRef to
+// build the "View proposed {entity}" link label without hardcoding the
+// column per call site. Keep aligned with requestEntityTables. PSY-917.
+var requestEntityNameColumns = map[string]string{
+	communitym.RequestEntityArtist:   "name",
+	communitym.RequestEntityVenue:    "name",
+	communitym.RequestEntityShow:     "title",
+	communitym.RequestEntityRelease:  "title",
+	communitym.RequestEntityLabel:    "name",
+	communitym.RequestEntityFestival: "name",
 }
 
 // RequestService handles community request business logic.
@@ -378,6 +393,49 @@ func (s *RequestService) validateFulfillmentEntity(requestID uint, requestType s
 		return apperrors.ErrRequestEntityNotFound(requestID, requestType, entityID)
 	}
 	return nil
+}
+
+// ResolveEntityRef looks up the slug + display name of the entity a request
+// points at (its RequestedEntityID, which after a fulfillment proposal holds
+// the proposed entity). It powers the "View proposed {entity}" link in the
+// pending-fulfillment review panel — entity detail pages route by slug, so
+// the numeric ID stored on the request isn't enough on its own. PSY-917.
+//
+// Returns (nil, nil) — not an error — when entityType is unknown or the row
+// no longer exists, so a stale or unsupported reference degrades to "no
+// link" rather than failing the whole request fetch. A nil/empty slug on the
+// returned ref signals the row exists but isn't linkable (catalog slug is
+// nullable); the handler still surfaces the name and the frontend suppresses
+// the link.
+func (s *RequestService) ResolveEntityRef(entityType string, entityID uint) (*contracts.EntityRef, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+
+	table, ok := requestEntityTables[entityType]
+	if !ok {
+		// Unknown type — nothing to resolve. Not an error: CreateRequest
+		// already gates entity_type, so this is purely defensive.
+		return nil, nil
+	}
+	nameColumn := requestEntityNameColumns[entityType]
+
+	var row struct {
+		Slug *string
+		Name string
+	}
+	err := s.db.Table(table).
+		Select(fmt.Sprintf("slug AS slug, %s AS name", nameColumn)).
+		Where("id = ?", entityID).
+		Take(&row).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, fmt.Errorf("failed to resolve entity ref: %w", err)
+	}
+
+	return &contracts.EntityRef{Slug: row.Slug, Name: row.Name}, nil
 }
 
 // ApproveFulfillment finalizes a pending_fulfillment request, flipping

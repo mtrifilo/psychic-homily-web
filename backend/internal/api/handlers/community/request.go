@@ -188,6 +188,25 @@ func (h *RequestHandler) GetRequestHandler(ctx context.Context, req *GetRequestH
 	}
 
 	resp := buildRequestResponse(request, userVote)
+
+	// PSY-917: resolve the referenced entity to a linkable slug + name so the
+	// pending-fulfillment review panel can render a "View proposed {entity}"
+	// link. Detail-path only — list responses skip this to avoid an N+1
+	// resolve. Resolution failure is non-fatal: the request still renders,
+	// just without the entity link.
+	if request.RequestedEntityID != nil {
+		if ref, refErr := h.requestService.ResolveEntityRef(request.EntityType, *request.RequestedEntityID); refErr != nil {
+			logger.FromContext(ctx).Warn("request_entity_ref_resolve_failed",
+				"request_id", request.ID, "entity_type", request.EntityType,
+				"entity_id", *request.RequestedEntityID, "error", refErr.Error())
+		} else if ref != nil {
+			resp.RequestedEntitySlug = ref.Slug
+			if ref.Name != "" {
+				resp.RequestedEntityName = &ref.Name
+			}
+		}
+	}
+
 	return &GetRequestHandlerResponse{Body: resp}, nil
 }
 
