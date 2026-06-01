@@ -322,6 +322,7 @@ export function CollectionManagement() {
             onRowClick={(c) =>
               setSelectedSlug(selectedSlug === c.slug ? null : c.slug)
             }
+            rowLabel={(c) => `Collection: ${c.title}`}
             rowClassName={(c) =>
               selectedSlug === c.slug ? 'bg-muted/50' : undefined
             }

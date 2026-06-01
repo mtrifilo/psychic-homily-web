@@ -51,6 +51,25 @@ describe('AdminTable', () => {
     expect(onRowClick).toHaveBeenCalledWith(rows[0])
   })
 
+  it('exposes clickable rows as labelled buttons to assistive tech', () => {
+    render(
+      <AdminTable
+        columns={columns}
+        rows={rows}
+        rowKey={r => r.id}
+        onRowClick={vi.fn()}
+        rowLabel={r => `Row: ${r.name}`}
+      />
+    )
+    const row = screen.getByRole('button', { name: 'Row: Alpha' })
+    expect(row.tagName).toBe('TR')
+  })
+
+  it('non-clickable rows are not buttons', () => {
+    render(<AdminTable columns={columns} rows={rows} rowKey={r => r.id} />)
+    expect(screen.queryByRole('button')).not.toBeInTheDocument()
+  })
+
   it('activates onRowClick via keyboard (Enter / Space) when the row is focused', () => {
     const onRowClick = vi.fn()
     render(<AdminTable columns={columns} rows={rows} rowKey={r => r.id} onRowClick={onRowClick} />)

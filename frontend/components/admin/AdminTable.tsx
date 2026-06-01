@@ -4,11 +4,14 @@ import * as React from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * AdminTable — the canonical admin entity-list table (PSY-910). Replaces the
- * per-surface bespoke `<table>`s (Collections, Radio Stations, Pipeline history)
- * with one dense, hairline-divided table: a muted column-header band with
- * mono-uppercase labels (the editorial upgrade locked in PSY-912), dense rows,
- * and per-column alignment + render.
+ * AdminTable — the canonical admin entity-list table (PSY-910). Unifies the
+ * top-level admin entity-list tables (Collections, Radio Stations, Pipeline
+ * Import History) behind one dense, hairline-divided table: a muted
+ * column-header band with mono-uppercase labels (the editorial upgrade locked in
+ * PSY-912), dense rows, and per-column alignment + render. Nested / detail
+ * tables (collection items, venue config, extraction-run history, unmatched
+ * plays) intentionally stay hand-rolled — they aren't single-click-to-detail
+ * lists and don't fit this config-driven shape.
  *
  * Render-only by design. Sorting isn't included (no admin table sorts today);
  * pagination stays with the parent (e.g. Pipeline Import History owns its
@@ -21,7 +24,10 @@ import { cn } from '@/lib/utils'
  * Distinct from `components/shared/DenseTable`: that is a *composition* primitive
  * (you pass `<thead>/<tbody>` children, variants) for public entity pages;
  * AdminTable is *config-driven* (a columns array) for admin entity lists. Reach
- * for DenseTable on entity pages, AdminTable for admin lists.
+ * for DenseTable on entity pages, AdminTable for admin lists. Their header
+ * treatments intentionally differ — AdminTable uses a mono-uppercase band per
+ * PSY-912; DenseTable does not. Keep them divergent unless a cohesion pass
+ * deliberately reconciles both.
  */
 export interface AdminTableColumn<T> {
   /** Stable column id (React key for the cell). */
@@ -32,7 +38,9 @@ export interface AdminTableColumn<T> {
   render: (row: T) => React.ReactNode
   align?: 'left' | 'center' | 'right'
   /** Stop the row's onClick when interacting with this cell (e.g. a toggle in a
-   *  click-to-detail row). */
+   *  click-to-detail row). Covers the MOUSE click only — keyboard isolation for a
+   *  focused in-cell control relies on the row's `e.target === e.currentTarget`
+   *  keydown guard (don't remove that guard or child controls double-fire). */
   stopRowClick?: boolean
   headerClassName?: string
   cellClassName?: string
@@ -43,8 +51,13 @@ export interface AdminTableProps<T> {
   rows: T[]
   /** Stable React key per row. */
   rowKey: (row: T) => React.Key
-  /** Click-to-detail affordance. When set, rows get hover + cursor styling. */
+  /** Click-to-detail affordance. When set, rows become keyboard-operable
+   *  (focusable, Enter/Space) and get hover + cursor styling + role="button". */
   onRowClick?: (row: T) => void
+  /** Accessible label for a clickable row (announced by screen readers, since a
+   *  role="button" row otherwise reads only its cells). Strongly recommended
+   *  whenever onRowClick is set — e.g. the entity name. */
+  rowLabel?: (row: T) => string
   /** Extra per-row classes — e.g. a selected-row highlight. */
   rowClassName?: (row: T) => string | undefined
   /** Rendered (spanning all columns) when `rows` is empty. Omit to render an
@@ -65,6 +78,7 @@ export function AdminTable<T>({
   rows,
   rowKey,
   onRowClick,
+  rowLabel,
   rowClassName,
   empty,
   className,
@@ -104,6 +118,8 @@ export function AdminTable<T>({
             rows.map(row => (
               <tr
                 key={rowKey(row)}
+                role={clickable ? 'button' : undefined}
+                aria-label={clickable ? rowLabel?.(row) : undefined}
                 onClick={clickable ? () => onRowClick!(row) : undefined}
                 onKeyDown={
                   clickable

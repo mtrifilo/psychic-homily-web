@@ -1892,6 +1892,7 @@ export function RadioManagement() {
               rows={filteredStations}
               rowKey={(s) => s.id}
               onRowClick={handleStationClick}
+              rowLabel={(s) => `Station: ${s.name}`}
             />
           )}
         </div>
