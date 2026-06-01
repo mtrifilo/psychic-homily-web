@@ -5,7 +5,11 @@ import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
-import { CollectionDetail } from '@/features/collections/components'
+// Imported from the component FILE, not the feature barrel: a barrel re-export
+// keeps CollectionDetail multi-route-reachable under Turbopack and re-hoists its
+// lazily-split libs (@dnd-kit / marked / dompurify) into the global shared
+// chunk. See PSY-951 / PSY-944 and the note in components/index.ts.
+import { CollectionDetail } from '@/features/collections/components/CollectionDetail'
 import type { CollectionDetail as CollectionDetailData } from '@/features/collections/types'
 import { getQueryClient, queryKeys } from '@/lib/queryClient'
 

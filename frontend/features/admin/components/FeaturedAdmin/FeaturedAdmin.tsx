@@ -45,10 +45,11 @@ import { useDebounce } from 'use-debounce'
 import { useQuery } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { formatShowDate } from '@/lib/utils/formatters'
-import {
-  MarkdownContent,
-  MarkdownEditor,
-} from '@/features/collections/components/MarkdownEditor'
+import { MarkdownContent } from '@/features/collections/components/MarkdownContent'
+// MarkdownEditor is lazily loaded (dynamic ssr:false) to keep its `marked` +
+// `dompurify` deps out of the global shared client chunk — see
+// MarkdownEditorLazy / PSY-951.
+import { MarkdownEditor } from '@/features/collections/components/MarkdownEditorLazy'
 import {
   useExploreFeatured,
   useRetireFeaturedSlot,

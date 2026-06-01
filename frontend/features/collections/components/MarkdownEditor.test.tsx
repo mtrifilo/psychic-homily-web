@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { MarkdownEditor, MarkdownContent } from './MarkdownEditor'
+import { MarkdownEditor } from './MarkdownEditor'
 
 describe('MarkdownEditor', () => {
   it('renders the textarea in Write mode by default', () => {
@@ -186,23 +186,5 @@ describe('MarkdownEditor', () => {
       <MarkdownEditor value="abc" onChange={vi.fn()} maxLength={100} />
     )
     expect(screen.getByText('3 / 100')).toBeInTheDocument()
-  })
-})
-
-describe('MarkdownContent', () => {
-  it('renders nothing when html is empty', () => {
-    const { container } = render(<MarkdownContent html="" />)
-    expect(container.firstChild).toBeNull()
-  })
-
-  it('renders provided HTML via dangerouslySetInnerHTML', () => {
-    render(
-      <MarkdownContent
-        html="<p><strong>bold</strong> text</p>"
-        testId="md-out"
-      />
-    )
-    const el = screen.getByTestId('md-out')
-    expect(el.querySelector('strong')?.textContent).toBe('bold')
   })
 })

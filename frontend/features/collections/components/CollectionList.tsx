@@ -15,7 +15,10 @@ import {
   type StagedCollectionItem,
 } from './AddItemsPicker'
 import { CollectionCard } from './CollectionCard'
-import { MarkdownEditor } from './MarkdownEditor'
+// MarkdownEditor is lazily loaded (dynamic ssr:false) so its `marked` +
+// `dompurify` deps stay out of the global shared client chunk — see
+// MarkdownEditorLazy / PSY-951.
+import { MarkdownEditor } from './MarkdownEditorLazy'
 import {
   MAX_COLLECTION_MARKDOWN_LENGTH,
   MAX_COVER_IMAGE_URL_LENGTH,
