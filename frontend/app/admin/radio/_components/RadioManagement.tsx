@@ -909,7 +909,7 @@ function ImportJobRow({ job }: { job: RadioImportJob }) {
           <div className="h-2 rounded-full bg-muted overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${
-                job.status === 'completed' ? 'bg-green-500' : 'bg-blue-500'
+                job.status === 'completed' ? 'bg-chart-2' : 'bg-chart-6'
               }`}
               style={{ width: `${progress}%` }}
             />

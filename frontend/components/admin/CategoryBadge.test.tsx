@@ -4,25 +4,26 @@ import { render, screen } from '@testing-library/react'
 import { CategoryBadge } from './CategoryBadge'
 
 describe('CategoryBadge', () => {
-  it('renders the Edit kind with its blue tone', () => {
+  // PSY-943: tones bound to the DS categorical chart palette, not raw hues.
+  it('renders the Edit kind with the chart-6 (denim) tone', () => {
     render(<CategoryBadge kind="edit" />)
 
     const badge = screen.getByText('Edit').closest('div')
-    expect(badge).toHaveClass('bg-blue-500/10', 'text-blue-700')
+    expect(badge).toHaveClass('bg-chart-6/10', 'text-chart-6')
   })
 
-  it('renders the Report kind with its amber tone', () => {
+  it('renders the Report kind with the chart-3 (gold) tone', () => {
     render(<CategoryBadge kind="report" />)
 
     const badge = screen.getByText('Report').closest('div')
-    expect(badge).toHaveClass('bg-amber-500/10', 'text-amber-700')
+    expect(badge).toHaveClass('bg-chart-3/10', 'text-chart-3')
   })
 
-  it('renders the Comment kind with its violet tone', () => {
+  it('renders the Comment kind with the chart-7 (plum) tone', () => {
     render(<CategoryBadge kind="comment" />)
 
     const badge = screen.getByText('Comment').closest('div')
-    expect(badge).toHaveClass('bg-violet-500/10', 'text-violet-700')
+    expect(badge).toHaveClass('bg-chart-7/10', 'text-chart-7')
   })
 
   it('renders an icon alongside the label', () => {

@@ -77,35 +77,49 @@ describe('getStatusLabel', () => {
 })
 
 describe('getEntityTypeColor', () => {
-  it('returns a distinct class for each known entity type', () => {
+  it('returns a distinct DS-palette class for each known entity type', () => {
     const colors = REQUEST_ENTITY_TYPES.map(getEntityTypeColor)
     // Every known type maps to a unique, non-muted class.
     expect(new Set(colors).size).toBe(REQUEST_ENTITY_TYPES.length)
     colors.forEach(c => expect(c).not.toContain('text-muted-foreground'))
+    // Bound to the shared chart-* palette, not raw Tailwind hues (PSY-943).
+    colors.forEach(c => {
+      expect(c).toContain('text-chart-')
+      expect(c).not.toMatch(/text-(?:purple|blue|green|orange|pink|amber)-\d/)
+    })
   })
 
   it('falls back to muted styling for an unknown type', () => {
+    // Delegates to the shared map, whose fallback includes a border slice.
     expect(getEntityTypeColor('unknown')).toBe(
-      'bg-muted text-muted-foreground'
+      'bg-muted text-muted-foreground border-border'
     )
   })
 })
 
 describe('getStatusColor', () => {
-  it('returns a yellow class for pending', () => {
-    expect(getStatusColor('pending')).toContain('yellow')
+  it('binds pending to a chart token (gold)', () => {
+    expect(getStatusColor('pending')).toBe('bg-chart-3/15 text-chart-3')
   })
 
   it('returns a primary class for pending_fulfillment', () => {
     expect(getStatusColor('pending_fulfillment')).toContain('primary')
   })
 
-  it('returns a green class for fulfilled', () => {
-    expect(getStatusColor('fulfilled')).toContain('green')
+  it('binds fulfilled to the green chart token', () => {
+    expect(getStatusColor('fulfilled')).toBe('bg-chart-2/15 text-chart-2')
   })
 
-  it('returns a red class for rejected', () => {
-    expect(getStatusColor('rejected')).toContain('red')
+  it('binds rejected to the destructive token', () => {
+    expect(getStatusColor('rejected')).toBe('bg-destructive/15 text-destructive')
+  })
+
+  it('uses no raw off-palette Tailwind hue', () => {
+    for (const status of REQUEST_STATUSES) {
+      expect(getStatusColor(status)).not.toMatch(
+        /(?:bg|text)-(?:yellow|red|blue|green|orange|pink|purple|amber)-\d/
+      )
+    }
   })
 
   it('falls back to muted styling for cancelled and unknown', () => {

@@ -13,9 +13,11 @@ interface KindConfig {
   label: string
   icon: LucideIcon
   /**
-   * Ad-hoc Tailwind tone classes, preserved VERBATIM from the original
-   * inline badges so this extraction is a pure no-visual-change dedup.
-   * PSY-908 will swap these for DS chart/category tokens.
+   * DS-palette tint for the moderation kind (PSY-943). Bound to the shared
+   * categorical `--chart-*` tokens (globals.css, PSY-947) so the three kinds
+   * stay distinct-but-muted and track light/dark via the CSS cascade — no more
+   * raw blue/amber/violet hues with hand-tuned `dark:` overrides. edit =
+   * chart-6 (denim), report = chart-3 (gold, "flag"), comment = chart-7 (plum).
    */
   tone: string
 }
@@ -24,17 +26,17 @@ const KIND_CONFIG: Record<AdminCategoryKind, KindConfig> = {
   edit: {
     label: 'Edit',
     icon: Pencil,
-    tone: 'bg-blue-500/10 text-blue-700 dark:text-blue-400 border-blue-200 dark:border-blue-800',
+    tone: 'bg-chart-6/10 text-chart-6 border-chart-6/30',
   },
   report: {
     label: 'Report',
     icon: Flag,
-    tone: 'bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800',
+    tone: 'bg-chart-3/10 text-chart-3 border-chart-3/30',
   },
   comment: {
     label: 'Comment',
     icon: MessageSquare,
-    tone: 'bg-violet-500/10 text-violet-700 dark:text-violet-400 border-violet-200 dark:border-violet-800',
+    tone: 'bg-chart-7/10 text-chart-7 border-chart-7/30',
   },
 }
 

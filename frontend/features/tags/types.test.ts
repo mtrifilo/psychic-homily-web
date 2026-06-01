@@ -74,10 +74,18 @@ describe('low-quality signal chips', () => {
 })
 
 describe('getCategoryColor', () => {
-  it('returns a distinct class string per known category', () => {
-    expect(getCategoryColor('genre')).toContain('blue')
-    expect(getCategoryColor('locale')).toContain('cyan')
-    expect(getCategoryColor('other')).toContain('zinc')
+  it('binds each known category to a distinct DS chart token (PSY-943)', () => {
+    expect(getCategoryColor('genre')).toContain('text-chart-6')
+    expect(getCategoryColor('locale')).toContain('text-chart-8')
+    expect(getCategoryColor('other')).toContain('text-muted-foreground')
+  })
+
+  it('uses no raw off-palette Tailwind hue', () => {
+    for (const cat of ['genre', 'locale', 'other']) {
+      expect(getCategoryColor(cat)).not.toMatch(
+        /(?:bg|text|border)-(?:blue|cyan|zinc)-\d/
+      )
+    }
   })
 
   it('falls back to the "other" styling for an unknown category', () => {

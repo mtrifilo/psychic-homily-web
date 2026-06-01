@@ -10,26 +10,8 @@ import {
 } from '@/features/collections'
 import type { Collection } from '@/features/collections'
 import { Switch } from '@/components/ui/switch'
+import { EntityTypeBadge } from '@/components/shared'
 import { AdminTable, type AdminTableColumn } from './AdminTable'
-
-function EntityTypeBadge({ type }: { type: string }) {
-  const colors: Record<string, string> = {
-    artist: 'bg-purple-500/20 text-purple-400',
-    release: 'bg-blue-500/20 text-blue-400',
-    label: 'bg-green-500/20 text-green-400',
-    show: 'bg-amber-500/20 text-amber-400',
-    venue: 'bg-rose-500/20 text-rose-400',
-    festival: 'bg-cyan-500/20 text-cyan-400',
-  }
-
-  return (
-    <span
-      className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${colors[type] || 'bg-muted text-muted-foreground'}`}
-    >
-      {type}
-    </span>
-  )
-}
 
 function CollectionDetailPanel({
   collection,

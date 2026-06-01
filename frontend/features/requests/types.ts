@@ -1,6 +1,7 @@
 // Request types — aligned with backend contracts/request.go response types.
 
 import { formatTimeAgo as sharedFormatTimeAgo } from '@/lib/formatTimeAgo'
+import { getEntityTypeBadgeClasses } from '@/components/shared/EntityTypeBadge'
 
 export const REQUEST_ENTITY_TYPES = [
   'artist',
@@ -121,39 +122,44 @@ export function getStatusLabel(status: string): string {
   }
 }
 
-/** Helper: get a color class for entity type badge */
+/**
+ * Helper: get a color class for an entity-type badge.
+ *
+ * Delegates to the single-sourced DS-palette map shared with the admin
+ * collections table and any future entity-type pill (PSY-943). The request
+ * board renders its own `<span>` without a `border` utility, so the
+ * `border-chart-*` slice the helper returns is inert here — harmless, and it
+ * keeps the map in exactly one place.
+ */
 export function getEntityTypeColor(entityType: string): string {
-  switch (entityType) {
-    case 'artist':
-      return 'bg-purple-500/15 text-purple-700 dark:text-purple-400'
-    case 'venue':
-      return 'bg-blue-500/15 text-blue-700 dark:text-blue-400'
-    case 'show':
-      return 'bg-green-500/15 text-green-700 dark:text-green-400'
-    case 'release':
-      return 'bg-orange-500/15 text-orange-700 dark:text-orange-400'
-    case 'label':
-      return 'bg-pink-500/15 text-pink-700 dark:text-pink-400'
-    case 'festival':
-      return 'bg-amber-500/15 text-amber-700 dark:text-amber-400'
-    default:
-      return 'bg-muted text-muted-foreground'
-  }
+  return getEntityTypeBadgeClasses(entityType)
 }
 
-/** Helper: get a color class for status badge */
+/**
+ * Helper: get a color class for a request status badge (PSY-943).
+ *
+ * Bound to the DS categorical palette (`--chart-*`, globals.css) instead of
+ * raw Tailwind hues. Status semantics drive the hue choice:
+ *   pending             → chart-3 (gold)  — waiting/attention
+ *   in_progress         → chart-6 (denim) — active work
+ *   pending_fulfillment → primary         — needs the owner's review (matches
+ *                                            the app's primary call-to-action)
+ *   fulfilled           → chart-2 (green) — done
+ *   rejected            → destructive     — terminal-negative
+ *   cancelled / unknown → muted           — inert
+ */
 export function getStatusColor(status: string): string {
   switch (status) {
     case 'pending':
-      return 'bg-yellow-500/15 text-yellow-700 dark:text-yellow-400'
+      return 'bg-chart-3/15 text-chart-3'
     case 'in_progress':
-      return 'bg-blue-500/15 text-blue-700 dark:text-blue-400'
+      return 'bg-chart-6/15 text-chart-6'
     case 'pending_fulfillment':
       return 'bg-primary/15 text-primary'
     case 'fulfilled':
-      return 'bg-green-500/15 text-green-700 dark:text-green-400'
+      return 'bg-chart-2/15 text-chart-2'
     case 'rejected':
-      return 'bg-red-500/15 text-red-700 dark:text-red-400'
+      return 'bg-destructive/15 text-destructive'
     case 'cancelled':
       return 'bg-muted text-muted-foreground'
     default:
