@@ -1,16 +1,33 @@
 import { Suspense, cache } from 'react'
 import { Metadata } from 'next'
+import dynamic from 'next/dynamic'
 import { notFound } from 'next/navigation'
 import * as Sentry from '@sentry/nextjs'
 import { Loader2 } from 'lucide-react'
 import { HydrationBoundary } from '@tanstack/react-query'
-import { ArtistDetail } from '@/features/artists'
 import type { Artist } from '@/features/artists/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicGroupSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
+
+// Dynamic-imported from the component FILE (never the `@/features/artists` barrel)
+// to evict ArtistDetail.tsx (~40 KB raw) from Turbopack's global shared client
+// chunk that loads on every route incl. /explore. PSY-950 (rollout) / PSY-944
+// (spike): `dynamic()` alone is a no-op — a barrel re-export keeps the module
+// reachable from 2+ routes so Turbopack re-hoists it. The eviction only holds
+// when this is paired with REMOVING ArtistDetail from features/artists/index.ts
+// + features/artists/components/index.ts. Do NOT re-add the barrel export or this
+// silently un-does the chunk split. ssr:true preserves the PSY-796/841
+// prefetchEntity + HydrationBoundary SSR (verified byte-equivalent in the spike).
+const ArtistDetail = dynamic(
+  () =>
+    import('@/features/artists/components/ArtistDetail').then((m) => ({
+      default: m.ArtistDetail,
+    })),
+  { ssr: true },
+)
 
 interface ArtistPageProps {
   params: Promise<{ slug: string }>

@@ -59,10 +59,13 @@ export {
 export { useReducedMotion } from './hooks'
 
 // Components
+// NOTE: ArtistDetail is intentionally omitted (PSY-950). The route page imports it
+// directly via `dynamic()` from '@/features/artists/components/ArtistDetail' so
+// Turbopack evicts it from the global shared client chunk (loaded on every route).
+// Re-adding it here re-hoists ArtistDetail.tsx (~40 KB) into the shared chunk.
 export {
   ArtistCard,
   ArtistSearch,
-  ArtistDetail,
   ArtistList,
   ArtistListSkeleton,
   ArtistShowsList,
