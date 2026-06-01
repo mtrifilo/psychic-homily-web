@@ -205,10 +205,36 @@ The `/ingest` skill automates the full screenshot-to-knowledge-graph flow. When 
 
 ```bash
 bun install          # Install dependencies
-bun test             # Run tests (280 tests)
+bun test             # Run tests
 bunx tsc --noEmit    # Type check
 bun run src/entry.ts --help  # CLI help
 ```
+
+## Extraction evals (`/ingest` regression net)
+
+The `ph` *submission* path (validate → dedup → resolve → POST) is covered by the
+`bun test` suite. The `/ingest` skill also has an *extraction* step — a vision
+model reads a flyer / festival lineup / playlist screenshot and produces batch
+JSON — which the test suite cannot exercise. The `eval/` harness covers it.
+
+```bash
+export ANTHROPIC_API_KEY="sk-ant-..."   # your key; never commit it
+cd cli
+bun run eval         # promptfoo eval against the golden fixtures
+bun run eval:view    # browse results in the promptfoo UI
+```
+
+- **Source of truth:** `eval/extraction-prompt.md` (the extraction prompt, shared
+  with `.claude/skills/ingest/SKILL.md`) + `eval/batch-schema.json` (output schema).
+- **Scoring:** per-entity accuracy — artists found/missed/hallucinated, venue
+  correctness, festival fields, billing-tier agreement, overall (in
+  `eval/scoring.ts`, unit-tested in `test/eval-scoring.test.ts`).
+- **Harness:** Promptfoo (its `anthropic:messages:` provider supports base64 image
+  inputs). Not wired into CI — run it manually when extraction rules, the prompt,
+  or the model change.
+- **No accuracy gate:** the eval reports scores; it does not fail a build on low
+  accuracy. Threshold-setting is a deliberate later decision.
+- **Add a fixture:** see `eval/fixtures/README.md`.
 
 ## Architecture
 

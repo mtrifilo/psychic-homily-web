@@ -71,6 +71,10 @@ postgres-data/
 # Shared Claude Code project settings (hooks, etc.); settings.local.json
 # stays ignored for user-specific allow-list customizations.
 !.claude/settings.json
+# /ingest extraction eval artifacts: the output JSON schema and the versioned
+# golden fixtures are intentionally checked in (see cli/eval/README.md).
+!cli/eval/batch-schema.json
+!cli/eval/fixtures/**/*.json
 
 # Backup files
 *.backup

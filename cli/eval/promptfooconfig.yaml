@@ -1,0 +1,39 @@
+# yaml-language-server: $schema=https://promptfoo.dev/config-schema.json
+#
+# /ingest extraction eval. Measures how faithfully a vision model turns a music
+# event image into batch JSON, scored against a human-verified golden fixture.
+#
+# Run:  cd cli && bun run eval        (see cli/README.md for setup + ANTHROPIC_API_KEY)
+# This is NOT wired into CI — run it manually when extraction rules, the prompt,
+# or the model change (PSY-935 decision).
+description: "/ingest screenshot to batch-JSON extraction eval"
+
+prompts:
+  # The prompt text comes from extraction-prompt.md (single source of truth,
+  # shared with the /ingest skill); the function injects the fixture image.
+  - file://prompt.ts
+
+providers:
+  # Baseline model. Add a second provider line (e.g. claude-sonnet) to A/B
+  # accuracy vs. cost — see "Optional: A/B models" in cli/README.md.
+  - id: anthropic:messages:claude-haiku-4-5-20251001
+    config:
+      max_tokens: 8192
+      temperature: 0
+
+defaultTest:
+  options:
+    # Allow the model some latency; large lineups produce long JSON.
+    runSerially: false
+  assert:
+    - type: javascript
+      value: file://assert.ts
+
+tests:
+  - description: "Riot Fest 2026 festival lineup poster (102 artists + venue + festival)"
+    vars:
+      # promptfoo base64-encodes the file:// image automatically for the {{image}} var.
+      image: file://fixtures/riot-fest-2026/poster.png
+      media_type: image/png
+      # Golden human-verified expected batch (the 2026-05-31 Stage ingest).
+      expected_json: file://fixtures/riot-fest-2026/expected.json
