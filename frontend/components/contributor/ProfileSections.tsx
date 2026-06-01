@@ -24,11 +24,21 @@ export function ProfileSections({ sections }: ProfileSectionsProps) {
             <CardTitle className="text-base">{section.title}</CardTitle>
           </CardHeader>
           <CardContent>
-            <div className="prose prose-sm dark:prose-invert max-w-none">
-              <p className="text-sm text-muted-foreground whitespace-pre-wrap">
-                {section.content}
-              </p>
-            </div>
+            {/* content_html is server-sanitized (goldmark + bluemonday, PSY-747),
+                matching tag/collection descriptions; fall back to raw content
+                when absent (e.g. empty content omits content_html). */}
+            {section.content_html ? (
+              <div
+                className="prose prose-sm dark:prose-invert max-w-none"
+                dangerouslySetInnerHTML={{ __html: section.content_html }}
+              />
+            ) : (
+              <div className="prose prose-sm dark:prose-invert max-w-none">
+                <p className="text-sm text-muted-foreground whitespace-pre-wrap">
+                  {section.content}
+                </p>
+              </div>
+            )}
           </CardContent>
         </Card>
       ))}
