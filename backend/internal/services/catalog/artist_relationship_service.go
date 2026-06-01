@@ -381,8 +381,9 @@ func (s *ArtistRelationshipService) GetArtistGraph(artistID uint, types []string
 	var rels []catalogm.ArtistRelationship
 	// If types was non-empty AND every requested type was a query-time
 	// derived type, storedTypes will be empty here — skip the stored-rels
-	// query entirely. Otherwise (empty input = "all types", or any stored
-	// type requested) run the normal query.
+	// query entirely. Otherwise (empty input = "all STORED types", or any
+	// stored type requested) run the normal query. Empty input never pulls
+	// in query-time types (festival_cobill) — those are opt-in (PSY-954).
 	if len(types) == 0 || len(storedTypes) > 0 {
 		query := s.db.Model(&catalogm.ArtistRelationship{}).
 			Where("source_artist_id = ? OR target_artist_id = ?", artistID, artistID)
@@ -1143,15 +1144,20 @@ func filterOutQueryTimeTypes(types []string) []string {
 	return out
 }
 
-// isQueryTimeTypeRequested returns true when `target` is a query-time
-// edge type AND either (a) the filter is empty (=all types) or (b) the
-// filter explicitly contains `target`.
+// isQueryTimeTypeRequested returns true ONLY when `target` is a query-time
+// edge type AND the filter explicitly contains `target`.
+//
+// Query-time types are strictly OPT-IN (PSY-954). An empty filter means
+// "all STORED types only" — it must NOT auto-include query-time signals.
+// Two reasons: (1) performance — query-time types (festival_cobill) run an
+// expensive festival_artists JOIN on every request, so we never pay that cost
+// on a default load; (2) product — festival co-lineup is not a default
+// similarity signal (sharing one festival lineup says nothing about musical
+// similarity), so it must never seed the "Similar artists" sidebar or the
+// default graph view. Callers that want it pass it explicitly in `types`.
 func isQueryTimeTypeRequested(types []string, target string) bool {
 	if _, ok := queryTimeRelationshipTypes[target]; !ok {
 		return false
-	}
-	if len(types) == 0 {
-		return true
 	}
 	for _, t := range types {
 		if t == target {

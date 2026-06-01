@@ -185,6 +185,18 @@ describe('ArtistSimilarSidebar', () => {
     )
     expect(screen.queryByRole('button', { name: 'Suggest similar' })).not.toBeInTheDocument()
   })
+
+  // PSY-954: the sidebar fetches the backend default (no `types`), which now
+  // returns STORED types only — festival_cobill is excluded, so the sidebar
+  // can never surface a bogus "similar via 1 shared festival" entry.
+  it('fetches the default graph with no types filter (stored types only)', () => {
+    mockUseArtistGraph.mockClear()
+    renderWithProviders(
+      <ArtistSimilarSidebar artistId={1} artistSlug="gatecreeper" onOpenGraph={() => {}} />
+    )
+    const opts = mockUseArtistGraph.mock.calls[0]?.[0] as { types?: unknown } | undefined
+    expect(opts?.types).toBeUndefined()
+  })
 })
 
 describe('ArtistGraphDialog', () => {
@@ -236,5 +248,93 @@ describe('ArtistGraphDialog', () => {
       />
     )
     expect(screen.getByTestId('artist-graph')).toBeInTheDocument()
+  })
+})
+
+// PSY-954: festival co-lineup is opt-in. The default graph fetch must NOT
+// request festival_cobill; the festival toggle always renders and turning it
+// on lazy-fetches with festival_cobill in `types`.
+describe('ArtistGraphDialog — festival_cobill opt-in (PSY-954)', () => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const originalResizeObserver = (window as any).ResizeObserver
+
+  beforeEach(() => {
+    mockUseArtistGraph.mockClear()
+    mockUseArtistGraph.mockReturnValue({ data: mockGraphData, isLoading: false, error: null })
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    ;(window as any).ResizeObserver = ImmediateResizeObserver
+  })
+
+  // Helper: pull the `types` arg out of the most recent useArtistGraph call
+  // that came from the RecenteringGraph fetch (the one with a positive id).
+  const lastFetchTypes = (): unknown => {
+    const calls = mockUseArtistGraph.mock.calls
+    const last = calls[calls.length - 1]?.[0] as { types?: unknown } | undefined
+    return last?.types
+  }
+
+  it('fetches the default graph (no festival_cobill in types) on open', () => {
+    renderWithProviders(
+      <ArtistGraphDialog
+        artistId={1}
+        artistSlug="gatecreeper"
+        artistName="Gatecreeper"
+        open={true}
+        onOpenChange={() => {}}
+      />
+    )
+    // Default: festival toggle OFF → fetch types is undefined (stored types only).
+    expect(lastFetchTypes()).toBeUndefined()
+  })
+
+  it('always renders the Festival co-lineup toggle even when absent from the payload', () => {
+    // mockGraphData has only `similar` + `shared_bills` links — no festival.
+    renderWithProviders(
+      <ArtistGraphDialog
+        artistId={1}
+        artistSlug="gatecreeper"
+        artistName="Gatecreeper"
+        open={true}
+        onOpenChange={() => {}}
+      />
+    )
+    expect(
+      screen.getByRole('button', { name: /Festival co-lineup/ })
+    ).toBeInTheDocument()
+  })
+
+  it('does not show the Festival co-lineup toggle as active by default', () => {
+    renderWithProviders(
+      <ArtistGraphDialog
+        artistId={1}
+        artistSlug="gatecreeper"
+        artistName="Gatecreeper"
+        open={true}
+        onOpenChange={() => {}}
+      />
+    )
+    // Inactive toggles render at opacity-40; active at opacity-100.
+    const toggle = screen.getByRole('button', { name: /Festival co-lineup/ })
+    expect(toggle.className).toContain('opacity-40')
+    expect(toggle.className).not.toContain('opacity-100')
+  })
+
+  it('lazy-fetches with festival_cobill in types when the toggle is turned on', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(
+      <ArtistGraphDialog
+        artistId={1}
+        artistSlug="gatecreeper"
+        artistName="Gatecreeper"
+        open={true}
+        onOpenChange={() => {}}
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /Festival co-lineup/ }))
+    // After opt-in the fetch carries festival_cobill (alongside stored types so
+    // the backend keeps returning stored relationships).
+    const types = lastFetchTypes()
+    expect(Array.isArray(types)).toBe(true)
+    expect(types as string[]).toContain('festival_cobill')
   })
 })
