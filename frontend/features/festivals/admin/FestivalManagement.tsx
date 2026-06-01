@@ -35,6 +35,11 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  AdminFormLayout,
+  AdminFormRow,
+  AdminFormField,
+} from '@/components/admin/AdminFormLayout'
 import { InlineErrorBanner } from '@/components/shared'
 import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '../hooks/useFestivals'
 import { useArtistSearch } from '@/features/artists'
@@ -76,12 +81,16 @@ type ManageMode = 'lineup' | 'venues' | null
 // Create Festival Form
 // ============================================================================
 
-function CreateFestivalForm({
+// Exported only for direct regression-test access (reset-on-open). Production
+// callers render it from FestivalManagement.
+export function CreateFestivalForm({
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const createMutation = useCreateFestival()
 
@@ -100,6 +109,31 @@ function CreateFestivalForm({
   const [flyerUrl, setFlyerUrl] = useState('')
   const [status, setStatus] = useState<string>('announced')
   const [error, setError] = useState<string | null>(null)
+
+  // Reset on (re)open — AdminFormLayout keeps the form mounted across the Sheet
+  // close animation. Adjust state during render (not in an effect) per the
+  // canonical CreateStationForm pattern (PSY-911/930).
+  const [wasOpen, setWasOpen] = useState(open)
+  if (open !== wasOpen) {
+    setWasOpen(open)
+    if (open) {
+      setName('')
+      setSeriesSlug('')
+      setEditionYear('')
+      setDescription('')
+      setLocationName('')
+      setCity('')
+      setState('')
+      setCountry('')
+      setStartDate('')
+      setEndDate('')
+      setWebsite('')
+      setTicketUrl('')
+      setFlyerUrl('')
+      setStatus('announced')
+      setError(null)
+    }
+  }
 
   const handleSubmit = useCallback(
     (e: React.FormEvent) => {
@@ -164,33 +198,56 @@ function CreateFestivalForm({
   )
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <InlineErrorBanner>{error}</InlineErrorBanner>
-      )}
-
-      <div className="space-y-2">
-        <Label htmlFor="create-name">Name *</Label>
+    <AdminFormLayout
+      variant="sheet"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Create Festival"
+      description="Add a new music festival with location and dates."
+      error={error || undefined}
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={createMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={createMutation.isPending}>
+            {createMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Creating...
+              </>
+            ) : (
+              'Create Festival'
+            )}
+          </Button>
+        </>
+      }
+    >
+      <AdminFormField label="Name *" htmlFor="create-name">
         <Input
           id="create-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="M3F Festival"
         />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="create-series-slug">Series Slug *</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Series Slug *" htmlFor="create-series-slug">
           <Input
             id="create-series-slug"
             value={seriesSlug}
             onChange={(e) => setSeriesSlug(e.target.value)}
             placeholder="m3f"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create-edition-year">Edition Year *</Label>
+        </AdminFormField>
+        <AdminFormField label="Edition Year *" htmlFor="create-edition-year">
           <Input
             id="create-edition-year"
             type="number"
@@ -200,32 +257,29 @@ function CreateFestivalForm({
             min="1900"
             max="2100"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="create-start-date">Start Date *</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Start Date *" htmlFor="create-start-date">
           <Input
             id="create-start-date"
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create-end-date">End Date *</Label>
+        </AdminFormField>
+        <AdminFormField label="End Date *" htmlFor="create-end-date">
           <Input
             id="create-end-date"
             type="date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="space-y-2">
-        <Label htmlFor="create-status">Status</Label>
+      <AdminFormField label="Status" htmlFor="create-status">
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger id="create-status" className="w-full">
             <SelectValue />
@@ -238,50 +292,45 @@ function CreateFestivalForm({
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </AdminFormField>
 
-      <div className="space-y-2">
-        <Label htmlFor="create-location-name">Location Name</Label>
+      <AdminFormField label="Location Name" htmlFor="create-location-name">
         <Input
           id="create-location-name"
           value={locationName}
           onChange={(e) => setLocationName(e.target.value)}
           placeholder="Margaret T. Hance Park"
         />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="create-city">City</Label>
+      <AdminFormRow cols={3}>
+        <AdminFormField label="City" htmlFor="create-city">
           <Input
             id="create-city"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             placeholder="Phoenix"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create-state">State</Label>
+        </AdminFormField>
+        <AdminFormField label="State" htmlFor="create-state">
           <Input
             id="create-state"
             value={state}
             onChange={(e) => setState(e.target.value)}
             placeholder="AZ"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="create-country">Country</Label>
+        </AdminFormField>
+        <AdminFormField label="Country" htmlFor="create-country">
           <Input
             id="create-country"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
             placeholder="US"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="space-y-2">
-        <Label htmlFor="create-desc">Description</Label>
+      <AdminFormField label="Description" htmlFor="create-desc">
         <Textarea
           id="create-desc"
           value={description}
@@ -289,69 +338,51 @@ function CreateFestivalForm({
           placeholder="Optional description..."
           rows={3}
         />
-      </div>
+      </AdminFormField>
 
       {/* Links */}
       <div className="space-y-3">
         <Label>Links</Label>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label htmlFor="create-website" className="text-xs text-muted-foreground">
-              Website
-            </Label>
+        <AdminFormRow cols={2} className="gap-3">
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Website</span>}
+            htmlFor="create-website"
+          >
             <Input
               id="create-website"
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-ticket-url" className="text-xs text-muted-foreground">
-              Ticket URL
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Ticket URL</span>}
+            htmlFor="create-ticket-url"
+          >
             <Input
               id="create-ticket-url"
               value={ticketUrl}
               onChange={(e) => setTicketUrl(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="create-flyer-url" className="text-xs text-muted-foreground">
-              Flyer URL
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Flyer URL</span>}
+            htmlFor="create-flyer-url"
+          >
             <Input
               id="create-flyer-url"
               value={flyerUrl}
               onChange={(e) => setFlyerUrl(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-        </div>
+          </AdminFormField>
+        </AdminFormRow>
       </div>
-
-      <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={createMutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" disabled={createMutation.isPending}>
-          {createMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Creating...
-            </>
-          ) : (
-            'Create Festival'
-          )}
-        </Button>
-      </DialogFooter>
-    </form>
+    </AdminFormLayout>
   )
 }
 
@@ -359,39 +390,61 @@ function CreateFestivalForm({
 // Edit Festival Form
 // ============================================================================
 
-// Outer fetches the festival; once loaded, mounts EditFestivalFormFields
-// with `key={festival.id}` so a switch-festival-without-closing-dialog
-// scenario remounts with fresh state. The inner component initializes
-// local state from props inline (React's preferred "calculate during
-// render" path — see https://react.dev/learn/you-might-not-need-an-effect).
-// No useEffect, no `initialized` ratchet.
+// Per the PSY-930 decision the Edit Sheet opens immediately on click: while the
+// festival detail loads this wrapper renders an AdminFormLayout (open) with a
+// spinner body — `open` stays true throughout, so the Sheet stays open — then
+// swaps to EditFestivalFormFields (keyed on festival.id, so a
+// switch-festival-without-closing-dialog scenario remounts with fresh state)
+// once the detail resolves. The inner component initializes local state from
+// props inline (React's preferred "calculate during render" path — see
+// https://react.dev/learn/you-might-not-need-an-effect). No useEffect, no
+// `initialized` ratchet.
 function EditFestivalForm({
   festivalId,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   festivalId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const { data: festival, isLoading } = useFestival({
     idOrSlug: festivalId,
     enabled: festivalId > 0,
   })
 
-  if (isLoading) {
+  if (isLoading || !festival) {
     return (
-      <div className="flex items-center justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
-
-  if (!festival) {
-    return (
-      <div className="text-center py-8 text-muted-foreground">
-        Festival not found.
-      </div>
+      <AdminFormLayout
+        variant="sheet"
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Edit Festival"
+        description="Update festival details, location, and dates."
+        onSubmit={(e) => e.preventDefault()}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled>
+              Save Changes
+            </Button>
+          </>
+        }
+      >
+        {isLoading ? (
+          <div className="flex items-center justify-center py-8">
+            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+          </div>
+        ) : (
+          <div className="text-center py-8 text-muted-foreground">
+            Festival not found.
+          </div>
+        )}
+      </AdminFormLayout>
     )
   }
 
@@ -399,8 +452,9 @@ function EditFestivalForm({
     <EditFestivalFormFields
       key={festival.id}
       festival={festival}
+      open={open}
+      onOpenChange={onOpenChange}
       onSuccess={onSuccess}
-      onCancel={onCancel}
     />
   )
 }
@@ -410,12 +464,14 @@ function EditFestivalForm({
 // the surface's public API — production callers use EditFestivalForm.
 export function EditFestivalFormFields({
   festival,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   festival: FestivalDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const updateMutation = useUpdateFestival()
 
@@ -489,33 +545,56 @@ export function EditFestivalFormFields({
   )
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <InlineErrorBanner>{error}</InlineErrorBanner>
-      )}
-
-      <div className="space-y-2">
-        <Label htmlFor="edit-name">Name *</Label>
+    <AdminFormLayout
+      variant="sheet"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Edit Festival"
+      description="Update festival details, location, and dates."
+      error={error || undefined}
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={updateMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button type="submit" disabled={updateMutation.isPending}>
+            {updateMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Saving...
+              </>
+            ) : (
+              'Save Changes'
+            )}
+          </Button>
+        </>
+      }
+    >
+      <AdminFormField label="Name *" htmlFor="edit-name">
         <Input
           id="edit-name"
           value={name}
           onChange={(e) => setName(e.target.value)}
           placeholder="Festival name"
         />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="edit-series-slug">Series Slug</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Series Slug" htmlFor="edit-series-slug">
           <Input
             id="edit-series-slug"
             value={seriesSlug}
             onChange={(e) => setSeriesSlug(e.target.value)}
             placeholder="m3f"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-edition-year">Edition Year</Label>
+        </AdminFormField>
+        <AdminFormField label="Edition Year" htmlFor="edit-edition-year">
           <Input
             id="edit-edition-year"
             type="number"
@@ -525,32 +604,29 @@ export function EditFestivalFormFields({
             min="1900"
             max="2100"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="edit-start-date">Start Date</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Start Date" htmlFor="edit-start-date">
           <Input
             id="edit-start-date"
             type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-end-date">End Date</Label>
+        </AdminFormField>
+        <AdminFormField label="End Date" htmlFor="edit-end-date">
           <Input
             id="edit-end-date"
             type="date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="space-y-2">
-        <Label htmlFor="edit-status">Status</Label>
+      <AdminFormField label="Status" htmlFor="edit-status">
         <Select value={status} onValueChange={setStatus}>
           <SelectTrigger id="edit-status" className="w-full">
             <SelectValue />
@@ -563,50 +639,45 @@ export function EditFestivalFormFields({
             ))}
           </SelectContent>
         </Select>
-      </div>
+      </AdminFormField>
 
-      <div className="space-y-2">
-        <Label htmlFor="edit-location-name">Location Name</Label>
+      <AdminFormField label="Location Name" htmlFor="edit-location-name">
         <Input
           id="edit-location-name"
           value={locationName}
           onChange={(e) => setLocationName(e.target.value)}
           placeholder="Margaret T. Hance Park"
         />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-3 gap-4">
-        <div className="space-y-2">
-          <Label htmlFor="edit-city">City</Label>
+      <AdminFormRow cols={3}>
+        <AdminFormField label="City" htmlFor="edit-city">
           <Input
             id="edit-city"
             value={city}
             onChange={(e) => setCity(e.target.value)}
             placeholder="Phoenix"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-state">State</Label>
+        </AdminFormField>
+        <AdminFormField label="State" htmlFor="edit-state">
           <Input
             id="edit-state"
             value={state}
             onChange={(e) => setState(e.target.value)}
             placeholder="AZ"
           />
-        </div>
-        <div className="space-y-2">
-          <Label htmlFor="edit-country">Country</Label>
+        </AdminFormField>
+        <AdminFormField label="Country" htmlFor="edit-country">
           <Input
             id="edit-country"
             value={country}
             onChange={(e) => setCountry(e.target.value)}
             placeholder="US"
           />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="space-y-2">
-        <Label htmlFor="edit-desc">Description</Label>
+      <AdminFormField label="Description" htmlFor="edit-desc">
         <Textarea
           id="edit-desc"
           value={description}
@@ -614,69 +685,51 @@ export function EditFestivalFormFields({
           placeholder="Optional description..."
           rows={3}
         />
-      </div>
+      </AdminFormField>
 
       {/* Links */}
       <div className="space-y-3">
         <Label>Links</Label>
-        <div className="grid grid-cols-2 gap-3">
-          <div className="space-y-1">
-            <Label htmlFor="edit-website" className="text-xs text-muted-foreground">
-              Website
-            </Label>
+        <AdminFormRow cols={2} className="gap-3">
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Website</span>}
+            htmlFor="edit-website"
+          >
             <Input
               id="edit-website"
               value={website}
               onChange={(e) => setWebsite(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-ticket-url" className="text-xs text-muted-foreground">
-              Ticket URL
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Ticket URL</span>}
+            htmlFor="edit-ticket-url"
+          >
             <Input
               id="edit-ticket-url"
               value={ticketUrl}
               onChange={(e) => setTicketUrl(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-          <div className="space-y-1">
-            <Label htmlFor="edit-flyer-url" className="text-xs text-muted-foreground">
-              Flyer URL
-            </Label>
+          </AdminFormField>
+          <AdminFormField
+            className="space-y-1"
+            label={<span className="text-xs text-muted-foreground">Flyer URL</span>}
+            htmlFor="edit-flyer-url"
+          >
             <Input
               id="edit-flyer-url"
               value={flyerUrl}
               onChange={(e) => setFlyerUrl(e.target.value)}
               placeholder="https://..."
             />
-          </div>
-        </div>
+          </AdminFormField>
+        </AdminFormRow>
       </div>
-
-      <DialogFooter>
-        <Button
-          type="button"
-          variant="outline"
-          onClick={onCancel}
-          disabled={updateMutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button type="submit" disabled={updateMutation.isPending}>
-          {updateMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Saving...
-            </>
-          ) : (
-            'Save Changes'
-          )}
-        </Button>
-      </DialogFooter>
-    </form>
+    </AdminFormLayout>
   )
 }
 
@@ -684,16 +737,20 @@ export function EditFestivalFormFields({
 // Delete Confirmation
 // ============================================================================
 
+// Short confirm form -> centered Modal (variant="modal"), per the PSY-912
+// Hybrid decision.
 function DeleteConfirmation({
   festivalName,
   festivalId,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   festivalName: string
   festivalId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const deleteMutation = useDeleteFestival()
   const [error, setError] = useState<string | null>(null)
@@ -713,11 +770,44 @@ function DeleteConfirmation({
   }, [festivalId, deleteMutation, onSuccess])
 
   return (
-    <div className="space-y-4">
-      {error && (
-        <InlineErrorBanner>{error}</InlineErrorBanner>
-      )}
-
+    <AdminFormLayout
+      variant="modal"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Delete Festival"
+      description="This action is permanent and cannot be undone."
+      error={error || undefined}
+      onSubmit={(e) => {
+        e.preventDefault()
+        handleDelete()
+      }}
+      footer={
+        <>
+          <Button
+            type="button"
+            variant="outline"
+            onClick={() => onOpenChange(false)}
+            disabled={deleteMutation.isPending}
+          >
+            Cancel
+          </Button>
+          <Button
+            type="submit"
+            variant="destructive"
+            disabled={deleteMutation.isPending}
+          >
+            {deleteMutation.isPending ? (
+              <>
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Deleting...
+              </>
+            ) : (
+              'Delete Festival'
+            )}
+          </Button>
+        </>
+      }
+    >
       <p className="text-sm text-muted-foreground">
         Are you sure you want to delete{' '}
         <span className="font-semibold text-foreground">
@@ -726,31 +816,7 @@ function DeleteConfirmation({
         ? This action cannot be undone. All lineup and venue associations will
         also be removed.
       </p>
-
-      <DialogFooter>
-        <Button
-          variant="outline"
-          onClick={onCancel}
-          disabled={deleteMutation.isPending}
-        >
-          Cancel
-        </Button>
-        <Button
-          variant="destructive"
-          onClick={handleDelete}
-          disabled={deleteMutation.isPending}
-        >
-          {deleteMutation.isPending ? (
-            <>
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Deleting...
-            </>
-          ) : (
-            'Delete Festival'
-          )}
-        </Button>
-      </DialogFooter>
-    </div>
+    </AdminFormLayout>
   )
 }
 
@@ -1429,10 +1495,13 @@ export function FestivalManagement() {
     setSelectedFestivalName(name)
   }, [])
 
+  // Close by clearing dialogMode only. The selected id/name persist so the
+  // mounted Edit/Delete AdminFormLayout can animate closed (its `open` is
+  // driven by dialogMode); openEdit/openDelete overwrite them on the next open.
+  // Nulling the id here would unmount the form mid-animation and flash its
+  // empty/not-found state. (PSY-930)
   const closeDialog = useCallback(() => {
     setDialogMode(null)
-    setSelectedFestivalId(null)
-    setSelectedFestivalName('')
   }, [])
 
   const openManage = useCallback(
@@ -1668,66 +1737,33 @@ export function FestivalManagement() {
         </>
       )}
 
-      {/* Create Dialog */}
-      <Dialog
+      {/* Create — right-anchored Sheet (PSY-930 AdminFormLayout) */}
+      <CreateFestivalForm
         open={dialogMode === 'create'}
         onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Create Festival</DialogTitle>
-            <DialogDescription>
-              Add a new music festival with location and dates.
-            </DialogDescription>
-          </DialogHeader>
-          <CreateFestivalForm onSuccess={closeDialog} onCancel={closeDialog} />
-        </DialogContent>
-      </Dialog>
+        onSuccess={closeDialog}
+      />
 
-      {/* Edit Dialog */}
-      <Dialog
-        open={dialogMode === 'edit'}
-        onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>Edit Festival</DialogTitle>
-            <DialogDescription>
-              Update festival details, location, and dates.
-            </DialogDescription>
-          </DialogHeader>
-          {selectedFestivalId && (
-            <EditFestivalForm
-              festivalId={selectedFestivalId}
-              onSuccess={closeDialog}
-              onCancel={closeDialog}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Edit — right-anchored Sheet (PSY-930 AdminFormLayout) */}
+      {selectedFestivalId && (
+        <EditFestivalForm
+          festivalId={selectedFestivalId}
+          open={dialogMode === 'edit'}
+          onOpenChange={(open) => !open && closeDialog()}
+          onSuccess={closeDialog}
+        />
+      )}
 
-      {/* Delete Dialog */}
-      <Dialog
-        open={dialogMode === 'delete'}
-        onOpenChange={(open) => !open && closeDialog()}
-      >
-        <DialogContent className="max-w-md">
-          <DialogHeader>
-            <DialogTitle>Delete Festival</DialogTitle>
-            <DialogDescription>
-              This action is permanent and cannot be undone.
-            </DialogDescription>
-          </DialogHeader>
-          {selectedFestivalId && (
-            <DeleteConfirmation
-              festivalName={selectedFestivalName}
-              festivalId={selectedFestivalId}
-              onSuccess={closeDialog}
-              onCancel={closeDialog}
-            />
-          )}
-        </DialogContent>
-      </Dialog>
+      {/* Delete — centered Modal (PSY-930 AdminFormLayout) */}
+      {selectedFestivalId && (
+        <DeleteConfirmation
+          festivalName={selectedFestivalName}
+          festivalId={selectedFestivalId}
+          open={dialogMode === 'delete'}
+          onOpenChange={(open) => !open && closeDialog()}
+          onSuccess={closeDialog}
+        />
+      )}
     </div>
   )
 }

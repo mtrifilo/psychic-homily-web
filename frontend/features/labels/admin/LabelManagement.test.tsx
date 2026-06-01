@@ -22,7 +22,11 @@ vi.mock('../hooks/useAdminLabels', () => ({
   useDeleteLabel: () => ({ mutate: mockDeleteMutate, isPending: false }),
 }))
 
-import { LabelManagement, EditLabelFormFields } from './LabelManagement'
+import {
+  LabelManagement,
+  CreateLabelForm,
+  EditLabelFormFields,
+} from './LabelManagement'
 
 function makeLabelDetail(overrides: Partial<LabelDetail> = {}): LabelDetail {
   return {
@@ -259,8 +263,9 @@ describe('LabelManagement', () => {
         <EditLabelFormFields
           key={labelA.id}
           label={labelA}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -275,8 +280,9 @@ describe('LabelManagement', () => {
         <EditLabelFormFields
           key={labelB.id}
           label={labelB}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -293,8 +299,9 @@ describe('LabelManagement', () => {
         <EditLabelFormFields
           key={label.id}
           label={label}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -306,12 +313,41 @@ describe('LabelManagement', () => {
         <EditLabelFormFields
           key={label.id}
           label={label}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
       expect(screen.getByLabelText('Name *')).toHaveValue('Dirty Edit')
+    })
+  })
+
+  // Pins the PSY-930 Dialog->Sheet migration: AdminFormLayout keeps the create
+  // form mounted across the Sheet close animation, so the form must clear its
+  // own state when it (re)opens — otherwise the next "New Label" shows stale
+  // input. Mirrors CreateStationForm's reset-on-open test (PSY-911).
+  describe('CreateLabelForm reset-on-open (PSY-930)', () => {
+    it('clears entered field values when the Sheet is closed and reopened', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(
+        <CreateLabelForm open={false} onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+
+      rerender(
+        <CreateLabelForm open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      const nameInput = screen.getByLabelText('Name *')
+      await user.type(nameInput, 'Hardly Art')
+      expect(nameInput).toHaveValue('Hardly Art')
+
+      rerender(
+        <CreateLabelForm open={false} onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      rerender(
+        <CreateLabelForm open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      expect(screen.getByLabelText('Name *')).toHaveValue('')
     })
   })
 })

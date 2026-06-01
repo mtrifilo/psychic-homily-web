@@ -40,7 +40,11 @@ vi.mock('@/features/venues', () => ({
   useVenueSearch: () => ({ data: { venues: [] as unknown[] }, isLoading: false }),
 }))
 
-import { FestivalManagement, EditFestivalFormFields } from './FestivalManagement'
+import {
+  FestivalManagement,
+  CreateFestivalForm,
+  EditFestivalFormFields,
+} from './FestivalManagement'
 
 function makeFestival(overrides: Partial<FestivalListItem> = {}): FestivalListItem {
   return {
@@ -350,8 +354,9 @@ describe('FestivalManagement', () => {
         <EditFestivalFormFields
           key={festivalA.id}
           festival={festivalA}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -366,8 +371,9 @@ describe('FestivalManagement', () => {
         <EditFestivalFormFields
           key={festivalB.id}
           festival={festivalB}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -384,8 +390,9 @@ describe('FestivalManagement', () => {
         <EditFestivalFormFields
           key={festival.id}
           festival={festival}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
@@ -397,12 +404,40 @@ describe('FestivalManagement', () => {
         <EditFestivalFormFields
           key={festival.id}
           festival={festival}
+          open
+          onOpenChange={vi.fn()}
           onSuccess={vi.fn()}
-          onCancel={vi.fn()}
         />
       )
 
       expect(screen.getByLabelText('Name *')).toHaveValue('Dirty Edit')
+    })
+  })
+
+  // Pins the PSY-930 Dialog->Sheet migration: AdminFormLayout keeps the create
+  // form mounted across the Sheet close animation, so the form must clear its
+  // own state when it (re)opens. Mirrors CreateStationForm's reset-on-open test.
+  describe('CreateFestivalForm reset-on-open (PSY-930)', () => {
+    it('clears entered field values when the Sheet is closed and reopened', async () => {
+      const user = userEvent.setup()
+      const { rerender } = renderWithProviders(
+        <CreateFestivalForm open={false} onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+
+      rerender(
+        <CreateFestivalForm open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      const nameInput = screen.getByLabelText('Name *')
+      await user.type(nameInput, 'M3F Festival')
+      expect(nameInput).toHaveValue('M3F Festival')
+
+      rerender(
+        <CreateFestivalForm open={false} onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      rerender(
+        <CreateFestivalForm open onOpenChange={vi.fn()} onSuccess={vi.fn()} />
+      )
+      expect(screen.getByLabelText('Name *')).toHaveValue('')
     })
   })
 })

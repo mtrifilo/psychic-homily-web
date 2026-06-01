@@ -332,20 +332,26 @@ export function CreateStationForm({
 // Edit Station Form
 // ============================================================================
 //
-// NOTE: still on the raw <form> + Dialog pattern. CreateStationForm migrated to
-// AdminFormLayout (Sheet) in PSY-911; the Edit migration is deferred to PSY-930
-// because it loads through EditStationFormWrapper (async detail fetch) and needs
-// careful state-init-on-load handling. Create = Sheet / Edit = Modal is a
-// temporary split until PSY-930 lands.
+// Migrated to AdminFormLayout (Sheet) in PSY-930. The station detail loads
+// async (useRadioStationDetail), so per the PSY-930 decision the Sheet opens
+// IMMEDIATELY on click and shows a spinner in the body until the detail
+// resolves, then the fields populate (not render-when-the-whole-thing-loads).
+// EditStationFormFields owns the AdminFormLayout and the field state;
+// EditStationFormWrapper gates loading vs loaded.
 
-function EditStationForm({
+// Exported only for direct regression-test access (rerender-with-different-key
+// resets fields; rerender-with-same-key preserves dirty edits). Production
+// callers go through EditStationFormWrapper.
+export function EditStationFormFields({
   station,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   station: RadioStationDetail
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const updateMutation = useUpdateRadioStation()
 
@@ -416,43 +422,51 @@ function EditStationForm({
   )
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      {error && (
-        <div className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">{error}</div>
-      )}
-
-      <div>
-        <Label htmlFor="edit-station-name">Name *</Label>
+    <AdminFormLayout
+      variant="sheet"
+      open={open}
+      onOpenChange={onOpenChange}
+      title="Edit Station"
+      description="Update station details."
+      error={error || undefined}
+      onSubmit={handleSubmit}
+      footer={
+        <>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            Cancel
+          </Button>
+          <Button type="submit" disabled={updateMutation.isPending}>
+            {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+            Save Changes
+          </Button>
+        </>
+      }
+    >
+      <AdminFormField label="Name *" htmlFor="edit-station-name">
         <Input id="edit-station-name" value={name} onChange={(e) => setName(e.target.value)} />
-      </div>
+      </AdminFormField>
 
-      <div>
-        <Label htmlFor="edit-station-description">Description</Label>
+      <AdminFormField label="Description" htmlFor="edit-station-description">
         <Textarea id="edit-station-description" value={description} onChange={(e) => setDescription(e.target.value)} rows={2} />
-      </div>
+      </AdminFormField>
 
-      <div className="grid grid-cols-4 gap-4">
-        <div>
-          <Label htmlFor="edit-station-city">City</Label>
+      <AdminFormRow cols={4}>
+        <AdminFormField label="City" htmlFor="edit-station-city">
           <Input id="edit-station-city" value={city} onChange={(e) => setCity(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="edit-station-state">State</Label>
+        </AdminFormField>
+        <AdminFormField label="State" htmlFor="edit-station-state">
           <Input id="edit-station-state" value={state} onChange={(e) => setState(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="edit-station-country">Country</Label>
+        </AdminFormField>
+        <AdminFormField label="Country" htmlFor="edit-station-country">
           <Input id="edit-station-country" value={country} onChange={(e) => setCountry(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="edit-station-timezone">Timezone</Label>
+        </AdminFormField>
+        <AdminFormField label="Timezone" htmlFor="edit-station-timezone">
           <Input id="edit-station-timezone" value={timezone} onChange={(e) => setTimezone(e.target.value)} />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="edit-station-broadcast-type">Broadcast Type</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Broadcast Type" htmlFor="edit-station-broadcast-type">
           <Select value={broadcastType} onValueChange={setBroadcastType}>
             <SelectTrigger id="edit-station-broadcast-type" className="w-full">
               <SelectValue />
@@ -463,38 +477,32 @@ function EditStationForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div>
-          <Label htmlFor="edit-station-frequency">Frequency (MHz)</Label>
+        </AdminFormField>
+        <AdminFormField label="Frequency (MHz)" htmlFor="edit-station-frequency">
           <Input id="edit-station-frequency" type="number" step="0.1" value={frequencyMHz} onChange={(e) => setFrequencyMHz(e.target.value)} />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="edit-station-stream-url">Stream URL</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Stream URL" htmlFor="edit-station-stream-url">
           <Input id="edit-station-stream-url" value={streamUrl} onChange={(e) => setStreamUrl(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="edit-station-website">Website</Label>
+        </AdminFormField>
+        <AdminFormField label="Website" htmlFor="edit-station-website">
           <Input id="edit-station-website" value={website} onChange={(e) => setWebsite(e.target.value)} />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="edit-station-donation-url">Donation URL</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Donation URL" htmlFor="edit-station-donation-url">
           <Input id="edit-station-donation-url" value={donationUrl} onChange={(e) => setDonationUrl(e.target.value)} />
-        </div>
-        <div>
-          <Label htmlFor="edit-station-logo-url">Logo URL</Label>
+        </AdminFormField>
+        <AdminFormField label="Logo URL" htmlFor="edit-station-logo-url">
           <Input id="edit-station-logo-url" value={logoUrl} onChange={(e) => setLogoUrl(e.target.value)} />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <Label htmlFor="edit-station-playlist-source">Playlist Source</Label>
+      <AdminFormRow cols={2}>
+        <AdminFormField label="Playlist Source" htmlFor="edit-station-playlist-source">
           <Select
             value={toPlaylistSelectValue(playlistSource)}
             onValueChange={(v) => setPlaylistSource(fromPlaylistSelectValue(v))}
@@ -509,26 +517,17 @@ function EditStationForm({
               ))}
             </SelectContent>
           </Select>
-        </div>
-        <div>
-          <Label htmlFor="edit-station-playlist-config">Playlist Config (JSON)</Label>
+        </AdminFormField>
+        <AdminFormField label="Playlist Config (JSON)" htmlFor="edit-station-playlist-config">
           <Input id="edit-station-playlist-config" value={playlistConfigJson} onChange={(e) => setPlaylistConfigJson(e.target.value)} />
-        </div>
-      </div>
+        </AdminFormField>
+      </AdminFormRow>
 
       <div className="flex items-center gap-2">
         <Switch id="edit-station-active" checked={isActive} onCheckedChange={setIsActive} />
         <Label htmlFor="edit-station-active">Active</Label>
       </div>
-
-      <DialogFooter>
-        <Button type="button" variant="outline" onClick={onCancel}>Cancel</Button>
-        <Button type="submit" disabled={updateMutation.isPending}>
-          {updateMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          Save Changes
-        </Button>
-      </DialogFooter>
-    </form>
+    </AdminFormLayout>
   )
 }
 
@@ -1777,50 +1776,48 @@ export function RadioManagement() {
             }}
           />
 
-          {/* Edit Station Dialog */}
-          <Dialog open={dialogMode === 'edit-station'} onOpenChange={(open) => !open && setDialogMode(null)}>
-            <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-              <DialogHeader>
-                <DialogTitle>Edit Station</DialogTitle>
-                <DialogDescription>Update station details.</DialogDescription>
-              </DialogHeader>
-              {selectedStation && (
-                <EditStationFormWrapper
-                  stationId={selectedStation.id}
-                  onSuccess={() => {
-                    setDialogMode(null)
-                    // Refresh detail view
-                    setDetailStation({ ...detailStation })
-                  }}
-                  onCancel={() => setDialogMode(null)}
-                />
-              )}
-            </DialogContent>
-          </Dialog>
+          {/* Edit Station — right-anchored Sheet (PSY-930 AdminFormLayout) */}
+          {selectedStation && (
+            <EditStationFormWrapper
+              stationId={selectedStation.id}
+              open={dialogMode === 'edit-station'}
+              onOpenChange={(open) => !open && setDialogMode(null)}
+              onSuccess={() => {
+                setDialogMode(null)
+                // Refresh detail view
+                setDetailStation({ ...detailStation })
+              }}
+            />
+          )}
 
-          {/* Delete Station Dialog */}
-          <Dialog open={dialogMode === 'delete-station'} onOpenChange={(open) => !open && setDialogMode(null)}>
-            <DialogContent>
-              <DialogHeader>
-                <DialogTitle>Delete Station</DialogTitle>
-                <DialogDescription>
-                  Are you sure you want to delete &quot;{selectedStation?.name}&quot;? This will also delete all shows, episodes, and plays.
-                  This action cannot be undone.
-                </DialogDescription>
-              </DialogHeader>
-              <DialogFooter>
-                <Button variant="outline" onClick={() => setDialogMode(null)}>Cancel</Button>
-                <Button
-                  variant="destructive"
-                  disabled={deleteMutation.isPending}
-                  onClick={() => selectedStation && handleDeleteStation(selectedStation)}
-                >
+          {/* Delete Station — centered Modal (PSY-930, first modal-variant consumer) */}
+          <AdminFormLayout
+            variant="modal"
+            open={dialogMode === 'delete-station'}
+            onOpenChange={(open) => !open && setDialogMode(null)}
+            title="Delete Station"
+            description="This action is permanent and cannot be undone."
+            onSubmit={(e) => {
+              e.preventDefault()
+              if (selectedStation) handleDeleteStation(selectedStation)
+            }}
+            footer={
+              <>
+                <Button type="button" variant="outline" onClick={() => setDialogMode(null)}>
+                  Cancel
+                </Button>
+                <Button type="submit" variant="destructive" disabled={deleteMutation.isPending}>
                   {deleteMutation.isPending && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   Delete Station
                 </Button>
-              </DialogFooter>
-            </DialogContent>
-          </Dialog>
+              </>
+            }
+          >
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete &quot;{selectedStation?.name}&quot;? This will
+              also delete all shows, episodes, and plays. This action cannot be undone.
+            </p>
+          </AdminFormLayout>
         </TabsContent>
 
         <TabsContent value="matching">
@@ -1916,24 +1913,58 @@ export function RadioManagement() {
 // Edit Station Form Wrapper (loads station detail)
 // ============================================================================
 
+// Per the PSY-930 decision the Edit Station Sheet opens immediately on click:
+// while the station detail loads this wrapper renders an AdminFormLayout (open)
+// with a spinner body — `open` stays true throughout, so the Sheet stays open
+// — then swaps to EditStationFormFields (keyed on station.id) once the detail
+// resolves, initializing the fields from it.
 function EditStationFormWrapper({
   stationId,
+  open,
+  onOpenChange,
   onSuccess,
-  onCancel,
 }: {
   stationId: number
+  open: boolean
+  onOpenChange: (open: boolean) => void
   onSuccess: () => void
-  onCancel: () => void
 }) {
   const { data: station, isLoading } = useRadioStationDetail(stationId)
 
   if (isLoading || !station) {
     return (
-      <div className="flex justify-center py-8">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-      </div>
+      <AdminFormLayout
+        variant="sheet"
+        open={open}
+        onOpenChange={onOpenChange}
+        title="Edit Station"
+        description="Update station details."
+        onSubmit={(e) => e.preventDefault()}
+        footer={
+          <>
+            <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+              Cancel
+            </Button>
+            <Button type="submit" disabled>
+              Save Changes
+            </Button>
+          </>
+        }
+      >
+        <div className="flex justify-center py-8">
+          <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+        </div>
+      </AdminFormLayout>
     )
   }
 
-  return <EditStationForm station={station} onSuccess={onSuccess} onCancel={onCancel} />
+  return (
+    <EditStationFormFields
+      key={station.id}
+      station={station}
+      open={open}
+      onOpenChange={onOpenChange}
+      onSuccess={onSuccess}
+    />
+  )
 }
