@@ -913,10 +913,13 @@ export function LabelManagement() {
     setSelectedLabelName(name)
   }, [])
 
+  // Close by clearing dialogMode only. The selected id/name persist so the
+  // mounted Edit/Delete AdminFormLayout can animate closed (its `open` is
+  // driven by dialogMode); openEdit/openDelete overwrite them on the next open.
+  // Nulling the id here would unmount the form mid-animation and flash its
+  // empty/not-found state. (PSY-930)
   const closeDialog = useCallback(() => {
     setDialogMode(null)
-    setSelectedLabelId(null)
-    setSelectedLabelName('')
   }, [])
 
   return (
@@ -1082,7 +1085,10 @@ export function LabelManagement() {
         onSuccess={closeDialog}
       />
 
-      {/* Edit — right-anchored Sheet (PSY-930 AdminFormLayout) */}
+      {/* Edit — right-anchored Sheet (PSY-930 AdminFormLayout). Gated on the
+          selected id; closeDialog keeps the id set so the form stays mounted
+          and the Sheet animates closed (open driven by dialogMode), matching
+          CreateLabelForm. The id is overwritten on the next open. */}
       {selectedLabelId && (
         <EditLabelForm
           labelId={selectedLabelId}

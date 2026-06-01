@@ -1495,10 +1495,13 @@ export function FestivalManagement() {
     setSelectedFestivalName(name)
   }, [])
 
+  // Close by clearing dialogMode only. The selected id/name persist so the
+  // mounted Edit/Delete AdminFormLayout can animate closed (its `open` is
+  // driven by dialogMode); openEdit/openDelete overwrite them on the next open.
+  // Nulling the id here would unmount the form mid-animation and flash its
+  // empty/not-found state. (PSY-930)
   const closeDialog = useCallback(() => {
     setDialogMode(null)
-    setSelectedFestivalId(null)
-    setSelectedFestivalName('')
   }, [])
 
   const openManage = useCallback(
