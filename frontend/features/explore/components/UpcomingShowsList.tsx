@@ -8,17 +8,27 @@
  * — the same shipped `CityFilters` component the /shows·/venues·/artists
  * lists use, wired here over the discovery teaser.
  *
- * Default city selection:
- *   - authed user with favorite cities → seeded from `favorite_cities`,
- *   - anon / no favorites → "All cities" (chronological).
- * The IP-geolocation smart default for anon visitors is the separate
- * PSY-926 follow-up; this ships the "All cities" baseline.
+ * Default city selection (resolution order):
+ *   1. authed user with favorite cities → seeded from `favorite_cities`,
+ *   2. anon / no favorites → IP-geo city (PSY-926), but ONLY when that city
+ *      has upcoming shows in PH's data; surfaced as an overridable chip with
+ *      a "(from your location) — change" affordance,
+ *   3. geo unavailable / VPN / city-without-shows → "All cities"
+ *      (chronological). NOT a hard Phoenix default.
+ * User override always wins and persists via `?cities=` (PSY-840).
  *
  * The unfiltered list reads from the page-level SSR prefetch (seeded
  * cache) so first paint is synchronous; applying a city refetches.
  */
 
-import { useCallback, useEffect, useMemo, useRef, useTransition } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useTransition,
+} from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import dynamic from 'next/dynamic'
@@ -63,15 +73,33 @@ const CityFilters = dynamic(
 
 interface UpcomingShowsListProps {
   limit?: number
+  /**
+   * IP-geo soft default (PSY-926), resolved server-side from the Vercel edge
+   * geo headers in `app/explore/page.tsx`. A suggestion only — applied as the
+   * default selection only for anon visitors with no `?cities=` and no
+   * favorites, AND only when the city has upcoming shows. `null` → no geo
+   * default (→ "All cities").
+   */
+  geoDefaultCity?: CityState | null
 }
 
-export function UpcomingShowsList({ limit = 5 }: UpcomingShowsListProps) {
+export function UpcomingShowsList({
+  limit = 5,
+  geoDefaultCity = null,
+}: UpcomingShowsListProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isAuthenticated } = useAuthContext()
+  const { isAuthenticated, isLoading: authLoading } = useAuthContext()
   const { data: profileData } = useProfile()
   const [, startTransition] = useTransition()
   const hasAppliedDefaults = useRef(false)
+  // Tracks that the CURRENT selection was auto-applied from the IP-geo
+  // suggestion (vs. a user/favorites/URL choice). Drives the "(from your
+  // location) — change" affordance. Cleared the moment the user touches the
+  // filter, so the affordance never lingers over a manual selection.
+  const [appliedGeoDefault, setAppliedGeoDefault] = useState<CityState | null>(
+    null,
+  )
 
   const citiesParam = searchParams.get('cities')
   const selectedCities = useMemo(
@@ -84,26 +112,75 @@ export function UpcomingShowsList({ limit = 5 }: UpcomingShowsListProps) {
     [profileData?.user?.preferences],
   )
 
-  // Authed default: seed the filter from favorite cities on first load
-  // when the URL carries none yet. Anon visitors get the "All cities"
-  // baseline (no favorites). The IP-geo smart default is PSY-926.
-  useEffect(() => {
-    if (
-      !hasAppliedDefaults.current &&
-      favoriteCities.length > 0 &&
-      !citiesParam
-    ) {
-      hasAppliedDefaults.current = true
-      const params = new URLSearchParams()
-      params.set('cities', buildCitiesParam(favoriteCities))
-      startTransition(() => {
-        router.replace(`/explore?${params.toString()}`, { scroll: false })
-      })
-    }
-  }, [favoriteCities, citiesParam, router])
-
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
   const { data: citiesData } = useShowCities({ timezone })
+
+  // Map ShowCity → CityWithCount; only render the filter when there's
+  // at least one city to choose between (matches the list pages).
+  const cities: CityWithCount[] = useMemo(
+    () =>
+      citiesData?.cities?.map(c => ({
+        city: c.city,
+        state: c.state,
+        count: c.show_count,
+      })) ?? [],
+    [citiesData],
+  )
+
+  // The IP-geo suggestion reconciled against PH's has-shows data: returns the
+  // CANONICAL `{city, state}` from the cities list (so the seeded `?cities=`
+  // matches the backend filter exactly) when the detected city has upcoming
+  // shows, else null. Match is case/whitespace-insensitive because Vercel's
+  // city spelling may differ slightly from PH's stored name.
+  const geoCityWithShows: CityState | null = useMemo(() => {
+    if (!geoDefaultCity || cities.length === 0) return null
+    const norm = (s: string) => s.trim().toLowerCase()
+    const wantCity = norm(geoDefaultCity.city)
+    const wantState = norm(geoDefaultCity.state)
+    const match = cities.find(
+      c => norm(c.city) === wantCity && norm(c.state) === wantState,
+    )
+    return match ? { city: match.city, state: match.state } : null
+  }, [geoDefaultCity, cities])
+
+  // Default selection on first load when the URL carries no `?cities=`:
+  //   1. authed + favorite cities → seed from favorites (unchanged),
+  //   2. anon + geo city that has shows → seed from geo (PSY-926),
+  //   3. otherwise → leave empty ("All cities").
+  // Runs once (guarded by hasAppliedDefaults) and only after the dependent
+  // data (favorites / cities-with-shows) has had a chance to load.
+  useEffect(() => {
+    if (hasAppliedDefaults.current || citiesParam) return
+    // Wait for auth to settle. Applying the anon geo default while auth is
+    // still resolving could wrongly seed geo for a user who turns out to be
+    // authenticated (whose favorites should win, or who gets "All cities").
+    if (authLoading) return
+
+    let seed: CityState[] | null = null
+    let fromGeo = false
+    if (favoriteCities.length > 0) {
+      seed = favoriteCities
+    } else if (!isAuthenticated && geoCityWithShows) {
+      seed = [geoCityWithShows]
+      fromGeo = true
+    }
+    if (!seed) return
+
+    hasAppliedDefaults.current = true
+    if (fromGeo) setAppliedGeoDefault(geoCityWithShows)
+    const params = new URLSearchParams()
+    params.set('cities', buildCitiesParam(seed))
+    startTransition(() => {
+      router.replace(`/explore?${params.toString()}`, { scroll: false })
+    })
+  }, [
+    favoriteCities,
+    geoCityWithShows,
+    isAuthenticated,
+    authLoading,
+    citiesParam,
+    router,
+  ])
 
   const { data, isLoading, isFetching, error } = useExploreUpcomingShows({
     limit,
@@ -112,6 +189,9 @@ export function UpcomingShowsList({ limit = 5 }: UpcomingShowsListProps) {
 
   const handleFilterChange = useCallback(
     (cities: CityState[]) => {
+      // Any manual filter change is an override — the geo affordance must
+      // not linger over a user-chosen selection.
+      setAppliedGeoDefault(null)
       const params = new URLSearchParams()
       if (cities.length > 0) params.set('cities', buildCitiesParam(cities))
       const qs = params.toString()
@@ -122,17 +202,13 @@ export function UpcomingShowsList({ limit = 5 }: UpcomingShowsListProps) {
     [router],
   )
 
-  // Map ShowCity → CityWithCount; only render the filter when there's
-  // more than one city to choose between (matches the list pages).
-  const cities: CityWithCount[] = useMemo(
-    () =>
-      citiesData?.cities?.map(c => ({
-        city: c.city,
-        state: c.state,
-        count: c.show_count,
-      })) ?? [],
-    [citiesData],
-  )
+  // True when the geo default is still the active selection (exactly the one
+  // detected city, unchanged by the user) — drives the "(from your location)"
+  // chip.
+  const showGeoAffordance =
+    appliedGeoDefault !== null &&
+    selectedCities.length === 1 &&
+    citiesEqual(selectedCities, [appliedGeoDefault])
   const selectionDiffersFromFavorites = !citiesEqual(
     selectedCities,
     favoriteCities,
@@ -155,6 +231,23 @@ export function UpcomingShowsList({ limit = 5 }: UpcomingShowsListProps) {
             />
           )}
         </CityFilters>
+        {showGeoAffordance && appliedGeoDefault && (
+          <p
+            className="mt-1.5 text-xs text-muted-foreground"
+            data-testid="geo-default-affordance"
+          >
+            Showing {appliedGeoDefault.city}, {appliedGeoDefault.state} (from
+            your location) —{' '}
+            <button
+              type="button"
+              onClick={() => handleFilterChange([])}
+              className="text-primary hover:underline underline-offset-4"
+              data-testid="geo-default-change"
+            >
+              change
+            </button>
+          </p>
+        )}
       </div>
     ) : null
 
