@@ -17,6 +17,11 @@ import { cn } from '@/lib/utils'
  *
  * Loading / error states stay in the parent (it early-returns before rendering
  * the table); pass `empty` for the no-rows message.
+ *
+ * Distinct from `components/shared/DenseTable`: that is a *composition* primitive
+ * (you pass `<thead>/<tbody>` children, variants) for public entity pages;
+ * AdminTable is *config-driven* (a columns array) for admin entity lists. Reach
+ * for DenseTable on entity pages, AdminTable for admin lists.
  */
 export interface AdminTableColumn<T> {
   /** Stable column id (React key for the cell). */
@@ -100,8 +105,25 @@ export function AdminTable<T>({
               <tr
                 key={rowKey(row)}
                 onClick={clickable ? () => onRowClick!(row) : undefined}
+                onKeyDown={
+                  clickable
+                    ? e => {
+                        // Activate only from the row itself, so focused child
+                        // controls (e.g. a Featured toggle) keep their own keys.
+                        if (
+                          e.target === e.currentTarget &&
+                          (e.key === 'Enter' || e.key === ' ')
+                        ) {
+                          e.preventDefault()
+                          onRowClick!(row)
+                        }
+                      }
+                    : undefined
+                }
+                tabIndex={clickable ? 0 : undefined}
                 className={cn(
-                  clickable && 'cursor-pointer transition-colors hover:bg-muted/30',
+                  clickable &&
+                    'cursor-pointer transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring',
                   rowClassName?.(row)
                 )}
               >
