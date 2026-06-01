@@ -139,6 +139,21 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
   // original requester or an admin, and only when one is pending review.
   const canReviewFulfillment =
     request.status === 'pending_fulfillment' && (isRequester || isAdmin)
+
+  // PSY-917: the linkable identity of the entity this request references. The
+  // requests table reuses requested_entity_id for both the originally-requested
+  // entity and (after a proposal) the fulfiller's proposed entity; the backend
+  // resolves it to a slug + name on the detail fetch. `url` is null when no
+  // slug resolved (entity has no slug / was deleted) so callers suppress the
+  // link rather than emit a dead /type/<id> href. Single-sourced so the main
+  // entity-link block and the review panel can't drift.
+  const proposedEntityUrl = getEntityUrlBySlug(
+    request.entity_type,
+    request.requested_entity_slug
+  )
+  const proposedEntityLabel =
+    request.requested_entity_name ??
+    getEntityTypeLabel(request.entity_type).toLowerCase()
   const canClose = isAdmin && request.status !== 'cancelled' && request.status !== 'fulfilled'
 
   const userVote = request.user_vote ?? 0
@@ -335,30 +350,21 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     Every OTHER viewer of a pending_fulfillment request gets the
                     link here.
                   */}
-                  {!canReviewFulfillment &&
-                    (() => {
-                      const entityUrl = getEntityUrlBySlug(
-                        request.entity_type,
-                        request.requested_entity_slug
-                      )
-                      if (!entityUrl) return null
-                      const isProposed =
-                        request.status === 'pending_fulfillment'
-                      const label =
-                        request.requested_entity_name ??
-                        getEntityTypeLabel(request.entity_type).toLowerCase()
-                      return (
-                        <div className="mt-4">
-                          <Link
-                            href={entityUrl}
-                            className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            View {isProposed ? 'proposed' : 'requested'} {label}
-                          </Link>
-                        </div>
-                      )
-                    })()}
+                  {!canReviewFulfillment && proposedEntityUrl && (
+                    <div className="mt-4">
+                      <Link
+                        href={proposedEntityUrl}
+                        className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors"
+                      >
+                        <ExternalLink className="h-3.5 w-3.5" />
+                        View{' '}
+                        {request.status === 'pending_fulfillment'
+                          ? 'proposed'
+                          : 'requested'}{' '}
+                        {proposedEntityLabel}
+                      </Link>
+                    </div>
+                  )}
 
                   {/* Fulfillment info */}
                   {request.status === 'fulfilled' && (
@@ -406,26 +412,16 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                         slug didn't resolve (legacy proposals from before this
                         shipped carried no entity; entity since deleted).
                       */}
-                      {(() => {
-                        const proposedUrl = getEntityUrlBySlug(
-                          request.entity_type,
-                          request.requested_entity_slug
-                        )
-                        if (!proposedUrl) return null
-                        const label =
-                          request.requested_entity_name ??
-                          getEntityTypeLabel(request.entity_type).toLowerCase()
-                        return (
-                          <Link
-                            href={proposedUrl}
-                            className="mt-2 inline-flex items-center gap-1.5 text-sm text-primary transition-colors hover:text-primary/80"
-                            data-testid="review-panel-proposed-entity-link"
-                          >
-                            <ExternalLink className="h-3.5 w-3.5" />
-                            View proposed {label}
-                          </Link>
-                        )
-                      })()}
+                      {proposedEntityUrl && (
+                        <Link
+                          href={proposedEntityUrl}
+                          className="mt-2 inline-flex items-center gap-1.5 text-sm text-primary transition-colors hover:text-primary/80"
+                          data-testid="review-panel-proposed-entity-link"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          View proposed {proposedEntityLabel}
+                        </Link>
+                      )}
                       <div className="mt-3 flex items-center gap-2">
                         <Button
                           size="sm"
