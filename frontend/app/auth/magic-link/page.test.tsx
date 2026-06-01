@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { renderWithProviders, waitFor } from '@/test/utils'
+import { renderWithProviders, waitFor, screen } from '@/test/utils'
 import { act } from '@testing-library/react'
+import { AuthError } from '@/lib/errors'
+import type { ApiError } from '@/lib/api'
 import MagicLinkPage from './page'
 
 const mockPush = vi.fn()
@@ -84,6 +86,96 @@ describe('MagicLinkPage', () => {
     })
 
     expect(mockPush).toHaveBeenCalledWith('/')
+  })
+
+  it('renders "Link Expired" for a body-encoded INVALID_TOKEN error', async () => {
+    // PSY-875/PSY-881: the invalid/expired-token path returns HTTP 200 +
+    // { success: false, error_code: 'INVALID_TOKEN' }, which the hook
+    // re-throws as an AuthError with status 401. A new link is the correct
+    // remedy, so this stays on the "Link Expired" pane.
+    const bodyError = new AuthError(
+      'This magic link has expired or is invalid.',
+      'TOKEN_INVALID',
+      { status: 401 }
+    )
+    mockUseVerifyMagicLink.mockImplementation(() => ({
+      mutate: mockMutate,
+      reset: vi.fn(),
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error: bodyError,
+    }))
+
+    renderWithProviders(<MagicLinkPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Link Expired')).toBeInTheDocument()
+    })
+    expect(
+      screen.getByRole('button', { name: /back to sign in/i })
+    ).toBeInTheDocument()
+    expect(screen.queryByText('Something went wrong')).not.toBeInTheDocument()
+  })
+
+  it('renders the retry pane (not "Link Expired") for a 5xx error', async () => {
+    // PSY-875 flipped the JWT-mint failure from a silent HTTP 200 to a real
+    // 5xx (ApiError with status >= 500). Requesting a new link can't fix a
+    // backend outage, so this renders the server-error + retry pane.
+    const serverError: ApiError = Object.assign(
+      new Error('HTTP 500: Internal Server Error'),
+      { status: 500 }
+    )
+    const mockReset = vi.fn()
+    mockUseVerifyMagicLink.mockImplementation(() => ({
+      mutate: mockMutate,
+      reset: mockReset,
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error: serverError,
+    }))
+
+    renderWithProviders(<MagicLinkPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Link Expired')).not.toBeInTheDocument()
+
+    const retryButton = screen.getByRole('button', { name: /try again/i })
+    expect(retryButton).toBeInTheDocument()
+    // There is no request-new-link CTA on the server-error pane.
+    expect(
+      screen.queryByRole('button', { name: /back to sign in/i })
+    ).not.toBeInTheDocument()
+
+    // Retry resets the mutation so the same token is re-verified.
+    await act(async () => {
+      retryButton.click()
+    })
+    expect(mockReset).toHaveBeenCalledTimes(1)
+  })
+
+  it('renders the retry pane for a status-less network failure', async () => {
+    // A network outage re-throws the raw fetch error (a TypeError with no
+    // `status`). That is also a "try again" situation, not "link expired".
+    const networkError = new TypeError('Failed to fetch')
+    mockUseVerifyMagicLink.mockImplementation(() => ({
+      mutate: mockMutate,
+      reset: vi.fn(),
+      isPending: false,
+      isError: true,
+      isSuccess: false,
+      error: networkError,
+    }))
+
+    renderWithProviders(<MagicLinkPage />)
+
+    await waitFor(() => {
+      expect(screen.getByText('Something went wrong')).toBeInTheDocument()
+    })
+    expect(screen.queryByText('Link Expired')).not.toBeInTheDocument()
   })
 
   it('cleans up scheduled redirect on unmount', async () => {

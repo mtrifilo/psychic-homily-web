@@ -2,11 +2,32 @@
 
 import { Suspense, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { Loader2, CheckCircle2, AlertCircle, Mail } from 'lucide-react'
+import { Loader2, CheckCircle2, AlertCircle, Mail, ServerCrash } from 'lucide-react'
 import { useVerifyMagicLink } from '@/features/auth'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+
+/**
+ * Distinguish a genuine backend/transport failure from an expired/invalid
+ * magic link.
+ *
+ * Background (PSY-875 → PSY-881): the backend's invalid/expired-token path
+ * returns HTTP 200 + `{ success: false, error_code: "INVALID_TOKEN" }`, which
+ * `useVerifyMagicLink` re-throws as an AuthError with `status: 401`. After
+ * PSY-875 flipped the JWT-mint failure from a silent 200 to a real 5xx, a
+ * failed mint now surfaces as an ApiError with `status >= 500`, and a network
+ * outage re-throws the raw fetch error with no `status` at all.
+ *
+ * "Link Expired" copy (request-a-new-link CTA) is only correct for the
+ * body-encoded token error — a new link cannot fix a 5xx or a dead network.
+ * So treat anything that is NOT a sub-500 status (i.e. 5xx OR a status-less
+ * transport throw) as a server-side failure that wants a retry CTA instead.
+ */
+function isServerSideFailure(error: unknown): boolean {
+  const status = (error as { status?: number } | null)?.status
+  return typeof status !== 'number' || status >= 500
+}
 
 function MagicLinkContent() {
   const router = useRouter()
@@ -113,7 +134,41 @@ function MagicLinkContent() {
     )
   }
 
-  // Error state
+  // Server-side / transport failure (5xx mint failure post-PSY-875, or a
+  // network outage). Requesting a new link won't help, so offer a retry of the
+  // same token instead of the "Link Expired" request-new-link CTA.
+  if (isServerSideFailure(verifyMagicLink.error)) {
+    return (
+      <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
+        <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
+          <CardHeader className="text-center">
+            <div className="mx-auto mb-4 flex h-12 w-12 items-center justify-center rounded-full bg-destructive/10">
+              <ServerCrash className="h-6 w-6 text-destructive" />
+            </div>
+            <CardTitle>Something went wrong</CardTitle>
+            <CardDescription>
+              We couldn&apos;t sign you in because of a problem on our end. Your
+              link is still valid — please try again in a moment.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="flex justify-center">
+            <Button
+              onClick={() => {
+                // Force a fresh verification of the same token.
+                attemptedTokenRef.current = null
+                verifyMagicLink.reset()
+              }}
+            >
+              Try Again
+            </Button>
+          </CardContent>
+        </Card>
+      </div>
+    )
+  }
+
+  // Expired / invalid token (body-encoded INVALID_TOKEN, HTTP 200 + AuthError
+  // status 401). A new link is the correct remedy here.
   return (
     <div className="flex min-h-[calc(100vh-64px)] items-center justify-center px-4 py-12">
       <Card className="w-full max-w-md border-border/50 bg-card/50 backdrop-blur-sm">
