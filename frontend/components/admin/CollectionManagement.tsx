@@ -10,6 +10,7 @@ import {
 } from '@/features/collections'
 import type { Collection } from '@/features/collections'
 import { Switch } from '@/components/ui/switch'
+import { AdminTable, type AdminTableColumn } from './AdminTable'
 
 function EntityTypeBadge({ type }: { type: string }) {
   const colors: Record<string, string> = {
@@ -215,6 +216,79 @@ export function CollectionManagement() {
   const collections = data?.collections ?? []
   const selectedCollection = collections.find((c) => c.slug === selectedSlug)
 
+  const columns: AdminTableColumn<Collection>[] = [
+    {
+      key: 'title',
+      header: 'Title',
+      render: (c) => (
+        <>
+          <div className="font-medium">{c.title}</div>
+          <div className="text-xs text-muted-foreground">/{c.slug}</div>
+        </>
+      ),
+    },
+    {
+      key: 'creator',
+      header: 'Creator',
+      cellClassName: 'text-muted-foreground',
+      render: (c) => c.creator_name,
+    },
+    { key: 'items', header: 'Items', align: 'center', render: (c) => c.item_count },
+    {
+      key: 'subscribers',
+      header: 'Subscribers',
+      align: 'center',
+      render: (c) => c.subscriber_count,
+    },
+    {
+      key: 'featured',
+      header: 'Featured',
+      align: 'center',
+      stopRowClick: true,
+      render: (c) => (
+        <Switch
+          checked={c.is_featured}
+          onCheckedChange={(checked) => {
+            setFeaturedError(null)
+            setFeatured.mutate(
+              { slug: c.slug, featured: checked },
+              {
+                // Clears-on-next-success per the sticky-on-error
+                // mutation-feedback convention (PSY-609).
+                onSuccess: () => setFeaturedError(null),
+                onError: (err) =>
+                  setFeaturedError(
+                    err instanceof Error
+                      ? err.message
+                      : 'Failed to update featured status'
+                  ),
+              }
+            )
+          }}
+          disabled={setFeatured.isPending}
+          size="sm"
+        />
+      ),
+    },
+    {
+      key: 'public',
+      header: 'Public',
+      align: 'center',
+      render: (c) =>
+        c.is_public ? (
+          <span className="text-green-400 text-xs">Yes</span>
+        ) : (
+          <span className="text-muted-foreground text-xs">No</span>
+        ),
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      cellClassName: 'text-muted-foreground text-xs',
+      render: (c) => new Date(c.created_at).toLocaleDateString(),
+    },
+  ]
+
   return (
     <div className="space-y-4">
       <div className="flex items-center justify-between">
@@ -240,100 +314,18 @@ export function CollectionManagement() {
         <p className="text-muted-foreground">No collections yet</p>
       ) : (
         <>
-          {/* Collections table */}
-          <div className="border border-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left p-3 font-medium">Title</th>
-                  <th className="text-left p-3 font-medium">Creator</th>
-                  <th className="text-center p-3 font-medium">Items</th>
-                  <th className="text-center p-3 font-medium">Subscribers</th>
-                  <th className="text-center p-3 font-medium">Featured</th>
-                  <th className="text-center p-3 font-medium">Public</th>
-                  <th className="text-left p-3 font-medium">Created</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {collections.map((collection) => (
-                  <tr
-                    key={collection.id}
-                    onClick={() =>
-                      setSelectedSlug(
-                        selectedSlug === collection.slug
-                          ? null
-                          : collection.slug
-                      )
-                    }
-                    className={`cursor-pointer hover:bg-muted/30 ${
-                      selectedSlug === collection.slug ? 'bg-muted/50' : ''
-                    }`}
-                  >
-                    <td className="p-3">
-                      <div className="font-medium">{collection.title}</div>
-                      <div className="text-xs text-muted-foreground">
-                        /{collection.slug}
-                      </div>
-                    </td>
-                    <td className="p-3 text-muted-foreground">
-                      {collection.creator_name}
-                    </td>
-                    <td className="p-3 text-center">{collection.item_count}</td>
-                    <td className="p-3 text-center">
-                      {collection.subscriber_count}
-                    </td>
-                    <td
-                      className="p-3 text-center"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <Switch
-                        checked={collection.is_featured}
-                        onCheckedChange={(checked) => {
-                          setFeaturedError(null)
-                          setFeatured.mutate(
-                            {
-                              slug: collection.slug,
-                              featured: checked,
-                            },
-                            {
-                              onSuccess: () => {
-                                // Clears-on-next-success per the
-                                // sticky-on-error mutation-feedback
-                                // convention. The click handler's
-                                // pre-mutate reset covers the common
-                                // case but misses retries / parallel
-                                // successes that don't go through it.
-                                setFeaturedError(null)
-                              },
-                              onError: (err) => {
-                                setFeaturedError(
-                                  err instanceof Error
-                                    ? err.message
-                                    : 'Failed to update featured status'
-                                )
-                              },
-                            }
-                          )
-                        }}
-                        disabled={setFeatured.isPending}
-                        size="sm"
-                      />
-                    </td>
-                    <td className="p-3 text-center">
-                      {collection.is_public ? (
-                        <span className="text-green-400 text-xs">Yes</span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">No</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-muted-foreground text-xs">
-                      {new Date(collection.created_at).toLocaleDateString()}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          {/* Collections table (AdminTable — PSY-910) */}
+          <AdminTable
+            columns={columns}
+            rows={collections}
+            rowKey={(c) => c.id}
+            onRowClick={(c) =>
+              setSelectedSlug(selectedSlug === c.slug ? null : c.slug)
+            }
+            rowClassName={(c) =>
+              selectedSlug === c.slug ? 'bg-muted/50' : undefined
+            }
+          />
 
           {/* Detail panel */}
           {selectedCollection && (
