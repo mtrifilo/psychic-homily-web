@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450" role="img" aria-label="Seed placeholder: venue image">
+  <rect width="800" height="450" fill="#1e293b"/>
+  <rect x="120" y="120" width="560" height="240" fill="#334155"/>
+  <rect x="180" y="180" width="120" height="120" fill="#475569"/>
+  <rect x="500" y="180" width="120" height="120" fill="#475569"/>
+  <text x="400" y="410" fill="#94a3b8" font-family="system-ui, sans-serif" font-size="28" text-anchor="middle">VENUE · seed placeholder</text>
+</svg>
