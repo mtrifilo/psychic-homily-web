@@ -22,6 +22,7 @@
  */
 
 import Link from 'next/link'
+import type { CityState } from '@/components/filters/CityFilters'
 import { useExploreFeatured } from '../hooks'
 import { UpcomingShowsList } from './UpcomingShowsList'
 import { FeaturedBillCard } from './FeaturedBillCard'
@@ -29,7 +30,17 @@ import { FeaturedCollectionCard } from './FeaturedCollectionCard'
 import { InlineGraph } from './InlineGraph'
 import { ShuffleCta } from './ShuffleCta'
 
-export function ExplorePage() {
+interface ExplorePageProps {
+  /**
+   * IP-geo soft default for anon visitors (PSY-926), resolved server-side
+   * from the Vercel edge geo headers. A suggestion only — UpcomingShowsList
+   * pre-selects it only when the city has upcoming shows AND the visitor is
+   * anon with no `?cities=` and no favorites. `null` → "All cities".
+   */
+  geoDefaultCity?: CityState | null
+}
+
+export function ExplorePage({ geoDefaultCity = null }: ExplorePageProps) {
   const { data: featured } = useExploreFeatured()
   const bill = featured?.bill ?? null
   const collection = featured?.collection ?? null
@@ -57,7 +68,7 @@ export function ExplorePage() {
               View all shows →
             </Link>
           </div>
-          <UpcomingShowsList limit={5} />
+          <UpcomingShowsList limit={5} geoDefaultCity={geoDefaultCity} />
         </section>
 
         {/* 3. Featured Bill (collapses when null) */}

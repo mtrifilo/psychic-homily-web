@@ -10,6 +10,7 @@ import type {
 } from '@/features/explore'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys, getQueryClient } from '@/lib/queryClient'
+import { getGeoDefaultCity } from '@/lib/geo-default'
 
 export const metadata: Metadata = {
   title: 'Explore | Psychic Homily',
@@ -108,6 +109,15 @@ interface ExploreRouteProps {
 export default async function ExploreRoute({ searchParams }: ExploreRouteProps) {
   await searchParams
 
+  // IP-geo soft default for anon visitors (PSY-926). Read the Vercel edge
+  // geo headers at this already-dynamic boundary (the `await searchParams`
+  // above opts the shell into request-time rendering). The data fetches below
+  // keep their ISR `revalidate` hints, so only the per-request shell varies —
+  // ISR is preserved. The detected city is a SUGGESTION the client reconciles
+  // against its has-shows data; it never becomes the canonical `?cities=`
+  // server-side, so shareable URLs and the cached data path are untouched.
+  const geoDefaultCity = await getGeoDefaultCity()
+
   const [featured, upcoming] = await Promise.all([
     getFeatured(),
     getUpcomingShows(),
@@ -135,7 +145,7 @@ export default async function ExploreRoute({ searchParams }: ExploreRouteProps) 
   return (
     <HydrationBoundary state={dehydratedState}>
       <Suspense fallback={<ExploreLoadingFallback />}>
-        <ExplorePage />
+        <ExplorePage geoDefaultCity={geoDefaultCity} />
       </Suspense>
     </HydrationBoundary>
   )

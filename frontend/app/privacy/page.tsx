@@ -10,7 +10,7 @@ export const metadata: Metadata = {
 }
 
 export default function PrivacyPolicyPage() {
-  const lastUpdated = 'February 15, 2026'
+  const lastUpdated = 'May 31, 2026'
   const effectiveDate = 'February 15, 2026'
 
   return (
@@ -63,6 +63,7 @@ export default function PrivacyPolicyPage() {
               <li><strong>Device Information:</strong> Browser type, operating system, and device identifiers.</li>
               <li><strong>Usage Data:</strong> Pages visited, time spent on pages, and interaction patterns.</li>
               <li><strong>Log Data:</strong> IP address, access times, and referring URLs.</li>
+              <li><strong>Approximate Location:</strong> When you visit the Explore page, the hosting platform (Vercel) infers an approximate, city-level location from your IP address. I use this only to pre-select a nearby city in the upcoming-shows filter, which you can change at any time. This inferred city is read transiently on each request, is not precise, is not stored against your account or any identifier, and is not used to build a profile or track you. See Section 3.</li>
               <li><strong>Cookies:</strong> Session cookies for authentication and preference cookies for your settings. See Section 7 for details.</li>
             </ul>
           </section>
@@ -77,7 +78,7 @@ export default function PrivacyPolicyPage() {
               <li><strong>Provide Services:</strong> To create and manage your account, display your saved shows, and enable show submissions.</li>
               <li><strong>Authentication:</strong> To verify your identity and maintain secure access to your account.</li>
               <li><strong>Communications:</strong> To send you transactional emails (password resets, magic links, email verification) and, with your consent, promotional updates about new features.</li>
-              <li><strong>Personalization:</strong> To remember your preferences such as theme, timezone, and language.</li>
+              <li><strong>Personalization:</strong> To remember your preferences such as theme, timezone, and language, and to pre-select a nearby city in the Explore shows filter based on the approximate, city-level location inferred from your IP address (an overridable default only — see Section 2.3).</li>
               <li><strong>Improvement:</strong> To analyze usage patterns and improve the services.</li>
               <li><strong>Security:</strong> To detect and prevent fraud, abuse, and security incidents.</li>
               <li><strong>Legal Compliance:</strong> To comply with applicable laws and regulations.</li>
