@@ -361,6 +361,14 @@ Fix PSY-{N}: {ticket title}.
    - **Exercise the change:**
      - `mode=none`: integration test name + relevant assertion outcome IS the manual repro. **PSY-592 (May 2026)** is the canonical example — three tests (`_EmptyPermission`, `_InvalidEnum`, `_AcceptsAllValidEnumValues`), each asserting the exact response body. The test name + assertion outcome is what goes in the PR body's *Manual repro* section. Use `curl` against a backend you started on a free port ONLY when the test harness genuinely can't reach the path (rare — most paths have a test entrypoint). No browser navigation needed.
      - `mode=shared` / `mode=isolated`: navigate `$STACK_FRONTEND_URL` via `chrome-devtools` MCP or `agent-browser`, exercise the canonical failing path the ticket described, and capture a screenshot of the new behaviour into `dogfood-output/PSY-{N}/screenshots/<short-name>.png`. STOP if the canonical failure mode does NOT now surface in the UI — the fix is incomplete; iterate from step 3 before proceeding.
+   - **Upload screenshots for the PR — gitignored paths never reach reviewers.** `dogfood-output/` is gitignored, so a path reference in the PR body is unreviewable text, and the files vanish when the worktree is cleaned up. After capturing (and verifying each PNG actually shows what its filename claims — Read it back), host the PNGs via a draft release and embed the asset URLs in the PR body's `## Screenshots` section:
+     ```bash
+     gh release create psy-{N}-screenshots --draft \
+       --notes "Screenshot assets for PSY-{N} PR. Draft — not visible on Releases page." \
+       dogfood-output/PSY-{N}/screenshots/*.png
+     gh release view psy-{N}-screenshots --json assets --jq '.assets[].url'
+     ```
+     Draft releases are invisible on the public Releases page; their asset URLs render embedded in PR markdown. Do NOT delete the draft after the PR opens — the embeds depend on it persisting. **Caught 2026-05-31 (5-ticket wave):** all 5 PRs referenced gitignored screenshot paths only; the orchestrator retro-fitted draft-release uploads post-hoc, and one agent's screenshots had already been deleted with its throwaway harness — requiring a full re-capture (dev stack + harness rebuild) to restore the evidence.
    - **Tear down the stack** after capturing the artifact:
      ```bash
      bash scripts/dispatch/stack-down.sh "$(git rev-parse --show-toplevel)"
@@ -395,7 +403,12 @@ Fix PSY-{N}: {ticket title}.
     - [x] `/adversarial-review` — CLEAN (or CONCERNS addressed; fixes in separate commit)
 
     ## Manual repro
-    <Frontend: link to screenshot at `dogfood-output/PSY-{N}/screenshots/<name>.png` + one-sentence description of what the screenshot shows. Backend: exact `curl` command + response body verbatim, OR test name + relevant assertion output. State what you exercised — the canonical failing path from the ticket — and what you saw. "docs-only, no manual repro applicable" is the only valid placeholder.>
+    <Frontend: what you exercised — the canonical failing path from the ticket — and what you saw; the visual evidence goes in ## Screenshots below. Backend: exact `curl` command + response body verbatim, OR test name + relevant assertion output. "docs-only, no manual repro applicable" is the only valid placeholder.>
+
+    ## Screenshots
+    <Frontend tickets only — omit the section for backend-only/docs-only. Embed the draft-release asset URLs from step 5, one per screenshot, each with a one-sentence caption of what it shows. NEVER reference a local `dogfood-output/` path here — it's gitignored and unreviewable.>
+
+    ![<what it shows>](<draft-release-asset-url>)
 
     ## Code review
     <one-line outcome: "no changes" OR "edited N files, -M net lines, <one-phrase summary>". Post-code-review retest commands belong in the Test plan above with [x].>
@@ -453,6 +466,9 @@ These supplement the ironclad rules with tactical guidance from observed batch f
    4. Both `Closes PSY-{N}` references appear in the body (one for the original ticket, one for the cherry-picked ticket).
 
    NOT for: refactors, behaviour changes, large diffs. ONLY for narrowly-scoped fixes whose correctness is verifiable in isolation. **Canonical: PSY-851 → PSY-813 (2026-05-24)**. PSY-851's PR #820 was open but unmerged; PSY-813's PR #811 E2E Smoke was failing on the exact flake PSY-851 fixed; orchestrator cherry-picked PSY-851's commit into PSY-813's branch (force-push after rebase onto latest main), re-verified the spec locally per `feedback_local_test_before_push.md` (2 consecutive `bun run test:e2e --grep @smoke` passes), updated PR #811's body to disclose, closed PR #820 with the superseded comment. Net: saved one full CI cycle + one rebase round.
+
+- **Piping `gh run watch --exit-status` through `tail`/`grep` swallows the failure exit code.** A pipeline's exit code is the LAST command's (tail/grep = 0), so a failed CI run reports as success and the orchestrator relays a wrong "it's green" signal. **Caught 2026-05-31 (PSY-945):** orchestrator's background watch `gh run watch <id> --exit-status | tail -3` exited 0 on a run that had FAILED; the wrong signal survived until a direct `gh pr view --json statusCheckRollup` contradicted it, costing one diagnosis round. Correct shape: redirect instead of pipe, then echo the code on its own line — `gh run watch <id> --exit-status > /tmp/watch.log 2>&1; echo "WATCH_EXIT_CODE=$?"` — and read the code from the output, never from the task's pipeline exit. Related zsh gotcha from the same session: `status` is a READ-ONLY zsh special variable; `status=$?` errors out and kills the surrounding script — name it anything else.
+- **Re-pushing a rebase without local re-verification while a parallel session is actively merging.** When branch protection requires up-to-date branches AND another session is merging every few minutes, every rebase + CI cycle (~8 min) races the next merge — and each newly-merged commit can introduce failures YOUR fix must absorb before it can land. **Caught 2026-05-31 (PSY-945, 3 rebase rounds):** round 1's CI failed because the rebase pulled in PSY-946, whose new tests leaked un-stubbed `/api/geo` fetches that the PR's own MSW `'error'` policy then flagged — the in-flight PR had to grow a handler for code merged AFTER it was authored. Mitigations, in order: (i) **run the relevant local suite in the worktree BEFORE pushing the rebase** — a CI cycle burned on a surprise failure loses the race AND the diagnosis time; (ii) when CI goes green, **ping the user to merge immediately** (proactive message) — or get explicit pre-authorization for `gh pr merge --auto`; (iii) if the user declines auto-merge and the race is lost again, repeat (i) — never push-and-pray. The agent-level mitigation (rebase-immediately-before-push, added to the per-agent template by PSY-922) shrinks but does not eliminate this window; the orchestrator owns the post-PR-open rounds.
 
 ## Related skills and memories
 
