@@ -281,7 +281,11 @@ export function AdminDashboard({ onNavigate }: AdminDashboardProps) {
               value={stats.pending_venue_edits}
               icon={MapPin}
               highlight
-              onClick={onNavigate ? () => onNavigate('pending-venue-edits') : undefined}
+              // PSY-934: pending entity edits (incl. venue edits) render under
+              // the Moderation queue, not a standalone tab. 'pending-venue-edits'
+              // is not a valid section (see VALID_TABS in adminNav.ts), so it fell
+              // back to Dashboard — a dead quick-link. Route to the real section.
+              onClick={onNavigate ? () => onNavigate('moderation') : undefined}
             />
             <StatCard
               label="Pending Reports"
