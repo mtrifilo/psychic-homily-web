@@ -44,7 +44,7 @@ import { useSortable } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import { cn } from '@/lib/utils'
 import { getEntityUrl, getEntityTypeLabel, type CollectionItem } from '../types'
-import { MarkdownContent } from './MarkdownEditor'
+import { MarkdownContent } from './MarkdownContent'
 import { Button } from '@/components/ui/button'
 import { useRemoveCollectionItem } from '../hooks'
 

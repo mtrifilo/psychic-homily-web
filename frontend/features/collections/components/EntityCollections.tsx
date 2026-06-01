@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { Library } from 'lucide-react'
 import { useEntityCollections } from '../hooks'
 import type { Collection } from '../types'
-import { MarkdownContent } from './MarkdownEditor'
+import { MarkdownContent } from './MarkdownContent'
 
 interface EntityCollectionsProps {
   entityType: string

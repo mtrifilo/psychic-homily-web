@@ -203,25 +203,7 @@ export function MarkdownEditor({
   )
 }
 
-/**
- * MarkdownContent renders server-sanitized HTML produced by goldmark +
- * bluemonday on the backend. It is a thin wrapper around the
- * `dangerouslySetInnerHTML` pattern used by the comment system, so callers
- * don't reach for the raw escape hatch.
- */
-export interface MarkdownContentProps {
-  html: string
-  className?: string
-  testId?: string
-}
-
-export function MarkdownContent({ html, className, testId }: MarkdownContentProps) {
-  if (!html) return null
-  return (
-    <div
-      className={cn('prose prose-sm dark:prose-invert max-w-none', className)}
-      data-testid={testId}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
-  )
-}
+// The read-only renderer (`MarkdownContent`) moved to `./MarkdownContent`
+// (PSY-951) so display-only consumers don't transitively pull this file's
+// `marked` + `dompurify` deps into the global shared client chunk. Import it
+// from `./MarkdownContent`, not from here.
