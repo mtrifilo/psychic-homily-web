@@ -51,11 +51,19 @@ describe('revalidateArtistDetail', () => {
 })
 
 describe('safeRevalidatePath', () => {
-  it('revalidates the given path', () => {
+  it('revalidates a concrete path with no type argument', () => {
     safeRevalidatePath('/collections/my-list', 'collection-engagement')
 
     expect(mockRevalidatePath).toHaveBeenCalledTimes(1)
     expect(mockRevalidatePath).toHaveBeenCalledWith('/collections/my-list')
+    expect(mockCaptureException).not.toHaveBeenCalled()
+  })
+
+  it('revalidates a dynamic route pattern with type page (cascade invalidation)', () => {
+    safeRevalidatePath('/shows/[slug]', 'artist-update')
+
+    expect(mockRevalidatePath).toHaveBeenCalledTimes(1)
+    expect(mockRevalidatePath).toHaveBeenCalledWith('/shows/[slug]', 'page')
     expect(mockCaptureException).not.toHaveBeenCalled()
   })
 

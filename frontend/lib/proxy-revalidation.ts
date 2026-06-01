@@ -23,11 +23,13 @@ import { safeRevalidatePath } from './revalidate-entity'
  * surfaces, and entity tagging → *entity* pages (entity pages client-fetch
  * their tags; only the /tags/{slug} page ISR-caches usage counts).
  *
+ * Cascades (PSY-941): mutations that change or remove an entity's NAME also
+ * invalidate every page that embeds that name (show/release/collection
+ * pages), via dynamic route patterns — see RENAME_CASCADES below.
+ *
  * Known gaps (follow-up tickets):
  *   - PSY-940: collections tagged via the generic /entities/collection/...
  *     path (collections GET is slug-only; no ID→slug lookup possible)
- *   - PSY-941: cascade renames (artist rename → show pages embedding the
- *     name) need revalidateTag; out of reach for path-based rules
  *   - Deletes by numeric ID can't revalidate the deleted entity's own detail
  *     page (empty response, entity gone); the soft-404 proxy handles dead
  *     slugs (PSY-897/913/906)
@@ -70,7 +72,9 @@ interface RevalidationRule {
    */
   paths: (
     ctx: RuleContext
-  ) => Promise<Array<string | undefined>> | Array<string | undefined>
+  ) =>
+    | Promise<ReadonlyArray<string | undefined>>
+    | ReadonlyArray<string | undefined>
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +140,48 @@ const SINGULAR_TO_SEGMENT: Readonly<Record<string, string>> = {
   collection: 'collections',
 }
 
+// ---------------------------------------------------------------------------
+// Cascade invalidation (PSY-941)
+// ---------------------------------------------------------------------------
+
+// Dynamic route patterns. safeRevalidatePath revalidates these with type
+// 'page', invalidating every cached page under the route on its next visit.
+const ALL_SHOW_PAGES = '/shows/[slug]'
+const ALL_RELEASE_PAGES = '/releases/[slug]'
+const ALL_COLLECTION_PAGES = '/collections/[slug]'
+const ALL_SCENE_PAGES = '/scenes/[slug]'
+
+/**
+ * Route patterns made stale when an entity of the given segment is renamed,
+ * merged, or deleted — the pages that embed the entity's NAME in their own
+ * ISR payload (verified against backend contracts):
+ *
+ *   - Show pages embed artist + venue names (ShowResponse.artists/venues)
+ *   - Release pages embed artist + label names (ReleaseDetailResponse)
+ *   - Collection pages embed item entity names of every entity type
+ *     (CollectionItemResponse.entity_name)
+ *   - Scene + tag pages embed only counts → no rename cascade
+ *
+ * Path-based rules can't enumerate the specific affected pages (that would
+ * need revalidateTag with tagged fetches), so the whole route pattern is
+ * invalidated. Rename-class mutations are rare admin/trusted events and
+ * pages regenerate lazily on their next visit, so the over-invalidation is
+ * cheap.
+ */
+const RENAME_CASCADES: Readonly<Record<string, readonly string[]>> = {
+  artists: [ALL_SHOW_PAGES, ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
+  venues: [ALL_SHOW_PAGES, ALL_COLLECTION_PAGES],
+  shows: [ALL_COLLECTION_PAGES],
+  releases: [ALL_COLLECTION_PAGES],
+  labels: [ALL_RELEASE_PAGES, ALL_COLLECTION_PAGES],
+  festivals: [ALL_COLLECTION_PAGES],
+}
+
+/** Cascade route patterns for a segment; empty for types nothing embeds. */
+function cascadePages(segment: string): readonly string[] {
+  return RENAME_CASCADES[segment] ?? []
+}
+
 /** Detail page (when the slug is known) + ISR list page (when one exists). */
 function entityPages(
   segment: string,
@@ -154,9 +200,24 @@ function bodySlugPages(segment: string): RevalidationRule['paths'] {
 }
 
 /**
+ * bodySlugPages + the segment's rename cascade — for update-class rules
+ * where the mutation may have changed the entity's name (which other pages
+ * embed in their ISR payloads).
+ */
+function bodySlugPagesWithCascade(
+  segment: string
+): RevalidationRule['paths'] {
+  return ({ body }) => [
+    ...entityPages(segment, slugOf(body)),
+    ...cascadePages(segment),
+  ]
+}
+
+/**
  * Pages affected by a show mutation: the show itself, the upcoming-show
  * surfaces (/shows, /explore), the /artists and /venues lists (both embed
- * upcoming-show data), and each billed artist's detail page (artist pages
+ * upcoming-show data), every scene page (per-city show counts in
+ * SceneStats), and each billed artist's detail page (artist pages
  * ISR-cache stats.shows_tracked).
  */
 function showPages(body: unknown): Array<string | undefined> {
@@ -167,6 +228,7 @@ function showPages(body: unknown): Array<string | undefined> {
     '/explore',
     '/artists',
     '/venues',
+    ALL_SCENE_PAGES,
     ...nestedSlugs(body, 'artists').map((artistSlug) => `/artists/${artistSlug}`),
   ]
 }
@@ -201,15 +263,23 @@ const RULES: readonly RevalidationRule[] = [
     name: 'show-update',
     methods: ['PUT'],
     pattern: /^\/shows\/\d+$/,
-    paths: ({ body }) => showPages(body),
+    // A title edit also stales collection pages embedding the show's name.
+    paths: ({ body }) => [...showPages(body), ...cascadePages('shows')],
   },
   {
     name: 'show-delete',
     methods: ['DELETE'],
     pattern: /^\/shows\/\d+$/,
     // Empty response body — the show's own page can't be resolved, but every
-    // list surface that embedded it can.
-    paths: () => ['/shows', '/explore', '/artists', '/venues'],
+    // list surface that embedded it can, plus collection pages that listed it.
+    paths: () => [
+      '/shows',
+      '/explore',
+      '/artists',
+      '/venues',
+      ALL_SCENE_PAGES,
+      ...cascadePages('shows'),
+    ],
   },
   {
     name: 'show-status',
@@ -223,6 +293,22 @@ const RULES: readonly RevalidationRule[] = [
     pattern: /^\/admin\/shows\/\d+\/(approve|reject)$/,
     paths: ({ body }) => showPages(body),
   },
+  {
+    name: 'show-batch-moderation',
+    methods: ['POST'],
+    pattern: /^\/admin\/shows\/(batch-approve|batch-reject)$/,
+    // The response carries only counts ({approved/rejected, errors}) — no
+    // slugs — so the affected show pages can't be enumerated. Blast the show
+    // route along with every list surface a (de)published show appears on.
+    paths: () => [
+      ALL_SHOW_PAGES,
+      '/shows',
+      '/explore',
+      '/artists',
+      '/venues',
+      ALL_SCENE_PAGES,
+    ],
+  },
 
   // --- suggest-edit pipeline + moderation --------------------------------
   {
@@ -235,7 +321,8 @@ const RULES: readonly RevalidationRule[] = [
       const record = asRecord(body)
       if (record?.applied !== true) return []
       const slug = stringField(record.pending_edit, 'entity_slug')
-      return entityPages(match[1], slug)
+      // Applied edits may rename the entity → cascade to embedding pages.
+      return [...entityPages(match[1], slug), ...cascadePages(match[1])]
     },
   },
   {
@@ -247,7 +334,11 @@ const RULES: readonly RevalidationRule[] = [
       const entityType = stringField(body, 'entity_type')
       const segment = entityType ? SINGULAR_TO_SEGMENT[entityType] : undefined
       if (!segment) return []
-      return entityPages(segment, stringField(body, 'entity_slug'))
+      // Approved edits may rename the entity → cascade to embedding pages.
+      return [
+        ...entityPages(segment, stringField(body, 'entity_slug')),
+        ...cascadePages(segment),
+      ]
     },
   },
 
@@ -262,26 +353,30 @@ const RULES: readonly RevalidationRule[] = [
     name: 'artist-update',
     methods: ['PATCH'],
     pattern: /^\/admin\/artists\/\d+$/,
-    paths: bodySlugPages('artists'),
+    paths: bodySlugPagesWithCascade('artists'),
   },
   {
     name: 'artist-delete',
     methods: ['DELETE'],
     pattern: /^\/artists\/\d+$/,
-    paths: () => ['/artists'],
+    // The deleted artist disappears from show bills, release credits, and
+    // collection items → cascade to every embedding page.
+    paths: () => ['/artists', ...cascadePages('artists')],
   },
   {
     name: 'artist-merge',
     methods: ['POST'],
     pattern: /^\/admin\/artists\/merge$/,
     // MergeArtistResult carries IDs only; resolve the canonical artist's slug.
+    // Shows/releases/collections that credited the merged artist now show the
+    // canonical one → cascade.
     paths: async ({ body, lookupSlug }) => {
       const canonicalId = asRecord(body)?.canonical_artist_id
       const slug =
         typeof canonicalId === 'number'
           ? await lookupSlug('artists', String(canonicalId))
           : undefined
-      return entityPages('artists', slug)
+      return [...entityPages('artists', slug), ...cascadePages('artists')]
     },
   },
 
@@ -296,13 +391,13 @@ const RULES: readonly RevalidationRule[] = [
     name: 'venue-update',
     methods: ['PUT'],
     pattern: /^\/venues\/\d+$/,
-    paths: bodySlugPages('venues'),
+    paths: bodySlugPagesWithCascade('venues'),
   },
   {
     name: 'venue-delete',
     methods: ['DELETE'],
     pattern: /^\/venues\/\d+$/,
-    paths: () => ['/venues'],
+    paths: () => ['/venues', ...cascadePages('venues')],
   },
   {
     name: 'venue-verify',
@@ -322,7 +417,15 @@ const RULES: readonly RevalidationRule[] = [
     name: 'release-update',
     methods: ['PUT'],
     pattern: /^\/releases\/\d+$/,
-    paths: ({ body }) => releasePages(body),
+    // A title edit also stales collection pages embedding the release's name.
+    paths: ({ body }) => [...releasePages(body), ...cascadePages('releases')],
+  },
+  {
+    name: 'release-delete',
+    methods: ['DELETE'],
+    pattern: /^\/releases\/\d+$/,
+    // No ISR list page for releases; collection pages listing it go stale.
+    paths: () => cascadePages('releases'),
   },
   {
     name: 'release-links',
@@ -347,7 +450,14 @@ const RULES: readonly RevalidationRule[] = [
     name: 'label-update',
     methods: ['PUT'],
     pattern: /^\/labels\/\d+$/,
-    paths: bodySlugPages('labels'),
+    paths: bodySlugPagesWithCascade('labels'),
+  },
+  {
+    name: 'label-delete',
+    methods: ['DELETE'],
+    pattern: /^\/labels\/\d+$/,
+    // Release pages list label credits; collection pages may list the label.
+    paths: () => cascadePages('labels'),
   },
   {
     name: 'label-roster',
@@ -372,7 +482,14 @@ const RULES: readonly RevalidationRule[] = [
     name: 'festival-update',
     methods: ['PUT'],
     pattern: /^\/festivals\/\d+$/,
-    paths: bodySlugPages('festivals'),
+    paths: bodySlugPagesWithCascade('festivals'),
+  },
+  {
+    name: 'festival-delete',
+    methods: ['DELETE'],
+    pattern: /^\/festivals\/\d+$/,
+    // Collection pages may list the festival as an item.
+    paths: () => cascadePages('festivals'),
   },
   {
     name: 'festival-lineup',
