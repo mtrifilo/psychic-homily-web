@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CollectionDetail } from './CollectionDetail'
 import type {
@@ -699,15 +699,17 @@ describe('CollectionDetail', () => {
       expect(screen.getByTestId('forks-count').textContent).toContain('5 forks')
     })
 
-    it('hides Fork button on the user\'s own collection', () => {
+    it('hides Fork on the user\'s own collection (not in overflow either)', async () => {
       // current user (id=1) is the creator (creator_id=1) by default.
+      // PSY-892 D4: Fork lives in the ⋯ overflow — open it to assert absence.
+      const user = userEvent.setup()
       render(<CollectionDetail slug="test-collection" />)
-      expect(
-        screen.queryByRole('button', { name: 'Fork collection' })
-      ).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      expect(screen.queryByTestId('overflow-fork')).not.toBeInTheDocument()
     })
 
-    it('hides Fork button on private collections', () => {
+    it('hides Fork on private collections (not in overflow either)', async () => {
+      const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999' },
         isAuthenticated: true,
@@ -720,12 +722,12 @@ describe('CollectionDetail', () => {
         error: null,
       })
       render(<CollectionDetail slug="test-collection" />)
-      expect(
-        screen.queryByRole('button', { name: 'Fork collection' })
-      ).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      expect(screen.queryByTestId('overflow-fork')).not.toBeInTheDocument()
     })
 
-    it('hides Fork button when not authenticated', () => {
+    it('hides Fork when not authenticated (not in overflow either)', async () => {
+      const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: null,
         isAuthenticated: false,
@@ -738,12 +740,13 @@ describe('CollectionDetail', () => {
         error: null,
       })
       render(<CollectionDetail slug="test-collection" />)
-      expect(
-        screen.queryByRole('button', { name: 'Fork collection' })
-      ).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      expect(screen.queryByTestId('overflow-fork')).not.toBeInTheDocument()
     })
 
-    it('shows Fork button to authenticated non-owners on public collections', () => {
+    it('shows Fork in the ⋯ overflow menu for authenticated non-owners on public collections', async () => {
+      // PSY-892 D4: Fork moved from the primary action row into the overflow.
+      const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999' },
         isAuthenticated: true,
@@ -756,9 +759,9 @@ describe('CollectionDetail', () => {
         error: null,
       })
       render(<CollectionDetail slug="test-collection" />)
-      expect(
-        screen.getByRole('button', { name: 'Fork collection' })
-      ).toBeInTheDocument()
+      expect(screen.queryByTestId('overflow-fork')).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      expect(screen.getByTestId('overflow-fork')).toBeInTheDocument()
     })
 
     it('navigates to the new collection slug after a successful clone', async () => {
@@ -790,9 +793,9 @@ describe('CollectionDetail', () => {
       )
 
       render(<CollectionDetail slug="test-collection" />)
-      await user.click(
-        screen.getByRole('button', { name: 'Fork collection' })
-      )
+      // PSY-892 D4: Fork lives in the ⋯ overflow menu.
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      await user.click(screen.getByTestId('overflow-fork'))
 
       expect(mockCloneMutate).toHaveBeenCalledWith(
         { slug: 'test-collection' },
@@ -836,7 +839,11 @@ describe('CollectionDetail', () => {
       expect(btn).toHaveAttribute('aria-label', 'Unlike collection')
     })
 
-    it('renders read-only count for anonymous viewers', () => {
+    it('renders a Like button that prompts sign-in for anonymous viewers (PSY-892 D4)', async () => {
+      // Pre-D4 anonymous viewers saw a read-only count; the redesign makes
+      // Like a primary action in every viewer state — anonymous clicks route
+      // to sign-in (matches FollowButton's unauth pattern).
+      const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: null,
         isAuthenticated: false,
@@ -850,8 +857,20 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
 
-      expect(screen.getByTestId('collection-like-count')).toHaveTextContent('9')
-      expect(screen.queryByTestId('collection-like-button')).not.toBeInTheDocument()
+      const btn = screen.getByTestId('collection-like-button')
+      expect(btn).toHaveTextContent('9')
+      expect(btn).toHaveAttribute('aria-label', 'Sign in to like collection')
+      // Not pressed/pressable state for anonymous viewers.
+      expect(btn).not.toHaveAttribute('aria-pressed')
+
+      await user.click(btn)
+      // Same returnTo redirect as FollowButton / AttendanceButton so the
+      // viewer lands back on this collection after signing in.
+      expect(mockPush).toHaveBeenCalledWith(
+        '/auth?returnTo=%2Fcollections%2Ftest-collection'
+      )
+      expect(mockLikeMutate).not.toHaveBeenCalled()
+      expect(mockUnlikeMutate).not.toHaveBeenCalled()
     })
 
     it('calls likeCollection when an unliked heart is clicked', async () => {
@@ -888,7 +907,10 @@ describe('CollectionDetail', () => {
   // ──────────────────────────────────────────────
 
   describe('PSY-578 report button visibility', () => {
-    it('renders Report for an authenticated non-creator non-admin', () => {
+    // PSY-892 D4: Report lives in the ⋯ overflow menu — every test opens the
+    // overflow first so presence/absence is asserted against the real menu.
+    it('renders Report in the overflow for an authenticated non-creator non-admin', async () => {
+      const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999', is_admin: false },
         isAuthenticated: true,
@@ -902,13 +924,13 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
 
-      expect(
-        screen.getByTestId('collection-report-button')
-      ).toBeInTheDocument()
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      expect(screen.getByTestId('overflow-report')).toBeInTheDocument()
     })
 
-    it('hides Report for the collection creator', () => {
+    it('hides Report for the collection creator', async () => {
       // Creator uses Edit / Delete instead of Report.
+      const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '1', is_admin: false },
         isAuthenticated: true,
@@ -922,12 +944,12 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
 
-      expect(
-        screen.queryByTestId('collection-report-button')
-      ).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      expect(screen.queryByTestId('overflow-report')).not.toBeInTheDocument()
     })
 
-    it('hides Report for admins (they use the moderation queue)', () => {
+    it('hides Report for admins (they use the moderation queue)', async () => {
+      const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: { id: '999', is_admin: true },
         isAuthenticated: true,
@@ -941,12 +963,12 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
 
-      expect(
-        screen.queryByTestId('collection-report-button')
-      ).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      expect(screen.queryByTestId('overflow-report')).not.toBeInTheDocument()
     })
 
-    it('hides Report for unauthenticated viewers', () => {
+    it('hides Report for unauthenticated viewers', async () => {
+      const user = userEvent.setup()
       mockAuthContext.mockReturnValue({
         user: null,
         isAuthenticated: false,
@@ -960,9 +982,8 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
 
-      expect(
-        screen.queryByTestId('collection-report-button')
-      ).not.toBeInTheDocument()
+      await user.click(screen.getByTestId('collection-overflow-trigger'))
+      expect(screen.queryByTestId('overflow-report')).not.toBeInTheDocument()
     })
   })
 
@@ -1045,10 +1066,13 @@ describe('CollectionDetail', () => {
       })
       render(<CollectionDetail slug="test-collection" />)
 
-      // Numbered positions visible
-      expect(screen.getByText('1')).toBeInTheDocument()
-      expect(screen.getByText('2')).toBeInTheDocument()
-      expect(screen.getByText('3')).toBeInTheDocument()
+      // Numbered positions visible. Scope to the items container — the items
+      // header now also renders the item count ("3"), which would make a
+      // page-wide getByText('3') ambiguous (PSY-892 D7).
+      const itemsContainer = within(screen.getByTestId('collection-items'))
+      expect(itemsContainer.getByText('1')).toBeInTheDocument()
+      expect(itemsContainer.getByText('2')).toBeInTheDocument()
+      expect(itemsContainer.getByText('3')).toBeInTheDocument()
       // Drag handles visible (one per item) — only when ranked + creator
       expect(screen.getAllByTestId('drag-handle')).toHaveLength(3)
     })
@@ -1780,17 +1804,17 @@ describe('CollectionDetail', () => {
       render(<CollectionDetail slug="test-collection" />)
 
       const container = screen.getByTestId('collection-items')
-      // Default density is comfortable (ph-density default).
-      expect(container.className).toContain('grid-cols-2')
-      expect(container.className).toContain('sm:grid-cols-3')
+      // Default density is Compact (PSY-892 D3 — collections default dense).
+      expect(container.className).toContain('grid-cols-3')
+      expect(container.className).toContain('sm:grid-cols-4')
 
-      // Compact density → tighter grid.
-      await user.click(screen.getByText('compact'))
-      const compactContainer = screen.getByTestId('collection-items')
-      expect(compactContainer.className).toContain('grid-cols-3')
-      expect(compactContainer.className).toContain('sm:grid-cols-4')
+      // Comfortable density → wider tiles, fewer columns.
+      await user.click(screen.getByText('comfortable'))
+      const comfortableContainer = screen.getByTestId('collection-items')
+      expect(comfortableContainer.className).toContain('grid-cols-2')
+      expect(comfortableContainer.className).toContain('sm:grid-cols-3')
 
-      // Expanded density → wider tiles, fewer columns.
+      // Expanded density → widest tiles, fewest columns.
       await user.click(screen.getByText('expanded'))
       const expandedContainer = screen.getByTestId('collection-items')
       expect(expandedContainer.className).toContain('grid-cols-1')
@@ -2135,6 +2159,417 @@ describe('CollectionDetail', () => {
       expect(screen.getByTestId('reorder-error')).toHaveTextContent(
         'Failed to save order'
       )
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-898: detail page redesign (PSY-892 D1–D7 + PSY-894 edit form)
+  // ──────────────────────────────────────────────
+
+  describe('PSY-898 detail page redesign', () => {
+    const sampleItems: CollectionItem[] = [
+      {
+        id: 41,
+        entity_type: 'artist',
+        entity_id: 401,
+        entity_name: 'Redesign Artist',
+        entity_slug: 'redesign-artist',
+        image_url: null,
+        position: 0,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+      {
+        id: 42,
+        entity_type: 'venue',
+        entity_id: 402,
+        entity_name: 'Redesign Venue',
+        entity_slug: 'redesign-venue',
+        image_url: null,
+        position: 1,
+        added_by_user_id: 1,
+        added_by_name: 'testuser',
+        notes: null,
+        created_at: '2025-01-01T00:00:00Z',
+      },
+    ]
+
+    describe('D4: header action consolidation + ⋯ overflow menu', () => {
+      it('owner: Like + Edit + Delete primary; Share + Explore graph in overflow; no Fork/Report/Subscribe', async () => {
+        const user = userEvent.setup()
+        mockCollection.mockReturnValue({
+          data: makeCollection({ items: sampleItems }),
+          isLoading: false,
+          error: null,
+        })
+        render(<CollectionDetail slug="test-collection" />)
+
+        // Primary row: Like + Edit + Delete (the curator's daily actions).
+        expect(
+          screen.getByTestId('collection-like-button')
+        ).toBeInTheDocument()
+        expect(
+          screen.getByRole('button', { name: 'Edit' })
+        ).toBeInTheDocument()
+        expect(
+          screen.getByRole('button', { name: 'Delete collection' })
+        ).toBeInTheDocument()
+        // Subscribe never shows for the owner.
+        expect(
+          screen.queryByRole('button', { name: /Subscribe/i })
+        ).not.toBeInTheDocument()
+
+        // Overflow: Share + Explore graph; Fork/Report are non-owner actions.
+        await user.click(screen.getByTestId('collection-overflow-trigger'))
+        expect(screen.getByTestId('overflow-share')).toBeInTheDocument()
+        expect(
+          screen.getByTestId('overflow-explore-graph')
+        ).toBeInTheDocument()
+        expect(screen.queryByTestId('overflow-fork')).not.toBeInTheDocument()
+        expect(
+          screen.queryByTestId('overflow-report')
+        ).not.toBeInTheDocument()
+      })
+
+      it('non-owner (auth): Like + Subscribe primary; Share/graph/Fork/Report in overflow; no Edit/Delete', async () => {
+        const user = userEvent.setup()
+        mockAuthContext.mockReturnValue({
+          user: { id: '999', is_admin: false },
+          isAuthenticated: true,
+          isLoading: false,
+          logout: vi.fn(),
+        })
+        mockCollection.mockReturnValue({
+          data: makeCollection({
+            creator_id: 1,
+            is_public: true,
+            items: sampleItems,
+          }),
+          isLoading: false,
+          error: null,
+        })
+        render(<CollectionDetail slug="test-collection" />)
+
+        // Primary row: Like + Subscribe (the social actions).
+        expect(
+          screen.getByTestId('collection-like-button')
+        ).toBeInTheDocument()
+        expect(
+          screen.getByRole('button', { name: /Subscribe/i })
+        ).toBeInTheDocument()
+        // Owner-only actions absent.
+        expect(
+          screen.queryByRole('button', { name: 'Edit' })
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Delete collection' })
+        ).not.toBeInTheDocument()
+
+        // Overflow: all four secondary actions.
+        await user.click(screen.getByTestId('collection-overflow-trigger'))
+        expect(screen.getByTestId('overflow-share')).toBeInTheDocument()
+        expect(
+          screen.getByTestId('overflow-explore-graph')
+        ).toBeInTheDocument()
+        expect(screen.getByTestId('overflow-fork')).toBeInTheDocument()
+        expect(screen.getByTestId('overflow-report')).toBeInTheDocument()
+      })
+
+      it('logged out: Like primary (sign-in prompt); Share + Explore graph in overflow only', async () => {
+        const user = userEvent.setup()
+        mockAuthContext.mockReturnValue({
+          user: null,
+          isAuthenticated: false,
+          isLoading: false,
+          logout: vi.fn(),
+        })
+        mockCollection.mockReturnValue({
+          data: makeCollection({ creator_id: 1, items: sampleItems }),
+          isLoading: false,
+          error: null,
+        })
+        render(<CollectionDetail slug="test-collection" />)
+
+        // Primary row: just the Like button (prompts sign-in).
+        expect(
+          screen.getByTestId('collection-like-button')
+        ).toHaveAttribute('aria-label', 'Sign in to like collection')
+        expect(
+          screen.queryByRole('button', { name: /Subscribe/i })
+        ).not.toBeInTheDocument()
+        expect(
+          screen.queryByRole('button', { name: 'Edit' })
+        ).not.toBeInTheDocument()
+
+        // Overflow: Share + Explore graph only.
+        await user.click(screen.getByTestId('collection-overflow-trigger'))
+        expect(screen.getByTestId('overflow-share')).toBeInTheDocument()
+        expect(
+          screen.getByTestId('overflow-explore-graph')
+        ).toBeInTheDocument()
+        expect(screen.queryByTestId('overflow-fork')).not.toBeInTheDocument()
+        expect(
+          screen.queryByTestId('overflow-report')
+        ).not.toBeInTheDocument()
+      })
+
+      it('hides Explore graph from the overflow when the collection has no items', async () => {
+        // Default fixture: creator viewing an empty collection.
+        const user = userEvent.setup()
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByTestId('collection-overflow-trigger'))
+        expect(screen.getByTestId('overflow-share')).toBeInTheDocument()
+        expect(
+          screen.queryByTestId('overflow-explore-graph')
+        ).not.toBeInTheDocument()
+      })
+
+      it('Share copies the page link and shows the copied banner', async () => {
+        const user = userEvent.setup()
+        // userEvent.setup() installs a navigator.clipboard stub; spy on it so
+        // the component's writeText().then(...) chain still resolves.
+        const writeSpy = vi.spyOn(navigator.clipboard, 'writeText')
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByTestId('collection-overflow-trigger'))
+        await user.click(screen.getByTestId('overflow-share'))
+
+        expect(writeSpy).toHaveBeenCalledWith(window.location.href)
+        // Banner appears once the clipboard promise resolves; it lives in the
+        // header banner block since the menu closes on click.
+        expect(await screen.findByTestId('share-copied')).toHaveTextContent(
+          'Link copied to clipboard'
+        )
+      })
+    })
+
+    describe('D1: sticky anchor nav', () => {
+      it('renders Items / Tags / Discussion jump links with Items active by default', () => {
+        render(<CollectionDetail slug="test-collection" />)
+
+        const nav = screen.getByTestId('collection-anchor-nav')
+        expect(within(nav).getByTestId('anchor-nav-items')).toHaveAttribute(
+          'aria-current',
+          'true'
+        )
+        expect(
+          within(nav).getByTestId('anchor-nav-tags')
+        ).not.toHaveAttribute('aria-current')
+        expect(
+          within(nav).getByTestId('anchor-nav-discussion')
+        ).not.toHaveAttribute('aria-current')
+      })
+
+      it('clicking a jump link marks it active', async () => {
+        const user = userEvent.setup()
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByTestId('anchor-nav-discussion'))
+
+        expect(screen.getByTestId('anchor-nav-discussion')).toHaveAttribute(
+          'aria-current',
+          'true'
+        )
+        expect(
+          screen.getByTestId('anchor-nav-items')
+        ).not.toHaveAttribute('aria-current')
+      })
+    })
+
+    describe('D6: section order (Items → Tags → Discussion)', () => {
+      it('renders the three sections in the locked order', () => {
+        mockCollection.mockReturnValue({
+          data: makeCollection({ items: sampleItems }),
+          isLoading: false,
+          error: null,
+        })
+        const { container } = render(
+          <CollectionDetail slug="test-collection" />
+        )
+
+        const items = container.querySelector('#items')
+        const tags = container.querySelector('#tags')
+        const discussion = container.querySelector('#discussion')
+        expect(items).not.toBeNull()
+        expect(tags).not.toBeNull()
+        expect(discussion).not.toBeNull()
+
+        // DOCUMENT_POSITION_FOLLOWING — tags follows items, discussion
+        // follows tags in document order.
+        expect(
+          items!.compareDocumentPosition(tags!) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+        expect(
+          tags!.compareDocumentPosition(discussion!) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        ).toBeTruthy()
+      })
+    })
+
+    describe('D7: + Add Items in the items header', () => {
+      it('shows the items count and the Add Items toggle for the creator', () => {
+        mockCollection.mockReturnValue({
+          data: makeCollection({ items: sampleItems }),
+          isLoading: false,
+          error: null,
+        })
+        render(<CollectionDetail slug="test-collection" />)
+
+        expect(screen.getByTestId('items-count')).toHaveTextContent('2')
+        expect(screen.getByTestId('add-items-toggle')).toBeInTheDocument()
+        // Panel collapsed by default for a non-empty collection (PSY-581
+        // default-open only applies to empty collections).
+        expect(
+          screen.queryByTestId('add-items-picker-stub')
+        ).not.toBeInTheDocument()
+      })
+
+      it('hides the Add Items toggle for non-creators', () => {
+        mockAuthContext.mockReturnValue({
+          user: { id: '999' },
+          isAuthenticated: true,
+          isLoading: false,
+          logout: vi.fn(),
+        })
+        mockCollection.mockReturnValue({
+          data: makeCollection({ creator_id: 1, items: sampleItems }),
+          isLoading: false,
+          error: null,
+        })
+        render(<CollectionDetail slug="test-collection" />)
+
+        expect(
+          screen.queryByTestId('add-items-toggle')
+        ).not.toBeInTheDocument()
+        // Count still shows for everyone.
+        expect(screen.getByTestId('items-count')).toHaveTextContent('2')
+      })
+
+      it('toggles the picker panel open and closed from the header button', async () => {
+        const user = userEvent.setup()
+        mockCollection.mockReturnValue({
+          data: makeCollection({ items: sampleItems }),
+          isLoading: false,
+          error: null,
+        })
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByTestId('add-items-toggle'))
+        expect(
+          screen.getByTestId('add-items-picker-stub')
+        ).toBeInTheDocument()
+
+        await user.click(screen.getByTestId('add-items-toggle'))
+        expect(
+          screen.queryByTestId('add-items-picker-stub')
+        ).not.toBeInTheDocument()
+      })
+    })
+
+    describe('PSY-894: edit form polish', () => {
+      it('Esc closes the edit form without saving', async () => {
+        const user = userEvent.setup()
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByRole('button', { name: 'Edit' }))
+        expect(screen.getByLabelText('Title')).toBeInTheDocument()
+
+        // Title input has autoFocus, so the keypress originates inside the
+        // form and bubbles to its onKeyDown handler.
+        await user.keyboard('{Escape}')
+
+        expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
+        expect(mockUpdateMutate).not.toHaveBeenCalled()
+        expect(
+          screen.queryByTestId('collection-update-success')
+        ).not.toBeInTheDocument()
+      })
+
+      it('⌘S saves the form', async () => {
+        const user = userEvent.setup()
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByRole('button', { name: 'Edit' }))
+        await user.keyboard('{Meta>}s{/Meta}')
+
+        expect(mockUpdateMutate).toHaveBeenCalledWith(
+          expect.objectContaining({ slug: 'test-collection' }),
+          expect.any(Object)
+        )
+      })
+
+      it('shows the green "Collection updated" banner after a successful save', async () => {
+        // Mutation invokes onSuccess synchronously so the parent closes the
+        // form and shows the banner.
+        mockUpdateMutate.mockImplementation((_args, opts) =>
+          opts?.onSuccess?.()
+        )
+        const user = userEvent.setup()
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByRole('button', { name: 'Edit' }))
+        await user.click(screen.getByRole('button', { name: /Save/i }))
+
+        expect(
+          screen.getByTestId('collection-update-success')
+        ).toHaveTextContent('Collection updated')
+        // Form closed (header re-rendered).
+        expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
+      })
+
+      it('does NOT show the success banner after Cancel', async () => {
+        const user = userEvent.setup()
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByRole('button', { name: 'Edit' }))
+        await user.click(screen.getByRole('button', { name: 'Cancel' }))
+
+        expect(
+          screen.queryByTestId('collection-update-success')
+        ).not.toBeInTheDocument()
+        // Form closed without saving.
+        expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
+        expect(mockUpdateMutate).not.toHaveBeenCalled()
+      })
+
+      it('Public + Collaborative DS checkboxes toggle and land in the save payload', async () => {
+        const user = userEvent.setup()
+        mockCollection.mockReturnValue({
+          data: makeCollection({ is_public: true, collaborative: false }),
+          isLoading: false,
+          error: null,
+        })
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByRole('button', { name: 'Edit' }))
+
+        const publicCheckbox = screen.getByRole('checkbox', {
+          name: 'Public',
+        })
+        const collabCheckbox = screen.getByRole('checkbox', {
+          name: 'Collaborative',
+        })
+        expect(publicCheckbox).toBeChecked()
+        expect(collabCheckbox).not.toBeChecked()
+
+        await user.click(publicCheckbox)
+        await user.click(collabCheckbox)
+        expect(publicCheckbox).not.toBeChecked()
+        expect(collabCheckbox).toBeChecked()
+
+        await user.click(screen.getByRole('button', { name: /Save/i }))
+        expect(mockUpdateMutate).toHaveBeenCalledWith(
+          expect.objectContaining({
+            is_public: false,
+            collaborative: true,
+          }),
+          expect.any(Object)
+        )
+      })
     })
   })
 })

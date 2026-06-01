@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback } from 'react'
+import { useState, useCallback, useEffect } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import {
@@ -14,12 +14,12 @@ import {
   Check,
   X,
   Trash2,
-  Plus,
   Share2,
   GitFork,
   Heart,
   ListOrdered,
   LayoutGrid,
+  MoreHorizontal,
   Network,
   Flag,
 } from 'lucide-react'
@@ -32,9 +32,14 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog'
 import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import {
   useCollection,
   useUpdateCollection,
-  useBulkAddCollectionItems,
   useSubscribeCollection,
   useUnsubscribeCollection,
   useDeleteCollection,
@@ -42,10 +47,6 @@ import {
   useLikeCollection,
   useUnlikeCollection,
 } from '../hooks'
-import {
-  AddItemsPicker,
-  type StagedCollectionItem,
-} from './AddItemsPicker'
 import { cn } from '@/lib/utils'
 import {
   getEntityTypeLabel,
@@ -53,7 +54,7 @@ import {
   MAX_COVER_IMAGE_URL_LENGTH,
   validateCoverImageUrl,
 } from '../types'
-import type { CollectionDisplayMode, CollectionItem } from '../types'
+import type { CollectionDisplayMode } from '../types'
 import { MarkdownContent } from './MarkdownContent'
 // Lazily-loaded write-mode editor (keeps marked/dompurify out of the shared
 // chunk). See MarkdownEditorLazy / PSY-951.
@@ -77,13 +78,19 @@ import {
 } from './collectionDetailShared'
 import { CollectionGraph } from './CollectionGraph'
 import { CollectionCoverImage } from './CollectionCoverImage'
+import {
+  CollectionAnchorNav,
+  ANCHOR_SECTION_SCROLL_MT,
+  type AnchorSection,
+} from './CollectionAnchorNav'
 import { GRAPH_HASH, useUrlHash } from '@/lib/hooks/common/useUrlHash'
 import { Breadcrumb, UserAttribution } from '@/components/shared'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
+import { Checkbox } from '@/components/ui/checkbox'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useRouter } from 'next/navigation'
+import { useRouter, usePathname } from 'next/navigation'
 import type { ApiError } from '@/lib/api'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { CommentThread } from '@/features/comments'
@@ -94,8 +101,18 @@ interface CollectionDetailProps {
   slug: string
 }
 
+// PSY-892 D1/D6: sticky anchor nav sections, in locked page order
+// (Items → Tags → Discussion). Module-level constant so the nav's
+// IntersectionObserver effect keys on a stable reference.
+const ANCHOR_SECTIONS: AnchorSection[] = [
+  { id: 'items', label: 'Items' },
+  { id: 'tags', label: 'Tags' },
+  { id: 'discussion', label: 'Discussion' },
+]
+
 export function CollectionDetail({ slug }: CollectionDetailProps) {
   const router = useRouter()
+  const pathname = usePathname()
   const { user, isAuthenticated } = useAuthContext()
   const { data: collection, isLoading, error } = useCollection(slug)
   const subscribeMutation = useSubscribeCollection()
@@ -111,6 +128,16 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
   const [showCopied, setShowCopied] = useState(false)
+  // PSY-894 D4: green "Collection updated" banner after a successful edit
+  // save. The form closing + header re-render is the inherent confirmation;
+  // the banner makes it explicit and auto-dismisses after ~3s. No toast —
+  // the project has no toast library (PSY-608/609 convention).
+  const [showUpdateSuccess, setShowUpdateSuccess] = useState(false)
+  useEffect(() => {
+    if (!showUpdateSuccess) return
+    const timer = setTimeout(() => setShowUpdateSuccess(false), 3000)
+    return () => clearTimeout(timer)
+  }, [showUpdateSuccess])
   // PSY-357: report dialog open state. The trigger is only rendered for
   // authenticated, non-creator viewers (private collections aren't visible
   // to non-creators, so no extra public-state gate is needed).
@@ -274,6 +301,10 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
     }
   }
   const isLikePending = likeMutation.isPending || unlikeMutation.isPending
+  // The "this viewer has liked it" visual state — only meaningful for
+  // authenticated viewers (anonymous viewers see the count but never a
+  // filled heart).
+  const showLiked = isAuthenticated && (collection.user_likes_this ?? false)
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-6">
@@ -294,7 +325,12 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
             collaborative={collection.collaborative}
             displayMode={collection.display_mode}
             coverImageUrl={collection.cover_image_url ?? ''}
-            onDone={() => setIsEditing(false)}
+            onSaved={() => {
+              setIsEditing(false)
+              // PSY-894 D4: only a successful save shows the green banner.
+              setShowUpdateSuccess(true)
+            }}
+            onCancel={() => setIsEditing(false)}
           />
         ) : (
           <div>
@@ -451,71 +487,50 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 </div>
               </div>
 
-              {/* Action buttons */}
+              {/* Action buttons — consolidated per PSY-892 D4. Each viewer
+                  state shows 2-3 primary actions; secondary actions live in
+                  the ⋯ overflow menu:
+                  - Owner:            Like · Edit · Delete  |  ⋯ Share · Explore graph
+                  - Non-owner (auth): Like · Subscribe      |  ⋯ Share · Explore graph · Fork · Report
+                  - Logged out:       Like (sign-in prompt) |  ⋯ Share · Explore graph */}
               <div className="flex items-center gap-2 shrink-0">
-                {/* PSY-352: Like toggle. Authenticated viewers can click;
-                    anonymous viewers see a read-only heart + count so they
-                    know the signal exists. Aggregate count only — privacy
+                {/* PSY-352: Like toggle. Primary in every viewer state.
+                    Authenticated viewers toggle; anonymous viewers are routed
+                    to sign-in on click (D4 — same returnTo redirect as
+                    FollowButton / AttendanceButton so they land back here
+                    after signing in). Aggregate count only — privacy
                     decision: no list of likers exposed. */}
-                {isAuthenticated ? (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleToggleLike}
-                    disabled={isLikePending}
-                    aria-pressed={collection.user_likes_this ?? false}
-                    aria-label={
-                      collection.user_likes_this
-                        ? 'Unlike collection'
-                        : 'Like collection'
-                    }
-                    className={cn(
-                      collection.user_likes_this && 'text-primary'
-                    )}
-                    data-testid="collection-like-button"
-                  >
-                    <Heart
-                      className={cn(
-                        'h-4 w-4 mr-1.5',
-                        collection.user_likes_this && 'fill-current'
-                      )}
-                    />
-                    {collection.like_count}
-                  </Button>
-                ) : (
-                  <span
-                    className="inline-flex h-9 items-center gap-1.5 rounded-md border border-border/60 px-3 text-sm text-muted-foreground"
-                    data-testid="collection-like-count"
-                  >
-                    <Heart className="h-4 w-4" />
-                    {collection.like_count}
-                  </span>
-                )}
-
                 <Button
                   variant="outline"
                   size="sm"
-                  onClick={handleShare}
+                  onClick={
+                    isAuthenticated
+                      ? handleToggleLike
+                      : () =>
+                          router.push(
+                            `/auth?returnTo=${encodeURIComponent(pathname)}`
+                          )
+                  }
+                  disabled={isAuthenticated && isLikePending}
+                  aria-pressed={isAuthenticated ? showLiked : undefined}
+                  aria-label={
+                    !isAuthenticated
+                      ? 'Sign in to like collection'
+                      : showLiked
+                        ? 'Unlike collection'
+                        : 'Like collection'
+                  }
+                  className={cn(showLiked && 'text-primary')}
+                  data-testid="collection-like-button"
                 >
-                  <Share2 className="h-4 w-4 mr-1.5" />
-                  {showCopied ? 'Copied!' : 'Share'}
+                  <Heart
+                    className={cn(
+                      'h-4 w-4 mr-1.5',
+                      showLiked && 'fill-current'
+                    )}
+                  />
+                  {collection.like_count}
                 </Button>
-
-                {/* PSY-555 (was PSY-366): Explore graph toggle. Visible
-                    whenever the collection has at least one item — every
-                    entity type renders as a node in the multi-type graph. */}
-                {hasItems && (
-                  <Button
-                    variant={showGraph ? 'default' : 'outline'}
-                    size="sm"
-                    onClick={() => setShowGraphOverride(!showGraph)}
-                    aria-pressed={showGraph}
-                    aria-label={showGraph ? 'Hide collection graph' : 'Explore collection graph'}
-                  >
-                    <Network className="h-4 w-4 mr-1.5" />
-                    {showGraph ? 'Hide graph' : 'Explore graph'}
-                  </Button>
-                )}
 
                 {canSubscribe && (
                   <Button
@@ -541,41 +556,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                   </Button>
                 )}
 
-                {/* PSY-351: Clone/fork. Visible only when caller is
-                    authenticated AND not the owner AND the source is
-                    public. */}
-                {canClone && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={handleClone}
-                    disabled={cloneMutation.isPending}
-                    aria-label="Fork collection"
-                  >
-                    {cloneMutation.isPending ? (
-                      <Loader2 className="h-4 w-4 mr-1.5 animate-spin" />
-                    ) : (
-                      <GitFork className="h-4 w-4 mr-1.5" />
-                    )}
-                    {cloneMutation.isPending ? 'Forking...' : 'Fork'}
-                  </Button>
-                )}
-
-                {/* PSY-578: report a collection. Mirrors the Report
-                    button on artist/venue/festival/show detail pages. */}
-                {canReport && (
-                  <Button
-                    variant="outline"
-                    size="sm"
-                    onClick={() => setIsReportOpen(true)}
-                    aria-label="Report collection"
-                    data-testid="collection-report-button"
-                  >
-                    <Flag className="h-4 w-4 mr-1.5" />
-                    Report
-                  </Button>
-                )}
-
+                {/* Edit + Delete: the curator's daily actions stay primary
+                    (D4); Edit's click behavior is the inline form (D5,
+                    locked by PSY-894). */}
                 {isCreator && (
                   <>
                     <Button
@@ -598,6 +581,69 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                     </Button>
                   </>
                 )}
+
+                {/* ⋯ overflow menu (D4): Share + Explore graph for everyone;
+                    Fork + Report join for authenticated non-owners. */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      aria-label="More actions"
+                      data-testid="collection-overflow-trigger"
+                    >
+                      <MoreHorizontal className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      onClick={handleShare}
+                      data-testid="overflow-share"
+                    >
+                      <Share2 className="h-4 w-4" />
+                      Share
+                    </DropdownMenuItem>
+                    {/* PSY-555 (was PSY-366): Explore graph toggle. Visible
+                        whenever the collection has at least one item — every
+                        entity type renders as a node in the multi-type
+                        graph. */}
+                    {hasItems && (
+                      <DropdownMenuItem
+                        onClick={() => setShowGraphOverride(!showGraph)}
+                        data-testid="overflow-explore-graph"
+                      >
+                        <Network className="h-4 w-4" />
+                        {showGraph ? 'Hide graph' : 'Explore graph'}
+                      </DropdownMenuItem>
+                    )}
+                    {/* PSY-351: Clone/fork. Visible only when caller is
+                        authenticated AND not the owner AND the source is
+                        public. */}
+                    {canClone && (
+                      <DropdownMenuItem
+                        onClick={handleClone}
+                        disabled={cloneMutation.isPending}
+                        aria-label="Fork collection"
+                        data-testid="overflow-fork"
+                      >
+                        <GitFork className="h-4 w-4" />
+                        {cloneMutation.isPending ? 'Forking...' : 'Fork'}
+                      </DropdownMenuItem>
+                    )}
+                    {/* PSY-578: report a collection. Mirrors the Report
+                        button on artist/venue/festival/show detail pages. */}
+                    {canReport && (
+                      <DropdownMenuItem
+                        onClick={() => setIsReportOpen(true)}
+                        aria-label="Report collection"
+                        data-testid="overflow-report"
+                      >
+                        <Flag className="h-4 w-4" />
+                        Report
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenuContent>
+                </DropdownMenu>
               </div>
             </div>
 
@@ -613,6 +659,26 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 it doesn't accrue after the user moves on. 403 (private
                 target) renders dedicated copy via describeCollectionMutationError.
             */}
+            {/* PSY-894 D4: edit-save success confirmation — the form has
+                already closed and the header re-rendered with new values;
+                this banner makes the save explicit. Auto-dismisses ~3s. */}
+            {showUpdateSuccess && (
+              <MutationFeedback
+                variant="success"
+                testId="collection-update-success"
+                message="Collection updated"
+              />
+            )}
+            {/* PSY-892 D4: Share lives in the overflow menu now, so its
+                "Copied!" feedback can't render on the trigger — surface it
+                as an inline success banner instead. */}
+            {showCopied && (
+              <MutationFeedback
+                variant="success"
+                testId="share-copied"
+                message="Link copied to clipboard"
+              />
+            )}
             {subscribeMutation.isError && (
               <MutationFeedback
                 variant="error"
@@ -661,41 +727,21 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         )}
       </header>
 
-      {/* PSY-354: tag chips + picker. Reuses the same EntityTagList that
-          renders on artist/release/etc detail pages — chips link to
-          /tags/{slug} for the deep-dive (the collection-card override
-          links to /collections?tag=<slug> instead because cards prefer
-          the lateral "show me other collections like this" path). The
-          per-collection 10-tag cap is enforced server-side in
-          catalog.TagService.AddTagToEntity, so this picker honors the
-          limit regardless of the picker's UI cap awareness. */}
-      <div className="mb-4">
-        <EntityTagList
-          entityType="collection"
-          entityId={collection.id}
-          isAuthenticated={isAuthenticated}
-        />
-      </div>
+      {/* PSY-892 D1: sticky anchor nav — jump links for the page's three
+          long-form sections (Items · Tags · Discussion). Pins below the site
+          TopBar; the active link tracks scroll position. */}
+      <CollectionAnchorNav sections={ANCHOR_SECTIONS} />
 
       {/* PSY-555 (was PSY-366): collection graph (toggleable). Renders
-          only when the user clicks "Explore graph" in the actions row.
+          only when the user clicks "Explore graph" in the ⋯ overflow menu.
           The wrapper has `id="graph"` so Cmd+K deep-links resolve. */}
       {showGraph && hasItems && (
         <CollectionGraph slug={slug} collectionTitle={collection.title} />
       )}
 
-      {/* Add Items (creator only). PSY-581: empty collections render the
-          search open so the "Add your first item using the search above"
-          copy is honest. */}
-      {isCreator && (
-        <AddItemsSection
-          slug={slug}
-          existingItems={items}
-          defaultOpen={items.length === 0}
-        />
-      )}
-
-      {/* Items list */}
+      {/* Items list — leads the page (PSY-892 D6: visitors come for items).
+          Carries the creator's "+ Add Items" affordance in its header (D7)
+          and the `id="items"` anchor for the nav above. */}
       <CollectionItemsList
         items={items}
         slug={slug}
@@ -703,8 +749,28 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
         displayMode={collection.display_mode}
       />
 
-      {/* Discussion */}
-      <CommentThread entityType="collection" entityId={collection.id} />
+      {/* PSY-354: tag chips + picker — between Items and Discussion per
+          PSY-892 D6 (tags are useful metadata but secondary to items).
+          Reuses the same EntityTagList that renders on artist/release/etc
+          detail pages — chips link to /tags/{slug} for the deep-dive (the
+          collection-card override links to /collections?tag=<slug> instead
+          because cards prefer the lateral "show me other collections like
+          this" path). The per-collection 10-tag cap is enforced server-side
+          in catalog.TagService.AddTagToEntity, so this picker honors the
+          limit regardless of the picker's UI cap awareness. */}
+      <div id="tags" className={cn('mt-8', ANCHOR_SECTION_SCROLL_MT)}>
+        <EntityTagList
+          entityType="collection"
+          entityId={collection.id}
+          isAuthenticated={isAuthenticated}
+        />
+      </div>
+
+      {/* Discussion — stays at the page bottom (PSY-892 D2); the anchor nav
+          provides the jump-to affordance. */}
+      <div id="discussion" className={ANCHOR_SECTION_SCROLL_MT}>
+        <CommentThread entityType="collection" entityId={collection.id} />
+      </div>
 
       {/* Mounted only when `canReport` so we don't ship the dialog tree
           to viewers who can't open it. `entityTypeLabel="collection"`
@@ -774,142 +840,6 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 }
 
 // ──────────────────────────────────────────────
-// Add Items Search Panel
-// ──────────────────────────────────────────────
-
-function AddItemsSection({
-  slug,
-  existingItems,
-  defaultOpen = false,
-}: {
-  slug: string
-  existingItems: CollectionItem[]
-  /**
-   * PSY-581: when true, the picker renders open on first paint. Parent
-   * passes `items.length === 0` so the empty-state copy stays honest.
-   * Sets only the initial state — the X toggle still collapses/reopens.
-   */
-  defaultOpen?: boolean
-}) {
-  const [isOpen, setIsOpen] = useState(defaultOpen)
-  // PSY-823: items staged in the picker, submitted in one bulk-add request.
-  const [stagedItems, setStagedItems] = useState<StagedCollectionItem[]>([])
-  const [feedback, setFeedback] = useState<
-    | { variant: 'success'; message: string }
-    | { variant: 'error'; message: string }
-    | null
-  >(null)
-  const bulkAddMutation = useBulkAddCollectionItems()
-
-  const handleSubmit = async () => {
-    if (stagedItems.length === 0) return
-    try {
-      const resp = await bulkAddMutation.mutateAsync({
-        slug,
-        items: stagedItems.map((s) => ({
-          entity_type: s.entityType,
-          entity_id: s.entityId,
-        })),
-      })
-      const addedCount = resp.added.length
-      const rejectedCount = resp.errors.length
-      if (rejectedCount === 0) {
-        setFeedback({
-          variant: 'success',
-          message: `Added ${addedCount} ${addedCount === 1 ? 'item' : 'items'} to collection`,
-        })
-      } else if (addedCount === 0) {
-        setFeedback({
-          variant: 'error',
-          message: `Couldn't add any items (${rejectedCount} ${rejectedCount === 1 ? 'error' : 'errors'}). Adjust the picker and try again.`,
-        })
-      } else {
-        setFeedback({
-          variant: 'success',
-          message: `Added ${addedCount} ${addedCount === 1 ? 'item' : 'items'}; ${rejectedCount} couldn't be added.`,
-        })
-      }
-      // Clear staged list only if at least one row committed. When EVERY
-      // row failed, leave the picker as-is so the user can edit/retry
-      // without re-staging from scratch.
-      if (addedCount > 0) {
-        setStagedItems([])
-      }
-      setTimeout(() => setFeedback(null), 4000)
-    } catch (err) {
-      setFeedback({
-        variant: 'error',
-        message: describeCollectionMutationError(err, 'Failed to add items.'),
-      })
-    }
-  }
-
-  return (
-    <div className="mb-6">
-      {!isOpen ? (
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setIsOpen(true)}
-        >
-          <Plus className="h-4 w-4 mr-1.5" />
-          Add Items
-        </Button>
-      ) : (
-        <div className="rounded-lg border border-border/50 bg-card p-4">
-          <div className="flex items-center justify-between mb-3">
-            <span className="text-sm font-semibold sr-only">Add items</span>
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 w-7 p-0 ml-auto"
-              onClick={() => {
-                setIsOpen(false)
-                setStagedItems([])
-                setFeedback(null)
-              }}
-              aria-label="Close add-items picker"
-            >
-              <X className="h-4 w-4" />
-            </Button>
-          </div>
-
-          <AddItemsPicker
-            existingItems={existingItems.map((i) => ({
-              entity_type: i.entity_type,
-              entity_id: i.entity_id,
-            }))}
-            stagedItems={stagedItems}
-            onStagedItemsChange={setStagedItems}
-          />
-
-          {feedback && (
-            <MutationFeedback
-              variant={feedback.variant}
-              message={feedback.message}
-              testId={feedback.variant === 'success' ? 'add-item-success' : 'add-item-error'}
-            />
-          )}
-
-          <div className="flex justify-end mt-4">
-            <Button
-              size="sm"
-              onClick={handleSubmit}
-              disabled={stagedItems.length === 0 || bulkAddMutation.isPending}
-              data-testid="add-items-picker-submit"
-            >
-              {bulkAddMutation.isPending
-                ? 'Adding...'
-                : `Add ${stagedItems.length || ''} item${stagedItems.length === 1 ? '' : 's'}`.trim()}
-            </Button>
-          </div>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ──────────────────────────────────────────────
 // Inline Edit Form
 // ──────────────────────────────────────────────
 
@@ -921,7 +851,8 @@ function InlineEditForm({
   collaborative: initialCollaborative,
   displayMode: initialDisplayMode,
   coverImageUrl: initialCoverImageUrl,
-  onDone,
+  onSaved,
+  onCancel,
 }: {
   slug: string
   title: string
@@ -930,7 +861,10 @@ function InlineEditForm({
   collaborative: boolean
   displayMode: CollectionDisplayMode
   coverImageUrl: string
-  onDone: () => void
+  /** Called after a successful save (PSY-894 D4 — parent shows the banner). */
+  onSaved: () => void
+  /** Called when the form closes without saving (Cancel button or Esc). */
+  onCancel: () => void
 }) {
   const updateMutation = useUpdateCollection()
   const [title, setTitle] = useState(initialTitle)
@@ -955,8 +889,15 @@ function InlineEditForm({
   const showCoverImagePreview =
     trimmedCoverUrl.length > 0 && coverImageUrlError === null
 
+  // Single source of truth for "the form may be submitted" — keeps the Save
+  // button's disabled state and the ⌘S shortcut in lockstep.
+  const canSave =
+    title.trim().length > 0 &&
+    coverImageUrlError === null &&
+    !updateMutation.isPending
+
   const handleSave = () => {
-    if (coverImageUrlError) return
+    if (!canSave) return
     updateMutation.mutate(
       {
         slug,
@@ -969,12 +910,28 @@ function InlineEditForm({
         // distinguishes "set to null" from "no change".
         cover_image_url: trimmedCoverUrl.length === 0 ? null : trimmedCoverUrl,
       },
-      { onSuccess: () => onDone() }
+      { onSuccess: () => onSaved() }
     )
   }
 
+  // PSY-894 D3: keyboard shortcuts — Esc cancels, ⌘/Ctrl+S saves. Attached to
+  // the form's root so they work from any focused field. handleSave's canSave
+  // guard makes the shortcut respect the same validation as the Save button.
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      onCancel()
+    } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
+      e.preventDefault()
+      handleSave()
+    }
+  }
+
   return (
-    <div className="space-y-4 rounded-lg border border-border/50 bg-card p-4">
+    <div
+      className="space-y-4 rounded-lg border border-border/50 bg-card p-4"
+      onKeyDown={handleKeyDown}
+    >
       <div>
         <label htmlFor="edit-title" className="text-sm font-medium mb-1.5 block">
           Title
@@ -984,6 +941,7 @@ function InlineEditForm({
           value={title}
           onChange={e => setTitle(e.target.value)}
           autoFocus
+          disabled={updateMutation.isPending}
         />
       </div>
 
@@ -1002,6 +960,7 @@ function InlineEditForm({
           maxLength={MAX_COLLECTION_MARKDOWN_LENGTH}
           placeholder="Markdown supported: **bold**, *italic*, [link](url), > quote, - list"
           testId="collection-description-editor"
+          disabled={updateMutation.isPending}
         />
       </div>
 
@@ -1030,6 +989,7 @@ function InlineEditForm({
             onBlur={() => setCoverImageUrlTouched(true)}
             placeholder="https://example.com/cover.jpg"
             maxLength={MAX_COVER_IMAGE_URL_LENGTH}
+            disabled={updateMutation.isPending}
             aria-invalid={showCoverImageUrlError ? true : undefined}
             aria-describedby={
               showCoverImageUrlError
@@ -1142,26 +1102,35 @@ function InlineEditForm({
         </div>
       </fieldset>
 
+      {/* PSY-894 D6: DS Checkbox primitives. Public is a plain toggle —
+          NO publish quality gate (PSY-822 removed it; do not re-add). */}
       <div className="flex items-center gap-6">
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="edit-is-public"
             checked={isPublic}
-            onChange={e => setIsPublic(e.target.checked)}
-            className="rounded border-border"
+            onCheckedChange={checked => setIsPublic(checked === true)}
+            disabled={updateMutation.isPending}
           />
-          Public
-        </label>
+          <label htmlFor="edit-is-public" className="text-sm cursor-pointer">
+            Public
+          </label>
+        </div>
 
-        <label className="flex items-center gap-2 text-sm cursor-pointer">
-          <input
-            type="checkbox"
+        <div className="flex items-center gap-2">
+          <Checkbox
+            id="edit-collaborative"
             checked={collaborative}
-            onChange={e => setCollaborative(e.target.checked)}
-            className="rounded border-border"
+            onCheckedChange={checked => setCollaborative(checked === true)}
+            disabled={updateMutation.isPending}
           />
-          Collaborative
-        </label>
+          <label
+            htmlFor="edit-collaborative"
+            className="text-sm cursor-pointer"
+          >
+            Collaborative
+          </label>
+        </div>
       </div>
 
       {updateMutation.error && (
@@ -1172,22 +1141,18 @@ function InlineEditForm({
         </p>
       )}
 
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          onClick={handleSave}
-          disabled={
-            !title.trim() ||
-            coverImageUrlError !== null ||
-            updateMutation.isPending
-          }
-        >
+      <div className="flex items-center gap-2">
+        <Button size="sm" onClick={handleSave} disabled={!canSave}>
           <Check className="h-4 w-4 mr-1" />
           {updateMutation.isPending ? 'Saving...' : 'Save'}
         </Button>
-        <Button size="sm" variant="outline" onClick={onDone}>
+        <Button size="sm" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
+        {/* PSY-894 D3: keyboard shortcut hint (V1-optional affordance). */}
+        <p className="ml-auto hidden text-xs text-muted-foreground sm:block">
+          Esc to cancel · ⌘S to save
+        </p>
       </div>
     </div>
   )
