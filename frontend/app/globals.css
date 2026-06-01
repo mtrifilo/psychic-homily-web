@@ -39,6 +39,9 @@
   --color-sidebar-primary: var(--sidebar-primary);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar: var(--sidebar);
+  --color-chart-8: var(--chart-8);
+  --color-chart-7: var(--chart-7);
+  --color-chart-6: var(--chart-6);
   --color-chart-5: var(--chart-5);
   --color-chart-4: var(--chart-4);
   --color-chart-3: var(--chart-3);
@@ -114,6 +117,11 @@
   --chart-3: #c89438;
   --chart-4: #9c2a1a;
   --chart-5: #8b7355;
+  /* Categorical cool accents (PSY-947) — extend the 5 warm chart tokens into a
+   * shared 8-hue categorical palette for multi-series charts + entity badges. */
+  --chart-6: #3f607f;
+  --chart-7: #6e4f73;
+  --chart-8: #357d74;
   --sidebar: #ede8db;
   --sidebar-foreground: #1a1714;
   --sidebar-primary: #d2541b;
@@ -150,6 +158,10 @@
   --chart-3: #e0b66e;
   --chart-4: #d74745;
   --chart-5: #b59880;
+  /* Categorical cool accents (PSY-947) — dark-mode variants */
+  --chart-6: #80a0c0;
+  --chart-7: #ad8fb0;
+  --chart-8: #6db3a6;
   --sidebar: #120c08;
   --sidebar-foreground: #eee7d9;
   --sidebar-primary: #e89960;

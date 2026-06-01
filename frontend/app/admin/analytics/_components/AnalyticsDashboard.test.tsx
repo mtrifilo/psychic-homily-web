@@ -359,4 +359,14 @@ describe('COLORS palette invariants (PSY-908)', () => {
     expect(COLORS.rejected).toBe('var(--destructive)')
     expect(COLORS.approved).not.toBe(COLORS.rejected)
   })
+
+  it('interleaves cool accents into the dense Entity Creation chart (PSY-947, no all-warm regression)', () => {
+    const entity = chartGroups['Entity Creation'].map((k) => COLORS[k])
+    // each cool accent must appear so the 6 lines don't cluster warm
+    for (const cool of ['var(--chart-6)', 'var(--chart-7)', 'var(--chart-8)']) {
+      expect(entity).toContain(cool)
+    }
+    // no series should fall back to a non-categorical token (e.g. --foreground)
+    expect(entity).not.toContain('var(--foreground)')
+  })
 })
