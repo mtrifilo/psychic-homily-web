@@ -317,6 +317,15 @@ export function ForceGraphView({
     const shelfEnd = containerWidth * 0.4
     const stride =
       isolates.length > 1 ? (shelfEnd - shelfStart) / (isolates.length - 1) : 0
+    // d3-force-3d steers the layout by mutating the node datums in place:
+    // `fx`/`fy` pin/unpin coordinates, `x`/`y` are the live positions it reads
+    // and writes each tick. The graph holds these exact object instances, so we
+    // must mutate them here rather than produce new objects — cloning would
+    // detach our edits from the running simulation. `renderData` is a useMemo
+    // result, which the immutability rule treats as frozen; this mutation is
+    // the documented d3 contract, not an accidental write (RenderNode's `x/y/
+    // fx/fy` are explicitly typed as runtime fields). Suppressed for that span.
+    /* eslint-disable react-hooks/immutability */
     isolates.forEach((node, i) => {
       node.fx = shelfStart + stride * i
       node.fy = shelfY
@@ -327,6 +336,7 @@ export function ForceGraphView({
         node.fy = null
       }
     }
+    /* eslint-enable react-hooks/immutability */
 
     // Cluster centroid forces (only meaningful when at least one centroid exists).
     fg.d3Force('clusterX', (alpha: number) => {

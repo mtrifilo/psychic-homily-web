@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo } from 'react'
+import { createElement, useMemo } from 'react'
 import Link from 'next/link'
 import {
   Clock,
@@ -157,14 +157,19 @@ function getEntityUrl(entityType: string | undefined, entitySlug: string | undef
 }
 
 function ActivityFeedItem({ event }: { event: ActivityEvent }) {
-  const Icon = getEventIcon(event.event_type)
+  // `getEventIcon` selects a stable, module-scope lucide component. Render via
+  // `createElement` rather than `<Icon />`: the static-components rule can't
+  // prove a function-call result is a fixed component reference, so JSX of a
+  // render-scoped capitalized binding is (wrongly) read as creating a component
+  // each render. createElement of the same reference is equivalent at runtime.
+  const icon = getEventIcon(event.event_type)
   const iconColor = getEventIconColor(event.event_type)
   const url = getEntityUrl(event.entity_type, event.entity_slug)
 
   return (
     <div className="flex items-start gap-3 py-2.5 px-1">
       <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full ${iconColor}`}>
-        <Icon className="h-3.5 w-3.5" />
+        {createElement(icon, { className: 'h-3.5 w-3.5' })}
       </div>
       <div className="min-w-0 flex-1">
         <p className="text-sm leading-snug">

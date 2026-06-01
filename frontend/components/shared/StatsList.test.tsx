@@ -47,7 +47,10 @@ describe('StatsList', () => {
         items={[
           {
             label: 'Last show',
-            value: <a href="/shows/x">May 17 at Valley Bar</a>,
+            // Absolute href keeps this a plain anchor (the test only proves
+            // ReactNode pass-through); an internal "/shows/..." path would
+            // trip @next/next/no-html-link-for-pages, which is irrelevant here.
+            value: <a href="https://example.com/shows/x">May 17 at Valley Bar</a>,
           },
         ]}
       />

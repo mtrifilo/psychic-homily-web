@@ -105,7 +105,6 @@ describe('ArtistSimilarSidebar', () => {
     ;(window as any).ResizeObserver = ImmediateResizeObserver
   })
 
-  // eslint-disable-next-line vitest/no-disabled-tests
   it('returns null while loading', () => {
     mockUseArtistGraph.mockReturnValue({ data: undefined, isLoading: true, error: null })
     const { container } = renderWithProviders(

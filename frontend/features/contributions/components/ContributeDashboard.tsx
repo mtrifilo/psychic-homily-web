@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { createElement, useState } from 'react'
 import Link from 'next/link'
 import {
   Mic2,
@@ -77,7 +77,10 @@ function CategoryCard({
   isSelected: boolean
   onClick: () => void
 }) {
-  const Icon = getEntityIcon(category.entity_type)
+  // `getEntityIcon` selects a stable, module-scope lucide component; render via
+  // `createElement` to satisfy react-hooks/static-components (a function-call
+  // result rendered as <Icon /> is misread as a component created per render).
+  const icon = getEntityIcon(category.entity_type)
   const browseUrl = getBrowseUrl(category.entity_type)
   return (
     <Card
@@ -89,7 +92,7 @@ function CategoryCard({
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <Icon className="h-4 w-4 text-muted-foreground" />
+            {createElement(icon, { className: 'h-4 w-4 text-muted-foreground' })}
             <Badge variant="secondary" className="text-xs">
               {formatEntityType(category.entity_type)}
             </Badge>
@@ -179,13 +182,16 @@ function CategoryItems({ category, entityType }: { category: string; entityType:
 }
 
 function ItemRow({ item }: { item: DataQualityItem }) {
-  const Icon = getEntityIcon(item.entity_type)
+  // `getEntityIcon` selects a stable, module-scope lucide component; render via
+  // `createElement` to satisfy react-hooks/static-components (a function-call
+  // result rendered as <Icon /> is misread as a component created per render).
+  const icon = getEntityIcon(item.entity_type)
   const url = item.slug ? getEntityUrl(item.entity_type, item.slug) : '#'
 
   return (
     <div className="flex items-center justify-between rounded-md border px-3 py-2 hover:bg-muted/50 transition-colors">
       <div className="flex items-center gap-3 min-w-0">
-        <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
+        {createElement(icon, { className: 'h-4 w-4 text-muted-foreground shrink-0' })}
         <div className="min-w-0">
           <Link
             href={url}
