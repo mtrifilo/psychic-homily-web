@@ -284,6 +284,78 @@ describe('PipelineVenues — explicit-locale timestamp formatting', () => {
   })
 })
 
+describe('PipelineVenues — Venue Status AdminTable migration (PSY-942)', () => {
+  // The Venue Status table moved onto the shared AdminTable primitive. These
+  // assertions pin the behavior-preserving contract: same six columns, the
+  // ApprovalBadge + notes-tooltip cells, the a11y row label, and the
+  // selected-row highlight — all expressed through AdminTable's config API.
+  it('renders the six Venue Status column headers', () => {
+    render(<PipelineVenues />)
+    for (const header of [
+      'Venue',
+      'Method',
+      'Approval',
+      'Auto',
+      'Last Run',
+      'Notes',
+    ]) {
+      expect(
+        screen.getByRole('columnheader', { name: header })
+      ).toBeInTheDocument()
+    }
+  })
+
+  it('renders the ApprovalBadge percentage and the notes tooltip cell', () => {
+    mockUsePipelineVenues.mockReturnValue({
+      data: {
+        venues: [
+          {
+            ...venueFixture,
+            approval_rate: 0.95,
+            extraction_notes: 'Skip trivia nights',
+          },
+        ],
+        total: 1,
+      },
+      isLoading: false,
+      error: null,
+    })
+    render(<PipelineVenues />)
+
+    // ApprovalBadge renders the rounded percentage.
+    expect(screen.getByText('95%')).toBeInTheDocument()
+    // Notes cell shows the "Has notes" affordance with the note as a tooltip.
+    const notes = screen.getByText('Has notes')
+    expect(notes).toHaveAttribute('title', 'Skip trivia nights')
+  })
+
+  it('exposes each venue row as a labelled, keyboard-operable button', async () => {
+    const user = userEvent.setup()
+    render(<PipelineVenues />)
+
+    const row = screen.getByRole('button', { name: 'The Rebel Lounge' })
+    expect(row).toBeInTheDocument()
+
+    // The detail panel opens via keyboard activation on the focused row.
+    row.focus()
+    await user.keyboard('{Enter}')
+    expect(
+      screen.getByRole('heading', { name: 'Configuration' })
+    ).toBeInTheDocument()
+  })
+
+  it('applies the selected-row highlight class to the open venue row', async () => {
+    const user = userEvent.setup()
+    render(<PipelineVenues />)
+
+    const row = screen.getByRole('button', { name: 'The Rebel Lounge' })
+    expect(row).not.toHaveClass('bg-muted/50')
+
+    await user.click(row)
+    expect(row).toHaveClass('bg-muted/50')
+  })
+})
+
 describe('PipelineVenues — venue selection', () => {
   it('opens the detail panel when a venue row is clicked', async () => {
     const user = userEvent.setup()
