@@ -1,5 +1,5 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { act, screen, waitFor } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { ExtractedShowData } from '@/lib/types/extraction'
@@ -182,7 +182,7 @@ function makeShow(overrides: Partial<ShowResponse> = {}): ShowResponse {
 }
 
 // ─────────────────────────────────────────────────────────────
-// Regression guards (PSY-724 stable keys + PSY-? rAF cleanup)
+// Regression guards (PSY-724 stable keys)
 //
 // These were the original tests. They use the shared mock state defined
 // above. Kept in their own describe blocks so the file's intent is clear
@@ -246,98 +246,10 @@ describe('ShowForm — artists list stable keys', () => {
   })
 })
 
-// Regression guard for the AI-extraction effect's requestAnimationFrame
-// cleanup. The effect defers form.setFieldValue calls to the next animation
-// frame to batch state updates. Without cancelAnimationFrame in the cleanup,
-// unmounting the form between the schedule and the callback let setFieldValue
-// run against an unmounted form — producing a React dev warning (and a
-// double-schedule under StrictMode). These tests drive that exact ordering by
-// controlling rAF deterministically: capture the scheduled callback, unmount,
-// then assert the frame was cancelled and that running the stale callback
-// afterward neither warns nor writes extracted values into the DOM.
-describe('ShowForm — AI extraction rAF cleanup', () => {
-  const extraction: ExtractedShowData = {
-    artists: [{ name: 'Extracted Artist', is_headliner: true }],
-    venue: { name: 'Extracted Venue', city: 'Phoenix', state: 'AZ' },
-    date: '2099-12-31',
-    time: '20:00',
-    cost: '$10',
-    ages: '21+',
-    description: 'from the flyer',
-  }
-
-  let rafCallbacks: Map<number, FrameRequestCallback>
-  let cancelled: number[]
-  let nextRafId: number
-
-  beforeEach(() => {
-    vi.clearAllMocks()
-    resetMockState()
-    rafCallbacks = new Map()
-    cancelled = []
-    nextRafId = 0
-
-    // Capture rAF callbacks instead of running them, so the test controls
-    // whether the deferred setFieldValue work happens before or after unmount.
-    vi.spyOn(window, 'requestAnimationFrame').mockImplementation(cb => {
-      const id = ++nextRafId
-      rafCallbacks.set(id, cb)
-      return id
-    })
-    vi.spyOn(window, 'cancelAnimationFrame').mockImplementation(id => {
-      cancelled.push(id)
-      rafCallbacks.delete(id)
-    })
-  })
-
-  afterEach(() => {
-    vi.restoreAllMocks()
-  })
-
-  it('cancels the pending extraction frame on unmount before it fires', () => {
-    const { unmount } = renderWithProviders(
-      <ShowForm mode="create" initialExtraction={extraction} />
-    )
-
-    // The effect scheduled exactly one frame and has not run it yet.
-    expect(rafCallbacks.size).toBe(1)
-    const [scheduledId] = [...rafCallbacks.keys()]
-
-    // Unmount before the frame fires — the cleanup must cancel it.
-    unmount()
-
-    expect(cancelled).toContain(scheduledId)
-    expect(rafCallbacks.has(scheduledId)).toBe(false)
-  })
-
-  it('does not warn or write extracted values when a stale frame runs after unmount', () => {
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    const { unmount } = renderWithProviders(
-      <ShowForm mode="create" initialExtraction={extraction} />
-    )
-    const staleCallback = [...rafCallbacks.values()][0]
-
-    unmount()
-
-    // Force the captured frame to run post-unmount, simulating a frame the
-    // browser had already queued slipping through. This proves the deferred
-    // setFieldValue work cannot warn even if a frame leaks past the cleanup.
-    act(() => {
-      staleCallback(performance.now())
-    })
-
-    expect(errorSpy).not.toHaveBeenCalled()
-    // Nothing extracted should be rendered after unmount.
-    expect(screen.queryByDisplayValue('Extracted Artist')).toBeNull()
-    expect(screen.queryByDisplayValue('Extracted Venue')).toBeNull()
-  })
-})
-
 // ─────────────────────────────────────────────────────────────
 // PSY-693 coverage: behavioral surface
 //
-// The PSY-724 + rAF tests above prove specific regressions cannot return.
+// The PSY-724 test above proves the stable-keys regression cannot return.
 // The blocks below cover the load-bearing user flows that, if broken,
 // would silently block show submissions:
 //   - All required fields render in create mode
@@ -345,8 +257,8 @@ describe('ShowForm — AI extraction rAF cleanup', () => {
 //   - Venue select auto-fills city/state; verified venues lock the fields
 //   - Past-date validation blocks submit + surfaces a message
 //   - Successful submit calls useShowSubmit.mutate; onSuccess wires through
-//   - AI extraction populates fields AND deduplicates re-applications
-//     (lastAppliedExtraction ref guard)
+//   - AI extraction seeds the form via defaultValues at mount; a new
+//     extraction re-seeds it on key-remount (PSY-795)
 //   - Edit mode pre-fills from `initialData`
 //   - The "do not publish" private toggle is create-only (hidden in edit)
 // ─────────────────────────────────────────────────────────────
@@ -589,7 +501,16 @@ describe('ShowForm — successful submit', () => {
   })
 })
 
-describe('ShowForm — AI extraction populates fields + dedup guard', () => {
+// PSY-795: AI extraction is now folded into TanStack Form's `defaultValues`
+// at mount (calculate-during-render via mergeExtraction), replacing the old
+// prop-derived useEffect + rAF + lastAppliedExtraction ref. The parent
+// (app/shows/submit/page.tsx) remounts ShowForm via a `key` it bumps on each
+// extraction; these tests model that contract:
+//   1. An extraction passed at mount seeds every field.
+//   2. A NEW extraction with a fresh `key` re-seeds the form (remount).
+//   3. Without a key change, defaultValues are read once — a re-render that
+//      keeps the same key does NOT clobber a user edit.
+describe('ShowForm — AI extraction seeds defaultValues + key-remount re-seed', () => {
   const extraction: ExtractedShowData = {
     artists: [{ name: 'AI Artist', is_headliner: true }],
     venue: { name: 'AI Venue', city: 'Tempe', state: 'AZ' },
@@ -605,17 +526,15 @@ describe('ShowForm — AI extraction populates fields + dedup guard', () => {
     resetMockState()
   })
 
-  it('writes the extracted artist, venue, date, time, cost, ages, and description into the form', async () => {
-    renderWithProviders(<ShowForm mode="create" initialExtraction={extraction} />)
-
-    // The effect schedules a rAF then writes via form.setFieldValue. Real
-    // requestAnimationFrame runs in jsdom — no fake-timer juggling needed.
-    await waitFor(() =>
-      expect(
-        screen.getByPlaceholderText('Enter artist name') as HTMLInputElement
-      ).toHaveValue('AI Artist')
+  it('seeds the extracted artist, venue, date, time, cost, ages, and description into the form at mount', () => {
+    renderWithProviders(
+      <ShowForm key={0} mode="create" initialExtraction={extraction} />
     )
 
+    // defaultValues are read synchronously at mount — no rAF / waitFor needed.
+    expect(
+      (screen.getByPlaceholderText('Enter artist name') as HTMLInputElement).value
+    ).toBe('AI Artist')
     expect((screen.getByLabelText(/^Venue$/i) as HTMLInputElement).value).toBe('AI Venue')
     expect((screen.getByLabelText(/^City$/i) as HTMLInputElement).value).toBe('Tempe')
     expect((screen.getByLabelText(/^State$/i) as HTMLInputElement).value).toBe('AZ')
@@ -628,52 +547,65 @@ describe('ShowForm — AI extraction populates fields + dedup guard', () => {
     )
   })
 
-  it('does not re-apply the same extraction object on re-render (lastAppliedExtraction guard)', async () => {
-    const rafSpy = vi.spyOn(window, 'requestAnimationFrame')
-    try {
-      const { rerender } = renderWithProviders(
-        <ShowForm mode="create" initialExtraction={extraction} />
-      )
+  it('re-seeds the form when a new extraction arrives with a changed key (remount)', async () => {
+    const { rerender } = renderWithProviders(
+      <ShowForm key={0} mode="create" initialExtraction={extraction} />
+    )
 
-      // Wait for the initial extraction to land in the form.
-      await waitFor(() =>
-        expect(
-          (screen.getByPlaceholderText('Enter artist name') as HTMLInputElement).value
-        ).toBe('AI Artist')
-      )
+    expect(
+      (screen.getByPlaceholderText('Enter artist name') as HTMLInputElement).value
+    ).toBe('AI Artist')
 
-      const callsAfterFirstApply = rafSpy.mock.calls.length
-      expect(callsAfterFirstApply).toBeGreaterThanOrEqual(1)
-
-      // Edit the form so we can detect any unwanted second application
-      // (which would clobber the typed value).
-      const user = userEvent.setup()
-      const venueInput = screen.getByLabelText(/^Venue$/i) as HTMLInputElement
-      await user.clear(venueInput)
-      await user.type(venueInput, 'User Edited Venue')
-      expect(venueInput.value).toBe('User Edited Venue')
-
-      // Re-render with the SAME extraction object reference. The
-      // lastAppliedExtraction ref compares by identity, so this should be a
-      // no-op: no extra rAF scheduled, and the user's edit must survive.
-      rerender(<ShowForm mode="create" initialExtraction={extraction} />)
-
-      // Give the effect a microtask to run if it were going to.
-      await Promise.resolve()
-      await Promise.resolve()
-
-      // rAF wasn't scheduled again — proves the dedup actually fires.
-      // (Without the lastAppliedExtraction guard, the effect would re-run on
-      // every render where initialExtraction is present and schedule another
-      // frame, clobbering the user's edit.)
-      expect(rafSpy.mock.calls.length).toBe(callsAfterFirstApply)
-      // And the user's typed venue value survived.
-      expect((screen.getByLabelText(/^Venue$/i) as HTMLInputElement).value).toBe(
-        'User Edited Venue'
-      )
-    } finally {
-      rafSpy.mockRestore()
+    // A second extraction. The parent bumps `key`, so React unmounts the old
+    // form and mounts a fresh one whose defaultValues come from the NEW data.
+    const secondExtraction: ExtractedShowData = {
+      artists: [{ name: 'Second Artist', is_headliner: true }],
+      venue: { name: 'Second Venue', city: 'Mesa', state: 'AZ' },
+      date: '2099-10-10',
+      time: '19:00',
+      cost: 'Free',
+      ages: '21+',
+      description: 'second flyer',
     }
+
+    rerender(
+      <ShowForm key={1} mode="create" initialExtraction={secondExtraction} />
+    )
+
+    await waitFor(() =>
+      expect(
+        (screen.getByPlaceholderText('Enter artist name') as HTMLInputElement).value
+      ).toBe('Second Artist')
+    )
+    expect((screen.getByLabelText(/^Venue$/i) as HTMLInputElement).value).toBe('Second Venue')
+    expect((screen.getByLabelText(/^City$/i) as HTMLInputElement).value).toBe('Mesa')
+    expect((screen.getByLabelText(/^Date$/i) as HTMLInputElement).value).toBe('2099-10-10')
+    expect((screen.getByLabelText(/cost/i) as HTMLInputElement).value).toBe('Free')
+  })
+
+  it('does not clobber a user edit when re-rendered with the same key (defaultValues read once)', async () => {
+    const user = userEvent.setup()
+    const { rerender } = renderWithProviders(
+      <ShowForm key={0} mode="create" initialExtraction={extraction} />
+    )
+
+    const venueInput = screen.getByLabelText(/^Venue$/i) as HTMLInputElement
+    expect(venueInput.value).toBe('AI Venue')
+
+    // User edits the seeded value.
+    await user.clear(venueInput)
+    await user.type(venueInput, 'User Edited Venue')
+    expect(venueInput.value).toBe('User Edited Venue')
+
+    // Re-render with the SAME key and the SAME extraction (e.g. an unrelated
+    // parent re-render). Without a key change the form is not remounted, so
+    // defaultValues are not re-read and the user's edit must survive.
+    rerender(<ShowForm key={0} mode="create" initialExtraction={extraction} />)
+
+    await Promise.resolve()
+    expect((screen.getByLabelText(/^Venue$/i) as HTMLInputElement).value).toBe(
+      'User Edited Venue'
+    )
   })
 })
 

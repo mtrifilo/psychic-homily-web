@@ -6,9 +6,12 @@ import {
   isVenueLocationEditable,
   defaultFormValues,
   makeFormArtist,
+  mergeExtraction,
+  extractedVenueToSelected,
   type FormArtist,
 } from './show-form-utils'
 import type { ShowResponse, VenueResponse } from '@/features/shows'
+import type { ExtractedShowData } from '@/lib/types/extraction'
 
 // --- Helpers ---
 
@@ -354,5 +357,147 @@ describe('makeFormArtist', () => {
     expect(artist.is_headliner).toBe(true)
     expect(artist.matched_id).toBe(42)
     expect(artist.instagram_handle).toBe('@a')
+  })
+})
+
+// --- mergeExtraction (PSY-795) ---
+
+describe('mergeExtraction', () => {
+  const fullExtraction: ExtractedShowData = {
+    artists: [
+      { name: 'Headliner', is_headliner: true },
+      { name: 'Opener', is_headliner: false, instagram_handle: '@opener' },
+    ],
+    venue: { name: 'The Venue', city: 'Tempe', state: 'AZ' },
+    date: '2099-09-09',
+    time: '21:30',
+    cost: '$20',
+    ages: 'All Ages',
+    description: 'flyer text',
+  }
+
+  it('returns the base unchanged when extraction is undefined', () => {
+    expect(mergeExtraction(defaultFormValues, undefined)).toBe(defaultFormValues)
+  })
+
+  it('folds every extracted field into the form values', () => {
+    const result = mergeExtraction(defaultFormValues, fullExtraction)
+
+    expect(result.artists).toHaveLength(2)
+    expect(result.artists[0].name).toBe('Headliner')
+    expect(result.artists[0].is_headliner).toBe(true)
+    expect(result.artists[1].name).toBe('Opener')
+    expect(result.artists[1].instagram_handle).toBe('@opener')
+    expect(result.venue.name).toBe('The Venue')
+    expect(result.venue.city).toBe('Tempe')
+    expect(result.venue.state).toBe('AZ')
+    expect(result.date).toBe('2099-09-09')
+    expect(result.time).toBe('21:30')
+    expect(result.cost).toBe('$20')
+    expect(result.ages).toBe('All Ages')
+    expect(result.description).toBe('flyer text')
+  })
+
+  it('prefers the matched_name over the raw extracted name for artists and venue', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      artists: [
+        { name: 'mountain goats', is_headliner: true, matched_id: 7, matched_name: 'The Mountain Goats' },
+      ],
+      venue: { name: 'valley bar', matched_id: 3, matched_name: 'Valley Bar', matched_slug: 'valley-bar' },
+    })
+
+    expect(result.artists[0].name).toBe('The Mountain Goats')
+    expect(result.artists[0].matched_id).toBe(7)
+    expect(result.venue.name).toBe('Valley Bar')
+    expect(result.venue.id).toBe(3)
+  })
+
+  it('drops the instagram handle for a matched artist', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      artists: [
+        { name: 'Matched', is_headliner: true, matched_id: 9, instagram_handle: '@matched' },
+      ],
+    })
+    expect(result.artists[0].instagram_handle).toBeUndefined()
+  })
+
+  it('keeps base values for fields the sparse extraction omits', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      artists: [{ name: 'Only Artist', is_headliner: true }],
+    })
+
+    // Only artists were extracted; everything else keeps the defaults.
+    expect(result.artists[0].name).toBe('Only Artist')
+    expect(result.venue).toEqual(defaultFormValues.venue)
+    expect(result.time).toBe('20:00') // default time survives
+    expect(result.date).toBe('')
+    expect(result.cost).toBe('')
+  })
+
+  it('keeps the default single artist when the extraction has no artists', () => {
+    const result = mergeExtraction(defaultFormValues, {
+      artists: [],
+      date: '2099-01-01',
+    })
+    expect(result.artists).toBe(defaultFormValues.artists)
+    expect(result.date).toBe('2099-01-01')
+  })
+
+  it('does not mutate the base form values', () => {
+    const base = { ...defaultFormValues, venue: { ...defaultFormValues.venue } }
+    mergeExtraction(base, fullExtraction)
+    expect(base.venue.name).toBe('')
+    expect(base.date).toBe('')
+    expect(base.artists).toBe(defaultFormValues.artists)
+  })
+})
+
+// --- extractedVenueToSelected (PSY-795) ---
+
+describe('extractedVenueToSelected', () => {
+  it('returns null when extraction is undefined', () => {
+    expect(extractedVenueToSelected(undefined)).toBeNull()
+  })
+
+  it('returns null when the venue did not match an existing entity', () => {
+    expect(
+      extractedVenueToSelected({
+        artists: [],
+        venue: { name: 'Unmatched Spot', city: 'Mesa', state: 'AZ' },
+      })
+    ).toBeNull()
+  })
+
+  it('returns a verified VenueResponse when the venue matched (id + name + slug)', () => {
+    const result = extractedVenueToSelected({
+      artists: [],
+      venue: {
+        name: 'valley bar',
+        city: 'Phoenix',
+        state: 'AZ',
+        matched_id: 5,
+        matched_name: 'Valley Bar',
+        matched_slug: 'valley-bar',
+      },
+    })
+
+    expect(result).toEqual({
+      id: 5,
+      slug: 'valley-bar',
+      name: 'Valley Bar',
+      address: null,
+      city: 'Phoenix',
+      state: 'AZ',
+      verified: true,
+    })
+  })
+
+  it('returns null when a match id is present but slug is missing', () => {
+    expect(
+      extractedVenueToSelected({
+        artists: [],
+        venue: { name: 'Partial', matched_id: 5, matched_name: 'Partial' },
+      })
+    ).toBeNull()
   })
 })

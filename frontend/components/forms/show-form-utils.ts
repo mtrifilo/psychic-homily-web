@@ -3,6 +3,7 @@ import {
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import type { ShowResponse, VenueResponse } from '@/features/shows'
+import type { ExtractedShowData } from '@/lib/types/extraction'
 
 export interface FormArtist {
   /**
@@ -154,4 +155,79 @@ export function isVenueLocationEditable(
   hasPrefilledVenue: boolean
 ): boolean {
   return !hasPrefilledVenue && (isAdmin || !selectedVenue || !selectedVenue.verified)
+}
+
+/**
+ * Fold AI-extracted show data into a base set of form values, producing the
+ * `defaultValues` ShowForm hands to TanStack Form at mount.
+ *
+ * This is the calculate-during-render replacement for the old prop-derived
+ * `useEffect` (PSY-795): the parent remounts ShowForm via `key` on each new
+ * extraction, so seeding `defaultValues` here is the correct one-shot init.
+ * Only fields present in the extraction override the base; everything else
+ * keeps its base value (so a sparse extraction won't blank out defaults).
+ */
+export function mergeExtraction(
+  base: FormValues,
+  extraction: ExtractedShowData | undefined
+): FormValues {
+  if (!extraction) return base
+
+  const merged: FormValues = { ...base, venue: { ...base.venue } }
+
+  if (extraction.artists.length > 0) {
+    merged.artists = extraction.artists.map(a =>
+      makeFormArtist({
+        name: a.matched_name || a.name,
+        is_headliner: a.is_headliner,
+        matched_id: a.matched_id,
+        instagram_handle: a.matched_id ? undefined : a.instagram_handle,
+      })
+    )
+  }
+
+  if (extraction.venue) {
+    const v = extraction.venue
+    merged.venue = {
+      id: v.matched_id,
+      name: v.matched_name || v.name,
+      city: v.city || '',
+      state: v.state || '',
+      address: '',
+    }
+  }
+
+  if (extraction.date) merged.date = extraction.date
+  if (extraction.time) merged.time = extraction.time
+  if (extraction.cost) merged.cost = extraction.cost
+  if (extraction.ages) merged.ages = extraction.ages
+  if (extraction.description) merged.description = extraction.description
+
+  return merged
+}
+
+/**
+ * Derive the selected-venue state for a fresh ShowForm mount from an AI
+ * extraction. Returns a VenueResponse only when the extraction matched an
+ * existing venue (id + name + slug present) — matched venues are assumed
+ * verified, which locks the location fields for non-admins exactly as the old
+ * effect did. Returns null for an unmatched / absent venue, which surfaces the
+ * "New Venue" banner.
+ */
+export function extractedVenueToSelected(
+  extraction: ExtractedShowData | undefined
+): VenueResponse | null {
+  const v = extraction?.venue
+  if (v?.matched_id && v.matched_name && v.matched_slug) {
+    return {
+      id: v.matched_id,
+      slug: v.matched_slug,
+      name: v.matched_name,
+      address: null,
+      city: v.city || '',
+      state: v.state || '',
+      verified: true, // matched venues are assumed verified (mirrors prior effect)
+    }
+  }
+  return null
 }
