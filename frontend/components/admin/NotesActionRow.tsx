@@ -93,8 +93,9 @@ export function NotesActionRow({ actions, onConfirm, isActioning }: NotesActionR
   const confirm = useCallback(() => {
     if (activeKey === null) return
     onConfirm(activeKey, notes.trim())
-    // The card's mutation onSuccess resets the row by unmounting it; reset()
-    // here keeps the input from lingering when the row stays mounted.
+    // No local reset here, mirroring the pre-extraction cards: on success the
+    // moderation query invalidates and this row unmounts; on error the
+    // expanded view + typed notes intentionally persist so the admin can retry.
   }, [activeKey, notes, onConfirm])
 
   if (showNotes) {

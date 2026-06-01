@@ -72,10 +72,10 @@ export function RejectWithReasonRow({
     const trimmed = rejectionReason.trim()
     if (!trimmed) return
     onReject(trimmed)
-    // Reset is intentional whether or not the mutation ultimately succeeds:
-    // the card's own onSuccess (which unmounts/clears the row) is the
-    // authoritative reset; this keeps the local input from lingering if the
-    // row stays mounted (e.g. error path leaves the resting buttons).
+    // No local reset here, mirroring the pre-extraction cards: on success the
+    // moderation query invalidates and this row unmounts (so the input
+    // disappears with it); on error the expanded view + typed reason
+    // intentionally persist so the admin can retry without re-typing.
   }, [rejectionReason, onReject])
 
   if (rejecting) {
