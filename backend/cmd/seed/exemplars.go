@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"time"
@@ -110,7 +111,7 @@ func applyTags(db *gorm.DB, entityType string, entityID, userID uint, tags []str
 	for _, t := range tags {
 		var tag catalogm.Tag
 		err := db.Where("slug = ?", t.Slug).First(&tag).Error
-		if err == gorm.ErrRecordNotFound {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			tag = catalogm.Tag{
 				Name:            t.Name,
 				Slug:            t.Slug,
@@ -752,7 +753,7 @@ func seedExemplarSimilarArtists(db *gorm.DB, artistID uint) {
 func seedExemplarCollection(db *gorm.DB, userID, artistID, venueID, labelID, showID uint) {
 	var coll communitym.Collection
 	err := db.Where("slug = ?", exemplarCollectionSlug).First(&coll).Error
-	if err == gorm.ErrRecordNotFound {
+	if errors.Is(err, gorm.ErrRecordNotFound) {
 		coll = communitym.Collection{
 			Title:         "Psychic Homily Staff Picks (Exemplar)",
 			Slug:          exemplarCollectionSlug,
