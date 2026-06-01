@@ -12,10 +12,15 @@ import type { CityState } from '@/components/filters'
 import { ShowCard } from './ShowCard'
 import { CityFilters, type CityWithCount } from '@/components/filters'
 import { citiesEqual } from '@/components/filters/cityParams'
+import {
+  useGeoDefaultCity,
+  shouldShowGeoAffordance,
+} from '@/components/filters/useGeoDefaultCity'
+import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 
 export function HomeShowList() {
-  const { user, isAuthenticated } = useAuthContext()
+  const { user, isAuthenticated, isLoading: authLoading } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
   const { data: profileData } = useProfile()
   const [selectedCities, setSelectedCities] = useState<CityState[]>([])
@@ -35,17 +40,51 @@ export function HomeShowList() {
     }
   }, [favoriteCities])
 
-  const handleFilterChange = useCallback((cities: CityState[]) => {
-    hasManuallyInteracted.current = true
-    setSelectedCities(cities)
-  }, [])
-
   const timezone =
     typeof window !== 'undefined'
       ? Intl.DateTimeFormat().resolvedOptions().timeZone
       : 'America/Phoenix'
 
   const { data: citiesData } = useShowCities({ timezone })
+
+  const cities: CityWithCount[] = useMemo(
+    () =>
+      citiesData?.cities?.map(c => ({
+        city: c.city,
+        state: c.state,
+        count: c.show_count,
+      })) ?? [],
+    [citiesData?.cities]
+  )
+
+  // IP-geo soft default for anon visitors (PSY-946). Home has no URL
+  // persistence, so geo seeds the local selection state — the same mechanism
+  // favorites use. The page stays fully static; geo arrives via the `/api/geo`
+  // edge route handler client-side. Favorites win (the hook stands down when
+  // favoriteCities is non-empty); a user interaction blocks any in-flight seed.
+  const onSeedGeo = useCallback((city: CityState) => {
+    setSelectedCities([city])
+  }, [])
+  const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
+    cities,
+    isAuthenticated,
+    authLoading,
+    favoriteCities,
+    // Home seeds favorites into the same local state; once that has happened
+    // (or the user picks a city), a non-empty selection means geo stands down.
+    hasExistingSelection: selectedCities.length > 0,
+    enableClientFetch: true,
+    onSeed: onSeedGeo,
+  })
+
+  const handleFilterChange = useCallback(
+    (cities: CityState[]) => {
+      hasManuallyInteracted.current = true
+      notifyUserInteracted()
+      setSelectedCities(cities)
+    },
+    [notifyUserInteracted]
+  )
 
   const { data, isLoading, isFetching, error } = useUpcomingShows({
     timezone,
@@ -63,18 +102,13 @@ export function HomeShowList() {
   const { data: savedShowIds } = useSavedShowBatch(showIds, isAuthenticated)
   const { data: batchAttendance } = useBatchAttendance(showIds)
 
-  const cities: CityWithCount[] = useMemo(
-    () =>
-      citiesData?.cities?.map(c => ({
-        city: c.city,
-        state: c.state,
-        count: c.show_count,
-      })) ?? [],
-    [citiesData?.cities]
-  )
-
   // Determine if "Save as default" / "Clear defaults" should show
   const selectionDiffersFromFavorites = !citiesEqual(selectedCities, favoriteCities)
+
+  const showGeoAffordance = shouldShowGeoAffordance(
+    appliedGeoDefault,
+    selectedCities
+  )
 
   if (isLoading) {
     return (
@@ -110,6 +144,12 @@ export function HomeShowList() {
               />
             )}
           </CityFilters>
+          {showGeoAffordance && (
+            <GeoDefaultAffordance
+              city={appliedGeoDefault}
+              onChange={() => handleFilterChange([])}
+            />
+          )}
         </div>
       )}
 

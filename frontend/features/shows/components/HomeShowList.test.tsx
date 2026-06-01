@@ -1,7 +1,12 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { render, screen, waitFor } from '@testing-library/react'
 import { HomeShowList } from './HomeShowList'
 import type { ShowResponse } from '../types'
+
+// Mock Sentry so a geo-fetch rejection in tests is observable & offline.
+vi.mock('@sentry/nextjs', () => ({
+  captureException: vi.fn(),
+}))
 
 // Mock AuthContext.
 // Return type widened so individual tests can override `user`/`isAuthenticated`
@@ -57,8 +62,19 @@ vi.mock('./ShowCard', () => ({
 }))
 
 vi.mock('@/components/filters', () => ({
-  CityFilters: ({ children }: { children?: React.ReactNode }) => (
-    <div data-testid="city-filters">{children}</div>
+  CityFilters: ({
+    selectedCities,
+    children,
+  }: {
+    selectedCities?: Array<{ city: string; state: string }>
+    children?: React.ReactNode
+  }) => (
+    <div data-testid="city-filters">
+      <span data-testid="selected-labels">
+        {(selectedCities ?? []).map(c => `${c.city},${c.state}`).join('|')}
+      </span>
+      {children}
+    </div>
   ),
 }))
 
@@ -269,6 +285,83 @@ describe('HomeShowList', () => {
       // With no selected cities and no favorites, selectionDiffersFromFavorites is false (both empty)
       // so SaveDefaultsButton should NOT show
       expect(screen.queryByTestId('save-defaults')).not.toBeInTheDocument()
+    })
+  })
+
+  // IP-geo soft default (PSY-946). Home seeds the geo city into local
+  // selection state (no URL) via the real useGeoDefaultCity hook, driven here
+  // by a mocked /api/geo fetch + the useShowCities has-shows list.
+  describe('IP-geo default city (PSY-946)', () => {
+    function mockGeoFetch(geo: { city: string; state: string } | null) {
+      return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+        new Response(JSON.stringify({ geo }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        }),
+      )
+    }
+
+    beforeEach(() => {
+      window.sessionStorage.clear()
+      mockUseShowCities.mockReturnValue({
+        data: {
+          cities: [
+            { city: 'Phoenix', state: 'AZ', show_count: 5 },
+            { city: 'Omaha', state: 'NE', show_count: 3 },
+          ],
+        },
+      })
+      mockUseUpcomingShows.mockReturnValue({
+        data: { shows: [makeShow()] },
+        isLoading: false,
+        isFetching: false,
+        error: null,
+      })
+    })
+
+    afterEach(() => {
+      vi.restoreAllMocks()
+      window.sessionStorage.clear()
+    })
+
+    it('seeds the canonical geo city into local selection state for an anon visitor', async () => {
+      mockGeoFetch({ city: 'Omaha', state: 'NE' })
+      render(<HomeShowList />)
+      await waitFor(() =>
+        expect(screen.getByTestId('selected-labels')).toHaveTextContent(
+          'Omaha,NE',
+        ),
+      )
+      // The overridable affordance renders for the geo-seeded selection.
+      expect(screen.getByTestId('geo-default-affordance')).toHaveTextContent(
+        'Omaha, NE',
+      )
+    })
+
+    it('does NOT seed when the geo city has no shows', async () => {
+      mockGeoFetch({ city: 'Tucson', state: 'AZ' })
+      render(<HomeShowList />)
+      await waitFor(() =>
+        expect(
+          window.sessionStorage.getItem('ph-geo-default-city'),
+        ).not.toBeNull(),
+      )
+      expect(screen.getByTestId('selected-labels')).toHaveTextContent('')
+      expect(
+        screen.queryByTestId('geo-default-affordance'),
+      ).not.toBeInTheDocument()
+    })
+
+    it('does NOT fetch geo for an authed visitor (no wasted edge request)', () => {
+      const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      render(<HomeShowList />)
+      expect(fetchSpy).not.toHaveBeenCalled()
     })
   })
 })

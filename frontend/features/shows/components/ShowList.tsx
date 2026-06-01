@@ -21,6 +21,11 @@ import {
   buildCitiesParam,
   citiesEqual,
 } from '@/components/filters/cityParams'
+import {
+  useGeoDefaultCity,
+  shouldShowGeoAffordance,
+} from '@/components/filters/useGeoDefaultCity'
+import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import { SaveDefaultsButton } from '@/components/filters/SaveDefaultsButton'
 import {
   TagFacetPanel,
@@ -32,7 +37,7 @@ import {
 export function ShowList() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { user, isAuthenticated } = useAuthContext()
+  const { user, isAuthenticated, isLoading: authLoading } = useAuthContext()
   const isAdmin = user?.is_admin ?? false
   const [isPending, startTransition] = useTransition()
   const { data: profileData } = useProfile()
@@ -82,6 +87,11 @@ export function ShowList() {
   }, [favoriteCities, citiesParam, legacyCity, legacyState, router])
 
   const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone
+
+  // Any explicit selection already present (URL param or legacy single-city)
+  // means geo must not seed. Authed favorites also stand the geo hook down
+  // (handled inside the hook via favoriteCities + isAuthenticated).
+  const hasExistingSelection = !!citiesParam || !!(legacyCity && legacyState)
   const [cursor, setCursor] = useState<string | undefined>(undefined)
   const [accumulatedShows, setAccumulatedShows] = useState<ShowResponse[]>([])
 
@@ -91,6 +101,43 @@ export function ShowList() {
     isFetching: citiesFetching,
   } = useShowCities({
     timezone,
+  })
+
+  // Map ShowCity → CityWithCount (the has-shows list). Lifted above the early
+  // returns so the geo hook can read it unconditionally.
+  const cities: CityWithCount[] = useMemo(
+    () =>
+      citiesData?.cities?.map(c => ({
+        city: c.city,
+        state: c.state,
+        count: c.show_count,
+      })) ?? [],
+    [citiesData?.cities]
+  )
+
+  // IP-geo soft default for anon visitors (PSY-946). /shows reads geo via the
+  // `/api/geo` edge route handler client-side (the page stays ISR — it must
+  // not read `next/headers`). Seeds the canonical city onto `?cities=` via the
+  // same router.replace mechanism favorites use; favorites and an existing
+  // `?cities=`/legacy selection both win (the hook stands down).
+  const onSeedGeo = useCallback(
+    (city: CityState) => {
+      const params = new URLSearchParams()
+      params.set('cities', buildCitiesParam([city]))
+      startTransition(() => {
+        router.replace(`/shows?${params.toString()}`, { scroll: false })
+      })
+    },
+    [router]
+  )
+  const { appliedGeoDefault, notifyUserInteracted } = useGeoDefaultCity({
+    cities,
+    isAuthenticated,
+    authLoading,
+    favoriteCities,
+    hasExistingSelection,
+    enableClientFetch: true,
+    onSeed: onSeedGeo,
   })
 
   const { data, isLoading, isFetching, error, refetch } = useUpcomingShows({
@@ -146,6 +193,9 @@ export function ShowList() {
   )
 
   const handleFilterChange = (cities: CityState[]) => {
+    // Any manual city change is an override — block a still-in-flight geo seed
+    // and drop the affordance.
+    notifyUserInteracted()
     writeParams(cities, selectedTags, tagMatch)
   }
 
@@ -181,13 +231,10 @@ export function ShowList() {
     )
   }
 
-  // Map ShowCity to CityWithCount
-  const cities: CityWithCount[] =
-    citiesData?.cities?.map(c => ({
-      city: c.city,
-      state: c.state,
-      count: c.show_count,
-    })) ?? []
+  const showGeoAffordance = shouldShowGeoAffordance(
+    appliedGeoDefault,
+    selectedCities
+  )
 
   return (
     <section className="w-full max-w-6xl">
@@ -207,6 +254,12 @@ export function ShowList() {
               />
             )}
           </CityFilters>
+          {showGeoAffordance && (
+            <GeoDefaultAffordance
+              city={appliedGeoDefault}
+              onChange={() => handleFilterChange([])}
+            />
+          )}
         </div>
       )}
 
