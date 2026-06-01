@@ -36,27 +36,43 @@ import {
 type MonthRange = 3 | 6 | 12 | 24
 const MONTH_OPTIONS: MonthRange[] = [3, 6, 12, 24]
 
-// Chart color palette — distinct, accessible colors
+/**
+ * Chart series colors, bound to the design-system palette
+ * (`globals.css` `--chart-1`..`--chart-5` + `--destructive`, each with a
+ * dark-mode variant — so series colors track light/dark automatically via the
+ * CSS cascade). Replaces the previous ad-hoc Tailwind hexes (blue/violet/pink),
+ * which clashed with the editorial burnt-orange/newsprint palette (PSY-908).
+ *
+ * Series colors only need to be distinguishable WITHIN a single chart, so the
+ * five categorical tokens are reused across charts. Series are assigned
+ * `--chart-1`..`--chart-5` in render order; the Entity Creation chart has a 6th
+ * line (Users) that uses `--foreground` (high-contrast, on-brand neutral).
+ * Approval trends are semantic: approved = `--chart-2` (green), rejected =
+ * `--destructive` (red).
+ */
 const COLORS = {
-  shows: '#3b82f6', // blue-500
-  artists: '#8b5cf6', // violet-500
-  venues: '#f97316', // orange-500
-  releases: '#10b981', // emerald-500
-  labels: '#ec4899', // pink-500
-  users: '#6366f1', // indigo-500
-  // Engagement
-  bookmarks: '#3b82f6',
-  tags_added: '#8b5cf6',
-  tag_votes: '#a78bfa',
-  collection_items: '#f97316',
-  requests: '#10b981',
-  request_votes: '#34d399',
-  revisions: '#ec4899',
-  follows: '#6366f1',
-  attendance: '#f59e0b',
-  // Data quality
-  approved: '#10b981',
-  rejected: '#ef4444',
+  // Entity Creation Trends (6 lines, one chart)
+  shows: 'var(--chart-1)',
+  artists: 'var(--chart-2)',
+  venues: 'var(--chart-3)',
+  releases: 'var(--chart-4)',
+  labels: 'var(--chart-5)',
+  users: 'var(--foreground)',
+  // Content Curation (3 series)
+  tags_added: 'var(--chart-1)',
+  tag_votes: 'var(--chart-2)',
+  collection_items: 'var(--chart-3)',
+  // Requests & Voting (2 series)
+  requests: 'var(--chart-1)',
+  request_votes: 'var(--chart-2)',
+  // Social Engagement (4 series)
+  bookmarks: 'var(--chart-1)',
+  follows: 'var(--chart-2)',
+  attendance: 'var(--chart-3)',
+  revisions: 'var(--chart-4)',
+  // Show Approval Trends (semantic)
+  approved: 'var(--chart-2)',
+  rejected: 'var(--destructive)',
 }
 
 // --- Sub-section labels ---
@@ -212,10 +228,10 @@ function GrowthSection({ months }: { months: MonthRange }) {
             <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'hsl(var(--popover))',
-                border: '1px solid hsl(var(--border))',
+                backgroundColor: 'var(--popover)',
+                border: '1px solid var(--border)',
                 borderRadius: '0.5rem',
-                color: 'hsl(var(--popover-foreground))',
+                color: 'var(--popover-foreground)',
               }}
             />
             <Legend />
@@ -318,10 +334,10 @@ function EngagementSection({ months }: { months: MonthRange }) {
             <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'hsl(var(--popover))',
-                border: '1px solid hsl(var(--border))',
+                backgroundColor: 'var(--popover)',
+                border: '1px solid var(--border)',
                 borderRadius: '0.5rem',
-                color: 'hsl(var(--popover-foreground))',
+                color: 'var(--popover-foreground)',
               }}
             />
             <Legend />
@@ -369,10 +385,10 @@ function EngagementSection({ months }: { months: MonthRange }) {
               <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: 'hsl(var(--popover))',
-                  border: '1px solid hsl(var(--border))',
+                  backgroundColor: 'var(--popover)',
+                  border: '1px solid var(--border)',
                   borderRadius: '0.5rem',
-                  color: 'hsl(var(--popover-foreground))',
+                  color: 'var(--popover-foreground)',
                 }}
               />
               <Legend />
@@ -410,10 +426,10 @@ function EngagementSection({ months }: { months: MonthRange }) {
               <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
               <Tooltip
                 contentStyle={{
-                  backgroundColor: 'hsl(var(--popover))',
-                  border: '1px solid hsl(var(--border))',
+                  backgroundColor: 'var(--popover)',
+                  border: '1px solid var(--border)',
                   borderRadius: '0.5rem',
-                  color: 'hsl(var(--popover-foreground))',
+                  color: 'var(--popover-foreground)',
                 }}
               />
               <Legend />
@@ -511,10 +527,10 @@ function CommunityHealthSection() {
             <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'hsl(var(--popover))',
-                border: '1px solid hsl(var(--border))',
+                backgroundColor: 'var(--popover)',
+                border: '1px solid var(--border)',
                 borderRadius: '0.5rem',
-                color: 'hsl(var(--popover-foreground))',
+                color: 'var(--popover-foreground)',
               }}
             />
             <Bar
@@ -625,10 +641,10 @@ function DataQualityTrendsSection({ months }: { months: MonthRange }) {
             <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
             <Tooltip
               contentStyle={{
-                backgroundColor: 'hsl(var(--popover))',
-                border: '1px solid hsl(var(--border))',
+                backgroundColor: 'var(--popover)',
+                border: '1px solid var(--border)',
                 borderRadius: '0.5rem',
-                color: 'hsl(var(--popover-foreground))',
+                color: 'var(--popover-foreground)',
               }}
             />
             <Legend />
