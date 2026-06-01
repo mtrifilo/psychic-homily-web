@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="450" viewBox="0 0 800 450" role="img" aria-label="Seed placeholder: collection cover">
+  <rect width="800" height="450" fill="#431407"/>
+  <rect x="120" y="110" width="160" height="160" rx="12" fill="#9a3412"/>
+  <rect x="320" y="110" width="160" height="160" rx="12" fill="#c2410c"/>
+  <rect x="520" y="110" width="160" height="160" rx="12" fill="#ea580c"/>
+  <text x="400" y="410" fill="#fdba74" font-family="system-ui, sans-serif" font-size="28" text-anchor="middle">COLLECTION · seed placeholder</text>
+</svg>

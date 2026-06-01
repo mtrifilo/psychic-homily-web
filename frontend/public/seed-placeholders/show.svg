@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000" role="img" aria-label="Seed placeholder: show flyer">
+  <rect width="800" height="1000" fill="#022c22"/>
+  <rect x="80" y="80" width="640" height="840" fill="none" stroke="#34d399" stroke-width="6"/>
+  <text x="400" y="360" fill="#a7f3d0" font-family="system-ui, sans-serif" font-size="80" font-weight="800" text-anchor="middle">LIVE</text>
+  <text x="400" y="470" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="40" text-anchor="middle">multi-artist bill</text>
+  <line x1="200" y1="580" x2="600" y2="580" stroke="#34d399" stroke-width="3"/>
+  <text x="400" y="680" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="30" text-anchor="middle">headliner · support · opener</text>
+  <text x="400" y="740" fill="#6ee7b7" font-family="system-ui, sans-serif" font-size="30" text-anchor="middle">dj · host</text>
+  <text x="400" y="900" fill="#34d399" font-family="system-ui, sans-serif" font-size="26" text-anchor="middle">seed placeholder</text>
+</svg>

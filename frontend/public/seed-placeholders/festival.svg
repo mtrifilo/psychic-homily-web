@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="800" height="1000" viewBox="0 0 800 1000" role="img" aria-label="Seed placeholder: festival flyer">
+  <rect width="800" height="1000" fill="#3b0764"/>
+  <rect x="80" y="80" width="640" height="840" fill="none" stroke="#a855f7" stroke-width="6"/>
+  <text x="400" y="320" fill="#f5d0fe" font-family="system-ui, sans-serif" font-size="72" font-weight="800" text-anchor="middle">FESTIVAL</text>
+  <text x="400" y="420" fill="#e9d5ff" font-family="system-ui, sans-serif" font-size="40" text-anchor="middle">multi-day lineup</text>
+  <line x1="200" y1="540" x2="600" y2="540" stroke="#a855f7" stroke-width="3"/>
+  <text x="400" y="640" fill="#d8b4fe" font-family="system-ui, sans-serif" font-size="30" text-anchor="middle">headliner · sub-headliner</text>
+  <text x="400" y="700" fill="#d8b4fe" font-family="system-ui, sans-serif" font-size="30" text-anchor="middle">mid-card · undercard · local</text>
+  <text x="400" y="900" fill="#c084fc" font-family="system-ui, sans-serif" font-size="26" text-anchor="middle">seed placeholder</text>
+</svg>

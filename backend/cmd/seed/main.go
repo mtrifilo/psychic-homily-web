@@ -179,6 +179,11 @@ func main() {
 	fmt.Println("Seeding test users...")
 	usersCreated := seedTestUsers(db)
 
+	// Seed rich exemplars (PSY-665) — one entity per type with every optional
+	// field populated, plus the PSY-657 social:{} canary. Runs LAST because it
+	// depends on the admin user existing (tag/collection FKs are NOT NULL).
+	seedRichExemplars(db)
+
 	fmt.Printf("Database seeding completed!\n")
 	fmt.Printf("Summary: %d venues, %d artists, %d labels, %d releases, %d/%d shows, %d radio stations, %d radio shows, %d users\n",
 		len(venues), len(artists), labelsCreated, releasesCreated, successCount, showCount, stationsCreated, radioShowsCreated, usersCreated)
