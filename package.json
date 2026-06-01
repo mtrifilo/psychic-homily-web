@@ -6,8 +6,5 @@
     "discovery": "cd discovery && bun run dev",
     "test-all": "cd scripts/test-runner && go run .",
     "db:migrate": "docker compose -f backend/docker-compose.yml --env-file backend/.env.development run --rm migrate"
-  },
-  "dependencies": {
-    "vercel": "^54.6.1"
   }
 }
