@@ -60,10 +60,20 @@ export default function assert(output: string, context: AssertContext): GradingR
   }
 
   const expectedVar = context.vars.expected_json;
-  const expected: BatchItem[] =
-    typeof expectedVar === "string" ? JSON.parse(expectedVar) : (expectedVar ?? []);
-  if (expected.length === 0) {
-    return { pass: false, score: 0, reason: "No expected_json provided to assertion" };
+  let expected: BatchItem[];
+  try {
+    expected = typeof expectedVar === "string" ? JSON.parse(expectedVar) : (expectedVar ?? []);
+  } catch (err) {
+    // A misconfigured fixture (expected_json not valid JSON) is a harness error,
+    // not a model failure — surface it clearly rather than crashing the run.
+    return {
+      pass: false,
+      score: 0,
+      reason: `expected_json is not valid JSON — check the fixture wiring: ${(err as Error).message}`,
+    };
+  }
+  if (!Array.isArray(expected) || expected.length === 0) {
+    return { pass: false, score: 0, reason: "No expected_json array provided to assertion" };
   }
 
   const schemaValid = getSchemaValidator()(actual);
