@@ -323,4 +323,23 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
     await waitFor(() => expect(window.sessionStorage.getItem('ph-geo-default-city')).not.toBeNull())
     expect(onSeed).not.toHaveBeenCalled()
   })
+
+  it('ignores a malformed cached value without crashing (defensive shape check)', () => {
+    // A non-string city would throw on .trim() in geoCityWithShows if it
+    // reached reconciliation. The shape check coerces it to null instead.
+    window.sessionStorage.setItem(
+      'ph-geo-default-city',
+      JSON.stringify({ geo: { city: 123, state: 'AZ' } }),
+    )
+    const fetchSpy = mockGeoFetch({ city: 'Omaha', state: 'NE' })
+    const onSeed = vi.fn()
+    expect(() =>
+      renderHook(() =>
+        useGeoDefaultCity(baseParams({ enableClientFetch: true, onSeed })),
+      ),
+    ).not.toThrow()
+    // Cache hit short-circuits the fetch; the malformed value yields no seed.
+    expect(fetchSpy).not.toHaveBeenCalled()
+    expect(onSeed).not.toHaveBeenCalled()
+  })
 })

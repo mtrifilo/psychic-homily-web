@@ -44,6 +44,21 @@ interface GeoApiResponse {
   geo: CityState | null
 }
 
+/**
+ * Narrow an arbitrary parsed value to a `CityState` (two non-empty string
+ * halves), else null. Defensive: the only writer of the cache / the route
+ * handler always emits this shape, but a malformed value (corrupted
+ * sessionStorage, a future route-handler change) must not reach
+ * `geoCityWithShows`, where `.trim()` on a non-string would throw mid-render.
+ */
+function toCityState(value: unknown): CityState | null {
+  if (typeof value !== 'object' || value === null) return null
+  const { city, state } = value as Record<string, unknown>
+  if (typeof city !== 'string' || typeof state !== 'string') return null
+  if (city.trim() === '' || state.trim() === '') return null
+  return { city, state }
+}
+
 interface UseGeoDefaultCityParams {
   /** Cities that currently have shows (from `useShowCities`); the has-shows gate. */
   cities: CityWithCount[]
@@ -120,7 +135,7 @@ function useGeoSource(
       const cached = window.sessionStorage.getItem(GEO_CACHE_KEY)
       if (cached !== null) {
         const parsed = JSON.parse(cached) as GeoApiResponse
-        setFetched(parsed.geo ?? null)
+        setFetched(toCityState(parsed?.geo))
         return
       }
     } catch {
@@ -132,7 +147,7 @@ function useGeoSource(
       .then(res => (res.ok ? (res.json() as Promise<GeoApiResponse>) : null))
       .then(body => {
         if (cancelled) return
-        const geo = body?.geo ?? null
+        const geo = toCityState(body?.geo)
         setFetched(geo)
         try {
           window.sessionStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ geo }))
