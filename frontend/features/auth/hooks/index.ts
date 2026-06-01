@@ -34,6 +34,9 @@ export {
 
 export { useSetFavoriteCities } from './useFavoriteCities'
 
+export { useSetTierEditNotificationPreference } from './useTierEditNotificationPreference'
+export type { TierEditNotificationUpdate } from './useTierEditNotificationPreference'
+
 export {
   useFavoriteVenues,
   useIsVenueFavorited,

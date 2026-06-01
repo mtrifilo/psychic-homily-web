@@ -1,6 +1,9 @@
 'use client'
 
-import { useProfile } from '@/features/auth'
+import {
+  useProfile,
+  useSetTierEditNotificationPreference,
+} from '@/features/auth'
 import { useSetShowReminders } from '@/features/shows'
 import { useSetCollectionDigestPreference } from '@/features/collections'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -18,16 +21,25 @@ import { Bell, Loader2 } from 'lucide-react'
  *   - Weekly collection digest (PSY-350 / PSY-515): batched email of new
  *     items in collections you follow. Server default is OFF (opt-IN); the
  *     UI shows the unchecked Switch until the user enables it.
+ *   - Tier-change + edit-review emails (PSY-756 / PSY-807): per-category
+ *     opt-OUT. Server default is ON for both, so an undefined preference
+ *     renders the Switch checked until the user opts out.
  */
 export function NotificationSettings() {
   const { data: profileData } = useProfile()
   const setShowReminders = useSetShowReminders()
   const setCollectionDigest = useSetCollectionDigestPreference()
+  const setTierEditNotifications = useSetTierEditNotificationPreference()
 
   const showRemindersEnabled =
     profileData?.user?.preferences?.show_reminders ?? false
   const collectionDigestEnabled =
     profileData?.user?.preferences?.notify_on_collection_digest ?? false
+  // Opt-OUT: default to ON when the server hasn't sent an explicit value.
+  const tierNotificationsEnabled =
+    profileData?.user?.preferences?.notify_on_tier_notifications ?? true
+  const editNotificationsEnabled =
+    profileData?.user?.preferences?.notify_on_edit_notifications ?? true
 
   const handleShowRemindersToggle = (checked: boolean) => {
     setShowReminders.mutate(checked)
@@ -35,6 +47,14 @@ export function NotificationSettings() {
 
   const handleCollectionDigestToggle = (checked: boolean) => {
     setCollectionDigest.mutate(checked)
+  }
+
+  const handleTierNotificationsToggle = (checked: boolean) => {
+    setTierEditNotifications.mutate({ notify_on_tier_notifications: checked })
+  }
+
+  const handleEditNotificationsToggle = (checked: boolean) => {
+    setTierEditNotifications.mutate({ notify_on_edit_notifications: checked })
   }
 
   return (
@@ -45,8 +65,8 @@ export function NotificationSettings() {
           <CardTitle>Notifications</CardTitle>
         </div>
         <CardDescription>
-          Control how you&apos;re notified about upcoming shows and your
-          collections
+          Control how you&apos;re notified about upcoming shows, your
+          collections, and your contributions
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
@@ -103,6 +123,63 @@ export function NotificationSettings() {
             </div>
           </div>
           {setCollectionDigest.isError && (
+            <p className="mt-2 text-sm text-destructive">
+              Failed to update setting. Please try again.
+            </p>
+          )}
+        </div>
+
+        {/* Tier-change emails (PSY-756 / PSY-807) */}
+        <div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="tier-notifications">Tier-change emails</Label>
+              <p className="text-sm text-muted-foreground">
+                Get an email when your contributor tier changes (promotion,
+                demotion, or an at-risk warning).
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {setTierEditNotifications.isPending && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+              <Switch
+                id="tier-notifications"
+                checked={tierNotificationsEnabled}
+                onCheckedChange={handleTierNotificationsToggle}
+                disabled={setTierEditNotifications.isPending}
+              />
+            </div>
+          </div>
+          {setTierEditNotifications.isError && (
+            <p className="mt-2 text-sm text-destructive">
+              Failed to update setting. Please try again.
+            </p>
+          )}
+        </div>
+
+        {/* Edit-review emails (PSY-756 / PSY-807) */}
+        <div>
+          <div className="flex items-center justify-between">
+            <div className="space-y-0.5">
+              <Label htmlFor="edit-notifications">Edit-review emails</Label>
+              <p className="text-sm text-muted-foreground">
+                Get an email when your submitted edits are approved or rejected.
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              {setTierEditNotifications.isPending && (
+                <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
+              )}
+              <Switch
+                id="edit-notifications"
+                checked={editNotificationsEnabled}
+                onCheckedChange={handleEditNotificationsToggle}
+                disabled={setTierEditNotifications.isPending}
+              />
+            </div>
+          </div>
+          {setTierEditNotifications.isError && (
             <p className="mt-2 text-sm text-destructive">
               Failed to update setting. Please try again.
             </p>

@@ -63,6 +63,11 @@ interface UserPreferencesData {
   // follows. Server default is FALSE (opt-IN); user toggles this from the
   // notification settings page.
   notify_on_collection_digest?: boolean
+  // PSY-756 / PSY-807: per-category opt-OUT for tier-change and edit-review
+  // emails. Server default is TRUE (opt-OUT) for both; the UI treats an
+  // undefined value as ON to match that default.
+  notify_on_tier_notifications?: boolean
+  notify_on_edit_notifications?: boolean
 }
 
 interface UserProfile {
