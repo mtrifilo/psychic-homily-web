@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://psychichomily.com/schemas/ingest-batch.json",
   "title": "Ingest Batch Output",
-  "description": "Shape of the batch JSON the /ingest extraction step must produce. This is the contract the `ph batch` command consumes (see cli/src/commands/batch.ts and cli/src/lib/schemas.ts). The eval harness validates extraction output against this schema; the /ingest skill produces it. ONE source of truth.",
+  "description": "Shape of the batch JSON the /ingest extraction step must produce. This is the contract the `ph batch` command consumes (see cli/src/commands/batch.ts and cli/src/lib/schemas.ts). The eval harness validates extraction output against this schema; the /ingest skill produces it. ONE source of truth. Unknown/extra fields are permitted (additionalProperties: true) because the CLI's validators only check required fields — a model output with harmless extra fields (e.g. city/state on a festival venue reference) is accepted by `ph batch` and must not fail the eval's schema gate.",
   "type": "array",
   "minItems": 1,
   "items": {
@@ -29,7 +29,7 @@
               "enum": ["genre", "locale", "mood", "era", "style", "instrument", "other"]
             }
           },
-          "additionalProperties": false
+          "additionalProperties": true
         }
       ]
     },
@@ -47,7 +47,7 @@
         "website": { "type": "string" },
         "tags": { "type": "array", "items": { "$ref": "#/definitions/tag" } }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "venue": {
       "type": "object",
@@ -62,7 +62,7 @@
         "website": { "type": "string" },
         "tags": { "type": "array", "items": { "$ref": "#/definitions/tag" } }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "show": {
       "type": "object",
@@ -85,7 +85,7 @@
               "name": { "type": "string", "minLength": 1 },
               "is_headliner": { "type": "boolean" }
             },
-            "additionalProperties": false
+            "additionalProperties": true
           }
         },
         "venues": {
@@ -99,11 +99,11 @@
               "city": { "type": "string" },
               "state": { "type": "string" }
             },
-            "additionalProperties": false
+            "additionalProperties": true
           }
         }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "release": {
       "type": "object",
@@ -123,7 +123,7 @@
             "type": "object",
             "required": ["name"],
             "properties": { "name": { "type": "string", "minLength": 1 } },
-            "additionalProperties": false
+            "additionalProperties": true
           }
         },
         "external_links": {
@@ -135,12 +135,12 @@
               "platform": { "type": "string" },
               "url": { "type": "string" }
             },
-            "additionalProperties": false
+            "additionalProperties": true
           }
         },
         "tags": { "type": "array", "items": { "$ref": "#/definitions/tag" } }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "label": {
       "type": "object",
@@ -155,7 +155,7 @@
         "bandcamp": { "type": "string" },
         "tags": { "type": "array", "items": { "$ref": "#/definitions/tag" } }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     },
     "festival": {
       "type": "object",
@@ -192,7 +192,7 @@
               "stage": { "type": "string" },
               "set_time": { "type": "string" }
             },
-            "additionalProperties": false
+            "additionalProperties": true
           }
         },
         "venues": {
@@ -204,12 +204,12 @@
               "name": { "type": "string", "minLength": 1 },
               "is_primary": { "type": "boolean" }
             },
-            "additionalProperties": false
+            "additionalProperties": true
           }
         },
         "tags": { "type": "array", "items": { "$ref": "#/definitions/tag" } }
       },
-      "additionalProperties": false
+      "additionalProperties": true
     }
   }
 }
