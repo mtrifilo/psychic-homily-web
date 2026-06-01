@@ -322,11 +322,19 @@ export const ROTATION_STATUS_LABELS: Record<string, string> = {
   library: 'Library',
 }
 
+/**
+ * Rotation-status tint, bound to the DS categorical palette (PSY-943). The
+ * tokens map to a rough play-intensity gradient — heavy = chart-1 (orange,
+ * hottest), medium = chart-3 (gold), light = chart-6 (denim, cooler),
+ * recommended_new = chart-2 (green, "fresh"), library = muted (archival).
+ * `--chart-4` (== --destructive) is intentionally avoided: a red rotation
+ * pill would read as an error, not "heavy rotation".
+ */
 export const ROTATION_STATUS_COLORS: Record<string, string> = {
-  heavy: 'bg-red-500/15 text-red-400 border-red-500/20',
-  medium: 'bg-orange-500/15 text-orange-400 border-orange-500/20',
-  light: 'bg-blue-500/15 text-blue-400 border-blue-500/20',
-  recommended_new: 'bg-green-500/15 text-green-400 border-green-500/20',
+  heavy: 'bg-chart-1/15 text-chart-1 border-chart-1/20',
+  medium: 'bg-chart-3/15 text-chart-3 border-chart-3/20',
+  light: 'bg-chart-6/15 text-chart-6 border-chart-6/20',
+  recommended_new: 'bg-chart-2/15 text-chart-2 border-chart-2/20',
   library: 'bg-muted text-muted-foreground border-border',
 }
 

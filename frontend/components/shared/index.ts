@@ -8,6 +8,11 @@ export { TagPill } from './TagPill'
 export type { TagPillProps } from './TagPill'
 export { RelationshipBadge } from './RelationshipBadge'
 export type { RelationshipBadgeProps, RelationshipType } from './RelationshipBadge'
+export {
+  EntityTypeBadge,
+  getEntityTypeBadgeClasses,
+} from './EntityTypeBadge'
+export type { EntityTypeBadgeProps } from './EntityTypeBadge'
 export { DensityToggle } from './DensityToggle'
 export type { DensityToggleProps } from './DensityToggle'
 export { EntityDetailLayout } from './EntityDetailLayout'

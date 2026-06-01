@@ -348,11 +348,18 @@ export interface GenreHierarchyNode extends GenreHierarchyTag {
   parent_name?: string | null
 }
 
+/**
+ * Tag-category tint, bound to the DS categorical palette (PSY-943). Replaces
+ * the raw blue/cyan/zinc hues that drifted off the newsprint/vinyl theme.
+ * Three categories → three distinct-but-muted tokens: genre = chart-6 (denim),
+ * locale = chart-8 (teal), other = muted (the neutral catch-all). The token
+ * tints track light/dark automatically via the CSS cascade.
+ */
 export function getCategoryColor(category: string): string {
   const colors: Record<string, string> = {
-    genre: 'bg-blue-500/10 text-blue-400 border-blue-500/20',
-    locale: 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20',
-    other: 'bg-zinc-500/10 text-zinc-400 border-zinc-500/20',
+    genre: 'bg-chart-6/10 text-chart-6 border-chart-6/20',
+    locale: 'bg-chart-8/10 text-chart-8 border-chart-8/20',
+    other: 'bg-muted text-muted-foreground border-border',
   }
   return colors[category] || colors.other
 }

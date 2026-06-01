@@ -69,12 +69,18 @@ function StatusBadge({ status }: { status: StreamingWorklistEntry['streaming_dis
   // Only non-terminal values appear in the list response, but the type
   // allows the full enum so the badge stays correct if a backend tweak
   // ever widens what's surfaced.
+  //
+  // Bound to the DS categorical palette (`--chart-*`, PSY-943) instead of the
+  // prior dark-only amber/blue/green/zinc hues. Hue follows the triage flow:
+  // unreviewed = chart-3 (gold, needs attention), candidates_pending =
+  // chart-6 (denim, active), linked = chart-2 (green, done), the two terminal
+  // dead-ends (no_links_found / skipped) = muted.
   const palette: Record<typeof status, string> = {
-    unreviewed: 'border-amber-700/50 bg-amber-950/40 text-amber-300',
-    candidates_pending: 'border-blue-700/50 bg-blue-950/40 text-blue-300',
-    linked: 'border-green-700/50 bg-green-950/40 text-green-300',
-    no_links_found: 'border-zinc-600/40 bg-zinc-900/40 text-zinc-300',
-    skipped: 'border-zinc-600/40 bg-zinc-900/40 text-zinc-300',
+    unreviewed: 'border-chart-3/30 bg-chart-3/15 text-chart-3',
+    candidates_pending: 'border-chart-6/30 bg-chart-6/15 text-chart-6',
+    linked: 'border-chart-2/30 bg-chart-2/15 text-chart-2',
+    no_links_found: 'border-border bg-muted text-muted-foreground',
+    skipped: 'border-border bg-muted text-muted-foreground',
   }
   const labels: Record<typeof status, string> = {
     unreviewed: 'Unreviewed',

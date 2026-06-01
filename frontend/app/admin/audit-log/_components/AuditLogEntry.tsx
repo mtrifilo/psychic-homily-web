@@ -16,6 +16,14 @@ interface AuditLogEntryProps {
   entry: AuditLogEntryType
 }
 
+/**
+ * Audit-log action → icon color, bound to the DS palette (PSY-943). Semantics
+ * drive the hue: approvals/resolutions = chart-2 (green), rejections =
+ * destructive (red), verify = chart-6 (denim), flagged-resolution = chart-3
+ * (gold, a warning tone), dismissals = muted. The token colors track
+ * light/dark via the CSS cascade, so the prior hand-tuned `dark:` pairs are
+ * gone. These are icon tints only (no badge background).
+ */
 const ACTION_CONFIG: Record<
   string,
   { label: string; icon: React.ReactNode; color: string }
@@ -23,27 +31,27 @@ const ACTION_CONFIG: Record<
   approve_show: {
     label: 'Approved show',
     icon: <CheckCircle className="h-4 w-4" />,
-    color: 'text-green-600 dark:text-green-400',
+    color: 'text-chart-2',
   },
   reject_show: {
     label: 'Rejected show',
     icon: <XCircle className="h-4 w-4" />,
-    color: 'text-red-600 dark:text-red-400',
+    color: 'text-destructive',
   },
   verify_venue: {
     label: 'Verified venue',
     icon: <BadgeCheck className="h-4 w-4" />,
-    color: 'text-blue-600 dark:text-blue-400',
+    color: 'text-chart-6',
   },
   approve_venue_edit: {
     label: 'Approved venue edit',
     icon: <FileEdit className="h-4 w-4" />,
-    color: 'text-green-600 dark:text-green-400',
+    color: 'text-chart-2',
   },
   reject_venue_edit: {
     label: 'Rejected venue edit',
     icon: <XCircle className="h-4 w-4" />,
-    color: 'text-red-600 dark:text-red-400',
+    color: 'text-destructive',
   },
   dismiss_report: {
     label: 'Dismissed report',
@@ -53,12 +61,12 @@ const ACTION_CONFIG: Record<
   resolve_report: {
     label: 'Resolved report',
     icon: <CheckCircle className="h-4 w-4" />,
-    color: 'text-green-600 dark:text-green-400',
+    color: 'text-chart-2',
   },
   resolve_report_with_flag: {
     label: 'Resolved report (flagged show)',
     icon: <Flag className="h-4 w-4" />,
-    color: 'text-amber-600 dark:text-amber-400',
+    color: 'text-chart-3',
   },
 }
 
