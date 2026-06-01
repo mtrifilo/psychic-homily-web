@@ -653,7 +653,11 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_F
 	}
 }
 
-func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_IncludedInAllTypes() {
+// TestGetArtistGraph_FestivalCobill_ExcludedFromDefault asserts the PSY-954
+// opt-in semantics: an empty types filter returns STORED types only and must
+// NOT auto-include the query-time festival_cobill signal. Requesting it
+// explicitly (alone or alongside stored types) still returns it.
+func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_ExcludedFromDefault() {
 	a1 := suite.createArtist("Center")
 	a2 := suite.createArtist("Festival peer")
 
@@ -669,13 +673,14 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_F
 	_, err := suite.svc.CreateRelationship(a1, a2, "similar", false)
 	suite.Require().NoError(err)
 
-	// Empty types = include all (stored + query-time).
-	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	// Empty types = STORED types only (PSY-954). festival_cobill is opt-in
+	// and must be absent; the stored 'similar' edge must still be present.
+	defaultGraph, err := suite.svc.GetArtistGraph(a1, nil, 0)
 	suite.Require().NoError(err)
 
 	hasFestivalCobill := false
 	hasSimilar := false
-	for _, l := range graph.Links {
+	for _, l := range defaultGraph.Links {
 		if l.Type == "festival_cobill" {
 			hasFestivalCobill = true
 		}
@@ -683,8 +688,25 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_F
 			hasSimilar = true
 		}
 	}
-	suite.Assert().True(hasFestivalCobill, "festival_cobill edge should be present when types is empty")
-	suite.Assert().True(hasSimilar, "similar edge should be present when types is empty")
+	suite.Assert().False(hasFestivalCobill, "festival_cobill must be absent on a default (empty-types) graph — it is opt-in (PSY-954)")
+	suite.Assert().True(hasSimilar, "stored 'similar' edge must still be present on a default graph")
+
+	// Explicit opt-in: festival_cobill alongside the stored type returns both.
+	optInGraph, err := suite.svc.GetArtistGraph(a1, []string{"similar", "festival_cobill"}, 0)
+	suite.Require().NoError(err)
+
+	hasFestivalCobill = false
+	hasSimilar = false
+	for _, l := range optInGraph.Links {
+		if l.Type == "festival_cobill" {
+			hasFestivalCobill = true
+		}
+		if l.Type == "similar" {
+			hasSimilar = true
+		}
+	}
+	suite.Assert().True(hasFestivalCobill, "festival_cobill must be present when explicitly requested")
+	suite.Assert().True(hasSimilar, "stored 'similar' edge must be present alongside an explicit festival_cobill request")
 }
 
 func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_FestivalCobill_NoSharedFestivals() {
@@ -728,7 +750,9 @@ func (suite *ArtistRelationshipServiceIntegrationTestSuite) TestGetArtistGraph_F
 	_, err = suite.svc.CreateRelationship(a1, a3, "similar", false)
 	suite.Require().NoError(err)
 
-	graph, err := suite.svc.GetArtistGraph(a1, nil, 0)
+	// festival_cobill is opt-in (PSY-954), so request it explicitly to get
+	// the cross-edge between the two related peers.
+	graph, err := suite.svc.GetArtistGraph(a1, []string{"similar", "festival_cobill"}, 0)
 	suite.Require().NoError(err)
 
 	// Find the festival_cobill cross edge between a2 and a3.

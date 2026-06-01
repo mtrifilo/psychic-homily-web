@@ -48,6 +48,26 @@ const RELATIONSHIP_BADGES: Record<string, { label: string; className: string }> 
 
 const ALL_TYPES = ['similar', 'shared_bills', 'shared_label', 'side_project', 'member_of', 'radio_cooccurrence', 'festival_cobill']
 
+// PSY-954: festival_cobill is a query-time signal the backend now treats as
+// strictly opt-in — an empty `types` filter returns STORED types only. Sharing
+// one festival lineup says nothing about musical similarity, so it must never
+// seed the default graph view (it floods the graph into an unreadable hairball).
+// It stays toggleable in the graph dialog, but starts OFF.
+const FESTIVAL_COBILL_TYPE = 'festival_cobill'
+
+// The STORED relationship types — everything except the query-time
+// festival_cobill signal. Two uses, hence two aliases below:
+//   - as DEFAULT_ACTIVE_TYPES: the toggles active on open (festival starts off)
+//   - as the fetch payload when opting into festival_cobill: we fetch these
+//     PLUS festival_cobill so the stored relationships keep loading alongside
+//     the festival edges (passing festival_cobill alone would make the backend
+//     skip the stored-rels query entirely).
+const STORED_TYPES = ALL_TYPES.filter(t => t !== FESTIVAL_COBILL_TYPE)
+
+// Toggles active by default = the stored types only. festival_cobill is opt-in
+// (toggle starts off; turning it on lazy-fetches the festival edges).
+const DEFAULT_ACTIVE_TYPES = STORED_TYPES
+
 // PSY-361: URL query param that encodes the currently re-centered artist's
 // slug. Absent means the route's original artist is the center. Stored as a
 // slug (not an ID) so links are human-readable and shareable.
@@ -192,7 +212,9 @@ export function ArtistGraphDialog({
   // Filter + traversal state lives per-viewing-session in the Dialog.
   // Trail / slug→id cache are reset each time the parent unmounts the
   // Dialog (Radix lazy-mounts DialogContent under `open`).
-  const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(ALL_TYPES))
+  // PSY-954: default-active set excludes festival_cobill (opt-in). Turning the
+  // festival toggle on lazy-fetches the festival edges (see RecenteringGraph).
+  const [activeTypes, setActiveTypes] = useState<Set<string>>(new Set(DEFAULT_ACTIVE_TYPES))
   const [trail, setTrail] = useState<TraversalEntry[]>([])
   const [slugToIdCache, setSlugToIdCache] = useState<Record<string, number>>({})
   const [announcement, setAnnouncement] = useState('')
@@ -340,6 +362,26 @@ function RecenteringGraph({
     ? originalArtistId
     : (cachedId ?? resolvedArtist?.id ?? 0)
 
+  // PSY-954: festival_cobill is a LAZY opt-in fetch. The backend returns it
+  // only when explicitly requested in `types`; an empty filter = stored types
+  // only. So the fetch `types` depends solely on whether the festival toggle
+  // is on:
+  //   - off → fetch default (no `types`) = all stored types. The non-festival
+  //     toggles stay purely client-side display filters over this payload
+  //     (ArtistGraphVisualization filters links by activeTypes), so toggling
+  //     them never refetches.
+  //   - on  → fetch STORED_TYPES + festival_cobill, so the stored relationships
+  //     keep loading alongside the festival edges (festival_cobill alone would
+  //     make the backend skip the stored-rels query entirely).
+  // useArtistGraph keys its query on `types`, so flipping the festival toggle
+  // changes the queryKey → triggers the refetch with no setState-in-effect
+  // (React 19.2 react-hooks/set-state-in-effect, PSY-919).
+  const wantFestival = activeTypes.has(FESTIVAL_COBILL_TYPE)
+  const fetchTypes = useMemo(
+    () => (wantFestival ? [...STORED_TYPES, FESTIVAL_COBILL_TYPE] : undefined),
+    [wantFestival]
+  )
+
   // Fetch the graph for the current center. Same hook, just dynamic ID.
   // The 5-min staleTime in the hook + TanStack Query's keyed cache means
   // we don't refetch when the user clicks back to a previously-visited
@@ -347,6 +389,7 @@ function RecenteringGraph({
   // instant.
   const { data: graph, isFetching: fetchingGraph } = useArtistGraph({
     artistId: centerId,
+    types: fetchTypes,
     enabled: centerId > 0,
   })
 
@@ -546,8 +589,12 @@ function RecenteringGraph({
         {ALL_TYPES.map(type => {
           const badge = RELATIONSHIP_BADGES[type]
           const isActive = activeTypes.has(type)
-          // Only show toggle if this type exists in the current graph.
-          if (!linkTypesPresent.has(type)) return null
+          // PSY-954: festival_cobill always renders — it's the opt-in entry
+          // point and won't be present in the default (stored-only) payload, so
+          // present-gating it would hide the only way to turn it on. The other
+          // (stored) toggles stay present-gated: only show a toggle for a type
+          // that actually appears in the current graph.
+          if (type !== FESTIVAL_COBILL_TYPE && !linkTypesPresent.has(type)) return null
           return (
             <button
               key={type}
