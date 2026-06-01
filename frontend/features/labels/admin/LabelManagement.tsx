@@ -388,12 +388,12 @@ export function CreateLabelForm({
 // Edit Label Form
 // ============================================================================
 
-// Owns the single AdminFormLayout Sheet. Per the PSY-930 decision the Sheet
-// opens immediately on click; while the label detail loads we render the SAME
-// <AdminFormLayout> with a spinner body (so React keeps one Sheet mounted
-// across the loading->loaded swap), then mount EditLabelFormFields with
-// `key={label.id}` so a switch-label-without-closing-dialog scenario remounts
-// with fresh state. The inner component initializes local state from props
+// Per the PSY-930 decision the Edit Sheet opens immediately on click: while the
+// label detail loads this wrapper renders an AdminFormLayout (open) with a
+// spinner body — `open` stays true throughout, so the Sheet stays open — then
+// swaps to EditLabelFormFields (keyed on label.id, so a
+// switch-label-without-closing-dialog scenario remounts with fresh state) once
+// the detail resolves. The inner component initializes local state from props
 // inline (React's preferred "calculate during render" path — see
 // https://react.dev/learn/you-might-not-need-an-effect). No useEffect, no
 // `initialized` ratchet.

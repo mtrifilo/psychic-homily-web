@@ -335,9 +335,9 @@ export function CreateStationForm({
 // Migrated to AdminFormLayout (Sheet) in PSY-930. The station detail loads
 // async (useRadioStationDetail), so per the PSY-930 decision the Sheet opens
 // IMMEDIATELY on click and shows a spinner in the body until the detail
-// resolves, then the fields populate — "state-init-on-async-load inside one
-// AdminFormLayout" (not render-when-loaded). EditStationFormFields owns the
-// single AdminFormLayout and the field state; the wrapper just gates loading.
+// resolves, then the fields populate (not render-when-the-whole-thing-loads).
+// EditStationFormFields owns the AdminFormLayout and the field state;
+// EditStationFormWrapper gates loading vs loaded.
 
 // Exported only for direct regression-test access (rerender-with-different-key
 // resets fields; rerender-with-same-key preserves dirty edits). Production
@@ -1796,7 +1796,7 @@ export function RadioManagement() {
             open={dialogMode === 'delete-station'}
             onOpenChange={(open) => !open && setDialogMode(null)}
             title="Delete Station"
-            description={`Are you sure you want to delete "${selectedStation?.name ?? ''}"? This will also delete all shows, episodes, and plays. This action cannot be undone.`}
+            description="This action is permanent and cannot be undone."
             onSubmit={(e) => {
               e.preventDefault()
               if (selectedStation) handleDeleteStation(selectedStation)
@@ -1813,7 +1813,10 @@ export function RadioManagement() {
               </>
             }
           >
-            {null}
+            <p className="text-sm text-muted-foreground">
+              Are you sure you want to delete &quot;{selectedStation?.name}&quot;? This will
+              also delete all shows, episodes, and plays. This action cannot be undone.
+            </p>
           </AdminFormLayout>
         </TabsContent>
 
@@ -1910,12 +1913,11 @@ export function RadioManagement() {
 // Edit Station Form Wrapper (loads station detail)
 // ============================================================================
 
-// Owns the single AdminFormLayout Sheet. Per the PSY-930 decision the Sheet
-// opens immediately on click; while the station detail loads we render the
-// SAME <AdminFormLayout> with a spinner body (so React keeps one Sheet mounted
-// across the loading->loaded swap — no flicker), then mount
-// EditStationFormFields with `key={station.id}` so the fields initialize from
-// the resolved detail.
+// Per the PSY-930 decision the Edit Station Sheet opens immediately on click:
+// while the station detail loads this wrapper renders an AdminFormLayout (open)
+// with a spinner body — `open` stays true throughout, so the Sheet stays open
+// — then swaps to EditStationFormFields (keyed on station.id) once the detail
+// resolves, initializing the fields from it.
 function EditStationFormWrapper({
   stationId,
   open,
