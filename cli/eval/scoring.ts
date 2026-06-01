@@ -63,7 +63,15 @@ function itemsOfType(batch: BatchItem[], type: string): BatchItem[] {
   return batch.filter((x) => x.entity_type === type);
 }
 
-/** Score a single entity type (artist/venue) by name-set recall and false positives. */
+/**
+ * Score a single entity type (artist/venue) by name-set recall and false positives.
+ *
+ * Names are matched on a normalized key (case/whitespace-insensitive), so two
+ * golden entries that normalize to the same key collapse to one — `expected`
+ * counts UNIQUE normalized names, not raw rows. Today's fixtures have no such
+ * collisions; if a future fixture has a legitimately duplicated name, count it
+ * once in the golden or this metric will report fewer expected than rows.
+ */
 export function scoreEntitySet(
   expected: BatchItem[],
   actual: BatchItem[],
