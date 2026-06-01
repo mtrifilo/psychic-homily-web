@@ -42,13 +42,15 @@ import {
 } from '../hooks'
 import {
   getEntityTypeLabel,
+  getEntityTypeArticle,
   getEntityTypeColor,
   getStatusLabel,
   getStatusColor,
-  getEntityUrl,
+  getEntityUrlBySlug,
   formatTimeAgo,
   formatDate,
 } from '../types'
+import { FulfillmentEntityPicker } from './FulfillmentEntityPicker'
 
 interface RequestDetailProps {
   requestId: number
@@ -68,6 +70,10 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
 
   const [isEditing, setIsEditing] = useState(false)
   const [isRejectModalOpen, setIsRejectModalOpen] = useState(false)
+  // PSY-917: the "Propose a fulfillment" picker dialog. Proposing requires
+  // naming a concrete entity, so the button opens this picker rather than
+  // submitting directly.
+  const [isProposeModalOpen, setIsProposeModalOpen] = useState(false)
 
   if (isLoading) {
     return (
@@ -133,6 +139,21 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
   // original requester or an admin, and only when one is pending review.
   const canReviewFulfillment =
     request.status === 'pending_fulfillment' && (isRequester || isAdmin)
+
+  // PSY-917: the linkable identity of the entity this request references. The
+  // requests table reuses requested_entity_id for both the originally-requested
+  // entity and (after a proposal) the fulfiller's proposed entity; the backend
+  // resolves it to a slug + name on the detail fetch. `url` is null when no
+  // slug resolved (entity has no slug / was deleted) so callers suppress the
+  // link rather than emit a dead /type/<id> href. Single-sourced so the main
+  // entity-link block and the review panel can't drift.
+  const proposedEntityUrl = getEntityUrlBySlug(
+    request.entity_type,
+    request.requested_entity_slug
+  )
+  const proposedEntityLabel =
+    request.requested_entity_name ??
+    getEntityTypeLabel(request.entity_type).toLowerCase()
   const canClose = isAdmin && request.status !== 'cancelled' && request.status !== 'fulfilled'
 
   const userVote = request.user_vote ?? 0
@@ -169,8 +190,19 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
     }
   }
 
-  const handleFulfill = () => {
-    fulfillMutation.mutate({ requestId: request.id })
+  // PSY-917: a proposal MUST name a concrete entity (picker is mandatory).
+  // The selected entity id flows through as fulfilled_entity_id; the backend
+  // validates type-match (PSY-748) and any 400 surfaces inline in the picker.
+  const handleProposeFulfillment = (entityId: number) => {
+    fulfillMutation.mutate(
+      { requestId: request.id, fulfilled_entity_id: entityId },
+      { onSuccess: () => setIsProposeModalOpen(false) }
+    )
+  }
+
+  const openProposeModal = () => {
+    fulfillMutation.reset()
+    setIsProposeModalOpen(true)
   }
 
   const handleApprove = () => {
@@ -303,18 +335,33 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     </p>
                   )}
 
-                  {/* Requested entity link */}
-                  {request.requested_entity_id && (
+                  {/*
+                    Linked entity. The requests table reuses requested_entity_id
+                    for BOTH the originally-requested entity AND (after a
+                    proposal) the fulfiller's proposed entity, so the link's
+                    label depends on status: "proposed" while pending review,
+                    "requested" otherwise. We key off the server-resolved slug
+                    (PSY-917) — entity pages route by slug, not id — and render
+                    nothing when the slug is null (entity has no slug / was
+                    deleted) so we never emit a dead link.
+                    Suppressed for the requester/admin while a proposal is under
+                    review: the dedicated review panel below owns the "View
+                    proposed" link for them, so this block would duplicate it.
+                    Every OTHER viewer of a pending_fulfillment request gets the
+                    link here.
+                  */}
+                  {!canReviewFulfillment && proposedEntityUrl && (
                     <div className="mt-4">
                       <Link
-                        href={getEntityUrl(
-                          request.entity_type,
-                          request.requested_entity_id
-                        )}
+                        href={proposedEntityUrl}
                         className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors"
                       >
                         <ExternalLink className="h-3.5 w-3.5" />
-                        View requested {getEntityTypeLabel(request.entity_type).toLowerCase()}
+                        View{' '}
+                        {request.status === 'pending_fulfillment'
+                          ? 'proposed'
+                          : 'requested'}{' '}
+                        {proposedEntityLabel}
                       </Link>
                     </div>
                   )}
@@ -357,13 +404,24 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                         </p>
                       )}
                       {/*
-                        PSY-891: no "view proposed entity" link here yet — the
-                        current "Propose a fulfillment" flow doesn't capture a
-                        distinct entity (it submits without fulfilled_entity_id),
-                        so request.requested_entity_id holds the ORIGINAL request
-                        target, not what the fulfiller proposed. A propose-with-
-                        entity-picker flow is the follow-up (see PSY-891 comment).
+                        PSY-917: the propose flow now captures a concrete entity
+                        (fulfilled_entity_id), stored on the request and resolved
+                        server-side to a slug + name. Surface it as a "View
+                        proposed {entity}" link so the requester can inspect what
+                        was proposed before approving. Suppressed only when the
+                        slug didn't resolve (legacy proposals from before this
+                        shipped carried no entity; entity since deleted).
                       */}
+                      {proposedEntityUrl && (
+                        <Link
+                          href={proposedEntityUrl}
+                          className="mt-2 inline-flex items-center gap-1.5 text-sm text-primary transition-colors hover:text-primary/80"
+                          data-testid="review-panel-proposed-entity-link"
+                        >
+                          <ExternalLink className="h-3.5 w-3.5" />
+                          View proposed {proposedEntityLabel}
+                        </Link>
+                      )}
                       <div className="mt-3 flex items-center gap-2">
                         <Button
                           size="sm"
@@ -418,7 +476,7 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                       </p>
                       <Button
                         size="sm"
-                        onClick={handleFulfill}
+                        onClick={openProposeModal}
                         disabled={fulfillMutation.isPending}
                       >
                         {fulfillMutation.isPending && (
@@ -511,6 +569,40 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
               Reject fulfillment
             </Button>
           </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* PSY-917: propose-fulfillment entity picker. Mandatory entity selection
+          — the request can only enter pending_fulfillment with a concrete
+          proposed entity so the requester's review always has something to
+          inspect. */}
+      <Dialog open={isProposeModalOpen} onOpenChange={setIsProposeModalOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>
+              Propose {getEntityTypeArticle(request.entity_type)}{' '}
+              {getEntityTypeLabel(request.entity_type).toLowerCase()}
+            </DialogTitle>
+            <DialogDescription>
+              Pick the{' '}
+              {getEntityTypeLabel(request.entity_type).toLowerCase()} in the
+              graph that fulfills this request. The requester reviews and
+              approves your proposal.
+            </DialogDescription>
+          </DialogHeader>
+          <FulfillmentEntityPicker
+            entityType={request.entity_type}
+            isSubmitting={fulfillMutation.isPending}
+            submitError={
+              fulfillMutation.error
+                ? fulfillMutation.error instanceof Error
+                  ? fulfillMutation.error.message
+                  : 'Failed to propose a fulfillment'
+                : null
+            }
+            onSubmit={handleProposeFulfillment}
+            onCancel={() => setIsProposeModalOpen(false)}
+          />
         </DialogContent>
       </Dialog>
     </div>

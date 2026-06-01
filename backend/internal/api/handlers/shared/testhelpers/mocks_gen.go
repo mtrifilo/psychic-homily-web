@@ -2718,6 +2718,7 @@ type MockRequestService struct {
 	NotifyRequesterFulfillmentProposedFn func(uint, uint, uint) error
 	CloseRequestFn                       func(uint, uint, bool) error
 	GetUserVoteFn                        func(uint, uint) (*communitym.RequestVote, error)
+	ResolveEntityRefFn                   func(string, uint) (*contracts.EntityRef, error)
 }
 
 func (m *MockRequestService) CreateRequest(userID uint, title string, description string, entityType string, requestedEntityID *uint) (*communitym.Request, error) {
@@ -2812,6 +2813,12 @@ func (m *MockRequestService) CloseRequest(requestID uint, userID uint, isAdmin b
 func (m *MockRequestService) GetUserVote(requestID uint, userID uint) (*communitym.RequestVote, error) {
 	if m.GetUserVoteFn != nil {
 		return m.GetUserVoteFn(requestID, userID)
+	}
+	return nil, nil
+}
+func (m *MockRequestService) ResolveEntityRef(entityType string, entityID uint) (*contracts.EntityRef, error) {
+	if m.ResolveEntityRefFn != nil {
+		return m.ResolveEntityRefFn(entityType, entityID)
 	}
 	return nil, nil
 }

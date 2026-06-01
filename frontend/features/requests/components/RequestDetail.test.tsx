@@ -3,6 +3,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import type { Request } from '../types'
+import type { EntitySearchResults } from '@/lib/hooks/common/useEntitySearch'
 
 // ── Mocks ──────────────────────────────────────────
 
@@ -62,6 +63,38 @@ vi.mock('@/components/shared', () => ({
     ) : (
       <span>{name}</span>
     ),
+  // PSY-917: FulfillmentEntityPicker renders InlineErrorBanner on a search
+  // outage. Provide a passthrough so the picker mounts in these tests.
+  InlineErrorBanner: ({ children }: { children: React.ReactNode }) => (
+    <div role="alert">{children}</div>
+  ),
+}))
+
+// PSY-917: the propose-fulfillment picker reuses the shared entity-search
+// hook. Mock it so the dialog renders deterministically without real network
+// calls — individual tests override the return value to drive results.
+type EntitySearchStub = {
+  data: EntitySearchResults
+  isSearching: boolean
+  searchError: boolean
+}
+const emptyEntitySearchResults: EntitySearchResults = {
+  artists: [],
+  venues: [],
+  shows: [],
+  releases: [],
+  labels: [],
+  festivals: [],
+  tags: [],
+}
+const mockUseEntitySearch = vi.fn<() => EntitySearchStub>(() => ({
+  data: emptyEntitySearchResults,
+  isSearching: false,
+  searchError: false,
+}))
+vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
+  useEntitySearch: () => mockUseEntitySearch(),
+  ENTITY_SEARCH_UNAVAILABLE_MESSAGE: 'Search is temporarily unavailable.',
 }))
 
 // Hooks — query + mutation stubs. The mutation factories are reset per-test
@@ -82,7 +115,13 @@ type MutationStub = {
   isPending: boolean
   isError?: boolean
   error?: Error | null
+  reset?: ReturnType<typeof vi.fn>
 }
+
+// PSY-917: openProposeModal() calls fulfillMutation.reset() to clear stale
+// error state before opening the picker dialog, so the fulfill stub needs a
+// no-op reset. Shared so the factory + beforeEach agree.
+const mockFulfillReset = vi.fn()
 const mockDeleteMutation = vi.fn<() => MutationStub>(() => ({
   mutate: mockDeleteMutate,
   isPending: false,
@@ -98,6 +137,8 @@ const mockRemoveVoteMutation = vi.fn<() => MutationStub>(() => ({
 const mockFulfillMutation = vi.fn<() => MutationStub>(() => ({
   mutate: mockFulfillMutate,
   isPending: false,
+  error: null,
+  reset: mockFulfillReset,
 }))
 const mockApproveMutation = vi.fn<() => MutationStub>(() => ({
   mutate: mockApproveMutate,
@@ -192,6 +233,8 @@ describe('RequestDetail', () => {
     mockFulfillMutation.mockReturnValue({
       mutate: mockFulfillMutate,
       isPending: false,
+      error: null,
+      reset: mockFulfillReset,
     })
     mockApproveMutation.mockReturnValue({
       mutate: mockApproveMutate,
@@ -211,6 +254,11 @@ describe('RequestDetail', () => {
       mutate: mockUpdateMutate,
       isPending: false,
       error: null,
+    })
+    mockUseEntitySearch.mockReturnValue({
+      data: emptyEntitySearchResults,
+      isSearching: false,
+      searchError: false,
     })
   })
 
@@ -276,17 +324,96 @@ describe('RequestDetail', () => {
       expect(screen.getByText('Shoegaze legends.')).toBeInTheDocument()
     })
 
-    it('links to the requested entity when one is attached', () => {
+    it('links to the requested entity by slug when one is attached (PSY-917)', () => {
+      // Entity pages route by slug, not id, so the link must use the
+      // server-resolved requested_entity_slug. The name is the link label.
       mockUseRequest.mockReturnValue(
         queryResult({
-          data: makeRequest({ entity_type: 'artist', requested_entity_id: 99 }),
+          data: makeRequest({
+            entity_type: 'artist',
+            requested_entity_id: 99,
+            requested_entity_slug: 'slowdive',
+            requested_entity_name: 'Slowdive',
+          }),
+        })
+      )
+      render(<RequestDetail requestId={42} />)
+      const link = screen.getByText(/View requested Slowdive/i).closest('a')
+      expect(link).toHaveAttribute('href', '/artists/slowdive')
+    })
+
+    it('suppresses the entity link when no slug resolved (PSY-917)', () => {
+      // A legacy request with only an id (no slug) must NOT render a dead
+      // /artists/<id> link.
+      mockUseRequest.mockReturnValue(
+        queryResult({
+          data: makeRequest({
+            entity_type: 'artist',
+            requested_entity_id: 99,
+            requested_entity_slug: null,
+          }),
+        })
+      )
+      render(<RequestDetail requestId={42} />)
+      expect(screen.queryByText(/View requested/i)).not.toBeInTheDocument()
+    })
+
+    it('shows a "View proposed {entity}" link in the review panel (PSY-917)', () => {
+      // Requester reviewing a pending_fulfillment proposal sees a link to the
+      // proposed entity, keyed off the resolved slug.
+      mockUseRequest.mockReturnValue(
+        queryResult({
+          data: makeRequest({
+            entity_type: 'artist',
+            status: 'pending_fulfillment',
+            fulfiller_name: 'contributor-cara',
+            requested_entity_id: 99,
+            requested_entity_slug: 'slowdive',
+            requested_entity_name: 'Slowdive',
+          }),
         })
       )
       render(<RequestDetail requestId={42} />)
       const link = screen
-        .getByText(/View requested artist/i)
+        .getByTestId('review-panel-proposed-entity-link')
         .closest('a')
-      expect(link).toHaveAttribute('href', '/artists/99')
+      expect(link).toHaveAttribute('href', '/artists/slowdive')
+      expect(link).toHaveTextContent(/View proposed Slowdive/i)
+      // The main entity-link block is suppressed for the requester while the
+      // review panel owns the link — so exactly ONE "View proposed" link
+      // renders, not two.
+      expect(screen.getAllByText(/View proposed Slowdive/i)).toHaveLength(1)
+    })
+
+    it('shows the proposed link in the main block for a non-reviewer (PSY-917)', () => {
+      // A viewer who is NOT the requester/admin sees the proposed entity via
+      // the main block (no review panel for them).
+      mockAuthContext.mockReturnValue({
+        user: { id: '77', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseRequest.mockReturnValue(
+        queryResult({
+          data: makeRequest({
+            entity_type: 'artist',
+            status: 'pending_fulfillment',
+            requester_id: 1,
+            fulfiller_name: 'contributor-cara',
+            requested_entity_id: 99,
+            requested_entity_slug: 'slowdive',
+            requested_entity_name: 'Slowdive',
+          }),
+        })
+      )
+      render(<RequestDetail requestId={42} />)
+      // No review panel for a non-reviewer; the main block carries the link.
+      expect(
+        screen.queryByTestId('review-panel-proposed-entity-link')
+      ).not.toBeInTheDocument()
+      const link = screen.getByText(/View proposed Slowdive/i).closest('a')
+      expect(link).toHaveAttribute('href', '/artists/slowdive')
     })
 
     it('renders fulfillment info for a fulfilled request', () => {
@@ -441,9 +568,8 @@ describe('RequestDetail', () => {
       confirmSpy.mockRestore()
     })
 
-    it('fulfills immediately without a confirm prompt', async () => {
+    it('opens the entity picker instead of submitting immediately (PSY-917)', async () => {
       const user = userEvent.setup()
-      const confirmSpy = vi.spyOn(window, 'confirm')
       mockAuthContext.mockReturnValue({
         user: { id: '99', is_admin: true },
         isAuthenticated: true,
@@ -452,10 +578,107 @@ describe('RequestDetail', () => {
       })
       render(<RequestDetail requestId={42} />)
 
-      await user.click(screen.getByRole('button', { name: /Fulfill/i }))
-      expect(mockFulfillMutate).toHaveBeenCalledWith({ requestId: 42 })
-      expect(confirmSpy).not.toHaveBeenCalled()
-      confirmSpy.mockRestore()
+      // Clicking "Propose a fulfillment" must NOT submit — it opens the
+      // mandatory-entity picker. The mutation only fires after a pick.
+      await user.click(
+        screen.getByRole('button', { name: /Propose a fulfillment/i })
+      )
+      expect(mockFulfillMutate).not.toHaveBeenCalled()
+      expect(
+        screen.getByTestId('fulfillment-entity-picker')
+      ).toBeInTheDocument()
+    })
+
+    it('submits the picked entity id as fulfilled_entity_id (PSY-917)', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '99', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      // One artist result so the picker has something to select.
+      mockUseEntitySearch.mockReturnValue({
+        data: {
+          ...emptyEntitySearchResults,
+          artists: [
+            {
+              id: 555,
+              slug: 'slowdive',
+              name: 'Slowdive',
+              subtitle: 'Reading, UK',
+              entityType: 'artist',
+              href: '/artists/slowdive',
+            },
+          ],
+        },
+        isSearching: false,
+        searchError: false,
+      })
+      render(<RequestDetail requestId={42} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /Propose a fulfillment/i })
+      )
+      // Type to trigger the results render (the picker gates rows behind a
+      // 2-char query even though the hook is mocked).
+      await user.type(
+        screen.getByTestId('fulfillment-entity-picker-search-input'),
+        'slow'
+      )
+      await user.click(screen.getByTestId('fulfillment-entity-picker-result-row'))
+      await user.click(
+        screen.getByTestId('fulfillment-entity-picker-confirm')
+      )
+
+      expect(mockFulfillMutate).toHaveBeenCalledWith(
+        { requestId: 42, fulfilled_entity_id: 555 },
+        expect.objectContaining({ onSuccess: expect.any(Function) })
+      )
+    })
+
+    it('disables the confirm button until an entity is picked (PSY-917)', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '99', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      render(<RequestDetail requestId={42} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /Propose a fulfillment/i })
+      )
+      // Nothing selected yet — confirm is disabled (mandatory picker).
+      expect(
+        screen.getByTestId('fulfillment-entity-picker-confirm')
+      ).toBeDisabled()
+    })
+
+    it('surfaces the backend type-mismatch error inline in the picker (PSY-917)', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '99', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      // Fulfill mutation is in an error state (e.g. PSY-748 400 mismatch).
+      mockFulfillMutation.mockReturnValue({
+        mutate: mockFulfillMutate,
+        isPending: false,
+        error: new Error('Entity type does not match the request'),
+        reset: mockFulfillReset,
+      })
+      render(<RequestDetail requestId={42} />)
+
+      await user.click(
+        screen.getByRole('button', { name: /Propose a fulfillment/i })
+      )
+      expect(
+        screen.getByTestId('fulfillment-entity-picker-submit-error')
+      ).toHaveTextContent('Entity type does not match the request')
     })
 
     it('closes the request after confirmation', async () => {

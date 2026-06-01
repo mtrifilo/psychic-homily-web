@@ -11,10 +11,12 @@ export {
   REQUEST_STATUSES,
   REQUEST_SORT_OPTIONS,
   getEntityTypeLabel,
+  getEntityTypeArticle,
   getStatusLabel,
   getEntityTypeColor,
   getStatusColor,
   getEntityUrl,
+  getEntityUrlBySlug,
   formatTimeAgo,
   formatDate,
 } from './types'
