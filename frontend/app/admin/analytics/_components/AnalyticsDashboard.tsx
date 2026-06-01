@@ -37,39 +37,39 @@ type MonthRange = 3 | 6 | 12 | 24
 const MONTH_OPTIONS: MonthRange[] = [3, 6, 12, 24]
 
 /**
- * Chart series colors, bound to the design-system palette (PSY-908). The token
- * VALUES live in `globals.css` — `--chart-1`..`--chart-5` + `--destructive` +
- * `--foreground`, each with a `:root` (light) and `.dark` override — so series
- * colors track the theme automatically via the CSS cascade. Replaces the prior
- * ad-hoc Tailwind hexes (blue/violet/pink) that clashed with the editorial
- * burnt-orange/newsprint palette.
+ * Chart series colors, bound to the design-system palette. Token VALUES live in
+ * `globals.css` as an 8-hue categorical set — `--chart-1`..`--chart-8` (the 5
+ * editorial hues, warm-skewed, + 3 cool accents: denim/plum/teal, PSY-947) plus `--destructive`,
+ * each with a `:root` (light) and `.dark` override, so series colors track the
+ * theme automatically via the CSS cascade. Replaces the prior ad-hoc Tailwind
+ * hexes (blue/violet/pink) that clashed with the editorial newsprint palette.
  *
- * Within a single chart every series is assigned a DISTINCT token; the five
- * categorical tokens are reused ACROSS charts (a token only has to be unique
- * per chart). The 6-line Entity Creation chart uses `--foreground` for its 6th
- * line (Users). Approval trends are semantic: approved = `--chart-2` (green),
- * rejected = `--destructive` (red).
+ * Within a single chart every series gets a DISTINCT token; tokens are reused
+ * ACROSS charts (a token only has to be unique per chart). The dense 6-line
+ * Entity Creation chart draws from the categorical palette for hue variety
+ * (orange · denim · gold · plum · green · teal), but the muted editorial hues
+ * aren't all far apart (e.g. green vs teal), so per-line DASH PATTERNS — see
+ * `ENTITY_DASH` — are the PRIMARY disambiguator there; color is secondary, and
+ * each plotted line carries both its dash and hue. Approval trends are semantic:
+ * approved = `--chart-2` (green), rejected = `--destructive` (red).
  *
- * Caveat — the editorial palette is intentionally low-chroma and warm-skewed,
- * so distinct tokens are not always maximally distinguishable: `--chart-1` and
- * `--chart-3` sit close in dark mode. The legend (series names) is the primary
- * disambiguator for the dense 6-line chart; a richer categorical sub-palette is
- * deferred to the PSY-908 Figma follow-up. Also note `--chart-4` === `--destructive`
- * in light mode (both `#9c2a1a`): they never share a chart today, so don't pair
- * a `--chart-4` series with a `--destructive` series in one chart, and don't
- * "dedupe" the two tokens in `globals.css`.
+ * Note: `--chart-4` === `--destructive` in light mode (both `#9c2a1a`); they
+ * never share a chart, so don't pair a `--chart-4` series with a `--destructive`
+ * series in one chart, and don't "dedupe" the two tokens in `globals.css`. The
+ * full 8-hue set is the shared categorical palette for charts + entity badges
+ * (badge migration: PSY-943).
  *
  * Exported only for the invariant test that guards per-chart distinctness and
  * the approved/rejected semantic pairing.
  */
 export const COLORS = {
-  // Entity Creation Trends (6 lines, one chart)
-  shows: 'var(--chart-1)',
-  artists: 'var(--chart-2)',
-  venues: 'var(--chart-3)',
-  releases: 'var(--chart-4)',
-  labels: 'var(--chart-5)',
-  users: 'var(--foreground)',
+  // Entity Creation Trends (6 lines) — hue variety; dash patterns (ENTITY_DASH) carry distinctness
+  shows: 'var(--chart-1)', // orange
+  artists: 'var(--chart-6)', // denim
+  venues: 'var(--chart-3)', // gold
+  releases: 'var(--chart-7)', // plum
+  labels: 'var(--chart-2)', // green
+  users: 'var(--chart-8)', // teal
   // Content Curation (3 series)
   tags_added: 'var(--chart-1)',
   tag_votes: 'var(--chart-2)',
@@ -85,6 +85,23 @@ export const COLORS = {
   // Show Approval Trends (semantic)
   approved: 'var(--chart-2)',
   rejected: 'var(--destructive)',
+}
+
+/**
+ * Per-line dash patterns for the dense 6-line Entity Creation chart. The
+ * editorial palette is muted, so some series hues sit close (e.g. green vs
+ * teal); the dash pattern — NOT color — is the primary disambiguator here, so
+ * the 6 lines stay tellable apart in both themes and at small legend sizes
+ * (PSY-947, from adversarial review of the color-only first cut).
+ * solid → dashed → dotted → dash-dot → long-dash → short-dash.
+ */
+export const ENTITY_DASH: Record<string, string | undefined> = {
+  shows: undefined, // solid
+  artists: '8 4', // dashed
+  venues: '2 4', // dotted
+  releases: '12 4 2 4', // dash-dot
+  labels: '16 6', // long dash
+  users: '5 3', // short dash
 }
 
 /**
@@ -267,6 +284,8 @@ function GrowthSection({ months }: { months: MonthRange }) {
               stroke={COLORS.shows}
               strokeWidth={2}
               dot={false}
+              strokeDasharray={ENTITY_DASH.shows}
+              legendType="plainline"
               name="Shows"
             />
             <Line
@@ -275,6 +294,8 @@ function GrowthSection({ months }: { months: MonthRange }) {
               stroke={COLORS.artists}
               strokeWidth={2}
               dot={false}
+              strokeDasharray={ENTITY_DASH.artists}
+              legendType="plainline"
               name="Artists"
             />
             <Line
@@ -283,6 +304,8 @@ function GrowthSection({ months }: { months: MonthRange }) {
               stroke={COLORS.venues}
               strokeWidth={2}
               dot={false}
+              strokeDasharray={ENTITY_DASH.venues}
+              legendType="plainline"
               name="Venues"
             />
             <Line
@@ -291,6 +314,8 @@ function GrowthSection({ months }: { months: MonthRange }) {
               stroke={COLORS.releases}
               strokeWidth={2}
               dot={false}
+              strokeDasharray={ENTITY_DASH.releases}
+              legendType="plainline"
               name="Releases"
             />
             <Line
@@ -299,6 +324,8 @@ function GrowthSection({ months }: { months: MonthRange }) {
               stroke={COLORS.labels}
               strokeWidth={2}
               dot={false}
+              strokeDasharray={ENTITY_DASH.labels}
+              legendType="plainline"
               name="Labels"
             />
             <Line
@@ -307,6 +334,8 @@ function GrowthSection({ months }: { months: MonthRange }) {
               stroke={COLORS.users}
               strokeWidth={2}
               dot={false}
+              strokeDasharray={ENTITY_DASH.users}
+              legendType="plainline"
               name="Users"
             />
           </LineChart>
