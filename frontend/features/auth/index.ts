@@ -61,6 +61,10 @@ export {
 // Hooks — Favorite Cities
 export { useSetFavoriteCities } from './hooks'
 
+// Hooks — Tier-change / edit-review email preferences (PSY-756 / PSY-807)
+export { useSetTierEditNotificationPreference } from './hooks'
+export type { TierEditNotificationUpdate } from './hooks'
+
 // Hooks — Favorite Venues
 export {
   useFavoriteVenues,

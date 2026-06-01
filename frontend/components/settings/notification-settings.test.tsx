@@ -20,11 +20,20 @@ let mockCollectionDigestState = {
   error: null as Error | null,
 }
 
+const mockTierEditMutate = vi.fn()
+let mockTierEditState = {
+  isPending: false,
+  isError: false,
+  error: null as Error | null,
+}
+
 let mockProfileData: {
   user?: {
     preferences?: {
       show_reminders?: boolean
       notify_on_collection_digest?: boolean
+      notify_on_tier_notifications?: boolean
+      notify_on_edit_notifications?: boolean
     }
   }
 } = {}
@@ -32,6 +41,10 @@ let mockProfileData: {
 vi.mock('@/features/auth', () => ({
   useProfile: () => ({
     data: mockProfileData,
+  }),
+  useSetTierEditNotificationPreference: () => ({
+    mutate: mockTierEditMutate,
+    ...mockTierEditState,
   }),
 }))
 
@@ -61,6 +74,12 @@ describe('NotificationSettings', () => {
       isError: false,
       error: null,
     }
+    mockTierEditMutate.mockReset()
+    mockTierEditState = {
+      isPending: false,
+      isError: false,
+      error: null,
+    }
     mockProfileData = {}
   })
 
@@ -70,7 +89,7 @@ describe('NotificationSettings', () => {
     expect(screen.getByText('Notifications')).toBeInTheDocument()
     expect(
       screen.getByText(
-        /Control how you're notified about upcoming shows and your collections/
+        /Control how you're notified about upcoming shows, your collections, and your contributions/
       )
     ).toBeInTheDocument()
   })
@@ -291,6 +310,180 @@ describe('NotificationSettings', () => {
       )
       expect(errors.length).toBeGreaterThanOrEqual(1)
     })
+  })
+
+  // ----- PSY-756 / PSY-807: tier-change + edit-review email toggles -----
+
+  describe('tier-change email toggle', () => {
+    it('renders the tier-change label and description', () => {
+      renderWithProviders(<NotificationSettings />)
+
+      expect(screen.getByText('Tier-change emails')).toBeInTheDocument()
+      expect(
+        screen.getByText(/when your contributor tier changes/)
+      ).toBeInTheDocument()
+    })
+
+    it('defaults to ON when the preference is undefined (opt-OUT default)', () => {
+      mockProfileData = { user: { preferences: {} } }
+      renderWithProviders(<NotificationSettings />)
+
+      const toggle = screen.getByRole('switch', { name: 'Tier-change emails' })
+      expect(toggle).toBeChecked()
+    })
+
+    it('reflects current value when notify_on_tier_notifications is false', () => {
+      mockProfileData = {
+        user: { preferences: { notify_on_tier_notifications: false } },
+      }
+      renderWithProviders(<NotificationSettings />)
+
+      const toggle = screen.getByRole('switch', { name: 'Tier-change emails' })
+      expect(toggle).not.toBeChecked()
+    })
+
+    it('calls the mutation with only the tier field when toggled off', async () => {
+      mockProfileData = {
+        user: { preferences: { notify_on_tier_notifications: true } },
+      }
+      const user = userEvent.setup()
+      renderWithProviders(<NotificationSettings />)
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Tier-change emails' })
+      )
+
+      expect(mockTierEditMutate).toHaveBeenCalledWith({
+        notify_on_tier_notifications: false,
+      })
+    })
+
+    it('calls the mutation with only the tier field when toggled back on', async () => {
+      mockProfileData = {
+        user: { preferences: { notify_on_tier_notifications: false } },
+      }
+      const user = userEvent.setup()
+      renderWithProviders(<NotificationSettings />)
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Tier-change emails' })
+      )
+
+      expect(mockTierEditMutate).toHaveBeenCalledWith({
+        notify_on_tier_notifications: true,
+      })
+    })
+
+    it('persists across reload — re-rendering with the opted-out state shows it off', () => {
+      mockProfileData = {
+        user: { preferences: { notify_on_tier_notifications: true } },
+      }
+      const { unmount } = renderWithProviders(<NotificationSettings />)
+      let toggle = screen.getByRole('switch', { name: 'Tier-change emails' })
+      expect(toggle).toBeChecked()
+      unmount()
+
+      mockProfileData = {
+        user: { preferences: { notify_on_tier_notifications: false } },
+      }
+      renderWithProviders(<NotificationSettings />)
+      toggle = screen.getByRole('switch', { name: 'Tier-change emails' })
+      expect(toggle).not.toBeChecked()
+    })
+  })
+
+  describe('edit-review email toggle', () => {
+    it('renders the edit-review label and description', () => {
+      renderWithProviders(<NotificationSettings />)
+
+      expect(screen.getByText('Edit-review emails')).toBeInTheDocument()
+      expect(
+        screen.getByText(/when your submitted edits are approved or rejected/)
+      ).toBeInTheDocument()
+    })
+
+    it('defaults to ON when the preference is undefined (opt-OUT default)', () => {
+      mockProfileData = { user: { preferences: {} } }
+      renderWithProviders(<NotificationSettings />)
+
+      const toggle = screen.getByRole('switch', { name: 'Edit-review emails' })
+      expect(toggle).toBeChecked()
+    })
+
+    it('reflects current value when notify_on_edit_notifications is false', () => {
+      mockProfileData = {
+        user: { preferences: { notify_on_edit_notifications: false } },
+      }
+      renderWithProviders(<NotificationSettings />)
+
+      const toggle = screen.getByRole('switch', { name: 'Edit-review emails' })
+      expect(toggle).not.toBeChecked()
+    })
+
+    it('calls the mutation with only the edit field when toggled off', async () => {
+      mockProfileData = {
+        user: { preferences: { notify_on_edit_notifications: true } },
+      }
+      const user = userEvent.setup()
+      renderWithProviders(<NotificationSettings />)
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Edit-review emails' })
+      )
+
+      expect(mockTierEditMutate).toHaveBeenCalledWith({
+        notify_on_edit_notifications: false,
+      })
+    })
+
+    it('toggling one category does not send the other category field', async () => {
+      mockProfileData = {
+        user: {
+          preferences: {
+            notify_on_tier_notifications: true,
+            notify_on_edit_notifications: true,
+          },
+        },
+      }
+      const user = userEvent.setup()
+      renderWithProviders(<NotificationSettings />)
+
+      await user.click(
+        screen.getByRole('switch', { name: 'Edit-review emails' })
+      )
+
+      expect(mockTierEditMutate).toHaveBeenCalledTimes(1)
+      expect(mockTierEditMutate).toHaveBeenCalledWith({
+        notify_on_edit_notifications: false,
+      })
+    })
+  })
+
+  it('disables both tier/edit switches while the shared mutation is in flight', () => {
+    mockTierEditState = { isPending: true, isError: false, error: null }
+    renderWithProviders(<NotificationSettings />)
+
+    expect(
+      screen.getByRole('switch', { name: 'Tier-change emails' })
+    ).toBeDisabled()
+    expect(
+      screen.getByRole('switch', { name: 'Edit-review emails' })
+    ).toBeDisabled()
+  })
+
+  it('shows an error message when the tier/edit mutation fails', () => {
+    mockTierEditState = {
+      isPending: false,
+      isError: true,
+      error: new Error('Server error'),
+    }
+    renderWithProviders(<NotificationSettings />)
+
+    const errors = screen.getAllByText(
+      'Failed to update setting. Please try again.'
+    )
+    // Both tier and edit rows render the shared error copy.
+    expect(errors.length).toBeGreaterThanOrEqual(2)
   })
 
   // ----- Pending spinner placement (both rows) -----
