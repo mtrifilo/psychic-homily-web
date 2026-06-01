@@ -11,12 +11,16 @@
     "dev": "bun run src/entry.ts",
     "test": "bun test",
     "build:binary": "bun build src/entry.ts --compile --outfile dist/ph",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "eval": "promptfoo eval -c eval/promptfooconfig.yaml",
+    "eval:view": "promptfoo view"
   },
   "dependencies": {
     "commander": "^14.0.1"
   },
   "devDependencies": {
-    "bun-types": "^1.3.0"
+    "ajv": "^8.20.0",
+    "bun-types": "^1.3.0",
+    "promptfoo": "^0.121.13"
   }
 }

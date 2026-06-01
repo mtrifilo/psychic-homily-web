@@ -50,6 +50,8 @@ cd /Users/mtrifilo/dev/psychic-homily-web/cli && bun run src/entry.ts init --url
 
 ### Step 1: Extract Data from Screenshot/Post
 
+> The extraction rules below are reified (with a JSON schema + eval harness) at `cli/eval/extraction-prompt.md` and `cli/eval/batch-schema.json` — the source of truth shared with the regression evals (`cli/eval/README.md`). Keep this prose and that artifact in sync.
+
 When the user provides a screenshot or post (show flyer, WFMU playlist, tour poster, festival lineup, Instagram post, etc.), analyze ALL available sources of information:
 
 - **Image/flyer**: Extract visible text, artist names, dates, venues, prices
