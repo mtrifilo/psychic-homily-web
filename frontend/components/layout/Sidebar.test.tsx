@@ -1,25 +1,22 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Sidebar, sidebarGroups } from './Sidebar'
 
 const mockPathname = vi.fn(() => '/shows')
-let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname(),
-  useSearchParams: () => mockSearchParams,
 }))
 
-// Admin nav counts are wired in the admin tests below; default to zeros so the
-// public-nav tests don't need a QueryClientProvider.
-const mockNavCounts = vi.fn(() => ({
-  moderation: 0,
-  pendingShows: 0,
-  unverifiedVenues: 0,
-  reports: 0,
-}))
-vi.mock('@/lib/hooks/admin/useAdminNavCounts', () => ({
-  useAdminNavCounts: () => mockNavCounts(),
+// The admin rail is a dynamically-imported chunk (AdminSidebarNav, kept off the
+// public bundle). Stub next/dynamic so Sidebar renders a synchronous marker we
+// can assert on; the rail's own behavior (groups, badges, active state) is
+// covered by AdminSidebarNav.test.tsx.
+vi.mock('next/dynamic', () => ({
+  default: () =>
+    function AdminSidebarNavStub() {
+      return <div data-testid="admin-sidebar-nav" />
+    },
 }))
 
 // Return type widened so individual tests can override `user`/`isAuthenticated`
@@ -81,13 +78,6 @@ describe('Sidebar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPathname.mockReturnValue('/shows')
-    mockSearchParams = new URLSearchParams()
-    mockNavCounts.mockReturnValue({
-      moderation: 0,
-      pendingShows: 0,
-      unverifiedVenues: 0,
-      reports: 0,
-    })
     mockAuthContext.mockReturnValue({
       user: null,
       isAuthenticated: false,
@@ -171,7 +161,6 @@ describe('Sidebar', () => {
       logout: vi.fn(),
     })
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-    // Only "Collections" (plural, in Discover group) should exist — no "Collection" singular entry.
     expect(screen.queryByText('Collection')).not.toBeInTheDocument()
     expect(screen.getByText('Collections')).toBeInTheDocument()
   })
@@ -224,9 +213,8 @@ describe('Sidebar', () => {
   })
 
   // Active state: the current route should get the active class; siblings
-  // should NOT. Catches regressions where every link styles as active.
-  // We match on the exact active token (with surrounding whitespace) to
-  // avoid colliding with hover utility `bg-sidebar-accent/50`.
+  // should NOT. We match on the exact active token (with surrounding whitespace)
+  // to avoid colliding with hover utility `bg-sidebar-accent/50`.
   const ACTIVE_TOKEN = 'bg-sidebar-accent text-sidebar-accent-foreground'
 
   it('marks the current route as active when pathname matches exactly', () => {
@@ -256,14 +244,9 @@ describe('Sidebar', () => {
     mockPathname.mockReturnValue('https://psychichomily.substack.com/')
     render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
     const substack = screen.getByText('Substack').closest('a')!
-    // External items are never treated as "active" so the highlight follows
-    // in-app navigation only.
     expect(substack.className).not.toContain(ACTIVE_TOKEN)
   })
 
-  // Collapsible behavior: the collapse button is the canonical way to flip
-  // state. The label flip (Collapse → expand) drives the existing tests; add
-  // explicit aria-label on each branch.
   it('collapse button toggles aria-label between collapsed/expanded states', () => {
     const { rerender } = render(
       <Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />
@@ -277,10 +260,7 @@ describe('Sidebar', () => {
   it('collapsed mode keeps nav links present (icons-only) — labels hidden', () => {
     mockPathname.mockReturnValue('/shows')
     render(<Sidebar collapsed={true} onToggleCollapse={onToggleCollapse} />)
-    // The label "Shows" should NOT render in collapsed mode...
     expect(screen.queryByText('Shows')).not.toBeInTheDocument()
-    // ...but the underlying nav still has the /shows link element so
-    // tooltips (rendered on hover) and clickable icons still work.
     const links = document.querySelectorAll('a')
     const showsLink = Array.from(links).find(a => a.getAttribute('href') === '/shows')
     expect(showsLink).toBeTruthy()
@@ -293,9 +273,11 @@ describe('Sidebar', () => {
     expect(onToggleCollapse).toHaveBeenCalledTimes(1)
   })
 
-  // Context-aware admin nav (PSY-933): under /admin the rail swaps the public
-  // Discover/Community groups for the 6 grouped admin sections + "Back to site".
-  describe('context-aware admin nav', () => {
+  // Context-aware delegation (PSY-933): Sidebar mounts the lazily-loaded admin
+  // rail ONLY for an admin on the exact /admin shell; everywhere else (and for
+  // non-admins) it renders the public nav. The rail's contents are tested in
+  // AdminSidebarNav.test.tsx.
+  describe('admin nav delegation', () => {
     const asAdmin = () =>
       mockAuthContext.mockReturnValue({
         user: { email: 'admin@test.com', is_admin: true },
@@ -304,21 +286,15 @@ describe('Sidebar', () => {
         logout: vi.fn(),
       })
 
-    it('swaps to the admin groups (and hides public groups) for an admin in /admin', () => {
+    it('mounts the admin rail (and hides public groups) for an admin on /admin', () => {
       asAdmin()
       mockPathname.mockReturnValue('/admin')
       render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-      // Admin group headers + a representative item.
-      expect(screen.getByText('Moderation & Queues')).toBeInTheDocument()
-      expect(screen.getByText('Catalog')).toBeInTheDocument()
-      expect(screen.getByText('Insights & System')).toBeInTheDocument()
-      expect(screen.getByText('Back to site')).toBeInTheDocument()
-      // Public groups are gone.
+      expect(screen.getByTestId('admin-sidebar-nav')).toBeInTheDocument()
       expect(screen.queryByText('Discover')).not.toBeInTheDocument()
-      expect(screen.queryByText('Community')).not.toBeInTheDocument()
     })
 
-    it('keeps the public nav for a NON-admin even at /admin (mid-redirect safety)', () => {
+    it('keeps the public nav for a NON-admin at /admin (mid-redirect safety)', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'user@test.com', is_admin: false },
         isAuthenticated: true,
@@ -328,79 +304,15 @@ describe('Sidebar', () => {
       mockPathname.mockReturnValue('/admin')
       render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
       expect(screen.getByText('Discover')).toBeInTheDocument()
-      expect(screen.queryByText('Moderation & Queues')).not.toBeInTheDocument()
+      expect(screen.queryByTestId('admin-sidebar-nav')).not.toBeInTheDocument()
     })
 
-    it('marks the section matching ?tab= as active', () => {
-      asAdmin()
-      mockPathname.mockReturnValue('/admin')
-      mockSearchParams = new URLSearchParams('tab=moderation')
-      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-      const moderation = screen.getByText('Moderation').closest('a')!
-      expect(moderation.className).toContain(ACTIVE_TOKEN)
-      const releases = screen.getByText('Releases').closest('a')!
-      expect(releases.className).not.toContain(ACTIVE_TOKEN)
-    })
-
-    it('treats bare /admin (no tab) as Dashboard active', () => {
-      asAdmin()
-      mockPathname.mockReturnValue('/admin')
-      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-      const dashboard = screen.getByText('Dashboard').closest('a')!
-      expect(dashboard.className).toContain(ACTIVE_TOKEN)
-    })
-
-    it('renders queue count badges from useAdminNavCounts (and omits zero counts)', () => {
-      asAdmin()
-      mockPathname.mockReturnValue('/admin')
-      mockNavCounts.mockReturnValue({
-        moderation: 5,
-        pendingShows: 2,
-        unverifiedVenues: 0, // zero → no badge
-        reports: 3,
-      })
-      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-      const moderation = screen.getByText('Moderation').closest('a')!
-      expect(within(moderation).getByText('5')).toBeInTheDocument()
-      const reports = screen.getByText('Reports').closest('a')!
-      expect(within(reports).getByText('3')).toBeInTheDocument()
-      // Unverified Venues has a zero count → no badge text beyond the label.
-      const unverified = screen.getByText('Unverified Venues').closest('a')!
-      expect(within(unverified).queryByText('0')).not.toBeInTheDocument()
-    })
-
-    it('points the back-to-site link at /', () => {
-      asAdmin()
-      mockPathname.mockReturnValue('/admin')
-      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
-      expect(screen.getByText('Back to site').closest('a')).toHaveAttribute('href', '/')
-    })
-
-    it('keeps the public nav on standalone /admin/<section> sub-routes (rail is scoped to the tab-shell, not startsWith)', () => {
+    it('keeps the public nav on standalone /admin/<section> sub-routes (scoped to the tab-shell, not startsWith)', () => {
       asAdmin()
       mockPathname.mockReturnValue('/admin/featured')
       render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
       expect(screen.getByText('Discover')).toBeInTheDocument()
-      expect(screen.queryByText('Moderation & Queues')).not.toBeInTheDocument()
-    })
-
-    it('collapsed: a queued section shows a corner dot (not the number)', () => {
-      asAdmin()
-      mockPathname.mockReturnValue('/admin')
-      mockNavCounts.mockReturnValue({
-        moderation: 5,
-        pendingShows: 0,
-        unverifiedVenues: 0,
-        reports: 0,
-      })
-      render(<Sidebar collapsed={true} onToggleCollapse={onToggleCollapse} />)
-      // Labels are hidden when collapsed, so find the Moderation item by href.
-      const links = Array.from(document.querySelectorAll('a'))
-      const moderation = links.find(a => a.getAttribute('href') === '/admin?tab=moderation')!
-      expect(moderation).toBeTruthy()
-      // The expanded pill's number is replaced by an aria-hidden dot in the queue color.
-      expect(moderation.querySelector('.bg-purple-500')).toBeTruthy()
-      expect(moderation.textContent).not.toContain('5')
+      expect(screen.queryByTestId('admin-sidebar-nav')).not.toBeInTheDocument()
     })
   })
 })

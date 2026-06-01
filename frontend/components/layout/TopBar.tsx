@@ -2,11 +2,12 @@
 
 import Image from 'next/image'
 import Link from 'next/link'
-import { usePathname, useSearchParams } from 'next/navigation'
+import { usePathname } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { useTheme } from 'next-themes'
 import {
   Menu, LogOut, Loader2, Shield, Settings, Moon, Sun, Search,
-  Library, ExternalLink, Bell, ArrowLeft,
+  Library, ExternalLink, Bell,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -20,11 +21,11 @@ import {
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { getUserInitials, getUserDisplayName } from '@/app/nav-utils'
 import { sidebarGroups } from './Sidebar'
-import {
-  adminNavGroups, adminTabHref, isAdminTabActive, ADMIN_BADGE_CLASS,
-} from './adminNav'
-import { useAdminNavCounts } from '@/lib/hooks/admin/useAdminNavCounts'
 import { NotificationBell } from '@/features/notifications'
+
+// Mobile admin drawer (config + the 7 queue-count hooks) is a separate chunk
+// loaded only when an admin opens the drawer on /admin — off the public bundle.
+const AdminDrawerNav = dynamic(() => import('./AdminDrawerNav'), { ssr: false })
 
 interface TopBarProps {
   mobileOpen: boolean
@@ -36,17 +37,15 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
   const { theme, setTheme } = useTheme()
   const pathname = usePathname()
-  const searchParams = useSearchParams()
 
-  // Context-aware mobile drawer (PSY-933): in /admin the nav groups swap to the
-  // grouped admin sections + "Back to site". Gated on isAdmin (mid-redirect
-  // safety) and used to gate the admin-only count queries. Scoped to the exact
-  // /admin tab-shell (usePathname() strips ?tab=); standalone /admin/<section>
-  // sub-routes keep the public nav, matching the desktop Sidebar.
+  // Context-aware mobile drawer (PSY-933): under the /admin shell the nav groups
+  // swap to the grouped admin sections (rendered by the lazily-loaded
+  // AdminDrawerNav — admin-only code stays out of the public bundle). Gated on
+  // isAdmin (mid-redirect safety) + scoped to the exact /admin tab-shell
+  // (usePathname() strips ?tab=); standalone /admin/<section> sub-routes keep the
+  // public nav, matching the desktop Sidebar.
   const isAdmin = !!user?.is_admin
   const showAdminNav = isAdmin && pathname === '/admin'
-  const tabParam = searchParams.get('tab')
-  const counts = useAdminNavCounts({ enabled: showAdminNav })
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
@@ -86,49 +85,7 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
               </SheetHeader>
               <nav className="flex flex-col gap-1 px-2 py-4">
                 {showAdminNav ? (
-                  <>
-                    <Link
-                      href="/"
-                      onClick={() => onMobileOpenChange(false)}
-                      className="mb-2 flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium text-foreground/70 transition-colors hover:bg-accent/50 hover:text-accent-foreground"
-                    >
-                      <ArrowLeft className="h-4 w-4" />
-                      <span>Back to site</span>
-                    </Link>
-                    {adminNavGroups.map(group => (
-                      <div key={group.label} className="mb-4">
-                        <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/50">
-                          {group.label}
-                        </p>
-                        {group.items.map(item => {
-                          const Icon = item.icon
-                          const active = isAdminTabActive(item.tab, pathname, tabParam)
-                          const count = item.badgeKey ? counts[item.badgeKey] : 0
-                          return (
-                            <Link
-                              key={item.tab}
-                              href={adminTabHref(item.tab)}
-                              onClick={() => onMobileOpenChange(false)}
-                              className={cn(
-                                'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
-                                active
-                                  ? 'bg-accent text-accent-foreground'
-                                  : 'text-foreground/70 hover:bg-accent/50 hover:text-accent-foreground'
-                              )}
-                            >
-                              <Icon className="h-4 w-4" />
-                              <span>{item.label}</span>
-                              {item.badgeKey && count > 0 && (
-                                <span className={cn('ml-auto rounded-full px-2 py-0.5 text-xs font-medium text-white', ADMIN_BADGE_CLASS[item.badgeKey])}>
-                                  {count}
-                                </span>
-                              )}
-                            </Link>
-                          )
-                        })}
-                      </div>
-                    ))}
-                  </>
+                  <AdminDrawerNav onNavigate={() => onMobileOpenChange(false)} />
                 ) : (
                   sidebarGroups.map(group => (
                   <div key={group.label} className="mb-4">
