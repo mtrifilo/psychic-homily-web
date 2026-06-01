@@ -689,6 +689,68 @@ export function PipelineVenues() {
   const selectedVenue = venues.find((v) => v.venue_id === selectedVenueId)
   const existingVenueIds = new Set(venues.map((v) => v.venue_id))
 
+  const venueColumns: AdminTableColumn<PipelineVenueInfo>[] = [
+    {
+      key: 'venue',
+      header: 'Venue',
+      render: (venue) => (
+        <>
+          <div className="font-medium">{venue.venue_name}</div>
+          {venue.consecutive_failures > 0 && (
+            <span className="text-xs text-red-400">
+              {venue.consecutive_failures} failure(s)
+            </span>
+          )}
+        </>
+      ),
+    },
+    {
+      key: 'method',
+      header: 'Method',
+      cellClassName: 'text-muted-foreground',
+      render: (venue) => venue.render_method ?? '—',
+    },
+    {
+      key: 'approval',
+      header: 'Approval',
+      align: 'center',
+      render: (venue) => <ApprovalBadge rate={venue.approval_rate} />,
+    },
+    {
+      key: 'auto',
+      header: 'Auto',
+      align: 'center',
+      render: (venue) =>
+        venue.auto_approve ? (
+          <span className="text-green-400 text-xs">On</span>
+        ) : (
+          <span className="text-muted-foreground text-xs">Off</span>
+        ),
+    },
+    {
+      key: 'last-run',
+      header: 'Last Run',
+      cellClassName: 'text-muted-foreground text-xs',
+      render: (venue) =>
+        venue.last_run
+          ? `${venue.last_run.events_extracted} events, ${formatShortDate(venue.last_run.created_at)}`
+          : 'Never',
+    },
+    {
+      key: 'notes',
+      header: 'Notes',
+      align: 'center',
+      render: (venue) =>
+        venue.extraction_notes ? (
+          <span className="text-xs text-blue-400" title={venue.extraction_notes}>
+            Has notes
+          </span>
+        ) : (
+          <span className="text-xs text-muted-foreground">—</span>
+        ),
+    },
+  ]
+
   return (
     <div className="space-y-4">
       {/* View toggle */}
@@ -744,71 +806,20 @@ export function PipelineVenues() {
       ) : (
         <>
           {/* Venue table */}
-          <div className="border border-border rounded-lg overflow-hidden">
-            <table className="w-full text-sm">
-              <thead className="bg-muted/50">
-                <tr>
-                  <th className="text-left p-3 font-medium">Venue</th>
-                  <th className="text-left p-3 font-medium">Method</th>
-                  <th className="text-center p-3 font-medium">Approval</th>
-                  <th className="text-center p-3 font-medium">Auto</th>
-                  <th className="text-left p-3 font-medium">Last Run</th>
-                  <th className="text-center p-3 font-medium">Notes</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-border">
-                {venues.map((venue) => (
-                  <tr
-                    key={venue.venue_id}
-                    onClick={() =>
-                      setSelectedVenueId(
-                        selectedVenueId === venue.venue_id ? null : venue.venue_id
-                      )
-                    }
-                    className={`cursor-pointer hover:bg-muted/30 ${
-                      selectedVenueId === venue.venue_id ? 'bg-muted/50' : ''
-                    }`}
-                  >
-                    <td className="p-3">
-                      <div className="font-medium">{venue.venue_name}</div>
-                      {venue.consecutive_failures > 0 && (
-                        <span className="text-xs text-red-400">
-                          {venue.consecutive_failures} failure(s)
-                        </span>
-                      )}
-                    </td>
-                    <td className="p-3 text-muted-foreground">
-                      {venue.render_method ?? '—'}
-                    </td>
-                    <td className="p-3 text-center">
-                      <ApprovalBadge rate={venue.approval_rate} />
-                    </td>
-                    <td className="p-3 text-center">
-                      {venue.auto_approve ? (
-                        <span className="text-green-400 text-xs">On</span>
-                      ) : (
-                        <span className="text-muted-foreground text-xs">Off</span>
-                      )}
-                    </td>
-                    <td className="p-3 text-muted-foreground text-xs">
-                      {venue.last_run
-                        ? `${venue.last_run.events_extracted} events, ${formatShortDate(venue.last_run.created_at)}`
-                        : 'Never'}
-                    </td>
-                    <td className="p-3 text-center">
-                      {venue.extraction_notes ? (
-                        <span className="text-xs text-blue-400" title={venue.extraction_notes}>
-                          Has notes
-                        </span>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">—</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <AdminTable
+            columns={venueColumns}
+            rows={venues}
+            rowKey={(venue) => venue.venue_id}
+            onRowClick={(venue) =>
+              setSelectedVenueId(
+                selectedVenueId === venue.venue_id ? null : venue.venue_id
+              )
+            }
+            rowLabel={(venue) => venue.venue_name}
+            rowClassName={(venue) =>
+              selectedVenueId === venue.venue_id ? 'bg-muted/50' : undefined
+            }
+          />
 
           {/* Detail panel */}
           {selectedVenue && (
