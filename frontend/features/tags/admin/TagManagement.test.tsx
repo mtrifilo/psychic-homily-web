@@ -113,6 +113,65 @@ describe('TagManagement — official indicator', () => {
   })
 })
 
+describe('TagManagement — category filter (PSY-924)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks()
+    mockUseTags.mockReturnValue({
+      data: { tags: [], total: 0 },
+      isLoading: false,
+      error: null,
+    })
+  })
+
+  it('renders the category filter as the DS Select with the All sentinel', () => {
+    // PSY-924: native <select> filter is now a Radix combobox; "All
+    // Categories" is the FILTER_SELECT_ALL sentinel round-tripped to '' for
+    // the query.
+    renderWithProviders(<TagManagement />)
+    const categorySelect = screen.getByRole('combobox', {
+      name: 'Filter by category',
+    })
+    expect(categorySelect).toHaveTextContent('All Categories')
+  })
+
+  it('passes the selected category filter through to useTags', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<TagManagement />)
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Filter by category' })
+    )
+    await user.click(await screen.findByRole('option', { name: 'Genre' }))
+
+    expect(mockUseTags).toHaveBeenLastCalledWith(
+      expect.objectContaining({ category: 'genre' })
+    )
+  })
+
+  it('round-trips the All sentinel back to no category filter', async () => {
+    // Guards the sentinel: "All Categories" must clear category ('' →
+    // undefined), not pass the literal 'all' to the backend query.
+    const user = userEvent.setup()
+    renderWithProviders(<TagManagement />)
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Filter by category' })
+    )
+    await user.click(await screen.findByRole('option', { name: 'Genre' }))
+    expect(mockUseTags).toHaveBeenLastCalledWith(
+      expect.objectContaining({ category: 'genre' })
+    )
+
+    await user.click(
+      screen.getByRole('combobox', { name: 'Filter by category' })
+    )
+    await user.click(await screen.findByRole('option', { name: 'All Categories' }))
+    expect(mockUseTags).toHaveBeenLastCalledWith(
+      expect.objectContaining({ category: undefined })
+    )
+  })
+})
+
 describe('EditTagFormFields: tag switch resets fields via key prop', () => {
   // Pins PSY-768: the inner form initializes local state from the tag prop
   // on mount, with no useEffect and no `initialized` ratchet. Callers pass

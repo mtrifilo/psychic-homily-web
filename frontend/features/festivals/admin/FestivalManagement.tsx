@@ -41,6 +41,11 @@ import {
   AdminFormField,
 } from '@/components/admin/AdminFormLayout'
 import { InlineErrorBanner } from '@/components/shared'
+import {
+  FILTER_SELECT_ALL,
+  toFilterSelectValue,
+  fromFilterSelectValue,
+} from '@/lib/filterSelectValue'
 import { useFestivals, useFestival, useFestivalLineup, useFestivalVenues } from '../hooks/useFestivals'
 import { useArtistSearch } from '@/features/artists'
 import { useVenueSearch } from '@/features/venues'
@@ -963,18 +968,22 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Billing Tier</Label>
-            {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
-            <select
-              value={addBillingTier}
-              onChange={(e) => setAddBillingTier(e.target.value)}
-              className="h-8 w-full rounded-md border bg-background px-2 text-xs"
-            >
-              {BILLING_TIERS.map((t) => (
-                <option key={t} value={t}>
-                  {BILLING_TIER_LABELS[t]}
-                </option>
-              ))}
-            </select>
+            <Select value={addBillingTier} onValueChange={setAddBillingTier}>
+              <SelectTrigger
+                size="sm"
+                className="w-full text-xs"
+                aria-label="Billing tier for new artist"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {BILLING_TIERS.map((t) => (
+                  <SelectItem key={t} value={t}>
+                    {BILLING_TIER_LABELS[t]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Position</Label>
@@ -1154,18 +1163,24 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
                 <Label>Billing Tier</Label>
-                {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
-                <select
+                <Select
                   value={editBillingTier}
-                  onChange={(e) => setEditBillingTier(e.target.value)}
-                  className="h-9 w-full rounded-md border bg-background px-2 text-sm"
+                  onValueChange={setEditBillingTier}
                 >
-                  {BILLING_TIERS.map((t) => (
-                    <option key={t} value={t}>
-                      {BILLING_TIER_LABELS[t]}
-                    </option>
-                  ))}
-                </select>
+                  <SelectTrigger
+                    className="w-full"
+                    aria-label="Billing tier"
+                  >
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BILLING_TIERS.map((t) => (
+                      <SelectItem key={t} value={t}>
+                        {BILLING_TIER_LABELS[t]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
               <div className="space-y-2">
                 <Label>Position</Label>
@@ -1586,19 +1601,22 @@ export function FestivalManagement() {
             className="pl-9"
           />
         </div>
-        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
+        <Select
+          value={toFilterSelectValue(statusFilter)}
+          onValueChange={(value) => setStatusFilter(fromFilterSelectValue(value))}
         >
-          <option value="">All Statuses</option>
-          {FESTIVAL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {FESTIVAL_STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-44" aria-label="Filter by status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_SELECT_ALL}>All Statuses</SelectItem>
+            {FESTIVAL_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {FESTIVAL_STATUS_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Loading */}

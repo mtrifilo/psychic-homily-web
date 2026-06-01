@@ -1480,20 +1480,30 @@ function RadioMatchingTab() {
             <Label htmlFor="station-filter" className="text-sm text-muted-foreground">
               Station:
             </Label>
-            {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
-            <select
-              id="station-filter"
-              value={stationFilter}
-              onChange={(e) => handleStationFilterChange(e.target.value)}
-              className="flex h-9 rounded-md border border-input bg-background px-3 py-1 text-sm"
+            <Select
+              value={String(stationFilter)}
+              onValueChange={handleStationFilterChange}
             >
-              <option value={0}>All Stations</option>
-              {stations.map((s) => (
-                <option key={s.id} value={s.id}>
-                  {s.name}
-                </option>
-              ))}
-            </select>
+              <SelectTrigger
+                id="station-filter"
+                className="w-44"
+                aria-label="Filter by station"
+              >
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {/* Station ids are positive integers, so "0" is a safe
+                    non-empty Radix value for the "All Stations" option;
+                    handleStationFilterChange maps it back to the numeric
+                    0 the unmatched-plays query treats as "no filter". */}
+                <SelectItem value="0">All Stations</SelectItem>
+                {stations.map((s) => (
+                  <SelectItem key={s.id} value={String(s.id)}>
+                    {s.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
             {unmatchedFetching && (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
             )}
