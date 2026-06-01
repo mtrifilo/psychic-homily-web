@@ -4,17 +4,19 @@ import { useState, useMemo, useCallback, useEffect } from 'react'
 import {
   Loader2,
   Inbox,
-  Check,
-  X,
   ChevronDown,
   ChevronRight,
   ExternalLink,
   History,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
-import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
-import { AdminEmptyState, CategoryBadge } from '@/components/admin'
+import {
+  AdminEmptyState,
+  CategoryBadge,
+  RejectWithReasonRow,
+  NotesActionRow,
+} from '@/components/admin'
 import { UserAttribution } from '@/components/shared'
 import {
   useAdminPendingEdits,
@@ -127,8 +129,6 @@ function PendingEditCard({
   onActionSuccess: (action: ModerationAction) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [rejecting, setRejecting] = useState(false)
-  const [rejectionReason, setRejectionReason] = useState('')
 
   const approveMutation = useApprovePendingEdit()
   const rejectMutation = useRejectPendingEdit()
@@ -147,19 +147,17 @@ function PendingEditCard({
     })
   }, [approveMutation, edit.id, onActionSuccess, entityLabel])
 
-  const handleReject = useCallback(() => {
-    if (!rejectionReason.trim()) return
-    rejectMutation.mutate(
-      { editId: edit.id, reason: rejectionReason.trim() },
-      {
-        onSuccess: () => {
-          setRejecting(false)
-          setRejectionReason('')
-          onActionSuccess({ verb: 'rejected', entityLabel })
-        },
-      }
-    )
-  }, [rejectMutation, edit.id, rejectionReason, onActionSuccess, entityLabel])
+  const handleReject = useCallback(
+    (reason: string) => {
+      rejectMutation.mutate(
+        { editId: edit.id, reason },
+        {
+          onSuccess: () => onActionSuccess({ verb: 'rejected', entityLabel }),
+        }
+      )
+    },
+    [rejectMutation, edit.id, onActionSuccess, entityLabel]
+  )
 
   return (
     <Card className="overflow-hidden">
@@ -236,69 +234,15 @@ function PendingEditCard({
           </div>
         )}
 
-        {/* Rejection reason input */}
-        {rejecting && (
-          <div className="mt-3 space-y-2">
-            <textarea
-              value={rejectionReason}
-              onChange={e => setRejectionReason(e.target.value)}
-              placeholder="Rejection reason (required) -- be specific to help the contributor learn"
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              rows={2}
-              autoFocus
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={handleReject}
-                disabled={!rejectionReason.trim() || isActioning}
-              >
-                {rejectMutation.isPending ? (
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                ) : (
-                  <X className="h-3 w-3 mr-1" />
-                )}
-                Confirm Reject
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => { setRejecting(false); setRejectionReason('') }}
-                disabled={isActioning}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        {!rejecting && (
-          <div className="mt-3 flex items-center gap-2">
-            <Button
-              size="sm"
-              onClick={handleApprove}
-              disabled={isActioning}
-            >
-              {approveMutation.isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin mr-1" />
-              ) : (
-                <Check className="h-3 w-3 mr-1" />
-              )}
-              Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setRejecting(true)}
-              disabled={isActioning}
-            >
-              <X className="h-3 w-3 mr-1" />
-              Reject
-            </Button>
-          </div>
-        )}
+        {/* Approve-immediate + reject-with-required-reason (PSY-920 Model A) */}
+        <RejectWithReasonRow
+          onApprove={handleApprove}
+          onReject={handleReject}
+          isActioning={isActioning}
+          isApproving={approveMutation.isPending}
+          isRejecting={rejectMutation.isPending}
+          rejectPlaceholder="Rejection reason (required) -- be specific to help the contributor learn"
+        />
 
         {/* Error display */}
         {(approveMutation.isError || rejectMutation.isError) && (
@@ -314,33 +258,18 @@ function PendingEditCard({
 // ─── Entity Report Card ──────────────────────────────────────────────────────
 
 function EntityReportCard({ report }: { report: EntityReportResponse }) {
-  const [showNotes, setShowNotes] = useState(false)
-  const [notes, setNotes] = useState('')
-  const [action, setAction] = useState<'resolve' | 'dismiss' | null>(null)
-
   const resolveMutation = useResolveEntityReport()
   const dismissMutation = useDismissEntityReport()
 
   const isActioning = resolveMutation.isPending || dismissMutation.isPending
 
-  const handleAction = useCallback(() => {
-    if (action === 'resolve') {
-      resolveMutation.mutate(
-        { reportId: report.id, notes: notes.trim() || undefined },
-        { onSuccess: () => { setShowNotes(false); setNotes(''); setAction(null) } }
-      )
-    } else if (action === 'dismiss') {
-      dismissMutation.mutate(
-        { reportId: report.id, notes: notes.trim() || undefined },
-        { onSuccess: () => { setShowNotes(false); setNotes(''); setAction(null) } }
-      )
-    }
-  }, [action, resolveMutation, dismissMutation, report.id, notes])
-
-  const startAction = useCallback((type: 'resolve' | 'dismiss') => {
-    setAction(type)
-    setShowNotes(true)
-  }, [])
+  const handleConfirm = useCallback(
+    (actionKey: string, notes: string) => {
+      const mutation = actionKey === 'resolve' ? resolveMutation : dismissMutation
+      mutation.mutate({ reportId: report.id, notes: notes || undefined })
+    },
+    [resolveMutation, dismissMutation, report.id]
+  )
 
   return (
     <Card className="overflow-hidden">
@@ -388,67 +317,29 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
           )}
         </div>
 
-        {/* Notes input */}
-        {showNotes && (
-          <div className="mt-3 space-y-2">
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder={`Admin notes (optional)${action === 'resolve' ? ' -- describe the action taken' : ' -- explain why this was dismissed'}`}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              rows={2}
-              autoFocus
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant={action === 'resolve' ? 'default' : 'outline'}
-                onClick={handleAction}
-                disabled={isActioning}
-              >
-                {isActioning ? (
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                ) : action === 'resolve' ? (
-                  <Check className="h-3 w-3 mr-1" />
-                ) : (
-                  <X className="h-3 w-3 mr-1" />
-                )}
-                {action === 'resolve' ? 'Confirm Resolve' : 'Confirm Dismiss'}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => { setShowNotes(false); setNotes(''); setAction(null) }}
-                disabled={isActioning}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        {!showNotes && (
-          <div className="mt-3 flex items-center gap-2">
-            <Button
-              size="sm"
-              onClick={() => startAction('resolve')}
-              disabled={isActioning}
-            >
-              <Check className="h-3 w-3 mr-1" />
-              Resolve
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => startAction('dismiss')}
-              disabled={isActioning}
-            >
-              <X className="h-3 w-3 mr-1" />
-              Dismiss
-            </Button>
-          </div>
-        )}
+        {/* Dual-action + optional-notes (PSY-920 Model B) */}
+        <NotesActionRow
+          actions={[
+            {
+              key: 'resolve',
+              restingLabel: 'Resolve',
+              confirmLabel: 'Confirm Resolve',
+              variant: 'default',
+              icon: 'check',
+              notesPlaceholder: 'Admin notes (optional) -- describe the action taken',
+            },
+            {
+              key: 'dismiss',
+              restingLabel: 'Dismiss',
+              confirmLabel: 'Confirm Dismiss',
+              variant: 'outline',
+              icon: 'x',
+              notesPlaceholder: 'Admin notes (optional) -- explain why this was dismissed',
+            },
+          ]}
+          onConfirm={handleConfirm}
+          isActioning={isActioning}
+        />
 
         {/* Error display */}
         {(resolveMutation.isError || dismissMutation.isError) && (
@@ -464,8 +355,6 @@ function EntityReportCard({ report }: { report: EntityReportResponse }) {
 // ─── Pending Comment Card ───────────────────────────────────────────────────
 
 function PendingCommentCard({ comment }: { comment: PendingComment }) {
-  const [rejecting, setRejecting] = useState(false)
-  const [rejectionReason, setRejectionReason] = useState('')
   // PSY-297: edit history viewer, opened on demand
   const [isEditHistoryOpen, setIsEditHistoryOpen] = useState(false)
 
@@ -478,13 +367,12 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
     approveMutation.mutate(comment.id)
   }, [approveMutation, comment.id])
 
-  const handleReject = useCallback(() => {
-    if (!rejectionReason.trim()) return
-    rejectMutation.mutate(
-      { commentId: comment.id, reason: rejectionReason.trim() },
-      { onSuccess: () => { setRejecting(false); setRejectionReason('') } }
-    )
-  }, [rejectMutation, comment.id, rejectionReason])
+  const handleReject = useCallback(
+    (reason: string) => {
+      rejectMutation.mutate({ commentId: comment.id, reason })
+    },
+    [rejectMutation, comment.id]
+  )
 
   const entityUrl = getEntityUrl(comment.entity_type, comment.entity_id)
   const editCount = comment.edit_count ?? 0
@@ -562,69 +450,15 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
           />
         )}
 
-        {/* Rejection reason input */}
-        {rejecting && (
-          <div className="mt-3 space-y-2">
-            <textarea
-              value={rejectionReason}
-              onChange={e => setRejectionReason(e.target.value)}
-              placeholder="Rejection reason (required)"
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              rows={2}
-              autoFocus
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="destructive"
-                onClick={handleReject}
-                disabled={!rejectionReason.trim() || isActioning}
-              >
-                {rejectMutation.isPending ? (
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                ) : (
-                  <X className="h-3 w-3 mr-1" />
-                )}
-                Confirm Reject
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => { setRejecting(false); setRejectionReason('') }}
-                disabled={isActioning}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        {!rejecting && (
-          <div className="mt-3 flex items-center gap-2">
-            <Button
-              size="sm"
-              onClick={handleApprove}
-              disabled={isActioning}
-            >
-              {approveMutation.isPending ? (
-                <Loader2 className="h-3 w-3 animate-spin mr-1" />
-              ) : (
-                <Check className="h-3 w-3 mr-1" />
-              )}
-              Approve
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setRejecting(true)}
-              disabled={isActioning}
-            >
-              <X className="h-3 w-3 mr-1" />
-              Reject
-            </Button>
-          </div>
-        )}
+        {/* Approve-immediate + reject-with-required-reason (PSY-920 Model A) */}
+        <RejectWithReasonRow
+          onApprove={handleApprove}
+          onReject={handleReject}
+          isActioning={isActioning}
+          isApproving={approveMutation.isPending}
+          isRejecting={rejectMutation.isPending}
+          rejectPlaceholder="Rejection reason (required)"
+        />
 
         {/* Error display */}
         {(approveMutation.isError || rejectMutation.isError) && (
@@ -640,33 +474,24 @@ function PendingCommentCard({ comment }: { comment: PendingComment }) {
 // ─── Comment Report Card ────────────────────────────────────────────────────
 
 function CommentReportCard({ report }: { report: EntityReportResponse }) {
-  const [showNotes, setShowNotes] = useState(false)
-  const [notes, setNotes] = useState('')
-  const [action, setAction] = useState<'hide' | 'dismiss' | null>(null)
-
   const hideMutation = useAdminHideComment()
   const dismissMutation = useDismissEntityReport()
 
   const isActioning = hideMutation.isPending || dismissMutation.isPending
 
-  const handleAction = useCallback(() => {
-    if (action === 'hide') {
-      hideMutation.mutate(
-        { commentId: report.entity_id, reason: notes.trim() || 'Hidden via report review' },
-        { onSuccess: () => { setShowNotes(false); setNotes(''); setAction(null) } }
-      )
-    } else if (action === 'dismiss') {
-      dismissMutation.mutate(
-        { reportId: report.id, notes: notes.trim() || undefined },
-        { onSuccess: () => { setShowNotes(false); setNotes(''); setAction(null) } }
-      )
-    }
-  }, [action, hideMutation, dismissMutation, report.id, report.entity_id, notes])
-
-  const startAction = useCallback((type: 'hide' | 'dismiss') => {
-    setAction(type)
-    setShowNotes(true)
-  }, [])
+  const handleConfirm = useCallback(
+    (actionKey: string, notes: string) => {
+      if (actionKey === 'hide') {
+        hideMutation.mutate({
+          commentId: report.entity_id,
+          reason: notes || 'Hidden via report review',
+        })
+      } else {
+        dismissMutation.mutate({ reportId: report.id, notes: notes || undefined })
+      }
+    },
+    [hideMutation, dismissMutation, report.id, report.entity_id]
+  )
 
   // Truncate comment body for preview
   const bodyPreview = report.details
@@ -713,68 +538,29 @@ function CommentReportCard({ report }: { report: EntityReportResponse }) {
           )}
         </div>
 
-        {/* Notes input */}
-        {showNotes && (
-          <div className="mt-3 space-y-2">
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder={action === 'hide' ? 'Reason for hiding (optional)' : 'Notes for dismissal (optional)'}
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              rows={2}
-              autoFocus
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant={action === 'hide' ? 'destructive' : 'outline'}
-                onClick={handleAction}
-                disabled={isActioning}
-              >
-                {isActioning ? (
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                ) : action === 'hide' ? (
-                  <X className="h-3 w-3 mr-1" />
-                ) : (
-                  <Check className="h-3 w-3 mr-1" />
-                )}
-                {action === 'hide' ? 'Confirm Hide' : 'Confirm Dismiss'}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => { setShowNotes(false); setNotes(''); setAction(null) }}
-                disabled={isActioning}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {/* Action buttons */}
-        {!showNotes && (
-          <div className="mt-3 flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => startAction('hide')}
-              disabled={isActioning}
-            >
-              <X className="h-3 w-3 mr-1" />
-              Hide Comment
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => startAction('dismiss')}
-              disabled={isActioning}
-            >
-              <Check className="h-3 w-3 mr-1" />
-              Dismiss Report
-            </Button>
-          </div>
-        )}
+        {/* Dual-action + optional-notes (PSY-920 Model B) */}
+        <NotesActionRow
+          actions={[
+            {
+              key: 'hide',
+              restingLabel: 'Hide Comment',
+              confirmLabel: 'Confirm Hide',
+              variant: 'destructive',
+              icon: 'x',
+              notesPlaceholder: 'Reason for hiding (optional)',
+            },
+            {
+              key: 'dismiss',
+              restingLabel: 'Dismiss Report',
+              confirmLabel: 'Confirm Dismiss',
+              variant: 'outline',
+              icon: 'check',
+              notesPlaceholder: 'Notes for dismissal (optional)',
+            },
+          ]}
+          onConfirm={handleConfirm}
+          isActioning={isActioning}
+        />
 
         {/* Error display */}
         {(hideMutation.isError || dismissMutation.isError) && (
@@ -801,10 +587,6 @@ function CommentReportCard({ report }: { report: EntityReportResponse }) {
  * case the only useful action is Dismiss.
  */
 function CollectionReportCard({ report }: { report: EntityReportResponse }) {
-  const [showNotes, setShowNotes] = useState(false)
-  const [notes, setNotes] = useState('')
-  const [action, setAction] = useState<'hide' | 'dismiss' | null>(null)
-
   const hideMutation = useAdminHideCollection()
   const resolveMutation = useResolveEntityReport()
   const dismissMutation = useDismissEntityReport()
@@ -812,49 +594,29 @@ function CollectionReportCard({ report }: { report: EntityReportResponse }) {
   const isActioning =
     hideMutation.isPending || resolveMutation.isPending || dismissMutation.isPending
 
-  const handleAction = useCallback(() => {
-    if (action === 'hide') {
-      if (!report.entity_slug) return
-      // Hide first, then resolve the report so the moderation queue
-      // reflects the action taken (rather than two separate concerns).
-      hideMutation.mutate(
-        { slug: report.entity_slug },
-        {
-          onSuccess: () => {
-            resolveMutation.mutate(
-              { reportId: report.id, notes: notes.trim() || undefined },
-              {
-                onSuccess: () => {
-                  setShowNotes(false)
-                  setNotes('')
-                  setAction(null)
-                },
-              }
-            )
-          },
-        }
-      )
-    } else if (action === 'dismiss') {
-      dismissMutation.mutate(
-        { reportId: report.id, notes: notes.trim() || undefined },
-        {
-          onSuccess: () => {
-            setShowNotes(false)
-            setNotes('')
-            setAction(null)
-          },
-        }
-      )
-    }
-  }, [action, hideMutation, resolveMutation, dismissMutation, report.id, report.entity_slug, notes])
-
-  const startAction = useCallback((type: 'hide' | 'dismiss') => {
-    setAction(type)
-    setShowNotes(true)
-  }, [])
-
   const entityUrl = getEntityUrl(report.entity_type, report.entity_id, report.entity_slug)
   const hasSlug = Boolean(report.entity_slug)
+
+  const handleConfirm = useCallback(
+    (actionKey: string, notes: string) => {
+      if (actionKey === 'hide') {
+        if (!report.entity_slug) return
+        // Hide first, then resolve the report so the moderation queue
+        // reflects the action taken (rather than two separate concerns).
+        hideMutation.mutate(
+          { slug: report.entity_slug },
+          {
+            onSuccess: () => {
+              resolveMutation.mutate({ reportId: report.id, notes: notes || undefined })
+            },
+          }
+        )
+      } else {
+        dismissMutation.mutate({ reportId: report.id, notes: notes || undefined })
+      }
+    },
+    [hideMutation, resolveMutation, dismissMutation, report.id, report.entity_slug]
+  )
 
   return (
     <Card className="overflow-hidden" data-testid="collection-report-card">
@@ -906,71 +668,33 @@ function CollectionReportCard({ report }: { report: EntityReportResponse }) {
           )}
         </div>
 
-        {showNotes && (
-          <div className="mt-3 space-y-2">
-            <textarea
-              value={notes}
-              onChange={e => setNotes(e.target.value)}
-              placeholder={
-                action === 'hide'
-                  ? 'Reason for hiding from public browse (optional)'
-                  : 'Notes for dismissal (optional)'
-              }
-              className="w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring resize-none"
-              rows={2}
-              autoFocus
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant={action === 'hide' ? 'destructive' : 'outline'}
-                onClick={handleAction}
-                disabled={isActioning}
-              >
-                {isActioning ? (
-                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                ) : action === 'hide' ? (
-                  <X className="h-3 w-3 mr-1" />
-                ) : (
-                  <Check className="h-3 w-3 mr-1" />
-                )}
-                {action === 'hide' ? 'Confirm Hide' : 'Confirm Dismiss'}
-              </Button>
-              <Button
-                size="sm"
-                variant="ghost"
-                onClick={() => { setShowNotes(false); setNotes(''); setAction(null) }}
-                disabled={isActioning}
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-
-        {!showNotes && (
-          <div className="mt-3 flex items-center gap-2">
-            <Button
-              size="sm"
-              variant="destructive"
-              onClick={() => startAction('hide')}
-              disabled={isActioning || !hasSlug}
-              title={hasSlug ? undefined : 'Cannot hide — collection was deleted'}
-            >
-              <X className="h-3 w-3 mr-1" />
-              Hide from Public Browse
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => startAction('dismiss')}
-              disabled={isActioning}
-            >
-              <Check className="h-3 w-3 mr-1" />
-              Dismiss Report
-            </Button>
-          </div>
-        )}
+        {/* Dual-action + optional-notes (PSY-920 Model B). Hide is disabled
+            when the collection was deleted (no slug); the only useful action
+            then is Dismiss. */}
+        <NotesActionRow
+          actions={[
+            {
+              key: 'hide',
+              restingLabel: 'Hide from Public Browse',
+              confirmLabel: 'Confirm Hide',
+              variant: 'destructive',
+              icon: 'x',
+              notesPlaceholder: 'Reason for hiding from public browse (optional)',
+              disabled: !hasSlug,
+              title: hasSlug ? undefined : 'Cannot hide — collection was deleted',
+            },
+            {
+              key: 'dismiss',
+              restingLabel: 'Dismiss Report',
+              confirmLabel: 'Confirm Dismiss',
+              variant: 'outline',
+              icon: 'check',
+              notesPlaceholder: 'Notes for dismissal (optional)',
+            },
+          ]}
+          onConfirm={handleConfirm}
+          isActioning={isActioning}
+        />
 
         {(hideMutation.isError || resolveMutation.isError || dismissMutation.isError) && (
           <p className="mt-2 text-xs text-destructive">
