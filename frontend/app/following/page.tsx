@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState } from 'react'
+import { Suspense, createElement, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { redirect } from 'next/navigation'
@@ -60,7 +60,10 @@ function getEntityIcon(entityType: string) {
 
 function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
   const unfollow = useUnfollow()
-  const Icon = getEntityIcon(entity.entity_type)
+  // `getEntityIcon` selects a stable, module-scope lucide component; render via
+  // `createElement` to satisfy react-hooks/static-components (a function-call
+  // result rendered as <Icon /> is misread as a component created per render).
+  const icon = getEntityIcon(entity.entity_type)
   const info = entityTypeInfo[entity.entity_type]
 
   const handleUnfollow = (e: React.MouseEvent) => {
@@ -88,7 +91,7 @@ function FollowingEntityCard({ entity }: { entity: FollowingEntity }) {
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0 flex-1">
           <div className="shrink-0 h-9 w-9 rounded-md bg-muted flex items-center justify-center">
-            <Icon className="h-4 w-4 text-muted-foreground" />
+            {createElement(icon, { className: 'h-4 w-4 text-muted-foreground' })}
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">

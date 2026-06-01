@@ -124,7 +124,11 @@ describe('ShowReportCard', () => {
   it('uses raw type string for unknown report types', () => {
     render(
       <ShowReportCard
-        report={makeReport({ report_type: 'custom_type' as any })}
+        report={makeReport({
+          // Intentionally outside the ShowReportType union: exercises the
+          // raw-string fallback for a report_type the frontend doesn't know.
+          report_type: 'custom_type' as ShowReportResponse['report_type'],
+        })}
       />
     )
     expect(screen.getByText('custom_type')).toBeInTheDocument()

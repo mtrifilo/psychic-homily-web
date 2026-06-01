@@ -120,8 +120,8 @@ export function ExplorePage({ geoDefaultCity = null }: ExplorePageProps) {
           <div className="mb-3">
             <h2 className="text-2xl font-bold tracking-tight">Surprise me</h2>
             <p className="mt-1 text-sm text-muted-foreground">
-              Drop into a random artist's page from the next or last 90 days
-              of shows.
+              Drop into a random artist&apos;s page from the next or last 90
+              days of shows.
             </p>
           </div>
           <ShuffleCta />

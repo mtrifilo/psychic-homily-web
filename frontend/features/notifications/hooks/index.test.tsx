@@ -201,7 +201,7 @@ describe('useCreateFilter', () => {
     })
 
     await act(async () => {
-      result.current.mutate({ name: 'New Filter', artist_ids: [1] } as any)
+      result.current.mutate({ name: 'New Filter', artist_ids: [1] })
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
@@ -226,7 +226,7 @@ describe('useUpdateFilter', () => {
     })
 
     await act(async () => {
-      result.current.mutate({ id: 1, name: 'Updated' } as any)
+      result.current.mutate({ id: 1, name: 'Updated' })
     })
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))

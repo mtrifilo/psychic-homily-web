@@ -69,7 +69,14 @@ const EDGE_LABELS: Record<string, string> = {
   festival_cobill: 'Festival co-lineup',
 }
 
-// Convert API data to graph format needed by react-force-graph-2d
+// Convert API data to graph format needed by react-force-graph-2d.
+//
+// d3-force (the engine react-force-graph-2d drives) mutates each datum in
+// place during simulation: it adds the layout coordinates `x`/`y`, velocity
+// `vx`/`vy`, and (when we pin a node) the fixed coordinates `fx`/`fy`. These
+// fields are absent on the data we hand in and only appear once the simulation
+// ticks, so they're declared optional here rather than cast to `any` at each
+// read/write site. See d3-force's `simulation.nodes()` contract.
 interface GraphNode {
   id: number
   name: string
@@ -79,11 +86,21 @@ interface GraphNode {
   upcoming_show_count: number
   isCenter: boolean
   val: number // node size
+  // Simulation-runtime fields (mutated in place by d3-force):
+  x?: number
+  y?: number
+  vx?: number
+  vy?: number
+  fx?: number
+  fy?: number
 }
 
+// `source`/`target` start as numeric node ids but d3-force replaces them with
+// the resolved `GraphNode` objects after the first tick, so they read as a
+// union. The `.id` accessor below narrows the object case.
 interface GraphLink {
-  source: number
-  target: number
+  source: number | GraphNode
+  target: number | GraphNode
   type: string
   score: number
   votes_up: number
@@ -335,8 +352,8 @@ export function ArtistGraphVisualization({
     // Find nodes that have visible edges
     const connectedIds = new Set<number>()
     for (const link of links) {
-      connectedIds.add(typeof link.source === 'number' ? link.source : (link.source as any).id)
-      connectedIds.add(typeof link.target === 'number' ? link.target : (link.target as any).id)
+      connectedIds.add(typeof link.source === 'number' ? link.source : link.source.id)
+      connectedIds.add(typeof link.target === 'number' ? link.target : link.target.id)
     }
 
     // Filter nodes to only those with visible edges (always keep center)
@@ -351,8 +368,8 @@ export function ArtistGraphVisualization({
       // Fix center node position
       const centerNode = graphData.nodes.find(n => n.isCenter)
       if (centerNode) {
-        (centerNode as any).fx = 0;
-        (centerNode as any).fy = 0
+        centerNode.fx = 0
+        centerNode.fy = 0
       }
     }
   }, [graphData])
@@ -421,8 +438,8 @@ export function ArtistGraphVisualization({
 
   const nodeCanvasObject = useCallback(
     (node: GraphNode, ctx: CanvasRenderingContext2D, globalScale: number) => {
-      const x = (node as any).x ?? 0
-      const y = (node as any).y ?? 0
+      const x = node.x ?? 0
+      const y = node.y ?? 0
       const isCenter = node.isCenter
       const radius = isCenter ? 12 : 8
       const fontSize = Math.max(10, Math.min(14, 12 / globalScale))
@@ -545,8 +562,8 @@ export function ArtistGraphVisualization({
         nodeVal="val"
         nodeCanvasObject={nodeCanvasObject}
         nodePointerAreaPaint={(node: GraphNode, color: string, ctx: CanvasRenderingContext2D) => {
-          const x = (node as any).x ?? 0
-          const y = (node as any).y ?? 0
+          const x = node.x ?? 0
+          const y = node.y ?? 0
           ctx.beginPath()
           ctx.arc(x, y, node.isCenter ? 14 : 10, 0, 2 * Math.PI)
           ctx.fillStyle = color

@@ -113,6 +113,12 @@ export const test = base.extend<
       )
     }
 
+    // `use` here is Playwright's fixture callback (the 2nd arg of a fixture
+    // function), not React's `use` hook. The rule's name heuristic flags it
+    // because this named-property fixture reads as a plain function; the
+    // anonymous array-fixture above (`workerCleanup`) isn't flagged for the
+    // same call. False positive — see PSY-953.
+    // eslint-disable-next-line react-hooks/rules-of-hooks
     await use()
 
     if (workerUserId !== null) {

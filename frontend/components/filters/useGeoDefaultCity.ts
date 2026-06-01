@@ -205,6 +205,19 @@ export function useGeoDefaultCity({
   // existing selection, and no prior interaction, once auth has settled. Gates
   // BOTH the client fetch (efficiency: an authed / favorited visitor never
   // hits the edge) and the seed effect below.
+  //
+  // Reading `userInteracted.current` during render is intentional and safe
+  // here: the ONLY writer is `notifyUserInteracted`, which also calls
+  // `setAppliedGeoDefault(null)`. That state update forces a re-render, so the
+  // recomputed `eligible` (and the gated fetch) always observe the flip — the
+  // ref never goes stale relative to render. It's a ref, not state, so the
+  // async `/api/geo` resolution can't re-seed over a user choice that landed
+  // first (see the seed effect's `userInteracted.current` guard below).
+  //
+  // The disable spans down through `useGeoSource` because the rule taints
+  // every render value derived from the ref (here `eligible`), so the gated
+  // hook call re-reports without it.
+  /* eslint-disable react-hooks/refs */
   const eligible =
     !authLoading &&
     !isAuthenticated &&
@@ -213,6 +226,7 @@ export function useGeoDefaultCity({
     !userInteracted.current
 
   const rawGeo = useGeoSource(geoFromServer, enableClientFetch, eligible)
+  /* eslint-enable react-hooks/refs */
   // Tracks that the CURRENT selection was auto-applied from the IP-geo
   // suggestion (vs. a user / favorites / URL choice). Drives the affordance;
   // cleared the moment the user touches the filter.

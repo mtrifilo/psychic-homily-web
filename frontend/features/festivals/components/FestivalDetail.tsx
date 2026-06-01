@@ -75,12 +75,19 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
   const { data: seriesData } = useFestivals({
     seriesSlug: festival?.series_slug,
   })
+  // Narrow `festival?.series_slug` to a local so the memo body and its dep
+  // array reference the same value. Reading `festival.series_slug` inside the
+  // body while depending on `festival?.series_slug` made the React Compiler
+  // infer the coarser `festival` dependency and refuse to preserve this memo
+  // (react-hooks/preserve-manual-memoization). The result is unchanged: the
+  // memo still recomputes only when the series list or the slug changes.
+  const seriesSlug = festival?.series_slug
   const seriesEditions = useMemo(() => {
-    if (!seriesData?.festivals || !festival?.series_slug) return []
+    if (!seriesData?.festivals || !seriesSlug) return []
     return seriesData.festivals
-      .filter((f) => f.series_slug === festival.series_slug)
+      .filter((f) => f.series_slug === seriesSlug)
       .map((f) => ({ year: f.edition_year }))
-  }, [seriesData, festival?.series_slug])
+  }, [seriesData, seriesSlug])
 
   const hasMultipleDays = useMemo(() => {
     if (!artistsData?.artists) return false
