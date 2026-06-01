@@ -2,6 +2,7 @@
 
 import { type AnyFieldApi } from '@tanstack/react-form'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import { Label } from '@/components/ui/label'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
 
@@ -71,6 +72,18 @@ export function FormField({
       {type === 'textarea' ? (
         <textarea
           className="flex min-h-[100px] w-full rounded-md border border-input bg-transparent px-3 py-2 text-base shadow-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:border-ring disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+          id={field.name}
+          name={field.name}
+          value={field.state.value}
+          onBlur={field.handleBlur}
+          onChange={handleChange}
+          onKeyDown={handleKeyDown}
+          placeholder={placeholder}
+          aria-invalid={field.state.meta.errors.length > 0}
+          disabled={disabled}
+        />
+      ) : type === 'date' ? (
+        <DateInput
           id={field.name}
           name={field.name}
           value={field.state.value}
