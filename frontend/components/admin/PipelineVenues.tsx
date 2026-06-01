@@ -16,6 +16,7 @@ import {
 import { useVenueSearch } from '@/features/venues'
 import { Switch } from '@/components/ui/switch'
 import { InlineErrorBanner } from '@/components/shared'
+import { AdminTable, type AdminTableColumn } from './AdminTable'
 import { formatShortDate, formatTimestamp } from '@/lib/utils/formatters'
 
 function ApprovalBadge({ rate }: { rate?: number }) {
@@ -598,54 +599,54 @@ function ImportHistorySection() {
     return <p className="text-muted-foreground text-sm">No extraction runs recorded yet.</p>
   }
 
+  const columns: AdminTableColumn<ImportHistoryEntry>[] = [
+    {
+      key: 'date',
+      header: 'Date',
+      cellClassName: 'text-muted-foreground text-xs',
+      render: (e) => formatTimestamp(e.run_at),
+    },
+    {
+      key: 'venue',
+      header: 'Venue',
+      render: (e) => <span className="font-medium">{e.venue_name}</span>,
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      align: 'center',
+      render: (e) => <SourceTypeBadge sourceType={e.source_type} />,
+    },
+    { key: 'extracted', header: 'Extracted', align: 'center', render: (e) => e.events_extracted },
+    { key: 'imported', header: 'Imported', align: 'center', render: (e) => e.events_imported },
+    {
+      key: 'duration',
+      header: 'Duration',
+      align: 'right',
+      cellClassName: 'text-muted-foreground text-xs',
+      render: (e) =>
+        e.duration_ms >= 1000
+          ? `${(e.duration_ms / 1000).toFixed(1)}s`
+          : `${e.duration_ms}ms`,
+    },
+    {
+      key: 'status',
+      header: 'Status',
+      align: 'center',
+      render: (e) =>
+        e.error ? (
+          <span className="text-red-400 text-xs" title={e.error}>
+            Error
+          </span>
+        ) : (
+          <span className="text-green-400 text-xs">OK</span>
+        ),
+    },
+  ]
+
   return (
     <div className="space-y-3">
-      <div className="border border-border rounded-lg overflow-hidden">
-        <table className="w-full text-sm">
-          <thead className="bg-muted/50">
-            <tr>
-              <th className="text-left p-3 font-medium">Date</th>
-              <th className="text-left p-3 font-medium">Venue</th>
-              <th className="text-center p-3 font-medium">Source</th>
-              <th className="text-center p-3 font-medium">Extracted</th>
-              <th className="text-center p-3 font-medium">Imported</th>
-              <th className="text-right p-3 font-medium">Duration</th>
-              <th className="text-center p-3 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-border">
-            {imports.map((entry: ImportHistoryEntry) => (
-              <tr key={entry.id}>
-                <td className="p-3 text-muted-foreground text-xs">
-                  {formatTimestamp(entry.run_at)}
-                </td>
-                <td className="p-3">
-                  <span className="font-medium">{entry.venue_name}</span>
-                </td>
-                <td className="p-3 text-center">
-                  <SourceTypeBadge sourceType={entry.source_type} />
-                </td>
-                <td className="p-3 text-center">{entry.events_extracted}</td>
-                <td className="p-3 text-center">{entry.events_imported}</td>
-                <td className="p-3 text-right text-muted-foreground text-xs">
-                  {entry.duration_ms >= 1000
-                    ? `${(entry.duration_ms / 1000).toFixed(1)}s`
-                    : `${entry.duration_ms}ms`}
-                </td>
-                <td className="p-3 text-center">
-                  {entry.error ? (
-                    <span className="text-red-400 text-xs" title={entry.error}>
-                      Error
-                    </span>
-                  ) : (
-                    <span className="text-green-400 text-xs">OK</span>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
+      <AdminTable columns={columns} rows={imports} rowKey={(e) => e.id} />
 
       {/* Pagination */}
       {(hasPrev || hasMore) && (

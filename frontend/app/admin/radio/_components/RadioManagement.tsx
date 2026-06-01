@@ -26,6 +26,7 @@ import {
   History,
 } from 'lucide-react'
 import { AdminEmptyState } from '@/components/admin'
+import { AdminTable, type AdminTableColumn } from '@/components/admin/AdminTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -1707,6 +1708,46 @@ export function RadioManagement() {
     [deleteMutation]
   )
 
+  const stationColumns: AdminTableColumn<RadioStationListItem>[] = [
+    {
+      key: 'name',
+      header: 'Name',
+      render: (s) => (
+        <div className="flex items-center gap-2">
+          <Radio className="h-4 w-4 text-muted-foreground" />
+          <span className="font-medium">{s.name}</span>
+          {s.frequency_mhz && (
+            <Badge variant="outline" className="text-xs">
+              {s.frequency_mhz} MHz
+            </Badge>
+          )}
+        </div>
+      ),
+    },
+    {
+      key: 'city',
+      header: 'City',
+      cellClassName: 'text-muted-foreground',
+      render: (s) => `${s.city}${s.state ? `, ${s.state}` : ''}`,
+    },
+    {
+      key: 'broadcast',
+      header: 'Broadcast Type',
+      cellClassName: 'text-muted-foreground capitalize',
+      render: (s) => s.broadcast_type,
+    },
+    { key: 'shows', header: 'Shows', render: (s) => s.show_count },
+    {
+      key: 'active',
+      header: 'Active',
+      render: (s) => (
+        <Badge variant={s.is_active ? 'default' : 'secondary'} className="text-xs">
+          {s.is_active ? 'Active' : 'Inactive'}
+        </Badge>
+      ),
+    },
+  ]
+
   // If viewing station detail, render that panel
   if (detailStation) {
     return (
@@ -1846,52 +1887,13 @@ export function RadioManagement() {
               }
             />
           ) : (
-            <div className="rounded-lg border">
-              <table className="w-full">
-                <thead>
-                  <tr className="border-b bg-muted/50">
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Name</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">City</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Broadcast Type</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Shows</th>
-                    <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Active</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y">
-                  {filteredStations.map((station) => (
-                    <tr
-                      key={station.id}
-                      className="cursor-pointer hover:bg-muted/50 transition-colors"
-                      onClick={() => handleStationClick(station)}
-                    >
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
-                          <Radio className="h-4 w-4 text-muted-foreground" />
-                          <span className="font-medium">{station.name}</span>
-                          {station.frequency_mhz && (
-                            <Badge variant="outline" className="text-xs">
-                              {station.frequency_mhz} MHz
-                            </Badge>
-                          )}
-                        </div>
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground">
-                        {station.city}{station.state ? `, ${station.state}` : ''}
-                      </td>
-                      <td className="px-4 py-3 text-sm text-muted-foreground capitalize">
-                        {station.broadcast_type}
-                      </td>
-                      <td className="px-4 py-3 text-sm">{station.show_count}</td>
-                      <td className="px-4 py-3">
-                        <Badge variant={station.is_active ? 'default' : 'secondary'} className="text-xs">
-                          {station.is_active ? 'Active' : 'Inactive'}
-                        </Badge>
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <AdminTable
+              columns={stationColumns}
+              rows={filteredStations}
+              rowKey={(s) => s.id}
+              onRowClick={handleStationClick}
+              rowLabel={(s) => `Station: ${s.name}`}
+            />
           )}
         </div>
 

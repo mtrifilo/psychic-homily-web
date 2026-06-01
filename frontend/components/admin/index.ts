@@ -21,3 +21,5 @@ export {
   AdminFormField,
 } from './AdminFormLayout'
 export type { AdminFormLayoutProps } from './AdminFormLayout'
+export { AdminTable } from './AdminTable'
+export type { AdminTableColumn, AdminTableProps } from './AdminTable'
