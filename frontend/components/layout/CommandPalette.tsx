@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useMemo, useState, useEffect } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import { useRouter, usePathname } from 'next/navigation'
 import { Command as CommandPrimitive } from 'cmdk'
 import {
@@ -290,12 +290,19 @@ export function CommandPalette() {
     enabled: open,
   })
 
-  useEffect(() => {
+  // Re-seed recent searches and clear the query each time the palette opens.
+  // React 19.2: adjust state during render on the open false→true transition
+  // via the canonical previous-value-guard idiom instead of a cascading
+  // effect. `getRecentSearches` is a stable useCallback, so guarding on `open`
+  // alone preserves the prior effect's semantics.
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
     if (open) {
       setRecentSearches(getRecentSearches())
       setSearch('')
     }
-  }, [open, getRecentSearches])
+  }
 
   const availableRoutes = useMemo(() => {
     return routes.filter(route => {

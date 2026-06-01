@@ -22,6 +22,11 @@ import { useSearchTags } from '@/features/tags/hooks'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { useQuery } from '@tanstack/react-query'
 
+// Sentinel for the adjust-during-render hydration sync below: a value
+// guaranteed distinct from any real hydration key, so the guard also fires on
+// the FIRST render (the prior effect always ran on mount and seeded).
+const UNSET = Symbol('unset')
+
 // ──────────────────────────────────────────────
 // Multi-select search combobox
 // ──────────────────────────────────────────────
@@ -54,15 +59,33 @@ function MultiSelectSearch({
   const [selectedItems, setSelectedItems] = useState<SearchableItem[]>([])
   const { data: results, isLoading } = searchHook(query)
 
-  // Sync initialItems into selectedItems when they become available (edit mode hydration).
-  // When initialItems is undefined/empty (create mode), clear selectedItems to match selectedIds.
-  useEffect(() => {
+  // Sync initialItems into selectedItems when they become available (edit mode
+  // hydration). When initialItems is undefined/empty (create mode), clear
+  // selectedItems to match selectedIds. React 19.2: adjust state during render
+  // via the previous-value-guard idiom instead of a cascading effect. The
+  // tracker starts at a sentinel so the guard also fires on the FIRST render
+  // (matching the prior effect, which always ran on mount) — important when
+  // `initialItems` is already cached by React Query. Otherwise this preserves
+  // the prior [initialItems, selectedIds.length] dependency semantics exactly.
+  const [prevHydrationKey, setPrevHydrationKey] = useState<
+    | {
+        initialItems: SearchableItem[] | undefined
+        selectedIdCount: number
+      }
+    | typeof UNSET
+  >(UNSET)
+  if (
+    prevHydrationKey === UNSET ||
+    prevHydrationKey.initialItems !== initialItems ||
+    prevHydrationKey.selectedIdCount !== selectedIds.length
+  ) {
+    setPrevHydrationKey({ initialItems, selectedIdCount: selectedIds.length })
     if (initialItems && initialItems.length > 0) {
       setSelectedItems(initialItems)
     } else if (selectedIds.length === 0) {
       setSelectedItems([])
     }
-  }, [initialItems, selectedIds.length])
+  }
 
   const handleSelect = useCallback(
     (item: SearchableItem) => {

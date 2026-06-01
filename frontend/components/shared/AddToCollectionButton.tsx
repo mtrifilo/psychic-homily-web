@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Library, Check, Plus, Loader2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -33,6 +33,11 @@ interface AddToCollectionButtonProps {
 }
 
 type SubmitError = { collectionId: number; message: string }
+
+// Sentinel for the adjust-during-render contains-sync below: a value
+// guaranteed distinct from any real `containingIds`, so the guard also fires
+// on the FIRST render (the prior effect always ran on mount and seeded).
+const UNSET = Symbol('unset')
 
 function describeError(reason: unknown): string {
   if (reason instanceof Error && reason.message) return reason.message
@@ -73,18 +78,37 @@ export function AddToCollectionButton({
   // flicker off mid-refetch; cleared on popover close.
   const [justSaved, setJustSaved] = useState<Set<number>>(new Set())
 
-  useEffect(() => {
-    if (!containingIds) return
-    setSelected(new Set(containingIds))
-    setSavedIds(new Set(containingIds))
-    setSubmitErrors([])
-  }, [containingIds])
+  // Seed `selected`/`savedIds` from the server's contains-truth whenever the
+  // query resolves (or returns a fresh reference). React 19.2: adjust state
+  // during render via the canonical previous-value-guard idiom instead of a
+  // cascading effect. The tracker starts at a sentinel so the guard also fires
+  // on the FIRST render when `containingIds` is already resolved (matching the
+  // prior effect, which always ran on mount). Otherwise this preserves the
+  // prior effect's `[containingIds]`-dependency semantics exactly.
+  const [prevContainingIds, setPrevContainingIds] = useState<
+    typeof containingIds | typeof UNSET
+  >(UNSET)
+  if (containingIds !== prevContainingIds) {
+    setPrevContainingIds(containingIds)
+    if (containingIds) {
+      setSelected(new Set(containingIds))
+      setSavedIds(new Set(containingIds))
+      setSubmitErrors([])
+    }
+  }
 
-  useEffect(() => {
-    if (open) return
-    setJustSaved(new Set())
-    setSubmitErrors([])
-  }, [open])
+  // Clear the per-session "just saved" chips and any submit errors when the
+  // popover closes. React 19.2: adjust state during render on the open→close
+  // transition instead of a cascading effect (covers both close paths —
+  // onOpenChange and the "Create new collection" link's setOpen(false)).
+  const [prevOpen, setPrevOpen] = useState(open)
+  if (open !== prevOpen) {
+    setPrevOpen(open)
+    if (!open) {
+      setJustSaved(new Set())
+      setSubmitErrors([])
+    }
+  }
 
   const collections = myCollectionsData?.collections ?? []
 

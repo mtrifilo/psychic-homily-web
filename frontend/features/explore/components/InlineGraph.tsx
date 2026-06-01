@@ -127,9 +127,18 @@ export function InlineGraph({ billSlug, billTitle, billHref }: InlineGraphProps)
     if (isMounted) return
     const node = containerRef.current
     if (!node || typeof IntersectionObserver === 'undefined') {
-      // SSR / very old browsers — fall back to immediate mount.
-      setIsMounted(true)
-      return
+      // SSR / very old browsers — fall back to immediate mount. React 19.2:
+      // defer the setState to a microtask so it lands after the effect returns
+      // instead of synchronously in the effect body (set-state-in-effect /
+      // cascading render). The two-phase render (placeholder → mounted) is
+      // preserved exactly.
+      let cancelled = false
+      Promise.resolve().then(() => {
+        if (!cancelled) setIsMounted(true)
+      })
+      return () => {
+        cancelled = true
+      }
     }
     const observer = new IntersectionObserver(
       entries => {

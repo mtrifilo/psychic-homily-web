@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import {
   Loader2,
   Inbox,
@@ -269,11 +269,23 @@ export function LowQualityTagQueue() {
   )
 
   // Reset typed-confirm text any time the selection size changes — the
-  // expected phrase depends on the count.
-  useEffect(() => {
-    if (activeDialog === 'bulk-delete') return
-    setBulkDeleteConfirmText('')
-  }, [selectionCount, activeDialog])
+  // expected phrase depends on the count. React 19.2: adjust state during
+  // render via the previous-value-guard idiom instead of a cascading effect.
+  // Guarding on [selectionCount, activeDialog] preserves the prior dependency
+  // semantics exactly.
+  const [prevConfirmKey, setPrevConfirmKey] = useState<{
+    selectionCount: number
+    activeDialog: ActiveDialog
+  }>({ selectionCount, activeDialog })
+  if (
+    prevConfirmKey.selectionCount !== selectionCount ||
+    prevConfirmKey.activeDialog !== activeDialog
+  ) {
+    setPrevConfirmKey({ selectionCount, activeDialog })
+    if (activeDialog !== 'bulk-delete') {
+      setBulkDeleteConfirmText('')
+    }
+  }
 
   return (
     <div className="space-y-4">

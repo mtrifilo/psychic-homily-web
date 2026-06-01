@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState, useEffect } from 'react'
+import { Suspense, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useUpdateProfile } from '@/features/auth'
@@ -20,6 +20,11 @@ import {
   TierAdvancementCard,
 } from '@/components/contributor'
 
+// Sentinel for the adjust-during-render form seeding below: a value guaranteed
+// distinct from any real `user`, so the guard also fires on the FIRST render
+// (the prior effect always ran on mount and seeded the form).
+const UNSET = Symbol('unset')
+
 function ProfileTab() {
   const { user } = useAuthContext()
   const updateProfile = useUpdateProfile()
@@ -31,15 +36,21 @@ function ProfileTab() {
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // Initialize form values from user data
-  useEffect(() => {
-    if (user) {
-      setUsername(user.username || '')
-      setFirstName(user.first_name || '')
-      setLastName(user.last_name || '')
-      setBio(user.bio || '')
-    }
-  }, [user])
+  // Initialize / re-seed form values whenever the user object changes (async
+  // load, or a fresh reference after a successful save). React 19.2: adjust
+  // state during render via the canonical previous-value-guard idiom instead
+  // of a cascading effect. The tracker starts at a sentinel so the guard also
+  // fires on the FIRST render when `user` is already present (matching the
+  // prior effect, which always ran on mount). Guarding on the user reference
+  // otherwise preserves the prior `[user]`-dependency semantics exactly.
+  const [prevUser, setPrevUser] = useState<typeof user | typeof UNSET>(UNSET)
+  if (user && user !== prevUser) {
+    setPrevUser(user)
+    setUsername(user.username || '')
+    setFirstName(user.first_name || '')
+    setLastName(user.last_name || '')
+    setBio(user.bio || '')
+  }
 
   const handleSave = async () => {
     setError(null)

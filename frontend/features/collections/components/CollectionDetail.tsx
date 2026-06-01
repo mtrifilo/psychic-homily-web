@@ -182,6 +182,12 @@ function MutationFeedback({
   )
 }
 
+// Sentinel for the adjust-during-render error-signal guard in
+// useAutoDismissError: a value guaranteed distinct from any real
+// {isError, err} pair, so the guard also fires on the FIRST render when the
+// mutation is already in an error state (matching the prior mount effect).
+const ERROR_SIGNAL_UNSET = Symbol('error-signal-unset')
+
 /**
  * PSY-609: when an optimistic-rollback mutation fails (like / unlike /
  * reorder), surface the error inline for ~3s then auto-dismiss so the
@@ -190,8 +196,8 @@ function MutationFeedback({
  * just makes the *reason* visible.
  *
  * `formatter` MUST be stable across renders (wrap in useCallback) — it
- * sits in the effect's dependency array, so an unstable reference
- * resets the auto-dismiss timer on every render.
+ * sits in the timer effect's dependency array indirectly via `message`, so
+ * an unstable reference would otherwise reset the auto-dismiss timer.
  */
 function useAutoDismissError(
   err: unknown,
@@ -202,21 +208,47 @@ function useAutoDismissError(
   const [message, setMessage] = useState<string | null>(null)
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  // Surface the formatted error the moment the mutation errors (or when the
+  // error signal changes while still erroring). React 19.2: adjust state
+  // during render via the previous-value-guard idiom instead of a synchronous
+  // setState in an effect (cascading render). The tracker starts at a sentinel
+  // so the guard also fires on the FIRST render when `isError` is already true
+  // (matching the prior effect, which always ran on mount). The auto-dismiss
+  // timer below re-arms whenever `message` changes, preserving the prior
+  // single-effect behavior. `formatter` is required-stable (see the doc
+  // comment), so keying the guard on `isError`/`err` matches the prior
+  // dependency semantics.
+  const [prevErrorSignal, setPrevErrorSignal] = useState<
+    { isError: boolean; err: unknown } | typeof ERROR_SIGNAL_UNSET
+  >(ERROR_SIGNAL_UNSET)
+  const errorSignalChanged =
+    prevErrorSignal === ERROR_SIGNAL_UNSET ||
+    prevErrorSignal.isError !== isError ||
+    prevErrorSignal.err !== err
+  if (errorSignalChanged) {
+    setPrevErrorSignal({ isError, err })
+    // Only (re)show on the erroring edge; when the error clears we just keep
+    // the tracker in step so the next error re-triggers (even with the same
+    // `err` value).
+    if (isError) {
+      setMessage(formatter(err))
+    }
+  }
+
+  // Arm / re-arm the auto-dismiss timer whenever a message is shown. The
+  // setMessage(null) here is inside the deferred timer callback, not
+  // synchronous in the effect body.
   useEffect(() => {
-    if (!isError) return
-    setMessage(formatter(err))
+    if (message === null) return
     if (timeoutRef.current) clearTimeout(timeoutRef.current)
     timeoutRef.current = setTimeout(() => {
       setMessage(null)
       timeoutRef.current = null
     }, delayMs)
-  }, [isError, err, formatter, delayMs])
-
-  useEffect(() => {
     return () => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current)
     }
-  }, [])
+  }, [message, delayMs])
 
   return message
 }

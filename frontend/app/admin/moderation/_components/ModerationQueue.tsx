@@ -730,9 +730,18 @@ export function ModerationQueue() {
     return () => clearTimeout(timer)
   }, [lastAction])
 
-  useEffect(() => {
+  // Clear the stale success banner when either filter changes (treating a
+  // filter change as a "tab change" — a fresh review surface should not carry
+  // a stale confirmation). React 19.2: adjust state during render via the
+  // canonical previous-value-guard idiom instead of a cascading effect.
+  const [prevFilterKey, setPrevFilterKey] = useState(
+    `${itemTypeFilter}|${entityTypeFilter}`
+  )
+  const filterKey = `${itemTypeFilter}|${entityTypeFilter}`
+  if (filterKey !== prevFilterKey) {
+    setPrevFilterKey(filterKey)
     setLastAction(null)
-  }, [itemTypeFilter, entityTypeFilter])
+  }
 
   // Fetch pending edits
   const {

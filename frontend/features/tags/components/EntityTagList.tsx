@@ -735,12 +735,19 @@ function AddTagForm({
     return () => clearTimeout(timer)
   }, [searchQuery])
 
-  // Sync create category with filter category
-  useEffect(() => {
-    if (filterCategory) {
-      setCreateCategory(filterCategory)
+  // Select a filter category and mirror it into the create category, so a
+  // newly-created tag defaults to the category the user is filtering by.
+  // React 19.2: this interaction-triggered sync lives in the event handler
+  // (highest-applicable tier) instead of a cascading effect that mirrored
+  // filterCategory → createCategory. Clearing the filter (cat === '') leaves
+  // createCategory untouched, matching the prior effect's `if (filterCategory)`
+  // guard.
+  const handleSelectFilterCategory = (cat: string) => {
+    setFilterCategory(cat)
+    if (cat) {
+      setCreateCategory(cat)
     }
-  }, [filterCategory])
+  }
 
   const handleSelectTag = (tag: TagListItem) => {
     addMutation.mutate(
@@ -827,7 +834,7 @@ function AddTagForm({
       <div className="flex items-center gap-1.5">
         <span className="text-xs text-muted-foreground">Category:</span>
         <button
-          onClick={() => setFilterCategory('')}
+          onClick={() => handleSelectFilterCategory('')}
           className={cn(
             'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
             filterCategory === ''
@@ -840,7 +847,7 @@ function AddTagForm({
         {TAG_CATEGORIES.map(cat => (
           <button
             key={cat}
-            onClick={() => setFilterCategory(filterCategory === cat ? '' : cat)}
+            onClick={() => handleSelectFilterCategory(filterCategory === cat ? '' : cat)}
             className={cn(
               'rounded-full px-2 py-0.5 text-[11px] font-medium border transition-colors',
               filterCategory === cat

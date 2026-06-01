@@ -56,14 +56,23 @@ export function MergeTagDialog({
     return () => clearTimeout(t)
   }, [search])
 
-  // Reset state whenever the dialog opens for a new source tag.
-  useEffect(() => {
-    if (!open) return
-    setSearch('')
-    setDebounced('')
-    setSelectedTarget(null)
-    setError(null)
-  }, [open, sourceTagId])
+  // Reset state whenever the dialog opens for a new source tag. React 19.2:
+  // adjust state during render via the previous-value-guard idiom instead of a
+  // cascading effect. Guarding on [open, sourceTagId] preserves the prior
+  // dependency semantics exactly.
+  const [prevResetKey, setPrevResetKey] = useState<{
+    open: boolean
+    sourceTagId: number | null
+  }>({ open, sourceTagId })
+  if (prevResetKey.open !== open || prevResetKey.sourceTagId !== sourceTagId) {
+    setPrevResetKey({ open, sourceTagId })
+    if (open) {
+      setSearch('')
+      setDebounced('')
+      setSelectedTarget(null)
+      setError(null)
+    }
+  }
 
   const { data: searchData, isLoading: searching } = useSearchTags(
     debounced,
