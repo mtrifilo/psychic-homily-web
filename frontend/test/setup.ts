@@ -5,10 +5,17 @@ import { server } from './mocks/server'
 
 // Start MSW server before all tests, reset handlers after each test,
 // and shut down the server when all tests complete.
-// 'bypass' lets unhandled requests pass through — only routes with
-// explicit handlers are intercepted, so existing vi.mock-based tests
-// continue to work unchanged.
-beforeAll(() => server.listen({ onUnhandledRequest: 'bypass' }))
+//
+// PSY-945: onUnhandledRequest is 'error' (was 'bypass'). Under 'bypass' a
+// request with no MSW handler fell through to the real network. In CI there
+// is no backend at localhost:8080, so the fetch stays pending and, if it is
+// still in flight when vitest tears down the worker, surfaces as the
+// intermittent "[vitest-worker]: Closing rpc while \"fetch\" was pending"
+// teardown failure. 'error' fails the offending test loudly at its source
+// instead, so a component rendered without stubbing its query-firing children
+// can never leak a real request again. vi.mock-based tests are unaffected —
+// a mocked module never reaches fetch, so MSW never sees it.
+beforeAll(() => server.listen({ onUnhandledRequest: 'error' }))
 afterAll(() => server.close())
 
 // Cleanup after each test
