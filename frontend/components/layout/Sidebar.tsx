@@ -1,11 +1,11 @@
 'use client'
 
-import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Newspaper,
   Send, Library, LayoutList, MessageSquarePlus, UserCircle, Shield, PanelLeftClose, PanelLeft,
-  ExternalLink, Globe, TrendingUp, Bell, HeartHandshake, Trophy, Radio, Music, Compass,
+  Globe, TrendingUp, Bell, HeartHandshake, Trophy, Radio, Music, Compass,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -13,6 +13,11 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   Tooltip, TooltipContent, TooltipProvider, TooltipTrigger,
 } from '@/components/ui/tooltip'
+import { SidebarNavLink } from './SidebarNavLink'
+
+// The admin rail (config + the 7 queue-count hooks) is a separate chunk loaded
+// only when an admin is on the /admin shell — public pages never download it.
+const AdminSidebarNav = dynamic(() => import('./AdminSidebarNav'), { ssr: false })
 
 export interface SidebarNavItem {
   href: string
@@ -68,47 +73,40 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   const pathname = usePathname()
   const { user, isAuthenticated } = useAuthContext()
 
+  // In the admin area the rail becomes context-aware (PSY-933): it swaps the
+  // public Discover/Community groups for the grouped admin sections (rendered by
+  // the lazily-loaded AdminSidebarNav). Gated on isAdmin so a non-admin
+  // mid-redirect at /admin still sees the public nav, and scoped to the exact
+  // /admin tab-shell (usePathname() strips the ?tab= query, so this still matches
+  // /admin?tab=…). Standalone /admin/<section> sub-routes keep the public nav —
+  // their pre-PSY-933 behavior — rather than mis-rendering a ?tab=-only active
+  // state; a path-aware rail for those is a follow-up.
+  const isAdmin = !!user?.is_admin
+  const showAdminNav = isAdmin && pathname === '/admin'
+
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
     return pathname === href || pathname.startsWith(href + '/')
   }
 
-  const renderItem = (item: SidebarNavItem) => {
-    const Icon = item.icon
-    const active = !item.external && isActive(item.href)
+  const renderItem = (item: SidebarNavItem) => (
+    <SidebarNavLink
+      key={item.href}
+      href={item.href}
+      label={item.label}
+      icon={item.icon}
+      active={!item.external && isActive(item.href)}
+      collapsed={collapsed}
+      external={item.external}
+    />
+  )
 
-    const link = (
-      <Link
-        href={item.href}
-        target={item.external ? '_blank' : undefined}
-        rel={item.external ? 'noopener noreferrer' : undefined}
-        className={cn(
-          'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-          active
-            ? 'bg-sidebar-accent text-sidebar-accent-foreground'
-            : 'text-sidebar-foreground/70 hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground',
-          collapsed && 'justify-center px-2'
-        )}
-      >
-        <Icon className="h-4 w-4 shrink-0" />
-        {!collapsed && <span>{item.label}</span>}
-        {!collapsed && item.external && (
-          <ExternalLink className="ml-auto h-3 w-3 opacity-50" />
-        )}
-      </Link>
+  const renderGroupHeader = (label: string) =>
+    !collapsed && (
+      <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">
+        {label}
+      </p>
     )
-
-    if (collapsed) {
-      return (
-        <Tooltip key={item.href}>
-          <TooltipTrigger asChild>{link}</TooltipTrigger>
-          <TooltipContent side="right">{item.label}</TooltipContent>
-        </Tooltip>
-      )
-    }
-
-    return <div key={item.href}>{link}</div>
-  }
 
   return (
     <TooltipProvider delayDuration={0}>
@@ -119,29 +117,31 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
         )}
       >
         <nav className="flex-1 space-y-6 overflow-y-auto px-2 py-4">
-          {sidebarGroups.map(group => (
-            <div key={group.label}>
-              {!collapsed && (
-                <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-sidebar-foreground/50">
-                  {group.label}
-                </p>
-              )}
-              <div className="space-y-0.5">
-                {group.items.map(renderItem)}
-              </div>
-            </div>
-          ))}
+          {showAdminNav ? (
+            <AdminSidebarNav collapsed={collapsed} />
+          ) : (
+            <>
+              {sidebarGroups.map(group => (
+                <div key={group.label}>
+                  {renderGroupHeader(group.label)}
+                  <div className="space-y-0.5">
+                    {group.items.map(renderItem)}
+                  </div>
+                </div>
+              ))}
 
-          {isAuthenticated && (
-            <div>
-              <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
-              <div className="space-y-0.5">
-                {renderItem({ href: '/library', label: 'Library', icon: Library })}
-                {renderItem({ href: '/settings/notification-filters', label: 'Notification Filters', icon: Bell })}
-                {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}
-                {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
-              </div>
-            </div>
+              {isAuthenticated && (
+                <div>
+                  <div className={cn('mb-2 border-t border-sidebar-border', collapsed ? 'mx-2' : 'mx-3')} />
+                  <div className="space-y-0.5">
+                    {renderItem({ href: '/library', label: 'Library', icon: Library })}
+                    {renderItem({ href: '/settings/notification-filters', label: 'Notification Filters', icon: Bell })}
+                    {renderItem({ href: '/profile', label: 'Profile', icon: UserCircle })}
+                    {user?.is_admin && renderItem({ href: '/admin', label: 'Admin', icon: Shield })}
+                  </div>
+                </div>
+              )}
+            </>
           )}
         </nav>
 

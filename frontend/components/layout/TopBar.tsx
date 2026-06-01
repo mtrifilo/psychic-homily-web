@@ -3,6 +3,7 @@
 import Image from 'next/image'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import dynamic from 'next/dynamic'
 import { useTheme } from 'next-themes'
 import {
   Menu, LogOut, Loader2, Shield, Settings, Moon, Sun, Search,
@@ -22,6 +23,10 @@ import { getUserInitials, getUserDisplayName } from '@/app/nav-utils'
 import { sidebarGroups } from './Sidebar'
 import { NotificationBell } from '@/features/notifications'
 
+// Mobile admin drawer (config + the 7 queue-count hooks) is a separate chunk
+// loaded only when an admin opens the drawer on /admin — off the public bundle.
+const AdminDrawerNav = dynamic(() => import('./AdminDrawerNav'), { ssr: false })
+
 interface TopBarProps {
   mobileOpen: boolean
   onMobileOpenChange: (open: boolean) => void
@@ -32,6 +37,15 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
   const { theme, setTheme } = useTheme()
   const pathname = usePathname()
+
+  // Context-aware mobile drawer (PSY-933): under the /admin shell the nav groups
+  // swap to the grouped admin sections (rendered by the lazily-loaded
+  // AdminDrawerNav — admin-only code stays out of the public bundle). Gated on
+  // isAdmin (mid-redirect safety) + scoped to the exact /admin tab-shell
+  // (usePathname() strips ?tab=); standalone /admin/<section> sub-routes keep the
+  // public nav, matching the desktop Sidebar.
+  const isAdmin = !!user?.is_admin
+  const showAdminNav = isAdmin && pathname === '/admin'
 
   const isActive = (href: string) => {
     if (href === '/') return pathname === '/'
@@ -70,7 +84,10 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
                 <SheetTitle className="text-left">Menu</SheetTitle>
               </SheetHeader>
               <nav className="flex flex-col gap-1 px-2 py-4">
-                {sidebarGroups.map(group => (
+                {showAdminNav ? (
+                  <AdminDrawerNav onNavigate={() => onMobileOpenChange(false)} />
+                ) : (
+                  sidebarGroups.map(group => (
                   <div key={group.label} className="mb-4">
                     <p className="mb-2 px-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground/50">
                       {group.label}
@@ -99,7 +116,8 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
                       )
                     })}
                   </div>
-                ))}
+                  ))
+                )}
 
                 {/* Mobile auth section */}
                 {isLoading ? (

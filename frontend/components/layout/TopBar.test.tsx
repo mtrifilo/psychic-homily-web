@@ -1,11 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { TopBar } from './TopBar'
 
 let mockPathname = '/'
 vi.mock('next/navigation', () => ({
   usePathname: () => mockPathname,
+}))
+
+// The admin drawer is a dynamically-imported chunk (AdminDrawerNav, kept off the
+// public bundle); stub next/dynamic so TopBar renders a synchronous marker. The
+// drawer's own behavior is covered by AdminDrawerNav.test.tsx.
+vi.mock('next/dynamic', () => ({
+  default: () =>
+    function AdminDrawerNavStub() {
+      return <div data-testid="admin-drawer-nav" />
+    },
 }))
 
 vi.mock('next/image', () => ({
@@ -407,6 +417,49 @@ describe('TopBar', () => {
 
       await user.click(screen.getByText('Notifications'))
       expect(onMobileOpenChange).toHaveBeenCalledWith(false)
+    })
+  })
+
+  // PSY-933: the mobile drawer is the ONLY admin nav on mobile (the desktop
+  // Sidebar is hidden < md). TopBar mounts the lazily-loaded AdminDrawerNav only
+  // for an admin on the exact /admin shell; its contents are tested in
+  // AdminDrawerNav.test.tsx.
+  describe('admin drawer delegation (PSY-933)', () => {
+    const asAdmin = () =>
+      mockAuthContext.mockReturnValue({
+        user: { email: 'admin@test.com', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+
+    it('mounts the admin drawer (hides public groups) for an admin on /admin', () => {
+      asAdmin()
+      mockPathname = '/admin'
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.getByTestId('admin-drawer-nav')).toBeInTheDocument()
+      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
+    })
+
+    it('keeps the public nav for a non-admin at /admin', () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      mockPathname = '/admin'
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.getByText('Discover')).toBeInTheDocument()
+      expect(screen.queryByTestId('admin-drawer-nav')).not.toBeInTheDocument()
+    })
+
+    it('keeps the public nav on standalone /admin/<section> sub-routes (scoped to the tab-shell)', () => {
+      asAdmin()
+      mockPathname = '/admin/featured'
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.getByText('Discover')).toBeInTheDocument()
+      expect(screen.queryByTestId('admin-drawer-nav')).not.toBeInTheDocument()
     })
   })
 

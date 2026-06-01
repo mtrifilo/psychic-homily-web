@@ -12,6 +12,8 @@ import type { AdminReportActionRequest } from '@/features/shows'
 interface UsePendingArtistReportsOptions {
   limit?: number
   offset?: number
+  /** When false, the query does not fire (e.g. the admin nav badge off-route). Defaults to true. */
+  enabled?: boolean
 }
 
 /**
@@ -20,7 +22,7 @@ interface UsePendingArtistReportsOptions {
 export const usePendingArtistReports = (
   options: UsePendingArtistReportsOptions = {}
 ) => {
-  const { limit = 50, offset = 0 } = options
+  const { limit = 50, offset = 0, enabled = true } = options
 
   const params = new URLSearchParams()
   params.set('limit', limit.toString())
@@ -36,6 +38,7 @@ export const usePendingArtistReports = (
       })
     },
     staleTime: 30 * 1000, // 30 seconds
+    enabled,
   })
 }
 
