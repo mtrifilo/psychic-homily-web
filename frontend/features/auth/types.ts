@@ -107,7 +107,14 @@ export interface ActivityHeatmapResponse {
 export interface ProfileSectionResponse {
   id: number
   title: string
+  /** Raw markdown source, preserved for edit-form round-tripping. */
   content: string
+  /**
+   * `content` rendered to sanitized HTML (goldmark + bluemonday) by the
+   * backend (PSY-747), mirroring tag/collection descriptions. Read this for
+   * display; keep `content` for editing. Omitted when `content` is empty.
+   */
+  content_html?: string
   position: number
   is_visible: boolean
   created_at: string
