@@ -9,11 +9,20 @@ import * as Sentry from '@sentry/nextjs'
  * the dedicated admin routes (PSY-936) and the proxy revalidation rules
  * engine (PSY-939, lib/proxy-revalidation.ts).
  *
+ * Accepts either a concrete URL path (`/artists/bright-eyes`) or a dynamic
+ * route pattern (`/shows/[slug]`). Patterns invalidate every cached page
+ * under that route on its next visit — used for cascade invalidation when
+ * the affected pages can't be enumerated from the mutation (PSY-941).
+ *
  * `source` identifies the caller in Sentry (an entity type or rule name).
  */
 export function safeRevalidatePath(path: string, source: string): void {
   try {
-    revalidatePath(path)
+    if (isRoutePattern(path)) {
+      revalidatePath(path, 'page')
+    } else {
+      revalidatePath(path)
+    }
   } catch (error) {
     Sentry.captureException(error, {
       level: 'error',
@@ -21,6 +30,16 @@ export function safeRevalidatePath(path: string, source: string): void {
       extra: { path },
     })
   }
+}
+
+/**
+ * Dynamic route patterns (containing a `[segment]`) must pass type 'page' to
+ * revalidatePath; concrete URLs must not pass a type. Real slugs never
+ * contain brackets (backend slugs are kebab-case alphanumerics), so the
+ * bracket is an unambiguous discriminator.
+ */
+function isRoutePattern(path: string): boolean {
+  return path.includes('[')
 }
 
 /**
