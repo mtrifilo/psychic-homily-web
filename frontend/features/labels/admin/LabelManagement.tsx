@@ -28,6 +28,11 @@ import {
   AdminFormField,
 } from '@/components/admin/AdminFormLayout'
 import { InlineErrorBanner } from '@/components/shared'
+import {
+  FILTER_SELECT_ALL,
+  toFilterSelectValue,
+  fromFilterSelectValue,
+} from '@/lib/filterSelectValue'
 import { useLabels, useLabel } from '../hooks/useLabels'
 import {
   useCreateLabel,
@@ -952,19 +957,22 @@ export function LabelManagement() {
             className="pl-9"
           />
         </div>
-        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
-        <select
-          value={statusFilter}
-          onChange={(e) => setStatusFilter(e.target.value)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
+        <Select
+          value={toFilterSelectValue(statusFilter)}
+          onValueChange={(value) => setStatusFilter(fromFilterSelectValue(value))}
         >
-          <option value="">All Statuses</option>
-          {LABEL_STATUSES.map((s) => (
-            <option key={s} value={s}>
-              {LABEL_STATUS_LABELS[s]}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-44" aria-label="Filter by status">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_SELECT_ALL}>All Statuses</SelectItem>
+            {LABEL_STATUSES.map((s) => (
+              <SelectItem key={s} value={s}>
+                {LABEL_STATUS_LABELS[s]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Loading */}

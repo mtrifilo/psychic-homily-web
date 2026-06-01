@@ -165,14 +165,38 @@ describe('LabelManagement', () => {
     expect(screen.queryByText('Sub Pop')).not.toBeInTheDocument()
   })
 
+  it('renders the status filter as the DS Select with the All sentinel', () => {
+    // PSY-924: native <select> filter is now a Radix combobox; "All Statuses"
+    // is the FILTER_SELECT_ALL sentinel round-tripped to '' for the query.
+    renderWithProviders(<LabelManagement />)
+    const statusSelect = screen.getByRole('combobox', { name: 'Filter by status' })
+    expect(statusSelect).toHaveTextContent('All Statuses')
+  })
+
   it('passes the selected status filter through to useLabels', async () => {
     const user = userEvent.setup()
     renderWithProviders(<LabelManagement />)
 
-    const statusSelect = screen.getByRole('combobox')
-    await user.selectOptions(statusSelect, 'defunct')
+    // DS Select (Radix) interaction: open the combobox, pick an option.
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
+    await user.click(await screen.findByRole('option', { name: 'Defunct' }))
 
     expect(mockUseLabels).toHaveBeenLastCalledWith({ status: 'defunct' })
+  })
+
+  it('round-trips the All sentinel back to no status filter', async () => {
+    // Guards the sentinel: selecting "All Statuses" must clear status ('' →
+    // undefined), not pass the literal 'all' to the backend query.
+    const user = userEvent.setup()
+    renderWithProviders(<LabelManagement />)
+
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
+    await user.click(await screen.findByRole('option', { name: 'Defunct' }))
+    expect(mockUseLabels).toHaveBeenLastCalledWith({ status: 'defunct' })
+
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
+    await user.click(await screen.findByRole('option', { name: 'All Statuses' }))
+    expect(mockUseLabels).toHaveBeenLastCalledWith({ status: undefined })
   })
 
   it('opens the create dialog form when New Label is clicked', async () => {

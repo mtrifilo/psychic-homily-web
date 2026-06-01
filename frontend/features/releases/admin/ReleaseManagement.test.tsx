@@ -173,15 +173,44 @@ describe('ReleaseManagement', () => {
     expect(screen.getByText('Kid A')).toBeInTheDocument()
   })
 
+  it('renders the type filter as the DS Select with the All sentinel', () => {
+    // PSY-924: the native <select> filter became a Radix combobox. The "All
+    // Types" option is the FILTER_SELECT_ALL sentinel ('') round-tripped to ''
+    // for the query — assert the trigger defaults to "All Types".
+    renderWithProviders(<ReleaseManagement />)
+    const typeSelect = screen.getByRole('combobox', { name: 'Filter by type' })
+    expect(typeSelect).toHaveTextContent('All Types')
+  })
+
   it('passes the type filter through to useReleases', async () => {
     const user = userEvent.setup()
     renderWithProviders(<ReleaseManagement />)
 
-    const typeSelect = screen.getByRole('combobox')
-    await user.selectOptions(typeSelect, 'ep')
+    // DS Select (Radix) interaction: open the combobox, pick an option.
+    await user.click(screen.getByRole('combobox', { name: 'Filter by type' }))
+    await user.click(await screen.findByRole('option', { name: 'EP' }))
 
     expect(mockUseReleases).toHaveBeenLastCalledWith(
       expect.objectContaining({ releaseType: 'ep' })
+    )
+  })
+
+  it('round-trips the All sentinel back to no type filter', async () => {
+    // Guards the sentinel: selecting "All Types" must clear releaseType (''
+    // → undefined), not pass the literal 'all' to the backend query.
+    const user = userEvent.setup()
+    renderWithProviders(<ReleaseManagement />)
+
+    await user.click(screen.getByRole('combobox', { name: 'Filter by type' }))
+    await user.click(await screen.findByRole('option', { name: 'EP' }))
+    expect(mockUseReleases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ releaseType: 'ep' })
+    )
+
+    await user.click(screen.getByRole('combobox', { name: 'Filter by type' }))
+    await user.click(await screen.findByRole('option', { name: 'All Types' }))
+    expect(mockUseReleases).toHaveBeenLastCalledWith(
+      expect.objectContaining({ releaseType: undefined })
     )
   })
 

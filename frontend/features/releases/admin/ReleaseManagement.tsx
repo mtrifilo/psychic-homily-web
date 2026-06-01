@@ -31,6 +31,11 @@ import {
   AdminFormField,
 } from '@/components/admin/AdminFormLayout'
 import { InlineErrorBanner } from '@/components/shared'
+import {
+  FILTER_SELECT_ALL,
+  toFilterSelectValue,
+  fromFilterSelectValue,
+} from '@/lib/filterSelectValue'
 import { useReleases, useRelease } from '../hooks/useReleases'
 import { useArtistSearch } from '@/features/artists'
 import {
@@ -188,18 +193,25 @@ function ArtistPicker({
               <span className="text-sm font-medium flex-1">
                 {artist.artist_name}
               </span>
-              {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
-              <select
+              <Select
                 value={artist.role}
-                onChange={(e) => onRoleChange(index, e.target.value)}
-                className="h-8 rounded-md border bg-background px-2 text-xs"
+                onValueChange={(value) => onRoleChange(index, value)}
               >
-                {ARTIST_ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
+                <SelectTrigger
+                  size="sm"
+                  className="w-32 text-xs"
+                  aria-label={`Role for ${artist.artist_name}`}
+                >
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {ARTIST_ROLES.map((r) => (
+                    <SelectItem key={r.value} value={r.value}>
+                      {r.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
               <Button
                 type="button"
                 variant="ghost"
@@ -1134,19 +1146,22 @@ export function ReleaseManagement() {
             className="pl-9"
           />
         </div>
-        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
+        <Select
+          value={toFilterSelectValue(typeFilter)}
+          onValueChange={(value) => setTypeFilter(fromFilterSelectValue(value))}
         >
-          <option value="">All Types</option>
-          {RELEASE_TYPES.map((type) => (
-            <option key={type} value={type}>
-              {RELEASE_TYPE_LABELS[type]}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-44" aria-label="Filter by type">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_SELECT_ALL}>All Types</SelectItem>
+            {RELEASE_TYPES.map((type) => (
+              <SelectItem key={type} value={type}>
+                {RELEASE_TYPE_LABELS[type]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Loading */}

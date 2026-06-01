@@ -34,6 +34,11 @@ import {
   DialogDescription,
   DialogFooter,
 } from '@/components/ui/dialog'
+import {
+  FILTER_SELECT_ALL,
+  toFilterSelectValue,
+  fromFilterSelectValue,
+} from '@/lib/filterSelectValue'
 import { useTags, useTag } from '../hooks'
 import { AliasListing } from './AliasListing'
 import { LowQualityTagQueue } from './LowQualityTagQueue'
@@ -686,19 +691,22 @@ export function TagManagement() {
             className="pl-9"
           />
         </div>
-        {/* Deferred to PSY-924; outside PSY-907's entity create/edit form-field scope. */}
-        <select
-          value={categoryFilter}
-          onChange={(e) => setCategoryFilter(e.target.value)}
-          className="h-9 rounded-md border bg-background px-3 text-sm"
+        <Select
+          value={toFilterSelectValue(categoryFilter)}
+          onValueChange={(value) => setCategoryFilter(fromFilterSelectValue(value))}
         >
-          <option value="">All Categories</option>
-          {TAG_CATEGORIES.map((cat) => (
-            <option key={cat} value={cat}>
-              {getCategoryLabel(cat)}
-            </option>
-          ))}
-        </select>
+          <SelectTrigger className="w-44" aria-label="Filter by category">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={FILTER_SELECT_ALL}>All Categories</SelectItem>
+            {TAG_CATEGORIES.map((cat) => (
+              <SelectItem key={cat} value={cat}>
+                {getCategoryLabel(cat)}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
       </div>
 
       {/* Loading */}

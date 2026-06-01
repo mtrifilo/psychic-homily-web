@@ -130,6 +130,54 @@ describe('FestivalManagement', () => {
     expect(screen.getByText('load failed')).toBeInTheDocument()
   })
 
+  it('renders the status filter as the DS Select with the All sentinel', () => {
+    // PSY-924: native <select> filter is now a Radix combobox; "All Statuses"
+    // is the FILTER_SELECT_ALL sentinel round-tripped to '' for the query.
+    mockUseFestivals.mockReturnValue({
+      data: { festivals: [], count: 0 },
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalManagement />)
+    const statusSelect = screen.getByRole('combobox', { name: 'Filter by status' })
+    expect(statusSelect).toHaveTextContent('All Statuses')
+  })
+
+  it('passes the selected status filter through to useFestivals', async () => {
+    const user = userEvent.setup()
+    mockUseFestivals.mockReturnValue({
+      data: { festivals: [], count: 0 },
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalManagement />)
+
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
+    await user.click(await screen.findByRole('option', { name: 'Cancelled' }))
+
+    expect(mockUseFestivals).toHaveBeenLastCalledWith({ status: 'cancelled' })
+  })
+
+  it('round-trips the All sentinel back to no status filter', async () => {
+    // Guards the sentinel: "All Statuses" must clear status ('' → undefined),
+    // not pass the literal 'all' to the backend query.
+    const user = userEvent.setup()
+    mockUseFestivals.mockReturnValue({
+      data: { festivals: [], count: 0 },
+      isLoading: false,
+      error: null,
+    })
+    renderWithProviders(<FestivalManagement />)
+
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
+    await user.click(await screen.findByRole('option', { name: 'Cancelled' }))
+    expect(mockUseFestivals).toHaveBeenLastCalledWith({ status: 'cancelled' })
+
+    await user.click(screen.getByRole('combobox', { name: 'Filter by status' }))
+    await user.click(await screen.findByRole('option', { name: 'All Statuses' }))
+    expect(mockUseFestivals).toHaveBeenLastCalledWith({ status: undefined })
+  })
+
   it('renders the empty state when there are no festivals', () => {
     mockUseFestivals.mockReturnValue({
       data: { festivals: [], count: 0 },
