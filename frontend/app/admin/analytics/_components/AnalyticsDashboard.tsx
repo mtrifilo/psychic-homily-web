@@ -36,28 +36,74 @@ import {
 type MonthRange = 3 | 6 | 12 | 24
 const MONTH_OPTIONS: MonthRange[] = [3, 6, 12, 24]
 
-// Chart color palette — distinct, accessible colors
-const COLORS = {
-  shows: '#3b82f6', // blue-500
-  artists: '#8b5cf6', // violet-500
-  venues: '#f97316', // orange-500
-  releases: '#10b981', // emerald-500
-  labels: '#ec4899', // pink-500
-  users: '#6366f1', // indigo-500
-  // Engagement
-  bookmarks: '#3b82f6',
-  tags_added: '#8b5cf6',
-  tag_votes: '#a78bfa',
-  collection_items: '#f97316',
-  requests: '#10b981',
-  request_votes: '#34d399',
-  revisions: '#ec4899',
-  follows: '#6366f1',
-  attendance: '#f59e0b',
-  // Data quality
-  approved: '#10b981',
-  rejected: '#ef4444',
+/**
+ * Chart series colors, bound to the design-system palette (PSY-908). The token
+ * VALUES live in `globals.css` — `--chart-1`..`--chart-5` + `--destructive` +
+ * `--foreground`, each with a `:root` (light) and `.dark` override — so series
+ * colors track the theme automatically via the CSS cascade. Replaces the prior
+ * ad-hoc Tailwind hexes (blue/violet/pink) that clashed with the editorial
+ * burnt-orange/newsprint palette.
+ *
+ * Within a single chart every series is assigned a DISTINCT token; the five
+ * categorical tokens are reused ACROSS charts (a token only has to be unique
+ * per chart). The 6-line Entity Creation chart uses `--foreground` for its 6th
+ * line (Users). Approval trends are semantic: approved = `--chart-2` (green),
+ * rejected = `--destructive` (red).
+ *
+ * Caveat — the editorial palette is intentionally low-chroma and warm-skewed,
+ * so distinct tokens are not always maximally distinguishable: `--chart-1` and
+ * `--chart-3` sit close in dark mode. The legend (series names) is the primary
+ * disambiguator for the dense 6-line chart; a richer categorical sub-palette is
+ * deferred to the PSY-908 Figma follow-up. Also note `--chart-4` === `--destructive`
+ * in light mode (both `#9c2a1a`): they never share a chart today, so don't pair
+ * a `--chart-4` series with a `--destructive` series in one chart, and don't
+ * "dedupe" the two tokens in `globals.css`.
+ *
+ * Exported only for the invariant test that guards per-chart distinctness and
+ * the approved/rejected semantic pairing.
+ */
+export const COLORS = {
+  // Entity Creation Trends (6 lines, one chart)
+  shows: 'var(--chart-1)',
+  artists: 'var(--chart-2)',
+  venues: 'var(--chart-3)',
+  releases: 'var(--chart-4)',
+  labels: 'var(--chart-5)',
+  users: 'var(--foreground)',
+  // Content Curation (3 series)
+  tags_added: 'var(--chart-1)',
+  tag_votes: 'var(--chart-2)',
+  collection_items: 'var(--chart-3)',
+  // Requests & Voting (2 series)
+  requests: 'var(--chart-1)',
+  request_votes: 'var(--chart-2)',
+  // Social Engagement (4 series)
+  bookmarks: 'var(--chart-1)',
+  follows: 'var(--chart-2)',
+  attendance: 'var(--chart-3)',
+  revisions: 'var(--chart-4)',
+  // Show Approval Trends (semantic)
+  approved: 'var(--chart-2)',
+  rejected: 'var(--destructive)',
 }
+
+/**
+ * Shared recharts tooltip styling, bound to DS tokens. `contentStyle` uses bare
+ * `var(--token)` (this repo's tokens are raw hex, so the old `hsl(var(...))`
+ * wrapping produced invalid CSS and silently fell back to recharts' default
+ * box). The hover cursor also defaults to a raw `#ccc`; bind it to a token so
+ * the guide line / bar highlight stays on-palette in both themes.
+ */
+const TOOLTIP_CONTENT_STYLE: React.CSSProperties = {
+  backgroundColor: 'var(--popover)',
+  border: '1px solid var(--border)',
+  borderRadius: '0.5rem',
+  color: 'var(--popover-foreground)',
+}
+// Line/area charts draw a vertical guide line (stroke); the bar chart draws a
+// highlight rectangle behind the hovered bar (fill).
+const TOOLTIP_CURSOR_LINE = { stroke: 'var(--border)' }
+const TOOLTIP_CURSOR_BAR = { fill: 'var(--muted)' }
 
 // --- Sub-section labels ---
 type AnalyticsView = 'growth' | 'engagement' | 'community' | 'data-quality'
@@ -211,12 +257,8 @@ function GrowthSection({ months }: { months: MonthRange }) {
             />
             <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
             <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--popover))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '0.5rem',
-                color: 'hsl(var(--popover-foreground))',
-              }}
+              contentStyle={TOOLTIP_CONTENT_STYLE}
+              cursor={TOOLTIP_CURSOR_LINE}
             />
             <Legend />
             <Line
@@ -317,12 +359,8 @@ function EngagementSection({ months }: { months: MonthRange }) {
             />
             <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
             <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--popover))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '0.5rem',
-                color: 'hsl(var(--popover-foreground))',
-              }}
+              contentStyle={TOOLTIP_CONTENT_STYLE}
+              cursor={TOOLTIP_CURSOR_LINE}
             />
             <Legend />
             <Area
@@ -368,12 +406,8 @@ function EngagementSection({ months }: { months: MonthRange }) {
               />
               <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--popover))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '0.5rem',
-                  color: 'hsl(var(--popover-foreground))',
-                }}
+                contentStyle={TOOLTIP_CONTENT_STYLE}
+                cursor={TOOLTIP_CURSOR_LINE}
               />
               <Legend />
               <Area
@@ -409,12 +443,8 @@ function EngagementSection({ months }: { months: MonthRange }) {
               />
               <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
               <Tooltip
-                contentStyle={{
-                  backgroundColor: 'hsl(var(--popover))',
-                  border: '1px solid hsl(var(--border))',
-                  borderRadius: '0.5rem',
-                  color: 'hsl(var(--popover-foreground))',
-                }}
+                contentStyle={TOOLTIP_CONTENT_STYLE}
+                cursor={TOOLTIP_CURSOR_LINE}
               />
               <Legend />
               <Area
@@ -510,12 +540,8 @@ function CommunityHealthSection() {
             />
             <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
             <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--popover))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '0.5rem',
-                color: 'hsl(var(--popover-foreground))',
-              }}
+              contentStyle={TOOLTIP_CONTENT_STYLE}
+              cursor={TOOLTIP_CURSOR_BAR}
             />
             <Bar
               dataKey="count"
@@ -624,12 +650,8 @@ function DataQualityTrendsSection({ months }: { months: MonthRange }) {
             />
             <YAxis tick={{ fontSize: 12 }} className="fill-muted-foreground" />
             <Tooltip
-              contentStyle={{
-                backgroundColor: 'hsl(var(--popover))',
-                border: '1px solid hsl(var(--border))',
-                borderRadius: '0.5rem',
-                color: 'hsl(var(--popover-foreground))',
-              }}
+              contentStyle={TOOLTIP_CONTENT_STYLE}
+              cursor={TOOLTIP_CURSOR_LINE}
             />
             <Legend />
             <Area
