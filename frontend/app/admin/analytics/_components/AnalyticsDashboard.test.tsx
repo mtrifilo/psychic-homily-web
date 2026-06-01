@@ -2,7 +2,7 @@ import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
-import { AnalyticsDashboard, COLORS } from './AnalyticsDashboard'
+import { AnalyticsDashboard, COLORS, ENTITY_DASH } from './AnalyticsDashboard'
 
 // Mock recharts to avoid SVG rendering issues in JSDOM
 vi.mock('recharts', () => {
@@ -366,7 +366,23 @@ describe('COLORS palette invariants (PSY-908)', () => {
     for (const cool of ['var(--chart-6)', 'var(--chart-7)', 'var(--chart-8)']) {
       expect(entity).toContain(cool)
     }
-    // no series should fall back to a non-categorical token (e.g. --foreground)
-    expect(entity).not.toContain('var(--foreground)')
+    // every series must be a categorical chart token — not a non-categorical
+    // fallback like --foreground / --muted-foreground (catches any regression,
+    // not just the one retired --foreground string)
+    for (const token of entity) {
+      expect(token).toMatch(/^var\(--chart-[1-8]\)$/)
+    }
+  })
+
+  it('gives each of the 6 Entity Creation lines a DISTINCT dash pattern (PSY-947 disambiguator)', () => {
+    // The muted palette has near-hues (e.g. green vs teal), so the dash pattern
+    // — not color — carries distinctness. Every entity series needs an entry and
+    // all 6 patterns (incl. solid = undefined) must be unique.
+    const entityKeys = chartGroups['Entity Creation']
+    for (const k of entityKeys) {
+      expect(Object.prototype.hasOwnProperty.call(ENTITY_DASH, k)).toBe(true)
+    }
+    const patterns = entityKeys.map((k) => ENTITY_DASH[k])
+    expect(new Set(patterns).size).toBe(entityKeys.length)
   })
 })
