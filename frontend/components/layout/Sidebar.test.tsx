@@ -383,5 +383,24 @@ describe('Sidebar', () => {
       expect(screen.getByText('Discover')).toBeInTheDocument()
       expect(screen.queryByText('Moderation & Queues')).not.toBeInTheDocument()
     })
+
+    it('collapsed: a queued section shows a corner dot (not the number)', () => {
+      asAdmin()
+      mockPathname.mockReturnValue('/admin')
+      mockNavCounts.mockReturnValue({
+        moderation: 5,
+        pendingShows: 0,
+        unverifiedVenues: 0,
+        reports: 0,
+      })
+      render(<Sidebar collapsed={true} onToggleCollapse={onToggleCollapse} />)
+      // Labels are hidden when collapsed, so find the Moderation item by href.
+      const links = Array.from(document.querySelectorAll('a'))
+      const moderation = links.find(a => a.getAttribute('href') === '/admin?tab=moderation')!
+      expect(moderation).toBeTruthy()
+      // The expanded pill's number is replaced by an aria-hidden dot in the queue color.
+      expect(moderation.querySelector('.bg-purple-500')).toBeTruthy()
+      expect(moderation.textContent).not.toContain('5')
+    })
   })
 })
