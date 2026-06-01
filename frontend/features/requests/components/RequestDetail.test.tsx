@@ -379,6 +379,41 @@ describe('RequestDetail', () => {
         .closest('a')
       expect(link).toHaveAttribute('href', '/artists/slowdive')
       expect(link).toHaveTextContent(/View proposed Slowdive/i)
+      // The main entity-link block is suppressed for the requester while the
+      // review panel owns the link — so exactly ONE "View proposed" link
+      // renders, not two.
+      expect(screen.getAllByText(/View proposed Slowdive/i)).toHaveLength(1)
+    })
+
+    it('shows the proposed link in the main block for a non-reviewer (PSY-917)', () => {
+      // A viewer who is NOT the requester/admin sees the proposed entity via
+      // the main block (no review panel for them).
+      mockAuthContext.mockReturnValue({
+        user: { id: '77', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseRequest.mockReturnValue(
+        queryResult({
+          data: makeRequest({
+            entity_type: 'artist',
+            status: 'pending_fulfillment',
+            requester_id: 1,
+            fulfiller_name: 'contributor-cara',
+            requested_entity_id: 99,
+            requested_entity_slug: 'slowdive',
+            requested_entity_name: 'Slowdive',
+          }),
+        })
+      )
+      render(<RequestDetail requestId={42} />)
+      // No review panel for a non-reviewer; the main block carries the link.
+      expect(
+        screen.queryByTestId('review-panel-proposed-entity-link')
+      ).not.toBeInTheDocument()
+      const link = screen.getByText(/View proposed Slowdive/i).closest('a')
+      expect(link).toHaveAttribute('href', '/artists/slowdive')
     })
 
     it('renders fulfillment info for a fulfilled request', () => {

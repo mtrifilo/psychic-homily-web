@@ -329,32 +329,36 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
                     (PSY-917) — entity pages route by slug, not id — and render
                     nothing when the slug is null (entity has no slug / was
                     deleted) so we never emit a dead link.
-                    The dedicated review panel below ALSO surfaces this link for
-                    the requester; this block covers every other viewer.
+                    Suppressed for the requester/admin while a proposal is under
+                    review: the dedicated review panel below owns the "View
+                    proposed" link for them, so this block would duplicate it.
+                    Every OTHER viewer of a pending_fulfillment request gets the
+                    link here.
                   */}
-                  {(() => {
-                    const entityUrl = getEntityUrlBySlug(
-                      request.entity_type,
-                      request.requested_entity_slug
-                    )
-                    if (!entityUrl) return null
-                    const isProposed =
-                      request.status === 'pending_fulfillment'
-                    const label =
-                      request.requested_entity_name ??
-                      getEntityTypeLabel(request.entity_type).toLowerCase()
-                    return (
-                      <div className="mt-4">
-                        <Link
-                          href={entityUrl}
-                          className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors"
-                        >
-                          <ExternalLink className="h-3.5 w-3.5" />
-                          View {isProposed ? 'proposed' : 'requested'} {label}
-                        </Link>
-                      </div>
-                    )
-                  })()}
+                  {!canReviewFulfillment &&
+                    (() => {
+                      const entityUrl = getEntityUrlBySlug(
+                        request.entity_type,
+                        request.requested_entity_slug
+                      )
+                      if (!entityUrl) return null
+                      const isProposed =
+                        request.status === 'pending_fulfillment'
+                      const label =
+                        request.requested_entity_name ??
+                        getEntityTypeLabel(request.entity_type).toLowerCase()
+                      return (
+                        <div className="mt-4">
+                          <Link
+                            href={entityUrl}
+                            className="inline-flex items-center gap-1.5 text-sm text-primary hover:text-primary/80 transition-colors"
+                          >
+                            <ExternalLink className="h-3.5 w-3.5" />
+                            View {isProposed ? 'proposed' : 'requested'} {label}
+                          </Link>
+                        </div>
+                      )
+                    })()}
 
                   {/* Fulfillment info */}
                   {request.status === 'fulfilled' && (
