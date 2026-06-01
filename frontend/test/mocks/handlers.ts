@@ -169,7 +169,32 @@ export const showReportHandlers = [
 ]
 
 // ============================================================================
+// Next.js Route Handlers (same-origin /api/* routes, NOT the Go backend)
+// ============================================================================
+
+export const nextRouteHandlers = [
+  /**
+   * IP-geo default-city route (PSY-946). ShowList / HomeShowList fire
+   * `fetch('/api/geo')` on mount via useGeoDefaultCity for anonymous visitors,
+   * so EVERY test that renders them hits this route. Default: geolocation
+   * unavailable (`geo: null`) → no city is seeded, preserving pre-PSY-946
+   * behavior for tests that don't exercise geo. The PSY-946-specific tests
+   * stub `globalThis.fetch` directly (bypassing MSW), so this handler never
+   * interferes with them. Wildcard origin because the fetch uses a relative
+   * URL resolved against jsdom's document origin, not TEST_API_BASE.
+   */
+  http.get('*/api/geo', () => {
+    return HttpResponse.json({ geo: null })
+  }),
+]
+
+// ============================================================================
 // All Handlers (combined for default server setup)
 // ============================================================================
 
-export const handlers = [...adminHandlers, ...sceneHandlers, ...showReportHandlers]
+export const handlers = [
+  ...adminHandlers,
+  ...sceneHandlers,
+  ...showReportHandlers,
+  ...nextRouteHandlers,
+]

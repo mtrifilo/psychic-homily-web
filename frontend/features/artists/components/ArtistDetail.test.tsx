@@ -109,6 +109,35 @@ vi.mock('./BillComposition', () => ({
   BillComposition: (): null => null,
 }))
 
+// PSY-945: ArtistDetail also mounts these query-firing children. Left
+// un-stubbed they each issue a real fetch (festival-trajectory, tags,
+// radio-plays, entity-collections, similar-artists graph) that this suite
+// never awaits — under the global onUnhandledRequest:'error' policy MSW
+// rejects them, and under the old 'bypass' policy they leaked to the real
+// network and could still be pending at worker teardown ("Closing rpc while
+// fetch was pending"). Stub them so the suite stays hermetic.
+vi.mock('@/features/festivals/components/ArtistTrajectoryChart', () => ({
+  ArtistTrajectoryChart: (): null => null,
+}))
+
+vi.mock('@/features/tags', () => ({
+  EntityTagList: (): null => null,
+  AddTagDialog: (): null => null,
+}))
+
+vi.mock('@/features/radio', () => ({
+  AsHeardOn: (): null => null,
+}))
+
+vi.mock('@/features/collections', () => ({
+  EntityCollections: (): null => null,
+}))
+
+vi.mock('./RelatedArtists', () => ({
+  ArtistSimilarSidebar: (): null => null,
+  ArtistGraphDialog: (): null => null,
+}))
+
 // PSY-641: ArtistDetail is now a flat two-column layout — no page-level tabs.
 // The mock renders header / sidebar / children slots directly. The new
 // density primitives (BracketLink, SectionHeader, StatsList) get lightweight

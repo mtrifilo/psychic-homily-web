@@ -68,6 +68,17 @@ vi.mock('./PercentileRankings', () => ({
   ),
 }))
 
+// PSY-945: PublicProfile mounts <UserCollections username=...>, which fires
+// a real GET /users/:username/collections. This suite never awaits it; left
+// un-stubbed it leaked to the real network under the old
+// onUnhandledRequest:'bypass' policy and could still be pending at worker
+// teardown ("Closing rpc while fetch was pending"). Stub it to stay hermetic.
+vi.mock('@/features/collections', () => ({
+  UserCollections: ({ username }: { username: string }) => (
+    <div data-testid="user-collections">Collections for {username}</div>
+  ),
+}))
+
 function makeProfile(
   overrides: Partial<PublicProfileResponse> = {}
 ): PublicProfileResponse {

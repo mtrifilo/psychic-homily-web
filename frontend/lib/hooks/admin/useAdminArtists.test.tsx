@@ -15,7 +15,12 @@ beforeAll(() => {
 })
 afterAll(() => {
   globalThis.fetch = originalFetch
-  server.listen({ onUnhandledRequest: 'bypass' })
+  // PSY-945: restore the GLOBAL unhandled-request policy ('error', set in
+  // test/setup.ts). Re-opening with 'bypass' here would silently re-arm the
+  // pass-through-to-real-network behavior for every test file that runs after
+  // this one in the same worker — the exact leak that caused the intermittent
+  // "Closing rpc while fetch was pending" teardown flake.
+  server.listen({ onUnhandledRequest: 'error' })
 })
 
 // Mock queryClient module
