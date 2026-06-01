@@ -29,6 +29,7 @@ import { AdminEmptyState } from '@/components/admin'
 import { AdminTable, type AdminTableColumn } from '@/components/admin/AdminTable'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import {
   Select,
   SelectContent,
@@ -786,8 +787,7 @@ function ShowImportControls({ show }: { show: RadioShowListItem }) {
       <div className="flex items-end gap-2">
         <div>
           <Label className="text-xs text-muted-foreground">Since</Label>
-          <Input
-            type="date"
+          <DateInput
             value={since}
             onChange={(e) => setSince(e.target.value)}
             className="h-8 text-xs w-36"
@@ -795,8 +795,7 @@ function ShowImportControls({ show }: { show: RadioShowListItem }) {
         </div>
         <div>
           <Label className="text-xs text-muted-foreground">Until</Label>
-          <Input
-            type="date"
+          <DateInput
             value={until}
             onChange={(e) => setUntil(e.target.value)}
             className="h-8 text-xs w-36"
@@ -1013,18 +1012,16 @@ function ShowImportSection({
           <div className="grid grid-cols-2 gap-3">
             <div>
               <Label htmlFor={`since-${show.id}`}>From</Label>
-              <Input
+              <DateInput
                 id={`since-${show.id}`}
-                type="date"
                 value={since}
                 onChange={(e) => setSince(e.target.value)}
               />
             </div>
             <div>
               <Label htmlFor={`until-${show.id}`}>To</Label>
-              <Input
+              <DateInput
                 id={`until-${show.id}`}
-                type="date"
                 value={until}
                 onChange={(e) => setUntil(e.target.value)}
               />

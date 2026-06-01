@@ -17,6 +17,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import {
   Select,
   SelectContent,
@@ -267,17 +268,15 @@ export function CreateFestivalForm({
 
       <AdminFormRow cols={2}>
         <AdminFormField label="Start Date *" htmlFor="create-start-date">
-          <Input
+          <DateInput
             id="create-start-date"
-            type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
           />
         </AdminFormField>
         <AdminFormField label="End Date *" htmlFor="create-end-date">
-          <Input
+          <DateInput
             id="create-end-date"
-            type="date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
@@ -614,17 +613,15 @@ export function EditFestivalFormFields({
 
       <AdminFormRow cols={2}>
         <AdminFormField label="Start Date" htmlFor="edit-start-date">
-          <Input
+          <DateInput
             id="edit-start-date"
-            type="date"
             value={startDate}
             onChange={(e) => setStartDate(e.target.value)}
           />
         </AdminFormField>
         <AdminFormField label="End Date" htmlFor="edit-end-date">
-          <Input
+          <DateInput
             id="edit-end-date"
-            type="date"
             value={endDate}
             onChange={(e) => setEndDate(e.target.value)}
           />
@@ -1000,8 +997,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
         <div className="grid grid-cols-3 gap-3">
           <div className="space-y-1">
             <Label className="text-xs text-muted-foreground">Day Date</Label>
-            <Input
-              type="date"
+            <DateInput
               value={addDayDate}
               onChange={(e) => setAddDayDate(e.target.value)}
               className="h-8 text-xs"
@@ -1195,8 +1191,7 @@ function LineupManagement({ festivalId }: { festivalId: number }) {
             <div className="grid grid-cols-3 gap-4">
               <div className="space-y-2">
                 <Label>Day Date</Label>
-                <Input
-                  type="date"
+                <DateInput
                   value={editDayDate}
                   onChange={(e) => setEditDayDate(e.target.value)}
                 />

@@ -15,6 +15,7 @@ import {
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { DateInput } from '@/components/ui/date-input'
 import {
   Select,
   SelectContent,
@@ -635,9 +636,8 @@ export function CreateReleaseForm({
       </AdminFormRow>
 
       <AdminFormField label="Release Date" htmlFor="create-date">
-        <Input
+        <DateInput
           id="create-date"
-          type="date"
           value={releaseDate}
           onChange={(e) => setReleaseDate(e.target.value)}
         />
@@ -906,9 +906,8 @@ export function EditReleaseFormFields({
       </AdminFormRow>
 
       <AdminFormField label="Release Date" htmlFor="edit-date">
-        <Input
+        <DateInput
           id="edit-date"
-          type="date"
           value={releaseDate}
           onChange={(e) => setReleaseDate(e.target.value)}
         />
