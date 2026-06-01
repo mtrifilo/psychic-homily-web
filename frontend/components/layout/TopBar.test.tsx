@@ -10,10 +10,11 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParams,
 }))
 
-// Admin nav counts hook is exercised by its own unit + the Sidebar admin tests;
-// stub it here so the public TopBar tests don't need a QueryClientProvider.
+// Admin nav counts hook — stubbed so tests don't need a QueryClientProvider.
+// Reassignable so the admin-drawer badge test can supply non-zero counts.
+let mockNavCounts = { moderation: 0, pendingShows: 0, unverifiedVenues: 0, reports: 0 }
 vi.mock('@/lib/hooks/admin/useAdminNavCounts', () => ({
-  useAdminNavCounts: () => ({ moderation: 0, pendingShows: 0, unverifiedVenues: 0, reports: 0 }),
+  useAdminNavCounts: () => mockNavCounts,
 }))
 
 vi.mock('next/image', () => ({
@@ -68,6 +69,8 @@ describe('TopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPathname = '/'
+    mockSearchParams = new URLSearchParams()
+    mockNavCounts = { moderation: 0, pendingShows: 0, unverifiedVenues: 0, reports: 0 }
     mockTheme = 'dark'
     mockAuthContext.mockReturnValue({
       user: null,
@@ -415,6 +418,95 @@ describe('TopBar', () => {
 
       await user.click(screen.getByText('Notifications'))
       expect(onMobileOpenChange).toHaveBeenCalledWith(false)
+    })
+  })
+
+  // PSY-933: the mobile drawer is the ONLY admin nav on mobile (the desktop
+  // Sidebar is hidden < md), so this path is load-bearing — mirror the desktop
+  // Sidebar admin-nav suite against the drawer.
+  describe('context-aware admin drawer (PSY-933)', () => {
+    const asAdmin = () =>
+      mockAuthContext.mockReturnValue({
+        user: { email: 'admin@test.com', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+    const ACTIVE = 'bg-accent text-accent-foreground'
+
+    it('swaps to the admin groups + Back to site for an admin under /admin', () => {
+      asAdmin()
+      mockPathname = '/admin'
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.getByText('Moderation & Queues')).toBeInTheDocument()
+      expect(screen.getByText('Catalog')).toBeInTheDocument()
+      expect(screen.getByText('Insights & System')).toBeInTheDocument()
+      expect(screen.getByText('Back to site')).toBeInTheDocument()
+      // Public groups are swapped out.
+      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
+      expect(screen.queryByText('Community')).not.toBeInTheDocument()
+    })
+
+    it('keeps the public nav for a non-admin even under /admin', () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      mockPathname = '/admin'
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.getByText('Discover')).toBeInTheDocument()
+      expect(screen.queryByText('Moderation & Queues')).not.toBeInTheDocument()
+    })
+
+    it('marks the section matching ?tab= as active', () => {
+      asAdmin()
+      mockPathname = '/admin'
+      mockSearchParams = new URLSearchParams('tab=moderation')
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.getByText('Moderation').closest('a')!.className).toContain(ACTIVE)
+      expect(screen.getByText('Releases').closest('a')!.className).not.toContain(ACTIVE)
+    })
+
+    it('renders queue badges from useAdminNavCounts and omits zero counts', () => {
+      asAdmin()
+      mockPathname = '/admin'
+      mockNavCounts = { moderation: 5, pendingShows: 2, unverifiedVenues: 0, reports: 3 }
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      expect(within(screen.getByText('Moderation').closest('a')!).getByText('5')).toBeInTheDocument()
+      expect(within(screen.getByText('Reports').closest('a')!).getByText('3')).toBeInTheDocument()
+      expect(
+        within(screen.getByText('Unverified Venues').closest('a')!).queryByText('0')
+      ).not.toBeInTheDocument()
+    })
+
+    it('clicking an admin section closes the drawer', async () => {
+      asAdmin()
+      mockPathname = '/admin'
+      const user = userEvent.setup()
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      await user.click(screen.getByText('Moderation'))
+      expect(onMobileOpenChange).toHaveBeenCalledWith(false)
+    })
+
+    it('Back to site points at / and closes the drawer', async () => {
+      asAdmin()
+      mockPathname = '/admin'
+      const user = userEvent.setup()
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      const back = screen.getByText('Back to site').closest('a')!
+      expect(back).toHaveAttribute('href', '/')
+      await user.click(back)
+      expect(onMobileOpenChange).toHaveBeenCalledWith(false)
+    })
+
+    it('keeps the public nav on standalone /admin/<section> sub-routes (scoped to the tab-shell, not startsWith)', () => {
+      asAdmin()
+      mockPathname = '/admin/featured'
+      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
+      expect(screen.getByText('Discover')).toBeInTheDocument()
+      expect(screen.queryByText('Moderation & Queues')).not.toBeInTheDocument()
     })
   })
 

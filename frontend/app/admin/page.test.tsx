@@ -110,6 +110,18 @@ describe('AdminPage (app/admin shell)', () => {
     expect(screen.queryAllByRole('tab')).toHaveLength(0)
   })
 
+  it('selects the section panel matching the ?tab= param (deep-link contract)', () => {
+    // The nav-removal relies on activeTab deriving from ?tab=. Radix keeps every
+    // TabsContent mounted but marks only the active one data-state="active" (the
+    // rest are hidden) — so a deep-link to ?tab=moderation makes moderation the
+    // active panel and dashboard inactive, proving the URL drives the section.
+    mockSearchParams = new URLSearchParams('tab=moderation')
+    renderWithProviders(<AdminPage />)
+
+    expect(screen.getByTestId('admin-tab-moderation')).toHaveAttribute('data-state', 'active')
+    expect(screen.getByTestId('admin-tab-dashboard')).toHaveAttribute('data-state', 'inactive')
+  })
+
   it('renders the dashboard skeleton panels on the default tab', async () => {
     renderWithProviders(<AdminPage />)
 

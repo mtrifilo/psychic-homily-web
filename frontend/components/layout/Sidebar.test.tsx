@@ -337,9 +337,9 @@ describe('Sidebar', () => {
       mockSearchParams = new URLSearchParams('tab=moderation')
       render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
       const moderation = screen.getByText('Moderation').closest('a')!
-      expect(moderation.className).toContain('bg-sidebar-accent text-sidebar-accent-foreground')
+      expect(moderation.className).toContain(ACTIVE_TOKEN)
       const releases = screen.getByText('Releases').closest('a')!
-      expect(releases.className).not.toContain('bg-sidebar-accent text-sidebar-accent-foreground')
+      expect(releases.className).not.toContain(ACTIVE_TOKEN)
     })
 
     it('treats bare /admin (no tab) as Dashboard active', () => {
@@ -347,7 +347,7 @@ describe('Sidebar', () => {
       mockPathname.mockReturnValue('/admin')
       render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
       const dashboard = screen.getByText('Dashboard').closest('a')!
-      expect(dashboard.className).toContain('bg-sidebar-accent text-sidebar-accent-foreground')
+      expect(dashboard.className).toContain(ACTIVE_TOKEN)
     })
 
     it('renders queue count badges from useAdminNavCounts (and omits zero counts)', () => {
@@ -374,6 +374,14 @@ describe('Sidebar', () => {
       mockPathname.mockReturnValue('/admin')
       render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
       expect(screen.getByText('Back to site').closest('a')).toHaveAttribute('href', '/')
+    })
+
+    it('keeps the public nav on standalone /admin/<section> sub-routes (rail is scoped to the tab-shell, not startsWith)', () => {
+      asAdmin()
+      mockPathname.mockReturnValue('/admin/featured')
+      render(<Sidebar collapsed={false} onToggleCollapse={onToggleCollapse} />)
+      expect(screen.getByText('Discover')).toBeInTheDocument()
+      expect(screen.queryByText('Moderation & Queues')).not.toBeInTheDocument()
     })
   })
 })

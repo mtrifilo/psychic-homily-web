@@ -108,17 +108,20 @@ export function adminTabHref(tab: string): string {
 }
 
 /**
- * Active-state test for an admin item against the current location. Dashboard
- * is active at /admin with no (or `dashboard`) tab param; every other section
- * matches its exact tab param. Mirrors page.tsx's tab resolution.
+ * Active-state test for an admin item against the current location. Mirrors
+ * page.tsx's `isValidTab(tabParam) ? tabParam : 'dashboard'` resolution exactly:
+ * a non-section tab param (missing, `dashboard`, or anything invalid like a
+ * stale `pending-venue-edits` link) falls back to Dashboard, so Dashboard is the
+ * active item there too — never a highlight/content mismatch. Other sections
+ * match their exact tab param.
  */
 export function isAdminTabActive(
-  tab: string,
+  tab: AdminTab,
   pathname: string,
   tabParam: string | null
 ): boolean {
   if (!pathname.startsWith('/admin')) return false
-  if (tab === 'dashboard') return tabParam === null || tabParam === 'dashboard'
+  if (tab === 'dashboard') return tabParam === 'dashboard' || !isValidTab(tabParam)
   return tabParam === tab
 }
 

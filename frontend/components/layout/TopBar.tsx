@@ -40,9 +40,11 @@ export function TopBar({ mobileOpen, onMobileOpenChange, onSearchClick }: TopBar
 
   // Context-aware mobile drawer (PSY-933): in /admin the nav groups swap to the
   // grouped admin sections + "Back to site". Gated on isAdmin (mid-redirect
-  // safety) and used to gate the admin-only count queries.
+  // safety) and used to gate the admin-only count queries. Scoped to the exact
+  // /admin tab-shell (usePathname() strips ?tab=); standalone /admin/<section>
+  // sub-routes keep the public nav, matching the desktop Sidebar.
   const isAdmin = !!user?.is_admin
-  const showAdminNav = isAdmin && pathname.startsWith('/admin')
+  const showAdminNav = isAdmin && pathname === '/admin'
   const tabParam = searchParams.get('tab')
   const counts = useAdminNavCounts({ enabled: showAdminNav })
 

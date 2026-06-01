@@ -11,7 +11,8 @@ import { useAdminPendingComments } from './useAdminComments'
 /**
  * The four attention counts the admin navigation surfaces as badges.
  * `moderation` aggregates the three moderation-queue sources (pending edits +
- * entity reports + pending comments) — mirroring the dashboard's tally.
+ * entity reports + pending comments) — the same formula the retired admin tab
+ * bar used for its moderation badge.
  */
 export interface AdminNavCounts {
   moderation: number
@@ -26,8 +27,11 @@ export interface AdminNavCounts {
  * the aggregation. Every underlying query is gated by `enabled` because the
  * Sidebar mounts on every page: pass `enabled: isAdmin && inAdmin` so these
  * admin-only endpoints never fire for non-admins or on public routes (they'd
- * 403 / waste requests otherwise). React Query dedupes the shared query keys,
- * so the desktop Sidebar and mobile drawer issue a single fetch each.
+ * 403 / waste requests otherwise). React Query dedupes by query key, so the
+ * desktop Sidebar and mobile drawer share one in-flight fetch per count; an
+ * admin page already running the same (unfiltered) query reuses it too. (A page
+ * that filters — e.g. the moderation queue by entity_type — uses a different key
+ * and runs its own query; the nav badge intentionally keeps the global total.)
  */
 export function useAdminNavCounts({ enabled }: { enabled: boolean }): AdminNavCounts {
   const { data: pendingShowsData } = usePendingShows({ enabled })

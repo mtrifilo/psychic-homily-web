@@ -51,4 +51,11 @@ describe('adminNav', () => {
     expect(isAdminTabActive('reports', '/admin', 'moderation')).toBe(false)
     expect(isAdminTabActive('moderation', '/shows', null)).toBe(false)
   })
+
+  it('isAdminTabActive: an invalid ?tab= falls back to Dashboard active (mirrors page.tsx)', () => {
+    // page.tsx renders the dashboard panel for an unknown tab; the nav must
+    // agree so there's no highlight/content mismatch (e.g. a stale link).
+    expect(isAdminTabActive('dashboard', '/admin', 'pending-venue-edits')).toBe(true)
+    expect(isAdminTabActive('moderation', '/admin', 'pending-venue-edits')).toBe(false)
+  })
 })

@@ -76,8 +76,12 @@ export function Sidebar({ collapsed, onToggleCollapse }: SidebarProps) {
   // In the admin area the rail becomes context-aware (PSY-933): it swaps the
   // public Discover/Community groups for the grouped admin sections. Gated on
   // isAdmin so a non-admin mid-redirect at /admin still sees the public nav.
+  // Scoped to the exact /admin tab-shell (usePathname() strips the ?tab= query,
+  // so this still matches /admin?tab=…). Standalone /admin/<section> sub-routes
+  // keep the public nav — their pre-PSY-933 behavior — rather than mis-rendering
+  // a ?tab=-only active state; a path-aware rail for those is a follow-up.
   const isAdmin = !!user?.is_admin
-  const showAdminNav = isAdmin && pathname.startsWith('/admin')
+  const showAdminNav = isAdmin && pathname === '/admin'
   const tabParam = searchParams.get('tab')
   // Gated by showAdminNav: these admin-only count queries must not fire on
   // public routes or for non-admins (they'd 403 / waste requests).
