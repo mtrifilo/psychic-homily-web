@@ -28,8 +28,6 @@ import { safeRevalidatePath } from './revalidate-entity'
  * pages), via dynamic route patterns — see RENAME_CASCADES below.
  *
  * Known gaps (follow-up tickets):
- *   - PSY-940: collections tagged via the generic /entities/collection/...
- *     path (collections GET is slug-only; no ID→slug lookup possible)
  *   - Deletes by numeric ID can't revalidate the deleted entity's own detail
  *     page (empty response, entity gone); the soft-404 proxy handles dead
  *     slugs (PSY-897/913/906)
@@ -242,6 +240,25 @@ function releasePages(body: unknown): Array<string | undefined> {
     ...entityPages('releases', slugOf(body)),
     ...nestedSlugs(body, 'artists').map((artistSlug) => `/artists/${artistSlug}`),
   ]
+}
+
+/**
+ * The tagged entity's own detail page, when its ISR payload embeds tags.
+ *
+ * Only collections do (CollectionDetailResponse.tags) — every other entity
+ * type client-fetches its tags, so tagging them never stales their pages.
+ * The generic tagging path carries a numeric entity ID; resolving it to a
+ * slug requires the collection GET to accept IDs (backend change shipped
+ * with PSY-940).
+ */
+async function taggedEntityPages(
+  entityType: string,
+  entityId: string,
+  lookupSlug: RuleContext['lookupSlug']
+): Promise<Array<string | undefined>> {
+  if (entityType !== 'collection') return []
+  const slug = await lookupSlug('collections', entityId)
+  return [slug ? `/collections/${slug}` : undefined]
 }
 
 // ---------------------------------------------------------------------------
@@ -571,26 +588,35 @@ const RULES: readonly RevalidationRule[] = [
   {
     name: 'entity-tag-add',
     methods: ['POST'],
-    pattern: /^\/entities\/[a-z]+\/\d+\/tags$/,
-    // Entity detail pages client-fetch their tags, so they are NOT affected.
-    // The /tags/{slug} page IS affected (usage_breakdown is ISR-cached). The
-    // response body is empty; the tag reference lives in the REQUEST body —
-    // tag_id for existing tags. (tag_name-only requests create a brand-new
-    // tag, which has no cached ISR page yet, so nothing to revalidate.)
-    paths: async ({ requestBody, lookupSlug }) => {
+    pattern: /^\/entities\/([a-z]+)\/(\d+)\/tags$/,
+    // Two pages can be affected:
+    //   1. The /tags/{slug} page (usage_breakdown is ISR-cached). The
+    //      response body is empty; the tag reference lives in the REQUEST
+    //      body — tag_id for existing tags. (tag_name-only requests create a
+    //      brand-new tag, which has no cached ISR page yet.)
+    //   2. The tagged entity's own page, but ONLY for collections — every
+    //      other entity type client-fetches its tags (PSY-940).
+    paths: async ({ match, requestBody, lookupSlug }) => {
       const tagId = asRecord(requestBody)?.tag_id
-      if (typeof tagId !== 'number' || tagId === 0) return []
-      const slug = await lookupSlug('tags', String(tagId))
-      return [slug ? `/tags/${slug}` : undefined]
+      const [tagSlug, entityOwnPages] = await Promise.all([
+        typeof tagId === 'number' && tagId !== 0
+          ? lookupSlug('tags', String(tagId))
+          : Promise.resolve(undefined),
+        taggedEntityPages(match[1], match[2], lookupSlug),
+      ])
+      return [tagSlug ? `/tags/${tagSlug}` : undefined, ...entityOwnPages]
     },
   },
   {
     name: 'entity-tag-remove',
     methods: ['DELETE'],
-    pattern: /^\/entities\/[a-z]+\/\d+\/tags\/(\d+)$/,
+    pattern: /^\/entities\/([a-z]+)\/(\d+)\/tags\/(\d+)$/,
     paths: async ({ match, lookupSlug }) => {
-      const slug = await lookupSlug('tags', match[1])
-      return [slug ? `/tags/${slug}` : undefined]
+      const [tagSlug, entityOwnPages] = await Promise.all([
+        lookupSlug('tags', match[3]),
+        taggedEntityPages(match[1], match[2], lookupSlug),
+      ])
+      return [tagSlug ? `/tags/${tagSlug}` : undefined, ...entityOwnPages]
     },
   },
 
@@ -684,9 +710,10 @@ function parseJson(text: string | null | undefined): unknown {
  * Resolve an entity's slug from its numeric ID via the backend GET endpoint.
  *
  * Every URL segment used by the rules above (artists, releases, labels,
- * festivals, tags) has a GET that accepts ID-or-slug. Returns undefined on
- * any failure — the caller then skips that page, which means it stays stale
- * until its ISR window expires; failures are reported so the gap is visible.
+ * festivals, tags, collections — the last as of PSY-940) has a GET that
+ * accepts ID-or-slug. Returns undefined on any failure — the caller then
+ * skips that page, which means it stays stale until its ISR window expires;
+ * failures are reported so the gap is visible.
  *
  * Lookups run synchronously before the mutation response returns, adding one
  * backend GET to the rules that need them (admin sub-resource ops, entity

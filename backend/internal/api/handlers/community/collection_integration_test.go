@@ -151,6 +151,51 @@ func (s *CollectionHandlerIntegrationSuite) TestGetCollection_AuthenticatedViewe
 	s.True(resp.Body.IsSubscribed)
 }
 
+// PSY-940: GET /collections/{slug} accepts numeric IDs like the other entity
+// GET endpoints, enabling ID→slug lookups for ISR revalidation.
+
+func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID() {
+	user := testhelpers.CreateTestUser(s.deps.DB)
+	coll := s.createCollectionViaService(user, "Get By ID", true)
+
+	req := &GetCollectionHandlerRequest{Slug: fmt.Sprintf("%d", coll.ID)}
+	resp, err := s.handler.GetCollectionHandler(context.Background(), req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(coll.ID, resp.Body.ID)
+	s.Equal(coll.Slug, resp.Body.Slug)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_NotFound() {
+	req := &GetCollectionHandlerRequest{Slug: "999999"}
+	_, err := s.handler.GetCollectionHandler(context.Background(), req)
+	testhelpers.AssertHumaError(s.T(), err, 404)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_PrivateForbiddenForNonOwner() {
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	viewer := testhelpers.CreateTestUser(s.deps.DB)
+	coll := s.createCollectionViaService(owner, "Private By ID", false)
+
+	// ID lookups must enforce the same privacy gate as slug lookups.
+	ctx := testhelpers.CtxWithUser(viewer)
+	req := &GetCollectionHandlerRequest{Slug: fmt.Sprintf("%d", coll.ID)}
+	_, err := s.handler.GetCollectionHandler(ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 403)
+}
+
+func (s *CollectionHandlerIntegrationSuite) TestGetCollection_ByNumericID_PrivateVisibleToOwner() {
+	owner := testhelpers.CreateTestUser(s.deps.DB)
+	coll := s.createCollectionViaService(owner, "Private Own By ID", false)
+
+	ctx := testhelpers.CtxWithUser(owner)
+	req := &GetCollectionHandlerRequest{Slug: fmt.Sprintf("%d", coll.ID)}
+	resp, err := s.handler.GetCollectionHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal(coll.ID, resp.Body.ID)
+}
+
 // ============================================================================
 // GetCollectionStatsHandler
 // ============================================================================
