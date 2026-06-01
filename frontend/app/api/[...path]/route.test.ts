@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { NextRequest } from 'next/server'
 import * as Sentry from '@sentry/nextjs'
 import { cookies } from 'next/headers'
+import { revalidatePath } from 'next/cache'
 import { GET, POST, PUT, DELETE, PATCH, OPTIONS } from './route'
 
 // Mock Sentry so capture calls are observable and never hit the network.
@@ -14,6 +15,14 @@ vi.mock('@sentry/nextjs', () => ({
 vi.mock('next/headers', () => ({
   cookies: vi.fn(),
 }))
+
+// Mock next/cache so the ISR revalidation triggered by proxied mutations
+// (lib/proxy-revalidation.ts, PSY-939) is observable and side-effect free.
+vi.mock('next/cache', () => ({
+  revalidatePath: vi.fn(),
+}))
+
+const mockRevalidatePath = vi.mocked(revalidatePath)
 
 const mockCookies = vi.mocked(cookies)
 
@@ -44,7 +53,9 @@ function setAuthToken(token?: string) {
 let fetchSpy: ReturnType<typeof vi.spyOn>
 
 beforeEach(() => {
-  vi.clearAllMocks()
+  // resetAllMocks (not clearAllMocks) so mockImplementation overrides from
+  // throwing-path tests don't leak into later tests.
+  vi.resetAllMocks()
   setAuthToken()
   fetchSpy = vi.spyOn(globalThis, 'fetch')
 })
@@ -372,6 +383,121 @@ describe('api/[...path] proxy route', () => {
       expect(res.status).toBe(204)
       expect(fetchSpy).not.toHaveBeenCalled()
       expect(await res.text()).toBe('')
+    })
+  })
+
+  describe('ISR revalidation on mutations (PSY-939)', () => {
+    it('revalidates the affected ISR page after a successful proxied mutation', async () => {
+      fetchSpy.mockResolvedValue(
+        new Response(JSON.stringify({ id: 42, entity_type: 'artist' }), {
+          status: 201,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+
+      const req = new NextRequest(
+        'http://localhost:3000/api/collections/desert-punk/items',
+        {
+          method: 'POST',
+          body: JSON.stringify({ entity_type: 'artist', entity_id: 1 }),
+          headers: { 'content-type': 'application/json' },
+        }
+      )
+      const res = await POST(req)
+
+      expect(res.status).toBe(201)
+      expect(mockRevalidatePath).toHaveBeenCalledWith('/collections/desert-punk')
+    })
+
+    it('revalidates pages derived from the mutation response body', async () => {
+      fetchSpy.mockResolvedValue(
+        new Response(
+          JSON.stringify({
+            id: 7,
+            slug: 'bright-eyes-at-the-rebel-lounge',
+            artists: [{ id: 1, slug: 'bright-eyes' }],
+            venues: [],
+          }),
+          { status: 201, headers: { 'content-type': 'application/json' } }
+        )
+      )
+
+      const req = new NextRequest('http://localhost:3000/api/shows', {
+        method: 'POST',
+        body: JSON.stringify({ title: 'New Show' }),
+        headers: { 'content-type': 'application/json' },
+      })
+      await POST(req)
+
+      const revalidatedPaths = mockRevalidatePath.mock.calls.map(
+        ([path]) => path
+      )
+      expect(revalidatedPaths).toContain('/shows/bright-eyes-at-the-rebel-lounge')
+      expect(revalidatedPaths).toContain('/shows')
+      expect(revalidatedPaths).toContain('/artists/bright-eyes')
+    })
+
+    it('revalidates on 204 No Content responses (path-based rules)', async () => {
+      fetchSpy.mockResolvedValue(new Response(null, { status: 204 }))
+
+      const req = new NextRequest(
+        'http://localhost:3000/api/collections/desert-punk/items/42',
+        { method: 'DELETE' }
+      )
+      const res = await DELETE(req)
+
+      expect(res.status).toBe(204)
+      expect(mockRevalidatePath).toHaveBeenCalledWith('/collections/desert-punk')
+    })
+
+    it('does not revalidate when the backend rejects the mutation', async () => {
+      fetchSpy.mockResolvedValue(new Response('forbidden', { status: 403 }))
+
+      const req = new NextRequest(
+        'http://localhost:3000/api/collections/desert-punk/items',
+        { method: 'POST', body: '{}' }
+      )
+      const res = await POST(req)
+
+      expect(res.status).toBe(403)
+      expect(mockRevalidatePath).not.toHaveBeenCalled()
+    })
+
+    it('does not revalidate on GET requests', async () => {
+      fetchSpy.mockResolvedValue(
+        new Response(JSON.stringify({ slug: 'desert-punk' }), { status: 200 })
+      )
+
+      const req = new NextRequest(
+        'http://localhost:3000/api/collections/desert-punk'
+      )
+      await GET(req)
+
+      expect(mockRevalidatePath).not.toHaveBeenCalled()
+    })
+
+    it('passes the backend response through unchanged when revalidation throws', async () => {
+      mockRevalidatePath.mockImplementation(() => {
+        throw new Error('static generation store missing')
+      })
+      const backendBody = JSON.stringify({ id: 1, slug: 'desert-punk' })
+      fetchSpy.mockResolvedValue(
+        new Response(backendBody, {
+          status: 200,
+          headers: { 'content-type': 'application/json' },
+        })
+      )
+
+      const req = new NextRequest(
+        'http://localhost:3000/api/collections/desert-punk/like',
+        { method: 'POST' }
+      )
+      const res = await POST(req)
+
+      // The persisted mutation must never be turned into an error by a
+      // cache-revalidation failure.
+      expect(res.status).toBe(200)
+      expect(await res.text()).toBe(backendBody)
     })
   })
 })

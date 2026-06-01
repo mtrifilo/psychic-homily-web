@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import * as Sentry from '@sentry/nextjs'
+import {
+  isMutationMethod,
+  revalidateAfterProxyMutation,
+} from '@/lib/proxy-revalidation'
 
 const BACKEND_URL = process.env.BACKEND_URL || 'http://localhost:8080'
 
@@ -25,18 +29,25 @@ async function proxyRequest(request: NextRequest) {
     // Forward auth cookie from browser
     const cookieStore = await cookies()
     const authToken = cookieStore.get('auth_token')
-    if (authToken) {
-      headers['Cookie'] = `auth_token=${authToken.value}`
+    const cookieHeader = authToken
+      ? `auth_token=${authToken.value}`
+      : undefined
+    if (cookieHeader) {
+      headers['Cookie'] = cookieHeader
     }
+
+    // Capture the request body so it can be forwarded AND inspected by the
+    // ISR revalidation rules (some rules read entity refs from the request).
+    const requestBody =
+      request.method !== 'GET' && request.method !== 'HEAD'
+        ? await request.text()
+        : undefined
 
     // Make request to backend
     const backendResponse = await fetch(url, {
       method: request.method,
       headers,
-      body:
-        request.method !== 'GET' && request.method !== 'HEAD'
-          ? await request.text()
-          : undefined,
+      body: requestBody,
     })
 
     // Capture 5xx errors from backend to Sentry
@@ -51,6 +62,18 @@ async function proxyRequest(request: NextRequest) {
     // Read response - handle 204 No Content specially (no body allowed)
     const isNoContent = backendResponse.status === 204
     const responseData = isNoContent ? null : await backendResponse.text()
+
+    // Keep ISR pages in sync after successful mutations (PSY-939). Never
+    // throws — see lib/proxy-revalidation.ts.
+    if (backendResponse.ok && isMutationMethod(request.method)) {
+      await revalidateAfterProxyMutation({
+        method: request.method,
+        path,
+        responseText: responseData,
+        requestText: requestBody,
+        cookieHeader,
+      })
+    }
 
     // Create response
     const response = new NextResponse(responseData, {
