@@ -18,7 +18,7 @@
  * components/index.ts).
  */
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
@@ -72,6 +72,14 @@ export function CollectionAnchorNav({
   sections: AnchorSection[]
 }) {
   const [activeId, setActiveId] = useState<string>(sections[0]?.id ?? '')
+  // Set on click; suppresses observer updates while the smooth scroll the
+  // click triggered is still settling. Without it, sections passing through
+  // the reading band mid-scroll (or a short page where the target section
+  // can never reach the band) immediately override the clicked state —
+  // caught in live verification: clicking "Discussion" highlighted "Items".
+  // Timer-based (not a clock comparison) so no impure clock reads are needed.
+  const clickLockRef = useRef(false)
+  const clickLockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
     // Track which section currently occupies the reading band. The top
@@ -80,6 +88,7 @@ export function CollectionAnchorNav({
     // section the reader is actually looking at wins when two intersect.
     const observer = new IntersectionObserver(
       entries => {
+        if (clickLockRef.current) return
         const visible = entries
           .filter(e => e.isIntersecting)
           .sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)
@@ -114,12 +123,21 @@ export function CollectionAnchorNav({
     return () => {
       cancelled = true
       if (retryTimer) clearTimeout(retryTimer)
+      if (clickLockTimerRef.current) clearTimeout(clickLockTimerRef.current)
       observer.disconnect()
     }
   }, [sections])
 
   const handleClick = (id: string) => {
     setActiveId(id)
+    // Hold the clicked state while the smooth scroll settles (~1s covers the
+    // longest scroll on this page); after that the observer resumes tracking
+    // what the user actually scrolls to.
+    clickLockRef.current = true
+    if (clickLockTimerRef.current) clearTimeout(clickLockTimerRef.current)
+    clickLockTimerRef.current = setTimeout(() => {
+      clickLockRef.current = false
+    }, 1000)
     // Optional-call guard: jsdom doesn't implement scrollIntoView.
     document.getElementById(id)?.scrollIntoView?.({
       behavior: 'smooth',

@@ -2327,6 +2327,33 @@ describe('CollectionDetail', () => {
         ).not.toBeInTheDocument()
       })
 
+      it('shows the inline "Forking collection…" row while a clone is pending', () => {
+        // The overflow menu closes on click, taking its pending label with
+        // it — the inline status row is the only in-flight feedback.
+        mockAuthContext.mockReturnValue({
+          user: { id: '999' },
+          isAuthenticated: true,
+          isLoading: false,
+          logout: vi.fn(),
+        })
+        mockCloneMutation.mockReturnValue({
+          mutate: mockCloneMutate,
+          isPending: true,
+          isError: false,
+          error: null,
+        })
+        mockCollection.mockReturnValue({
+          data: makeCollection({ creator_id: 1, is_public: true }),
+          isLoading: false,
+          error: null,
+        })
+        render(<CollectionDetail slug="test-collection" />)
+
+        expect(screen.getByTestId('fork-pending')).toHaveTextContent(
+          'Forking collection'
+        )
+      })
+
       it('Share copies the page link and shows the copied banner', async () => {
         const user = userEvent.setup()
         // userEvent.setup() installs a navigator.clipboard stub; spy on it so
