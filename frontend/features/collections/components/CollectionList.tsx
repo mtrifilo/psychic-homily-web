@@ -25,6 +25,7 @@ import {
   validateCoverImageUrl,
 } from '../types'
 import { LoadingSpinner } from '@/components/shared'
+import { badgeVariants } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import {
@@ -248,15 +249,27 @@ export function CollectionList() {
         )}
       </div>
 
-      {/* Tabs */}
+      {/* Tabs — PSY-895 D1 (implemented in PSY-905): mode tabs read as
+          NAVIGATION, not pills. Underline-active style (DS TabTrigger
+          pattern, matching PSY-898's detail-page anchor nav) replaces the
+          boxed pill row so the tabs sit a clear hierarchy level above the
+          entity-type refinement chips below.
+          NOTE for the future cross-browse cohesion ticket: when this
+          underline pattern propagates to other browse pages, extract these
+          overrides into a `variant="underline"` on ui/tabs.tsx instead of
+          copy-pasting this string — see PSY-895's flagged follow-ups. */}
       <Tabs
         value={activeTab}
         onValueChange={handleTabChange}
         className="w-full"
       >
-        <TabsList className="mb-4">
+        <TabsList className="mb-4 h-auto w-full justify-start gap-1 rounded-none border-b border-border/50 bg-transparent p-0 text-muted-foreground">
           {tabs.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value} className="gap-1.5">
+            <TabsTrigger
+              key={tab.value}
+              value={tab.value}
+              className="h-10 flex-none gap-1.5 rounded-none border-0 border-b-2 border-transparent px-3 text-muted-foreground hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
+            >
               {tab.icon}
               {tab.label}
             </TabsTrigger>
@@ -280,10 +293,11 @@ export function CollectionList() {
           ))}
         </div>
 
-        {/* PSY-354: active tag-filter pill. Distinct from the entity-type
+        {/* PSY-354: active tag-filter chip. Distinct from the entity-type
             chips above (those are toggleable filters; this is a "you are
             currently filtering" indicator with an X-to-clear). Empty when
-            ?tag=<slug> isn't present in the URL. */}
+            ?tag=<slug> isn't present in the URL. PSY-905: squared to match
+            the entity-type chips (rounded-full is DS-banned). */}
         {tagFilter && (
           <div
             className="mb-6 flex flex-wrap items-center gap-2 text-sm"
@@ -294,7 +308,7 @@ export function CollectionList() {
             <span className="text-muted-foreground">Tagged with</span>
             <span
               className={cn(
-                'inline-flex items-center gap-1.5 rounded-full border px-2.5 py-0.5',
+                'inline-flex items-center gap-1.5 rounded-md border px-2.5 py-0.5',
                 'border-primary/40 bg-primary/10 text-primary'
               )}
             >
@@ -303,7 +317,7 @@ export function CollectionList() {
                 type="button"
                 onClick={handleClearTag}
                 aria-label={`Clear tag filter (${tagFilter})`}
-                className="rounded-full p-0.5 hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-ring"
+                className="rounded-md p-0.5 hover:bg-primary/20 focus:outline-none focus:ring-2 focus:ring-ring"
                 data-testid="collection-tag-filter-clear"
               >
                 <X className="h-3 w-3" />
@@ -340,6 +354,13 @@ export function CollectionList() {
 // Entity Type Filter Chip
 // ──────────────────────────────────────────────
 
+/**
+ * PSY-895 D1 (implemented in PSY-905): entity-type chips use the DS Badge
+ * shape — square-ish (`rounded-md`), not pills (`rounded-full` is banned by
+ * the DS editorial direction). Active state is a subtle Secondary fill, NOT
+ * the previous solid primary that out-shouted the mode tabs above; the chips
+ * read as a refinement level below the tabs' navigation level.
+ */
 function TypeChip({
   active,
   onClick,
@@ -355,10 +376,13 @@ function TypeChip({
       onClick={onClick}
       aria-pressed={active}
       className={cn(
-        'rounded-full border px-3 py-1 text-xs font-medium transition-colors',
-        active
-          ? 'border-primary bg-primary text-primary-foreground'
-          : 'border-border/60 bg-background text-muted-foreground hover:text-foreground hover:border-border'
+        badgeVariants({ variant: active ? 'secondary' : 'outline' }),
+        // py-1 restores the pre-redesign tap-target height (≥24px, WCAG
+        // 2.5.8) — the Badge primitive's py-0.5 is sized for non-interactive
+        // chips.
+        'cursor-pointer py-1',
+        !active &&
+          'border-border/60 text-muted-foreground hover:border-border hover:text-foreground'
       )}
     >
       {label}

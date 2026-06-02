@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CollectionList } from './CollectionList'
 import type { Collection } from '../types'
@@ -910,6 +910,100 @@ describe('CollectionList', () => {
       const pushedUrl = mockPush.mock.calls[0]?.[0] as string
       expect(pushedUrl).toContain('tab=recent')
       expect(pushedUrl).toContain('tag=phoenix')
+    })
+  })
+
+  // ──────────────────────────────────────────────
+  // PSY-905: entity-type filter chips (PSY-895 D1)
+  // ──────────────────────────────────────────────
+
+  describe('PSY-905 entity-type filter chips', () => {
+    beforeEach(() => {
+      mockUseCollections.mockReturnValue({
+        data: { collections: [makeCollection()] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      })
+    })
+
+    it('renders the All types chip plus one chip per entity type', () => {
+      render(<CollectionList />)
+
+      const group = screen.getByRole('group', {
+        name: 'Filter by entity type',
+      })
+      const chips = within(group).getAllByRole('button')
+      // All types + artist/release/label/show/venue/festival
+      expect(chips).toHaveLength(7)
+      expect(
+        within(group).getByRole('button', { name: 'All types' })
+      ).toBeInTheDocument()
+      expect(
+        within(group).getByRole('button', { name: 'Artists' })
+      ).toBeInTheDocument()
+      expect(
+        within(group).getByRole('button', { name: 'Festivals' })
+      ).toBeInTheDocument()
+    })
+
+    it('marks only the active chip as pressed; defaults to All types', () => {
+      render(<CollectionList />)
+
+      const group = screen.getByRole('group', {
+        name: 'Filter by entity type',
+      })
+      expect(
+        within(group).getByRole('button', { name: 'All types' })
+      ).toHaveAttribute('aria-pressed', 'true')
+      expect(
+        within(group).getByRole('button', { name: 'Artists' })
+      ).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('clicking a chip filters the public query by that entity type', async () => {
+      const user = userEvent.setup()
+      render(<CollectionList />)
+
+      await user.click(screen.getByRole('button', { name: 'Artists' }))
+
+      expect(mockUseCollections).toHaveBeenLastCalledWith(
+        expect.objectContaining({ entityType: 'artist' })
+      )
+      expect(
+        screen.getByRole('button', { name: 'Artists' })
+      ).toHaveAttribute('aria-pressed', 'true')
+      expect(
+        screen.getByRole('button', { name: 'All types' })
+      ).toHaveAttribute('aria-pressed', 'false')
+    })
+
+    it('chips use the DS Badge square shape — no rounded-full (PSY-895 D1)', () => {
+      // PSY-895 D1 drops rounded-full per the DS editorial direction; chips
+      // adopt the Badge primitive's square-ish rounded-md shape.
+      render(<CollectionList />)
+
+      const group = screen.getByRole('group', {
+        name: 'Filter by entity type',
+      })
+      for (const chip of within(group).getAllByRole('button')) {
+        expect(chip.className).not.toContain('rounded-full')
+        expect(chip.className).toContain('rounded-md')
+      }
+    })
+
+    it('active chip uses the subtle secondary fill, not the solid primary (PSY-895 D1)', () => {
+      render(<CollectionList />)
+
+      const activeChip = screen.getByRole('button', { name: 'All types' })
+      const inactiveChip = screen.getByRole('button', { name: 'Artists' })
+      // Active = DS Badge secondary variant (subtle), never the loud
+      // primary fill that out-shouted the mode tabs pre-redesign.
+      expect(activeChip.className).toContain('bg-secondary')
+      expect(activeChip.className).not.toContain('bg-primary')
+      // Inactive = outline shape with muted text.
+      expect(inactiveChip.className).not.toContain('bg-secondary')
+      expect(inactiveChip.className).toContain('text-muted-foreground')
     })
   })
 })
