@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { render, screen, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CollectionDetail } from './CollectionDetail'
@@ -269,6 +269,14 @@ vi.mock('@/features/comments', () => ({
 // isolates them from useEntitySearch + useResolveCollectionItems wiring.
 vi.mock('./AddItemsPicker', () => ({
   AddItemsPicker: () => <div data-testid="add-items-picker-stub" />,
+}))
+
+// PSY-664: stub the graph — its real implementation fires a fetch (the
+// multi-type graph data) and renders ForceGraph2D. The hash-cleanup tests
+// only need to observe that the graph mounts/unmounts on toggle, so a marker
+// keeps them hermetic under the onUnhandledRequest:'error' MSW policy.
+vi.mock('./CollectionGraph', () => ({
+  CollectionGraph: () => <div data-testid="collection-graph-stub" />,
 }))
 
 // PSY-354: stub EntityTagList — its real implementation pulls in tag
@@ -2325,6 +2333,96 @@ describe('CollectionDetail', () => {
         expect(
           screen.queryByTestId('overflow-explore-graph')
         ).not.toBeInTheDocument()
+      })
+
+      // PSY-664: `#graph` deep-links auto-open the inline graph (parallel to
+      // the artist graph dialog). Hiding the graph must strip `#graph` again,
+      // otherwise a refresh or shared link re-opens it.
+      describe('graph #graph hash (PSY-664)', () => {
+        // window.location.hash is real jsdom state, not reset by the global
+        // afterEach — restore per test so a stray `#graph` cannot leak.
+        let originalHref: string
+
+        beforeEach(() => {
+          originalHref = window.location.href
+        })
+
+        afterEach(() => {
+          window.history.replaceState(null, '', originalHref)
+        })
+
+        it('auto-opens the graph when the URL carries #graph and the collection has items', () => {
+          window.history.replaceState(
+            null,
+            '',
+            '/collections/test-collection#graph'
+          )
+          mockCollection.mockReturnValue({
+            data: makeCollection({ items: sampleItems }),
+            isLoading: false,
+            error: null,
+          })
+          render(<CollectionDetail slug="test-collection" />)
+          expect(
+            screen.getByTestId('collection-graph-stub')
+          ).toBeInTheDocument()
+        })
+
+        it('clears #graph from the URL when "Hide graph" closes the graph', async () => {
+          const user = userEvent.setup()
+          window.history.replaceState(
+            null,
+            '',
+            '/collections/test-collection#graph'
+          )
+          mockCollection.mockReturnValue({
+            data: makeCollection({ items: sampleItems }),
+            isLoading: false,
+            error: null,
+          })
+          render(<CollectionDetail slug="test-collection" />)
+          // Auto-opened from the hash.
+          expect(
+            screen.getByTestId('collection-graph-stub')
+          ).toBeInTheDocument()
+          expect(window.location.hash).toBe('#graph')
+
+          // Overflow now reads "Hide graph" — clicking it hides the graph.
+          await user.click(screen.getByTestId('collection-overflow-trigger'))
+          await user.click(screen.getByTestId('overflow-explore-graph'))
+
+          expect(
+            screen.queryByTestId('collection-graph-stub')
+          ).not.toBeInTheDocument()
+          expect(window.location.hash).toBe('')
+          expect(window.location.pathname).toBe('/collections/test-collection')
+        })
+
+        it('leaves an unrelated hash untouched when hiding the graph', async () => {
+          const user = userEvent.setup()
+          window.history.replaceState(
+            null,
+            '',
+            '/collections/test-collection#discussion'
+          )
+          mockCollection.mockReturnValue({
+            data: makeCollection({ items: sampleItems }),
+            isLoading: false,
+            error: null,
+          })
+          render(<CollectionDetail slug="test-collection" />)
+          // #discussion does not auto-open the graph — open it via the menu.
+          await user.click(screen.getByTestId('collection-overflow-trigger'))
+          await user.click(screen.getByTestId('overflow-explore-graph'))
+          expect(
+            screen.getByTestId('collection-graph-stub')
+          ).toBeInTheDocument()
+
+          // Now hide it — the unrelated hash must be preserved.
+          await user.click(screen.getByTestId('collection-overflow-trigger'))
+          await user.click(screen.getByTestId('overflow-explore-graph'))
+          expect(window.location.hash).toBe('#discussion')
+        })
       })
 
       it('shows the inline "Forking collection…" row while a clone is pending', () => {

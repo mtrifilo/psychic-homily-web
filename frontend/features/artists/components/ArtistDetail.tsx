@@ -1001,10 +1001,31 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
   // (matches pre-PSY-645 behavior of the inline graph). `replaceState` to
   // avoid creating an extra history entry per open.
   const openGraphDialog = () => {
-    if (typeof window !== 'undefined' && window.location.hash !== '#graph') {
-      window.history.replaceState(null, '', '#graph')
+    if (typeof window !== 'undefined' && window.location.hash !== GRAPH_HASH) {
+      window.history.replaceState(null, '', GRAPH_HASH)
     }
     setGraphDialogUserToggle(true)
+  }
+
+  // PSY-664: mirror openGraphDialog on the close side. The Dialog's
+  // onOpenChange fires for every close path (X button, Escape, backdrop
+  // click), so strip `#graph` here to keep the shareable-URL contract
+  // symmetric — without this, closing left `#graph` in the URL and a
+  // refresh or shared link re-opened the dialog. `replaceState` only when
+  // the hash is actually `#graph` so we never clobber an unrelated hash.
+  const handleGraphDialogOpenChange = (open: boolean) => {
+    setGraphDialogUserToggle(open)
+    if (
+      !open &&
+      typeof window !== 'undefined' &&
+      window.location.hash === GRAPH_HASH
+    ) {
+      window.history.replaceState(
+        null,
+        '',
+        window.location.pathname + window.location.search
+      )
+    }
   }
   const saveBanner = useEntitySaveSuccessBanner()
 
@@ -1232,7 +1253,7 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
         artistSlug={artist.slug}
         artistName={artist.name}
         open={graphDialogOpen}
-        onOpenChange={setGraphDialogUserToggle}
+        onOpenChange={handleGraphDialogOpenChange}
       />
 
       {/* Edit Drawer (all authenticated users) */}

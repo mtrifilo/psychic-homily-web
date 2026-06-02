@@ -193,6 +193,28 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
   const autoOpenFromHash = hash === GRAPH_HASH && hasItems
   const showGraph = showGraphOverride ?? autoOpenFromHash
 
+  // PSY-664: hiding the graph also strips `#graph` from the URL so the
+  // shareable-deep-link contract stays symmetric — without this, a visitor
+  // who arrived via `/collections/{slug}#graph` (graph auto-open) and then
+  // clicked "Hide graph" still had `#graph` in the URL, so a refresh or a
+  // shared link re-opened the graph. `replaceState` only when the hash is
+  // actually `#graph`, so an unrelated hash is never clobbered.
+  const toggleGraph = () => {
+    const next = !showGraph
+    setShowGraphOverride(next)
+    if (
+      !next &&
+      typeof window !== 'undefined' &&
+      window.location.hash === GRAPH_HASH
+    ) {
+      window.history.replaceState(
+        null,
+        '',
+        window.location.pathname + window.location.search
+      )
+    }
+  }
+
   if (isLoading) {
     return (
       <div className="flex min-h-[60vh] items-center justify-center">
@@ -609,7 +631,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                         graph. */}
                     {hasItems && (
                       <DropdownMenuItem
-                        onClick={() => setShowGraphOverride(!showGraph)}
+                        onClick={toggleGraph}
                         data-testid="overflow-explore-graph"
                       >
                         <Network className="h-4 w-4" />
