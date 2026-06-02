@@ -18,7 +18,7 @@ import { NotifyMeButton } from '@/features/notifications'
 import { VenueLocationCard } from './VenueLocationCard'
 import { VenueShowsList } from './VenueShowsList'
 import { VenueBillNetwork } from './VenueBillNetwork'
-import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, type EntityEditSuccess } from '@/features/contributions'
+import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, useSuggestEdit, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
 import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
@@ -82,6 +82,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
   const queryClient = useQueryClient()
   const router = useRouter()
   const venueUpdate = useVenueUpdate()
+  const suggestVenueEdit = useSuggestEdit()
   const saveBanner = useEntitySaveSuccessBanner()
 
   const { data: venue, isLoading, error } = useVenue({ venueId })
@@ -284,18 +285,45 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
           <div className="mb-6">
             <EntityDescription
               description={venue.description}
-              canEdit={!!user?.is_admin}
+              canEdit={!!canEditDirectly}
               onSave={async (description) => {
                 await new Promise<void>((resolve, reject) => {
-                  venueUpdate.mutate(
-                    { venueId: venue.id, data: { description } },
+                  if (user?.is_admin) {
+                    venueUpdate.mutate(
+                      { venueId: venue.id, data: { description } },
+                      {
+                        onSuccess: () => {
+                          queryClient.invalidateQueries({
+                            queryKey: queryKeys.venues.detail(String(venueId)),
+                          })
+                          resolve()
+                        },
+                        onError: (err) => reject(err),
+                      }
+                    )
+                    return
+                  }
+                  // PSY-668: trusted_contributor + local_ambassador + the venue's
+                  // original submitter route through suggest-edit, which the
+                  // backend auto-applies for trusted tiers via canEditDirectly
+                  // (pending_edit.go) or queues for review otherwise.
+                  // useSuggestEdit's own onSuccess invalidates ['venues'], which
+                  // prefix-matches the detail key — no caller-side invalidate.
+                  suggestVenueEdit.mutate(
                     {
-                      onSuccess: () => {
-                        queryClient.invalidateQueries({
-                          queryKey: queryKeys.venues.detail(String(venueId)),
-                        })
-                        resolve()
-                      },
+                      entityType: 'venue',
+                      entityId: venue.id,
+                      changes: [
+                        {
+                          field: 'description',
+                          old_value: venue.description ?? '',
+                          new_value: description,
+                        },
+                      ],
+                      summary: 'Updated description via inline editor',
+                    },
+                    {
+                      onSuccess: () => resolve(),
                       onError: (err) => reject(err),
                     }
                   )

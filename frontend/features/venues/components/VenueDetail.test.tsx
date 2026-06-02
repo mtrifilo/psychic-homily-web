@@ -8,7 +8,7 @@ import type { Venue } from '../types'
 // Return type widened so individual tests can override `user`/`isAuthenticated`
 // without TS narrowing from the default-null literal.
 type MockAuthContextValue = {
-  user: { id: string; is_admin: boolean } | null
+  user: { id: string; is_admin: boolean; user_tier?: string } | null
   isAuthenticated: boolean
   isLoading: boolean
   logout: () => void
@@ -77,9 +77,17 @@ vi.mock('../hooks/useVenues', () => ({
   useVenueShows: (opts: unknown) => mockUseVenueShows(opts),
 }))
 
+// Shared mutate spies so tests can assert which path an inline description save
+// takes: admins -> venueUpdate.mutate; trusted/submitter -> suggestVenueEdit.mutate.
+// Hoisted so they can be referenced inside the vi.mock factories below.
+const { mockVenueUpdateMutate, mockSuggestEditMutate } = vi.hoisted(() => ({
+  mockVenueUpdateMutate: vi.fn(),
+  mockSuggestEditMutate: vi.fn(),
+}))
+
 // Mock useVenueEdit hook
 vi.mock('../hooks/useVenueEdit', () => ({
-  useVenueUpdate: () => ({ mutate: vi.fn(), isPending: false }),
+  useVenueUpdate: () => ({ mutate: mockVenueUpdateMutate, isPending: false }),
   useVenueDelete: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
@@ -96,8 +104,26 @@ vi.mock('@/components/shared', () => ({
   TagPill: ({ label, href }: { label: string; href: string }) => (
     <a href={href} data-testid="tag-pill">{label}</a>
   ),
-  EntityDescription: ({ description, canEdit }: { description: string | null | undefined; canEdit: boolean }) => (
-    <div data-testid="entity-description">{description || (canEdit ? 'Add description' : '')}</div>
+  EntityDescription: ({
+    description,
+    canEdit,
+    onSave,
+  }: {
+    description: string | null | undefined
+    canEdit: boolean
+    onSave?: (description: string) => Promise<void>
+  }) => (
+    <div data-testid="entity-description">
+      {description || (canEdit ? 'Add description' : '')}
+      {canEdit && (
+        <button
+          data-testid="entity-description-save"
+          onClick={() => onSave?.('New venue bio')}
+        >
+          Save description
+        </button>
+      )}
+    </div>
   ),
   AddToCollectionButton: () => <button data-testid="add-to-collection">Collect</button>,
   EntityHeader: ({ title, subtitle, actions }: { title: string; subtitle?: React.ReactNode; actions?: React.ReactNode }) => (
@@ -155,6 +181,7 @@ vi.mock('@/features/contributions', () => ({
   ReportEntityDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="report-dialog">Report Dialog</div> : null,
   ContributionPrompt: (): null => null,
+  useSuggestEdit: () => ({ mutate: mockSuggestEditMutate, isPending: false }),
 }))
 
 vi.mock('./DeleteVenueDialog', () => ({
@@ -506,6 +533,118 @@ describe('VenueDetail', () => {
       expect(screen.getByRole('button', { name: /Edit/ })).toBeInTheDocument()
       // Only admins see delete
       expect(screen.queryByRole('button', { name: /Delete/ })).not.toBeInTheDocument()
+    })
+  })
+
+  // PSY-668: inline bio editing opens to trusted_contributor + local_ambassador
+  // + the venue's original submitter via the canEditDirectly gate. Admins write
+  // through the admin PATCH (useVenueUpdate); everyone else routes through
+  // suggest-edit (useSuggestEdit), which the backend auto-applies for trusted
+  // tiers and queues for review otherwise.
+  describe('inline description editing (PSY-668)', () => {
+    beforeEach(() => {
+      mockUseVenue.mockReturnValue({
+        data: makeVenue({ description: 'Old bio' }),
+        isLoading: false,
+        error: null,
+      })
+    })
+
+    it('routes admin saves through useVenueUpdate, not suggest-edit', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '1', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      render(<VenueDetail venueId="1" />)
+
+      await user.click(screen.getByTestId('entity-description-save'))
+
+      expect(mockVenueUpdateMutate).toHaveBeenCalledTimes(1)
+      expect(mockVenueUpdateMutate).toHaveBeenCalledWith(
+        { venueId: 1, data: { description: 'New venue bio' } },
+        expect.anything()
+      )
+      expect(mockSuggestEditMutate).not.toHaveBeenCalled()
+    })
+
+    it('routes trusted-tier (non-admin) saves through useSuggestEdit, not useVenueUpdate', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '7', is_admin: false, user_tier: 'trusted_contributor' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      render(<VenueDetail venueId="1" />)
+
+      await user.click(screen.getByTestId('entity-description-save'))
+
+      expect(mockSuggestEditMutate).toHaveBeenCalledTimes(1)
+      expect(mockSuggestEditMutate).toHaveBeenCalledWith(
+        {
+          entityType: 'venue',
+          entityId: 1,
+          changes: [
+            { field: 'description', old_value: 'Old bio', new_value: 'New venue bio' },
+          ],
+          summary: 'Updated description via inline editor',
+        },
+        expect.anything()
+      )
+      expect(mockVenueUpdateMutate).not.toHaveBeenCalled()
+    })
+
+    it('routes original-submitter (non-admin, non-trusted) saves through useSuggestEdit', async () => {
+      const user = userEvent.setup()
+      mockAuthContext.mockReturnValue({
+        user: { id: '42', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseVenue.mockReturnValue({
+        data: makeVenue({ description: 'Old bio', submitted_by: 42 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<VenueDetail venueId="1" />)
+
+      await user.click(screen.getByTestId('entity-description-save'))
+
+      expect(mockSuggestEditMutate).toHaveBeenCalledTimes(1)
+      expect(mockVenueUpdateMutate).not.toHaveBeenCalled()
+    })
+
+    it('does NOT show the inline editor for a plain authenticated, non-trusted, non-submitter user', () => {
+      mockAuthContext.mockReturnValue({
+        user: { id: '99', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      mockUseVenue.mockReturnValue({
+        data: makeVenue({ description: 'Old bio', submitted_by: 42 }),
+        isLoading: false,
+        error: null,
+      })
+      render(<VenueDetail venueId="1" />)
+
+      expect(screen.queryByTestId('entity-description-save')).not.toBeInTheDocument()
+    })
+
+    it('does NOT show the inline editor for anonymous visitors', () => {
+      mockAuthContext.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      render(<VenueDetail venueId="1" />)
+
+      expect(screen.queryByTestId('entity-description-save')).not.toBeInTheDocument()
     })
   })
 })
