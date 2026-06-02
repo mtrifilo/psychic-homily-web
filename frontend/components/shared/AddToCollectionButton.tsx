@@ -125,8 +125,10 @@ export function AddToCollectionButton({
 
   // Unauthenticated bracket variant — render the public [Add to collection]
   // affordance and redirect to /auth on click, mirroring FollowButton /
-  // NotifyMeButton. Releases and labels aren't in FOLLOW_ENTITY_TYPES /
-  // NOTIFY_ENTITY_TYPES, so this is their only public header bracket (PSY-663).
+  // NotifyMeButton (which both render their bracket for unauth viewers).
+  // ReleaseDetail renders neither a [Follow] nor a [Notify me] bracket, so
+  // [Add to collection] is the ONLY public header bracket on a release —
+  // returning null here left an empty linkbox for anonymous visitors (PSY-663).
   // Non-bracket variants still return null below — they have no public surface.
   if (!isAuthenticated && variant === 'bracket') {
     return (
