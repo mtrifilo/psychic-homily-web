@@ -43,6 +43,8 @@ describe('useReportEntity', () => {
     { entityType: 'venue', expectedPath: 'venues/42/report' },
     { entityType: 'festival', expectedPath: 'festivals/42/report' },
     { entityType: 'collection', expectedPath: 'collections/42/report' },
+    // PSY-661: releases use the regular /{plural}/{id}/report shape.
+    { entityType: 'release', expectedPath: 'releases/42/report' },
     // comment uses the same /{plural}/{id}/report shape as artist/venue;
     // the dedicated /comments handler family is a backend implementation
     // detail. URL identity is what this test pins.

@@ -56,9 +56,11 @@ type EntityReportResponse struct {
 	EntityType string `json:"entity_type"`
 	EntityID   uint   `json:"entity_id"`
 	EntityName string `json:"entity_name,omitempty"`
-	// EntitySlug is populated only for entity types addressed by slug in the
-	// public app (currently `collection`). Other entity types use ID-based
-	// URLs and leave this nil so the JSON omits the field. PSY-357.
+	// EntitySlug is populated for entity types addressed by slug in the
+	// public app (collection, artist, venue, festival, release, label) so the
+	// moderation queue can deep-link to the affected entity. Types with
+	// ID-based URLs (show, comment) leave this nil so the JSON omits the
+	// field. PSY-357 (collection); PSY-600 (extended); PSY-661 (release).
 	EntitySlug   *string `json:"entity_slug,omitempty"`
 	ReportedBy   uint    `json:"reported_by"`
 	ReporterName string  `json:"reporter_name,omitempty"`

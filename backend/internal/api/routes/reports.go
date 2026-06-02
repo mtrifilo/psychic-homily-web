@@ -98,6 +98,9 @@ func setupEntityReportRoutes(rc RouteContext) {
 		// stays on the generic /{type}/{id}/report shape so the moderation
 		// queue can ingest collection reports through the same pipeline.)
 		huma.Post(reportAPI, "/collections/{entity_id}/report", entityReportHandler.ReportCollectionHandler)
+		// PSY-661: report a release. EntityID is the numeric release ID; the
+		// moderation queue deep-links via the resolved slug.
+		huma.Post(reportAPI, "/releases/{entity_id}/report", entityReportHandler.ReportReleaseHandler)
 	})
 
 	// Admin: entity report management (PSY-423: rc.Admin enforces auth + IsAdmin)

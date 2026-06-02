@@ -23,6 +23,7 @@ const (
 	EntityReportEntityShow       = "show"
 	EntityReportEntityComment    = "comment"
 	EntityReportEntityCollection = "collection"
+	EntityReportEntityRelease    = "release"
 )
 
 // Valid report types per entity type.
@@ -77,6 +78,23 @@ var validReportTypes = map[string]map[string]bool{
 		"misleading":    true,
 		"other":         true,
 	},
+	// PSY-661: release-tailored taxonomy. Like the PSY-578 collection set,
+	// these diverge from the generic artist/venue vocabulary to name the
+	// abuse/error vectors specific to a release record:
+	//   - wrong_cover_art / wrong_release_date / wrong_artist_attribution:
+	//     field-specific corrections that "inaccurate" would bury (the most
+	//     common report on a release is "this one field is wrong").
+	//   - duplicate: the same release entered twice (e.g. a reissue logged as
+	//     a new entry).
+	//   - inaccurate / missing_info: catch-alls for everything else.
+	EntityReportEntityRelease: {
+		"inaccurate":               true,
+		"duplicate":                true,
+		"wrong_cover_art":          true,
+		"wrong_release_date":       true,
+		"wrong_artist_attribution": true,
+		"missing_info":             true,
+	},
 }
 
 // EntityReport represents a user report about an entity issue.
@@ -110,6 +128,7 @@ func ValidEntityReportEntityTypes() []string {
 		EntityReportEntityShow,
 		EntityReportEntityComment,
 		EntityReportEntityCollection,
+		EntityReportEntityRelease,
 	}
 }
 

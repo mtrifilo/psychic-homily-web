@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { fireEvent, render, screen } from '@testing-library/react'
 import { ReleaseDetail } from './ReleaseDetail'
 import type { ReleaseDetail as ReleaseDetailType } from '../types'
 
@@ -86,8 +86,18 @@ vi.mock('@/components/shared', () => ({
   AddToCollectionButton: () => (
     <button data-testid="add-to-collection">Collect</button>
   ),
-  BracketLink: ({ label, onClick }: { label: string; onClick: () => void }) => (
-    <button onClick={onClick}>{label}</button>
+  BracketLink: ({
+    label,
+    onClick,
+    title,
+  }: {
+    label: string
+    onClick: () => void
+    title?: string
+  }) => (
+    <button onClick={onClick} title={title}>
+      {label}
+    </button>
   ),
 }))
 
@@ -98,6 +108,22 @@ vi.mock('@/features/contributions', () => ({
     open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
   EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>
     visible ? <div data-testid="save-banner">Saved</div> : null,
+  // PSY-661: report dialog renders only when opened; the test toggles it via
+  // the [Report] bracket link.
+  ReportEntityDialog: ({
+    open,
+    entityType,
+    entityName,
+  }: {
+    open: boolean
+    entityType: string
+    entityName: string
+  }) =>
+    open ? (
+      <div data-testid="report-dialog">
+        Report {entityType} {entityName}
+      </div>
+    ) : null,
   useEntitySaveSuccessBanner: () => ({
     isVisible: false,
     handleSaveSuccess: vi.fn(),
@@ -336,6 +362,12 @@ describe('ReleaseDetail', () => {
       expect(screen.queryByText('Edit')).not.toBeInTheDocument()
       expect(screen.queryByText('Suggest edit')).not.toBeInTheDocument()
     })
+
+    // PSY-661: the report affordance is auth-gated.
+    it('does not render the Report bracket link for anonymous users', () => {
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.queryByTitle('Report an issue')).not.toBeInTheDocument()
+    })
   })
 
   describe('contributor affordances', () => {
@@ -379,6 +411,31 @@ describe('ReleaseDetail', () => {
       })
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
       expect(screen.getByText('Suggest description')).toBeInTheDocument()
+    })
+
+    // PSY-661: signed-in users get a [Report] affordance that opens the
+    // report dialog bound to the release.
+    it('shows the Report bracket link and opens the report dialog', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false, user_tier: 'contributor' },
+        isAuthenticated: true,
+      })
+      mockUseRelease.mockReturnValue({
+        data: makeRelease(),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+
+      const reportLink = screen.getByTitle('Report an issue')
+      expect(reportLink).toBeInTheDocument()
+      // Dialog is closed until the link is clicked.
+      expect(screen.queryByTestId('report-dialog')).not.toBeInTheDocument()
+
+      fireEvent.click(reportLink)
+      expect(
+        screen.getByText('Report release In Rainbows')
+      ).toBeInTheDocument()
     })
   })
 
