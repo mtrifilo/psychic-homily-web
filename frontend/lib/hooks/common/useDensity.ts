@@ -18,15 +18,22 @@ function getStorageKey(suffix?: string): string {
  * Persists the selection in localStorage under a configurable key.
  *
  * @param storageKeySuffix - Optional suffix appended to the storage key (e.g., 'shows', 'artists')
+ * @param defaultDensity - Density used until the user picks one (default 'comfortable').
+ *   Collections pass 'compact' per PSY-892 D3 — collection viewers are
+ *   already-curated audiences scanning a list, not first-time browsers.
  *
  * Usage:
  *   const { density, setDensity } = useDensity('shows')
+ *   const { density, setDensity } = useDensity('collections', 'compact')
  */
-export function useDensity(storageKeySuffix?: string) {
+export function useDensity(
+  storageKeySuffix?: string,
+  defaultDensity: Density = DEFAULT_DENSITY
+) {
   const key = getStorageKey(storageKeySuffix)
   const [density, setDensity] = useLocalStorageEnum<Density>(
     key,
-    DEFAULT_DENSITY,
+    defaultDensity,
     VALID_DENSITIES
   )
   return { density, setDensity }

@@ -43,15 +43,17 @@ export function validateCoverImageUrl(value: string): string | null {
     return `URL is too long (max ${MAX_COVER_IMAGE_URL_LENGTH} characters).`
   }
 
+  // PSY-894 D6: one tightened message for both parse failures and
+  // non-http(s) protocols — matches the locked edit-form design copy.
   let parsed: URL
   try {
     parsed = new URL(trimmed)
   } catch {
-    return 'Enter a valid URL starting with http:// or https://.'
+    return 'Enter a valid http(s) image URL.'
   }
 
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-    return 'URL must start with http:// or https://.'
+    return 'Enter a valid http(s) image URL.'
   }
 
   return null

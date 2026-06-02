@@ -20,7 +20,7 @@
  * before this move. Behavior is unchanged; this is purely a module relocation.
  */
 
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useEffect, useMemo, useRef } from 'react'
 import Link from 'next/link'
 import {
   Library,
@@ -29,6 +29,7 @@ import {
   ChevronDown,
   Pencil,
   Check,
+  Plus,
   X,
   Loader2,
   LayoutGrid,
@@ -57,7 +58,12 @@ import {
   useReorderCollectionItems,
   useRemoveCollectionItem,
   useUpdateCollectionItem,
+  useBulkAddCollectionItems,
 } from '../hooks'
+import {
+  AddItemsPicker,
+  type StagedCollectionItem,
+} from './AddItemsPicker'
 import { cn } from '@/lib/utils'
 import {
   getEntityUrl,
@@ -70,6 +76,7 @@ import { MarkdownContent } from './MarkdownContent'
 // chunk). See MarkdownEditorLazy / PSY-951.
 import { MarkdownEditor } from './MarkdownEditorLazy'
 import { CollectionItemCard } from './CollectionItemCard'
+import { ANCHOR_SECTION_SCROLL_MT } from './CollectionAnchorNav'
 import { useDensity, type Density } from '@/lib/hooks/common/useDensity'
 import { useLocalStorageEnum } from '@/lib/hooks/common/useLocalStorageEnum'
 import { DensityToggle } from '@/components/shared'
@@ -101,6 +108,12 @@ const VIEW_MODES = ['grid', 'list'] as const
 type CollectionItemsViewMode = (typeof VIEW_MODES)[number]
 
 const VIEW_MODE_STORAGE_KEY = 'ph-collection-items-view-mode'
+
+/**
+ * DOM id linking the header's "+ Add Items" toggle (aria-controls) to the
+ * picker panel it expands (PSY-892 D7).
+ */
+const ADD_ITEMS_PANEL_ID = 'add-items-panel'
 
 /**
  * Density-driven column counts for the grid view (PSY-360). Mirrors the
@@ -149,8 +162,18 @@ export function CollectionItemsList({
 
   // Density preference for the grid view. List view ignores density (its
   // layout is intentionally fixed). Storage key matches the hook's prefix
-  // convention (ph-density-collections).
-  const { density, setDensity } = useDensity('collections')
+  // convention (ph-density-collections). Default is Compact (PSY-892 D3) —
+  // collection viewers are already-curated audiences scanning a list; the
+  // toggle to Comfortable / Expanded still persists per browser.
+  const { density, setDensity } = useDensity('collections', 'compact')
+
+  // PSY-892 D7: the "+ Add Items" affordance lives next to the items count in
+  // the header (creator-only); the picker panel expands below the header row.
+  // Empty collections open the panel by default so the empty-state copy stays
+  // honest (PSY-581). The creator gate lives at the render sites (header
+  // button + panel), not here — so a late-resolving isCreator still gets the
+  // default-open behavior.
+  const [isAddItemsOpen, setIsAddItemsOpen] = useState(items.length === 0)
 
   // View-mode preference (grid vs list). Default `grid` so first-time viewers
   // see the visual layout. Persists per-browser. `useLocalStorageEnum` returns
@@ -225,22 +248,6 @@ export function CollectionItemsList({
     [items, persistOrder]
   )
 
-  if (items.length === 0) {
-    return (
-      <div>
-        <h2 className="text-lg font-semibold mb-4">Items</h2>
-        <div className="text-center py-12 text-muted-foreground">
-          <Library className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
-          <p>
-            {isCreator
-              ? 'Add your first item using the search above.'
-              : 'This collection is empty.'}
-          </p>
-        </div>
-      </div>
-    )
-  }
-
   // Container layout depends on view + display mode:
   // - grid view  → density-driven responsive grid of CollectionItemCard
   // - list view + ranked → vertical stack (numbering reads top-to-bottom)
@@ -302,15 +309,38 @@ export function CollectionItemsList({
 
   const renderItems = isGridView ? renderGridCards : renderListRows
 
-  // Header row: section title on the left, view + density toggles on the
-  // right. Density toggle stays mounted in list view so the toolbar
-  // doesn't shift between modes (PSY-556); it's disabled there with a
-  // tooltip explaining the constraint. The persisted selection is
-  // preserved so toggling back to grid restores the user's choice.
+  // Header row: section title + item count + creator's "+ Add Items" button
+  // on the left (PSY-892 D7 — "add more" reads in the same glance as "what's
+  // here"); view + density toggles on the right. Density toggle stays mounted
+  // in list view so the toolbar doesn't shift between modes (PSY-556); it's
+  // disabled there with a tooltip explaining the constraint. The persisted
+  // selection is preserved so toggling back to grid restores the user's choice.
   const header = (
     <div className="mb-4 flex items-center justify-between gap-3 flex-wrap">
-      <h2 className="text-lg font-semibold">Items</h2>
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2.5">
+        <h2 className="text-lg font-semibold">Items</h2>
+        <span
+          className="text-sm text-muted-foreground tabular-nums"
+          data-testid="items-count"
+        >
+          {items.length}
+        </span>
+        {isCreator && (
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setIsAddItemsOpen(open => !open)}
+            aria-expanded={isAddItemsOpen}
+            aria-controls={isAddItemsOpen ? ADD_ITEMS_PANEL_ID : undefined}
+            data-testid="add-items-toggle"
+          >
+            <Plus className="h-4 w-4 mr-1.5" />
+            Add Items
+          </Button>
+        )}
+      </div>
+      {items.length > 0 && (
+        <div className="flex items-center gap-2">
         <DensityToggle
           density={density}
           onDensityChange={setDensity}
@@ -356,51 +386,222 @@ export function CollectionItemsList({
             <List className="h-4 w-4" />
           </button>
         </div>
-      </div>
+        </div>
+      )}
     </div>
   )
 
+  // PSY-892 D7: the add-items picker panel expands directly below the header
+  // row. Closing unmounts the panel, which resets its staged-items state.
+  const addItemsPanel = isCreator && isAddItemsOpen && (
+    <AddItemsPanel
+      slug={slug}
+      existingItems={items}
+      onClose={() => setIsAddItemsOpen(false)}
+    />
+  )
+
+  // The items container is identical with or without reorder support — define
+  // it once so the wrapper's classes/test-ids can't drift between branches.
+  const itemsGrid = (
+    <div
+      className={containerClasses}
+      data-testid="collection-items"
+      data-view-mode={viewMode}
+    >
+      {renderItems()}
+    </div>
+  )
+
+  // `id="items"` + scroll-margin pair with the sticky CollectionAnchorNav
+  // (PSY-892 D1) — the margin keeps jumped-to content clear of the sticky
+  // chrome (TopBar + nav).
   return (
-    <div>
+    <div id="items" className={ANCHOR_SECTION_SCROLL_MT}>
       {header}
-      {/*
-        PSY-609: surface drag-drop / arrow-key reorder failures. The
-        useReorderCollectionItems mutation has no optimistic update, so a
-        rejected request leaves the items in their original order with no
-        feedback. Auto-dismiss the banner after ~3s.
-      */}
-      {reorderError && (
+      {addItemsPanel}
+      {items.length === 0 ? (
+        <div className="text-center py-12 text-muted-foreground">
+          <Library className="h-12 w-12 mx-auto mb-3 text-muted-foreground/30" />
+          <p>
+            {isCreator
+              ? 'Add your first item using the search above.'
+              : 'This collection is empty.'}
+          </p>
+        </div>
+      ) : (
+        <>
+          {/*
+            PSY-609: surface drag-drop / arrow-key reorder failures. The
+            useReorderCollectionItems mutation has no optimistic update, so a
+            rejected request leaves the items in their original order with no
+            feedback. Auto-dismiss the banner after ~3s.
+          */}
+          {reorderError && (
+            <MutationFeedback
+              variant="error"
+              testId="reorder-error"
+              message={reorderError}
+            />
+          )}
+          {canReorder ? (
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragEnd={handleDragEnd}
+            >
+              <SortableContext items={itemIds} strategy={sortStrategy}>
+                {itemsGrid}
+              </SortableContext>
+            </DndContext>
+          ) : (
+            itemsGrid
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Add Items Panel (PSY-892 D7)
+// ──────────────────────────────────────────────
+
+/**
+ * The entity-search picker panel that the header's "+ Add Items" button
+ * toggles (PSY-892 D7). Moved here from `CollectionDetail.tsx`'s old
+ * standalone AddItemsSection so the items header, panel, and grid live in one
+ * module. The panel is fully unmounted when closed — staged items and
+ * feedback reset via unmount rather than explicit clearing.
+ */
+function AddItemsPanel({
+  slug,
+  existingItems,
+  onClose,
+}: {
+  slug: string
+  existingItems: CollectionItem[]
+  onClose: () => void
+}) {
+  // PSY-823: items staged in the picker, submitted in one bulk-add request.
+  const [stagedItems, setStagedItems] = useState<StagedCollectionItem[]>([])
+  const [feedback, setFeedback] = useState<
+    | { variant: 'success'; message: string }
+    | { variant: 'error'; message: string }
+    | null
+  >(null)
+  const bulkAddMutation = useBulkAddCollectionItems()
+
+  // The panel unmounts when closed (unlike the old always-mounted
+  // AddItemsSection), so async work must not setState after unmount: the
+  // feedback timer is cleared on unmount, and the post-await feedback
+  // writes bail when the panel has already closed. The flag is set in the
+  // effect SETUP (not just initialized at declaration) so StrictMode's
+  // dev-only mount→cleanup→remount cycle restores it to true.
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    }
+  }, [])
+
+  const handleSubmit = async () => {
+    if (stagedItems.length === 0) return
+    try {
+      const resp = await bulkAddMutation.mutateAsync({
+        slug,
+        items: stagedItems.map((s) => ({
+          entity_type: s.entityType,
+          entity_id: s.entityId,
+        })),
+      })
+      // The user may have closed the panel while the request was in flight.
+      if (!isMountedRef.current) return
+      const addedCount = resp.added.length
+      const rejectedCount = resp.errors.length
+      if (rejectedCount === 0) {
+        setFeedback({
+          variant: 'success',
+          message: `Added ${addedCount} ${addedCount === 1 ? 'item' : 'items'} to collection`,
+        })
+      } else if (addedCount === 0) {
+        setFeedback({
+          variant: 'error',
+          message: `Couldn't add any items (${rejectedCount} ${rejectedCount === 1 ? 'error' : 'errors'}). Adjust the picker and try again.`,
+        })
+      } else {
+        setFeedback({
+          variant: 'success',
+          message: `Added ${addedCount} ${addedCount === 1 ? 'item' : 'items'}; ${rejectedCount} couldn't be added.`,
+        })
+      }
+      // Clear staged list only if at least one row committed. When EVERY
+      // row failed, leave the picker as-is so the user can edit/retry
+      // without re-staging from scratch.
+      if (addedCount > 0) {
+        setStagedItems([])
+      }
+      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+      feedbackTimerRef.current = setTimeout(() => setFeedback(null), 4000)
+    } catch (err) {
+      if (!isMountedRef.current) return
+      setFeedback({
+        variant: 'error',
+        message: describeCollectionMutationError(err, 'Failed to add items.'),
+      })
+    }
+  }
+
+  return (
+    <div
+      id={ADD_ITEMS_PANEL_ID}
+      className="mb-6 rounded-lg border border-border/50 bg-card p-4"
+    >
+      <div className="flex items-center justify-between mb-3">
+        <span className="text-sm font-semibold sr-only">Add items</span>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-7 w-7 p-0 ml-auto"
+          onClick={onClose}
+          aria-label="Close add-items picker"
+        >
+          <X className="h-4 w-4" />
+        </Button>
+      </div>
+
+      <AddItemsPicker
+        existingItems={existingItems.map((i) => ({
+          entity_type: i.entity_type,
+          entity_id: i.entity_id,
+        }))}
+        stagedItems={stagedItems}
+        onStagedItemsChange={setStagedItems}
+      />
+
+      {feedback && (
         <MutationFeedback
-          variant="error"
-          testId="reorder-error"
-          message={reorderError}
+          variant={feedback.variant}
+          message={feedback.message}
+          testId={feedback.variant === 'success' ? 'add-item-success' : 'add-item-error'}
         />
       )}
-      {canReorder ? (
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragEnd={handleDragEnd}
+
+      <div className="flex justify-end mt-4">
+        <Button
+          size="sm"
+          onClick={handleSubmit}
+          disabled={stagedItems.length === 0 || bulkAddMutation.isPending}
+          data-testid="add-items-picker-submit"
         >
-          <SortableContext items={itemIds} strategy={sortStrategy}>
-            <div
-              className={containerClasses}
-              data-testid="collection-items"
-              data-view-mode={viewMode}
-            >
-              {renderItems()}
-            </div>
-          </SortableContext>
-        </DndContext>
-      ) : (
-        <div
-          className={containerClasses}
-          data-testid="collection-items"
-          data-view-mode={viewMode}
-        >
-          {renderItems()}
-        </div>
-      )}
+          {bulkAddMutation.isPending
+            ? 'Adding...'
+            : `Add ${stagedItems.length || ''} item${stagedItems.length === 1 ? '' : 's'}`.trim()}
+        </Button>
+      </div>
     </div>
   )
 }
