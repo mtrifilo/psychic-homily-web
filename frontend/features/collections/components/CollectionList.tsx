@@ -268,7 +268,7 @@ export function CollectionList() {
             <TabsTrigger
               key={tab.value}
               value={tab.value}
-              className="h-10 flex-none gap-1.5 rounded-none border-0 border-b-2 border-transparent px-3 text-muted-foreground hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
+              className="h-10 flex-none gap-1.5 rounded-none border-b-2 border-transparent px-3 text-muted-foreground hover:text-foreground data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none dark:data-[state=active]:border-b-primary dark:data-[state=active]:bg-transparent"
             >
               {tab.icon}
               {tab.label}

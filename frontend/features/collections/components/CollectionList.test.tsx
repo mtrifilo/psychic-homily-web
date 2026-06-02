@@ -981,6 +981,10 @@ describe('CollectionList', () => {
     it('chips use the DS Badge square shape — no rounded-full (PSY-895 D1)', () => {
       // PSY-895 D1 drops rounded-full per the DS editorial direction; chips
       // adopt the Badge primitive's square-ish rounded-md shape.
+      // NOTE: this test (and the active-fill test below) intentionally
+      // asserts class names owned by components/ui/badge.tsx — they are
+      // design-lock guards for the PSY-895 AC. If a DS refactor renames the
+      // Badge variant tokens, update these assertions alongside badge.tsx.
       render(<CollectionList />)
 
       const group = screen.getByRole('group', {
