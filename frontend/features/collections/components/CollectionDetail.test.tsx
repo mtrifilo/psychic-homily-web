@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen, within } from '@testing-library/react'
+import { render, screen, within, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { CollectionDetail } from './CollectionDetail'
 import type {
@@ -2377,6 +2377,76 @@ describe('CollectionDetail', () => {
           screen.getByTestId('anchor-nav-items')
         ).not.toHaveAttribute('aria-current')
       })
+
+      it('updates the active link when the observer reports a section in view (scroll tracking)', () => {
+        // The global IntersectionObserver mock (test/setup.ts) is a no-op
+        // stub and is not `configurable`, so it can't be replaced via
+        // vi.stubGlobal — but it IS `writable`, so plain assignment works.
+        // Swap in a capturing stub for this test so we can drive the
+        // callback with synthetic entries (the only way to exercise the
+        // scroll-tracking path in jsdom).
+        let capturedCallback: IntersectionObserverCallback | null = null
+        const observeSpy = vi.fn()
+        const makeEntry = (target: Element, top: number) =>
+          ({
+            isIntersecting: true,
+            target,
+            boundingClientRect: { top },
+          }) as unknown as IntersectionObserverEntry
+
+        const OriginalIO = window.IntersectionObserver
+        window.IntersectionObserver = class {
+          constructor(cb: IntersectionObserverCallback) {
+            capturedCallback = cb
+          }
+          observe = observeSpy
+          unobserve = vi.fn()
+          disconnect = vi.fn()
+          takeRecords = () => []
+        } as unknown as typeof IntersectionObserver
+
+        try {
+          render(<CollectionDetail slug="test-collection" />)
+
+          // The nav observed all three sections (they render synchronously
+          // in jsdom, so the retry loop succeeds on its first pass).
+          expect(observeSpy).toHaveBeenCalledTimes(3)
+          expect(capturedCallback).not.toBeNull()
+
+          // Simulate the discussion section scrolling into the reading band.
+          const discussionEl = document.getElementById('discussion')!
+          act(() => {
+            capturedCallback!(
+              [makeEntry(discussionEl, 120)],
+              {} as IntersectionObserver
+            )
+          })
+
+          expect(
+            screen.getByTestId('anchor-nav-discussion')
+          ).toHaveAttribute('aria-current', 'true')
+          expect(
+            screen.getByTestId('anchor-nav-items')
+          ).not.toHaveAttribute('aria-current')
+
+          // When two sections intersect, the one nearest the top of the
+          // viewport wins.
+          const itemsEl = document.getElementById('items')!
+          act(() => {
+            capturedCallback!(
+              [makeEntry(discussionEl, 400), makeEntry(itemsEl, 150)],
+              {} as IntersectionObserver
+            )
+          })
+
+          expect(screen.getByTestId('anchor-nav-items')).toHaveAttribute(
+            'aria-current',
+            'true'
+          )
+        } finally {
+          window.IntersectionObserver = OriginalIO
+        }
+      })
     })
 
     describe('D6: section order (Items → Tags → Discussion)', () => {
@@ -2471,7 +2541,7 @@ describe('CollectionDetail', () => {
     })
 
     describe('PSY-894: edit form polish', () => {
-      it('Esc closes the edit form without saving', async () => {
+      it('Esc closes a pristine edit form without saving', async () => {
         const user = userEvent.setup()
         render(<CollectionDetail slug="test-collection" />)
 
@@ -2489,6 +2559,32 @@ describe('CollectionDetail', () => {
         ).not.toBeInTheDocument()
       })
 
+      it('Esc does NOT discard a dirty form (unsaved-work protection)', async () => {
+        // Adversarial-review finding: a reflexive Esc press while typing a
+        // long description must not silently destroy the user's work. A
+        // dirty form ignores Esc; closing it requires the deliberate Cancel
+        // click.
+        const user = userEvent.setup()
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByRole('button', { name: 'Edit' }))
+        // Dirty the form.
+        await user.type(screen.getByLabelText('Title'), ' updated')
+
+        await user.keyboard('{Escape}')
+
+        // Form stays open — unsaved work is protected.
+        expect(screen.getByLabelText('Title')).toBeInTheDocument()
+        expect(mockUpdateMutate).not.toHaveBeenCalled()
+
+        // The hint stops promising Esc once the form is dirty.
+        expect(screen.queryByText(/Esc to cancel/)).not.toBeInTheDocument()
+
+        // Cancel still works as the deliberate exit.
+        await user.click(screen.getByRole('button', { name: 'Cancel' }))
+        expect(screen.queryByLabelText('Title')).not.toBeInTheDocument()
+      })
+
       it('⌘S saves the form', async () => {
         const user = userEvent.setup()
         render(<CollectionDetail slug="test-collection" />)
@@ -2500,6 +2596,19 @@ describe('CollectionDetail', () => {
           expect.objectContaining({ slug: 'test-collection' }),
           expect.any(Object)
         )
+      })
+
+      it('⌘S respects the same validation as the Save button (empty title)', async () => {
+        // Code-review finding: the shortcut must not bypass the empty-title
+        // guard that disables the Save button.
+        const user = userEvent.setup()
+        render(<CollectionDetail slug="test-collection" />)
+
+        await user.click(screen.getByRole('button', { name: 'Edit' }))
+        await user.clear(screen.getByLabelText('Title'))
+        await user.keyboard('{Meta>}s{/Meta}')
+
+        expect(mockUpdateMutate).not.toHaveBeenCalled()
       })
 
       it('shows the green "Collection updated" banner after a successful save', async () => {

@@ -679,6 +679,22 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
                 message="Link copied to clipboard"
               />
             )}
+            {/* Fork-in-flight feedback: the overflow menu closes on click,
+                taking its "Forking..." pending label with it — surface the
+                in-flight state inline so a slow clone isn't dead air. */}
+            {cloneMutation.isPending && (
+              <p
+                className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground"
+                role="status"
+                data-testid="fork-pending"
+              >
+                <Loader2
+                  className="h-3.5 w-3.5 animate-spin"
+                  aria-hidden="true"
+                />
+                Forking collection…
+              </p>
+            )}
             {subscribeMutation.isError && (
               <MutationFeedback
                 variant="error"
@@ -896,6 +912,17 @@ function InlineEditForm({
     coverImageUrlError === null &&
     !updateMutation.isPending
 
+  // Dirty tracking: Esc-to-cancel only fires on a pristine form. Discarding
+  // typed work on a reflexive Esc press is a data-loss foot-gun (adversarial
+  // review finding) — a dirty form requires the deliberate Cancel click.
+  const isDirty =
+    title !== initialTitle ||
+    description !== initialDescription ||
+    isPublic !== initialPublic ||
+    collaborative !== initialCollaborative ||
+    displayMode !== initialDisplayMode ||
+    coverImageUrl !== initialCoverImageUrl
+
   const handleSave = () => {
     if (!canSave) return
     updateMutation.mutate(
@@ -916,11 +943,14 @@ function InlineEditForm({
 
   // PSY-894 D3: keyboard shortcuts — Esc cancels, ⌘/Ctrl+S saves. Attached to
   // the form's root so they work from any focused field. handleSave's canSave
-  // guard makes the shortcut respect the same validation as the Save button.
+  // guard makes the shortcut respect the same validation as the Save button;
+  // the isDirty guard keeps Esc from discarding typed work.
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Escape') {
       e.preventDefault()
-      onCancel()
+      if (!isDirty) {
+        onCancel()
+      }
     } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 's') {
       e.preventDefault()
       handleSave()
@@ -1149,9 +1179,12 @@ function InlineEditForm({
         <Button size="sm" variant="outline" onClick={onCancel}>
           Cancel
         </Button>
-        {/* PSY-894 D3: keyboard shortcut hint (V1-optional affordance). */}
+        {/* PSY-894 D3: keyboard shortcut hint (V1-optional affordance).
+            Esc only cancels a pristine form, so the hint drops it once the
+            form is dirty — the hint never promises something that won't
+            happen. */}
         <p className="ml-auto hidden text-xs text-muted-foreground sm:block">
-          Esc to cancel · ⌘S to save
+          {isDirty ? '⌘S to save' : 'Esc to cancel · ⌘S to save'}
         </p>
       </div>
     </div>

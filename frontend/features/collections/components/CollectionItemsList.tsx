@@ -493,15 +493,20 @@ function AddItemsPanel({
   const bulkAddMutation = useBulkAddCollectionItems()
 
   // The panel unmounts when closed (unlike the old always-mounted
-  // AddItemsSection), so the post-submit feedback timer must be cleared on
-  // unmount or it fires setState against an unmounted component.
+  // AddItemsSection), so async work must not setState after unmount: the
+  // feedback timer is cleared on unmount, and the post-await feedback
+  // writes bail when the panel has already closed. The flag is set in the
+  // effect SETUP (not just initialized at declaration) so StrictMode's
+  // dev-only mount→cleanup→remount cycle restores it to true.
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(
-    () => () => {
+  const isMountedRef = useRef(true)
+  useEffect(() => {
+    isMountedRef.current = true
+    return () => {
+      isMountedRef.current = false
       if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
-    },
-    []
-  )
+    }
+  }, [])
 
   const handleSubmit = async () => {
     if (stagedItems.length === 0) return
@@ -513,6 +518,8 @@ function AddItemsPanel({
           entity_id: s.entityId,
         })),
       })
+      // The user may have closed the panel while the request was in flight.
+      if (!isMountedRef.current) return
       const addedCount = resp.added.length
       const rejectedCount = resp.errors.length
       if (rejectedCount === 0) {
@@ -540,6 +547,7 @@ function AddItemsPanel({
       if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
       feedbackTimerRef.current = setTimeout(() => setFeedback(null), 4000)
     } catch (err) {
+      if (!isMountedRef.current) return
       setFeedback({
         variant: 'error',
         message: describeCollectionMutationError(err, 'Failed to add items.'),

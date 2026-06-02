@@ -22,21 +22,39 @@ import { useEffect, useState } from 'react'
 import { cn } from '@/lib/utils'
 
 /**
- * Total height (px) of the sticky chrome that sits above anchored content:
- * the site TopBar (`--topbar-height` = 3.5rem = 56px) + this nav (h-10 =
- * 40px + 1px border) + breathing room. Single source of truth for both the
- * IntersectionObserver's top offset and the section scroll-margins below —
- * change them together.
+ * Height (px) this nav adds below the TopBar: h-10 (40px) + 1px border +
+ * breathing room. The TopBar's own height is read from the `--topbar-height`
+ * CSS var at runtime (see the observer setup), so the only hand-maintained
+ * number is this nav-local one. Mirrors the `3rem` addend in
+ * {@link ANCHOR_SECTION_SCROLL_MT} — change them together.
  */
-const STICKY_CHROME_OFFSET_PX = 104
+const NAV_CHROME_PX = 48
 
 /**
  * Tailwind class for sections the nav jumps to. Pairs `id="<section>"` with a
  * scroll margin that keeps the jumped-to heading clear of the sticky chrome.
- * Kept as a full literal (not interpolated) so Tailwind's scanner picks it up;
- * the value mirrors {@link STICKY_CHROME_OFFSET_PX}.
+ * The calc() tracks `--topbar-height` automatically; the `3rem` addend
+ * mirrors {@link NAV_CHROME_PX}. Kept as a full literal (not interpolated) so
+ * Tailwind's scanner picks it up.
  */
-export const ANCHOR_SECTION_SCROLL_MT = 'scroll-mt-[104px]'
+export const ANCHOR_SECTION_SCROLL_MT =
+  'scroll-mt-[calc(var(--topbar-height)+3rem)]'
+
+/**
+ * Resolve the total sticky-chrome height (TopBar + this nav) in px from the
+ * live `--topbar-height` var, so the IntersectionObserver's reading band
+ * tracks TopBar changes without manual sync. Falls back to the current
+ * documented values (3.5rem topbar / 16px rem) outside a browser (jsdom).
+ */
+function resolveStickyChromeOffsetPx(): number {
+  const rootStyle = getComputedStyle(document.documentElement)
+  const topbarRaw = rootStyle.getPropertyValue('--topbar-height').trim()
+  const remPx = parseFloat(rootStyle.fontSize) || 16
+  const topbarPx = topbarRaw.endsWith('rem')
+    ? parseFloat(topbarRaw) * remPx
+    : parseFloat(topbarRaw) || 3.5 * remPx
+  return Math.round(topbarPx) + NAV_CHROME_PX
+}
 
 export interface AnchorSection {
   /** DOM id of the section element this nav entry jumps to. */
@@ -69,7 +87,7 @@ export function CollectionAnchorNav({
           setActiveId(visible[0].target.id)
         }
       },
-      { rootMargin: `-${STICKY_CHROME_OFFSET_PX}px 0px -60% 0px` }
+      { rootMargin: `-${resolveStickyChromeOffsetPx()}px 0px -60% 0px` }
     )
 
     // The Items section lives inside a dynamic()-imported chunk
