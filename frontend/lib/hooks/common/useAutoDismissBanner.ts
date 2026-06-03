@@ -18,6 +18,11 @@ import { useState, useEffect, useCallback } from 'react'
  *   sticky-vs-auto-dismiss policy).
  * - `clear()` — hide immediately, canceling any pending dismissal.
  *
+ * `value` is `null` only when nothing is shown; consumers typically gate
+ * rendering on it (`{value && <Banner .../>}`). Don't `show()` a falsy-but-valid
+ * value (empty string, `0`) — the truthiness gate would suppress the banner
+ * while the dismiss timer still runs. Wrap such payloads in an object instead.
+ *
  * The timer is armed in an effect keyed on the shown entry (not imperatively
  * inside `show`), so `show` is a pure state setter — safe to call from event
  * handlers, async continuations, AND during render via the
