@@ -308,6 +308,18 @@ type CollectionItemResponse struct {
 	CreatedAt     time.Time `json:"created_at"`
 }
 
+// ContainingCollectionItem pairs a collection the user can edit with the
+// collection_item id of the supplied entity inside it. Backs the
+// Add-to-Collection popover's pre-check (collection_id) AND its
+// uncheck→remove affordance (item_id, removed via DELETE
+// /collections/{slug}/items/{item_id}). PSY-829. One row per collection —
+// the UNIQUE(collection_id, entity_type, entity_id) constraint guarantees an
+// entity appears at most once per collection.
+type ContainingCollectionItem struct {
+	CollectionID uint `json:"collection_id"`
+	ItemID       uint `json:"item_id"`
+}
+
 // CollectionStatsResponse represents statistics for a collection
 type CollectionStatsResponse struct {
 	ItemCount        int            `json:"item_count"`
@@ -497,11 +509,13 @@ type CollectionServiceInterface interface {
 	// public browse listing (PSY-355). Tier-ranked relevance ORDER BY is
 	// applied when search is non-empty; otherwise default updated_at DESC.
 	GetUserCollections(userID uint, search string, limit, offset int) ([]*CollectionListResponse, int64, error)
-	// GetUserCollectionsContainingEntity returns the IDs of the user's
-	// editable collections (creator + subscribed) that already contain
-	// the supplied entity. Backs the multi-select Add-to-Collection
-	// popover (PSY-359). Returns empty slice for userID == 0.
-	GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]uint, error)
+	// GetUserCollectionsContainingEntity returns the user's editable
+	// collections (creator + subscribed) that already contain the supplied
+	// entity, each paired with the collection_item id (so the popover can
+	// pre-check rows AND remove them by item id). Backs the multi-select
+	// Add-to-Collection popover (PSY-359; item id added PSY-829). Returns
+	// empty slice for userID == 0.
+	GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]ContainingCollectionItem, error)
 	// GetEntityCollections returns collections that contain the given
 	// entity. Public collections are returned to all viewers; the viewer's
 	// own private collections are included when viewerID > 0. Pass

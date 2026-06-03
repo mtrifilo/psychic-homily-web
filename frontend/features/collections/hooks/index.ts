@@ -153,15 +153,18 @@ export function useMyCollections(params?: { search?: string }) {
 }
 
 /**
- * PSY-359: list of the authenticated user's own collection IDs that already
- * contain the given entity. Backs the pre-check state on the multi-select
- * Add-to-Collection popover so it can render the right boxes ticked in a
- * single round-trip (no N+1 contains-check fan-out across cards).
+ * PSY-359: the authenticated user's own collections that already contain the
+ * given entity, each mapped to the collection_item id. Backs the pre-check
+ * state on the multi-select Add-to-Collection popover so it can render the
+ * right boxes ticked in a single round-trip (no N+1 contains-check fan-out
+ * across cards).
  *
- * Returns a `Set<number>` (constructed once per response) so callers can
- * check membership in O(1) without re-allocating per render. `enabled`
- * defaults to `true`; pass `false` to defer the request until the popover
- * opens — saves a fetch on every entity page render.
+ * Returns a `Map<number, number>` (collectionId → collection_item id),
+ * constructed once per response. Callers use `.has(id)` for the O(1)
+ * pre-check and `.get(id)` for the item id to DELETE when the user unchecks
+ * an already-in row (PSY-829's uncheck→remove affordance). `enabled` defaults
+ * to `true`; pass `false` to defer the request until the popover opens —
+ * saves a fetch on every entity page render.
  */
 export function useUserCollectionsContaining(
   entityType: string,
@@ -172,8 +175,12 @@ export function useUserCollectionsContaining(
     queryKey: queryKeys.collections.containing(entityType, entityId),
     queryFn: async () => {
       const url = `${API_ENDPOINTS.COLLECTIONS.CONTAINS}?entity_type=${encodeURIComponent(entityType)}&entity_id=${entityId}`
-      const data = await apiRequest<{ collection_ids: number[] }>(url)
-      return new Set<number>(data.collection_ids ?? [])
+      const data = await apiRequest<{
+        items: { collection_id: number; item_id: number }[]
+      }>(url)
+      return new Map<number, number>(
+        (data.items ?? []).map((i) => [i.collection_id, i.item_id])
+      )
     },
     enabled: (options?.enabled ?? true) && entityId > 0,
     staleTime: 5 * 60 * 1000,
@@ -325,7 +332,10 @@ export function useAddCollectionItem() {
       entityId: number
       notes?: string
     }) =>
-      apiRequest<void>(API_ENDPOINTS.COLLECTIONS.ITEMS(slug), {
+      // Returns the created collection_item (incl. its `id`) so callers can
+      // act on the new item without waiting for the contains-cache refetch —
+      // e.g. AddToCollectionButton's same-session uncheck→remove (PSY-829).
+      apiRequest<{ id: number }>(API_ENDPOINTS.COLLECTIONS.ITEMS(slug), {
         method: 'POST',
         body: JSON.stringify({
           entity_type: entityType,
