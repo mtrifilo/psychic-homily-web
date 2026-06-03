@@ -363,6 +363,12 @@ export function useAddCollectionItem() {
           variables.entityId
         ),
       })
+      // PSY-829: the user's collection list carries item_count, now surfaced as
+      // the "N items" subtitle in the Add-to-Collection popover — refresh it so
+      // the count isn't stale right after an add.
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.my,
+      })
     },
   })
 }
@@ -484,6 +490,15 @@ export function useRemoveCollectionItem() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({
         queryKey: queryKeys.collections.detail(variables.slug),
+      })
+      // PSY-829: the user's collection list carries item_count, surfaced as the
+      // "N items" subtitle in the Add-to-Collection popover — refresh it so the
+      // count isn't stale after a remove. (The popover additionally invalidates
+      // the contains + entity-backlink caches itself, since the remove is keyed
+      // by {slug, itemId} and this hook doesn't know the entity coordinates
+      // those caches require.)
+      queryClient.invalidateQueries({
+        queryKey: queryKeys.collections.my,
       })
     },
   })

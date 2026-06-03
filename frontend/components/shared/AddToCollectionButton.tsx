@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
@@ -45,10 +45,12 @@ type SubmitError = { collectionId: number; message: string }
 // on the FIRST render (the prior effect always ran on mount and seeded).
 const UNSET = Symbol('unset')
 
-// PSY-829 D2/D3: a client-side filter input only earns its space once the list
-// is long enough to scroll. Below this count the 4–8 rows fit at a glance, so
-// the input would be noise (matches the locked design — the default-open mock
-// has no search box; the "search active" mock implies a larger library).
+// PSY-829: the client-side filter input only earns its space once the list is
+// long enough to scroll. Below this count the rows fit at a glance, so the
+// input would be noise. This matches the locked PSY-893 design, whose
+// default-open mock (4 rows) has NO search box while its "search active" mock
+// depicts a larger library — i.e. the input is conditional, not always-on. The
+// exact cutoff is a judgment call (the design doesn't specify a number).
 const SEARCH_THRESHOLD = 8
 
 function describeError(reason: unknown): string {
@@ -108,6 +110,12 @@ export function AddToCollectionButton({
   const [removeConfirmId, setRemoveConfirmId] = useState<number | null>(null)
   const [removingId, setRemovingId] = useState<number | null>(null)
   const [removeError, setRemoveError] = useState<SubmitError | null>(null)
+  // Synchronous in-flight guards: the `submitting`/`removingId` state disables
+  // the buttons, but that only takes effect after React commits — two clicks in
+  // the same tick both read the stale state and fire duplicate mutations. Refs
+  // flip synchronously so the second click bails immediately.
+  const submitInFlightRef = useRef(false)
+  const removeInFlightRef = useRef(false)
 
   // Seed `savedIds` from the server's contains-truth whenever the query
   // resolves (or returns a fresh reference — e.g. after an add/remove
@@ -208,6 +216,11 @@ export function AddToCollectionButton({
       if (!savedIds.has(collectionId)) {
         setPendingAdds((prev) => new Set(prev).add(collectionId))
       }
+      // Re-checking a row that just failed to add clears its stale error so the
+      // checked row doesn't keep displaying "it failed" until the next submit.
+      setSubmitErrors((prev) =>
+        prev.filter((e) => e.collectionId !== collectionId)
+      )
       return
     }
     // checked === false
@@ -232,17 +245,23 @@ export function AddToCollectionButton({
   }
 
   const confirmRemove = async (collectionId: number) => {
+    if (removeInFlightRef.current) return
     const collection = collections.find((c) => c.id === collectionId)
     // Prefer the server-confirmed item id; fall back to one captured from a
     // same-session add whose contains-refetch hasn't landed yet.
     const itemId = containing?.get(collectionId) ?? sessionItemIds.get(collectionId)
     if (!collection || itemId === undefined) {
       // Shouldn't happen — the confirm only opens for a saved row, and a saved
-      // row's item id comes from either `containing` or `sessionItemIds`. Fail
-      // safe by closing the confirm.
-      setRemoveConfirmId(null)
+      // row's item id comes from either `containing` or `sessionItemIds`.
+      // Surface an error rather than silently closing, so the user isn't left
+      // with a checked-but-unremovable row (the dead-affordance class D1 fixes).
+      setRemoveError({
+        collectionId,
+        message: 'Could not resolve this item — reopen and try again.',
+      })
       return
     }
+    removeInFlightRef.current = true
     setRemovingId(collectionId)
     setRemoveError(null)
     try {
@@ -263,6 +282,13 @@ export function AddToCollectionButton({
         return next
       })
       setRemoveConfirmId(null)
+      // Cancel any in-flight contains refetch first: a just-submitted add fires
+      // its own contains refetch, and if that GET (sent before this DELETE
+      // committed) lands after the delete it would briefly re-seed this row as
+      // "Added". Cancelling it before we invalidate avoids that flicker.
+      queryClient.cancelQueries({
+        queryKey: queryKeys.collections.containing(entityType, entityId),
+      })
       // Refresh the contains-check + public backlinks for this entity so a
       // reopen (and the entity page's "appears in" list) reflect the removal.
       // The re-seed guard above preserves any un-submitted pending adds, so
@@ -276,14 +302,16 @@ export function AddToCollectionButton({
     } catch (err) {
       setRemoveError({ collectionId, message: describeError(err) })
     } finally {
+      removeInFlightRef.current = false
       setRemovingId(null)
     }
   }
 
   // Fan out via Promise.allSettled so one failure doesn't kill the rest.
   const handleSubmit = async () => {
-    if (pendingAdds.size === 0 || submitting) return
+    if (pendingAdds.size === 0 || submitting || submitInFlightRef.current) return
 
+    submitInFlightRef.current = true
     setSubmitting(true)
     setSubmitErrors([])
 
@@ -335,6 +363,7 @@ export function AddToCollectionButton({
     setSessionItemIds(nextSessionItemIds)
     setSubmitErrors(errors)
     setSubmitting(false)
+    submitInFlightRef.current = false
     // addMutation.onSuccess also invalidates the contains query → the re-seed
     // guard re-syncs savedIds with the server's item ids; sessionItemIds
     // bridges the gap until that refetch lands.
@@ -544,7 +573,8 @@ export function AddToCollectionButton({
           )}
         </div>
 
-        {/* Submit row — only for newly-checked rows awaiting an add. */}
+        {/* Submit row: always present when the user has collections; the
+            button is disabled (label "Add") until ≥1 new row is checked. */}
         {hasCollections && (
           <div className="p-2 border-t border-border">
             <Button
@@ -562,9 +592,13 @@ export function AddToCollectionButton({
           </div>
         )}
 
-        {/* Create new link. PSY-829 defers the create-from-entity pre-fill
-            (D4) to a follow-up — this stays a plain link to the collections
-            page until the Create drawer is reachable from entity pages. */}
+        {/* Create new link. Two PSY-893 decisions are deferred to follow-ups
+            (see the PR's Deferred section for the ticket ids):
+            - D3 (recently-used promotion above a separator) — needs an
+              add-recency signal the data model doesn't carry yet.
+            - D4 (create-from-entity pre-fill) — needs the Create drawer to be
+              reachable from entity pages; until then this stays a plain link to
+              the collections page rather than "Create … with {entity}". */}
         {hasCollections && (
           <div className="p-2 border-t border-border">
             <Link

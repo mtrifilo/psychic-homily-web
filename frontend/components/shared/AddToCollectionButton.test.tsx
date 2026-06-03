@@ -604,7 +604,7 @@ describe('AddToCollectionButton', () => {
     })
   })
 
-  // ── PSY-829 D2/D3: client-side filter input above a long list ──
+  // ── PSY-829: client-side filter input above a long list ──
   describe('search filter', () => {
     const manyCollections = Array.from({ length: 10 }, (_, i) => ({
       id: i + 1,
@@ -645,6 +645,28 @@ describe('AddToCollectionButton', () => {
 
       expect(screen.getByText('Desert Psych')).toBeInTheDocument()
       expect(screen.queryByText('Collection 2')).not.toBeInTheDocument()
+    })
+
+    it('shows the no-match empty state when the filter excludes every row', async () => {
+      mockMyCollections.mockReturnValue({
+        data: { collections: manyCollections },
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      render(
+        <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+      )
+      await user.click(screen.getByRole('button', { name: /add to collection/i }))
+
+      const filter = await screen.findByRole('textbox', {
+        name: /filter collections/i,
+      })
+      await user.type(filter, 'zzzznomatch')
+
+      expect(screen.getByText(/No collections match/)).toBeInTheDocument()
+      // No rows rendered, but the panel didn't crash and the filter persists.
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+      expect(filter).toHaveValue('zzzznomatch')
     })
   })
 
