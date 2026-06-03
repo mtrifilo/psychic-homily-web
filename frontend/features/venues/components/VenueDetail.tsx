@@ -182,6 +182,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
           <header className="mb-8">
             <EntityHeader
               title={venue.name}
+              actionsPlacement="below"
               subtitle={
                 <>
                   {venue.verified && (
