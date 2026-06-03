@@ -1,7 +1,6 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useRef, useState } from 'react'
 import {
   Library,
   Users,
@@ -24,6 +23,8 @@ import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { getEntityTypeLabel, type Collection } from '../types'
 import { MarkdownContent } from './MarkdownContent'
 import { CollectionCoverImage } from './CollectionCoverImage'
+import { describeCollectionMutationError } from './collectionDetailShared'
+import { useAutoDismissBanner } from '@/lib/hooks/common/useAutoDismissBanner'
 import { useLikeCollection, useUnlikeCollection } from '../hooks'
 import { useAuthContext } from '@/lib/context/AuthContext'
 
@@ -47,15 +48,14 @@ export function CollectionCard({ collection }: CollectionCardProps) {
   // PSY-609: like/unlike are optimistic-rollback hooks; on a 4xx the heart
   // snaps back but the user got no explanation. Keep an auto-dismiss
   // banner in the card so the *reason* is visible for ~3s. 403 (private
-  // target) gets dedicated copy.
-  const [likeError, setLikeError] = useState<string | null>(null)
-  const errorTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current)
-    }
-  }, [])
+  // target) gets dedicated copy. PSY-957: timer lifecycle + error copy come
+  // from the feature's shared banner primitives instead of a hand-rolled
+  // setTimeout + inline 403 formatting.
+  const {
+    value: likeError,
+    show: showLikeError,
+    clear: clearLikeError,
+  } = useAutoDismissBanner<string>(3000)
 
   const handleToggleLike = async (e: React.MouseEvent) => {
     // Card body is wrapped in a link; stop propagation so clicking the
@@ -65,8 +65,7 @@ export function CollectionCard({ collection }: CollectionCardProps) {
 
     const wasLiked = Boolean(collection.user_likes_this)
 
-    setLikeError(null)
-    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current)
+    clearLikeError()
 
     try {
       if (wasLiked) {
@@ -75,26 +74,17 @@ export function CollectionCard({ collection }: CollectionCardProps) {
         await likeMutation.mutateAsync({ slug: collection.slug })
       }
     } catch (err) {
-      // Status comes from ApiError.status / AuthError.status (403 wraps
-      // as AuthError for the privacy-blocked path).
-      const status =
-        err && typeof err === 'object' && 'status' in err
-          ? Number((err as { status?: number }).status)
-          : undefined
-      let message: string
-      if (status === 403) {
-        message = wasLiked
-          ? "This collection is private — your like was removed."
-          : 'This collection is private.'
-      } else if (err instanceof Error && err.message) {
-        message = err.message
-      } else {
-        message = wasLiked
-          ? 'Failed to unlike collection.'
-          : 'Failed to like collection.'
-      }
-      setLikeError(message)
-      errorTimeoutRef.current = setTimeout(() => setLikeError(null), 3000)
+      // 403 (private target) + message/generic fallbacks share copy with
+      // the detail page via describeCollectionMutationError.
+      showLikeError(
+        describeCollectionMutationError(
+          err,
+          wasLiked
+            ? 'Failed to unlike collection.'
+            : 'Failed to like collection.',
+          { unlikePrivate: wasLiked }
+        )
+      )
     }
   }
 
@@ -340,9 +330,9 @@ export function CollectionCard({ collection }: CollectionCardProps) {
 
           {/*
             PSY-609: like/unlike error banner. Auto-dismisses after ~3s
-            (set by handleToggleLike's setTimeout). role="status" because
-            this is informational — the optimistic state already snapped
-            back; this banner just explains why.
+            (via the shared useAutoDismissBanner primitive, PSY-957).
+            role="status" because this is informational — the optimistic
+            state already snapped back; this banner just explains why.
           */}
           {likeError && (
             <div

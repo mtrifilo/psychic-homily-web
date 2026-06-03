@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useCallback, useEffect } from 'react'
+import { useState, useCallback } from 'react'
 import dynamic from 'next/dynamic'
 import Link from 'next/link'
 import {
@@ -76,6 +76,7 @@ import {
   MutationFeedback,
   useAutoDismissError,
 } from './collectionDetailShared'
+import { useAutoDismissFlag } from '@/lib/hooks/common/useAutoDismissBanner'
 import { CollectionGraph } from './CollectionGraph'
 import { CollectionCoverImage } from './CollectionCoverImage'
 import {
@@ -127,17 +128,15 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
   const [isEditing, setIsEditing] = useState(false)
   const [isDeleteDialogOpen, setIsDeleteDialogOpen] = useState(false)
-  const [showCopied, setShowCopied] = useState(false)
+  // PSY-892 D4: "Link copied" blip after Share (the overflow menu closes on
+  // click, so feedback can't live on the trigger). PSY-957: auto-dismiss
+  // timer lifecycle lives in the shared primitive.
+  const [showCopied, triggerCopied] = useAutoDismissFlag(2000)
   // PSY-894 D4: green "Collection updated" banner after a successful edit
   // save. The form closing + header re-render is the inherent confirmation;
   // the banner makes it explicit and auto-dismisses after ~3s. No toast —
   // the project has no toast library (PSY-608/609 convention).
-  const [showUpdateSuccess, setShowUpdateSuccess] = useState(false)
-  useEffect(() => {
-    if (!showUpdateSuccess) return
-    const timer = setTimeout(() => setShowUpdateSuccess(false), 3000)
-    return () => clearTimeout(timer)
-  }, [showUpdateSuccess])
+  const [showUpdateSuccess, triggerUpdateSuccess] = useAutoDismissFlag(3000)
   // PSY-357: report dialog open state. The trigger is only rendered for
   // authenticated, non-creator viewers (private collections aren't visible
   // to non-creators, so no extra public-state gate is needed).
@@ -176,10 +175,9 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
 
   const handleShare = useCallback(() => {
     navigator.clipboard.writeText(window.location.href).then(() => {
-      setShowCopied(true)
-      setTimeout(() => setShowCopied(false), 2000)
+      triggerCopied()
     })
-  }, [])
+  }, [triggerCopied])
 
   const items = collection?.items ?? []
   // PSY-555 (was PSY-366): surface the graph toggle whenever the collection
@@ -328,7 +326,7 @@ export function CollectionDetail({ slug }: CollectionDetailProps) {
             onSaved={() => {
               setIsEditing(false)
               // PSY-894 D4: only a successful save shows the green banner.
-              setShowUpdateSuccess(true)
+              triggerUpdateSuccess()
             }}
             onCancel={() => setIsEditing(false)}
           />

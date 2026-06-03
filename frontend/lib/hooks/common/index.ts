@@ -12,6 +12,11 @@ export { useFilterNavigation } from './useFilterNavigation'
 export { usePrefetchRoutes } from './usePrefetchRoutes'
 
 export {
+  useAutoDismissBanner,
+  useAutoDismissFlag,
+} from './useAutoDismissBanner'
+
+export {
   useEntityRevisions,
   useRevision,
   useUserRevisions,
