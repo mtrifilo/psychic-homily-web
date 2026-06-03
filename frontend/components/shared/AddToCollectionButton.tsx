@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
+import { useRouter, usePathname } from 'next/navigation'
 import { Library, Check, Plus, Loader2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { BracketLink } from './BracketLink'
@@ -57,6 +58,8 @@ export function AddToCollectionButton({
   // early return triggered a Rules-of-Hooks violation once the auth
   // profile resolved (PSY-466).
   const { isAuthenticated } = useAuthContext()
+  const router = useRouter()
+  const pathname = usePathname()
   const [open, setOpen] = useState(false)
 
   // The contains query is gated on `open` so we don't fetch on every
@@ -120,6 +123,25 @@ export function AddToCollectionButton({
     return result
   }, [selected, savedIds])
 
+  // Unauthenticated bracket variant — render the public [Add to collection]
+  // affordance and redirect to /auth on click, mirroring FollowButton /
+  // NotifyMeButton (which both render their bracket for unauth viewers).
+  // ReleaseDetail renders neither a [Follow] nor a [Notify me] bracket, so
+  // [Add to collection] is the ONLY public header bracket on a release —
+  // returning null here left an empty linkbox for anonymous visitors (PSY-663).
+  // Non-bracket variants still return null below — they have no public surface.
+  if (!isAuthenticated && variant === 'bracket') {
+    return (
+      <BracketLink
+        label="Add to collection"
+        title={`Add "${entityName}" to a collection`}
+        ariaLabel="Add to Collection"
+        onClick={() =>
+          router.push(`/auth?returnTo=${encodeURIComponent(pathname)}`)
+        }
+      />
+    )
+  }
   if (!isAuthenticated) return null
 
   const errorByCollection = new Map(

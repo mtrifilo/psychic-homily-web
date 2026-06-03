@@ -21,6 +21,13 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
+// Mock next/navigation — the unauth bracket variant pushes to /auth.
+const mockPush = vi.fn()
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: mockPush }),
+  usePathname: () => '/releases/test-release',
+}))
+
 // Mock collection hooks
 const mockMutateAsync = vi.fn()
 const mockMyCollections = vi.fn(() => ({
@@ -457,4 +464,76 @@ describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
     expect(await screen.findByText('My Favorites')).toBeInTheDocument()
   })
+
+  // ── PSY-663: unauthenticated bracket variant renders a public affordance ──
+  // Releases and labels aren't follow/notify-able, so the bracket
+  // [Add to collection] is their only public header bracket. For unauth
+  // viewers it must still render (not return an empty linkbox) and redirect
+  // to /auth on click, mirroring FollowButton / NotifyMeButton.
+  it('renders [Add to collection] for an unauthenticated viewer in bracket variant', () => {
+    mockAuthContext.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    render(
+      <AddToCollectionButton
+        entityType="release"
+        entityId={7}
+        entityName="Test Release"
+        variant="bracket"
+      />
+    )
+    const trigger = screen.getByRole('button', { name: /add to collection/i })
+    expect(trigger).toBeInTheDocument()
+    expect(trigger).toHaveTextContent('[Add to collection]')
+  })
+
+  it('redirects an unauthenticated viewer to /auth with returnTo on click', async () => {
+    mockAuthContext.mockReturnValue({
+      user: null,
+      isAuthenticated: false,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton
+        entityType="release"
+        entityId={7}
+        entityName="Test Release"
+        variant="bracket"
+      />
+    )
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+    expect(mockPush).toHaveBeenCalledWith(
+      '/auth?returnTo=%2Freleases%2Ftest-release'
+    )
+    // No popover should open for unauth viewers.
+    expect(screen.queryByText('My Favorites')).not.toBeInTheDocument()
+  })
+
+  // Non-bracket variants have no public surface — they still return null for
+  // unauth viewers (the fix is scoped to the bracket variant only).
+  it.each(['default', 'ghost', 'outline'] as const)(
+    'renders nothing for an unauthenticated viewer in %s variant',
+    (variant) => {
+      mockAuthContext.mockReturnValue({
+        user: null,
+        isAuthenticated: false,
+        isLoading: false,
+        logout: vi.fn(),
+      })
+      const { container } = render(
+        <AddToCollectionButton
+          entityType="release"
+          entityId={7}
+          entityName="Test Release"
+          variant={variant}
+        />
+      )
+      expect(container.innerHTML).toBe('')
+    }
+  )
 })
