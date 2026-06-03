@@ -60,6 +60,9 @@ export function EntityHeader({
   )
 
   if (actionsPlacement === 'below') {
+    // space-y-4 (vs the inline layout's space-y-2): the action row is now a
+    // full-width sibling of the title block, so it wants more vertical
+    // separation than the tightly-coupled title/subtitle pair does.
     return (
       <div className={cn('space-y-4', className)}>
         {titleBlock}
