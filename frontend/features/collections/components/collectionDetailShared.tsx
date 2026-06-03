@@ -104,12 +104,20 @@ const ERROR_SIGNAL_UNSET = Symbol('error-signal-unset')
  * snap-back of the optimistic state is the primary signal; this banner
  * just makes the *reason* visible.
  *
- * `formatter` MUST be stable across renders (wrap in useCallback) — it runs
- * during render when the error signal changes, so an unstable reference
- * that closes over changing values would produce inconsistent copy.
+ * `formatter` is invoked only at the error-signal edge (when `isError`/`err`
+ * change), not inside any dependency array, so its referential stability is
+ * no longer required for timer correctness (PSY-957 moved the timer off a
+ * formatter-derived dep). Keeping the existing call sites' `useCallback`
+ * wrappers is tidy, not mandatory.
  *
- * PSY-957: timer mechanics live in `useAutoDismissBanner`; this wrapper
- * owns only the "react to a mutation error-state change" part.
+ * PSY-957: timer mechanics live in `useAutoDismissBanner`; this wrapper owns
+ * only the "react to a mutation error-state change" part. One edge differs
+ * from the pre-PSY-957 `[message]`-keyed effect: a *fresh* error object whose
+ * formatted copy is identical to the previous one now re-arms the dismiss
+ * window (the banner times its 3s from the latest failure), because the timer
+ * keys on the shown entry's identity rather than the message string. This is
+ * the intended "re-arm on re-show" semantics — see the
+ * `useAutoDismissError` re-arm test.
  */
 export function useAutoDismissError(
   err: unknown,

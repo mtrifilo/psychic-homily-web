@@ -502,11 +502,13 @@ function AddItemsPanel({
   const bulkAddMutation = useBulkAddCollectionItems()
 
   // The panel unmounts when closed (unlike the old always-mounted
-  // AddItemsSection), so async work must not land after unmount: the
-  // post-await feedback / staged-items writes bail when the panel has
-  // already closed. The flag is set in the effect SETUP (not just
-  // initialized at declaration) so StrictMode's dev-only
-  // mount→cleanup→remount cycle restores it to true.
+  // AddItemsSection), so async work must not land after unmount. The shared
+  // banner primitive already clears its own timer on unmount, but this ref is
+  // still load-bearing: it guards the post-await `setStagedItems([])` write
+  // (and the showFeedback/showStickyFeedback calls) when the user closes the
+  // panel mid-request — do NOT delete it as redundant. The flag is set in the
+  // effect SETUP (not just initialized at declaration) so StrictMode's
+  // dev-only mount→cleanup→remount cycle restores it to true.
   const isMountedRef = useRef(true)
   useEffect(() => {
     isMountedRef.current = true

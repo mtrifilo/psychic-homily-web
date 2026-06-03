@@ -73,8 +73,12 @@ export function useAutoDismissBanner<T>(delayMs: number): {
 
 /**
  * PSY-957: boolean variant of `useAutoDismissBanner` for "it worked" blips
- * (edit-save success, link-copied). Returns `[visible, trigger]`; `trigger`
- * is referentially stable, so it's safe in dependency arrays.
+ * (edit-save success, link-copied). Returns a `[visible, trigger]` tuple
+ * deliberately — it mirrors `useState`'s `[value, setter]` shape so call
+ * sites read as `const [shown, show] = ...`. (The base hook returns an object
+ * because it exposes three methods; the tuple here is the intentional
+ * exception, not drift.) `trigger` is referentially stable, so it's safe in
+ * dependency arrays.
  */
 export function useAutoDismissFlag(delayMs: number): [boolean, () => void] {
   const { value, show } = useAutoDismissBanner<true>(delayMs)

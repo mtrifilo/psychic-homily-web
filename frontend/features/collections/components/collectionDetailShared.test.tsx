@@ -78,6 +78,37 @@ describe('useAutoDismissError (PSY-609 contract)', () => {
     expect(result.current).toBeNull()
   })
 
+  it('re-arms the dismiss window when a fresh error object carries identical copy', () => {
+    // PSY-957 semantics: two consecutive failures whose formatted copy is the
+    // same (e.g. two 403s → "This collection is private.") still re-arm the
+    // window off the LATEST failure. The pre-PSY-957 `[message]`-keyed effect
+    // did not re-arm on an identical string; the entry-identity keying does.
+    const formatSame = () => 'This collection is private.'
+    const { result, rerender } = renderHook(
+      ({ e }: { e: unknown }) => useAutoDismissError(e, true, formatSame),
+      { initialProps: { e: new Error('a') as unknown } }
+    )
+    expect(result.current).toBe('This collection is private.')
+
+    // Part-way through the first window, a new error object (same copy) fires.
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    rerender({ e: new Error('b') })
+
+    // The original window would have closed by now (2000 + 2000 > 3000), but
+    // the re-arm keeps the banner up for a full window after the second error.
+    act(() => {
+      vi.advanceTimersByTime(2000)
+    })
+    expect(result.current).toBe('This collection is private.')
+
+    act(() => {
+      vi.advanceTimersByTime(1000)
+    })
+    expect(result.current).toBeNull()
+  })
+
   it('re-shows when a new error fires after the previous one dismissed', () => {
     const { result, rerender } = renderHook(
       ({ e, isErr }: { e: unknown; isErr: boolean }) =>
