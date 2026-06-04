@@ -104,6 +104,23 @@ const mockReleaseReport: EntityReportResponse = {
   created_at: '2026-04-06T00:00:00Z',
 }
 
+// PSY-666: label-typed report payload. Includes entity_slug so the generic
+// EntityReportCard can deep-link to the public /labels/{slug} page.
+const mockLabelReport: EntityReportResponse = {
+  id: 8,
+  entity_type: 'label',
+  entity_id: 80,
+  entity_name: 'Run For Cover Records',
+  entity_slug: 'run-for-cover-records',
+  reported_by: 8,
+  reporter_name: 'reporter5',
+  reporter_username: null,
+  report_type: 'wrong_image',
+  details: 'The label logo is wrong',
+  status: 'pending',
+  created_at: '2026-04-07T00:00:00Z',
+}
+
 // --- Mocks ---
 
 const mockUseAdminPendingEdits = vi.fn()
@@ -278,6 +295,21 @@ describe('ModerationQueue', () => {
     expect(screen.getByText('Wrong Cover Art')).toBeInTheDocument()
     const link = screen.getByText('In Rainbows').closest('a')
     expect(link).toHaveAttribute('href', '/releases/in-rainbows')
+  })
+
+  // PSY-666: label reports flow through the generic EntityReportCard (no
+  // bespoke moderation action), the same path as releases. The card must show
+  // the entity-type badge, the label-tailored report-type label, and a
+  // slug-based deep-link.
+  it('renders label report via the generic entity report card', () => {
+    setDefaultMocks({ reports: [mockLabelReport] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByText('Label')).toBeInTheDocument()
+    expect(screen.getByText('Wrong Image')).toBeInTheDocument()
+    const link = screen.getByText('Run For Cover Records').closest('a')
+    expect(link).toHaveAttribute('href', '/labels/run-for-cover-records')
   })
 
   it('shows correct counts in filter buttons', () => {
