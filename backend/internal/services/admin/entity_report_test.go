@@ -28,8 +28,10 @@ func TestEntityReportModel_Validation(t *testing.T) {
 	assert.True(t, communitym.IsValidEntityReportEntityType("show"))
 	assert.True(t, communitym.IsValidEntityReportEntityType("comment"))
 	assert.True(t, communitym.IsValidEntityReportEntityType("collection"))
+	// PSY-661: releases are now reportable.
+	assert.True(t, communitym.IsValidEntityReportEntityType("release"))
 	assert.False(t, communitym.IsValidEntityReportEntityType(""))
-	assert.False(t, communitym.IsValidEntityReportEntityType("release"))
+	// label is still not a reportable entity type (see PSY-666).
 	assert.False(t, communitym.IsValidEntityReportEntityType("label"))
 
 	// Valid report types per entity
@@ -67,8 +69,19 @@ func TestEntityReportModel_Validation(t *testing.T) {
 	assert.False(t, communitym.IsValidReportType("collection", "cancelled"))
 	assert.False(t, communitym.IsValidReportType("collection", "wrong_image"))
 
-	// Invalid entity type
-	assert.False(t, communitym.IsValidReportType("release", "inaccurate"))
+	// PSY-661: release-tailored taxonomy.
+	assert.True(t, communitym.IsValidReportType("release", "inaccurate"))
+	assert.True(t, communitym.IsValidReportType("release", "duplicate"))
+	assert.True(t, communitym.IsValidReportType("release", "wrong_cover_art"))
+	assert.True(t, communitym.IsValidReportType("release", "wrong_release_date"))
+	assert.True(t, communitym.IsValidReportType("release", "wrong_artist_attribution"))
+	assert.True(t, communitym.IsValidReportType("release", "missing_info"))
+	// Types from other taxonomies are not valid for releases.
+	assert.False(t, communitym.IsValidReportType("release", "wrong_image"))
+	assert.False(t, communitym.IsValidReportType("release", "cancelled"))
+
+	// Still-invalid entity type (label is not reportable — see PSY-666).
+	assert.False(t, communitym.IsValidReportType("label", "inaccurate"))
 }
 
 func TestValidReportTypesForEntity(t *testing.T) {
@@ -88,19 +101,26 @@ func TestValidReportTypesForEntity(t *testing.T) {
 	collectionTypes := communitym.ValidReportTypesForEntity("collection")
 	assert.Len(t, collectionTypes, 4)
 
-	unknownTypes := communitym.ValidReportTypesForEntity("release")
+	// PSY-661: release-tailored taxonomy has 6 types.
+	releaseTypes := communitym.ValidReportTypesForEntity("release")
+	assert.Len(t, releaseTypes, 6)
+
+	// label remains unsupported (see PSY-666).
+	unknownTypes := communitym.ValidReportTypesForEntity("label")
 	assert.Nil(t, unknownTypes)
 }
 
 func TestValidEntityReportEntityTypes(t *testing.T) {
 	types := communitym.ValidEntityReportEntityTypes()
-	assert.Len(t, types, 6)
+	assert.Len(t, types, 7)
 	assert.Contains(t, types, "artist")
 	assert.Contains(t, types, "venue")
 	assert.Contains(t, types, "festival")
 	assert.Contains(t, types, "show")
 	assert.Contains(t, types, "comment")
 	assert.Contains(t, types, "collection")
+	// PSY-661
+	assert.Contains(t, types, "release")
 }
 
 // =============================================================================
@@ -205,6 +225,18 @@ func (s *EntityReportServiceIntegrationTestSuite) createTestShow() *catalogm.Sho
 	err := s.db.Create(show).Error
 	s.Require().NoError(err)
 	return show
+}
+
+func (s *EntityReportServiceIntegrationTestSuite) createTestRelease(title string) *catalogm.Release {
+	slug := fmt.Sprintf("test-release-%d", time.Now().UnixNano())
+	release := &catalogm.Release{
+		Title:       title,
+		Slug:        &slug,
+		ReleaseType: catalogm.ReleaseTypeLP,
+	}
+	err := s.db.Create(release).Error
+	s.Require().NoError(err)
+	return release
 }
 
 func (s *EntityReportServiceIntegrationTestSuite) createReport(entityType string, entityID, userID uint, reportType string) *contracts.EntityReportResponse {
@@ -367,11 +399,35 @@ func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_ShowSuc
 	s.Equal("wrong_venue", resp.ReportType)
 }
 
+// PSY-661: end-to-end create + entity-name/slug resolution for releases.
+func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_ReleaseSuccess() {
+	user := s.createTestUser()
+	release := s.createTestRelease("Test Release")
+
+	resp, err := s.svc.CreateEntityReport(&contracts.CreateEntityReportRequest{
+		EntityType: "release",
+		EntityID:   release.ID,
+		UserID:     user.ID,
+		ReportType: "wrong_cover_art",
+	})
+
+	s.NoError(err)
+	s.Require().NotNil(resp)
+	s.Equal("release", resp.EntityType)
+	s.Equal("wrong_cover_art", resp.ReportType)
+	// The moderation queue deep-links via the resolved name + slug.
+	s.Equal("Test Release", resp.EntityName)
+	s.Require().NotNil(resp.EntitySlug)
+	s.NotEmpty(*resp.EntitySlug)
+}
+
 func (s *EntityReportServiceIntegrationTestSuite) TestCreateEntityReport_InvalidEntityType() {
 	user := s.createTestUser()
 
+	// `label` is not a reportable entity type (PSY-661 added `release`;
+	// labels are tracked separately under PSY-666).
 	_, err := s.svc.CreateEntityReport(&contracts.CreateEntityReportRequest{
-		EntityType: "release",
+		EntityType: "label",
 		EntityID:   1,
 		UserID:     user.ID,
 		ReportType: "inaccurate",

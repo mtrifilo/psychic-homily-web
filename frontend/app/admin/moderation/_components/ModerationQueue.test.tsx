@@ -87,6 +87,23 @@ const mockCollectionReport: EntityReportResponse = {
   created_at: '2026-04-05T00:00:00Z',
 }
 
+// PSY-661: release-typed report payload. Includes entity_slug so the
+// generic EntityReportCard can deep-link to the public /releases/{slug} page.
+const mockReleaseReport: EntityReportResponse = {
+  id: 7,
+  entity_type: 'release',
+  entity_id: 70,
+  entity_name: 'In Rainbows',
+  entity_slug: 'in-rainbows',
+  reported_by: 7,
+  reporter_name: 'reporter4',
+  reporter_username: null,
+  report_type: 'wrong_cover_art',
+  details: 'Cover art shows the wrong album',
+  status: 'pending',
+  created_at: '2026-04-06T00:00:00Z',
+}
+
 // --- Mocks ---
 
 const mockUseAdminPendingEdits = vi.fn()
@@ -247,6 +264,20 @@ describe('ModerationQueue', () => {
     // Dismiss is still available so admins can clear stale reports.
     const dismissButton = screen.getByText('Dismiss Report').closest('button')
     expect(dismissButton).not.toBeDisabled()
+  })
+
+  // PSY-661: release reports flow through the generic EntityReportCard (no
+  // bespoke moderation action). The card must show the entity-type badge,
+  // the release-tailored report-type label, and a slug-based deep-link.
+  it('renders release report via the generic entity report card', () => {
+    setDefaultMocks({ reports: [mockReleaseReport] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByText('Release')).toBeInTheDocument()
+    expect(screen.getByText('Wrong Cover Art')).toBeInTheDocument()
+    const link = screen.getByText('In Rainbows').closest('a')
+    expect(link).toHaveAttribute('href', '/releases/in-rainbows')
   })
 
   it('shows correct counts in filter buttons', () => {

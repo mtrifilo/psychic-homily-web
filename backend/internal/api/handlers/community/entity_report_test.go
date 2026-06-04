@@ -256,6 +256,48 @@ func TestReportCollection_InvalidReportType(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// PSY-661: releases accept the same shape as the other entity types.
+// The taxonomy is release-tailored (inaccurate/duplicate/wrong_cover_art/
+// wrong_release_date/wrong_artist_attribution/missing_info) — see
+// entity_report.go for the rationale.
+func TestReportRelease_Success(t *testing.T) {
+	expected := makeEntityReportResponse(7, "release", "wrong_cover_art")
+	h := NewEntityReportHandler(
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+				if req.EntityType != "release" {
+					t.Errorf("expected entity_type=release, got %s", req.EntityType)
+				}
+				if req.ReportType != "wrong_cover_art" {
+					t.Errorf("expected report_type=wrong_cover_art, got %s", req.ReportType)
+				}
+				return expected, nil
+			},
+		},
+		nil,
+	)
+
+	req := &ReportEntityRequest{EntityID: "10"}
+	req.Body.ReportType = "wrong_cover_art"
+
+	resp, err := h.ReportReleaseHandler(entityReportUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.EntityType != "release" {
+		t.Errorf("expected entity_type=release, got %s", resp.Body.EntityType)
+	}
+}
+
+func TestReportRelease_InvalidReportType(t *testing.T) {
+	// e.g. "wrong_venue" is valid for shows but not for releases.
+	h := testEntityReportHandler()
+	req := &ReportEntityRequest{EntityID: "1"}
+	req.Body.ReportType = "wrong_venue"
+	_, err := h.ReportReleaseHandler(entityReportUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 // ============================================================================
 // Tests: Report Entity — Error Cases
 // ============================================================================

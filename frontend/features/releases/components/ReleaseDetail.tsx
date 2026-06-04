@@ -21,7 +21,7 @@ import {
   AddToCollectionButton,
   BracketLink,
 } from '@/components/shared'
-import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
+import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
@@ -74,6 +74,7 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
   const saveBanner = useEntitySaveSuccessBanner()
 
   if (isLoading) {
@@ -273,6 +274,13 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                       onClick={() => setAddTagDialogOpen(true)}
                     />
                   )}
+                  {isAuthenticated && (
+                    <BracketLink
+                      label="Report"
+                      title="Report an issue"
+                      onClick={() => setIsReportOpen(true)}
+                    />
+                  )}
                 </div>
               }
             />
@@ -404,6 +412,17 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           entityId={release.id}
           open={addTagDialogOpen}
           onOpenChange={setAddTagDialogOpen}
+        />
+      )}
+
+      {/* Report Dialog (authenticated users) — PSY-661 */}
+      {isAuthenticated && (
+        <ReportEntityDialog
+          open={isReportOpen}
+          onOpenChange={setIsReportOpen}
+          entityType="release"
+          entityId={release.id}
+          entityName={release.title}
         />
       )}
     </>

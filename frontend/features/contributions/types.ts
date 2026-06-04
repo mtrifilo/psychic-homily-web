@@ -163,7 +163,7 @@ export function validateUrlField(value: string): string | null {
   return null
 }
 
-export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment' | 'collection'
+export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment' | 'collection' | 'release'
 
 export interface ReportTypeOption {
   value: string
@@ -217,6 +217,19 @@ export const REPORT_TYPES: Record<ReportableEntityType, ReportTypeOption[]> = {
     { value: 'inappropriate', label: 'Inappropriate', description: 'NSFW cover, hateful theme, or abusive content' },
     { value: 'misleading', label: 'Misleading', description: 'False claims in the description or item notes' },
     { value: 'other', label: 'Other', description: 'Another issue not listed above' },
+  ],
+  // PSY-661: release-tailored taxonomy (diverges from the generic
+  // artist/venue vocab to name field-specific corrections common on a
+  // release record). Aligned with the backend allow list in
+  // backend/internal/models/community/entity_report.go — `value` strings
+  // must match byte-for-byte.
+  release: [
+    { value: 'inaccurate', label: 'Inaccurate Information', description: 'Title, year, tracklist, or other info is wrong' },
+    { value: 'duplicate', label: 'Duplicate Release', description: 'This release already exists under a different entry' },
+    { value: 'wrong_cover_art', label: 'Wrong Cover Art', description: 'The cover image is incorrect' },
+    { value: 'wrong_release_date', label: 'Wrong Release Date', description: 'The release date or year is incorrect' },
+    { value: 'wrong_artist_attribution', label: 'Wrong Artist', description: 'This release is attributed to the wrong artist' },
+    { value: 'missing_info', label: 'Missing Information', description: 'Important information is missing' },
   ],
 }
 
