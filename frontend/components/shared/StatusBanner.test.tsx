@@ -51,22 +51,24 @@ describe('StatusBanner', () => {
       const banner = screen.getByRole('status')
       expect(banner).toHaveClass('mb-4')
       // Variant chrome survives the merge.
-      expect(banner).toHaveClass('border-green-800', 'bg-green-950/50')
+      expect(banner).toHaveClass('border-success-foreground', 'bg-success')
     })
   })
 
   describe('variant: success', () => {
-    it('applies the green Tailwind chrome', () => {
+    it('applies the success token chrome (theme-aware, PSY-965)', () => {
       render(<StatusBanner variant="success">Saved</StatusBanner>)
 
       const banner = screen.getByRole('status')
       expect(banner).toHaveClass(
         'rounded-md',
         'border',
-        'border-green-800',
-        'bg-green-950/50',
+        'border-success-foreground',
+        'bg-success',
         'p-4'
       )
+      // The old hardcoded dark-mode greens must be gone.
+      expect(banner).not.toHaveClass('border-green-800', 'bg-green-950/50')
     })
 
     it('renders the default Check icon when no icon prop is supplied', () => {
@@ -77,22 +79,24 @@ describe('StatusBanner', () => {
       // Lucide renders as <svg class="lucide lucide-check ...">
       const icon = container.querySelector('svg.lucide-check')
       expect(icon).toBeInTheDocument()
-      expect(icon).toHaveClass('text-green-400')
+      expect(icon).toHaveClass('text-success-foreground')
     })
   })
 
   describe('variant: pending', () => {
-    it('applies the amber Tailwind chrome', () => {
+    it('applies the pending token chrome (theme-aware, PSY-965)', () => {
       render(<StatusBanner variant="pending">Awaiting moderation</StatusBanner>)
 
       const banner = screen.getByRole('status')
       expect(banner).toHaveClass(
         'rounded-md',
         'border',
-        'border-amber-700/50',
-        'bg-amber-950/40',
+        'border-pending-foreground',
+        'bg-pending',
         'p-3'
       )
+      // The old hardcoded dark-mode ambers must be gone.
+      expect(banner).not.toHaveClass('border-amber-700/50', 'bg-amber-950/40')
     })
 
     it('renders the default Clock icon when no icon prop is supplied', () => {
@@ -102,7 +106,7 @@ describe('StatusBanner', () => {
 
       const icon = container.querySelector('svg.lucide-clock')
       expect(icon).toBeInTheDocument()
-      expect(icon).toHaveClass('text-amber-500')
+      expect(icon).toHaveClass('text-pending-foreground')
     })
   })
 

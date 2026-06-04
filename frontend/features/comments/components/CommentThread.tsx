@@ -141,7 +141,7 @@ export function CommentThread({ entityType, entityId }: CommentThreadProps) {
           testId="pending-review-banner"
           className="mb-4"
         >
-          <p className="text-sm text-amber-200">
+          <p className="text-sm text-pending-foreground">
             Comment submitted — awaiting moderation. You&apos;ll see it here once an admin approves it.
           </p>
         </StatusBanner>

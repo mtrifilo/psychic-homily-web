@@ -52,7 +52,7 @@ export function EntitySaveSuccessBanner({
 
   return (
     <StatusBanner variant="success" className="mb-4">
-      <span className="font-medium text-green-400">{message}</span>
+      <span className="font-medium text-success-foreground">{message}</span>
     </StatusBanner>
   )
 }

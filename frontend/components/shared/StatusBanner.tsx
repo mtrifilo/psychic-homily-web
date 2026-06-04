@@ -9,10 +9,16 @@ export type StatusBannerVariant = 'success' | 'pending'
 export interface StatusBannerProps {
   /**
    * Visual tone:
-   * - `success` — green, used for completed mutations (Changes saved,
+   * - `success` — sage green, used for completed mutations (Changes saved,
    *   Report submitted, Approve / Reject success).
-   * - `pending` — amber, used for "submitted, awaiting review" states
+   * - `pending` — warm amber, used for "submitted, awaiting review" states
    *   (pending edits, pending comments, pending field notes).
+   *
+   * Both tones are theme-aware (PSY-965) — they resolve to the
+   * `--success`/`--pending` semantic tokens, which carry distinct light /
+   * dark values, so callers should use `text-success-foreground` /
+   * `text-pending-foreground` for inner title typography rather than raw
+   * Tailwind greens/ambers.
    */
   variant: StatusBannerVariant
 
@@ -52,11 +58,17 @@ export interface StatusBannerProps {
 }
 
 /**
- * Inline status banner — green for success, amber for pending review.
- * Replaces 4–5 hand-rolled banners that used the same Tailwind chrome
- * (PSY-575). The codebase has no toast library; inline banners on the
- * affected surface are the project convention — see
+ * Inline status banner — sage green for success, warm amber for pending
+ * review. Replaces 4–5 hand-rolled banners that used the same Tailwind
+ * chrome (PSY-575). The codebase has no toast library; inline banners on
+ * the affected surface are the project convention — see
  * `pattern_mutation_feedback.md`.
+ *
+ * PSY-965: the chrome is now bound to the theme-aware `--success` /
+ * `--pending` semantic tokens (light + dark values) instead of the
+ * dark-mode-only Tailwind greens/ambers PSY-575 had preserved verbatim —
+ * those rendered as a muddy olive box with low-contrast text on the light
+ * newsprint theme.
  *
  * Layout: `<icon>` + free-form children. Outer chrome (border + bg +
  * padding) and the default icon colour come from the variant. Inner
@@ -105,15 +117,19 @@ export function StatusBanner({
 
   if (hidden) return null
 
-  // Variant chrome — kept verbatim from the pre-PSY-575 hand-rolled
-  // banners so the visual is byte-identical post-migration:
-  //   success: border-green-800 / bg-green-950/50 / p-4 / icon text-green-400
-  //   pending: border-amber-700/50 / bg-amber-950/40 / p-3 / icon text-amber-500
+  // Variant chrome — theme-aware semantic tokens (PSY-965). The fill is the
+  // `/{tone}` token, the border + default icon use the `/{tone}-foreground`
+  // tone. Both resolve to distinct light/dark values so the banner reads
+  // cleanly on the newsprint (light) theme, not just the vinyl (dark) one:
+  //   success: bg-success / border-success-foreground / p-4 / icon text-success-foreground
+  //   pending: bg-pending / border-pending-foreground / p-3 / icon text-pending-foreground
   const isSuccess = variant === 'success'
-  const iconColorClass = isSuccess ? 'text-green-400' : 'text-amber-500'
+  const iconColorClass = isSuccess
+    ? 'text-success-foreground'
+    : 'text-pending-foreground'
   const containerClass = isSuccess
-    ? 'border-green-800 bg-green-950/50 p-4'
-    : 'border-amber-700/50 bg-amber-950/40 p-3'
+    ? 'bg-success border-success-foreground p-4'
+    : 'bg-pending border-pending-foreground p-3'
 
   const defaultIcon = isSuccess ? (
     <Check className={cn('h-4 w-4 mt-0.5 shrink-0', iconColorClass)} aria-hidden="true" />
