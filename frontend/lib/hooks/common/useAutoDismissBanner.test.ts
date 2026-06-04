@@ -182,6 +182,133 @@ describe('useAutoDismissBanner (PSY-957)', () => {
     expect(result.current.showSticky).toBe(showSticky)
     expect(result.current.clear).toBe(clear)
   })
+
+  // PSY-958: onAutoDismiss fires ONLY when the timer elapses — not on a manual
+  // clear, a sticky replacement, or unmount. StatusBanner maps its onDismiss
+  // prop onto this.
+  describe('onAutoDismiss (PSY-958)', () => {
+    it('fires when the auto-dismiss timer elapses', () => {
+      const onAutoDismiss = vi.fn()
+      const { result } = renderHook(() =>
+        useAutoDismissBanner<string>(3000, { onAutoDismiss })
+      )
+
+      act(() => {
+        result.current.show('x')
+      })
+      expect(onAutoDismiss).not.toHaveBeenCalled()
+
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(onAutoDismiss).toHaveBeenCalledTimes(1)
+    })
+
+    it('does NOT fire on manual clear()', () => {
+      const onAutoDismiss = vi.fn()
+      const { result } = renderHook(() =>
+        useAutoDismissBanner<string>(3000, { onAutoDismiss })
+      )
+
+      act(() => {
+        result.current.show('x')
+      })
+      act(() => {
+        result.current.clear()
+      })
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+      expect(onAutoDismiss).not.toHaveBeenCalled()
+    })
+
+    it('does NOT fire on unmount', () => {
+      const onAutoDismiss = vi.fn()
+      const { result, unmount } = renderHook(() =>
+        useAutoDismissBanner<string>(3000, { onAutoDismiss })
+      )
+
+      act(() => {
+        result.current.show('x')
+      })
+      unmount()
+      act(() => {
+        vi.advanceTimersByTime(5000)
+      })
+      expect(onAutoDismiss).not.toHaveBeenCalled()
+    })
+
+    it('does NOT fire on showSticky()', () => {
+      const onAutoDismiss = vi.fn()
+      const { result } = renderHook(() =>
+        useAutoDismissBanner<string>(3000, { onAutoDismiss })
+      )
+
+      act(() => {
+        result.current.showSticky('persist')
+      })
+      act(() => {
+        vi.advanceTimersByTime(10_000)
+      })
+      expect(onAutoDismiss).not.toHaveBeenCalled()
+      expect(result.current.value).toBe('persist')
+    })
+
+    it('fires once per elapsed window on re-show (not twice from the cancelled first timer)', () => {
+      // StatusBanner's re-arm path depends on this: a re-show cancels the
+      // first timer, so onAutoDismiss fires exactly once — when the SECOND
+      // window elapses.
+      const onAutoDismiss = vi.fn()
+      const { result } = renderHook(() =>
+        useAutoDismissBanner<string>(3000, { onAutoDismiss })
+      )
+
+      act(() => {
+        result.current.show('first')
+      })
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      act(() => {
+        result.current.show('second')
+      })
+      // The first window's original deadline passes — must NOT fire (cancelled).
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(onAutoDismiss).not.toHaveBeenCalled()
+      // The second window completes — fires exactly once.
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      expect(onAutoDismiss).toHaveBeenCalledTimes(1)
+    })
+
+    it('uses the latest onAutoDismiss without re-arming the timer', () => {
+      // An unmemoized callback must not reset the countdown each render.
+      const first = vi.fn()
+      const second = vi.fn()
+      const { result, rerender } = renderHook(
+        ({ cb }: { cb: () => void }) =>
+          useAutoDismissBanner<string>(3000, { onAutoDismiss: cb }),
+        { initialProps: { cb: first } }
+      )
+
+      act(() => {
+        result.current.show('x')
+      })
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      // Swap the callback partway through — must NOT extend the window.
+      rerender({ cb: second })
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(first).not.toHaveBeenCalled()
+      expect(second).toHaveBeenCalledTimes(1)
+    })
+  })
 })
 
 describe('useAutoDismissFlag (PSY-957)', () => {

@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useCallback } from 'react'
+import { useAutoDismissFlag } from '@/lib/hooks/common/useAutoDismissBanner'
 import type { EntityEditSuccess } from '../types'
 
 /**
@@ -31,28 +32,30 @@ interface UseEntitySaveSuccessBannerResult {
  * Why a hook (not a `<Banner>` ref-component): the banner needs to outlive the
  * drawer (which closes on direct save) and live on the detail page itself, so
  * the timer + state must be owned by the page component. Putting it behind a
- * hook keeps the wiring at each of the 5 detail pages to one line.
+ * hook keeps the wiring at each of the 6 entity detail pages to one line.
+ *
+ * PSY-958: the show-then-auto-dismiss timer is the shared
+ * {@link useAutoDismissFlag} primitive now; this hook keeps its name + shape
+ * (the 6 detail-page consumers are untouched) and adds only the
+ * `result.applied` gate on top. Behavior note: a second direct save while the
+ * banner is still up now RE-ARMS the 5s window (the primitive re-arms on every
+ * `trigger()`); the pre-PSY-958 effect keyed on `[isVisible]` did not, so it
+ * let the original window run out. The re-armed behavior is the more correct
+ * one (each save gets a full window).
  */
 export function useEntitySaveSuccessBanner(): UseEntitySaveSuccessBannerResult {
-  const [isVisible, setIsVisible] = useState(false)
+  const [isVisible, trigger] = useAutoDismissFlag(AUTO_DISMISS_MS)
 
-  const handleSaveSuccess = useCallback((result: EntityEditSuccess) => {
-    // Only flash on direct saves. Pending submissions keep the in-drawer
-    // amber "submitted for review" banner — the drawer stays open.
-    if (result.applied) {
-      setIsVisible(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!isVisible) return
-
-    const timer = setTimeout(() => {
-      setIsVisible(false)
-    }, AUTO_DISMISS_MS)
-
-    return () => clearTimeout(timer)
-  }, [isVisible])
+  const handleSaveSuccess = useCallback(
+    (result: EntityEditSuccess) => {
+      // Only flash on direct saves. Pending submissions keep the in-drawer
+      // amber "submitted for review" banner — the drawer stays open.
+      if (result.applied) {
+        trigger()
+      }
+    },
+    [trigger]
+  )
 
   return { isVisible, handleSaveSuccess }
 }

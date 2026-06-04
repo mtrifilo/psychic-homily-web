@@ -1,8 +1,13 @@
 'use client'
 
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Check, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
+import { useAutoDismissBanner } from '@/lib/hooks/common/useAutoDismissBanner'
+
+// Sentinel so the start-visible guard below fires on the FIRST render too
+// (a real `dismissAfterMs` — number or undefined — never equals it).
+const DISMISS_UNSET = Symbol('dismiss-unset')
 
 export type StatusBannerVariant = 'success' | 'pending'
 
@@ -33,9 +38,17 @@ export interface StatusBannerProps {
   icon?: ReactNode
 
   /**
-   * If set, the banner auto-hides after this many milliseconds. The
-   * timer is cleared on unmount and on re-render with a different value.
-   * `onDismiss` (if provided) fires when the timer elapses.
+   * If set, the banner auto-hides after this many milliseconds, and
+   * `onDismiss` (if provided) fires when the timer elapses. The timer is
+   * cleared on unmount, and re-arms when `dismissAfterMs` itself changes value.
+   *
+   * IMPORTANT: the window does NOT re-arm when only the banner's `children`
+   * change while it stays mounted. If you keep one StatusBanner mounted and
+   * swap its message per event (e.g. sequential success confirmations), pass a
+   * `key` that changes per message so each gets a fresh window — the idiomatic
+   * React identity reset (see StreamingWorklist's `key={recentMutation.nonce}`).
+   * Without a changing key, a second message inherits the first's remaining
+   * countdown.
    *
    * Omitting this prop means the banner stays visible until the parent
    * unmounts it — the right call for in-drawer banners (drawer dismiss
@@ -88,35 +101,44 @@ export function StatusBanner({
   testId,
   className,
 }: StatusBannerProps) {
-  const [hidden, setHidden] = useState(false)
+  // PSY-958: the show-then-auto-dismiss timer is the shared
+  // useAutoDismissBanner primitive. Two modes:
+  //   - timed (`dismissAfterMs` set): start visible, auto-hide after the
+  //     delay, and fire `onDismiss` when it elapses (via `onAutoDismiss`).
+  //   - untimed (`dismissAfterMs` undefined): parent-controlled — render until
+  //     the parent unmounts us; no timer is ever armed.
+  // NOTE: content-change reset is the consumer's responsibility via `key` (the
+  // idiomatic React identity reset). A consumer that swaps the banner's
+  // children while keeping it mounted with a constant `dismissAfterMs` should
+  // pass a `key` that changes per message so each gets a fresh window (see
+  // StreamingWorklist) — StatusBanner intentionally doesn't diff children.
+  const {
+    value: shown,
+    show: triggerShow,
+    clear: clearShow,
+  } = useAutoDismissBanner<true>(dismissAfterMs ?? 0, {
+    onAutoDismiss: onDismiss,
+  })
 
-  // Reset visibility when the timer config changes so callers that re-arm
-  // (dismissAfterMs changes from one number to another) get the banner back.
-  // React 19.2: adjust state during render via the previous-value-guard idiom
-  // instead of a synchronous setState in the effect (cascading render). The
-  // reset keys on `dismissAfterMs` — the documented re-arm trigger; the timer
-  // itself still re-arms on any dep change in the effect below.
-  const [prevDismissAfterMs, setPrevDismissAfterMs] = useState(dismissAfterMs)
+  // Start visible — and re-arm if a caller changes `dismissAfterMs` to a new
+  // number — by triggering the timer. React 19.2: adjust state during render via
+  // the previous-value-guard idiom instead of a mount/update effect. The
+  // sentinel makes the guard fire on the FIRST render too (so timed banners
+  // show on first paint; the trigger's render-phase setState re-renders before
+  // commit, so there's no visible flicker). Transitioning to untimed
+  // (`dismissAfterMs` → undefined) clears any live timer so it can't fire a
+  // spurious auto-dismiss / onDismiss.
+  const [prevDismissAfterMs, setPrevDismissAfterMs] = useState<
+    number | undefined | typeof DISMISS_UNSET
+  >(DISMISS_UNSET)
   if (dismissAfterMs !== prevDismissAfterMs) {
     setPrevDismissAfterMs(dismissAfterMs)
-    setHidden(false)
+    if (dismissAfterMs !== undefined) triggerShow(true)
+    else clearShow()
   }
 
-  // Arm the auto-dismiss timer; clear it on unmount (and on re-arm) so we
-  // never setState on an unmounted component. The `setHidden(true)` here is
-  // inside the deferred timer callback, not synchronous in the effect body.
-  useEffect(() => {
-    if (dismissAfterMs === undefined) return
-
-    const timer = setTimeout(() => {
-      setHidden(true)
-      onDismiss?.()
-    }, dismissAfterMs)
-
-    return () => clearTimeout(timer)
-  }, [dismissAfterMs, onDismiss])
-
-  if (hidden) return null
+  // Timed mode hides once the timer auto-dismisses; untimed mode always renders.
+  if (dismissAfterMs !== undefined && shown !== true) return null
 
   // Variant chrome — theme-aware semantic tokens (PSY-965). The fill is the
   // `/{tone}` token, the border + default icon use the `/{tone}-foreground`

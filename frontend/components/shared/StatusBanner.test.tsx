@@ -221,5 +221,38 @@ describe('StatusBanner', () => {
 
       expect(screen.getByRole('status')).toBeInTheDocument()
     })
+
+    it('switching dismissAfterMs from a number to undefined keeps it visible (no spurious onDismiss)', () => {
+      // PSY-958 regression guard: the timed→untimed transition must drop the
+      // live timer, not fire it at 0ms. Old code returned early in the effect
+      // when dismissAfterMs was undefined; the primitive-backed version clears
+      // the entry on the transition.
+      vi.useFakeTimers()
+      const onDismiss = vi.fn()
+
+      const { rerender } = render(
+        <StatusBanner variant="success" dismissAfterMs={5000} onDismiss={onDismiss}>
+          Saved
+        </StatusBanner>
+      )
+      expect(screen.getByRole('status')).toBeInTheDocument()
+
+      // Hand control to the parent partway through the window.
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      rerender(
+        <StatusBanner variant="success" onDismiss={onDismiss}>
+          Saved
+        </StatusBanner>
+      )
+
+      // No timer should fire now — banner stays, onDismiss never called.
+      act(() => {
+        vi.advanceTimersByTime(10_000)
+      })
+      expect(screen.getByRole('status')).toBeInTheDocument()
+      expect(onDismiss).not.toHaveBeenCalled()
+    })
   })
 })

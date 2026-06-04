@@ -1,6 +1,17 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+
+interface AutoDismissOptions {
+  /**
+   * Fires when the auto-dismiss timer elapses and clears the value (NOT on a
+   * manual `clear()`, a `showSticky()` replacement, or unmount). Lets a
+   * caller react to "the banner timed out on its own" — e.g. `StatusBanner`'s
+   * `onDismiss` prop. The latest reference is always used, so it need not be
+   * memoized.
+   */
+  onAutoDismiss?: () => void
+}
 
 /**
  * PSY-957: the one timer implementation behind auto-dismiss banners. Holds a
@@ -29,14 +40,17 @@ import { useState, useEffect, useCallback } from 'react'
  * adjust-state-during-render idiom (collections' `useAutoDismissError` relies
  * on this).
  *
- * Scope note: this is the shared consolidation target named in PSY-957.
- * Collections adopts it now (its 5 banner call sites). The pre-existing
- * per-feature auto-dismiss timers — comments' `useAutoDismissError`
- * (`features/comments/hooks`), contributions' `useEntitySaveSuccessBanner`,
- * and `StatusBanner`'s embedded `dismissAfterMs` — are tracked for migration
- * onto this primitive separately so the refactor stays reviewable.
+ * Scope note: this is the shared auto-dismiss timer for the whole app. PSY-957
+ * landed it with collections as the first adopter; PSY-958 routed the
+ * remaining timers through it — comments' vote-error banner
+ * (`CommentVoteControls`), contributions' `useEntitySaveSuccessBanner`, and
+ * `StatusBanner`'s `dismissAfterMs` mode (via `onAutoDismiss`). New
+ * auto-dismiss banners should use this primitive, not a hand-rolled timer.
  */
-export function useAutoDismissBanner<T>(delayMs: number): {
+export function useAutoDismissBanner<T>(
+  delayMs: number,
+  options?: AutoDismissOptions
+): {
   value: T | null
   show: (value: T) => void
   showSticky: (value: T) => void
@@ -50,11 +64,26 @@ export function useAutoDismissBanner<T>(delayMs: number): {
     autoDismiss: boolean
   } | null>(null)
 
+  // Latest-ref the callback so an unmemoized `onAutoDismiss` doesn't sit in
+  // the timer effect's deps (which would re-arm — and reset — the countdown
+  // on every render). The timer still always invokes the current callback.
+  // The ref is updated in an effect (not during render) per React 19.2's
+  // no-ref-writes-during-render rule.
+  const onAutoDismissRef = useRef(options?.onAutoDismiss)
+  useEffect(() => {
+    onAutoDismissRef.current = options?.onAutoDismiss
+  })
+
   useEffect(() => {
     if (entry === null || !entry.autoDismiss) return
-    const timer = setTimeout(() => setEntry(null), delayMs)
+    const timer = setTimeout(() => {
+      setEntry(null)
+      onAutoDismissRef.current?.()
+    }, delayMs)
     // Cleanup covers every cancellation path: re-show (effect re-runs),
-    // sticky replacement, manual clear, and unmount.
+    // sticky replacement, manual clear, and unmount. onAutoDismiss fires ONLY
+    // on the timer callback above — never from this cleanup — so a re-show /
+    // clear / unmount does not spuriously signal "dismissed".
     return () => clearTimeout(timer)
   }, [entry, delayMs])
 
@@ -83,7 +112,8 @@ export function useAutoDismissBanner<T>(delayMs: number): {
  * sites read as `const [shown, show] = ...`. (The base hook returns an object
  * because it exposes three methods; the tuple here is the intentional
  * exception, not drift.) `trigger` is referentially stable, so it's safe in
- * dependency arrays.
+ * dependency arrays. Callers needing `onAutoDismiss` / `clear` (e.g.
+ * `StatusBanner`) use `useAutoDismissBanner` directly.
  */
 export function useAutoDismissFlag(delayMs: number): [boolean, () => void] {
   const { value, show } = useAutoDismissBanner<true>(delayMs)

@@ -1,6 +1,5 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { apiRequest, type ApiError } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
@@ -63,41 +62,11 @@ export function formatCommentSubmissionError(error: unknown): string | null {
   return 'Something went wrong. Please try again.'
 }
 
-/**
- * PSY-608: auto-dismiss banner state for optimistic-rollback mutations
- * (vote / unvote). Mirrors the SaveButton / FavoriteVenueButton pattern:
- * keep the rollback's silent cache restore, but surface a brief "action
- * was reverted" message so the user knows what just happened.
- *
- * - `error`: latest mutation error (or null when displayed window has
- *   elapsed). Use this in JSX to gate banner rendering.
- * - `show(error)`: call from `onError` with the failure to display it.
- *   Subsequent calls reset the timer.
- *
- * Cleans up the pending timeout on unmount and on each new `show()` call
- * so we never call setState on an unmounted component.
- */
-export function useAutoDismissError(timeoutMs = 3000): {
-  error: unknown
-  show: (error: unknown) => void
-} {
-  const [error, setError] = useState<unknown>(null)
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    }
-  }, [])
-
-  const show = (next: unknown) => {
-    if (timeoutRef.current) clearTimeout(timeoutRef.current)
-    setError(next)
-    timeoutRef.current = setTimeout(() => setError(null), timeoutMs)
-  }
-
-  return { error, show }
-}
+// PSY-958: the comments-local `useAutoDismissError` (PSY-608) was removed —
+// its vote/unvote banner now uses the shared `useAutoDismissBanner` primitive
+// (`@/lib/hooks/common/useAutoDismissBanner`) directly from
+// `CommentVoteControls`. This also resolves the name collision with
+// collections' (differently-shaped) `useAutoDismissError`.
 
 // ============================================================================
 // Queries

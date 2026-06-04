@@ -14,9 +14,9 @@ const defaultMutationReturn = { mutate: vi.fn(), isPending: false }
 vi.mock('../hooks', async () => {
   // PSY-589: bring through the real formatCommentSubmissionError so the
   // CommentThread test can assert on the exact banner copy under 429.
-  // PSY-608: also bring through useAutoDismissError so the CommentCard
-  // children rendered inside CommentThread can call the auto-dismiss
-  // banner state hook without panicking on undefined.
+  // PSY-958: the vote auto-dismiss banner now uses the shared
+  // useAutoDismissBanner primitive directly (unmocked), so the mock no longer
+  // needs to forward a comments-local hook for it.
   const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
   return {
     useComments: (...args: unknown[]) => mockUseComments(...args),
@@ -28,7 +28,6 @@ vi.mock('../hooks', async () => {
     useVoteComment: () => defaultMutationReturn,
     useUnvoteComment: () => defaultMutationReturn,
     useCommentThread: () => ({ data: undefined as unknown }),
-    useAutoDismissError: actual.useAutoDismissError,
     formatCommentSubmissionError: actual.formatCommentSubmissionError,
   }
 })

@@ -8,9 +8,9 @@ import { MutationErrorBanner } from './MutationErrorBanner'
 import {
   useVoteComment,
   useUnvoteComment,
-  useAutoDismissError,
   formatCommentSubmissionError,
 } from '../hooks'
+import { useAutoDismissBanner } from '@/lib/hooks/common/useAutoDismissBanner'
 import { type Comment } from '../types'
 
 interface CommentVoteControlsProps {
@@ -70,20 +70,23 @@ export function CommentVoteControls({
   const unvoteMutation = useUnvoteComment()
   // PSY-608: optimistic vote/unvote rollback hides the failure visually.
   // Show a brief auto-dismissing banner so the user knows the action was
-  // reverted, mirroring SaveButton / FavoriteVenueButton (~3s).
-  const voteError = useAutoDismissError()
+  // reverted, mirroring SaveButton / FavoriteVenueButton (~3s). PSY-958:
+  // routed through the shared useAutoDismissBanner primitive (was a
+  // comments-local useAutoDismissError, now removed).
+  const { value: voteError, show: showVoteError } =
+    useAutoDismissBanner<unknown>(3000)
 
   const handleVote = (direction: 1 | -1) => {
     if (!isAuthenticated) return
     if (comment.user_vote === direction) {
       unvoteMutation.mutate(
         { commentId: comment.id, entityType, entityId },
-        { onError: (err) => voteError.show(err) }
+        { onError: (err) => showVoteError(err) }
       )
     } else {
       voteMutation.mutate(
         { commentId: comment.id, direction, entityType, entityId },
-        { onError: (err) => voteError.show(err) }
+        { onError: (err) => showVoteError(err) }
       )
     }
   }
@@ -132,12 +135,12 @@ export function CommentVoteControls({
       {/* PSY-608: auto-dismiss banner for vote/unvote failures. The
           optimistic-rollback restores the cached state silently; without
           this, the user sees the icon flip back with no explanation. */}
-      {voteError.error !== null && (
+      {voteError !== null && (
         <MutationErrorBanner
           testId="vote-error-banner"
           marginTop={marginTop}
           message={
-            formatCommentSubmissionError(voteError.error) ??
+            formatCommentSubmissionError(voteError) ??
             'Vote failed. Please try again.'
           }
         />

@@ -21,9 +21,10 @@ const mockUseVoteComment = vi.fn()
 const mockUseUnvoteComment = vi.fn()
 
 vi.mock('../hooks', async () => {
-  // PSY-608: bring through the real formatCommentSubmissionError +
-  // useAutoDismissError so the FieldNoteCard renders the canonical inline
-  // error banner copy in tests.
+  // PSY-589: bring through the real formatCommentSubmissionError so the
+  // FieldNoteCard renders the canonical inline error banner copy. The vote
+  // auto-dismiss banner uses the shared useAutoDismissBanner primitive
+  // directly now (PSY-958, unmocked).
   const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
   return {
     useReplyToComment: () => mockUseReplyToComment(),
@@ -32,7 +33,6 @@ vi.mock('../hooks', async () => {
     useVoteComment: () => mockUseVoteComment(),
     useUnvoteComment: () => mockUseUnvoteComment(),
     useCommentThread: () => ({ data: undefined as unknown }),
-    useAutoDismissError: actual.useAutoDismissError,
     formatCommentSubmissionError: actual.formatCommentSubmissionError,
   }
 })
