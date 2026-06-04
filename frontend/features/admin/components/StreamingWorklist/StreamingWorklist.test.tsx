@@ -3,7 +3,7 @@
  */
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, fireEvent, waitFor } from '@testing-library/react'
+import { screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 
 import type {
@@ -212,6 +212,65 @@ describe('StreamingWorklist', () => {
         screen.getByTestId('streaming-worklist-success-banner')
       ).toBeInTheDocument()
     })
+  })
+
+  // PSY-958: each success must get its own fresh 4s window. The success banner
+  // stays mounted with a constant dismissAfterMs, so it relies on the
+  // `key={recentMutation.nonce}` remount to re-arm — deleting the key/nonce
+  // would silently regress this (a 2nd success would inherit the 1st's
+  // countdown). This guards that consumer-side contract.
+  it('re-arms the success banner window on a second success (key/nonce remount)', () => {
+    vi.useFakeTimers()
+    try {
+      mockWorklistData({ entries: [makeEntry({ artist_id: 7 })], total: 1 })
+      mockMutate.mockImplementation((_input, callbacks) => {
+        callbacks?.onSuccess?.()
+      })
+
+      renderWithProviders(<StreamingWorklist />)
+
+      const submitSkipped = () => {
+        fireEvent.click(screen.getByTestId('streaming-worklist-open-skipped-7'))
+        fireEvent.click(screen.getByTestId('streaming-worklist-submit-7-skipped'))
+      }
+
+      // First success → banner shows (4s window).
+      submitSkipped()
+      expect(
+        screen.getByTestId('streaming-worklist-success-banner')
+      ).toBeInTheDocument()
+
+      // 3s into the first window.
+      act(() => {
+        vi.advanceTimersByTime(3000)
+      })
+      expect(
+        screen.getByTestId('streaming-worklist-success-banner')
+      ).toBeInTheDocument()
+
+      // Second success → nonce bumps → key remount → fresh 4s window.
+      submitSkipped()
+
+      // Past the FIRST window's original 4s deadline (3000+1500), but only
+      // 1500ms into the SECOND window — still visible because it re-armed.
+      act(() => {
+        vi.advanceTimersByTime(1500)
+      })
+      expect(
+        screen.getByTestId('streaming-worklist-success-banner')
+      ).toBeInTheDocument()
+
+      // A full 4s after the second success → dismisses.
+      act(() => {
+        vi.advanceTimersByTime(2500)
+      })
+      expect(
+        screen.queryByTestId('streaming-worklist-success-banner')
+      ).not.toBeInTheDocument()
+    } finally {
+      vi.runOnlyPendingTimers()
+      vi.useRealTimers()
+    }
   })
 
   it('passes null reason when the textarea is left empty', () => {

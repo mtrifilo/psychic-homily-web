@@ -31,9 +31,17 @@ export interface StatusBannerProps {
   icon?: ReactNode
 
   /**
-   * If set, the banner auto-hides after this many milliseconds. The
-   * timer is cleared on unmount and on re-render with a different value.
-   * `onDismiss` (if provided) fires when the timer elapses.
+   * If set, the banner auto-hides after this many milliseconds, and
+   * `onDismiss` (if provided) fires when the timer elapses. The timer is
+   * cleared on unmount, and re-arms when `dismissAfterMs` itself changes value.
+   *
+   * IMPORTANT: the window does NOT re-arm when only the banner's `children`
+   * change while it stays mounted. If you keep one StatusBanner mounted and
+   * swap its message per event (e.g. sequential success confirmations), pass a
+   * `key` that changes per message so each gets a fresh window — the idiomatic
+   * React identity reset (see StreamingWorklist's `key={recentMutation.nonce}`).
+   * Without a changing key, a second message inherits the first's remaining
+   * countdown.
    *
    * Omitting this prop means the banner stays visible until the parent
    * unmounts it — the right call for in-drawer banners (drawer dismiss

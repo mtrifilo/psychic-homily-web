@@ -25,9 +25,9 @@ const mockUseVoteComment = vi.fn()
 const mockUseUnvoteComment = vi.fn()
 
 vi.mock('../hooks', async () => {
-  // Bring through formatCommentSubmissionError (PSY-589) and
-  // useAutoDismissError (PSY-608) so the card renders the canonical
-  // inline-banner copy and the auto-dismiss vote banner state in tests.
+  // Bring through formatCommentSubmissionError (PSY-589) so the card renders
+  // the canonical inline-banner copy. The vote auto-dismiss banner uses the
+  // shared useAutoDismissBanner primitive directly now (PSY-958, unmocked).
   const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
   return {
     useReplyToComment: () => mockUseReplyToComment(),
@@ -507,9 +507,9 @@ describe('CommentCard — mutation error surfacing (PSY-608)', () => {
       user: { id: '7', email: 'other@user.com' },
     })
     // Mock vote mutation that fires onError synchronously when mutate() is
-    // called — emulates the rollback path. The auto-dismiss banner reads
-    // from useAutoDismissError state, so a synchronous onError populates it
-    // before the next render.
+    // called — emulates the rollback path. The auto-dismiss banner reads from
+    // the shared useAutoDismissBanner value (PSY-958), so a synchronous
+    // onError populates it before the next render.
     const voteError = Object.assign(new Error('rate limited'), {
       status: 429,
       retryAfter: 60,
