@@ -163,7 +163,7 @@ export function validateUrlField(value: string): string | null {
   return null
 }
 
-export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment' | 'collection' | 'release'
+export type ReportableEntityType = 'artist' | 'venue' | 'festival' | 'show' | 'comment' | 'collection' | 'release' | 'label'
 
 export interface ReportTypeOption {
   value: string
@@ -229,6 +229,18 @@ export const REPORT_TYPES: Record<ReportableEntityType, ReportTypeOption[]> = {
     { value: 'wrong_cover_art', label: 'Wrong Cover Art', description: 'The cover image is incorrect' },
     { value: 'wrong_release_date', label: 'Wrong Release Date', description: 'The release date or year is incorrect' },
     { value: 'wrong_artist_attribution', label: 'Wrong Artist', description: 'This release is attributed to the wrong artist' },
+    { value: 'missing_info', label: 'Missing Information', description: 'Important information is missing' },
+  ],
+  // PSY-666: label-tailored taxonomy (mirrors the PSY-578 collection +
+  // PSY-661 release precedent of tailoring per entity). Aligned with the
+  // backend allow list in
+  // backend/internal/models/community/entity_report.go — `value` strings
+  // must match byte-for-byte. "Defunct" is deliberately omitted: label
+  // lifecycle is a `status` field edit, not a moderation report.
+  label: [
+    { value: 'inaccurate', label: 'Inaccurate Information', description: 'Name, bio, or other info is wrong' },
+    { value: 'duplicate', label: 'Duplicate Label', description: 'This label already exists under a different entry' },
+    { value: 'wrong_image', label: 'Wrong Image', description: 'The label image is incorrect' },
     { value: 'missing_info', label: 'Missing Information', description: 'Important information is missing' },
   ],
 }

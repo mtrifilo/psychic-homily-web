@@ -101,6 +101,9 @@ func setupEntityReportRoutes(rc RouteContext) {
 		// PSY-661: report a release. EntityID is the numeric release ID; the
 		// moderation queue deep-links via the resolved slug.
 		huma.Post(reportAPI, "/releases/{entity_id}/report", entityReportHandler.ReportReleaseHandler)
+		// PSY-666: report a label. EntityID is the numeric label ID; the
+		// moderation queue deep-links via the resolved slug.
+		huma.Post(reportAPI, "/labels/{entity_id}/report", entityReportHandler.ReportLabelHandler)
 	})
 
 	// Admin: entity report management (PSY-423: rc.Admin enforces auth + IsAdmin)

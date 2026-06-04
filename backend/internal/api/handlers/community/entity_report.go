@@ -89,6 +89,13 @@ func (h *EntityReportHandler) ReportReleaseHandler(ctx context.Context, req *Rep
 	return h.reportEntity(ctx, "release", req)
 }
 
+// ReportLabelHandler handles POST /labels/{entity_id}/report.
+// PSY-666. EntityID is the label's numeric ID; the moderation queue
+// resolves it back to a slug-based public link via resolveEntityNameAndSlug.
+func (h *EntityReportHandler) ReportLabelHandler(ctx context.Context, req *ReportEntityRequest) (*ReportEntityResponse, error) {
+	return h.reportEntity(ctx, "label", req)
+}
+
 // reportEntity is the shared implementation for all report endpoints.
 func (h *EntityReportHandler) reportEntity(ctx context.Context, entityType string, req *ReportEntityRequest) (*ReportEntityResponse, error) {
 	user := middleware.GetUserFromContext(ctx)

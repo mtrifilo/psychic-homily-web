@@ -37,6 +37,7 @@ const REPORT_PLURAL: Record<ReportableEntityType, string> = {
   comment: 'comments',
   collection: 'collections',
   release: 'releases',
+  label: 'labels',
 }
 
 /**
@@ -54,6 +55,7 @@ const REPORT_SUFFIX: Record<ReportableEntityType, string> = {
   comment: 'report',
   collection: 'report',
   release: 'report',
+  label: 'report',
 }
 
 export const useReportEntity = () => {

@@ -63,6 +63,10 @@ function getEntityUrl(entityType: string, entityId: number, entitySlug?: string)
     // onto report.entity_slug; fall back to '#' if it couldn't be resolved.
     case 'release':
       return entitySlug ? `/releases/${entitySlug}` : '#'
+    // PSY-666: labels are addressed by slug. The backend resolves the slug
+    // onto report.entity_slug; fall back to '#' if it couldn't be resolved.
+    case 'label':
+      return entitySlug ? `/labels/${entitySlug}` : '#'
     default:
       return '#'
   }
@@ -103,7 +107,7 @@ function renderValue(value: unknown): string {
 // ─── Filter Types ────────────────────────────────────────────────────────────
 
 type ItemTypeFilter = 'all' | 'edits' | 'reports' | 'comments'
-type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show' | 'collection' | 'release'
+type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show' | 'collection' | 'release' | 'label'
 
 // ─── Unified Item Type ───────────────────────────────────────────────────────
 
@@ -893,6 +897,7 @@ export function ModerationQueue() {
           <option value="show">Shows</option>
           <option value="collection">Collections</option>
           <option value="release">Releases</option>
+          <option value="label">Labels</option>
         </select>
 
         {/* Summary count */}
