@@ -3,7 +3,7 @@
 import { useState, type ReactNode } from 'react'
 import { Check, Clock } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import { useAutoDismissFlag } from '@/lib/hooks/common/useAutoDismissBanner'
+import { useAutoDismissBanner } from '@/lib/hooks/common/useAutoDismissBanner'
 
 // Sentinel so the start-visible guard below fires on the FIRST render too
 // (a real `dismissAfterMs` — number or undefined — never equals it).
@@ -81,31 +81,43 @@ export function StatusBanner({
   className,
 }: StatusBannerProps) {
   // PSY-958: the show-then-auto-dismiss timer is the shared
-  // useAutoDismissFlag primitive. Two modes:
+  // useAutoDismissBanner primitive. Two modes:
   //   - timed (`dismissAfterMs` set): start visible, auto-hide after the
   //     delay, and fire `onDismiss` when it elapses (via `onAutoDismiss`).
   //   - untimed (`dismissAfterMs` undefined): parent-controlled — render until
   //     the parent unmounts us; no timer is ever armed.
-  const [shown, triggerShow] = useAutoDismissFlag(dismissAfterMs ?? 0, {
+  // NOTE: content-change reset is the consumer's responsibility via `key` (the
+  // idiomatic React identity reset). A consumer that swaps the banner's
+  // children while keeping it mounted with a constant `dismissAfterMs` should
+  // pass a `key` that changes per message so each gets a fresh window (see
+  // StreamingWorklist) — StatusBanner intentionally doesn't diff children.
+  const {
+    value: shown,
+    show: triggerShow,
+    clear: clearShow,
+  } = useAutoDismissBanner<true>(dismissAfterMs ?? 0, {
     onAutoDismiss: onDismiss,
   })
 
   // Start visible — and re-arm if a caller changes `dismissAfterMs` to a new
-  // number — by triggering the flag. React 19.2: adjust state during render via
+  // number — by triggering the timer. React 19.2: adjust state during render via
   // the previous-value-guard idiom instead of a mount/update effect. The
   // sentinel makes the guard fire on the FIRST render too (so timed banners
   // show on first paint; the trigger's render-phase setState re-renders before
-  // commit, so there's no visible flicker).
+  // commit, so there's no visible flicker). Transitioning to untimed
+  // (`dismissAfterMs` → undefined) clears any live timer so it can't fire a
+  // spurious auto-dismiss / onDismiss.
   const [prevDismissAfterMs, setPrevDismissAfterMs] = useState<
     number | undefined | typeof DISMISS_UNSET
   >(DISMISS_UNSET)
   if (dismissAfterMs !== prevDismissAfterMs) {
     setPrevDismissAfterMs(dismissAfterMs)
-    if (dismissAfterMs !== undefined) triggerShow()
+    if (dismissAfterMs !== undefined) triggerShow(true)
+    else clearShow()
   }
 
-  // Timed mode hides once the flag auto-dismisses; untimed mode always renders.
-  if (dismissAfterMs !== undefined && !shown) return null
+  // Timed mode hides once the timer auto-dismisses; untimed mode always renders.
+  if (dismissAfterMs !== undefined && shown !== true) return null
 
   // Variant chrome — kept verbatim from the pre-PSY-575 hand-rolled
   // banners so the visual is byte-identical post-migration:

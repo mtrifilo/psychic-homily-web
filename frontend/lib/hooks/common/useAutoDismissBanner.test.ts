@@ -254,6 +254,36 @@ describe('useAutoDismissBanner (PSY-957)', () => {
       expect(result.current.value).toBe('persist')
     })
 
+    it('fires once per elapsed window on re-show (not twice from the cancelled first timer)', () => {
+      // StatusBanner's re-arm path depends on this: a re-show cancels the
+      // first timer, so onAutoDismiss fires exactly once — when the SECOND
+      // window elapses.
+      const onAutoDismiss = vi.fn()
+      const { result } = renderHook(() =>
+        useAutoDismissBanner<string>(3000, { onAutoDismiss })
+      )
+
+      act(() => {
+        result.current.show('first')
+      })
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      act(() => {
+        result.current.show('second')
+      })
+      // The first window's original deadline passes — must NOT fire (cancelled).
+      act(() => {
+        vi.advanceTimersByTime(1000)
+      })
+      expect(onAutoDismiss).not.toHaveBeenCalled()
+      // The second window completes — fires exactly once.
+      act(() => {
+        vi.advanceTimersByTime(2000)
+      })
+      expect(onAutoDismiss).toHaveBeenCalledTimes(1)
+    })
+
     it('uses the latest onAutoDismiss without re-arming the timer', () => {
       // An unmemoized callback must not reset the countdown each render.
       const first = vi.fn()

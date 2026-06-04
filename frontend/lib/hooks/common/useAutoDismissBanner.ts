@@ -112,14 +112,11 @@ export function useAutoDismissBanner<T>(
  * sites read as `const [shown, show] = ...`. (The base hook returns an object
  * because it exposes three methods; the tuple here is the intentional
  * exception, not drift.) `trigger` is referentially stable, so it's safe in
- * dependency arrays. Pass `options.onAutoDismiss` to react to the flag
- * timing out (PSY-958 — `StatusBanner` maps its `onDismiss` prop this way).
+ * dependency arrays. Callers needing `onAutoDismiss` / `clear` (e.g.
+ * `StatusBanner`) use `useAutoDismissBanner` directly.
  */
-export function useAutoDismissFlag(
-  delayMs: number,
-  options?: AutoDismissOptions
-): [boolean, () => void] {
-  const { value, show } = useAutoDismissBanner<true>(delayMs, options)
+export function useAutoDismissFlag(delayMs: number): [boolean, () => void] {
+  const { value, show } = useAutoDismissBanner<true>(delayMs)
   const trigger = useCallback(() => show(true), [show])
   return [value === true, trigger]
 }

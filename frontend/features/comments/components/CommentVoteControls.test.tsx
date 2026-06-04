@@ -21,8 +21,9 @@ const mockUseVoteComment = vi.fn()
 const mockUseUnvoteComment = vi.fn()
 
 vi.mock('../hooks', async () => {
-  // Real useAutoDismissError + formatCommentSubmissionError so the banner
-  // exercises canonical state + copy paths.
+  // Real formatCommentSubmissionError so the banner exercises canonical copy.
+  // The auto-dismiss banner itself now comes from the unmocked shared
+  // useAutoDismissBanner primitive (PSY-958), not a comments-local hook.
   const actual = await vi.importActual<typeof import('../hooks')>('../hooks')
   return {
     useVoteComment: () => mockUseVoteComment(),
@@ -138,8 +139,9 @@ describe('CommentVoteControls', () => {
   })
 
   // PSY-608: optimistic vote/unvote rollback hides the failure visually.
-  // The primitive surfaces a brief auto-dismiss banner via useAutoDismissError
-  // so the user knows the action was reverted.
+  // The component surfaces a brief auto-dismiss banner via the shared
+  // useAutoDismissBanner primitive (PSY-958) so the user knows the action was
+  // reverted.
   describe('auto-dismiss vote-error banner (PSY-608)', () => {
     it('renders the banner when useVoteComment rejects via onError', () => {
       mockAuthContext.mockReturnValue({

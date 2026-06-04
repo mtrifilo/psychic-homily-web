@@ -372,6 +372,12 @@ export function StreamingWorklist() {
   const [recentMutation, setRecentMutation] = useState<{
     artistName: string
     action: StreamingWorklistAction
+    // Monotonic id so each success remounts the StatusBanner (via `key`),
+    // giving every confirmation its own fresh auto-dismiss window — even two
+    // rapid successes for the same artist+action. Without this, a second
+    // success within the window would inherit the first banner's countdown
+    // (PSY-958: the timer re-arms on banner identity, not on content change).
+    nonce: number
   } | null>(null)
 
   const { data, isLoading, isError, error } = useStreamingWorklist({
@@ -419,7 +425,11 @@ export function StreamingWorklist() {
 
   const handleActionSuccess = useCallback(
     (entry: StreamingWorklistEntry, action: StreamingWorklistAction) => {
-      setRecentMutation({ artistName: entry.artist_name, action })
+      setRecentMutation((prev) => ({
+        artistName: entry.artist_name,
+        action,
+        nonce: (prev?.nonce ?? 0) + 1,
+      }))
     },
     []
   )
@@ -454,6 +464,7 @@ export function StreamingWorklist() {
             Inline + ephemeral so it doesn't clutter the table. */}
         {recentMutation && (
           <StatusBanner
+            key={recentMutation.nonce}
             variant="success"
             dismissAfterMs={4000}
             onDismiss={() => setRecentMutation(null)}
