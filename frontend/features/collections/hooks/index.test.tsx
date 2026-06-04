@@ -235,8 +235,14 @@ describe('Collection query hooks', () => {
   })
 
   describe('useUserCollectionsContaining', () => {
-    it('returns the response IDs as a Set for O(1) membership checks', async () => {
-      mockApiRequest.mockResolvedValueOnce({ collection_ids: [3, 7, 9] })
+    it('returns the response as a Map of collectionId → itemId (PSY-829)', async () => {
+      mockApiRequest.mockResolvedValueOnce({
+        items: [
+          { collection_id: 3, item_id: 30 },
+          { collection_id: 7, item_id: 70 },
+          { collection_id: 9, item_id: 90 },
+        ],
+      })
 
       const { result } = renderHook(
         () => useUserCollectionsContaining('artist', 42),
@@ -244,12 +250,13 @@ describe('Collection query hooks', () => {
       )
 
       await waitFor(() => expect(result.current.isSuccess).toBe(true))
-      // Built as a Set so the popover's `selected.has(id)` check is O(1)
-      // rather than O(N) on every render.
-      expect(result.current.data).toBeInstanceOf(Set)
+      // Built as a Map so the popover's `containing.has(id)` pre-check is O(1)
+      // AND `containing.get(id)` yields the collection_item id to DELETE on
+      // uncheck (PSY-829), without re-allocating per render.
+      expect(result.current.data).toBeInstanceOf(Map)
       expect(result.current.data?.has(3)).toBe(true)
-      expect(result.current.data?.has(7)).toBe(true)
-      expect(result.current.data?.has(9)).toBe(true)
+      expect(result.current.data?.get(7)).toBe(70)
+      expect(result.current.data?.get(9)).toBe(90)
       expect(result.current.data?.has(99)).toBe(false)
 
       // URL is encoded — entity_type goes through encodeURIComponent so a
@@ -257,6 +264,19 @@ describe('Collection query hooks', () => {
       expect(mockApiRequest).toHaveBeenCalledWith(
         '/auth/collections/contains?entity_type=artist&entity_id=42'
       )
+    })
+
+    it('tolerates a missing items key (empty Map, no crash)', async () => {
+      mockApiRequest.mockResolvedValueOnce({})
+
+      const { result } = renderHook(
+        () => useUserCollectionsContaining('artist', 42),
+        { wrapper: createWrapper() }
+      )
+
+      await waitFor(() => expect(result.current.isSuccess).toBe(true))
+      expect(result.current.data).toBeInstanceOf(Map)
+      expect(result.current.data?.size).toBe(0)
     })
 
     it('skips the request when disabled', async () => {

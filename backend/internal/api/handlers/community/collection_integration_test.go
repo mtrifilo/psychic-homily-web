@@ -1185,13 +1185,17 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_Onl
 	s.NoError(err)
 	s.NotNil(resp)
 
-	got := make(map[uint]bool, len(resp.Body.CollectionIDs))
-	for _, id := range resp.Body.CollectionIDs {
-		got[id] = true
+	got := make(map[uint]uint, len(resp.Body.Items))
+	for _, item := range resp.Body.Items {
+		got[item.CollectionID] = item.ItemID
 	}
-	s.True(got[collA.ID], "collA should be in containing set")
-	s.True(got[collB.ID], "collB should be in containing set")
-	s.False(got[collC.ID], "collC has no item — must not be returned")
+	s.Contains(got, collA.ID, "collA should be in containing set")
+	s.Contains(got, collB.ID, "collB should be in containing set")
+	s.NotContains(got, collC.ID, "collC has no item — must not be returned")
+	// PSY-829: each pair carries a non-zero collection_item id so the popover
+	// can DELETE the entity by item id on uncheck.
+	s.NotZero(got[collA.ID], "collA pair must carry the collection_item id")
+	s.NotZero(got[collB.ID], "collB pair must carry the collection_item id")
 }
 
 // TestGetUserCollectionsContaining_DoesNotIncludeOtherUsers prevents leaking
@@ -1220,13 +1224,14 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_Doe
 	}
 	resp, err := s.handler.GetUserCollectionsContainingHandler(ctx, req)
 	s.NoError(err)
-	s.Len(resp.Body.CollectionIDs, 1)
-	s.Equal(user1Coll.ID, resp.Body.CollectionIDs[0])
+	s.Len(resp.Body.Items, 1)
+	s.Equal(user1Coll.ID, resp.Body.Items[0].CollectionID)
+	s.NotZero(resp.Body.Items[0].ItemID)
 }
 
 // TestGetUserCollectionsContaining_NoMatches returns an empty (non-nil)
-// slice. Frontend decodes the JSON into a Set and the empty case must not
-// crash on a missing `collection_ids` key.
+// slice. Frontend decodes the JSON into a Map and the empty case must not
+// crash on a missing `items` key.
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_NoMatches() {
 	user := testhelpers.CreateTestUser(s.deps.DB)
 	s.createCollectionViaService(user, "No Match", false)
@@ -1240,8 +1245,8 @@ func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_NoM
 	}
 	resp, err := s.handler.GetUserCollectionsContainingHandler(ctx, req)
 	s.NoError(err)
-	s.NotNil(resp.Body.CollectionIDs, "must be a non-nil slice for stable JSON shape")
-	s.Empty(resp.Body.CollectionIDs)
+	s.NotNil(resp.Body.Items, "must be a non-nil slice for stable JSON shape")
+	s.Empty(resp.Body.Items)
 }
 
 func (s *CollectionHandlerIntegrationSuite) TestGetUserCollectionsContaining_NoAuth() {

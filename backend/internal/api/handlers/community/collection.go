@@ -834,12 +834,14 @@ type GetUserCollectionsContainingHandlerRequest struct {
 	EntityID   uint   `query:"entity_id" required:"true" doc:"Entity ID" example:"42"`
 }
 
-// GetUserCollectionsContainingHandlerResponse returns the collection IDs
-// (within the user's own + subscribed-to set) that already contain the
-// entity. Empty array — not null — when no match.
+// GetUserCollectionsContainingHandlerResponse returns the user's collections
+// (within their own + subscribed-to set) that already contain the entity, each
+// paired with the collection_item id so the popover can both pre-check the row
+// AND remove the entity by item id (PSY-829). Empty array — not null — when no
+// match.
 type GetUserCollectionsContainingHandlerResponse struct {
 	Body struct {
-		CollectionIDs []uint `json:"collection_ids" doc:"IDs of the user's collections that already contain the entity"`
+		Items []contracts.ContainingCollectionItem `json:"items" doc:"The user's collections that already contain the entity, each with the collection_item id"`
 	}
 }
 
@@ -865,13 +867,13 @@ func (h *CollectionHandler) GetUserCollectionsContainingHandler(ctx context.Cont
 		return nil, huma.Error400BadRequest("entity_id must be > 0")
 	}
 
-	ids, err := h.collectionService.GetUserCollectionsContainingEntity(user.ID, req.EntityType, req.EntityID)
+	items, err := h.collectionService.GetUserCollectionsContainingEntity(user.ID, req.EntityType, req.EntityID)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to look up containing collections", err)
 	}
 
 	resp := &GetUserCollectionsContainingHandlerResponse{}
-	resp.Body.CollectionIDs = ids
+	resp.Body.Items = items
 	return resp, nil
 }
 

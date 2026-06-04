@@ -28,28 +28,71 @@ vi.mock('next/navigation', () => ({
   usePathname: () => '/releases/test-release',
 }))
 
-// Mock collection hooks
-const mockMutateAsync = vi.fn()
-const mockMyCollections = vi.fn(() => ({
-  data: {
-    collections: [
-      { id: 1, slug: 'my-favorites', title: 'My Favorites' },
-      { id: 2, slug: 'best-of-2026', title: 'Best of 2026' },
-      { id: 3, slug: 'arizona-shows', title: 'Arizona Shows' },
-    ],
+// Mock @tanstack/react-query's useQueryClient — the component invalidates the
+// contains + backlinks caches after a remove. The test doesn't mount a real
+// QueryClientProvider, so stub the client.
+const mockInvalidateQueries = vi.fn()
+vi.mock('@tanstack/react-query', async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import('@tanstack/react-query')>()
+  return {
+    ...actual,
+    useQueryClient: () => ({ invalidateQueries: mockInvalidateQueries }),
+  }
+})
+
+// Mock collection hooks. Collections carry item_count + is_public +
+// cover_image_url so the rich-row subtitle ("N items · Public/Private") and
+// thumbnail render (PSY-829 D2).
+const DEFAULT_COLLECTIONS = [
+  {
+    id: 1,
+    slug: 'my-favorites',
+    title: 'My Favorites',
+    item_count: 12,
+    is_public: true,
+    cover_image_url: null,
   },
+  {
+    id: 2,
+    slug: 'best-of-2026',
+    title: 'Best of 2026',
+    item_count: 1,
+    is_public: false,
+    cover_image_url: null,
+  },
+  {
+    id: 3,
+    slug: 'arizona-shows',
+    title: 'Arizona Shows',
+    item_count: 7,
+    is_public: true,
+    cover_image_url: null,
+  },
+]
+const mockMutateAsync = vi.fn()
+const mockRemoveMutateAsync = vi.fn()
+const mockMyCollections = vi.fn(() => ({
+  data: { collections: DEFAULT_COLLECTIONS },
   isLoading: false,
 }))
-const mockContainingIds = vi.fn(() => ({
-  data: new Set<number>(),
+// PSY-829: contains query returns a Map (collectionId → collection_item id).
+const mockContaining = vi.fn(() => ({
+  data: new Map<number, number>(),
   isLoading: false,
 }))
 
 vi.mock('@/features/collections/hooks', () => ({
   useMyCollections: () => mockMyCollections(),
-  useUserCollectionsContaining: () => mockContainingIds(),
+  useUserCollectionsContaining: () => mockContaining(),
   useAddCollectionItem: () => ({
     mutateAsync: mockMutateAsync,
+    isPending: false,
+    isError: false,
+    error: null as Error | null,
+  }),
+  useRemoveCollectionItem: () => ({
+    mutateAsync: mockRemoveMutateAsync,
     isPending: false,
     isError: false,
     error: null as Error | null,
@@ -83,20 +126,17 @@ describe('AddToCollectionButton', () => {
       logout: vi.fn(),
     })
     mockMyCollections.mockReturnValue({
-      data: {
-        collections: [
-          { id: 1, slug: 'my-favorites', title: 'My Favorites' },
-          { id: 2, slug: 'best-of-2026', title: 'Best of 2026' },
-          { id: 3, slug: 'arizona-shows', title: 'Arizona Shows' },
-        ],
-      },
+      data: { collections: DEFAULT_COLLECTIONS },
       isLoading: false,
     })
-    mockContainingIds.mockReturnValue({
-      data: new Set<number>(),
+    mockContaining.mockReturnValue({
+      data: new Map<number, number>(),
       isLoading: false,
     })
-    mockMutateAsync.mockResolvedValue(undefined)
+    // The add hook resolves to the created item (incl. its `id`) — PSY-829
+    // captures it so a same-session uncheck→remove knows the item id.
+    mockMutateAsync.mockResolvedValue({ id: 999 })
+    mockRemoveMutateAsync.mockResolvedValue(undefined)
   })
 
   it('renders nothing when not authenticated', () => {
@@ -139,9 +179,9 @@ describe('AddToCollectionButton', () => {
     }
   })
 
-  it('pre-checks collections that already contain the entity', async () => {
-    mockContainingIds.mockReturnValue({
-      data: new Set<number>([2]),
+  it('pre-checks collections that already contain the entity + shows "Added"', async () => {
+    mockContaining.mockReturnValue({
+      data: new Map<number, number>([[2, 20]]),
       isLoading: false,
     })
 
@@ -158,6 +198,22 @@ describe('AddToCollectionButton', () => {
     const bestOfCheckbox = screen.getByRole('checkbox', { name: /best of 2026/i })
     expect(favoritesCheckbox).toHaveAttribute('aria-checked', 'false')
     expect(bestOfCheckbox).toHaveAttribute('aria-checked', 'true')
+    // The already-in row carries the "Added" indicator (PSY-829 D2).
+    expect(screen.getByText('Added')).toBeInTheDocument()
+  })
+
+  it('renders the rich-row subtitle "N items · Public/Private" (PSY-829 D2)', async () => {
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+    )
+
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+
+    // My Favorites: 12 items · Public; Best of 2026: 1 item (singular) · Private.
+    expect(await screen.findByText('12 items · Public')).toBeInTheDocument()
+    expect(screen.getByText('1 item · Private')).toBeInTheDocument()
+    expect(screen.getByText('7 items · Public')).toBeInTheDocument()
   })
 
   it('shows entity name in popover header', async () => {
@@ -224,7 +280,7 @@ describe('AddToCollectionButton', () => {
       ({ slug }: { slug: string }) =>
         slug === 'arizona-shows'
           ? Promise.reject(new Error('Already in collection'))
-          : Promise.resolve(undefined)
+          : Promise.resolve({ id: 111 })
     )
 
     const user = userEvent.setup()
@@ -247,15 +303,110 @@ describe('AddToCollectionButton', () => {
     expect(mockMutateAsync).toHaveBeenCalledTimes(2)
   })
 
+  it('unchecks a failed-add row and drops it from the batch (PSY-829 code-review)', async () => {
+    // The failed row must NOT stay checked — the row state should match
+    // reality (not added) while the inline error explains why.
+    mockMutateAsync.mockImplementation(({ slug }: { slug: string }) =>
+      slug === 'arizona-shows'
+        ? Promise.reject(new Error('Server error'))
+        : Promise.resolve({ id: 111 })
+    )
+
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={42} entityName="Test Artist" />
+    )
+
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+    await user.click(
+      await screen.findByRole('checkbox', { name: /my favorites/i })
+    )
+    await user.click(screen.getByRole('checkbox', { name: /arizona shows/i }))
+    await user.click(
+      screen.getByRole('button', { name: /add to 2 collections/i })
+    )
+
+    expect(await screen.findByText('Server error')).toBeInTheDocument()
+    // The failed row is back to unchecked; the succeeded row shows Added.
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: /arizona shows/i })
+      ).toHaveAttribute('aria-checked', 'false')
+    )
+    expect(
+      screen.getByRole('checkbox', { name: /my favorites/i })
+    ).toHaveAttribute('aria-checked', 'true')
+  })
+
+  it('same-session add → remove uses the item id captured from the add (PSY-829 code-review)', async () => {
+    // Race the code-review flagged: after a Submit add, `containing` hasn't
+    // refetched yet, so confirmRemove must fall back to the item id captured
+    // from the add response (here: 555) — not silently no-op.
+    mockMutateAsync.mockResolvedValue({ id: 555 })
+    // containing stays EMPTY (the refetch hasn't landed) for the whole test.
+    mockContaining.mockReturnValue({
+      data: new Map<number, number>(),
+      isLoading: false,
+    })
+
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={42} entityName="Test Artist" />
+    )
+
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+    await user.click(
+      await screen.findByRole('checkbox', { name: /my favorites/i })
+    )
+    await user.click(screen.getByRole('button', { name: /add to 1 collection/i }))
+
+    // Row now shows Added; uncheck → confirm → Remove.
+    await waitFor(() => expect(screen.getByText('Added')).toBeInTheDocument())
+    await user.click(screen.getByRole('checkbox', { name: /my favorites/i }))
+    await user.click(screen.getByRole('button', { name: /^remove$/i }))
+
+    await waitFor(() => {
+      expect(mockRemoveMutateAsync).toHaveBeenCalledWith({
+        slug: 'my-favorites',
+        itemId: 555,
+      })
+    })
+  })
+
+  it('clears never-submitted pending checks when the popover closes (PSY-829 code-review)', async () => {
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+    )
+
+    // Open, check a new row, then close WITHOUT submitting.
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+    await user.click(
+      await screen.findByRole('checkbox', { name: /my favorites/i })
+    )
+    expect(
+      screen.getByRole('checkbox', { name: /my favorites/i })
+    ).toHaveAttribute('aria-checked', 'true')
+    await user.keyboard('{Escape}')
+
+    // Reopen — the never-submitted check must not leak into the new session.
+    await user.click(screen.getByRole('button', { name: /add to collection/i }))
+    await waitFor(() =>
+      expect(
+        screen.getByRole('checkbox', { name: /my favorites/i })
+      ).toHaveAttribute('aria-checked', 'false')
+    )
+  })
+
   // Lock in the "Adding…" loading state. Earlier the only assertion around
   // the submitting UX was the failure-surface message; that would pass even
   // if the submit button stopped switching to its loading copy mid-flight.
   it('shows the "Adding…" loading state while the submit promises are in flight', async () => {
     // Hold every add open so the submitting=true window is observable.
-    let resolveOne!: () => void
+    let resolveOne!: (v: { id: number }) => void
     mockMutateAsync.mockImplementation(
       () =>
-        new Promise<void>((resolve) => {
+        new Promise<{ id: number }>((resolve) => {
           resolveOne = resolve
         })
     )
@@ -283,7 +434,7 @@ describe('AddToCollectionButton', () => {
     }
 
     // Resolve so the test doesn't hang on the pending promise.
-    resolveOne()
+    resolveOne({ id: 1 })
     await waitFor(() => {
       expect(mockMutateAsync).toHaveBeenCalledTimes(1)
     })
@@ -302,7 +453,7 @@ describe('AddToCollectionButton', () => {
     expect(link.closest('a')).toHaveAttribute('href', '/collections')
   })
 
-  it('shows empty state when user has no collections', async () => {
+  it('shows empty state with a primary Create CTA when user has no collections (D5)', async () => {
     mockMyCollections.mockReturnValue({
       data: { collections: [] },
       isLoading: false,
@@ -315,7 +466,16 @@ describe('AddToCollectionButton', () => {
 
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
 
-    expect(await screen.findByText('No collections yet')).toBeInTheDocument()
+    expect(
+      await screen.findByText('No collections yet — start one.')
+    ).toBeInTheDocument()
+    // D5: Create is promoted to a primary action (a link styled as a button).
+    const createLink = screen.getByRole('link', {
+      name: /create new collection/i,
+    })
+    expect(createLink).toHaveAttribute('href', '/collections')
+    // No submit row / no checkbox list in the empty state.
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
   })
 
   it('toggling a checkbox via the keyboard (Space) flips its state', async () => {
@@ -333,6 +493,181 @@ describe('AddToCollectionButton', () => {
 
     await user.keyboard(' ')
     expect(checkbox).toHaveAttribute('aria-checked', 'true')
+  })
+
+  // ── PSY-829 D1: uncheck an already-in row → remove-with-confirm ──
+  // The pre-PSY-829 popover only fanned out newly-checked IDs, so unchecking
+  // an already-in row did nothing (dead affordance). Now it opens an inline
+  // confirm and, on Remove, DELETEs by the collection_item id the contains
+  // query supplies.
+  describe('remove-with-confirm (D1)', () => {
+    it('unchecking a saved row opens the confirm (no removal yet)', async () => {
+      mockContaining.mockReturnValue({
+        data: new Map<number, number>([[2, 20]]),
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      render(
+        <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+      )
+
+      await user.click(screen.getByRole('button', { name: /add to collection/i }))
+      await user.click(
+        await screen.findByRole('checkbox', { name: /best of 2026/i })
+      )
+
+      expect(
+        screen.getByText('Remove from this collection?')
+      ).toBeInTheDocument()
+      // Nothing deleted until the user confirms.
+      expect(mockRemoveMutateAsync).not.toHaveBeenCalled()
+    })
+
+    it('Cancel dismisses the confirm and keeps the row added', async () => {
+      mockContaining.mockReturnValue({
+        data: new Map<number, number>([[2, 20]]),
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      render(
+        <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+      )
+
+      await user.click(screen.getByRole('button', { name: /add to collection/i }))
+      await user.click(
+        await screen.findByRole('checkbox', { name: /best of 2026/i })
+      )
+      await user.click(screen.getByRole('button', { name: /^cancel$/i }))
+
+      expect(
+        screen.queryByText('Remove from this collection?')
+      ).not.toBeInTheDocument()
+      expect(mockRemoveMutateAsync).not.toHaveBeenCalled()
+      // Row stays checked + Added.
+      expect(
+        screen.getByRole('checkbox', { name: /best of 2026/i })
+      ).toHaveAttribute('aria-checked', 'true')
+    })
+
+    it('Remove DELETEs by the collection_item id and clears the Added state', async () => {
+      mockContaining.mockReturnValue({
+        data: new Map<number, number>([[2, 20]]),
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      render(
+        <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+      )
+
+      await user.click(screen.getByRole('button', { name: /add to collection/i }))
+      await user.click(
+        await screen.findByRole('checkbox', { name: /best of 2026/i })
+      )
+      await user.click(screen.getByRole('button', { name: /^remove$/i }))
+
+      await waitFor(() => {
+        expect(mockRemoveMutateAsync).toHaveBeenCalledWith({
+          slug: 'best-of-2026',
+          itemId: 20,
+        })
+      })
+      // Row is no longer Added; checkbox unchecked.
+      await waitFor(() =>
+        expect(
+          screen.getByRole('checkbox', { name: /best of 2026/i })
+        ).toHaveAttribute('aria-checked', 'false')
+      )
+    })
+
+    it('surfaces a remove failure inline without clearing the Added state', async () => {
+      mockContaining.mockReturnValue({
+        data: new Map<number, number>([[2, 20]]),
+        isLoading: false,
+      })
+      mockRemoveMutateAsync.mockRejectedValueOnce(new Error('Network down'))
+      const user = userEvent.setup()
+      render(
+        <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+      )
+
+      await user.click(screen.getByRole('button', { name: /add to collection/i }))
+      await user.click(
+        await screen.findByRole('checkbox', { name: /best of 2026/i })
+      )
+      await user.click(screen.getByRole('button', { name: /^remove$/i }))
+
+      expect(await screen.findByText('Network down')).toBeInTheDocument()
+      // Still added — the row didn't lose its membership on a failed remove.
+      expect(
+        screen.getByRole('checkbox', { name: /best of 2026/i })
+      ).toHaveAttribute('aria-checked', 'true')
+    })
+  })
+
+  // ── PSY-829: client-side filter input above a long list ──
+  describe('search filter', () => {
+    const manyCollections = Array.from({ length: 10 }, (_, i) => ({
+      id: i + 1,
+      slug: `coll-${i + 1}`,
+      title: i === 0 ? 'Desert Psych' : `Collection ${i + 1}`,
+      item_count: i + 1,
+      is_public: true,
+      cover_image_url: null,
+    }))
+
+    it('shows the filter only when the list exceeds the threshold', async () => {
+      const user = userEvent.setup()
+      // Default fixture has 3 collections — below threshold → no filter.
+      render(
+        <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+      )
+      await user.click(screen.getByRole('button', { name: /add to collection/i }))
+      expect(
+        screen.queryByRole('textbox', { name: /filter collections/i })
+      ).not.toBeInTheDocument()
+    })
+
+    it('filters rows by title (case-insensitive)', async () => {
+      mockMyCollections.mockReturnValue({
+        data: { collections: manyCollections },
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      render(
+        <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+      )
+      await user.click(screen.getByRole('button', { name: /add to collection/i }))
+
+      const filter = await screen.findByRole('textbox', {
+        name: /filter collections/i,
+      })
+      await user.type(filter, 'desert')
+
+      expect(screen.getByText('Desert Psych')).toBeInTheDocument()
+      expect(screen.queryByText('Collection 2')).not.toBeInTheDocument()
+    })
+
+    it('shows the no-match empty state when the filter excludes every row', async () => {
+      mockMyCollections.mockReturnValue({
+        data: { collections: manyCollections },
+        isLoading: false,
+      })
+      const user = userEvent.setup()
+      render(
+        <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+      )
+      await user.click(screen.getByRole('button', { name: /add to collection/i }))
+
+      const filter = await screen.findByRole('textbox', {
+        name: /filter collections/i,
+      })
+      await user.type(filter, 'zzzznomatch')
+
+      expect(screen.getByText(/No collections match/)).toBeInTheDocument()
+      // No rows rendered, but the panel didn't crash and the filter persists.
+      expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
+      expect(filter).toHaveValue('zzzznomatch')
+    })
   })
 
   // ── Regression: unauthenticated → authenticated transition (PSY-466) ──

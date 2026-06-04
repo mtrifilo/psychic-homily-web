@@ -712,7 +712,7 @@ type MockCollectionService struct {
 	UnlikeFn                             func(string, uint) (*contracts.CollectionLikeResponse, error)
 	GetStatsFn                           func(string) (*contracts.CollectionStatsResponse, error)
 	GetUserCollectionsFn                 func(uint, string, int, int) ([]*contracts.CollectionListResponse, int64, error)
-	GetUserCollectionsContainingEntityFn func(uint, string, uint) ([]uint, error)
+	GetUserCollectionsContainingEntityFn func(uint, string, uint) ([]contracts.ContainingCollectionItem, error)
 	GetEntityCollectionsFn               func(string, uint, uint, int) ([]*contracts.CollectionListResponse, error)
 	GetUserPublicCollectionsFn           func(uint, int, int) ([]*contracts.CollectionListResponse, int64, error)
 	GetUserPublicCollectionsByUsernameFn func(string, int, int) ([]*contracts.CollectionListResponse, int64, error)
@@ -842,7 +842,7 @@ func (m *MockCollectionService) GetUserCollections(userID uint, search string, l
 	}
 	return nil, 0, nil
 }
-func (m *MockCollectionService) GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]uint, error) {
+func (m *MockCollectionService) GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]contracts.ContainingCollectionItem, error) {
 	if m.GetUserCollectionsContainingEntityFn != nil {
 		return m.GetUserCollectionsContainingEntityFn(userID, entityType, entityID)
 	}

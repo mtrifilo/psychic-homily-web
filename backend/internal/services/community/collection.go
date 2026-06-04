@@ -1960,21 +1960,25 @@ func (s *CollectionService) GetUserCollections(userID uint, search string, limit
 	return responses, total, nil
 }
 
-// GetUserCollectionsContainingEntity returns the IDs of the user's editable
-// collections (creator OR collaborative-and-subscribed) that already contain
-// the supplied entity. PSY-359 — backs the multi-select Add-to-Collection
-// popover so it can pre-check rows the user has already added the entity to.
+// GetUserCollectionsContainingEntity returns the user's editable collections
+// (creator OR collaborative-and-subscribed) that already contain the supplied
+// entity, each paired with the collection_item id. PSY-359 — backs the
+// multi-select Add-to-Collection popover's pre-check; PSY-829 added the item
+// id so the popover's uncheck→remove affordance can DELETE by item id without
+// a second round-trip.
 //
-// Single round-trip; one indexed lookup. Caller scopes the result to the
-// candidate collections shown in the popover by intersecting with the user's
-// own collection list (already cached). Returns an empty slice for an
-// unauthenticated caller (userID == 0) — not an error.
-func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]uint, error) {
+// Single round-trip; one indexed lookup. The UNIQUE(collection_id,
+// entity_type, entity_id) constraint guarantees one row per collection, so no
+// Distinct is needed. Caller scopes the result to the candidate collections
+// shown in the popover by intersecting with the user's own collection list
+// (already cached). Returns an empty slice for an unauthenticated caller
+// (userID == 0) — not an error.
+func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, entityType string, entityID uint) ([]contracts.ContainingCollectionItem, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
 	if userID == 0 {
-		return []uint{}, nil
+		return []contracts.ContainingCollectionItem{}, nil
 	}
 
 	// Mirror GetUserCollections's scope: collections the user CREATED or
@@ -1985,20 +1989,23 @@ func (s *CollectionService) GetUserCollectionsContainingEntity(userID uint, enti
 		Select("collection_id").
 		Where("user_id = ?", userID)
 
-	var ids []uint
+	items := []contracts.ContainingCollectionItem{}
 	err := s.db.Model(&communitym.CollectionItem{}).
-		Distinct("collection_items.collection_id").
+		Select("collection_items.collection_id AS collection_id, collection_items.id AS item_id").
 		Joins("JOIN collections ON collections.id = collection_items.collection_id").
 		Where("collection_items.entity_type = ? AND collection_items.entity_id = ?", entityType, entityID).
 		Where("collections.creator_id = ? OR collections.id IN (?)", userID, subQuery).
-		Pluck("collection_items.collection_id", &ids).Error
+		Scan(&items).Error
 	if err != nil {
 		return nil, fmt.Errorf("failed to look up containing collections: %w", err)
 	}
-	if ids == nil {
-		ids = []uint{}
+	// Guarantee a non-nil slice so the handler serializes `[]`, not `null`
+	// (the frontend tolerates both, but the contract is "empty slice"). Kept
+	// explicit rather than relying on GORM's zero-row Scan behavior.
+	if items == nil {
+		items = []contracts.ContainingCollectionItem{}
 	}
-	return ids, nil
+	return items, nil
 }
 
 // GetEntityCollections returns collections that contain the given entity.
