@@ -16,9 +16,10 @@ export interface StatusBannerProps {
    *
    * Both tones are theme-aware (PSY-965) — they resolve to the
    * `--success`/`--pending` semantic tokens, which carry distinct light /
-   * dark values, so callers should use `text-success-foreground` /
-   * `text-pending-foreground` for inner title typography rather than raw
-   * Tailwind greens/ambers.
+   * dark values. For a toned inner title, use `text-success-foreground` /
+   * `text-pending-foreground` (never raw Tailwind greens/ambers, which were
+   * dark-mode-only). A plain `text-foreground` title is also fine — some
+   * callers (e.g. the admin worklists) intentionally keep an untoned title.
    */
   variant: StatusBannerVariant
 

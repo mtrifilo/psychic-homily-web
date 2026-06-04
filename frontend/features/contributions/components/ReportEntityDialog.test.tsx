@@ -51,7 +51,12 @@ describe('ReportEntityDialog', () => {
 
   it('shows the duplicate state as a theme-aware pending StatusBanner (PSY-965)', () => {
     mockMutation.isError = true
-    mockMutation.error = new Error('You have already reported this entity')
+    // The exact production message from
+    // backend/internal/errors/entity_report.go (ErrEntityReportDuplicatePending),
+    // so this test guards the `isDuplicateError` regex against the real contract.
+    mockMutation.error = new Error(
+      'you already have a pending report for this entity'
+    )
 
     render(<ReportEntityDialog {...baseProps} />)
 
@@ -64,5 +69,20 @@ describe('ReportEntityDialog', () => {
 
     // The form is suppressed while the duplicate notice is shown.
     expect(screen.queryByText("What's the issue?")).not.toBeInTheDocument()
+  })
+
+  it('routes a non-duplicate error to the generic error block, not the pending banner', () => {
+    mockMutation.isError = true
+    mockMutation.error = new Error('Server unavailable')
+
+    render(<ReportEntityDialog {...baseProps} />)
+
+    // A generic error must NOT trip the duplicate (pending) banner...
+    expect(
+      screen.queryByTestId('report-duplicate-banner')
+    ).not.toBeInTheDocument()
+    // ...it surfaces the error message, and the form stays available to retry.
+    expect(screen.getByText('Server unavailable')).toBeInTheDocument()
+    expect(screen.getByText("What's the issue?")).toBeInTheDocument()
   })
 })
