@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useCallback } from 'react'
+import { useAutoDismissFlag } from '@/lib/hooks/common/useAutoDismissBanner'
 import type { EntityEditSuccess } from '../types'
 
 /**
@@ -32,27 +33,25 @@ interface UseEntitySaveSuccessBannerResult {
  * drawer (which closes on direct save) and live on the detail page itself, so
  * the timer + state must be owned by the page component. Putting it behind a
  * hook keeps the wiring at each of the 5 detail pages to one line.
+ *
+ * PSY-958: the show-then-auto-dismiss timer is the shared
+ * {@link useAutoDismissFlag} primitive now; this hook keeps its name + shape
+ * (the 6 detail-page consumers are untouched) and adds only the
+ * `result.applied` gate on top.
  */
 export function useEntitySaveSuccessBanner(): UseEntitySaveSuccessBannerResult {
-  const [isVisible, setIsVisible] = useState(false)
+  const [isVisible, trigger] = useAutoDismissFlag(AUTO_DISMISS_MS)
 
-  const handleSaveSuccess = useCallback((result: EntityEditSuccess) => {
-    // Only flash on direct saves. Pending submissions keep the in-drawer
-    // amber "submitted for review" banner — the drawer stays open.
-    if (result.applied) {
-      setIsVisible(true)
-    }
-  }, [])
-
-  useEffect(() => {
-    if (!isVisible) return
-
-    const timer = setTimeout(() => {
-      setIsVisible(false)
-    }, AUTO_DISMISS_MS)
-
-    return () => clearTimeout(timer)
-  }, [isVisible])
+  const handleSaveSuccess = useCallback(
+    (result: EntityEditSuccess) => {
+      // Only flash on direct saves. Pending submissions keep the in-drawer
+      // amber "submitted for review" banner — the drawer stays open.
+      if (result.applied) {
+        trigger()
+      }
+    },
+    [trigger]
+  )
 
   return { isVisible, handleSaveSuccess }
 }
