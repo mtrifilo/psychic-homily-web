@@ -94,7 +94,7 @@ export function ReportEntityDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Flag className="h-5 w-5 text-orange-500" />
+            <Flag className="h-5 w-5 text-primary" />
             Report Issue
           </DialogTitle>
           <DialogDescription>
@@ -107,7 +107,7 @@ export function ReportEntityDialog({
         {submitted && reportMutation.isSuccess && (
           <StatusBanner variant="success">
             <div>
-              <span className="font-medium text-green-400">Report submitted</span>
+              <span className="font-medium text-success-foreground">Report submitted</span>
               <p className="mt-1 text-sm text-muted-foreground">
                 Thank you for helping improve our data. An admin will review your report.
               </p>
@@ -115,18 +115,28 @@ export function ReportEntityDialog({
           </StatusBanner>
         )}
 
-        {/* Duplicate report error — show message only, no form */}
+        {/* Duplicate report state — PSY-965: pending StatusBanner with a Flag
+            icon (was a hardcoded dark-only orange div). Shows message only,
+            no form. */}
         {isDuplicateError && (
-          <div className="rounded-md border border-orange-800 bg-orange-950/50 p-4">
-            <div className="flex items-center gap-2 text-orange-400">
-              <Flag className="h-4 w-4" />
-              <span className="font-medium">Already reported</span>
+          <StatusBanner
+            variant="pending"
+            icon={
+              <Flag
+                className="h-4 w-4 mt-0.5 shrink-0 text-pending-foreground"
+                aria-hidden="true"
+              />
+            }
+            testId="report-duplicate-banner"
+          >
+            <div>
+              <span className="font-medium text-pending-foreground">Already reported</span>
+              <p className="mt-1 text-sm text-muted-foreground">
+                You&apos;ve already reported this entity. An admin will review your
+                existing report.
+              </p>
             </div>
-            <p className="mt-1 text-sm text-muted-foreground">
-              You&apos;ve already reported this entity. An admin will review your
-              existing report.
-            </p>
-          </div>
+          </StatusBanner>
         )}
 
         {/* Other error state */}

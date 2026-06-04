@@ -52,6 +52,12 @@
   --color-border: var(--border);
   --color-destructive: var(--destructive);
   --color-destructive-foreground: var(--destructive-foreground);
+  /* PSY-965: theme-aware success/pending tokens for StatusBanner (replaces the
+   * hardcoded dark-mode greens/ambers that broke on the light newsprint theme). */
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-pending: var(--pending);
+  --color-pending-foreground: var(--pending-foreground);
   --color-accent-foreground: var(--accent-foreground);
   --color-accent: var(--accent);
   --color-muted-foreground: var(--muted-foreground);
@@ -109,6 +115,11 @@
   --accent-foreground: #1a1714;
   --destructive: #9c2a1a;
   --destructive-foreground: #f4f1ea;
+  /* PSY-965: editorial sage-green success / warm-amber pending (light). */
+  --success: #dde8d8;
+  --success-foreground: #2f5d3a;
+  --pending: #f0e6cf;
+  --pending-foreground: #7a5a1e;
   --border: #cabe9f;
   --input: #ddd6c8;
   --ring: #d2541b;
@@ -150,6 +161,11 @@
   --accent-foreground: #0d0805;
   --destructive: #f14d4c;
   --destructive-foreground: #0d0805;
+  /* PSY-965: editorial sage-green success / warm-amber pending (dark). */
+  --success: #1c2a20;
+  --success-foreground: #8fc6a0;
+  --pending: #2a2316;
+  --pending-foreground: #d6b06a;
   --border: #221b15;
   --input: #221b15;
   --ring: #dc9064;

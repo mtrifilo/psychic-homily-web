@@ -265,12 +265,12 @@ export function EntityEditDrawer({
         {submitted && editMutation.isSuccess && (
           editMutation.data?.applied ? (
             <StatusBanner variant="success" className="mx-4">
-              <span className="font-medium text-green-400">Changes applied!</span>
+              <span className="font-medium text-success-foreground">Changes applied!</span>
             </StatusBanner>
           ) : (
             <StatusBanner variant="pending" className="mx-4">
               <div>
-                <span className="font-medium text-amber-200">Edit submitted for review</span>
+                <span className="font-medium text-pending-foreground">Edit submitted for review</span>
                 <p className="mt-1 text-sm text-muted-foreground">
                   An admin will review your changes. You can track your pending edits in your profile.
                 </p>
