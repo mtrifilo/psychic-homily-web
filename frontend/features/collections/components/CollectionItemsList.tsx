@@ -88,6 +88,7 @@ import {
   MutationFeedback,
   useAutoDismissError,
 } from './collectionDetailShared'
+import { useAutoDismissBanner } from '@/lib/hooks/common/useAutoDismissBanner'
 
 // ──────────────────────────────────────────────
 // Items List (with reorder support + grid/list view toggle, PSY-360)
@@ -485,26 +486,34 @@ function AddItemsPanel({
 }) {
   // PSY-823: items staged in the picker, submitted in one bulk-add request.
   const [stagedItems, setStagedItems] = useState<StagedCollectionItem[]>([])
-  const [feedback, setFeedback] = useState<
-    | { variant: 'success'; message: string }
-    | { variant: 'error'; message: string }
-    | null
-  >(null)
+  // PSY-957: bulk-add result feedback via the shared banner primitive.
+  // Submission results auto-dismiss after ~4s; thrown (network / 5xx)
+  // errors stay sticky until the next submit so the user has time to read
+  // what failed (PSY-608/609 policy). Timer lifecycle — including
+  // clear-on-unmount — lives in the primitive.
+  const {
+    value: feedback,
+    show: showFeedback,
+    showSticky: showStickyFeedback,
+  } = useAutoDismissBanner<{
+    variant: 'success' | 'error'
+    message: string
+  }>(4000)
   const bulkAddMutation = useBulkAddCollectionItems()
 
   // The panel unmounts when closed (unlike the old always-mounted
-  // AddItemsSection), so async work must not setState after unmount: the
-  // feedback timer is cleared on unmount, and the post-await feedback
-  // writes bail when the panel has already closed. The flag is set in the
+  // AddItemsSection), so async work must not land after unmount. The shared
+  // banner primitive already clears its own timer on unmount, but this ref is
+  // still load-bearing: it guards the post-await `setStagedItems([])` write
+  // (and the showFeedback/showStickyFeedback calls) when the user closes the
+  // panel mid-request — do NOT delete it as redundant. The flag is set in the
   // effect SETUP (not just initialized at declaration) so StrictMode's
   // dev-only mount→cleanup→remount cycle restores it to true.
-  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const isMountedRef = useRef(true)
   useEffect(() => {
     isMountedRef.current = true
     return () => {
       isMountedRef.current = false
-      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
     }
   }, [])
 
@@ -523,17 +532,17 @@ function AddItemsPanel({
       const addedCount = resp.added.length
       const rejectedCount = resp.errors.length
       if (rejectedCount === 0) {
-        setFeedback({
+        showFeedback({
           variant: 'success',
           message: `Added ${addedCount} ${addedCount === 1 ? 'item' : 'items'} to collection`,
         })
       } else if (addedCount === 0) {
-        setFeedback({
+        showFeedback({
           variant: 'error',
           message: `Couldn't add any items (${rejectedCount} ${rejectedCount === 1 ? 'error' : 'errors'}). Adjust the picker and try again.`,
         })
       } else {
-        setFeedback({
+        showFeedback({
           variant: 'success',
           message: `Added ${addedCount} ${addedCount === 1 ? 'item' : 'items'}; ${rejectedCount} couldn't be added.`,
         })
@@ -544,11 +553,9 @@ function AddItemsPanel({
       if (addedCount > 0) {
         setStagedItems([])
       }
-      if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
-      feedbackTimerRef.current = setTimeout(() => setFeedback(null), 4000)
     } catch (err) {
       if (!isMountedRef.current) return
-      setFeedback({
+      showStickyFeedback({
         variant: 'error',
         message: describeCollectionMutationError(err, 'Failed to add items.'),
       })
