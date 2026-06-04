@@ -20,7 +20,6 @@ import { ShowForm } from '@/components/forms/ShowForm'
 import { VenueEditForm } from '@/components/forms/VenueEditForm'
 import { CompactShowRow, SHOW_LIST_FEATURE_POLICY } from '@/features/shows'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
-import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
 
 interface VenueCardProps {
@@ -87,7 +86,6 @@ export function VenueCard({ venue }: VenueCardProps) {
               {venue.verified && (
                 <BadgeCheck className="h-4 w-4 text-primary shrink-0" />
               )}
-              <FavoriteVenueButton venueId={venue.id} size="sm" />
               {canEdit && (
                 <>
                   <button

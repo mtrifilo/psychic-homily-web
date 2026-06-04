@@ -70,7 +70,7 @@ export function CommentVoteControls({
   const unvoteMutation = useUnvoteComment()
   // PSY-608: optimistic vote/unvote rollback hides the failure visually.
   // Show a brief auto-dismissing banner so the user knows the action was
-  // reverted, mirroring SaveButton / FavoriteVenueButton (~3s). PSY-958:
+  // reverted, mirroring SaveButton / FollowButton (~3s). PSY-958:
   // routed through the shared useAutoDismissBanner primitive (was a
   // comments-local useAutoDismissError, now removed).
   const { value: voteError, show: showVoteError } =

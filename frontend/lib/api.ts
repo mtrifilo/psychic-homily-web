@@ -97,18 +97,6 @@ export const API_ENDPOINTS = {
     CHECK_BATCH: `${API_BASE_URL}/saved-shows/check-batch`,
   },
 
-  // Favorite venues endpoints
-  FAVORITE_VENUES: {
-    LIST: `${API_BASE_URL}/favorite-venues`,
-    FAVORITE: (venueId: string | number) =>
-      `${API_BASE_URL}/favorite-venues/${venueId}`,
-    UNFAVORITE: (venueId: string | number) =>
-      `${API_BASE_URL}/favorite-venues/${venueId}`,
-    CHECK: (venueId: string | number) =>
-      `${API_BASE_URL}/favorite-venues/${venueId}/check`,
-    SHOWS: `${API_BASE_URL}/favorite-venues/shows`,
-  },
-
   // Admin endpoints
   ADMIN: {
     SHOWS: {

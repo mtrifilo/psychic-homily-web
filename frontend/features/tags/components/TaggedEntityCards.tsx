@@ -117,7 +117,7 @@ function TaggedReleaseCard({ item }: { item: TaggedEntityItem }) {
 
 /**
  * Inline venue card. We don't reuse VenueCard because it pulls in
- * useVenueShows, FavoriteVenueButton, edit/delete dialogs, and other
+ * useVenueShows, FollowButton, edit/delete dialogs, and other
  * authenticated affordances that aren't appropriate in this read-only,
  * cross-entity browsing context. The visual treatment matches the artist
  * card so the tabs feel cohesive.

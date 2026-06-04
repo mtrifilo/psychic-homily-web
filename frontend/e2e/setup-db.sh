@@ -307,9 +307,9 @@ psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
 INSERT INTO venues (name, address, city, state, zipcode, verified, created_at, updated_at, slug)
 VALUES
   (
-    'E2E [favorite-venue-test]',
+    'E2E [reserved-venue]',
     '100 Reserved Way', 'Phoenix', 'AZ', '85001',
-    true, NOW(), NOW(), 'e2e-favorite-venue-test'
+    true, NOW(), NOW(), 'e2e-reserved-venue'
   ),
   -- PSY-456: one reserved venue per comments test so the 60s per-entity
   -- comment cooldown (user_id + entity_type + entity_id) can't collide
@@ -347,7 +347,7 @@ DECLARE
   a_id INTEGER;
   s_id INTEGER;
 BEGIN
-  SELECT id INTO v_id FROM venues WHERE slug = 'e2e-favorite-venue-test';
+  SELECT id INTO v_id FROM venues WHERE slug = 'e2e-reserved-venue';
   SELECT id INTO a_id FROM artists ORDER BY id LIMIT 1;
 
   -- Plain INSERTs (no ON CONFLICT): the e2e DB is wiped per-run by Docker,

@@ -88,7 +88,7 @@ const PROXY_FIXED_ENTITIES = [
  */
 const VALID_SEEDED = [
   { label: 'show', path: '/shows/e2e-attendance-test' },
-  { label: 'venue', path: '/venues/e2e-favorite-venue-test' },
+  { label: 'venue', path: '/venues/e2e-reserved-venue' },
   // Phoenix, AZ qualifies as a scene: setup-db.sh seeds 3 verified Phoenix
   // venues (Rebel Lounge / Crescent Ballroom / Valley Bar) — above the ≥2
   // verified-venue threshold — plus approved Phoenix shows. The slug is derived

@@ -195,7 +195,7 @@ describe('ProfilePage (PSY-683)', () => {
       expect(await screen.findByText(/profile updated/i)).toBeTruthy()
 
       // Banner auto-dismisses after the real 3s timeout (real timers + a
-      // slightly longer waitFor window, matching FavoriteVenueButton's pattern).
+      // slightly longer waitFor window, matching FollowButton's pattern).
       await waitFor(
         () => {
           expect(screen.queryByText(/profile updated/i)).toBeNull()

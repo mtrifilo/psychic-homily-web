@@ -42,15 +42,6 @@ describe('auth hooks barrel', () => {
     expect(typeof hooks.useSetFavoriteCities).toBe('function')
   })
 
-  it('re-exports the favorite-venues hooks', () => {
-    expect(typeof hooks.useFavoriteVenues).toBe('function')
-    expect(typeof hooks.useIsVenueFavorited).toBe('function')
-    expect(typeof hooks.useFavoriteVenue).toBe('function')
-    expect(typeof hooks.useUnfavoriteVenue).toBe('function')
-    expect(typeof hooks.useFavoriteVenueToggle).toBe('function')
-    expect(typeof hooks.useFavoriteVenueShows).toBe('function')
-  })
-
   it('re-exports the contributor-profile hooks', () => {
     expect(typeof hooks.usePublicProfile).toBe('function')
     expect(typeof hooks.usePublicContributions).toBe('function')

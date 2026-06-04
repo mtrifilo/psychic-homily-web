@@ -39,7 +39,7 @@ const ENTITIES: NavEntity[] = [
   {
     entity: 'venues',
     breadcrumbLabel: 'Venues',
-    detailSlug: 'e2e-favorite-venue-test',
+    detailSlug: 'e2e-reserved-venue',
     listHeadingMatcher: /venues/i,
   },
 ]

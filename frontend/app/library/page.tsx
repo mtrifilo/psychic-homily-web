@@ -35,7 +35,6 @@ import { useMyShows } from '@/features/shows'
 import { useSavedShows, useMySubmissions } from '@/features/shows'
 import type { AttendingShow, SavedShowResponse, ShowResponse } from '@/features/shows'
 import { useMyFollowing, useUnfollow } from '@/lib/hooks/common/useFollow'
-import { useFavoriteVenues } from '@/features/auth'
 import type { FollowingEntity } from '@/lib/types/follow'
 import { formatShowDate, formatShowTime, formatPrice } from '@/lib/utils/formatters'
 import { Button } from '@/components/ui/button'
@@ -942,87 +941,6 @@ function FollowingList({
 }
 
 // ---------------------------------------------------------------------------
-// Venues tab — favorite venues + followed venues
-// ---------------------------------------------------------------------------
-
-function VenuesTab() {
-  const { isAuthenticated } = useAuthContext()
-  const { data: favData, isLoading: favLoading } = useFavoriteVenues({
-    enabled: isAuthenticated,
-  })
-
-  const favoriteVenues = favData?.venues ?? []
-
-  return (
-    <div className="space-y-8">
-      {/* Favorite venues section */}
-      {favLoading && (
-        <div className="flex justify-center py-6">
-          <Loader2 className="h-6 w-6 animate-spin text-primary" />
-        </div>
-      )}
-      {!favLoading && favoriteVenues.length > 0 && (
-        <div>
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Favorite Venues
-          </h3>
-          <section className="w-full">
-            {favoriteVenues.map((venue) => (
-              <article
-                key={venue.id}
-                className="border-b border-border/50 py-4 -mx-3 px-3 rounded-lg hover:bg-muted/30 transition-colors duration-200"
-              >
-                <div className="flex items-center justify-between gap-3">
-                  <div className="flex items-center gap-3 min-w-0 flex-1">
-                    <div className="shrink-0 h-9 w-9 rounded-md bg-muted flex items-center justify-center">
-                      <MapPin className="h-4 w-4 text-muted-foreground" />
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <Link
-                        href={`/venues/${venue.slug}`}
-                        className="text-base font-semibold leading-tight hover:text-primary transition-colors truncate block"
-                      >
-                        {venue.name}
-                      </Link>
-                      <p className="text-xs text-muted-foreground mt-0.5">
-                        {venue.city}, {venue.state}
-                        {venue.upcoming_show_count > 0 && (
-                          <span>
-                            {' '}&middot; {venue.upcoming_show_count}{' '}
-                            {venue.upcoming_show_count === 1 ? 'upcoming show' : 'upcoming shows'}
-                          </span>
-                        )}
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </article>
-            ))}
-          </section>
-        </div>
-      )}
-
-      {/* Followed venues */}
-      <div>
-        {favoriteVenues.length > 0 && (
-          <h3 className="text-sm font-semibold uppercase tracking-wider text-muted-foreground mb-3">
-            Followed Venues
-          </h3>
-        )}
-        <FollowingList
-          type="venue"
-          emptyIcon={MapPin}
-          emptyTitle={favoriteVenues.length > 0 ? 'No followed venues' : 'No venues saved yet'}
-          emptyDescription="Follow or favorite venues to see them here."
-          browseHref="/venues"
-          browseLabel="Browse Venues"
-        />
-      </div>
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
 // Main page content
 // ---------------------------------------------------------------------------
 
@@ -1151,7 +1069,14 @@ function LibraryContent() {
         </TabsContent>
 
         <TabsContent value="venues">
-          <VenuesTab />
+          <FollowingList
+            type="venue"
+            emptyIcon={MapPin}
+            emptyTitle="No venues followed"
+            emptyDescription="Follow venues to keep up with their upcoming shows."
+            browseHref="/venues"
+            browseLabel="Browse Venues"
+          />
         </TabsContent>
 
         <TabsContent value="releases">

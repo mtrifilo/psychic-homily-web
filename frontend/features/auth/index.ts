@@ -65,16 +65,6 @@ export { useSetFavoriteCities } from './hooks'
 export { useSetTierEditNotificationPreference } from './hooks'
 export type { TierEditNotificationUpdate } from './hooks'
 
-// Hooks — Favorite Venues
-export {
-  useFavoriteVenues,
-  useIsVenueFavorited,
-  useFavoriteVenue,
-  useUnfavoriteVenue,
-  useFavoriteVenueToggle,
-  useFavoriteVenueShows,
-} from './hooks'
-
 // Hooks — Contributor Profile
 export {
   usePublicProfile,
