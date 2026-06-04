@@ -175,6 +175,22 @@ func CreateTestUser(db *gorm.DB) *authm.User {
 	return user
 }
 
+// CreateUserWithTier inserts a normal (non-admin) verified user at the given
+// user tier (e.g. "new_user", "trusted_contributor", "local_ambassador") and
+// returns it. Used by handlers that gate behavior on UserTier.
+func CreateUserWithTier(db *gorm.DB, tier string) *authm.User {
+	user := &authm.User{
+		Email:         StringPtr(fmt.Sprintf("user-%s-%d@test.com", tier, time.Now().UnixNano())),
+		FirstName:     StringPtr("Tier"),
+		LastName:      StringPtr("User"),
+		IsActive:      true,
+		EmailVerified: true,
+		UserTier:      tier,
+	}
+	db.Create(user)
+	return user
+}
+
 // CreateAdminUser inserts an admin user with a unique email and returns it.
 func CreateAdminUser(db *gorm.DB) *authm.User {
 	user := &authm.User{

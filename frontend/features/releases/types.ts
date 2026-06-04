@@ -49,6 +49,23 @@ export interface ReleaseExternalLink {
   url: string
 }
 
+/**
+ * Platforms offered when adding an external link to a release. Shared by the
+ * admin release editor (`features/releases/admin/ReleaseManagement.tsx`) and
+ * the user-facing add-link dialog (`AddReleaseLinkDialog`, PSY-660) so the two
+ * surfaces never drift apart. Keep in sync with the backend's accepted
+ * platform values.
+ */
+export const EXTERNAL_LINK_PLATFORMS = [
+  { value: 'bandcamp', label: 'Bandcamp' },
+  { value: 'spotify', label: 'Spotify' },
+  { value: 'apple_music', label: 'Apple Music' },
+  { value: 'youtube', label: 'YouTube' },
+  { value: 'discogs', label: 'Discogs' },
+  { value: 'tidal', label: 'Tidal' },
+  { value: 'soundcloud', label: 'SoundCloud' },
+] as const
+
 export interface ReleaseLabel {
   id: number
   name: string

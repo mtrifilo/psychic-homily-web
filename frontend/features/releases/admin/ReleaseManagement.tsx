@@ -51,6 +51,7 @@ import {
 import {
   RELEASE_TYPES,
   RELEASE_TYPE_LABELS,
+  EXTERNAL_LINK_PLATFORMS,
   getReleaseTypeLabel,
   type ReleaseType,
   type ReleaseDetail,
@@ -68,16 +69,6 @@ const ARTIST_ROLES = [
   { value: 'remixer', label: 'Remixer' },
   { value: 'composer', label: 'Composer' },
   { value: 'dj', label: 'DJ' },
-] as const
-
-const EXTERNAL_LINK_PLATFORMS = [
-  { value: 'bandcamp', label: 'Bandcamp' },
-  { value: 'spotify', label: 'Spotify' },
-  { value: 'apple_music', label: 'Apple Music' },
-  { value: 'youtube', label: 'YouTube' },
-  { value: 'discogs', label: 'Discogs' },
-  { value: 'tidal', label: 'Tidal' },
-  { value: 'soundcloud', label: 'SoundCloud' },
 ] as const
 
 type DialogMode = 'create' | 'edit' | 'delete' | null

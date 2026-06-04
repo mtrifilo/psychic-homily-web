@@ -23,6 +23,7 @@ import {
 } from '@/components/shared'
 import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
+import { AddReleaseLinkDialog } from './AddReleaseLinkDialog'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
 import { CommentThread } from '@/features/comments'
@@ -71,9 +72,15 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
     user?.user_tier === 'trusted_contributor' ||
     user?.user_tier === 'local_ambassador'
   )
+  // PSY-660: adding an external link is gated to admin + trusted_contributor +
+  // local_ambassador (the same tiers the backend authorizes on POST
+  // /releases/{id}/links). Gating on the tier — not plain isAuthenticated —
+  // keeps a new_user from seeing a [Add link] bracket the backend would 403.
+  const canAddLink = !!canEditDirectly
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
+  const [addLinkDialogOpen, setAddLinkDialogOpen] = useState(false)
   const [isReportOpen, setIsReportOpen] = useState(false)
   const saveBanner = useEntitySaveSuccessBanner()
 
@@ -268,6 +275,13 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
                       }}
                     />
                   )}
+                  {canAddLink && (
+                    <BracketLink
+                      label="Add link"
+                      title="Add a Listen / Buy link"
+                      onClick={() => setAddLinkDialogOpen(true)}
+                    />
+                  )}
                   {isAuthenticated && (
                     <BracketLink
                       label="Add tag"
@@ -412,6 +426,17 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
           entityId={release.id}
           open={addTagDialogOpen}
           onOpenChange={setAddTagDialogOpen}
+        />
+      )}
+
+      {/* Add link dialog — PSY-660. Gated to admin/trusted/local_ambassador;
+          backend enforces the same tier on POST /releases/{id}/links. */}
+      {canAddLink && (
+        <AddReleaseLinkDialog
+          releaseId={release.id}
+          releaseTitle={release.title}
+          open={addLinkDialogOpen}
+          onOpenChange={setAddLinkDialogOpen}
         />
       )}
 

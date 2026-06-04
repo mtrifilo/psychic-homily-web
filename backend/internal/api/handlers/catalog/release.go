@@ -12,10 +12,25 @@ import (
 	"psychic-homily-backend/internal/api/middleware"
 	apperrors "psychic-homily-backend/internal/errors"
 	"psychic-homily-backend/internal/logger"
+	authm "psychic-homily-backend/internal/models/auth"
+	"psychic-homily-backend/internal/services/admin"
 	"psychic-homily-backend/internal/services/contracts"
 	servicesshared "psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/services/shared/revisiondiff"
 )
+
+// canAddReleaseLink reports whether the user may add an external link to a
+// release (PSY-660). Admins always may; otherwise the user must be a trusted
+// contributor or local ambassador. A nil user (which the rc.Protected JWT
+// middleware should already have rejected with 401) fails closed.
+func canAddReleaseLink(user *authm.User) bool {
+	if user == nil {
+		return false
+	}
+	return user.IsAdmin ||
+		user.UserTier == admin.TierTrustedContributor ||
+		user.UserTier == admin.TierLocalAmbassador
+}
 
 type ReleaseHandler struct {
 	releaseService  contracts.ReleaseServiceInterface
@@ -506,6 +521,13 @@ func (h *ReleaseHandler) AddExternalLinkHandler(ctx context.Context, req *AddExt
 	requestID := logger.GetRequestID(ctx)
 
 	user := middleware.GetUserFromContext(ctx)
+
+	// PSY-660: this route is on rc.Protected (JWT only), so authorize the tier
+	// here. Admins, trusted contributors, and local ambassadors may add links;
+	// everyone else is forbidden.
+	if !canAddReleaseLink(user) {
+		return nil, huma.Error403Forbidden("You do not have permission to add release links")
+	}
 
 	releaseID, err := strconv.ParseUint(req.ReleaseID, 10, 32)
 	if err != nil {
