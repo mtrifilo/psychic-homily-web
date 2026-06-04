@@ -162,12 +162,6 @@ vi.mock('./VenueBillNetwork', () => ({
   ),
 }))
 
-vi.mock('./FavoriteVenueButton', () => ({
-  FavoriteVenueButton: ({ venueId }: { venueId: number }) => (
-    <button data-testid="favorite-button">Fav {venueId}</button>
-  ),
-}))
-
 vi.mock('@/features/contributions', () => ({
   EntityEditDrawer: ({ open }: { open: boolean }) =>
     open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
@@ -337,9 +331,9 @@ describe('VenueDetail', () => {
       expect(screen.getByTestId('location-card')).toBeInTheDocument()
     })
 
-    it('renders favorite venue button', () => {
+    it('does not render a favorite venue button', () => {
       render(<VenueDetail venueId="1" />)
-      expect(screen.getByTestId('favorite-button')).toBeInTheDocument()
+      expect(screen.queryByTestId('favorite-button')).not.toBeInTheDocument()
     })
 
     it('renders follow button', () => {

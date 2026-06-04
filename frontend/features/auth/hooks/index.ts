@@ -38,15 +38,6 @@ export { useSetTierEditNotificationPreference } from './useTierEditNotificationP
 export type { TierEditNotificationUpdate } from './useTierEditNotificationPreference'
 
 export {
-  useFavoriteVenues,
-  useIsVenueFavorited,
-  useFavoriteVenue,
-  useUnfavoriteVenue,
-  useFavoriteVenueToggle,
-  useFavoriteVenueShows,
-} from './useFavoriteVenues'
-
-export {
   usePublicProfile,
   usePublicContributions,
   useActivityHeatmap,

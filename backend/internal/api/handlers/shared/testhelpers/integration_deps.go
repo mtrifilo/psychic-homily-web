@@ -31,7 +31,6 @@ type IntegrationDeps struct {
 	ShowService               *catalog.ShowService
 	VenueService              *catalog.VenueService
 	SavedShowService          *engagement.SavedShowService
-	FavoriteVenueService      *engagement.FavoriteVenueService
 	ShowReportService         *adminsvc.ShowReportService
 	UserService               *usersvc.UserService
 	AuditLogService           *adminsvc.AuditLogService
@@ -74,7 +73,6 @@ func SetupIntegrationDeps(t *testing.T) *IntegrationDeps {
 		ShowService:               catalog.NewShowService(db),
 		VenueService:              catalog.NewVenueService(db),
 		SavedShowService:          engagement.NewSavedShowService(db),
-		FavoriteVenueService:      engagement.NewFavoriteVenueService(db),
 		ShowReportService:         adminsvc.NewShowReportService(db),
 		UserService:               usersvc.NewUserService(db),
 		AuditLogService:           adminsvc.NewAuditLogService(db),

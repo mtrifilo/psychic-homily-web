@@ -1603,56 +1603,6 @@ func (m *MockExtractionService) ExtractCalendarPage(venueName string, content st
 }
 
 // ============================================================================
-// Mock: FavoriteVenueServiceInterface
-// ============================================================================
-
-type MockFavoriteVenueService struct {
-	FavoriteVenueFn                 func(uint, uint) error
-	UnfavoriteVenueFn               func(uint, uint) error
-	GetUserFavoriteVenuesFn         func(uint, int, int) ([]*contracts.FavoriteVenueResponse, int64, error)
-	IsVenueFavoritedFn              func(uint, uint) (bool, error)
-	GetUpcomingShowsFromFavoritesFn func(uint, string, int, int) ([]*contracts.FavoriteVenueShowResponse, int64, error)
-	GetFavoriteVenueIDsFn           func(uint, []uint) (map[uint]bool, error)
-}
-
-func (m *MockFavoriteVenueService) FavoriteVenue(userID uint, venueID uint) error {
-	if m.FavoriteVenueFn != nil {
-		return m.FavoriteVenueFn(userID, venueID)
-	}
-	return nil
-}
-func (m *MockFavoriteVenueService) UnfavoriteVenue(userID uint, venueID uint) error {
-	if m.UnfavoriteVenueFn != nil {
-		return m.UnfavoriteVenueFn(userID, venueID)
-	}
-	return nil
-}
-func (m *MockFavoriteVenueService) GetUserFavoriteVenues(userID uint, limit int, offset int) ([]*contracts.FavoriteVenueResponse, int64, error) {
-	if m.GetUserFavoriteVenuesFn != nil {
-		return m.GetUserFavoriteVenuesFn(userID, limit, offset)
-	}
-	return nil, 0, nil
-}
-func (m *MockFavoriteVenueService) IsVenueFavorited(userID uint, venueID uint) (bool, error) {
-	if m.IsVenueFavoritedFn != nil {
-		return m.IsVenueFavoritedFn(userID, venueID)
-	}
-	return false, nil
-}
-func (m *MockFavoriteVenueService) GetUpcomingShowsFromFavorites(userID uint, timezone string, limit int, offset int) ([]*contracts.FavoriteVenueShowResponse, int64, error) {
-	if m.GetUpcomingShowsFromFavoritesFn != nil {
-		return m.GetUpcomingShowsFromFavoritesFn(userID, timezone, limit, offset)
-	}
-	return nil, 0, nil
-}
-func (m *MockFavoriteVenueService) GetFavoriteVenueIDs(userID uint, venueIDs []uint) (map[uint]bool, error) {
-	if m.GetFavoriteVenueIDsFn != nil {
-		return m.GetFavoriteVenueIDsFn(userID, venueIDs)
-	}
-	return nil, nil
-}
-
-// ============================================================================
 // Mock: FeaturedSlotServiceInterface
 // ============================================================================
 
@@ -4163,7 +4113,6 @@ var _ contracts.EnrichmentServiceInterface = (*MockEnrichmentService)(nil)
 var _ contracts.EntityReportServiceInterface = (*MockEntityReportService)(nil)
 var _ contracts.ExploreServiceInterface = (*MockExploreService)(nil)
 var _ contracts.ExtractionServiceInterface = (*MockExtractionService)(nil)
-var _ contracts.FavoriteVenueServiceInterface = (*MockFavoriteVenueService)(nil)
 var _ contracts.FeaturedSlotServiceInterface = (*MockFeaturedSlotService)(nil)
 var _ contracts.FestivalIntelligenceServiceInterface = (*MockFestivalIntelligenceService)(nil)
 var _ contracts.FestivalServiceInterface = (*MockFestivalService)(nil)

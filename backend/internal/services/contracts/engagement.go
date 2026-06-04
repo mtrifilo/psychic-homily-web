@@ -18,39 +18,6 @@ type SavedShowResponse struct {
 }
 
 // ──────────────────────────────────────────────
-// Favorite Venue types
-// ──────────────────────────────────────────────
-
-// FavoriteVenueResponse represents a favorite venue with metadata
-type FavoriteVenueResponse struct {
-	ID                uint      `json:"id"`
-	Slug              string    `json:"slug"`
-	Name              string    `json:"name"`
-	Address           *string   `json:"address"`
-	City              string    `json:"city"`
-	State             string    `json:"state"`
-	Verified          bool      `json:"verified"`
-	FavoritedAt       time.Time `json:"favorited_at"`
-	UpcomingShowCount int       `json:"upcoming_show_count"`
-}
-
-// FavoriteVenueShowResponse represents a show from a favorite venue
-type FavoriteVenueShowResponse struct {
-	ID             uint             `json:"id"`
-	Slug           string           `json:"slug"`
-	Title          string           `json:"title"`
-	EventDate      time.Time        `json:"event_date"`
-	City           *string          `json:"city"`
-	State          *string          `json:"state"`
-	Price          *float64         `json:"price"`
-	AgeRequirement *string          `json:"age_requirement"`
-	VenueID        uint             `json:"venue_id"`
-	VenueName      string           `json:"venue_name"`
-	VenueSlug      string           `json:"venue_slug"`
-	Artists        []ArtistResponse `json:"artists"`
-}
-
-// ──────────────────────────────────────────────
 // Show Report types
 // ──────────────────────────────────────────────
 
@@ -181,20 +148,6 @@ type SavedShowServiceInterface interface {
 	GetUserSavedShows(userID uint, limit, offset int) ([]*SavedShowResponse, int64, error)
 	IsShowSaved(userID, showID uint) (bool, error)
 	GetSavedShowIDs(userID uint, showIDs []uint) (map[uint]bool, error)
-}
-
-// ──────────────────────────────────────────────
-// Favorite Venue Service Interface
-// ──────────────────────────────────────────────
-
-// FavoriteVenueServiceInterface defines the contract for favorite venue operations.
-type FavoriteVenueServiceInterface interface {
-	FavoriteVenue(userID, venueID uint) error
-	UnfavoriteVenue(userID, venueID uint) error
-	GetUserFavoriteVenues(userID uint, limit, offset int) ([]*FavoriteVenueResponse, int64, error)
-	IsVenueFavorited(userID, venueID uint) (bool, error)
-	GetUpcomingShowsFromFavorites(userID uint, timezone string, limit, offset int) ([]*FavoriteVenueShowResponse, int64, error)
-	GetFavoriteVenueIDs(userID uint, venueIDs []uint) (map[uint]bool, error)
 }
 
 // ──────────────────────────────────────────────

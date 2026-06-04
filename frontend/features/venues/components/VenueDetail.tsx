@@ -20,7 +20,6 @@ import { VenueShowsList } from './VenueShowsList'
 import { VenueBillNetwork } from './VenueBillNetwork'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, useSuggestEdit, type EntityEditSuccess } from '@/features/contributions'
 import { DeleteVenueDialog } from './DeleteVenueDialog'
-import { FavoriteVenueButton } from './FavoriteVenueButton'
 import { Button } from '@/components/ui/button'
 
 interface VenueDetailProps {
@@ -197,7 +196,6 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
               }
               actions={
                 <>
-                  <FavoriteVenueButton venueId={venue.id} size="md" />
                   <FollowButton entityType="venues" entityId={venue.id} />
                   <AddToCollectionButton entityType="venue" entityId={venue.id} entityName={venue.name} />
                   <NotifyMeButton entityType="venue" entityId={venue.id} entityName={venue.name} />

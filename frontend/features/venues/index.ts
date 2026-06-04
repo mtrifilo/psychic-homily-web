@@ -16,12 +16,6 @@ export type {
   VenueEditRequest,
   UnverifiedVenue,
   UnverifiedVenuesResponse,
-  FavoriteVenueResponse,
-  FavoriteVenuesListResponse,
-  CheckFavoritedResponse,
-  FavoriteVenueActionResponse,
-  FavoriteVenueShow,
-  FavoriteVenueShowsResponse,
   VenueGenreCount,
   VenueGenreResponse,
 } from './types'
@@ -55,5 +49,4 @@ export {
   VenueShowsList,
   DeleteVenueDialog,
   VenueDeniedDialog,
-  FavoriteVenueButton,
 } from './components'

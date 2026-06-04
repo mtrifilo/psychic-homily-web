@@ -50,7 +50,6 @@ type ServiceContainer struct {
 	CommentSubscription    *engagement.CommentSubscriptionService
 	CommentNotification    *engagement.CommentNotificationService
 	Follow                 *engagement.FollowService
-	FavoriteVenue          *engagement.FavoriteVenueService
 	Festival               *catalog.FestivalService
 	FestivalIntelligence   *catalog.FestivalIntelligenceService
 	Label                  *catalog.LabelService
@@ -192,7 +191,6 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		CommentSubscription:    engagement.NewCommentSubscriptionService(database),
 		CommentNotification:    commentNotificationSvc,
 		Follow:                 engagement.NewFollowService(database),
-		FavoriteVenue:          engagement.NewFavoriteVenueService(database),
 		Festival:               catalog.NewFestivalService(database),
 		FestivalIntelligence:   catalog.NewFestivalIntelligenceService(database),
 		Label:                  catalog.NewLabelService(database),

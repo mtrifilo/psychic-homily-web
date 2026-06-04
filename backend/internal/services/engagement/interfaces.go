@@ -6,7 +6,6 @@ import "psychic-homily-backend/internal/services/contracts"
 var (
 	_ contracts.BookmarkServiceInterface            = (*BookmarkService)(nil)
 	_ contracts.SavedShowServiceInterface           = (*SavedShowService)(nil)
-	_ contracts.FavoriteVenueServiceInterface       = (*FavoriteVenueService)(nil)
 	_ contracts.CalendarServiceInterface            = (*CalendarService)(nil)
 	_ contracts.ReminderServiceInterface            = (*ReminderService)(nil)
 	_ contracts.AttendanceServiceInterface          = (*AttendanceService)(nil)

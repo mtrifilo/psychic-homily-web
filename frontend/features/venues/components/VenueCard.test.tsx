@@ -73,12 +73,6 @@ vi.mock('@/lib/queryClient', () => ({
 }))
 
 // Mock child components
-vi.mock('./FavoriteVenueButton', () => ({
-  FavoriteVenueButton: ({ venueId }: { venueId: number }) => (
-    <button data-testid="favorite-button">Fav {venueId}</button>
-  ),
-}))
-
 vi.mock('./DeleteVenueDialog', () => ({
   DeleteVenueDialog: ({ open }: { open: boolean }) =>
     open ? <div data-testid="delete-dialog">Delete Dialog</div> : null,
@@ -190,10 +184,9 @@ describe('VenueCard', () => {
     expect(svgs.length).toBeGreaterThan(0)
   })
 
-  it('renders favorite venue button', () => {
+  it('does not render a favorite venue button', () => {
     render(<VenueCard venue={makeVenue()} />)
-    expect(screen.getByTestId('favorite-button')).toBeInTheDocument()
-    expect(screen.getByText('Fav 1')).toBeInTheDocument()
+    expect(screen.queryByTestId('favorite-button')).not.toBeInTheDocument()
   })
 
   describe('expand/collapse behavior', () => {

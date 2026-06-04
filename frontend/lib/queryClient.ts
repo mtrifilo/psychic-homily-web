@@ -228,16 +228,6 @@ export const queryKeys = {
       ['savedShows', 'batch', showIds] as const,
   },
 
-  // Favorite venues queries
-  favoriteVenues: {
-    all: ['favoriteVenues'] as const,
-    list: (userId?: string) => ['favoriteVenues', 'list', userId] as const,
-    check: (venueId: string | number) =>
-      ['favoriteVenues', 'check', String(venueId)] as const,
-    shows: (params?: Record<string, unknown>) =>
-      ['favoriteVenues', 'shows', params] as const,
-  },
-
   // User's submitted shows
   mySubmissions: {
     all: ['mySubmissions'] as const,
@@ -460,10 +450,6 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate saved shows queries
   savedShows: () =>
     queryClient.invalidateQueries({ queryKey: ['savedShows'] }),
-
-  // Invalidate favorite venues queries
-  favoriteVenues: () =>
-    queryClient.invalidateQueries({ queryKey: ['favoriteVenues'] }),
 
   // Invalidate user's submissions queries
   mySubmissions: () =>
