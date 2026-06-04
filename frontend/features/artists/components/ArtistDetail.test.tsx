@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import { screen } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
@@ -133,9 +133,29 @@ vi.mock('@/features/collections', () => ({
   EntityCollections: (): null => null,
 }))
 
+// PSY-664: the graph dialog mock surfaces `open` + a close affordance wired
+// to `onOpenChange(false)` so the close-path hash cleanup is testable without
+// rendering the real ForceGraph2D-backed dialog. The real Dialog routes every
+// close path (X, Escape, backdrop) through this same `onOpenChange`.
 vi.mock('./RelatedArtists', () => ({
   ArtistSimilarSidebar: (): null => null,
-  ArtistGraphDialog: (): null => null,
+  ArtistGraphDialog: ({
+    open,
+    onOpenChange,
+  }: {
+    open: boolean
+    onOpenChange: (open: boolean) => void
+  }) =>
+    open ? (
+      <div data-testid="graph-dialog">
+        <button
+          data-testid="graph-dialog-close"
+          onClick={() => onOpenChange(false)}
+        >
+          Close graph
+        </button>
+      </div>
+    ) : null,
 }))
 
 // PSY-641: ArtistDetail is now a flat two-column layout — no page-level tabs.
@@ -378,6 +398,71 @@ describe('ArtistDetail', () => {
       // useUrlHash → graphDialogOpen plumbing, but the link itself no
       // longer renders as an anchor.
       expect(screen.getByTestId('bracket-Graph').tagName).toBe('BUTTON')
+    })
+
+    // PSY-664: the graph dialog drives the `#graph` URL hash so the open
+    // state is shareable/deep-linkable. Opening pushes `#graph`; every close
+    // path (X, Escape, backdrop — all route through onOpenChange) must strip
+    // it again, otherwise a refresh or shared link re-opens the dialog.
+    describe('graph dialog #graph hash (PSY-664)', () => {
+      // window.location.hash is real jsdom state and not reset by the global
+      // afterEach — restore it per test so a stray `#graph` cannot leak into
+      // an unrelated suite (and re-trip the auto-open path here).
+      let originalHref: string
+
+      beforeEach(() => {
+        originalHref = window.location.href
+      })
+
+      afterEach(() => {
+        window.history.replaceState(null, '', originalHref)
+      })
+
+      it('auto-opens the dialog when the URL already carries #graph', () => {
+        window.history.replaceState(null, '', '/artists/test-artist#graph')
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        expect(screen.getByTestId('graph-dialog')).toBeInTheDocument()
+      })
+
+      it('pushes #graph to the URL when [Graph] opens the dialog', async () => {
+        const user = userEvent.setup()
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        expect(window.location.hash).toBe('')
+
+        await user.click(screen.getByTestId('bracket-Graph'))
+
+        expect(screen.getByTestId('graph-dialog')).toBeInTheDocument()
+        expect(window.location.hash).toBe('#graph')
+      })
+
+      it('clears #graph from the URL when the dialog closes', async () => {
+        const user = userEvent.setup()
+        window.history.replaceState(null, '', '/artists/test-artist#graph')
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        // Auto-opened from the hash.
+        expect(screen.getByTestId('graph-dialog')).toBeInTheDocument()
+        expect(window.location.hash).toBe('#graph')
+
+        await user.click(screen.getByTestId('graph-dialog-close'))
+
+        expect(screen.queryByTestId('graph-dialog')).not.toBeInTheDocument()
+        expect(window.location.hash).toBe('')
+        // Path + search are preserved (only the hash is stripped).
+        expect(window.location.pathname).toBe('/artists/test-artist')
+      })
+
+      it('leaves an unrelated hash untouched when the dialog closes', async () => {
+        const user = userEvent.setup()
+        window.history.replaceState(null, '', '/artists/test-artist#discussion')
+        renderWithProviders(<ArtistDetail artistId="test-artist" />)
+        // #discussion does not auto-open — open via the [Graph] button, which
+        // replaces the hash with #graph.
+        await user.click(screen.getByTestId('bracket-Graph'))
+        expect(window.location.hash).toBe('#graph')
+
+        await user.click(screen.getByTestId('graph-dialog-close'))
+        expect(window.location.hash).toBe('')
+      })
     })
 
     it('shows the report bracket link for authenticated users', () => {
