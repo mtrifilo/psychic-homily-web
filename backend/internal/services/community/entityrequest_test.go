@@ -242,6 +242,34 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_AlreadyResolve
 	suite.Require().Error(err)
 }
 
+// A second decision on a request that was already decided loses: the atomic
+// WHERE decision_state='pending' guard matches 0 rows and the call returns an
+// invalid-state conflict reporting the CURRENT (first-winner) state — it does
+// NOT silently clobber the first decision. This is the sequential proxy for
+// the concurrent double-decide race the conditional UPDATE guards against.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_SecondDecisionDoesNotClobber() {
+	requester := suite.createUser("req3", tierNewUser, false)
+	admin := suite.createUser("mod4", tierNewUser, true)
+
+	pending, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
+		suite.marshalArtist("Contested"), communitym.EntityRequestSourceManual, false)
+	suite.Require().NoError(err)
+
+	// First decision wins: approve.
+	decided, err := suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStateApproved, nil)
+	suite.Require().NoError(err)
+	suite.Require().Equal(communitym.EntityRequestStateApproved, decided.DecisionState)
+
+	// Second decision (reject) must fail and leave the row APPROVED.
+	_, err = suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStateRejected, nil)
+	suite.Require().Error(err)
+
+	fetched, err := suite.service.GetRequest(pending.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(communitym.EntityRequestStateApproved, fetched.DecisionState,
+		"first decision must survive; second must not clobber it")
+}
+
 // Decide rejects a non-approve/reject target state.
 func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_InvalidTargetState() {
 	requester := suite.createUser("req2", tierNewUser, false)

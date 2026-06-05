@@ -193,6 +193,19 @@ func (s *EntityRequestService) ListPending(entityType string, limit, offset int)
 // Decide records an admin's moderation decision on a pending request. Only
 // 'approved' or 'rejected' are valid targets; the request MUST currently be
 // 'pending' (re-deciding a resolved request returns ErrEntityRequestInvalidState).
+//
+// Admin authorization is the CALLER's responsibility — this service has only
+// the adminID, not the user record. The HTTP handlers added by PSY-853/PSY-845
+// MUST register this on an admin-gated route (rc.Admin middleware) per the
+// project's admin-gating pattern; the adminID here is recorded as the decider,
+// not authenticated by the service.
+//
+// The state transition is applied ATOMICALLY with a conditional UPDATE
+// (... WHERE decision_state = 'pending'), so two concurrent Decide calls on
+// the same row can't both win: the second observes RowsAffected == 0 and gets
+// the invalid-state conflict instead of silently clobbering the first
+// decision. The pre-read distinguishes not-found from already-decided so the
+// caller gets the right error.
 func (s *EntityRequestService) Decide(
 	requestID, adminID uint,
 	newState communitym.EntityRequestDecisionState,
@@ -226,8 +239,25 @@ func (s *EntityRequestService) Decide(
 	if note != nil {
 		updates["decision_note"] = *note
 	}
-	if err := s.db.Model(&req).Updates(updates).Error; err != nil {
-		return nil, fmt.Errorf("failed to record decision: %w", err)
+
+	// Conditional update guards the read-modify-write against a concurrent
+	// decision on the same row. WHERE decision_state = 'pending' so only the
+	// first writer flips it; a racing second writer matches 0 rows.
+	result := s.db.Model(&communitym.EntityRequest{}).
+		Where("id = ? AND decision_state = ?", requestID, communitym.EntityRequestStatePending).
+		Updates(updates)
+	if result.Error != nil {
+		return nil, fmt.Errorf("failed to record decision: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		// Lost the race (or the row was decided between our read and write):
+		// re-read to report the current state. Fall back to the pre-read state
+		// if the re-read fails so we still surface a conflict, not a 500.
+		current := string(req.DecisionState)
+		if fresh, ferr := s.GetRequest(requestID); ferr == nil && fresh != nil {
+			current = string(fresh.DecisionState)
+		}
+		return nil, apperrors.ErrEntityRequestInvalidState(requestID, current)
 	}
 
 	return s.GetRequest(requestID)
