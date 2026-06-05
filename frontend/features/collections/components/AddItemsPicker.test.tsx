@@ -147,6 +147,12 @@ vi.mock('@/components/shared', () => ({
   }) => <div data-testid={testId}>{children}</div>,
 }))
 
+// The AI pane pulls in useCollectionExtraction (not mocked here); stub it so
+// the AC#3 guard can activate the AI tab without dragging in that dependency.
+vi.mock('./AICollectionFiller', () => ({
+  AICollectionFiller: () => <div data-testid="ai-collection-filler-stub" />,
+}))
+
 // ──────────────────────────────────────────────
 // parsePasteLine — pure function tests
 // ──────────────────────────────────────────────
@@ -256,6 +262,59 @@ describe('AddItemsPicker', () => {
     expect(screen.getByTestId('tab-paste')).toBeInTheDocument()
     expect(screen.getByTestId('tab-ai')).toBeInTheDocument()
     expect(screen.getByTestId('tab-ai')).not.toBeDisabled()
+  })
+
+  it('labels the AI tab "From text (AI)" with an ⓘ explainer as a SIBLING of the tab', () => {
+    // PSY-867: "From article (AI)" was misleadingly narrow — the route
+    // accepts any text. The ⓘ must be a SIBLING of the tab trigger (its own
+    // focus stop), NOT nested inside the trigger <button> (interactive
+    // content inside a button is invalid). The not.toContainElement guard
+    // is what fails if a refactor nests the glyph back into the tab.
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    expect(screen.getByText('From text (AI)')).toBeInTheDocument()
+    expect(screen.queryByText(/From article/i)).not.toBeInTheDocument()
+    expect(screen.getByTestId('ai-tab-info')).toBeInTheDocument()
+    expect(screen.getByTestId('tab-ai')).not.toContainElement(
+      screen.getByTestId('ai-tab-info')
+    )
+  })
+
+  it('opens the AI explainer tooltip on keyboard focus of the ⓘ glyph', async () => {
+    // AC: tooltip renders the locked copy on keyboard focus of the glyph.
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await act(async () => {
+      screen.getByTestId('ai-tab-info').focus()
+    })
+    // Radix renders the copy twice (visible content + a visually-hidden
+    // role="tooltip" span for screen readers), so match all and assert ≥1.
+    const matches = await screen.findAllByText(
+      /paste any text, and the ai will do its best to extract/i
+    )
+    expect(matches.length).toBeGreaterThan(0)
+  })
+
+  it('opens the AI explainer tooltip on hover of the ⓘ glyph', async () => {
+    // AC: tooltip also renders on hover (the path real pointer users hit).
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.hover(screen.getByTestId('ai-tab-info'))
+    const matches = await screen.findAllByText(
+      /paste any text, and the ai will do its best to extract/i
+    )
+    expect(matches.length).toBeGreaterThan(0)
+  })
+
+  it('does not open the explainer when the AI tab itself is activated', async () => {
+    // AC: the trigger surface is JUST the ⓘ glyph — activating the tab must
+    // not surface the explainer.
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-ai'))
+    expect(
+      screen.queryByText(
+        /paste any text, and the ai will do its best to extract/i
+      )
+    ).not.toBeInTheDocument()
   })
 
   it('shows the search empty-state copy by default', () => {
