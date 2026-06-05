@@ -20,6 +20,11 @@ func setupReleaseRoutes(rc RouteContext) {
 	huma.Post(rc.Admin, "/releases", releaseHandler.CreateReleaseHandler)
 	huma.Put(rc.Admin, "/releases/{release_id}", releaseHandler.UpdateReleaseHandler)
 	huma.Delete(rc.Admin, "/releases/{release_id}", releaseHandler.DeleteReleaseHandler)
-	huma.Post(rc.Admin, "/releases/{release_id}/links", releaseHandler.AddExternalLinkHandler)
+
+	// PSY-660: adding a release link is open to trusted contributors and local
+	// ambassadors (plus admins), so it registers on rc.Protected (JWT only) and
+	// AddExternalLinkHandler authorizes the tier itself. Deleting a link stays
+	// admin-only on rc.Admin.
+	huma.Post(rc.Protected, "/releases/{release_id}/links", releaseHandler.AddExternalLinkHandler)
 	huma.Delete(rc.Admin, "/releases/{release_id}/links/{link_id}", releaseHandler.RemoveExternalLinkHandler)
 }

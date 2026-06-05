@@ -136,6 +136,21 @@ vi.mock('@/features/tags', () => ({
     open ? <div data-testid="add-tag-dialog">Add Tag</div> : null,
 }))
 
+// PSY-660: the add-link dialog renders only when opened via the [Add link]
+// bracket (which is itself tier-gated).
+vi.mock('./AddReleaseLinkDialog', () => ({
+  AddReleaseLinkDialog: ({
+    open,
+    releaseTitle,
+  }: {
+    open: boolean
+    releaseTitle: string
+  }) =>
+    open ? (
+      <div data-testid="add-link-dialog">Add link to {releaseTitle}</div>
+    ) : null,
+}))
+
 vi.mock('@/features/radio', () => ({
   AsHeardOn: ({
     entityType,
@@ -368,6 +383,13 @@ describe('ReleaseDetail', () => {
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
       expect(screen.queryByTitle('Report an issue')).not.toBeInTheDocument()
     })
+
+    // PSY-660: the add-link affordance is tier-gated, so anonymous users never
+    // see it.
+    it('does not render the Add link bracket for anonymous users', () => {
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.queryByText('Add link')).not.toBeInTheDocument()
+    })
   })
 
   describe('contributor affordances', () => {
@@ -411,6 +433,86 @@ describe('ReleaseDetail', () => {
       })
       render(<ReleaseDetail idOrSlug="in-rainbows" />)
       expect(screen.getByText('Suggest description')).toBeInTheDocument()
+    })
+
+    // PSY-660: the [Add link] bracket is gated to admin / trusted_contributor /
+    // local_ambassador — the same tiers the backend authorizes. A plain
+    // contributor (and new_user) must NOT see it, since the backend would 403.
+    it('does not show the Add link bracket for a plain contributor', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false, user_tier: 'contributor' },
+        isAuthenticated: true,
+      })
+      mockUseRelease.mockReturnValue({
+        data: makeRelease(),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.queryByText('Add link')).not.toBeInTheDocument()
+    })
+
+    it('does not show the Add link bracket for a new_user', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false, user_tier: 'new_user' },
+        isAuthenticated: true,
+      })
+      mockUseRelease.mockReturnValue({
+        data: makeRelease(),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.queryByText('Add link')).not.toBeInTheDocument()
+    })
+
+    it('shows the Add link bracket for a trusted_contributor and opens the dialog', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false, user_tier: 'trusted_contributor' },
+        isAuthenticated: true,
+      })
+      mockUseRelease.mockReturnValue({
+        data: makeRelease(),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+
+      const addLink = screen.getByText('Add link')
+      expect(addLink).toBeInTheDocument()
+      // Dialog is closed until the bracket is clicked.
+      expect(screen.queryByTestId('add-link-dialog')).not.toBeInTheDocument()
+
+      fireEvent.click(addLink)
+      expect(screen.getByText('Add link to In Rainbows')).toBeInTheDocument()
+    })
+
+    it('shows the Add link bracket for a local_ambassador', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false, user_tier: 'local_ambassador' },
+        isAuthenticated: true,
+      })
+      mockUseRelease.mockReturnValue({
+        data: makeRelease(),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.getByText('Add link')).toBeInTheDocument()
+    })
+
+    it('shows the Add link bracket for an admin', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: true },
+        isAuthenticated: true,
+      })
+      mockUseRelease.mockReturnValue({
+        data: makeRelease(),
+        isLoading: false,
+        error: null,
+      })
+      render(<ReleaseDetail idOrSlug="in-rainbows" />)
+      expect(screen.getByText('Add link')).toBeInTheDocument()
     })
 
     // PSY-661: signed-in users get a [Report] affordance that opens the

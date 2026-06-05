@@ -325,6 +325,91 @@ func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_ReleaseNotFound() {
 	testhelpers.AssertHumaError(s.T(), err, 404)
 }
 
+// --- AddExternalLinkHandler authorization matrix (PSY-660) ---
+//
+// The POST /releases/{id}/links route lives on rc.Protected (JWT only), so the
+// handler authorizes the tier itself. Admin, trusted_contributor, and
+// local_ambassador may add links; new_user and contributor (and any
+// unauthenticated request) must be rejected. TestAddExternalLink_Success above
+// covers the admin case.
+
+func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_TrustedContributorSuccess() {
+	user := testhelpers.CreateUserWithTier(s.deps.DB, "trusted_contributor")
+	release := s.createReleaseViaService("Trusted Link Album")
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
+	req.Body.Platform = "bandcamp"
+	req.Body.URL = "https://trusted.bandcamp.com/album/test"
+
+	resp, err := s.handler.AddExternalLinkHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal("bandcamp", resp.Body.Platform)
+}
+
+func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_LocalAmbassadorSuccess() {
+	user := testhelpers.CreateUserWithTier(s.deps.DB, "local_ambassador")
+	release := s.createReleaseViaService("Ambassador Link Album")
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
+	req.Body.Platform = "spotify"
+	req.Body.URL = "https://open.spotify.com/album/abc"
+
+	resp, err := s.handler.AddExternalLinkHandler(ctx, req)
+	s.NoError(err)
+	s.NotNil(resp)
+	s.Equal("spotify", resp.Body.Platform)
+}
+
+func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_NewUserForbidden() {
+	user := testhelpers.CreateUserWithTier(s.deps.DB, "new_user")
+	release := s.createReleaseViaService("Forbidden Link Album")
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
+	req.Body.Platform = "bandcamp"
+	req.Body.URL = "https://new.bandcamp.com/album/test"
+
+	_, err := s.handler.AddExternalLinkHandler(ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 403)
+}
+
+// TestAddExternalLink_ContributorForbidden guards the lower-trust boundary: a
+// plain "contributor" (one tier below trusted_contributor) must NOT be able to
+// add links. Without this, accidentally widening the gate to include
+// contributor would slip through unnoticed.
+func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_ContributorForbidden() {
+	user := testhelpers.CreateUserWithTier(s.deps.DB, "contributor")
+	release := s.createReleaseViaService("Contributor Link Album")
+
+	ctx := testhelpers.CtxWithUser(user)
+	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
+	req.Body.Platform = "bandcamp"
+	req.Body.URL = "https://contributor.bandcamp.com/album/test"
+
+	_, err := s.handler.AddExternalLinkHandler(ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 403)
+}
+
+// TestAddExternalLink_UnauthenticatedForbidden documents the handler's
+// fail-closed behavior when no user is in context. In production the
+// rc.Protected JWT middleware returns 401 before the handler runs, so the
+// handler never sees a nil user on a real request; this asserts the
+// defense-in-depth 403 if that invariant is ever violated.
+func (s *ReleaseHandlerIntegrationSuite) TestAddExternalLink_UnauthenticatedForbidden() {
+	release := s.createReleaseViaService("Anon Link Album")
+
+	// s.deps.Ctx carries no user.
+	req := &AddExternalLinkRequest{ReleaseID: fmt.Sprintf("%d", release.ID)}
+	req.Body.Platform = "bandcamp"
+	req.Body.URL = "https://anon.bandcamp.com/album/test"
+
+	_, err := s.handler.AddExternalLinkHandler(s.deps.Ctx, req)
+	testhelpers.AssertHumaError(s.T(), err, 403)
+}
+
 // --- RemoveExternalLinkHandler ---
 
 func (s *ReleaseHandlerIntegrationSuite) TestRemoveExternalLink_Success() {
