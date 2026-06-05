@@ -125,8 +125,12 @@ func (s *EntityRequestService) CreateRequest(
 
 	if autoApproves(user, confirmed) {
 		now := time.Now().UTC()
+		// Copy to a local before taking its address — &user.ID would alias the
+		// caller's struct field, which is a footgun if the caller later reuses
+		// or mutates the user value.
+		deciderID := user.ID
 		req.DecisionState = communitym.EntityRequestStateApproved
-		req.DecidedBy = &user.ID
+		req.DecidedBy = &deciderID
 		req.DecidedAt = &now
 	}
 
