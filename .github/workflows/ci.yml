@@ -45,6 +45,12 @@ jobs:
             exit 1
           fi
 
+      # PSY-869: every entity_type the entity_requests CHECK constraint accepts
+      # must have a matching Go payload struct (and vice versa). Catches a new
+      # enum value added in a migration without a typed payload to validate it.
+      - name: Check entity_requests payload-struct parity
+        run: bash scripts/check_entity_request_payloads.sh
+
   migration-reversibility:
     name: Migration Reversibility
     runs-on: ubuntu-latest
