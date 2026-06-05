@@ -70,6 +70,7 @@ var testFixturesAllowlistContractSkips = map[string]string{
 
 	// Content creation not exercised by the mutating E2E flows we care about.
 	"pending_entity_edits":  "entity-edit drawer has its own moderation tests with explicit cleanup",
+	"entity_requests":       "polymorphic entity-creation queue (PSY-869); covered by its own service integration tests with explicit cleanup; not yet part of E2E mutating flows (PSY-853/845 add the UI)",
 	"entity_reports":        "report flow has its own tests with explicit cleanup",
 	"artist_reports":        "report flow has its own tests with explicit cleanup",
 	"show_reports":          "report flow has its own tests with explicit cleanup",
