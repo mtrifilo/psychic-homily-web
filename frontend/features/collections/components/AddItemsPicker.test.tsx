@@ -315,6 +315,10 @@ describe('AddItemsPicker', () => {
         /paste any text, and the ai will do its best to extract/i
       )
     ).not.toBeInTheDocument()
+    // ...and the tab still activates — it routes to the AI pane (stubbed).
+    expect(
+      screen.getByTestId('ai-collection-filler-stub')
+    ).toBeInTheDocument()
   })
 
   it('shows the search empty-state copy by default', () => {

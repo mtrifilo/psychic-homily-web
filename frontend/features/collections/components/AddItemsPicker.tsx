@@ -192,10 +192,14 @@ const AI_TAB_TOOLTIP_COPY =
  * still switches modes.
  *
  * The Tooltip composition mirrors the canonical `TransitiveTagTooltip`
- * (TagFacetPanel.tsx). The placement as a non-tab sibling INSIDE the
- * Radix tablist is specific to this tab context — Radix tolerates it and
- * the glyph stays keyboard-reachable as its own Tab stop; a future shared
- * `InfoTooltip` extraction (PSY follow-up) would standardize this.
+ * (TagFacetPanel.tsx). The placement as a non-tab sibling INSIDE the Radix
+ * tablist is specific to this tab context: Radix's roving-tabindex only
+ * governs `role="tab"` descendants, so the glyph stays an ordinary Tab stop
+ * rather than joining the arrow-key tab cycle. Verified manually in-browser
+ * (arrow keys still move between the three tabs; the glyph is its own Tab
+ * stop) — the unit tests mock `@/components/ui/tabs`, so they do not cover
+ * the real-Radix focus path. A future shared `InfoTooltip` extraction (PSY
+ * follow-up) would standardize this.
  */
 function AiTabInfoTooltip() {
   return (
@@ -224,8 +228,8 @@ export function AddItemsPicker({
   stagedItems,
   onStagedItemsChange,
 }: AddItemsPickerProps) {
-  // Active mode tab. AI tab is intentionally disabled in V1 — see file
-  // header for the PSY-824 link.
+  // Active mode tab — all three modes (search | paste | ai) are live; the
+  // AI tab was enabled in PSY-824.
   const [tab, setTab] = useState<'search' | 'paste' | 'ai'>('search')
 
   // ─── Search mode state ───
@@ -419,7 +423,7 @@ export function AddItemsPicker({
               not a child of the tab trigger — nesting a focusable element
               inside the trigger <button> would be invalid. See
               AiTabInfoTooltip. */}
-          <div className="inline-flex flex-1 items-center justify-center gap-1">
+          <div className="inline-flex min-w-0 flex-1 items-center justify-center gap-1">
             <TabsTrigger value="ai" className="flex-none">
               From text (AI)
             </TabsTrigger>
