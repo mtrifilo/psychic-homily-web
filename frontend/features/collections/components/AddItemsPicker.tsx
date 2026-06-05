@@ -34,11 +34,18 @@ import {
   AlertCircle,
   Library,
   Loader2,
+  Info,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip'
 import { InlineErrorBanner } from '@/components/shared'
 import {
   useEntitySearch,
@@ -169,13 +176,60 @@ export interface AddItemsPickerProps {
  *  Figma's 10-row visible window on state 05. */
 const STAGED_LIST_MAX_VISIBLE = 10
 
+/** Locked copy (PSY-867 design review, 2026-05-26). The "From text (AI)"
+ *  tab accepts any pasted text, not just articles — this explainer sets
+ *  the expectation (any text in, best-effort extraction out) and the
+ *  honest caveat that the model is fallible. */
+const AI_TAB_TOOLTIP_COPY =
+  'Paste any text, and the AI will do its best to extract any artists or releases referenced. AI can and will make mistakes.'
+
+/**
+ * The ⓘ explainer for the "From text (AI)" tab. Rendered as a SIBLING of
+ * the tab trigger (not a child) — the trigger is a `<button>` and nesting
+ * another focusable element inside it would be invalid interactive-content
+ * nesting. As a sibling it gets its own focus stop, so the tooltip opens on
+ * hover AND keyboard focus of just the glyph, while clicking the tab itself
+ * still switches modes.
+ *
+ * The Tooltip composition mirrors the canonical `TransitiveTagTooltip`
+ * (TagFacetPanel.tsx). The placement as a non-tab sibling INSIDE the Radix
+ * tablist is specific to this tab context: Radix's roving-tabindex only
+ * governs `role="tab"` descendants, so the glyph stays an ordinary Tab stop
+ * rather than joining the arrow-key tab cycle. Verified manually in-browser
+ * (arrow keys still move between the three tabs; the glyph is its own Tab
+ * stop) — the unit tests mock `@/components/ui/tabs`, so they do not cover
+ * the real-Radix focus path. A future shared `InfoTooltip` extraction (PSY
+ * follow-up) would standardize this.
+ */
+function AiTabInfoTooltip() {
+  return (
+    <TooltipProvider delayDuration={120}>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            aria-label="What can I paste into the AI tab?"
+            className="inline-flex items-center rounded-full p-0.5 text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            data-testid="ai-tab-info"
+          >
+            <Info className="h-3.5 w-3.5" aria-hidden />
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="top" className="max-w-xs text-xs">
+          {AI_TAB_TOOLTIP_COPY}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  )
+}
+
 export function AddItemsPicker({
   existingItems = [],
   stagedItems,
   onStagedItemsChange,
 }: AddItemsPickerProps) {
-  // Active mode tab. AI tab is intentionally disabled in V1 — see file
-  // header for the PSY-824 link.
+  // Active mode tab — all three modes (search | paste | ai) are live; the
+  // AI tab was enabled in PSY-824.
   const [tab, setTab] = useState<'search' | 'paste' | 'ai'>('search')
 
   // ─── Search mode state ───
@@ -364,7 +418,17 @@ export function AddItemsPicker({
         <TabsList className="w-full justify-start">
           <TabsTrigger value="search">Search</TabsTrigger>
           <TabsTrigger value="paste">Paste URLs</TabsTrigger>
-          <TabsTrigger value="ai">From article (AI)</TabsTrigger>
+          {/* The AI tab + its ⓘ explainer share one flex slot so they read
+              as "From text (AI) ⓘ". The info trigger is a sibling button,
+              not a child of the tab trigger — nesting a focusable element
+              inside the trigger <button> would be invalid. See
+              AiTabInfoTooltip. */}
+          <div className="inline-flex min-w-0 flex-1 items-center justify-center gap-1">
+            <TabsTrigger value="ai" className="flex-none">
+              From text (AI)
+            </TabsTrigger>
+            <AiTabInfoTooltip />
+          </div>
         </TabsList>
 
         {tab === 'search' && (
