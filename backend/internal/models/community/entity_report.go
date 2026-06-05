@@ -24,6 +24,7 @@ const (
 	EntityReportEntityComment    = "comment"
 	EntityReportEntityCollection = "collection"
 	EntityReportEntityRelease    = "release"
+	EntityReportEntityLabel      = "label"
 )
 
 // Valid report types per entity type.
@@ -95,6 +96,21 @@ var validReportTypes = map[string]map[string]bool{
 		"wrong_artist_attribution": true,
 		"missing_info":             true,
 	},
+	// PSY-666: label-tailored taxonomy. Like the PSY-578 collection and
+	// PSY-661 release sets, this is intentionally tailored rather than
+	// reusing the generic artist/venue vocabulary:
+	//   - duplicate: the same label entered twice under a different entry.
+	//   - wrong_image: the label logo/image is incorrect (labels carry an
+	//     image_url; "inaccurate" would bury that field-specific report).
+	//   - inaccurate / missing_info: catch-alls for name/bio/other data.
+	// "Defunct label" is deliberately NOT a report type — label lifecycle is
+	// a `status` field edit (active/defunct), not a moderation report.
+	EntityReportEntityLabel: {
+		"inaccurate":   true,
+		"duplicate":    true,
+		"wrong_image":  true,
+		"missing_info": true,
+	},
 }
 
 // EntityReport represents a user report about an entity issue.
@@ -129,6 +145,7 @@ func ValidEntityReportEntityTypes() []string {
 		EntityReportEntityComment,
 		EntityReportEntityCollection,
 		EntityReportEntityRelease,
+		EntityReportEntityLabel,
 	}
 }
 

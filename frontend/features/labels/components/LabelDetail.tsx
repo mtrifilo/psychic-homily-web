@@ -24,7 +24,7 @@ import { CommentThread } from '@/features/comments'
 import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { NotifyMeButton } from '@/features/notifications'
 import { useIsAuthenticated } from '@/features/auth'
-import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner } from '@/features/contributions'
+import { AttributionLine, ContributionPrompt, EntityEditDrawer, EntitySaveSuccessBanner, ReportEntityDialog, useEntitySaveSuccessBanner } from '@/features/contributions'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { queryKeys } from '@/lib/queryClient'
@@ -75,6 +75,7 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
   const [isEditing, setIsEditing] = useState(false)
   const [editFocusField, setEditFocusField] = useState<string | undefined>()
   const [addTagDialogOpen, setAddTagDialogOpen] = useState(false)
+  const [isReportOpen, setIsReportOpen] = useState(false)
   const saveBanner = useEntitySaveSuccessBanner()
 
   if (isLoading) {
@@ -254,6 +255,13 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
                     onClick={() => setAddTagDialogOpen(true)}
                   />
                 )}
+                {isAuthenticated && (
+                  <BracketLink
+                    label="Report"
+                    title="Report an issue"
+                    onClick={() => setIsReportOpen(true)}
+                  />
+                )}
               </div>
             }
           />
@@ -402,6 +410,17 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
         entityId={label.id}
         open={addTagDialogOpen}
         onOpenChange={setAddTagDialogOpen}
+      />
+    )}
+
+    {/* Report Dialog (authenticated users) — PSY-666 */}
+    {isAuthenticated && (
+      <ReportEntityDialog
+        open={isReportOpen}
+        onOpenChange={setIsReportOpen}
+        entityType="label"
+        entityId={label.id}
+        entityName={label.name}
       />
     )}
   </>

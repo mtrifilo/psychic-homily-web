@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, within } from '@testing-library/react'
+import { fireEvent, screen, within } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import type { LabelDetail as LabelDetailType } from '../types'
 
@@ -79,6 +79,22 @@ vi.mock('@/features/contributions', () => ({
     open ? <div data-testid="edit-drawer">Edit Drawer</div> : null,
   EntitySaveSuccessBanner: ({ visible }: { visible: boolean }) =>
     visible ? <div data-testid="save-success-banner">Saved</div> : null,
+  // PSY-666: report dialog renders only when opened; the test toggles it via
+  // the [Report] bracket link.
+  ReportEntityDialog: ({
+    open,
+    entityType,
+    entityName,
+  }: {
+    open: boolean
+    entityType: string
+    entityName: string
+  }) =>
+    open ? (
+      <div data-testid="report-dialog">
+        Report {entityType} {entityName}
+      </div>
+    ) : null,
   useEntitySaveSuccessBanner: () => ({
     isVisible: false,
     handleSaveSuccess: vi.fn(),
@@ -397,11 +413,13 @@ describe('LabelDetail', () => {
       )
     })
 
-    it('does not render edit / add-tag bracket links for unauthenticated users', () => {
+    it('does not render edit / add-tag / report bracket links for unauthenticated users', () => {
       renderWithProviders(<LabelDetail idOrSlug="sub-pop" />)
       expect(screen.queryByTestId('bracket-Edit')).not.toBeInTheDocument()
       expect(screen.queryByTestId('bracket-Suggest edit')).not.toBeInTheDocument()
       expect(screen.queryByTestId('bracket-Add tag')).not.toBeInTheDocument()
+      // PSY-666: the report affordance is auth-gated.
+      expect(screen.queryByTestId('bracket-Report')).not.toBeInTheDocument()
     })
 
     it('shows a Suggest edit link for an authenticated non-trusted user', () => {
@@ -436,6 +454,26 @@ describe('LabelDetail', () => {
 
       renderWithProviders(<LabelDetail idOrSlug="sub-pop" />)
       expect(screen.getByTestId('bracket-Suggest description')).toBeInTheDocument()
+    })
+
+    // PSY-666: signed-in users get a [Report] affordance that opens the
+    // report dialog bound to the label.
+    it('shows the Report bracket link and opens the report dialog', () => {
+      mockUseIsAuthenticated.mockReturnValue({
+        user: { is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+      })
+
+      renderWithProviders(<LabelDetail idOrSlug="sub-pop" />)
+
+      const reportLink = screen.getByTestId('bracket-Report')
+      expect(reportLink).toBeInTheDocument()
+      // Dialog is closed until the link is clicked.
+      expect(screen.queryByTestId('report-dialog')).not.toBeInTheDocument()
+
+      fireEvent.click(reportLink)
+      expect(screen.getByText('Report label Sub Pop')).toBeInTheDocument()
     })
   })
 })

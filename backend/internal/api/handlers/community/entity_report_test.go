@@ -298,6 +298,48 @@ func TestReportRelease_InvalidReportType(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// PSY-666: labels accept the same shape as the other entity types.
+// The taxonomy is label-tailored (inaccurate/duplicate/wrong_image/
+// missing_info) — see entity_report.go for the rationale. "Defunct" is
+// intentionally NOT a report type (it's a status-field edit).
+func TestReportLabel_Success(t *testing.T) {
+	expected := makeEntityReportResponse(8, "label", "wrong_image")
+	h := NewEntityReportHandler(
+		&testhelpers.MockEntityReportService{
+			CreateEntityReportFn: func(req *contracts.CreateEntityReportRequest) (*contracts.EntityReportResponse, error) {
+				if req.EntityType != "label" {
+					t.Errorf("expected entity_type=label, got %s", req.EntityType)
+				}
+				if req.ReportType != "wrong_image" {
+					t.Errorf("expected report_type=wrong_image, got %s", req.ReportType)
+				}
+				return expected, nil
+			},
+		},
+		nil,
+	)
+
+	req := &ReportEntityRequest{EntityID: "10"}
+	req.Body.ReportType = "wrong_image"
+
+	resp, err := h.ReportLabelHandler(entityReportUserCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.EntityType != "label" {
+		t.Errorf("expected entity_type=label, got %s", resp.Body.EntityType)
+	}
+}
+
+func TestReportLabel_InvalidReportType(t *testing.T) {
+	// e.g. "wrong_venue" is valid for shows but not for labels.
+	h := testEntityReportHandler()
+	req := &ReportEntityRequest{EntityID: "1"}
+	req.Body.ReportType = "wrong_venue"
+	_, err := h.ReportLabelHandler(entityReportUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 // ============================================================================
 // Tests: Report Entity — Error Cases
 // ============================================================================
