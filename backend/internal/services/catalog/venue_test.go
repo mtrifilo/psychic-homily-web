@@ -13,6 +13,7 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -325,6 +326,33 @@ func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_BasicFields() {
 	suite.Require().NoError(err)
 	suite.Equal("Updated Name", resp.Name)
 	suite.Equal("123 Main St", *resp.Address)
+}
+
+// TestUpdateVenue_ReGeocodesAndClearsStaleOnMiss verifies PSY-985: a geocoder-enabled
+// service populates timezone on a resolvable create, and a later location edit to an
+// unresolvable city CLEARS timezone/lat/lng to NULL rather than leaving the previous
+// location's stale value (adversarial-review HIGH finding).
+func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_ReGeocodesAndClearsStaleOnMiss() {
+	svc := &VenueService{db: suite.db, geocoder: geo.Default()}
+
+	created, err := svc.CreateVenue(&contracts.CreateVenueRequest{
+		Name:  "Timezone Test Venue",
+		City:  "Phoenix",
+		State: "AZ",
+	}, true)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(created.Timezone)
+	suite.Equal("America/Phoenix", *created.Timezone)
+
+	// Relocate to a city the offline dataset can't resolve. The previous
+	// America/Phoenix value must be cleared, not retained.
+	updated, err := svc.UpdateVenue(created.ID, &contracts.UpdateVenueRequest{
+		City: stringPtr("Nowherecityville"),
+	})
+	suite.Require().NoError(err)
+	suite.Nil(updated.Timezone, "stale timezone must clear to NULL on a re-geocode miss")
+	suite.Nil(updated.Latitude)
+	suite.Nil(updated.Longitude)
 }
 
 func (suite *VenueServiceIntegrationTestSuite) TestUpdateVenue_NotFound() {

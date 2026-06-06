@@ -33,11 +33,14 @@ func TestApplyGeocoding(t *testing.T) {
 		}
 	})
 
-	t.Run("geocode miss leaves fields nil (legacy fallback)", func(t *testing.T) {
+	t.Run("geocode miss leaves all fields nil (legacy fallback)", func(t *testing.T) {
 		v := &catalogm.Venue{City: "Nowherecityville", State: "ZZ"}
 		s.applyGeocoding(v)
-		if v.Timezone != nil {
-			t.Errorf("expected nil timezone on miss, got %q", *v.Timezone)
+		// All-or-nothing invariant: a miss must leave lat/lng/timezone ALL nil.
+		// UpdateVenue relies on this — it forwards these pointers straight into the
+		// GORM updates map, so a miss must write SQL NULL across all three.
+		if v.Timezone != nil || v.Latitude != nil || v.Longitude != nil {
+			t.Errorf("expected all geo fields nil on miss, got tz=%v lat=%v lng=%v", v.Timezone, v.Latitude, v.Longitude)
 		}
 	})
 

@@ -238,8 +238,8 @@ func (g *offlineGeocoder) resolveCountry(state, country string) (iso, admin1 str
 	// resolves to its Canadian instance instead of a higher-population namesake
 	// elsewhere (e.g. London/ON -> America/Toronto, not Europe/London). GeoNames
 	// CA admin1 codes are numeric, so we filter by country and let population pick
-	// the right Canadian city. NL/PE/SK/YT are excluded — they collide with ISO
-	// codes (Netherlands/Peru/Slovakia/Mayotte); pass country="Canada" for those.
+	// the right Canadian city. NL/PE/SK/YT/NU are excluded — they collide with ISO
+	// codes (Netherlands/Peru/Slovakia/Mayotte/Niue); pass country="Canada" for those.
 	if g.caProvinces[st] {
 		return "CA", ""
 	}
@@ -350,10 +350,10 @@ func usStateSet() map[string]bool {
 
 // caProvinceSet returns Canadian province/territory codes that do NOT collide
 // with ISO 3166-1 alpha-2 country codes. NL (Netherlands), PE (Peru), SK
-// (Slovakia), YT (Mayotte) are deliberately omitted — for venues in those
-// provinces, pass country="Canada" so the country field disambiguates.
+// (Slovakia), YT (Mayotte), and NU (Niue) are deliberately omitted — for venues
+// in those provinces, pass country="Canada" so the country field disambiguates.
 func caProvinceSet() map[string]bool {
-	codes := []string{"ON", "QC", "BC", "AB", "MB", "NB", "NS", "NT", "NU"}
+	codes := []string{"ON", "QC", "BC", "AB", "MB", "NB", "NS", "NT"}
 	m := make(map[string]bool, len(codes))
 	for _, c := range codes {
 		m[c] = true

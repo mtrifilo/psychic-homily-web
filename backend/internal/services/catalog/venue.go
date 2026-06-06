@@ -294,11 +294,13 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 			effective.Country = req.Country
 		}
 		s.applyGeocoding(&effective)
-		if effective.Timezone != nil {
-			updates["latitude"] = *effective.Latitude
-			updates["longitude"] = *effective.Longitude
-			updates["timezone"] = *effective.Timezone
-		}
+		// Write unconditionally: on a geocode miss the pointers are nil and GORM's
+		// map Updates writes SQL NULL, so a relocated-but-unresolvable venue falls
+		// back to the legacy state->tz map instead of keeping the OLD location's
+		// stale timezone/coordinates (mirrors the create path's miss->NULL).
+		updates["latitude"] = effective.Latitude
+		updates["longitude"] = effective.Longitude
+		updates["timezone"] = effective.Timezone
 	}
 
 	// Update the venue
