@@ -88,7 +88,7 @@ export function ContributionPrompt({
 
   return (
     <div
-      className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
+      className="mt-4 flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/5 px-3 py-2 text-sm"
       data-testid="contribution-prompt"
     >
       <Lightbulb className="h-4 w-4 text-primary shrink-0" />
