@@ -144,7 +144,7 @@ export function CommentCard({
         {comment.visibility === 'pending_review' && isOwner && (
           <Badge
             variant="outline"
-            className="text-[10px] px-1.5 py-0 gap-1 border-amber-700/50 text-amber-500"
+            className="text-[10px] px-1.5 py-0 gap-1 border-pending-foreground text-pending-foreground"
             data-testid="pending-review-badge"
           >
             <Clock className="h-2.5 w-2.5" />

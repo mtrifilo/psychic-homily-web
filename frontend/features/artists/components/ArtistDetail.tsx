@@ -919,9 +919,9 @@ function DiscoveryCandidateCard({
 }) {
   const confidenceClass =
     candidate.confidence === 'high'
-      ? 'text-green-600 dark:text-green-400'
+      ? 'text-success-foreground'
       : candidate.confidence === 'medium'
-        ? 'text-amber-600 dark:text-amber-400'
+        ? 'text-pending-foreground'
         : 'text-muted-foreground'
   const facts = [
     candidate.location,

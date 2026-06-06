@@ -357,7 +357,7 @@ export function CreateCollectionForm({
 
       {bulkAddRejectedCount > 0 && (
         <p
-          className="text-sm text-amber-600 dark:text-amber-400"
+          className="text-sm text-pending-foreground"
           data-testid="collection-create-bulk-rejected"
         >
           Collection created, but {bulkAddRejectedCount}{' '}

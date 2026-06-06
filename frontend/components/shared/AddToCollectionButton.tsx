@@ -533,7 +533,7 @@ export function AddToCollectionButton({
             </span>
           </span>
           {added && !isConfirming && (
-            <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 shrink-0">
+            <span className="flex items-center gap-1 text-xs text-success-foreground shrink-0">
               <Check className="h-3.5 w-3.5" />
               Added
             </span>
