@@ -3,7 +3,6 @@
 import { useState } from 'react'
 import { ClipboardList } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { useShowAttendance } from '@/features/shows/hooks'
 import { StatusBanner } from '@/components/shared'
 import {
   useFieldNotes,
@@ -43,12 +42,6 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
   const { isAuthenticated } = useAuthContext()
   const { data, isLoading } = useFieldNotes(showId)
   const createMutation = useCreateFieldNote()
-  // PSY-568: drives the default state of the "I attended this show" checkbox.
-  // Reuses the same hook AttendanceButton uses, so no extra request when the
-  // user is also rendering a Going button on the same page (TanStack Query
-  // dedupes via the shared queryKey).
-  const { data: attendance } = useShowAttendance(isAuthenticated ? showId : 0)
-  const isGoing = attendance?.user_status === 'going'
   // PSY-513: track the author's pending-review field note so we can render
   // it optimistically alongside the public list (which filters out
   // pending_review). De-duped once the canonical row appears post-approval.
@@ -118,7 +111,6 @@ export function FieldNotesSection({ showId, showDate, artists = [] }: FieldNotes
                   createMutation.error
                 )}
                 resetSignal={submitGeneration}
-                defaultVerifiedAttendee={isGoing}
               />
             </div>
           ) : (

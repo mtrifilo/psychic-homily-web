@@ -84,7 +84,6 @@ export interface FieldNoteStructuredData {
   crowd_energy?: number | null
   notable_moments?: string | null
   setlist_spoiler: boolean
-  is_verified_attendee: boolean
 }
 
 export interface CreateFieldNoteInput {
@@ -95,11 +94,6 @@ export interface CreateFieldNoteInput {
   crowd_energy?: number
   notable_moments?: string
   setlist_spoiler?: boolean
-  // PSY-568: self-claim "I attended this show" captured at post time.
-  // Snapshot semantics — toggling Going after posting does NOT flip the
-  // badge on existing notes. Frontend pre-fills the checkbox from the
-  // user's current Going RSVP but the value sent here is authoritative.
-  verified_attendee?: boolean
 }
 
 // PSY-567: time-bounded edit / delete window for a field note's author.

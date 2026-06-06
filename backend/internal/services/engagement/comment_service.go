@@ -615,9 +615,9 @@ func (s *CommentService) GetThread(rootID uint) ([]*contracts.CommentResponse, e
 //
 // Field notes (PSY-567) carry an additional time-bounded gate: the author can
 // edit only within FieldNoteEditWindow of created_at, and may supply a
-// `structured_data` payload to atomically replace ratings / verified-attendee
-// / spoiler flag alongside the body change. Out-of-window edits return an
-// "edit window expired" error mapped to 403 at the handler.
+// `structured_data` payload to atomically replace ratings / spoiler flag
+// alongside the body change. Out-of-window edits return an "edit window
+// expired" error mapped to 403 at the handler.
 func (s *CommentService) UpdateComment(userID uint, commentID uint, req *contracts.UpdateCommentRequest) (*contracts.CommentResponse, error) {
 	if s.db == nil {
 		return nil, errors.New("database not initialized")
@@ -978,21 +978,14 @@ func (s *CommentService) CreateFieldNote(userID uint, req *contracts.CreateField
 		}
 	}
 
-	// Verified-attendee is a self-claim captured at post time (PSY-568).
-	// The frontend pre-fills the checkbox from the user's current Going RSVP
-	// but the value sent here is authoritative. Snapshot semantics: toggling
-	// Going after posting does NOT flip an existing field-note's badge.
-	// Posting is NEVER blocked by attendance status — the flag is opt-in.
-
 	// Build structured data
 	structuredData := contracts.FieldNoteStructuredData{
-		ShowArtistID:       req.ShowArtistID,
-		SongPosition:       req.SongPosition,
-		SoundQuality:       req.SoundQuality,
-		CrowdEnergy:        req.CrowdEnergy,
-		NotableMoments:     req.NotableMoments,
-		SetlistSpoiler:     req.SetlistSpoiler,
-		IsVerifiedAttendee: req.VerifiedAttendee,
+		ShowArtistID:   req.ShowArtistID,
+		SongPosition:   req.SongPosition,
+		SoundQuality:   req.SoundQuality,
+		CrowdEnergy:    req.CrowdEnergy,
+		NotableMoments: req.NotableMoments,
+		SetlistSpoiler: req.SetlistSpoiler,
 	}
 	sdJSON, err := json.Marshal(structuredData)
 	if err != nil {

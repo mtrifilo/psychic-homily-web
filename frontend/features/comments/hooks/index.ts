@@ -236,9 +236,9 @@ export function useUpdateComment() {
       entityType: string
       entityId: number
       // PSY-567: field-note edits send the full structured-data block so
-      // ratings / verified-attendee / spoiler are replaced atomically with
-      // the body. Backend ignores this for non-field-note comments, so the
-      // same hook stays usable from CommentCard. Undefined => body-only edit.
+      // ratings / spoiler are replaced atomically with the body. Backend
+      // ignores this for non-field-note comments, so the same hook stays
+      // usable from CommentCard. Undefined => body-only edit.
       structuredData?: FieldNoteStructuredData | null
     }) =>
       apiRequest<Comment>(commentEndpoints.UPDATE(commentId), {
