@@ -368,10 +368,10 @@ export function RequestDetail({ requestId }: RequestDetailProps) {
 
                   {/* Fulfillment info */}
                   {request.status === 'fulfilled' && (
-                    <div className="mt-4 rounded-lg border border-green-500/20 bg-green-500/5 p-3">
+                    <div className="mt-4 rounded-lg border border-success-foreground bg-success p-3">
                       <div className="flex items-center gap-2 text-sm">
-                        <CheckCircle className="h-4 w-4 text-green-600 dark:text-green-400" />
-                        <span className="font-medium text-green-700 dark:text-green-400">
+                        <CheckCircle className="h-4 w-4 text-success-foreground" />
+                        <span className="font-medium text-success-foreground">
                           Fulfilled
                         </span>
                       </div>

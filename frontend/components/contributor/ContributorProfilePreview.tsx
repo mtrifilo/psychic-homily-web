@@ -115,7 +115,7 @@ export function ContributorProfilePreview() {
                   Joined {formatDate(profile.joined_at)}
                 </span>
                 {!isPublic && (
-                  <span className="text-amber-600 dark:text-amber-400">
+                  <span className="text-pending-foreground">
                     Profile is private
                   </span>
                 )}

@@ -181,7 +181,7 @@ export function FieldNoteCard({
         {isVerified && (
           <Badge
             variant="secondary"
-            className="text-[10px] px-1.5 py-0 bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400"
+            className="text-[10px] px-1.5 py-0 bg-success text-success-foreground"
             data-testid="verified-badge"
           >
             <CheckCircle className="h-3 w-3 mr-0.5" />
@@ -201,7 +201,7 @@ export function FieldNoteCard({
         {comment.visibility === 'pending_review' && isOwner && (
           <Badge
             variant="outline"
-            className="text-[10px] px-1.5 py-0 gap-1 border-amber-700/50 text-amber-500"
+            className="text-[10px] px-1.5 py-0 gap-1 border-pending-foreground text-pending-foreground"
             data-testid="pending-review-badge"
           >
             <Clock className="h-2.5 w-2.5" />

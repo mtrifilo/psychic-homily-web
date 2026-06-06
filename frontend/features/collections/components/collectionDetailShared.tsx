@@ -81,7 +81,7 @@ export function MutationFeedback({
   const Icon = variant === 'success' ? Check : AlertCircle
   const tone =
     variant === 'success'
-      ? 'text-green-600 dark:text-green-400'
+      ? 'text-success-foreground'
       : 'text-destructive'
   return (
     <div
