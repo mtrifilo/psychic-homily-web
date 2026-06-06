@@ -19,6 +19,20 @@ describe('getTimezoneForState', () => {
     expect(getTimezoneForState('NY')).toBe('America/New_York')
   })
 
+  // PSY-986 regression: the map was synced to full US coverage. These states
+  // previously fell through to America/Phoenix (the live display bug).
+  it('covers US states beyond the original 7 (full-US sync)', () => {
+    expect(getTimezoneForState('IL')).toBe('America/Chicago')
+    expect(getTimezoneForState('MN')).toBe('America/Chicago')
+    expect(getTimezoneForState('WA')).toBe('America/Los_Angeles')
+    expect(getTimezoneForState('OR')).toBe('America/Los_Angeles')
+    expect(getTimezoneForState('MA')).toBe('America/New_York')
+    expect(getTimezoneForState('FL')).toBe('America/New_York')
+    expect(getTimezoneForState('UT')).toBe('America/Denver')
+    expect(getTimezoneForState('AK')).toBe('America/Anchorage')
+    expect(getTimezoneForState('HI')).toBe('Pacific/Honolulu')
+  })
+
   it('handles lowercase state codes', () => {
     expect(getTimezoneForState('az')).toBe('America/Phoenix')
     expect(getTimezoneForState('ca')).toBe('America/Los_Angeles')

@@ -41,7 +41,7 @@ function ShowRow({ show, artistId }: { show: ArtistShow; artistId: number }) {
           href={detailsHref}
           className="hover:text-primary hover:underline underline-offset-2"
         >
-          {formatShowDate(show.event_date, state)}
+          {formatShowDate(show.event_date, state, false, show.venue?.timezone)}
         </Link>
       </td>
       <td>
@@ -83,7 +83,7 @@ function ShowRow({ show, artistId }: { show: ArtistShow; artistId: number }) {
         )}
       </td>
       <td className="text-right whitespace-nowrap text-muted-foreground">
-        {formatShowTime(show.event_date, state)}
+        {formatShowTime(show.event_date, state, show.venue?.timezone)}
       </td>
     </tr>
   )

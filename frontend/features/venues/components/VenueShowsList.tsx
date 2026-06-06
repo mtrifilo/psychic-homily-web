@@ -23,6 +23,7 @@ interface VenueShowsListProps {
   venueName: string
   venueCity: string
   venueState: string
+  venueTimezone?: string | null
   venueAddress?: string | null
   venueVerified?: boolean
   className?: string
@@ -39,9 +40,17 @@ function ShowsLoader() {
   )
 }
 
-function ShowRow({ show, venueState }: { show: VenueShow; venueState: string }) {
-  // Per-show `state` falls back to the venue's state for date/time
-  // formatting when the show row didn't carry one.
+function ShowRow({
+  show,
+  venueState,
+  venueTimezone,
+}: {
+  show: VenueShow
+  venueState: string
+  venueTimezone?: string | null
+}) {
+  // Per-show `state` falls back to the venue's state for date/time formatting;
+  // the venue's timezone (when known) takes precedence over the state map (PSY-986).
   const state = show.state ?? venueState
   const detailsHref = `/shows/${show.slug || show.id}`
   return (
@@ -51,7 +60,7 @@ function ShowRow({ show, venueState }: { show: VenueShow; venueState: string }) 
           href={detailsHref}
           className="hover:text-primary hover:underline underline-offset-2"
         >
-          {formatShowDate(show.event_date, state)}
+          {formatShowDate(show.event_date, state, false, venueTimezone)}
         </Link>
       </td>
       <td className="text-muted-foreground">
@@ -72,7 +81,7 @@ function ShowRow({ show, venueState }: { show: VenueShow; venueState: string }) 
         )}
       </td>
       <td className="text-right whitespace-nowrap text-muted-foreground">
-        {formatShowTime(show.event_date, state)}
+        {formatShowTime(show.event_date, state, venueTimezone)}
       </td>
     </tr>
   )
@@ -82,11 +91,13 @@ function ShowsTable({
   shows,
   total,
   venueState,
+  venueTimezone,
   isPast,
 }: {
   shows: VenueShow[]
   total: number
   venueState: string
+  venueTimezone?: string | null
   isPast: boolean
 }) {
   return (
@@ -104,7 +115,12 @@ function ShowsTable({
         </thead>
         <tbody>
           {shows.map(show => (
-            <ShowRow key={show.id} show={show} venueState={venueState} />
+            <ShowRow
+              key={show.id}
+              show={show}
+              venueState={venueState}
+              venueTimezone={venueTimezone}
+            />
           ))}
         </tbody>
       </DenseTable>
@@ -127,6 +143,7 @@ export function VenueShowsList({
   venueName,
   venueCity,
   venueState,
+  venueTimezone,
   venueAddress,
   venueVerified,
   className,
@@ -179,6 +196,7 @@ export function VenueShowsList({
             shows={upcomingShows}
             total={upcoming.data?.total ?? upcomingShows.length}
             venueState={venueState}
+            venueTimezone={venueTimezone}
             isPast={false}
           />
         )}
@@ -202,6 +220,7 @@ export function VenueShowsList({
               shows={pastShows}
               total={past.data?.total ?? pastShows.length}
               venueState={venueState}
+              venueTimezone={venueTimezone}
               isPast={true}
             />
           )}

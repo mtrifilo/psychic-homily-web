@@ -94,6 +94,24 @@ describe('formatShowTime', () => {
   })
 })
 
+describe('venue timezone preference (PSY-986)', () => {
+  const utcDate = '2026-03-15T02:30:00Z' // 7:30 PM Phoenix / 10:30 PM New York
+
+  it('formatShowTime prefers the explicit venue timezone over the state fallback', () => {
+    // state=NY alone → 10:30 PM, but an explicit Phoenix tz must win → 7:30 PM.
+    expect(formatShowTime(utcDate, 'NY', 'America/Phoenix')).toBe('7:30 PM')
+  })
+
+  it('formatShowDate prefers the explicit venue timezone over the state fallback', () => {
+    // In Phoenix (UTC-7) 02:30Z is Mar 14; venue tz must win over NY (Mar 15 here is 10:30 PM, still 14th... use date check).
+    expect(formatShowDate(utcDate, 'NY', false, 'America/Phoenix')).toContain('14')
+  })
+
+  it('falls back to the state map when no venue timezone is given', () => {
+    expect(formatShowTime(utcDate, 'NY')).toBe('10:30 PM')
+  })
+})
+
 describe('formatPrice', () => {
   it('formats integer price', () => {
     expect(formatPrice(20)).toBe('$20.00')

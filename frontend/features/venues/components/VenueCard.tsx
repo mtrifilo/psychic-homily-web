@@ -155,6 +155,7 @@ export function VenueCard({ venue }: VenueCardProps) {
                   key={show.id}
                   show={show}
                   state={venue.state}
+                  timezone={venue.timezone}
                   showDetailsLink={
                     SHOW_LIST_FEATURE_POLICY.context.showDetailsLink
                   }
