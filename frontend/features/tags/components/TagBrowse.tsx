@@ -373,9 +373,14 @@ function TagDirectoryTable({ tags }: { tags: TagListItem[] }) {
 }
 
 /**
- * Category as a tinted TEXT label (not a pill). Reuses getCategoryColor's
- * token mapping but drops the bg/border classes so only the foreground tint
- * lands: genre = chart-6 (denim), locale = chart-8 (teal), other = muted.
+ * Category as a tinted TEXT label (not a pill). Derives the foreground tint
+ * from `getCategoryColor` — the single source of truth for the genre→chart-6 /
+ * locale→chart-8 / other→muted mapping — by keeping only its `text-*` token and
+ * dropping the bg/border classes. Deriving (rather than re-hardcoding the map)
+ * keeps the two surfaces from drifting. Contract: `getCategoryColor` must return
+ * exactly one `text-*` token; if that ever stops holding, this falls back to
+ * `text-muted-foreground` (and TagBrowse.test.tsx asserts the genre tint, so a
+ * regression surfaces in CI rather than silently).
  */
 function categoryTextTint(category: string): string {
   const text = getCategoryColor(category)
