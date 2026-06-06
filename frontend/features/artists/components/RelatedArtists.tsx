@@ -1004,7 +1004,7 @@ function SuggestSimilarArtist({ centerArtistId, centerArtistSlug, onClose }: Sug
       )}
 
       {success && (
-        <p className="mt-2 text-xs text-green-400">Relationship created with your upvote!</p>
+        <p className="mt-2 text-xs text-success-foreground">Relationship created with your upvote!</p>
       )}
     </div>
   )

@@ -82,7 +82,7 @@ function StatusBadge({ status }: StatusBadgeProps) {
       return (
         <Badge
           variant="secondary"
-          className="bg-amber-500/10 text-amber-700 dark:text-amber-400 border-amber-200 dark:border-amber-800"
+          className="bg-pending text-pending-foreground border-pending-foreground"
         >
           <Clock className="h-3 w-3 mr-1" />
           Pending
@@ -92,7 +92,7 @@ function StatusBadge({ status }: StatusBadgeProps) {
       return (
         <Badge
           variant="secondary"
-          className="bg-emerald-500/10 text-emerald-700 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800"
+          className="bg-success text-success-foreground border-success-foreground"
         >
           <CheckCircle2 className="h-3 w-3 mr-1" />
           Approved

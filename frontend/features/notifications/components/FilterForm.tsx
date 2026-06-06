@@ -529,7 +529,7 @@ export function FilterForm({ open, onOpenChange, filter }: FilterFormProps) {
           </div>
 
           {!hasCriteria && name.trim().length > 0 && (
-            <p className="text-xs text-amber-600 dark:text-amber-400">
+            <p className="text-xs text-pending-foreground">
               Add at least one criteria (artist, venue, label, tag, or price) to create this filter.
             </p>
           )}
