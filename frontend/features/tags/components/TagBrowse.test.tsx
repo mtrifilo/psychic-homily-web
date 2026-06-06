@@ -22,16 +22,18 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => mockSearchParamsStore,
 }))
 
-vi.mock('next/link', () => ({
-  default: React.forwardRef<
+vi.mock('next/link', () => {
+  const MockLink = React.forwardRef<
     HTMLAnchorElement,
     React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }
   >(({ href, children, ...props }, ref) => (
     <a href={href} ref={ref} {...props}>
       {children}
     </a>
-  )),
-}))
+  ))
+  MockLink.displayName = 'MockLink'
+  return { default: MockLink }
+})
 
 import { TagBrowse } from './TagBrowse'
 
