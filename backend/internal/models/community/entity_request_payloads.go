@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
 
 // PSY-869: typed payload schemas for the polymorphic entity_requests table.
@@ -151,6 +152,84 @@ var payloadRegistry = map[string]EntityRequestPayload{
 func IsValidEntityRequestType(entityType string) bool {
 	_, ok := payloadRegistry[entityType]
 	return ok
+}
+
+// ValidateEntityRequestPayload checks that raw decodes cleanly into the typed
+// struct for entityType AND that the type's required field(s) are present.
+// PSY-997: called at the queue-create trust boundary so a malformed payload
+// (unknown fields, wrong shape, missing required Name/Title) is rejected with a
+// 422 at submit time instead of being stored as junk in the queue and failing
+// confusingly when an admin later approves it.
+//
+// Returns nil for a well-formed payload. The error is descriptive of the
+// decode/required-field failure (it does not wrap an EntityRequestError —
+// the caller maps it to a 422). entityType MUST be a registered type
+// (IsValidEntityRequestType) — an unknown type returns an error.
+func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error {
+	switch entityType {
+	case EntityRequestArtist:
+		p, err := UnmarshalPayload[ArtistRequestPayload](raw)
+		if err != nil {
+			return err
+		}
+		return requireField("artist", "name", p.Name)
+	case EntityRequestRelease:
+		p, err := UnmarshalPayload[ReleaseRequestPayload](raw)
+		if err != nil {
+			return err
+		}
+		return requireField("release", "title", p.Title)
+	case EntityRequestLabel:
+		p, err := UnmarshalPayload[LabelRequestPayload](raw)
+		if err != nil {
+			return err
+		}
+		return requireField("label", "name", p.Name)
+	case EntityRequestVenue:
+		p, err := UnmarshalPayload[VenueRequestPayload](raw)
+		if err != nil {
+			return err
+		}
+		if err := requireField("venue", "name", p.Name); err != nil {
+			return err
+		}
+		if err := requireField("venue", "city", p.City); err != nil {
+			return err
+		}
+		return requireField("venue", "state", p.State)
+	case EntityRequestShow:
+		p, err := UnmarshalPayload[ShowRequestPayload](raw)
+		if err != nil {
+			return err
+		}
+		if err := requireField("show", "title", p.Title); err != nil {
+			return err
+		}
+		return requireField("show", "event_date", p.EventDate)
+	case EntityRequestFestival:
+		p, err := UnmarshalPayload[FestivalRequestPayload](raw)
+		if err != nil {
+			return err
+		}
+		if err := requireField("festival", "name", p.Name); err != nil {
+			return err
+		}
+		if err := requireField("festival", "start_date", p.StartDate); err != nil {
+			return err
+		}
+		return requireField("festival", "end_date", p.EndDate)
+	default:
+		return fmt.Errorf("unsupported entity request type: %q", entityType)
+	}
+}
+
+// requireField returns an error when a required string field is empty (after
+// trimming). Keeps ValidateEntityRequestPayload's required-field checks terse.
+func requireField(entityType, field, value string) error {
+	if strings.TrimSpace(value) == "" {
+		return fmt.Errorf("%s payload: %s is required", entityType, field)
+	}
+	return nil
 }
 
 // ValidEntityRequestTypes returns the registered entity_type discriminators.

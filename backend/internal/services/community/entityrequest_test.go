@@ -10,6 +10,7 @@ import (
 
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
+	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/testutil"
 )
 
@@ -312,6 +313,91 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListPending_FiltersAn
 	suite.Assert().Equal(int64(1), total)
 	suite.Require().Len(artistsOnly, 1)
 	suite.Assert().Equal(communitym.EntityRequestArtist, artistsOnly[0].EntityType)
+}
+
+// --- PSY-997: ListRequests (admin queue with state + source filters) --------
+
+// Default state (empty filter) returns pending only, mirroring ListPending,
+// and excludes approved rows.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_DefaultPendingExcludesApproved() {
+	newbie := suite.createUser("lr-newbie", tierNewUser, false)
+	admin := suite.createUser("lr-admin", tierNewUser, true)
+
+	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+		suite.marshalArtist("LR Pending"), communitym.EntityRequestSourceManual, false)
+	suite.Require().NoError(err)
+	_, err = suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
+		suite.marshalArtist("LR Approved"), communitym.EntityRequestSourceManual, false)
+	suite.Require().NoError(err)
+
+	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{})
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), total, "default filter is pending-only")
+	suite.Require().Len(rows, 1)
+	suite.Assert().Equal(communitym.EntityRequestStatePending, rows[0].DecisionState)
+}
+
+// Explicit state=approved returns the approved rows.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_StateApproved() {
+	admin := suite.createUser("lr-admin2", tierNewUser, true)
+	_, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
+		suite.marshalArtist("LR Approved 2"), communitym.EntityRequestSourceManual, false)
+	suite.Require().NoError(err)
+
+	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{
+		State: string(communitym.EntityRequestStateApproved),
+	})
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), total)
+	suite.Require().Len(rows, 1)
+	suite.Assert().Equal(communitym.EntityRequestStateApproved, rows[0].DecisionState)
+}
+
+// source_context filter narrows the pending queue to one origin.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_SourceContextFilter() {
+	newbie := suite.createUser("lr-src", tierNewUser, false)
+
+	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+		suite.marshalArtist("Manual one"), communitym.EntityRequestSourceManual, false)
+	suite.Require().NoError(err)
+	_, err = suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+		suite.marshalArtist("Paste one"), communitym.EntityRequestSourcePasteMode, false)
+	suite.Require().NoError(err)
+
+	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{
+		SourceContext: communitym.EntityRequestSourcePasteMode,
+	})
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(1), total)
+	suite.Require().Len(rows, 1)
+	suite.Assert().Equal(communitym.EntityRequestSourcePasteMode, rows[0].SourceContext)
+}
+
+// entity_type filter narrows by type; pagination bounds the result page while
+// total reflects the full filtered count.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_EntityTypeAndPagination() {
+	newbie := suite.createUser("lr-page", tierNewUser, false)
+
+	for i := 0; i < 3; i++ {
+		_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
+			suite.marshalArtist(fmt.Sprintf("Page artist %d", i)), communitym.EntityRequestSourceManual, false)
+		suite.Require().NoError(err)
+	}
+	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestVenue,
+		mustMarshalVenue(suite, "Page venue"), communitym.EntityRequestSourceManual, false)
+	suite.Require().NoError(err)
+
+	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{
+		EntityType: communitym.EntityRequestArtist,
+		Limit:      2,
+		Offset:     0,
+	})
+	suite.Require().NoError(err)
+	suite.Assert().Equal(int64(3), total, "total counts all filtered rows, not the page")
+	suite.Assert().Len(rows, 2, "page is bounded by limit")
+	for _, r := range rows {
+		suite.Assert().Equal(communitym.EntityRequestArtist, r.EntityType)
+	}
 }
 
 // strptr is a local pointer helper for the entity-request payload fixtures.

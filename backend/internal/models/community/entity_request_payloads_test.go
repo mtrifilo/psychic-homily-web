@@ -221,3 +221,36 @@ func TestIsValidEntityRequestType(t *testing.T) {
 	assert.False(t, IsValidEntityRequestType("podcast"))
 	assert.False(t, IsValidEntityRequestType(""))
 }
+
+// TestValidateEntityRequestPayload covers the PSY-997 create-time payload guard:
+// clean payloads pass; malformed shape / unknown fields / missing required
+// fields are rejected.
+func TestValidateEntityRequestPayload(t *testing.T) {
+	t.Run("valid artist", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris"}`)))
+	})
+	t.Run("valid venue with required city+state", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestVenue, json.RawMessage(`{"name":"Trunk Space","city":"Phoenix","state":"AZ"}`)))
+	})
+	t.Run("artist missing name", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":""}`)))
+	})
+	t.Run("artist blank-only name", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"   "}`)))
+	})
+	t.Run("unknown field rejected", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","sneaky":1}`)))
+	})
+	t.Run("venue missing required state", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestVenue, json.RawMessage(`{"name":"X","city":"Phoenix","state":""}`)))
+	})
+	t.Run("malformed json", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":`)))
+	})
+	t.Run("unsupported type", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload("podcast", json.RawMessage(`{}`)))
+	})
+	t.Run("festival requires dates", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","edition_year":2026,"start_date":"2026-01-01","end_date":""}`)))
+	})
+}
