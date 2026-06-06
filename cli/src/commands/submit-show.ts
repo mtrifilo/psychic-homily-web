@@ -347,7 +347,10 @@ export async function submitShows(
   // 5. Submit if confirmed
   if (!confirm) {
     display.info(`Dry run: ${creatablePlans.length} show${creatablePlans.length !== 1 ? "s" : ""} would be created. Use --confirm to submit.`);
-    return { plans, created: 0, failed: 0, skipped: creatablePlans.length + duplicateCount };
+    // Report would-be-creates under `created` so the batch summary mirrors the
+    // confirmed-run accounting and the other entity types (artists/venues/...);
+    // only genuinely existing (duplicate) or invalid shows count as skipped.
+    return { plans, created: creatablePlans.length, failed: 0, skipped: invalidCount + duplicateCount };
   }
 
   let created = 0;

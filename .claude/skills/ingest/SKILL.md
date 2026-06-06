@@ -13,17 +13,16 @@ Extract structured entity data from screenshots and import into Psychic Homily u
 By default, commands use whichever environment is set as default in `~/.psychic-homily/config.json`.
 
 **Shorthand:**
-- `/ingest dev ...` — targets local dev (`--env local`)
-- `/ingest stage ...` — targets staging (`--env staging`)
-- `/ingest prod ...` — targets production (`--env production`)
+- `/ingest dev ...` — targets local dev
+- `/ingest stage ...` — targets staging
+- `/ingest prod ...` — targets production
 - `/ingest ...` — uses default environment
 
-**Full form also works:**
-- `/ingest --env production ...`
-- `/ingest --env local ...`
-- `/ingest --env staging ...`
+**Full form also works:** `/ingest --env <name> ...`, where `<name>` is a configured environment (e.g. `/ingest --env production ...`).
 
-**Parsing rule:** If the first word of the argument is `dev`, `local`, `stage`, `staging`, `prod`, or `production`, treat it as the environment and strip it from the rest of the input. When an environment is specified (by shorthand or `--env`), append `--env <name>` to ALL `ph` commands in this workflow. Map `dev` → `local`, `stage` → `staging`, `prod` → `production`.
+**Parsing rule:** If the first word of the argument is `dev`, `local`, `stage`, `staging`, `prod`, or `production`, treat it as the environment and strip it from the rest of the input. When an environment is specified (by shorthand or `--env`), append `--env <name>` to ALL `ph` commands in this workflow.
+
+**Resolve the shorthand against the actual configured environment names — do not assume them.** The CLI does an exact-name match, so a wrong name fails hard with `Environment "X" not found`. Run `config show` (below) and map the shorthand to whichever configured env matches: `dev`/`local` → the local env, `stage`/`staging` → the staging env, `prod`/`production` → the production env. As of this writing the configured names are `local`, `stage`, and `production` — note the staging env is named **`stage`, not `staging`**, so `/ingest stage` → `--env stage`. Don't hardcode a name that `config show` doesn't list.
 
 Check current default with:
 ```bash
@@ -99,6 +98,8 @@ Set the `instagram` field on artist and venue batch items when a handle is ident
 ```
 
 **Matching handles to entities**: Use context clues — handle text usually resembles the artist/venue name (underscores for spaces, abbreviations). When a handle clearly maps to an entity in the post, include it. When ambiguous, skip it.
+
+**Post-author handle ≠ artist name is common — confirm, don't guess.** A post's author handle is frequently the performing artist's own social handle under a different moniker, even when it bears no resemblance to the band name (e.g. `@mercury_tracer` is the handle for the artist *Midwife*). When the author handle doesn't obviously match the named artist, do NOT silently create a separate entity for the handle, and do NOT silently discard it — ask the user whether the handle belongs to the artist. If it does, attach it as that artist's `instagram` rather than minting a second artist/venue.
 
 ### Step 2: Build Batch JSON
 

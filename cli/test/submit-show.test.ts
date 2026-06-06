@@ -437,8 +437,10 @@ describe("submitShows", () => {
     });
 
     const result = await submitShows(client, json, false); // dry-run
-    expect(result.created).toBe(0);
-    expect(result.skipped).toBe(1);
+    // Dry-run reports the would-be-created show under `created` (not `skipped`),
+    // mirroring the confirmed-run accounting and the other batch entity types.
+    expect(result.created).toBe(1);
+    expect(result.skipped).toBe(0);
     expect(postCalled).toBe(false);
   });
 
