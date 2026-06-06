@@ -210,6 +210,37 @@ export function formatTimeInTimezone(
 }
 
 /**
+ * Format a UTC date string as an ISO 8601 string carrying the venue's local UTC
+ * offset, e.g. "2026-03-14T20:00:00-07:00" for an 8 PM Phoenix show. Used for
+ * structured data (JSON-LD MusicEvent.startDate) so crawlers index the local
+ * start time, not the bare UTC instant. `timezone` must be a valid IANA name. (PSY-986)
+ */
+export function toZonedISOString(
+  utcDateString: string,
+  timezone: string
+): string {
+  const date = new Date(utcDateString)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZoneName: 'longOffset',
+  }).formatToParts(date)
+  const p = (type: string) => parts.find(x => x.type === type)?.value ?? ''
+  let hour = p('hour')
+  if (hour === '24') hour = '00' // Intl may render midnight as 24
+  // longOffset → "GMT-07:00" / "GMT+05:30" / "GMT" (UTC)
+  const match = p('timeZoneName').match(/GMT([+-]\d{2}:\d{2})/)
+  const offset = match ? match[1] : '+00:00'
+  return `${p('year')}-${p('month')}-${p('day')}T${hour}:${p('minute')}:${p('second')}${offset}`
+}
+
+/**
  * Parse an ISO date string into separate date and time strings for form inputs
  * Returns date in YYYY-MM-DD format and time in HH:MM format
  *

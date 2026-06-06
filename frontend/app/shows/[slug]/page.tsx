@@ -142,6 +142,7 @@ export default async function ShowPage({ params }: ShowPageProps) {
           address: showData.venues[0].address ?? undefined,
           city: showData.venues[0].city,
           state: showData.venues[0].state,
+          timezone: showData.venues[0].timezone,
         } : undefined,
         artists: showData.artists?.map(a => ({
           name: a.name,

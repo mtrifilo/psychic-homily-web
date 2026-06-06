@@ -6,6 +6,7 @@ import {
   formatDateInTimezone,
   formatTimeInTimezone,
   parseISOToDateAndTime,
+  toZonedISOString,
 } from './timeUtils'
 
 describe('getTimezoneForState', () => {
@@ -413,5 +414,27 @@ describe('error handling', () => {
     // NaN values will be returned for invalid dates
     expect(result.date).toContain('NaN')
     expect(result.time).toContain('NaN')
+  })
+})
+
+describe('toZonedISOString (PSY-986)', () => {
+  // 8 PM Phoenix on Mar 14 is stored as 03:00Z Mar 15.
+  const utc = '2026-03-15T03:00:00Z'
+
+  it('emits ISO 8601 with the venue offset (Phoenix, no DST)', () => {
+    expect(toZonedISOString(utc, 'America/Phoenix')).toBe('2026-03-14T20:00:00-07:00')
+  })
+
+  it('reflects DST for New York (EDT in March)', () => {
+    expect(toZonedISOString(utc, 'America/New_York')).toBe('2026-03-14T23:00:00-04:00')
+  })
+
+  it('handles non-US zones (Europe/Berlin)', () => {
+    // 03:00Z = 04:00 CET (Berlin is UTC+1 in mid-March, before EU DST starts).
+    expect(toZonedISOString(utc, 'Europe/Berlin')).toBe('2026-03-15T04:00:00+01:00')
+  })
+
+  it('uses +00:00 for UTC', () => {
+    expect(toZonedISOString(utc, 'UTC')).toBe('2026-03-15T03:00:00+00:00')
   })
 })
