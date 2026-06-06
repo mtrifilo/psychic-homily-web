@@ -510,7 +510,7 @@ export function AICollectionFiller({
           )}
 
           {warnings.length > 0 && (
-            <div className="text-xs text-amber-600 dark:text-amber-400 space-y-0.5">
+            <div className="text-xs text-pending-foreground space-y-0.5">
               {warnings.map((warning, i) => (
                 <div key={i}>{warning}</div>
               ))}
@@ -558,7 +558,7 @@ function ExtractedRow({
             {item.matched_artist_id && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+                className="text-[10px] px-1.5 py-0 shrink-0 bg-success text-success-foreground"
               >
                 <CheckCircle2 className="h-3 w-3 mr-0.5" />
                 MATCH
@@ -567,7 +567,7 @@ function ExtractedRow({
             {hasSuggestions && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-amber-500/10 text-amber-700 dark:text-amber-400"
+                className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground"
               >
                 <AlertTriangle className="h-3 w-3 mr-0.5" />
                 PICK
@@ -576,7 +576,7 @@ function ExtractedRow({
             {isNew && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive"
+                className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive text-destructive-foreground"
               >
                 <AlertCircle className="h-3 w-3 mr-0.5" />
                 NEW
@@ -610,14 +610,14 @@ function ExtractedRow({
 
       {hasSuggestions && (
         <div className="ml-0 mt-1.5 flex items-center gap-1.5 flex-wrap text-xs">
-          <span className="text-amber-600 dark:text-amber-400">
+          <span className="text-pending-foreground">
             Did you mean:
           </span>
           {item.artist_suggestions!.map(s => (
             <button
               key={s.id}
               type="button"
-              className="rounded-md border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-xs hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
+              className="rounded-md border border-border bg-secondary text-secondary-foreground px-2 py-0.5 text-xs hover:bg-secondary/80 transition-colors"
               onClick={() => onAcceptSuggestion(s)}
               data-testid="ai-collection-filler-row-pick"
             >
