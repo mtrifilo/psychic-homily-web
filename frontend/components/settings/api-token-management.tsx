@@ -56,11 +56,11 @@ function TokenRow({ token, onRevoke, isRevoking }: {
               Expired
             </Badge>
           ) : isExpiringSoon ? (
-            <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-0 text-xs">
+            <Badge variant="secondary" className="bg-pending text-pending-foreground border-0 text-xs">
               Expiring soon
             </Badge>
           ) : (
-            <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-0 text-xs">
+            <Badge variant="secondary" className="bg-success text-success-foreground border-0 text-xs">
               Active
             </Badge>
           )}
@@ -217,18 +217,18 @@ export function APITokenManagement() {
                       className="shrink-0"
                     >
                       {tokenCopied ? (
-                        <Check className="h-4 w-4 text-emerald-500" />
+                        <Check className="h-4 w-4 text-success-foreground" />
                       ) : (
                         <Copy className="h-4 w-4" />
                       )}
                     </Button>
                   </div>
-                  <div className="flex items-center gap-2 rounded-md bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+                  <div className="flex items-center gap-2 rounded-md bg-pending p-3 text-sm text-pending-foreground">
                     <AlertCircle className="h-4 w-4 shrink-0" />
                     <span>Store this token securely. It cannot be retrieved after you close this dialog.</span>
                   </div>
                   {tokenCopied && (
-                    <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+                    <div className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
                       <CheckCircle2 className="h-4 w-4" />
                       <span>Token copied to clipboard!</span>
                     </div>

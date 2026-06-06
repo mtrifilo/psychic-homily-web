@@ -140,12 +140,12 @@ export function SettingsPanel() {
               </div>
               
               {isEmailVerified ? (
-                <Badge variant="secondary" className="bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border-0">
+                <Badge variant="secondary" className="bg-success text-success-foreground border-0">
                   <CheckCircle2 className="mr-1 h-3 w-3" />
                   Verified
                 </Badge>
               ) : (
-                <Badge variant="secondary" className="bg-amber-500/10 text-amber-600 dark:text-amber-400 border-0">
+                <Badge variant="secondary" className="bg-pending text-pending-foreground border-0">
                   <AlertCircle className="mr-1 h-3 w-3" />
                   Not Verified
                 </Badge>
@@ -154,9 +154,9 @@ export function SettingsPanel() {
 
             {/* Verification Action */}
             {!isEmailVerified && (
-              <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+              <div className="rounded-lg border border-pending-foreground bg-pending p-4">
                 <div className="flex items-start gap-3">
-                  <AlertCircle className="h-5 w-5 text-amber-500 mt-0.5 shrink-0" />
+                  <AlertCircle className="h-5 w-5 text-pending-foreground mt-0.5 shrink-0" />
                   <div className="flex-1 space-y-3">
                     <div>
                       <p className="text-sm font-medium text-foreground">
@@ -168,7 +168,7 @@ export function SettingsPanel() {
                     </div>
 
                     {emailSent && sendVerificationEmail.isSuccess ? (
-                      <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+                      <div className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
                         <CheckCircle2 className="h-4 w-4" />
                         <span>Verification email sent! Check your inbox.</span>
                       </div>
@@ -203,9 +203,9 @@ export function SettingsPanel() {
 
             {/* Verified Success State */}
             {isEmailVerified && !user?.is_admin && (
-              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <div className="rounded-lg border border-success-foreground bg-success p-4">
                 <div className="flex items-center gap-3">
-                  <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+                  <CheckCircle2 className="h-5 w-5 text-success-foreground" />
                   <div>
                     <p className="text-sm font-medium text-foreground">
                       Your email is verified
@@ -298,7 +298,7 @@ export function SettingsPanel() {
             )}
 
             {exportData.isSuccess && (
-              <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+              <div className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
                 <CheckCircle2 className="h-4 w-4" />
                 <span>Data exported successfully! Check your downloads folder.</span>
               </div>
@@ -348,7 +348,7 @@ export function SettingsPanel() {
                           className="shrink-0"
                         >
                           {tokenCopied ? (
-                            <Check className="h-4 w-4 text-emerald-500" />
+                            <Check className="h-4 w-4 text-success-foreground" />
                           ) : (
                             <Copy className="h-4 w-4" />
                           )}
