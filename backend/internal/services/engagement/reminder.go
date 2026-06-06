@@ -15,6 +15,7 @@ import (
 	"psychic-homily-backend/internal/config"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/utils"
 )
 
 // Default reminder check interval (30 minutes)
@@ -28,6 +29,7 @@ type reminderRow struct {
 	ShowTitle string
 	ShowSlug  string
 	EventDate time.Time
+	State     *string // show state — fallback for venue-local rendering (PSY-996)
 }
 
 // ReminderService sends email reminders for saved shows ~24h before the event
@@ -108,7 +110,8 @@ func (s *ReminderService) runReminderCycle() {
 			u.email,
 			s.title AS show_title,
 			COALESCE(s.slug, CAST(s.id AS TEXT)) AS show_slug,
-			s.event_date
+			s.event_date,
+			s.state
 		FROM user_bookmarks ub
 		JOIN shows s ON s.id = ub.entity_id
 		JOIN users u ON u.id = ub.user_id
@@ -136,8 +139,13 @@ func (s *ReminderService) runReminderCycle() {
 
 	s.logger.Info("found shows to send reminders for", "count", len(rows))
 
-	// Collect venue names for each show
-	venueCache := make(map[uint][]string)
+	// Collect venue names + the first venue's timezone for each show.
+	type venueInfo struct {
+		names    []string
+		timezone *string
+		state    string
+	}
+	venueCache := make(map[uint]venueInfo)
 
 	sentCount := 0
 	errorCount := 0
@@ -145,14 +153,36 @@ func (s *ReminderService) runReminderCycle() {
 	for _, row := range rows {
 		// Fetch venues if not cached
 		if _, ok := venueCache[row.ShowID]; !ok {
-			var venueNames []string
+			type vRow struct {
+				Name     string
+				Timezone *string
+				State    string
+			}
+			var vRows []vRow
 			s.db.Raw(`
-				SELECT v.name FROM venues v
+				SELECT v.name, v.timezone, v.state FROM venues v
 				JOIN show_venues sv ON sv.venue_id = v.id
 				WHERE sv.show_id = ?
-			`, row.ShowID).Scan(&venueNames)
-			venueCache[row.ShowID] = venueNames
+			`, row.ShowID).Scan(&vRows)
+			info := venueInfo{}
+			for i, v := range vRows {
+				info.names = append(info.names, v.Name)
+				if i == 0 {
+					info.timezone = v.Timezone
+					info.state = v.State
+				}
+			}
+			venueCache[row.ShowID] = info
 		}
+		info := venueCache[row.ShowID]
+
+		// Render the event time in the venue's local zone (PSY-996): prefer the
+		// first venue's timezone, fall back to the venue/show state.
+		locState := info.state
+		if locState == "" && row.State != nil {
+			locState = *row.State
+		}
+		localizedEvent := row.EventDate.In(utils.EventLocation(info.timezone, locState))
 
 		showURL := fmt.Sprintf("%s/shows/%s", s.frontendURL, row.ShowSlug)
 		unsubscribeURL := GenerateUnsubscribeURL(s.frontendURL, row.UserID, s.jwtSecret)
@@ -162,8 +192,8 @@ func (s *ReminderService) runReminderCycle() {
 			row.ShowTitle,
 			showURL,
 			unsubscribeURL,
-			row.EventDate,
-			venueCache[row.ShowID],
+			localizedEvent,
+			info.names,
 		)
 		if err != nil {
 			s.logger.Error("failed to send show reminder email",

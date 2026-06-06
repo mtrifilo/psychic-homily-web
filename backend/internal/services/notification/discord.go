@@ -19,6 +19,26 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
+// showResponseLocation resolves the event-time location for a ShowResponse from
+// its first venue's timezone, falling back to the show's state. Show
+// notifications previously formatted the raw UTC instant, so an evening US show
+// (e.g. 8 PM Central, stored as 01:00Z the next day) rendered as "1:00 AM" on
+// the wrong date. (PSY-996)
+func showResponseLocation(show *contracts.ShowResponse) *time.Location {
+	if len(show.Venues) > 0 {
+		return utils.EventLocation(show.Venues[0].Timezone, show.Venues[0].State)
+	}
+	return utils.EventLocation(nil, derefString(show.State))
+}
+
+// derefString returns the pointed-to string, or "" when nil.
+func derefString(s *string) string {
+	if s != nil {
+		return *s
+	}
+	return ""
+}
+
 // Discord embed colors
 const (
 	ColorGreen  = 0x00FF00 // New user signups, show approved
@@ -126,7 +146,7 @@ func (s *DiscordService) NotifyNewShow(show *contracts.ShowResponse, submitterEm
 
 	embed := DiscordEmbed{
 		Title:       fmt.Sprintf("New Show: %s", show.Title),
-		Description: fmt.Sprintf("Event Date: %s", show.EventDate.Format("Jan 2, 2006 3:04 PM")),
+		Description: fmt.Sprintf("Event Date: %s", show.EventDate.In(showResponseLocation(show)).Format("Jan 2, 2006 3:04 PM")),
 		Color:       ColorBlue,
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 		Fields:      fields,
@@ -178,7 +198,7 @@ func (s *DiscordService) NotifyShowApproved(show *contracts.ShowResponse) {
 		Timestamp: time.Now().UTC().Format(time.RFC3339),
 		Fields: []DiscordEmbedField{
 			{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
-			{Name: "Event Date", Value: show.EventDate.Format("Jan 2, 2006"), Inline: true},
+			{Name: "Event Date", Value: show.EventDate.In(showResponseLocation(show)).Format("Jan 2, 2006"), Inline: true},
 			{Name: "Venue(s)", Value: venues, Inline: false},
 			{Name: "Actions", Value: viewLink, Inline: false},
 		},
@@ -203,7 +223,7 @@ func (s *DiscordService) NotifyShowRejected(show *contracts.ShowResponse, reason
 		Timestamp:   time.Now().UTC().Format(time.RFC3339),
 		Fields: []DiscordEmbedField{
 			{Name: "Show ID", Value: fmt.Sprintf("%d", show.ID), Inline: true},
-			{Name: "Event Date", Value: show.EventDate.Format("Jan 2, 2006"), Inline: true},
+			{Name: "Event Date", Value: show.EventDate.In(showResponseLocation(show)).Format("Jan 2, 2006"), Inline: true},
 			{Name: "Venue(s)", Value: venues, Inline: false},
 			{Name: "Actions", Value: adminLink, Inline: false},
 		},
@@ -233,7 +253,7 @@ func (s *DiscordService) NotifyShowReport(report *communitym.ShowReport, reporte
 	eventDate := "Unknown Date"
 	if report.Show.ID != 0 {
 		showTitle = report.Show.Title
-		eventDate = report.Show.EventDate.Format("Jan 2, 2006")
+		eventDate = report.Show.EventDate.In(utils.EventLocation(nil, derefString(report.Show.State))).Format("Jan 2, 2006")
 	}
 
 	fields := []DiscordEmbedField{
