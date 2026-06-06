@@ -140,5 +140,17 @@ describe("config", () => {
     test("returns null for an empty configured list", () => {
       expect(suggestEnvironment("stage", [])).toBeNull();
     });
+
+    test("returns null for empty input (does not spuriously match)", () => {
+      // Every string contains "", so without the guard the substring check
+      // would return the first configured name for empty input.
+      expect(suggestEnvironment("", configured)).toBeNull();
+    });
+
+    test("ignores an empty-string configured name", () => {
+      // A hand-edited config with a "" env key must not become the suggestion
+      // (target.includes("") is always true).
+      expect(suggestEnvironment("stage", ["", "stage"])).toBe("stage");
+    });
   });
 });

@@ -49,20 +49,26 @@ export function resolveEnvironment(
 
 /**
  * Suggest the configured environment name closest to a mistyped one, for
- * "did you mean" error hints. Prefers a substring match in either direction
- * (catches `staging`↔`stage`, `prod`↔`production`), then falls back to the
- * nearest name by edit distance within a small threshold. Returns null when
- * nothing is close enough to suggest.
+ * "did you mean" error hints. First tries a substring match where one name
+ * contains the other (catches cases like `prod` -> `production`), then falls
+ * back to the nearest name by edit distance — which is what catches cases like
+ * `staging` -> `stage` (distance 3) that are NOT substrings of each other.
+ * Returns null for empty input or when nothing is close enough.
  */
 export function suggestEnvironment(
   input: string,
   configured: string[],
 ): string | null {
   const target = input.toLowerCase();
+  // Guard empty input: every string contains "", so the substring check below
+  // would otherwise spuriously "match" the first configured name.
+  if (!target) return null;
 
   const substringMatch = configured.find((name) => {
     const lower = name.toLowerCase();
-    return lower.includes(target) || target.includes(lower);
+    // Skip empty configured names — "".includes/target.includes("") would
+    // spuriously match every input (only reachable via a hand-edited config).
+    return lower !== "" && (lower.includes(target) || target.includes(lower));
   });
   if (substringMatch) return substringMatch;
 
