@@ -257,18 +257,6 @@ func (suite *FieldNoteIntegrationTestSuite) addArtistToShow(showID, artistID uin
 	suite.Require().NoError(err)
 }
 
-func (suite *FieldNoteIntegrationTestSuite) markGoing(userID, showID uint, createdAt time.Time) {
-	bookmark := &engagementm.UserBookmark{
-		UserID:     userID,
-		EntityType: engagementm.BookmarkEntityShow,
-		EntityID:   showID,
-		Action:     engagementm.BookmarkActionGoing,
-		CreatedAt:  createdAt,
-	}
-	err := suite.db.Create(bookmark).Error
-	suite.Require().NoError(err)
-}
-
 // insertFieldNote creates a field note directly in the DB, bypassing rate limiting.
 func (suite *FieldNoteIntegrationTestSuite) insertFieldNote(userID, showID uint, body string, sd *contracts.FieldNoteStructuredData) *engagementm.Comment {
 	svc := suite.commentService
@@ -368,7 +356,6 @@ func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_MinimalFields() 
 	suite.Nil(sd.CrowdEnergy)
 	suite.Nil(sd.NotableMoments)
 	suite.False(sd.SetlistSpoiler)
-	suite.False(sd.IsVerifiedAttendee)
 }
 
 func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_MarkdownRendered() {
@@ -485,138 +472,6 @@ func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_ValidSoundQualit
 		suite.Require().NoError(err, "sound_quality=%d should be valid", val)
 		suite.NotZero(fieldNote.ID)
 	}
-}
-
-// =============================================================================
-// Group 3: Verified Attendee Self-Claim (PSY-568)
-// =============================================================================
-// Verified-attendee is a user-supplied self-claim captured at post time.
-// Snapshot semantics: toggling Going after posting does NOT flip the badge.
-// Posting is NEVER blocked by attendance status — the flag is opt-in.
-
-func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_VerifiedAttendeeTrue() {
-	user := suite.createTestUser()
-	showID := suite.createPastShow("Self Claim Show", 5)
-
-	fieldNote, err := suite.commentService.CreateFieldNote(user.ID, &contracts.CreateFieldNoteRequest{
-		ShowID:           showID,
-		Body:             "I was there.",
-		VerifiedAttendee: true,
-	})
-	suite.Require().NoError(err)
-
-	var sd contracts.FieldNoteStructuredData
-	err = json.Unmarshal(*fieldNote.StructuredData, &sd)
-	suite.Require().NoError(err)
-	suite.True(sd.IsVerifiedAttendee, "verified_attendee=true should be persisted")
-}
-
-func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_VerifiedAttendeeFalse() {
-	user := suite.createTestUser()
-	showID := suite.createPastShow("Skipped Show", 5)
-
-	fieldNote, err := suite.commentService.CreateFieldNote(user.ID, &contracts.CreateFieldNoteRequest{
-		ShowID:           showID,
-		Body:             "Heard about this one second-hand.",
-		VerifiedAttendee: false,
-	})
-	suite.Require().NoError(err)
-
-	var sd contracts.FieldNoteStructuredData
-	err = json.Unmarshal(*fieldNote.StructuredData, &sd)
-	suite.Require().NoError(err)
-	suite.False(sd.IsVerifiedAttendee, "verified_attendee=false should be persisted")
-}
-
-func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_VerifiedAttendeeRoundTrips() {
-	user := suite.createTestUser()
-	artistID := suite.createTestArtist("Round Trip Artist")
-	showID := suite.createPastShow("Round Trip Show", 3)
-	suite.addArtistToShow(showID, artistID, 0)
-
-	soundQuality := 5
-	crowdEnergy := 4
-	songPosition := 7
-	notableMoments := "Best encore in years"
-
-	fieldNote, err := suite.commentService.CreateFieldNote(user.ID, &contracts.CreateFieldNoteRequest{
-		ShowID:           showID,
-		Body:             "All-fields round-trip with verified_attendee=true.",
-		ShowArtistID:     &artistID,
-		SongPosition:     &songPosition,
-		SoundQuality:     &soundQuality,
-		CrowdEnergy:      &crowdEnergy,
-		NotableMoments:   &notableMoments,
-		SetlistSpoiler:   true,
-		VerifiedAttendee: true,
-	})
-	suite.Require().NoError(err)
-
-	// Re-fetch from DB to confirm persistence (not just the create-response shape).
-	var stored engagementm.Comment
-	err = suite.db.First(&stored, fieldNote.ID).Error
-	suite.Require().NoError(err)
-	suite.Require().NotNil(stored.StructuredData)
-
-	var sd contracts.FieldNoteStructuredData
-	err = json.Unmarshal(*stored.StructuredData, &sd)
-	suite.Require().NoError(err)
-	suite.Equal(&artistID, sd.ShowArtistID)
-	suite.Equal(&songPosition, sd.SongPosition)
-	suite.Equal(&soundQuality, sd.SoundQuality)
-	suite.Equal(&crowdEnergy, sd.CrowdEnergy)
-	suite.Equal(&notableMoments, sd.NotableMoments)
-	suite.True(sd.SetlistSpoiler)
-	suite.True(sd.IsVerifiedAttendee, "verified_attendee should round-trip through JSONB")
-}
-
-func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_PostingNeverBlocked_NoGoing() {
-	// Self-claim, NOT a gate: a user with no Going RSVP can still post —
-	// with or without the verified-attendee flag.
-	user := suite.createTestUser()
-	showID := suite.createPastShow("No Gate Show", 4)
-
-	fieldNote, err := suite.commentService.CreateFieldNote(user.ID, &contracts.CreateFieldNoteRequest{
-		ShowID:           showID,
-		Body:             "Posting works without any Going record.",
-		VerifiedAttendee: true, // user self-claims even though no RSVP
-	})
-	suite.Require().NoError(err)
-	suite.NotZero(fieldNote.ID)
-
-	var sd contracts.FieldNoteStructuredData
-	err = json.Unmarshal(*fieldNote.StructuredData, &sd)
-	suite.Require().NoError(err)
-	suite.True(sd.IsVerifiedAttendee, "self-claim is honored independently of Going RSVP")
-}
-
-func (suite *FieldNoteIntegrationTestSuite) TestCreateFieldNote_SnapshotSemantics_BookmarkIgnored() {
-	// Flipping a Going RSVP on the user does NOT change the stored
-	// verified-attendee value on a previously-posted field note. The DB
-	// row is the snapshot; this test asserts the value persists exactly
-	// as supplied at post time, regardless of subsequent bookmark state.
-	user := suite.createTestUser()
-	showID := suite.createPastShow("Snapshot Show", 6)
-
-	// Post WITHOUT Going RSVP, claim attended=false
-	fieldNote, err := suite.commentService.CreateFieldNote(user.ID, &contracts.CreateFieldNoteRequest{
-		ShowID:           showID,
-		Body:             "Not claiming attendance.",
-		VerifiedAttendee: false,
-	})
-	suite.Require().NoError(err)
-
-	// Now mark Going AFTER posting
-	suite.markGoing(user.ID, showID, time.Now())
-
-	// Re-fetch the field note: the flag should still be false (snapshot)
-	var stored engagementm.Comment
-	err = suite.db.First(&stored, fieldNote.ID).Error
-	suite.Require().NoError(err)
-	var sd contracts.FieldNoteStructuredData
-	err = json.Unmarshal(*stored.StructuredData, &sd)
-	suite.Require().NoError(err)
-	suite.False(sd.IsVerifiedAttendee, "snapshot semantics: post-hoc Going RSVP must not flip the badge")
 }
 
 // =============================================================================
@@ -761,11 +616,10 @@ func (suite *FieldNoteIntegrationTestSuite) TestListFieldNotesForShow_Structured
 	ce := 5
 	moments := "Epic guitar solo"
 	suite.insertFieldNote(user.ID, showID, "Note with SD", &contracts.FieldNoteStructuredData{
-		SoundQuality:       &sq,
-		CrowdEnergy:        &ce,
-		NotableMoments:     &moments,
-		SetlistSpoiler:     true,
-		IsVerifiedAttendee: true,
+		SoundQuality:   &sq,
+		CrowdEnergy:    &ce,
+		NotableMoments: &moments,
+		SetlistSpoiler: true,
 	})
 
 	result, err := suite.commentService.ListFieldNotesForShow(showID, 20, 0)
@@ -781,7 +635,6 @@ func (suite *FieldNoteIntegrationTestSuite) TestListFieldNotesForShow_Structured
 	suite.Require().NotNil(sd.NotableMoments)
 	suite.Equal(moments, *sd.NotableMoments)
 	suite.True(sd.SetlistSpoiler)
-	suite.True(sd.IsVerifiedAttendee)
 }
 
 // =============================================================================
@@ -887,16 +740,15 @@ func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_OutOfWindow_403(
 
 func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_StructuredDataReplaced() {
 	// PSY-567 AC: edit must allow updating structured fields (ratings,
-	// verified-attendee, spoiler) as a unit, not body-only.
+	// spoiler) as a unit, not body-only.
 	user := suite.createTestUser()
 	showID := suite.createPastShow("SD Edit", 2)
 	sq := 3
 	ce := 3
 	note := suite.insertFieldNote(user.ID, showID, "first take", &contracts.FieldNoteStructuredData{
-		SoundQuality:       &sq,
-		CrowdEnergy:        &ce,
-		SetlistSpoiler:     false,
-		IsVerifiedAttendee: false,
+		SoundQuality:   &sq,
+		CrowdEnergy:    &ce,
+		SetlistSpoiler: false,
 	})
 
 	newSQ := 5
@@ -904,10 +756,9 @@ func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_StructuredDataRe
 	updated, err := suite.commentService.UpdateComment(user.ID, note.ID, &contracts.UpdateCommentRequest{
 		Body: "revised take",
 		StructuredData: &contracts.FieldNoteStructuredData{
-			SoundQuality:       &newSQ,
-			CrowdEnergy:        &newCE,
-			SetlistSpoiler:     true,
-			IsVerifiedAttendee: true,
+			SoundQuality:   &newSQ,
+			CrowdEnergy:    &newCE,
+			SetlistSpoiler: true,
 		},
 	})
 	suite.Require().NoError(err)
@@ -919,7 +770,6 @@ func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_StructuredDataRe
 	suite.Equal(&newSQ, sd.SoundQuality)
 	suite.Equal(&newCE, sd.CrowdEnergy)
 	suite.True(sd.SetlistSpoiler)
-	suite.True(sd.IsVerifiedAttendee)
 }
 
 func (suite *FieldNoteIntegrationTestSuite) TestUpdateFieldNote_StructuredDataInvalidRange() {

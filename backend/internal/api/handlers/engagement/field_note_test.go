@@ -23,7 +23,7 @@ func testFieldNoteHandler() *FieldNoteHandler {
 
 func makeFieldNoteResponse(id uint, showID uint, userID uint) *contracts.CommentResponse {
 	sd := contracts.FieldNoteStructuredData{
-		IsVerifiedAttendee: true,
+		SetlistSpoiler: true,
 	}
 	sdBytes, _ := json.Marshal(sd)
 	raw := json.RawMessage(sdBytes)
