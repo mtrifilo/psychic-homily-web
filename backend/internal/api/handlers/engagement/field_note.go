@@ -53,13 +53,13 @@ func NewFieldNoteHandler(writer FieldNoteWriter, reader FieldNoteReader, auditLo
 type CreateFieldNoteRequest struct {
 	ShowID string `path:"show_id" doc:"Show ID" example:"42"`
 	Body   struct {
-		Body             string  `json:"body" doc:"Field note body (Markdown)" example:"The sound was incredible tonight."`
-		ShowArtistID     *uint   `json:"show_artist_id,omitempty" required:"false" doc:"Artist ID on the show bill" example:"5"`
-		SongPosition     *int    `json:"song_position,omitempty" required:"false" doc:"Position in the setlist (1-based)" example:"3"`
-		SoundQuality     *int    `json:"sound_quality,omitempty" required:"false" doc:"Sound quality rating 1-5" example:"4"`
-		CrowdEnergy      *int    `json:"crowd_energy,omitempty" required:"false" doc:"Crowd energy rating 1-5" example:"5"`
-		NotableMoments   *string `json:"notable_moments,omitempty" required:"false" doc:"Notable moments description" example:"Surprise cover of Ziggy Stardust"`
-		SetlistSpoiler   bool    `json:"setlist_spoiler" required:"false" doc:"Whether this note contains setlist spoilers" example:"false"`
+		Body           string  `json:"body" doc:"Field note body (Markdown)" example:"The sound was incredible tonight."`
+		ShowArtistID   *uint   `json:"show_artist_id,omitempty" required:"false" doc:"Artist ID on the show bill" example:"5"`
+		SongPosition   *int    `json:"song_position,omitempty" required:"false" doc:"Position in the setlist (1-based)" example:"3"`
+		SoundQuality   *int    `json:"sound_quality,omitempty" required:"false" doc:"Sound quality rating 1-5" example:"4"`
+		CrowdEnergy    *int    `json:"crowd_energy,omitempty" required:"false" doc:"Crowd energy rating 1-5" example:"5"`
+		NotableMoments *string `json:"notable_moments,omitempty" required:"false" doc:"Notable moments description" example:"Surprise cover of Ziggy Stardust"`
+		SetlistSpoiler bool    `json:"setlist_spoiler" required:"false" doc:"Whether this note contains setlist spoilers" example:"false"`
 	}
 }
 
@@ -85,14 +85,14 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 	}
 
 	serviceReq := &contracts.CreateFieldNoteRequest{
-		ShowID:           uint(showID),
-		Body:             req.Body.Body,
-		ShowArtistID:     req.Body.ShowArtistID,
-		SongPosition:     req.Body.SongPosition,
-		SoundQuality:     req.Body.SoundQuality,
-		CrowdEnergy:      req.Body.CrowdEnergy,
-		NotableMoments:   req.Body.NotableMoments,
-		SetlistSpoiler:   req.Body.SetlistSpoiler,
+		ShowID:         uint(showID),
+		Body:           req.Body.Body,
+		ShowArtistID:   req.Body.ShowArtistID,
+		SongPosition:   req.Body.SongPosition,
+		SoundQuality:   req.Body.SoundQuality,
+		CrowdEnergy:    req.Body.CrowdEnergy,
+		NotableMoments: req.Body.NotableMoments,
+		SetlistSpoiler: req.Body.SetlistSpoiler,
 	}
 
 	fieldNote, err := h.writer.CreateFieldNote(user.ID, serviceReq)

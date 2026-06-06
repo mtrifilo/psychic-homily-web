@@ -47,10 +47,10 @@ type CreateFieldNoteRequest struct {
 
 // FieldNoteStructuredData represents the JSONB structured data stored with field note comments.
 type FieldNoteStructuredData struct {
-	ShowArtistID       *uint   `json:"show_artist_id,omitempty"`
-	SongPosition       *int    `json:"song_position,omitempty"`
-	SoundQuality       *int    `json:"sound_quality,omitempty"`
-	CrowdEnergy        *int    `json:"crowd_energy,omitempty"`
+	ShowArtistID   *uint   `json:"show_artist_id,omitempty"`
+	SongPosition   *int    `json:"song_position,omitempty"`
+	SoundQuality   *int    `json:"sound_quality,omitempty"`
+	CrowdEnergy    *int    `json:"crowd_energy,omitempty"`
 	NotableMoments *string `json:"notable_moments,omitempty"`
 	SetlistSpoiler bool    `json:"setlist_spoiler"`
 }
