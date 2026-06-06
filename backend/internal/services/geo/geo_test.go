@@ -54,6 +54,37 @@ func TestResolveReturnsCoordinates(t *testing.T) {
 	}
 }
 
+// TestLookupPointers covers the shared seam every venue write path relies on:
+// nil pointers on a miss or nil geocoder (→ SQL NULL → legacy fallback), and
+// non-nil pointers on a hit.
+func TestLookupPointers(t *testing.T) {
+	g := Default()
+
+	t.Run("hit returns non-nil pointers", func(t *testing.T) {
+		lat, lng, tz := LookupPointers(g, "Phoenix", "AZ", "")
+		if lat == nil || lng == nil || tz == nil {
+			t.Fatalf("expected non-nil pointers, got lat=%v lng=%v tz=%v", lat, lng, tz)
+		}
+		if *tz != "America/Phoenix" {
+			t.Errorf("tz = %q, want America/Phoenix", *tz)
+		}
+	})
+
+	t.Run("miss returns all nil", func(t *testing.T) {
+		lat, lng, tz := LookupPointers(g, "Nowherecityville", "ZZ", "")
+		if lat != nil || lng != nil || tz != nil {
+			t.Errorf("expected all nil on miss, got lat=%v lng=%v tz=%v", lat, lng, tz)
+		}
+	})
+
+	t.Run("nil geocoder returns all nil", func(t *testing.T) {
+		lat, lng, tz := LookupPointers(nil, "Phoenix", "AZ", "")
+		if lat != nil || lng != nil || tz != nil {
+			t.Errorf("expected all nil with nil geocoder, got lat=%v lng=%v tz=%v", lat, lng, tz)
+		}
+	})
+}
+
 func TestFoldKey(t *testing.T) {
 	cases := map[string]string{
 		"  Saint-Louis ": "saint louis",
