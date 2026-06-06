@@ -246,6 +246,10 @@ export function AICollectionFiller({
   const [requestedRows, setRequestedRows] = useState<
     Record<string, RequestOutcome>
   >({})
+  // Per-row error message for a failed entity-request POST (403 / 422 / 5xx /
+  // network). Surfaced inline on the row so the action isn't a silent no-op;
+  // the create/queue button stays so the user can retry.
+  const [requestErrors, setRequestErrors] = useState<Record<string, string>>({})
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { user } = useAuthContext()
@@ -367,8 +371,10 @@ export function AICollectionFiller({
         setExtractionResult(response.data)
         setWarnings(response.warnings || [])
         // A fresh extraction replaces the row matrix, so any prior
-        // Requested/Queued chips no longer correspond to a visible row.
+        // Requested/Queued chips + row errors no longer correspond to a
+        // visible row.
         setRequestedRows({})
+        setRequestErrors({})
       }
     }
 
@@ -469,11 +475,27 @@ export function AICollectionFiller({
   // backend's decision_state, not assumed) so the affordance can't be
   // double-fired.
   const requestRow = (rowKey: string, name: string, confirmed: boolean) => {
+    // Clear any prior error on this row so a retry starts clean.
+    setRequestErrors(prev => {
+      if (!(rowKey in prev)) return prev
+      const next = { ...prev }
+      delete next[rowKey]
+      return next
+    })
     queueRequest.mutate(
       { rowKey, entityType: 'artist', name, confirmed },
       {
         onSuccess: ({ outcome }) => {
           setRequestedRows(prev => ({ ...prev, [rowKey]: outcome }))
+        },
+        onError: (err: unknown) => {
+          setRequestErrors(prev => ({
+            ...prev,
+            [rowKey]:
+              err instanceof Error
+                ? err.message
+                : 'Failed to submit. Please try again.',
+          }))
         },
       }
     )
@@ -647,6 +669,7 @@ export function AICollectionFiller({
                     }
                     affordance={affordance}
                     requestOutcome={requestedRows[rowKey]}
+                    requestError={requestErrors[rowKey]}
                     isRequesting={
                       queueRequest.isPending &&
                       queueRequest.variables?.rowKey === rowKey
@@ -687,6 +710,7 @@ function ExtractedRow({
   alreadyStaged,
   affordance,
   requestOutcome,
+  requestError,
   isRequesting,
   onAdd,
   onAcceptSuggestion,
@@ -699,6 +723,8 @@ function ExtractedRow({
   affordance: CreateAffordance
   /** Set once this row's entity-request resolves (Requested vs Queued chip). */
   requestOutcome: RequestOutcome | undefined
+  /** Set if this row's entity-request POST failed (inline error). */
+  requestError: string | undefined
   /** True while THIS row's request is in flight. */
   isRequesting: boolean
   onAdd: () => void
@@ -879,6 +905,17 @@ function ExtractedRow({
             Skip
           </button>
         </div>
+      )}
+
+      {/* Inline error for a failed create/queue POST — the button stays so the
+          user can retry; never a silent no-op. */}
+      {requestError && (
+        <p
+          className="ml-0 mt-1.5 text-xs text-destructive"
+          data-testid="ai-collection-filler-row-request-error"
+        >
+          {requestError}
+        </p>
       )}
     </div>
   )

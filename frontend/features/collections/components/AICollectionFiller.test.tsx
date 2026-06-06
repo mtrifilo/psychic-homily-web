@@ -550,6 +550,32 @@ describe('AICollectionFiller', () => {
     expect(chip).toHaveTextContent('Requested')
   })
 
+  it('a failed entity-request shows an inline error and keeps the button', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    // 403 (or any non-ok) → the mutationFn throws; the row surfaces it inline.
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: false,
+      json: async () => ({ message: 'Admin access required' }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+
+    const err = await screen.findByTestId(
+      'ai-collection-filler-row-request-error'
+    )
+    expect(err).toHaveTextContent('Admin access required')
+    // No chip; the create/queue button remains so the user can retry.
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-request-chip')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.getByTestId('ai-collection-filler-row-request')
+    ).toBeInTheDocument()
+  })
+
   it('matched-row [Add] still works when a tier user is present (no regress)', async () => {
     mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
     mockExtractResult = {
