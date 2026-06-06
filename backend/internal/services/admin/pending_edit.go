@@ -15,8 +15,10 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	adminm "psychic-homily-backend/internal/models/admin"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -253,6 +255,18 @@ func (s *PendingEditService) ListPendingEdits(filters *contracts.PendingEditFilt
 	return s.toResponses(edits), total, nil
 }
 
+// updatedString returns the pending-edit's new value for key when it is present
+// and a string, otherwise the fallback (the entity's current value). Used to
+// build the effective post-edit location for re-geocoding.
+func updatedString(updates map[string]interface{}, key, fallback string) string {
+	if v, ok := updates[key]; ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return fallback
+}
+
 // ApprovePendingEdit approves a pending edit, applying changes to the entity
 // and recording a revision.
 func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*contracts.PendingEditResponse, error) {
@@ -323,6 +337,36 @@ func (s *PendingEditService) ApprovePendingEdit(editID uint, reviewerID uint) (*
 		updates[c.Field] = c.NewValue
 	}
 	updates["updated_at"] = time.Now()
+
+	// PSY-985: a venue location edit through the contribution flow bypasses
+	// VenueService, so re-geocode here too. Resolve the effective post-edit
+	// location (changed value, else current) and write latitude/longitude/
+	// timezone — nil on a miss → SQL NULL → legacy state->tz fallback. These
+	// columns are system-derived (not in the contributor allowlist), so we set
+	// them programmatically after the allowlist filter above.
+	if edit.EntityType == "venue" {
+		_, cityChanged := updates["city"]
+		_, stateChanged := updates["state"]
+		_, countryChanged := updates["country"]
+		if cityChanged || stateChanged || countryChanged {
+			var current catalogm.Venue
+			if err := s.db.Select("city", "state", "country").First(&current, edit.EntityID).Error; err == nil {
+				currentCountry := ""
+				if current.Country != nil {
+					currentCountry = *current.Country
+				}
+				lat, lng, tz := geo.LookupPointers(
+					geo.Default(),
+					updatedString(updates, "city", current.City),
+					updatedString(updates, "state", current.State),
+					updatedString(updates, "country", currentCountry),
+				)
+				updates["latitude"] = lat
+				updates["longitude"] = lng
+				updates["timezone"] = tz
+			}
+		}
+	}
 
 	// The closure returns typed errors directly: a vanished entity is a 422
 	// (the edit can no longer be applied), everything else is a 500.

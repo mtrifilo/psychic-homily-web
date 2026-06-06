@@ -791,11 +791,12 @@ func (s *ArtistService) GetShowsForArtist(artistID uint, timezone string, limit 
 					venueSlug = *venueModel.Slug
 				}
 				venue = &contracts.ArtistShowVenueResponse{
-					ID:    venueModel.ID,
-					Slug:  venueSlug,
-					Name:  venueModel.Name,
-					City:  venueModel.City,
-					State: venueModel.State,
+					ID:       venueModel.ID,
+					Slug:     venueSlug,
+					Name:     venueModel.Name,
+					City:     venueModel.City,
+					State:    venueModel.State,
+					Timezone: venueModel.Timezone,
 				}
 			}
 		}

@@ -11,6 +11,7 @@ import (
 	"psychic-homily-backend/db"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -485,6 +486,10 @@ func (s *DataSyncService) importVenue(venue *contracts.ExportedVenue, dryRun boo
 		},
 	}
 
+	// PSY-985: geocode imported venues so timezone/coordinates are populated like
+	// the VenueService create path (nil on a miss → legacy state->tz fallback).
+	newVenue.Latitude, newVenue.Longitude, newVenue.Timezone = geo.LookupPointers(geo.Default(), newVenue.City, newVenue.State, "")
+
 	if err := s.db.Create(&newVenue).Error; err != nil {
 		return fmt.Sprintf("ERROR: Failed to create venue '%s': %v", venue.Name, err), "error"
 	}
@@ -619,6 +624,8 @@ func (s *DataSyncService) importShow(show *contracts.ExportedShow, dryRun bool) 
 					Zipcode:  exportedVenue.Zipcode,
 					Verified: exportedVenue.Verified,
 				}
+				// PSY-985: geocode imported venues (see importVenue).
+				venue.Latitude, venue.Longitude, venue.Timezone = geo.LookupPointers(geo.Default(), venue.City, venue.State, "")
 				if err := tx.Create(&venue).Error; err != nil {
 					return fmt.Errorf("failed to create venue: %w", err)
 				}

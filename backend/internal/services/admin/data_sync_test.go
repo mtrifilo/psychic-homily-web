@@ -512,6 +512,24 @@ func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_Success() {
 	suite.NotNil(venue.Slug)
 }
 
+// TestImportVenue_Geocodes verifies PSY-985: imported venues are geocoded so
+// timezone/coordinates are populated like the VenueService create path.
+func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_Geocodes() {
+	_, err := suite.service.ImportData(contracts.DataImportRequest{
+		Venues: []contracts.ExportedVenue{
+			{Name: "Geocoded Venue", City: "Phoenix", State: "AZ"},
+		},
+	})
+	suite.Require().NoError(err)
+
+	var venue catalogm.Venue
+	suite.Require().NoError(suite.db.Where("name = ?", "Geocoded Venue").First(&venue).Error)
+	suite.Require().NotNil(venue.Timezone, "imported venue should be geocoded")
+	suite.Equal("America/Phoenix", *venue.Timezone)
+	suite.Require().NotNil(venue.Latitude)
+	suite.Require().NotNil(venue.Longitude)
+}
+
 func (suite *DataSyncServiceIntegrationTestSuite) TestImportVenue_Duplicate() {
 	suite.createVenue("Existing Venue", "NYC", "NY", true)
 

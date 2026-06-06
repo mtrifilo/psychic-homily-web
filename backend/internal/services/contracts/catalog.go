@@ -112,6 +112,7 @@ type VenueResponse struct {
 	Address    *string `json:"address"`
 	City       string  `json:"city"`
 	State      string  `json:"state"`
+	Timezone   *string `json:"timezone"`     // IANA zone for rendering this show's time in venue-local time (PSY-985)
 	Verified   bool    `json:"verified"`     // Admin-verified as legitimate venue
 	IsNewVenue *bool   `json:"is_new_venue"` // True if venue was created during this show submission
 }
@@ -376,6 +377,9 @@ type VenueDetailResponse struct {
 	City        string         `json:"city"`
 	State       string         `json:"state"`
 	Country     *string        `json:"country,omitempty"`
+	Latitude    *float64       `json:"latitude,omitempty"`  // Geocoded city centroid (PSY-985)
+	Longitude   *float64       `json:"longitude,omitempty"` // Geocoded city centroid (PSY-985)
+	Timezone    *string        `json:"timezone"`            // IANA zone resolved from location (PSY-985)
 	Zipcode     *string        `json:"zipcode"`
 	Description *string        `json:"description,omitempty"`
 	ImageURL    *string        `json:"image_url"`    // Optional venue photo (PSY-521)
@@ -569,11 +573,12 @@ type ArtistShowResponse struct {
 
 // ArtistShowVenueResponse represents venue info in artist show response
 type ArtistShowVenueResponse struct {
-	ID    uint   `json:"id"`
-	Slug  string `json:"slug"`
-	Name  string `json:"name"`
-	City  string `json:"city"`
-	State string `json:"state"`
+	ID       uint    `json:"id"`
+	Slug     string  `json:"slug"`
+	Name     string  `json:"name"`
+	City     string  `json:"city"`
+	State    string  `json:"state"`
+	Timezone *string `json:"timezone"` // IANA zone for rendering this show's time in venue-local time (PSY-985)
 }
 
 // ArtistShowArtist represents an artist on a show bill

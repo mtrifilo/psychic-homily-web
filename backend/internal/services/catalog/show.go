@@ -721,6 +721,7 @@ func (s *ShowService) loadShowVenueResponses(tx *gorm.DB, showID uint) ([]contra
 				Address:  addr,
 				City:     venue.City,
 				State:    venue.State,
+				Timezone: venue.Timezone,
 				Verified: venue.Verified,
 			})
 		}
@@ -1660,6 +1661,7 @@ func (s *ShowService) associateVenues(tx *gorm.DB, showID uint, requestVenues []
 			Address:    venueAddr,
 			City:       venue.City,
 			State:      venue.State,
+			Timezone:   venue.Timezone,
 			Verified:   venue.Verified,
 			IsNewVenue: &isNewVenue,
 		})
@@ -1797,6 +1799,7 @@ func (s *ShowService) buildShowResponse(show *catalogm.Show) *contracts.ShowResp
 			Address:  address,
 			City:     venue.City,
 			State:    venue.State,
+			Timezone: venue.Timezone,
 			Verified: venue.Verified,
 		}
 	}

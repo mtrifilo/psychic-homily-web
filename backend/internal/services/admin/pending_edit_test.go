@@ -502,6 +502,35 @@ func (s *PendingEditServiceIntegrationTestSuite) TestGetPendingEditsForEntity_Ex
 	s.Len(edits, 0)
 }
 
+// TestApprovePendingEdit_VenueLocationReGeocodes verifies PSY-985: approving a
+// venue location edit through the contribution flow re-geocodes the venue (this
+// path bypasses VenueService), populating timezone/coordinates for the new city.
+func (s *PendingEditServiceIntegrationTestSuite) TestApprovePendingEdit_VenueLocationReGeocodes() {
+	user := s.createTestUser()
+	reviewer := s.createTestUser()
+	venue := s.createTestVenue("Geo Venue") // Phoenix, AZ — created directly, no timezone yet
+
+	created, err := s.svc.CreatePendingEdit(&contracts.CreatePendingEditRequest{
+		EntityType: "venue", EntityID: venue.ID, UserID: user.ID,
+		Changes: []adminm.FieldChange{
+			{Field: "city", NewValue: "Denver"},
+			{Field: "state", NewValue: "CO"},
+		},
+		Summary: "relocate to Denver",
+	})
+	s.Require().NoError(err)
+
+	_, err = s.svc.ApprovePendingEdit(created.ID, reviewer.ID)
+	s.Require().NoError(err)
+
+	var updated catalogm.Venue
+	s.Require().NoError(s.db.First(&updated, venue.ID).Error)
+	s.Require().NotNil(updated.Timezone, "venue location edit should re-geocode and set timezone")
+	s.Equal("America/Denver", *updated.Timezone)
+	s.Require().NotNil(updated.Latitude)
+	s.Require().NotNil(updated.Longitude)
+}
+
 // =============================================================================
 // GetUserPendingEdits tests
 // =============================================================================
