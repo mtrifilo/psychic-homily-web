@@ -418,24 +418,24 @@ describe('AICollectionFiller', () => {
     await user.click(screen.getByTestId('ai-collection-filler-extract'))
   }
 
-  it('admin sees [Create + Add] on an unmatched row (no Queue button)', async () => {
+  it('admin sees [Submit for creation] on an unmatched row (no Queue button)', async () => {
     mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
     const user = userEvent.setup()
     await extractOneUnmatchedRow(user)
 
     const btn = screen.getByTestId('ai-collection-filler-row-request')
-    expect(btn).toHaveTextContent('Create + Add')
+    expect(btn).toHaveTextContent('Submit for creation')
     expect(btn).not.toHaveTextContent('Queue for review')
   })
 
-  it('local_ambassador sees [Create + Add] (auto-approve tier, not admin)', async () => {
+  it('local_ambassador sees [Submit for creation] (auto-approve tier, not admin)', async () => {
     mockUser = { is_admin: false, user_tier: 'local_ambassador' }
     const user = userEvent.setup()
     await extractOneUnmatchedRow(user)
 
     expect(
       screen.getByTestId('ai-collection-filler-row-request')
-    ).toHaveTextContent('Create + Add')
+    ).toHaveTextContent('Submit for creation')
   })
 
   it('contributor sees [Queue for review] (never an inline create)', async () => {
@@ -445,7 +445,7 @@ describe('AICollectionFiller', () => {
 
     const btn = screen.getByTestId('ai-collection-filler-row-request')
     expect(btn).toHaveTextContent('Queue for review')
-    expect(btn).not.toHaveTextContent('Create + Add')
+    expect(btn).not.toHaveTextContent('Submit for creation')
   })
 
   it('new_user sees [Queue for review]', async () => {
