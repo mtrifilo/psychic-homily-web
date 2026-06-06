@@ -12,13 +12,15 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
 
 // VenueService handles venue-related business logic
 type VenueService struct {
-	db *gorm.DB
+	db       *gorm.DB
+	geocoder geo.Geocoder
 }
 
 // NewVenueService creates a new venue service
@@ -27,8 +29,30 @@ func NewVenueService(database *gorm.DB) *VenueService {
 		database = db.GetDB()
 	}
 	return &VenueService{
-		db: database,
+		db:       database,
+		geocoder: geo.Default(),
 	}
+}
+
+// applyGeocoding resolves and sets latitude/longitude/timezone on a venue from
+// its city/state/country via the offline geocoder (in-memory, no network, never
+// errors). A miss leaves the fields nil so display falls back to the legacy
+// state->timezone map — no regression. (PSY-985)
+func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
+	if s.geocoder == nil {
+		return
+	}
+	country := ""
+	if v.Country != nil {
+		country = *v.Country
+	}
+	res, ok := s.geocoder.Resolve(v.City, v.State, country)
+	if !ok {
+		return
+	}
+	v.Latitude = &res.Latitude
+	v.Longitude = &res.Longitude
+	v.Timezone = &res.Timezone
 }
 
 // CreateVenue creates a new venue
@@ -78,6 +102,8 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 			Website:    req.Website,
 		},
 	}
+
+	s.applyGeocoding(venue)
 
 	if err := s.db.Create(venue).Error; err != nil {
 		return nil, fmt.Errorf("failed to create venue: %w", err)
@@ -255,6 +281,26 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 		updates["image_url"] = utils.NilIfEmpty(*req.ImageURL)
 	}
 
+	// Re-geocode when any location field changes so latitude/longitude/timezone
+	// stay consistent with the new city/state/country (PSY-985). Reuses the
+	// create-path resolver (applyGeocoding) on the effective post-update values
+	// — checkCity already coalesced city — so a miss leaves the columns untouched.
+	if req.City != nil || req.State != nil || req.Country != nil {
+		effective := catalogm.Venue{City: checkCity, State: currentVenue.State, Country: currentVenue.Country}
+		if req.State != nil {
+			effective.State = *req.State
+		}
+		if req.Country != nil {
+			effective.Country = req.Country
+		}
+		s.applyGeocoding(&effective)
+		if effective.Timezone != nil {
+			updates["latitude"] = *effective.Latitude
+			updates["longitude"] = *effective.Longitude
+			updates["timezone"] = *effective.Timezone
+		}
+	}
+
 	// Update the venue
 	if len(updates) > 0 {
 		err = s.db.Model(&catalogm.Venue{}).Where("id = ?", venueID).Updates(updates).Error
@@ -413,6 +459,8 @@ func (s *VenueService) FindOrCreateVenue(name, city, state string, address, zipc
 		Social:   catalogm.Social{}, // Empty social fields
 	}
 
+	s.applyGeocoding(&venue)
+
 	if err := query.Create(&venue).Error; err != nil {
 		return nil, false, fmt.Errorf("failed to create venue: %w", err)
 	}
@@ -488,6 +536,9 @@ func (s *VenueService) buildVenueResponse(venue *catalogm.Venue) *contracts.Venu
 		City:        venue.City,
 		State:       venue.State,
 		Country:     venue.Country,
+		Latitude:    venue.Latitude,
+		Longitude:   venue.Longitude,
+		Timezone:    venue.Timezone,
 		Zipcode:     zipcode,
 		Description: venue.Description,
 		ImageURL:    venue.ImageURL,

@@ -7,17 +7,23 @@ import (
 )
 
 type Venue struct {
-	ID          uint    `gorm:"primaryKey"`
-	Name        string  `gorm:"not null"` // Unique with city via composite index
-	Slug        *string `gorm:"column:slug;uniqueIndex"`
-	Address     *string
-	City        string  `gorm:"not null"` // Required
-	State       string  `gorm:"not null"` // Required
-	Country     *string `gorm:"column:country;size:100"`
-	Zipcode     *string
-	Description *string `json:"description,omitempty" gorm:"column:description;type:text"`
-	ImageURL    *string `json:"image_url,omitempty" gorm:"column:image_url"`
-	Social      Social  `gorm:"embedded"`
+	ID      uint    `gorm:"primaryKey"`
+	Name    string  `gorm:"not null"` // Unique with city via composite index
+	Slug    *string `gorm:"column:slug;uniqueIndex"`
+	Address *string
+	City    string  `gorm:"not null"` // Required
+	State   string  `gorm:"not null"` // Required
+	Country *string `gorm:"column:country;size:100"`
+	Zipcode *string
+	// Geocoding (PSY-985): resolved offline from city/state/country at create/update.
+	// Timezone is the IANA zone used to anchor show times to the venue's locale.
+	// Nullable — a geocode miss falls back to the legacy state->tz map.
+	Latitude    *float64 `gorm:"column:latitude;type:numeric(9,6)"`
+	Longitude   *float64 `gorm:"column:longitude;type:numeric(9,6)"`
+	Timezone    *string  `gorm:"column:timezone"`
+	Description *string  `json:"description,omitempty" gorm:"column:description;type:text"`
+	ImageURL    *string  `json:"image_url,omitempty" gorm:"column:image_url"`
+	Social      Social   `gorm:"embedded"`
 	Verified    bool
 	SubmittedBy *uint `gorm:"column:submitted_by"` // User ID of the person who originally submitted this venue
 

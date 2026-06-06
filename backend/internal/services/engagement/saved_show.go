@@ -206,6 +206,7 @@ func (s *SavedShowService) buildShowResponse(show *catalogm.Show, artistsByShow 
 			Address:  venue.Address,
 			City:     venue.City,
 			State:    venue.State,
+			Timezone: venue.Timezone,
 			Verified: venue.Verified,
 		}
 	}
