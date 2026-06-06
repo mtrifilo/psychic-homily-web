@@ -1,7 +1,11 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import React from 'react'
-import { render, screen, act } from '@testing-library/react'
+import { screen, act, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+// Use the providers-wrapped render: the local queue-for-review mutation
+// (useQueueEntityRequest) calls useMutation, which needs a QueryClient in
+// context. renderWithProviders supplies one (re-exported here as `render`).
+import { render } from '@/test/utils'
 
 import {
   AddItemsPicker,
@@ -49,9 +53,58 @@ let mockSearchResult: MockedEntitySearchResult = {
   searchError: false,
 }
 
+// Per-line plain-text search (PSY-845). Tests drive results by raw query
+// string via mockFetchEntitySearch; the default returns empty groups (→
+// zero results → queue-for-review path). flattenEntitySearchResults keeps the
+// real flatten order so the candidate-count branching is exercised honestly.
+type SearchGroups = {
+  artists: unknown[]
+  venues: unknown[]
+  shows: unknown[]
+  releases: unknown[]
+  labels: unknown[]
+  festivals: unknown[]
+  tags: unknown[]
+}
+const EMPTY_GROUPS: SearchGroups = {
+  artists: [],
+  venues: [],
+  shows: [],
+  releases: [],
+  labels: [],
+  festivals: [],
+  tags: [],
+}
+let mockFetchEntitySearch = vi.fn(
+  async (_query: string): Promise<{ results: SearchGroups; allFailed: boolean }> => ({
+    results: EMPTY_GROUPS,
+    allFailed: false,
+  })
+)
+
 vi.mock('@/lib/hooks/common/useEntitySearch', () => ({
   useEntitySearch: () => mockSearchResult,
   ENTITY_SEARCH_UNAVAILABLE_MESSAGE: 'Search is temporarily unavailable. Try again in a moment.',
+  fetchEntitySearch: (query: string) => mockFetchEntitySearch(query),
+  flattenEntitySearchResults: (results: SearchGroups) => [
+    ...results.artists,
+    ...results.shows,
+    ...results.venues,
+    ...results.releases,
+    ...results.labels,
+    ...results.festivals,
+  ],
+}))
+
+// Queue-for-review POST (useQueueEntityRequest → apiRequest). Tests inspect
+// mockApiRequest calls to assert the entity_request body; mockApiRequest can
+// be made to reject to exercise the queue_failed → Retry path.
+const mockApiRequest = vi.fn(async (..._args: unknown[]) => ({}))
+vi.mock('@/lib/api', () => ({
+  apiRequest: (...args: unknown[]) => mockApiRequest(...args),
+  API_ENDPOINTS: {
+    COLLECTIONS: { ENTITY_REQUESTS: 'http://test/entity-requests' },
+  },
 }))
 
 // Resolve mutation — most tests don't fire it; the few that do can override
@@ -101,7 +154,18 @@ vi.mock('@/components/ui/input', () => ({
 }))
 
 vi.mock('@/components/ui/badge', () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+  // Forward data-testid (drop the non-DOM `variant` prop) so PSY-845's queued
+  // chip (add-items-picker-paste-row-queued) is queryable — a children-only
+  // mock would silently drop the testid while still rendering the label.
+  Badge: ({
+    children,
+    variant: _variant,
+    ...props
+  }: {
+    children: React.ReactNode
+    variant?: string
+    [key: string]: unknown
+  }) => <span {...(props as Record<string, unknown>)}>{children}</span>,
 }))
 
 let activeTabValue = 'search'
@@ -156,6 +220,20 @@ vi.mock('@/components/shared', () => ({
 vi.mock('./AICollectionFiller', () => ({
   AICollectionFiller: () => <div data-testid="ai-collection-filler-stub" />,
 }))
+
+// Paste the whole textarea value in ONE operation. The component debounces in
+// production; the test mocks useDebounce to pass-through, so char-by-char
+// `user.type` would re-run usePastePreview's effect on EVERY keystroke and
+// spawn a stale async search worker per char (a test-only artifact). A single
+// paste runs the effect once — exactly the production code path after debounce.
+async function pasteInto(
+  user: ReturnType<typeof userEvent.setup>,
+  text: string
+) {
+  const ta = screen.getByTestId('add-items-picker-paste-textarea')
+  await user.click(ta)
+  await user.paste(text)
+}
 
 // ──────────────────────────────────────────────
 // parsePasteLine — pure function tests
@@ -242,6 +320,12 @@ describe('AddItemsPicker', () => {
     activeTabValue = 'search'
     mockResolveMutate.mockClear()
     mockResolveSuccessHandler = null
+    mockApiRequest.mockClear()
+    mockApiRequest.mockResolvedValue({})
+    mockFetchEntitySearch = vi.fn(async () => ({
+      results: EMPTY_GROUPS,
+      allFailed: false,
+    }))
     mockSearchResult = {
       data: {
         artists: [],
@@ -578,18 +662,212 @@ describe('AddItemsPicker', () => {
     expect(screen.queryByText('Older Artist')).not.toBeInTheDocument()
   })
 
-  it('Paste mode: shows the unresolved-help copy when only plain text is pasted', async () => {
+  // ── PSY-845: plain-text auto-match / ambiguous Pick / queue-for-review ──
+
+  it('Paste mode: plain-text line never hits the URL resolver', async () => {
     const user = userEvent.setup()
     render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
     await user.click(screen.getByTestId('tab-paste'))
-    await user.type(
-      screen.getByTestId('add-items-picker-paste-textarea'),
-      'Mount Eerie - A Crow'
-    )
-
-    // Resolver should NOT be called when there are zero URL entries.
+    await pasteInto(user, 'Mount Eerie')
+    // URL resolver is only for canonical-path lines — plain text routes to
+    // the per-line entity search (fetchEntitySearch), not the resolver.
     expect(mockResolveMutate).not.toHaveBeenCalled()
-    expect(screen.getByText(/canonical PH paths/i)).toBeInTheDocument()
+    await waitFor(() => expect(mockFetchEntitySearch).toHaveBeenCalled())
+  })
+
+  it('Paste mode: a single search result ⇒ MATCH with a stageable [Add]', async () => {
+    const onStaged = vi.fn()
+    mockFetchEntitySearch = vi.fn(async () => ({
+      results: {
+        ...EMPTY_GROUPS,
+        artists: [
+          {
+            id: 7,
+            slug: 'mount-eerie',
+            name: 'Mount Eerie',
+            subtitle: 'Anacortes, WA',
+            entityType: 'artist',
+            href: '/artists/mount-eerie',
+          },
+        ],
+      },
+      allFailed: false,
+    }))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={onStaged} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Mount Eerie')
+
+    // MATCH chip renders once the per-line search resolves. (The name also
+    // appears in the textarea value, so scope the name assertion to the row.)
+    expect(await screen.findByText('MATCH')).toBeInTheDocument()
+    const row = screen.getByTestId('add-items-picker-paste-row')
+    expect(within(row).getByText('Mount Eerie')).toBeInTheDocument()
+
+    const addBtn = screen
+      .getAllByRole('button', { name: /add/i })
+      .find((b) => b.textContent?.trim().toLowerCase() === 'add')!
+    await user.click(addBtn)
+
+    const last = onStaged.mock.calls.at(-1)?.[0]
+    expect(last).toHaveLength(1)
+    expect(last?.[0]).toMatchObject({ entityType: 'artist', entityId: 7 })
+  })
+
+  it('Paste mode: 2+ results ⇒ AMBIGUOUS with an inline [Pick] that promotes to MATCH', async () => {
+    const onStaged = vi.fn()
+    mockFetchEntitySearch = vi.fn(async () => ({
+      results: {
+        ...EMPTY_GROUPS,
+        artists: [
+          {
+            id: 1,
+            slug: 'nirvana',
+            name: 'Nirvana (Seattle)',
+            subtitle: 'Seattle, WA',
+            entityType: 'artist',
+            href: '/artists/nirvana',
+          },
+          {
+            id: 2,
+            slug: 'nirvana-uk',
+            name: 'Nirvana (UK)',
+            subtitle: 'London, UK',
+            entityType: 'artist',
+            href: '/artists/nirvana-uk',
+          },
+        ],
+      },
+      allFailed: false,
+    }))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={onStaged} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Nirvana')
+
+    // PICK chip + the candidate dropdown render.
+    expect(await screen.findByText('PICK')).toBeInTheDocument()
+    const pickRow = screen.getByTestId('add-items-picker-paste-row-pick')
+    expect(pickRow).toHaveTextContent('Did you mean:')
+
+    // Pick the second candidate → row promotes to MATCH, then stage it.
+    await user.click(
+      within(pickRow).getByRole('button', { name: /Nirvana \(UK\)/i })
+    )
+    expect(await screen.findByText('MATCH')).toBeInTheDocument()
+
+    const addBtn = screen
+      .getAllByRole('button', { name: /add/i })
+      .find((b) => b.textContent?.trim().toLowerCase() === 'add')!
+    await user.click(addBtn)
+    const last = onStaged.mock.calls.at(-1)?.[0]
+    expect(last?.[0]).toMatchObject({ entityType: 'artist', entityId: 2 })
+  })
+
+  it('Paste mode: caps the AMBIGUOUS Pick dropdown at 5 candidates', async () => {
+    mockFetchEntitySearch = vi.fn(async () => ({
+      results: {
+        ...EMPTY_GROUPS,
+        artists: Array.from({ length: 8 }, (_, i) => ({
+          id: i + 1,
+          slug: `dup-${i}`,
+          name: `Dup ${i}`,
+          subtitle: null,
+          entityType: 'artist',
+          href: `/artists/dup-${i}`,
+        })),
+      },
+      allFailed: false,
+    }))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Dup')
+
+    const pickRow = await screen.findByTestId('add-items-picker-paste-row-pick')
+    // 5 candidate buttons max (the "Did you mean:" label is a span, not a button).
+    expect(within(pickRow).getAllByRole('button')).toHaveLength(5)
+  })
+
+  it('Paste mode: zero results ⇒ queue-for-review (POSTs an entity_request)', async () => {
+    // Default mockFetchEntitySearch returns empty groups → zero results.
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Totally Unknown Artist')
+
+    // The queued affordance renders and the POST fired with the line as the
+    // artist payload + paste_mode source.
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-queued')
+    ).toHaveTextContent('FOR REVIEW')
+    await waitFor(() => expect(mockApiRequest).toHaveBeenCalled())
+    const [, opts] = mockApiRequest.mock.calls.at(-1)!
+    const body = JSON.parse((opts as { body: string }).body)
+    expect(body).toMatchObject({
+      entity_type: 'artist',
+      source_context: 'paste_mode',
+      payload: { name: 'Totally Unknown Artist' },
+    })
+  })
+
+  it('Paste mode: a failed queue POST shows a Retry that re-fires the request', async () => {
+    mockApiRequest.mockRejectedValueOnce(new Error('boom'))
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Flaky Network Artist')
+
+    // First POST rejects → Retry button surfaces.
+    const retry = await screen.findByTestId(
+      'add-items-picker-paste-row-retry-queue'
+    )
+    mockApiRequest.mockClear()
+    mockApiRequest.mockResolvedValue({})
+    await user.click(retry)
+
+    // Retry re-fires the POST and the row settles to FOR REVIEW.
+    await waitFor(() => expect(mockApiRequest).toHaveBeenCalledTimes(1))
+    expect(
+      await screen.findByTestId('add-items-picker-paste-row-queued')
+    ).toHaveTextContent('FOR REVIEW')
+  })
+
+  it('Paste mode: a per-line search outage ⇒ NO MATCH (not queued)', async () => {
+    mockFetchEntitySearch = vi.fn(async () => {
+      throw new Error('search down')
+    })
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'Some Artist')
+
+    // A transient search failure is NOT a confirmed zero-result: mark
+    // unresolved (retryable) and do NOT file a queue request.
+    expect(await screen.findByText('NO MATCH')).toBeInTheDocument()
+    expect(mockApiRequest).not.toHaveBeenCalled()
+  })
+
+  it('Paste mode: queues EACH zero-result line independently (no last-write-wins)', async () => {
+    // Guards the multi-junk-line case: usePastePreview reuses ONE
+    // queueMutation instance across the bounded worker pool. Each per-call
+    // mutate() must fire its own onSuccess targeting its own row index —
+    // a last-write-wins bug would queue only one line / one POST.
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'JunkOne\nJunkTwo\nJunkThree')
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-queued')
+      ).toHaveLength(3)
+    )
+    expect(mockApiRequest).toHaveBeenCalledTimes(3)
+    const names = mockApiRequest.mock.calls
+      .map((c) => JSON.parse((c[1] as { body: string }).body).payload.name)
+      .sort()
+    expect(names).toEqual(['JunkOne', 'JunkThree', 'JunkTwo'])
   })
 
   // ── PSY-962: overview strip + drag-reorder ──

@@ -15,10 +15,13 @@
  *     Clicking [Add] STAGES the row (not commit). Parent commits the
  *     staged list via its own submit affordance.
  *   - "Paste URLs" — textarea accepting canonical PH paths
- *     (`https://psychichomily.com/artists/<slug>` or `/artists/<slug>`).
- *     Lines are parsed client-side and resolved via a single backend
- *     round-trip (useResolveCollectionItems). Plain-text lines fall to
- *     UNRESOLVED for V1 — plain-text auto-match is a follow-up.
+ *     (`https://psychichomily.com/artists/<slug>` or `/artists/<slug>`)
+ *     AND free plain-text lines (PSY-845). URL lines are parsed client-side
+ *     and resolved via a single backend round-trip (useResolveCollectionItems).
+ *     Plain-text lines auto-search the entity endpoints (bounded to 5 in
+ *     flight): exactly one result ⇒ MATCH (stageable); 2+ ⇒ AMBIGUOUS with an
+ *     inline [Pick] dropdown (≤5); zero ⇒ queue-for-review (POSTs an
+ *     entity_request for an admin to approve). See usePastePreview.
  *
  * AI mode (third tab) mounts AICollectionFiller for paste-an-article
  * extraction via Claude Haiku.
@@ -39,10 +42,12 @@ import {
   X,
   Check,
   AlertCircle,
+  AlertTriangle,
   Library,
   Loader2,
   Info,
   GripVertical,
+  Inbox,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -57,11 +62,14 @@ import {
 import { InlineErrorBanner } from '@/components/shared'
 import {
   useEntitySearch,
+  fetchEntitySearch,
+  flattenEntitySearchResults,
   ENTITY_SEARCH_UNAVAILABLE_MESSAGE,
   type EntitySearchResult,
 } from '@/lib/hooks/common/useEntitySearch'
 import { useResolveCollectionItems } from '../hooks'
 import { getEntityTypeLabel, type CollectionEntityType } from '../types'
+import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { cn } from '@/lib/utils'
 import { AICollectionFiller } from './AICollectionFiller'
 import {
@@ -143,13 +151,57 @@ interface ParsedPasteLine {
   url: { entityType: CollectionEntityType; slug: string } | null
 }
 
-type PreviewStatus = 'matched' | 'unresolved' | 'loading'
+/**
+ * Preview-row lifecycle states (PSY-845).
+ *
+ * URL lines (canonical PH paths) resolve through the batch
+ * `useResolveCollectionItems` round-trip and only ever land on
+ * `loading` → `matched` | `unresolved`.
+ *
+ * Plain-text lines auto-search the entity endpoints per line and land on:
+ *   - `searching`     — search in flight
+ *   - `matched`       — exactly ONE result across all types ⇒ stageable
+ *   - `ambiguous`     — 2+ candidates ⇒ inline [Pick] dropdown (≤5)
+ *   - `queuing`       — zero results ⇒ entity_request POST in flight
+ *   - `queued`        — zero results ⇒ request filed for admin review
+ *   - `queue_failed`  — zero results ⇒ the request POST errored (retryable)
+ */
+type PreviewStatus =
+  | 'matched'
+  | 'unresolved'
+  | 'loading'
+  | 'searching'
+  | 'ambiguous'
+  | 'queuing'
+  | 'queued'
+  | 'queue_failed'
+
+/** A candidate offered for an AMBIGUOUS plain-text line's [Pick] dropdown. */
+interface PreviewCandidate {
+  entityType: CollectionEntityType
+  entityId: number
+  name: string
+  subtitle: string | null
+}
 
 interface PreviewRow {
   raw: string
   status: PreviewStatus
+  /** The resolved/picked entity for `matched` rows; null otherwise. */
   item: StagedCollectionItem | null
+  /**
+   * AMBIGUOUS candidates (≤5) when `status === 'ambiguous'`. The user picks
+   * one via the inline dropdown, which promotes the row to `matched`.
+   */
+  candidates?: PreviewCandidate[]
 }
+
+/** Max candidates surfaced in an AMBIGUOUS line's [Pick] dropdown. */
+const MAX_PICK_CANDIDATES = 5
+
+/** Bounded in-flight plain-text searches — don't hammer the backend on a
+ *  200-line paste. (PSY-845 locked decision.) */
+const PLAINTEXT_SEARCH_CONCURRENCY = 5
 
 // ──────────────────────────────────────────────
 // URL parsing
@@ -196,6 +248,47 @@ export function parsePasteLine(line: string): ParsedPasteLine {
   const entityType = URL_PATH_TO_ENTITY_TYPE[match[1].toLowerCase()]
   const slug = match[2].toLowerCase()
   return { raw: trimmed, url: { entityType, slug } }
+}
+
+// ──────────────────────────────────────────────
+// Queue-for-review (PSY-845 + PSY-997)
+// ──────────────────────────────────────────────
+
+/**
+ * LOCAL queue-create call (PSY-845). Posts an `entity_request` to PSY-997's
+ * `POST /entity-requests` so a plain-text line with ZERO matches becomes an
+ * admin-reviewable artist-creation request rather than being silently dropped.
+ *
+ * Deliberately LOCAL (not a shared exported hook): PSY-853 posts to the same
+ * endpoint from AICollectionFiller in parallel. Keeping each consumer's
+ * queue-create local avoids a cross-PR file collision; a future ticket dedups
+ * the two into one shared hook. The small duplication is intentional (see
+ * coordination note on PSY-845).
+ *
+ * A plain async function, NOT a `useMutation` hook: a single paste can queue
+ * several zero-result lines CONCURRENTLY (the bounded worker pool), and one
+ * shared `useMutation` observer only tracks the latest in-flight mutation —
+ * rapid successive `.mutate()` calls drop earlier per-call callbacks, so only
+ * the last line would end up queued. Per-call `apiRequest` has no such shared
+ * state; usePastePreview owns the per-row status, so the hook's
+ * data/isPending/error were unused anyway.
+ *
+ * Entity type is `artist`: a bare plain-text line in a music collection picker
+ * is overwhelmingly an artist name, and `artist` is the only entity_request
+ * payload whose sole required field is `name` (releases need a title, shows an
+ * event_date, venues city+state, etc.) — so the line text is sufficient to
+ * file a well-formed request. The admin reviewing the queue retypes /
+ * reclassifies if it was actually a release or venue.
+ */
+function queueEntityRequest(name: string): Promise<unknown> {
+  return apiRequest(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
+    method: 'POST',
+    body: JSON.stringify({
+      entity_type: 'artist',
+      payload: { name },
+      source_context: 'paste_mode',
+    }),
+  })
 }
 
 // ──────────────────────────────────────────────
@@ -270,6 +363,267 @@ function AiTabInfoTooltip() {
   )
 }
 
+// ──────────────────────────────────────────────
+// Paste-mode resolution hook (PSY-823 URL resolve + PSY-845 plain-text)
+// ──────────────────────────────────────────────
+
+/**
+ * Resolve a `name` from a plain-text search hit into the preview-row item
+ * shape. Mirrors the resolved-item mapping the URL path uses.
+ */
+function toPreviewItem(r: EntitySearchResult): StagedCollectionItem {
+  return {
+    entityType: r.entityType as CollectionEntityType,
+    entityId: r.id,
+    name: r.name,
+    subtitle: r.subtitle ?? null,
+  }
+}
+
+/**
+ * Run `task` over `items` with at most `limit` in flight at once (PSY-845).
+ * A bounded worker pool: `limit` workers each pull the next index off a
+ * shared cursor until the list is drained. Keeps a 200-line paste from
+ * firing 200 simultaneous searches at the backend.
+ */
+async function runWithConcurrency<T>(
+  items: T[],
+  limit: number,
+  task: (item: T, index: number) => Promise<void>
+): Promise<void> {
+  let cursor = 0
+  const worker = async () => {
+    while (cursor < items.length) {
+      const index = cursor++
+      await task(items[index], index)
+    }
+  }
+  const workers = Array.from(
+    { length: Math.min(limit, items.length) },
+    () => worker()
+  )
+  await Promise.all(workers)
+}
+
+/**
+ * Owns the Paste-mode preview lifecycle: parses the textarea, batch-resolves
+ * canonical PH URL lines (PSY-823), and auto-searches plain-text lines with
+ * bounded parallelism (PSY-845). Returns the ordered preview rows plus the
+ * row-level actions (pick a candidate for an AMBIGUOUS line; retry a failed
+ * queue POST).
+ *
+ * Isolated as a hook so the component body stays declarative and the volatile
+ * concurrency / dual-resolution machinery lives behind one narrow interface
+ * (Code Complete: information hiding + isolate-likely-to-change).
+ *
+ * Stale-response guard: each debounced change bumps `generationRef`; every
+ * async continuation (URL resolve onSuccess, per-line search, queue POST)
+ * checks its captured generation before committing, so an older paste's
+ * in-flight responses can never overwrite a newer paste's preview.
+ */
+function usePastePreview(pasteText: string): {
+  previewRows: PreviewRow[]
+  pickCandidate: (rowIndex: number, candidate: PreviewCandidate) => void
+  retryQueue: (rowIndex: number) => void
+} {
+  const [debouncedPaste] = useDebounce(pasteText, 400)
+  const resolveMutation = useResolveCollectionItems()
+  const [previewRows, setPreviewRows] = useState<PreviewRow[]>([])
+  const generationRef = useRef(0)
+
+  // Commit a single row's update IFF the captured generation is still current.
+  // Used by every async continuation so a stale paste can't clobber the list.
+  const updateRow = useCallback(
+    (generation: number, index: number, next: Partial<PreviewRow>) => {
+      setPreviewRows((rows) => {
+        if (generationRef.current !== generation) return rows
+        if (index < 0 || index >= rows.length) return rows
+        const copy = rows.slice()
+        copy[index] = { ...copy[index], ...next }
+        return copy
+      })
+    },
+    []
+  )
+
+  // File a queue-for-review request for a zero-result plain-text line.
+  // Extracted so the initial pass AND retryQueue share one code path. Each
+  // call is an independent POST (see queueEntityRequest) so concurrent
+  // zero-result lines each get their own request + row update. Returns the
+  // settle promise so the bounded worker pool can AWAIT it — that keeps a
+  // 200-junk-line paste from firing 200 simultaneous POSTs (the same
+  // "don't hammer the backend" bound the search side gets). retryQueue, a
+  // single user-triggered call, ignores the return (fire-and-forget).
+  const fileQueueRequest = useCallback(
+    (generation: number, index: number, raw: string): Promise<void> => {
+      updateRow(generation, index, { status: 'queuing' })
+      return queueEntityRequest(raw).then(
+        () => updateRow(generation, index, { status: 'queued' }),
+        () => updateRow(generation, index, { status: 'queue_failed' })
+      )
+    },
+    [updateRow]
+  )
+
+  useEffect(() => {
+    const lines = debouncedPaste
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l.length > 0)
+    if (lines.length === 0) {
+      generationRef.current += 1 // invalidate any in-flight continuations
+      setPreviewRows([])
+      return
+    }
+
+    generationRef.current += 1
+    const generation = generationRef.current
+
+    const parsed = lines.map((l) => parsePasteLine(l))
+
+    // Initial states: URL lines → loading (batch resolve); plain-text → searching.
+    setPreviewRows(
+      parsed.map((p) => ({
+        raw: p.raw,
+        status: p.url ? 'loading' : 'searching',
+        item: null,
+      }))
+    )
+
+    // ── URL lines: one batch round-trip (PSY-823 path, unchanged semantics) ──
+    const urlEntries = parsed
+      .map((p, i) => ({ parsed: p, index: i }))
+      .filter((e) => e.parsed.url !== null)
+
+    if (urlEntries.length > 0) {
+      resolveMutation.mutate(
+        urlEntries.map((e) => ({
+          entity_type: e.parsed.url!.entityType,
+          slug: e.parsed.url!.slug,
+        })),
+        {
+          onSuccess: (data) => {
+            const resolvedBySlug = new Map<string, StagedCollectionItem>()
+            for (const r of data.resolved) {
+              resolvedBySlug.set(`${r.entity_type}:${r.slug}`, {
+                entityType: r.entity_type as CollectionEntityType,
+                entityId: r.entity_id,
+                name: r.name,
+                subtitle: r.subtitle ?? null,
+              })
+            }
+            for (const e of urlEntries) {
+              const key = `${e.parsed.url!.entityType}:${e.parsed.url!.slug}`
+              const match = resolvedBySlug.get(key)
+              updateRow(
+                generation,
+                e.index,
+                match
+                  ? { status: 'matched', item: match }
+                  : { status: 'unresolved', item: null }
+              )
+            }
+          },
+          onError: () => {
+            // Network/server error — mark URL rows unresolved so the user
+            // can retry by editing the paste.
+            for (const e of urlEntries) {
+              updateRow(generation, e.index, { status: 'unresolved', item: null })
+            }
+          },
+        }
+      )
+    }
+
+    // ── Plain-text lines: per-line auto-search, bounded to 5 in flight ──
+    const plaintextEntries = parsed
+      .map((p, i) => ({ raw: p.raw, index: i }))
+      .filter((e) => parsed[e.index].url === null)
+
+    if (plaintextEntries.length > 0) {
+      void runWithConcurrency(
+        plaintextEntries,
+        PLAINTEXT_SEARCH_CONCURRENCY,
+        async (entry) => {
+          // Bail early if a newer paste superseded this one.
+          if (generationRef.current !== generation) return
+          let candidates: EntitySearchResult[]
+          try {
+            const { results } = await fetchEntitySearch(entry.raw)
+            candidates = flattenEntitySearchResults(results)
+          } catch {
+            // Search outage for this line — mark unresolved (retryable by
+            // editing the paste). Don't queue: a transient failure isn't a
+            // confirmed zero-result.
+            updateRow(generation, entry.index, {
+              status: 'unresolved',
+              item: null,
+            })
+            return
+          }
+          if (generationRef.current !== generation) return
+
+          if (candidates.length === 1) {
+            updateRow(generation, entry.index, {
+              status: 'matched',
+              item: toPreviewItem(candidates[0]),
+            })
+          } else if (candidates.length > 1) {
+            updateRow(generation, entry.index, {
+              status: 'ambiguous',
+              item: null,
+              candidates: candidates
+                .slice(0, MAX_PICK_CANDIDATES)
+                .map(toPreviewItem),
+            })
+          } else {
+            // Zero results ⇒ queue for admin review. Await the POST so it
+            // counts against the concurrency budget — without this, a paste
+            // of N all-junk lines would fire N POSTs at once (the search
+            // bound would be moot for the queue side).
+            await fileQueueRequest(generation, entry.index, entry.raw)
+          }
+        }
+      )
+    }
+    // Only re-resolve when the debounced paste text changes. alreadyStaged is
+    // computed at render time off the current stagedItems prop (PastePreviewRow),
+    // so staged/existing changes don't need to re-fire resolution.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debouncedPaste])
+
+  // Promote an AMBIGUOUS row to MATCH with the user's chosen candidate.
+  const pickCandidate = useCallback(
+    (rowIndex: number, candidate: PreviewCandidate) => {
+      setPreviewRows((rows) => {
+        if (rowIndex < 0 || rowIndex >= rows.length) return rows
+        const copy = rows.slice()
+        copy[rowIndex] = {
+          ...copy[rowIndex],
+          status: 'matched',
+          item: candidate,
+          candidates: undefined,
+        }
+        return copy
+      })
+    },
+    []
+  )
+
+  // Retry a failed queue POST for a zero-result line (against the CURRENT
+  // generation so it survives the row-bounds check).
+  const retryQueue = useCallback(
+    (rowIndex: number) => {
+      const row = previewRows[rowIndex]
+      if (!row || row.status !== 'queue_failed') return
+      fileQueueRequest(generationRef.current, rowIndex, row.raw)
+    },
+    [previewRows, fileQueueRequest]
+  )
+
+  return { previewRows, pickCandidate, retryQueue }
+}
+
 export function AddItemsPicker({
   existingItems = [],
   stagedItems,
@@ -290,131 +644,18 @@ export function AddItemsPicker({
     enabled: tab === 'search',
   })
 
-  // ─── Paste mode state ───
+  // ─── Paste mode state (resolution lives in usePastePreview) ───
   const [pasteText, setPasteText] = useState('')
-  const [debouncedPaste] = useDebounce(pasteText, 400)
-  const resolveMutation = useResolveCollectionItems()
-  const [previewRows, setPreviewRows] = useState<PreviewRow[]>([])
-  // Stale-response guard: each resolve fire bumps this counter; the
-  // onSuccess handler only commits its result when its captured token
-  // matches the latest. Protects against out-of-order responses when the
-  // user types fast enough that the older request resolves AFTER a newer
-  // one — without this, an earlier response would overwrite the newer
-  // preview state.
-  const resolveGenerationRef = useRef(0)
-
-  // Resolve paste textarea contents whenever the debounced value changes.
-  // Only URL lines hit the backend; plain-text lines fall through as
-  // UNRESOLVED until the plain-text auto-match follow-up ships.
-  useEffect(() => {
-    const lines = debouncedPaste
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.length > 0)
-    if (lines.length === 0) {
-      setPreviewRows([])
-      return
-    }
-
-    const parsed = lines.map((l) => parsePasteLine(l))
-    const urlEntries = parsed
-      .filter((p) => p.url !== null)
-      .map((p) => ({ entity_type: p.url!.entityType, slug: p.url!.slug }))
-
-    if (urlEntries.length === 0) {
-      // Nothing to resolve; mark all rows as unresolved.
-      setPreviewRows(
-        parsed.map((p) => ({
-          raw: p.raw,
-          status: 'unresolved',
-          item: null,
-        }))
-      )
-      return
-    }
-
-    // Show "loading" rows for the URL lines while the request is in flight,
-    // unresolved for the rest, so the UI doesn't flicker on every keystroke.
-    setPreviewRows(
-      parsed.map((p) => ({
-        raw: p.raw,
-        status: p.url ? 'loading' : 'unresolved',
-        item: null,
-      }))
-    )
-
-    // Bump the generation; only this fire's onSuccess will commit. Older
-    // in-flight requests' onSuccess will see a stale token and bail.
-    resolveGenerationRef.current += 1
-    const myGeneration = resolveGenerationRef.current
-
-    resolveMutation.mutate(urlEntries, {
-      onSuccess: (data) => {
-        if (resolveGenerationRef.current !== myGeneration) return
-        const resolvedBySlug = new Map<string, StagedCollectionItem>()
-        for (const r of data.resolved) {
-          const key = `${r.entity_type}:${r.slug}`
-          resolvedBySlug.set(key, {
-            entityType: r.entity_type as CollectionEntityType,
-            entityId: r.entity_id,
-            name: r.name,
-            subtitle: r.subtitle ?? null,
-          })
-        }
-
-        setPreviewRows(
-          parsed.map((p) => {
-            if (!p.url) {
-              return { raw: p.raw, status: 'unresolved', item: null }
-            }
-            const key = `${p.url.entityType}:${p.url.slug}`
-            const match = resolvedBySlug.get(key)
-            if (!match) {
-              return { raw: p.raw, status: 'unresolved', item: null }
-            }
-            return {
-              raw: p.raw,
-              status: 'matched',
-              item: match,
-            }
-          })
-        )
-      },
-      onError: () => {
-        if (resolveGenerationRef.current !== myGeneration) return
-        // Network/server error — mark URL rows as unresolved so the user
-        // can retry. (We could surface an explicit error banner, but
-        // unresolved + the InlineErrorBanner below the textarea is enough
-        // signal for V1.)
-        setPreviewRows(
-          parsed.map((p) => ({
-            raw: p.raw,
-            status: 'unresolved',
-            item: null,
-          }))
-        )
-      },
-    })
-    // We intentionally only re-resolve when the debounced paste text
-    // changes. The alreadyStaged flag is computed at render time off the
-    // current stagedItems prop — see PastePreviewRow — so existingItems
-    // / stagedItems changes don't need to re-fire the resolver.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [debouncedPaste])
+  const { previewRows, pickCandidate, retryQueue } = usePastePreview(pasteText)
 
   // Flattened search results for the active query. Mirrors the existing
-  // AddItemsSection shape so users get a familiar list.
-  const searchRows: EntitySearchResult[] = useMemo(() => {
-    if (!searchResults) return []
-    return [
-      ...searchResults.artists,
-      ...searchResults.shows,
-      ...searchResults.venues,
-      ...searchResults.releases,
-      ...searchResults.labels,
-      ...searchResults.festivals,
-    ]
-  }, [searchResults])
+  // AddItemsSection shape so users get a familiar list. The flatten order
+  // is single-sourced in flattenEntitySearchResults so the interactive
+  // search list and the plain-text auto-match (usePastePreview) agree.
+  const searchRows: EntitySearchResult[] = useMemo(
+    () => (searchResults ? flattenEntitySearchResults(searchResults) : []),
+    [searchResults]
+  )
 
   // ─── Staging helpers ───
   // Single-call updates only — multiple successive onStagedItemsChange
@@ -533,6 +774,8 @@ export function AddItemsPicker({
             stagedItems={stagedItems}
             onStage={stageItem}
             onStageBatch={stageBatch}
+            onPick={pickCandidate}
+            onRetryQueue={retryQueue}
           />
         )}
 
@@ -739,6 +982,8 @@ function PasteModePane({
   stagedItems,
   onStage,
   onStageBatch,
+  onPick,
+  onRetryQueue,
 }: {
   text: string
   onTextChange: (v: string) => void
@@ -747,10 +992,25 @@ function PasteModePane({
   stagedItems: StagedCollectionItem[]
   onStage: (item: StagedCollectionItem) => void
   onStageBatch: (items: StagedCollectionItem[]) => void
+  onPick: (rowIndex: number, candidate: PreviewCandidate) => void
+  onRetryQueue: (rowIndex: number) => void
 }) {
   const matchedCount = previewRows.filter((r) => r.status === 'matched').length
   const unresolvedCount = previewRows.filter((r) => r.status === 'unresolved').length
-  const loadingCount = previewRows.filter((r) => r.status === 'loading').length
+  // In-flight rows (URL batch resolve + plain-text per-line search) share one
+  // "resolving" tally — both are transient, both end at a terminal state.
+  const loadingCount = previewRows.filter(
+    (r) => r.status === 'loading' || r.status === 'searching'
+  ).length
+  const ambiguousCount = previewRows.filter((r) => r.status === 'ambiguous').length
+  // Queued + queuing + queue_failed all count toward "for review" — the line
+  // had no match and is (or will be) an admin-reviewable request.
+  const queuedCount = previewRows.filter(
+    (r) =>
+      r.status === 'queued' ||
+      r.status === 'queuing' ||
+      r.status === 'queue_failed'
+  ).length
 
   // "Add all" affordance: stages every matched row at once. Bypasses the
   // per-row [Add] button so the canon-list use case (200 URLs pasted) is
@@ -785,10 +1045,10 @@ function PasteModePane({
         value={text}
         onChange={(e) => onTextChange(e.target.value)}
         placeholder={
-          'One item per line:\n' +
+          'One item per line — a PH link or just a name:\n' +
           'https://psychichomily.com/artists/kendrick-lamar\n' +
           '/releases/to-pimp-a-butterfly\n' +
-          '/artists/frank-ocean'
+          'Frank Ocean'
         }
         rows={6}
         className="w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm font-mono shadow-xs focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
@@ -800,12 +1060,18 @@ function PasteModePane({
           className="flex flex-wrap items-center justify-between gap-2"
           data-testid="add-items-picker-paste-summary"
         >
+          {/* Counts joined with " · " via a parts array so adding a status to
+              the tally doesn't grow the brittle pairwise-separator chain. */}
           <p className="text-xs text-muted-foreground">
-            {matchedCount > 0 && `${matchedCount} matched`}
-            {matchedCount > 0 && (loadingCount > 0 || unresolvedCount > 0) && ' · '}
-            {loadingCount > 0 && `${loadingCount} resolving`}
-            {loadingCount > 0 && unresolvedCount > 0 && ' · '}
-            {unresolvedCount > 0 && `${unresolvedCount} unresolved`}
+            {[
+              matchedCount > 0 && `${matchedCount} matched`,
+              loadingCount > 0 && `${loadingCount} resolving`,
+              ambiguousCount > 0 && `${ambiguousCount} need a pick`,
+              queuedCount > 0 && `${queuedCount} for review`,
+              unresolvedCount > 0 && `${unresolvedCount} unresolved`,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
           </p>
           {addAllEligible > 0 && (
             <Button
@@ -833,17 +1099,26 @@ function PasteModePane({
                   : false
               }
               onAdd={() => row.item && onStage(row.item)}
+              onPick={(candidate) => onPick(index, candidate)}
+              onRetryQueue={() => onRetryQueue(index)}
             />
           ))}
         </div>
       )}
 
+      {previewRows.length > 0 && queuedCount > 0 && (
+        <p className="text-xs text-muted-foreground">
+          Lines with no match are filed as creation requests for an admin to
+          review — they won&apos;t appear in your collection until approved.
+        </p>
+      )}
+
       {previewRows.length > 0 && unresolvedCount > 0 && (
         <p className="text-xs text-muted-foreground">
-          Unresolved lines must be canonical PH paths like{' '}
-          <code className="px-1 rounded bg-muted">/artists/&lt;slug&gt;</code>.
-          For an article URL or pasted prose, switch to the AI tab. Free-text
-          auto-match in this paste-URL field is a follow-up.
+          Unresolved lines are a canonical PH path that didn&apos;t match
+          (e.g. <code className="px-1 rounded bg-muted">/artists/&lt;slug&gt;</code>),
+          or search was momentarily unavailable. Re-paste to retry, or switch
+          to the AI tab for an article URL or pasted prose.
         </p>
       )}
     </div>
@@ -854,79 +1129,150 @@ function PastePreviewRow({
   row,
   alreadyStaged,
   onAdd,
+  onPick,
+  onRetryQueue,
 }: {
   row: PreviewRow
   alreadyStaged: boolean
   onAdd: () => void
+  onPick: (candidate: PreviewCandidate) => void
+  onRetryQueue: () => void
 }) {
+  const candidates = row.candidates ?? []
   return (
     <div
-      className="flex items-center gap-3 rounded-md p-2 hover:bg-muted/50"
+      className="rounded-md p-2 hover:bg-muted/50"
       data-testid="add-items-picker-paste-row"
     >
-      <div className="h-7 w-7 shrink-0 rounded bg-muted/50 flex items-center justify-center">
-        <Library className="h-3.5 w-3.5 text-muted-foreground/60" />
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-medium truncate">
-            {row.item?.name ?? row.raw}
-          </span>
-          {row.item && (
-            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
-              {getEntityTypeLabel(row.item.entityType)}
-            </Badge>
+      <div className="flex items-center gap-3">
+        <div className="h-7 w-7 shrink-0 rounded bg-muted/50 flex items-center justify-center">
+          <Library className="h-3.5 w-3.5 text-muted-foreground/60" />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="text-sm font-medium truncate">
+              {row.item?.name ?? row.raw}
+            </span>
+            {row.item && (
+              <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+                {getEntityTypeLabel(row.item.entityType)}
+              </Badge>
+            )}
+          </div>
+          {row.item?.subtitle && (
+            <p className="text-xs text-muted-foreground truncate">
+              {row.item.subtitle}
+            </p>
+          )}
+          {!row.item && (
+            <p className="text-xs text-muted-foreground truncate font-mono">
+              {row.raw}
+            </p>
           )}
         </div>
-        {row.item?.subtitle && (
-          <p className="text-xs text-muted-foreground truncate">
-            {row.item.subtitle}
-          </p>
+
+        {(row.status === 'loading' || row.status === 'searching') && (
+          <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
         )}
-        {!row.item && (
-          <p className="text-xs text-muted-foreground truncate font-mono">
-            {row.raw}
-          </p>
+        {row.status === 'matched' && (
+          <>
+            <Badge
+              variant="secondary"
+              className="text-[10px] px-1.5 py-0 shrink-0 bg-success text-success-foreground motion-safe:animate-in motion-safe:fade-in"
+            >
+              <Check className="h-3 w-3 mr-0.5" />
+              MATCH
+            </Badge>
+            {alreadyStaged ? (
+              <Badge variant="secondary" className="text-xs shrink-0">
+                Added
+              </Badge>
+            ) : (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 shrink-0"
+                onClick={onAdd}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1" />
+                Add
+              </Button>
+            )}
+          </>
+        )}
+        {row.status === 'ambiguous' && (
+          // PICK uses the soft pending surface token, mirroring AICollectionFiller's
+          // "did you mean" suggestion chips — an ambiguous match is a prompt for a
+          // decision, not an error.
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
+          >
+            <AlertTriangle className="h-3 w-3 mr-0.5" />
+            PICK
+          </Badge>
+        )}
+        {row.status === 'queuing' && (
+          <Badge variant="secondary" className="text-[10px] px-1.5 py-0 shrink-0">
+            <Loader2 className="h-3 w-3 mr-0.5 animate-spin" />
+            Queuing…
+          </Badge>
+        )}
+        {row.status === 'queued' && (
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
+            data-testid="add-items-picker-paste-row-queued"
+          >
+            <Inbox className="h-3 w-3 mr-0.5" />
+            FOR REVIEW
+          </Badge>
+        )}
+        {row.status === 'queue_failed' && (
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-7 px-2 shrink-0 text-destructive"
+            onClick={onRetryQueue}
+            data-testid="add-items-picker-paste-row-retry-queue"
+          >
+            <AlertCircle className="h-3.5 w-3.5 mr-1" />
+            Retry
+          </Button>
+        )}
+        {row.status === 'unresolved' && (
+          <Badge
+            variant="secondary"
+            className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
+          >
+            <AlertCircle className="h-3 w-3 mr-0.5" />
+            NO MATCH
+          </Badge>
         )}
       </div>
 
-      {row.status === 'loading' && (
-        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
-      )}
-      {row.status === 'matched' && (
-        <>
-          <Badge
-            variant="secondary"
-            className="text-[10px] px-1.5 py-0 shrink-0 bg-success text-success-foreground motion-safe:animate-in motion-safe:fade-in"
-          >
-            <Check className="h-3 w-3 mr-0.5" />
-            MATCH
-          </Badge>
-          {alreadyStaged ? (
-            <Badge variant="secondary" className="text-xs shrink-0">
-              Added
-            </Badge>
-          ) : (
-            <Button
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 shrink-0"
-              onClick={onAdd}
-            >
-              <Plus className="h-3.5 w-3.5 mr-1" />
-              Add
-            </Button>
-          )}
-        </>
-      )}
-      {row.status === 'unresolved' && (
-        <Badge
-          variant="secondary"
-          className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
+      {/* AMBIGUOUS: inline [Pick] candidate dropdown (≤5). Picking promotes the
+          row to MATCH. Mirrors AICollectionFiller's "did you mean" chip row. */}
+      {row.status === 'ambiguous' && candidates.length > 0 && (
+        <div
+          className="ml-10 mt-1.5 flex items-center gap-1.5 flex-wrap text-xs"
+          data-testid="add-items-picker-paste-row-pick"
         >
-          <AlertCircle className="h-3 w-3 mr-0.5" />
-          NO MATCH
-        </Badge>
+          <span className="text-pending-foreground">Did you mean:</span>
+          {candidates.map((candidate) => (
+            <button
+              key={`${candidate.entityType}-${candidate.entityId}`}
+              type="button"
+              className="rounded-md border border-pending-foreground/20 bg-pending px-2 py-0.5 text-xs text-pending-foreground hover:bg-pending/80 transition-colors"
+              onClick={() => onPick(candidate)}
+            >
+              {candidate.name}
+              <span className="ml-1 opacity-70">
+                {getEntityTypeLabel(candidate.entityType)}
+              </span>
+            </button>
+          ))}
+        </div>
       )}
     </div>
   )

@@ -257,7 +257,15 @@ function settledValue<T>(settled: PromiseSettledResult<T>, fallback: T): T {
   return settled.status === 'fulfilled' ? settled.value : fallback
 }
 
-async function fetchEntitySearch(query: string): Promise<FetchEntitySearchResult> {
+/**
+ * One-shot entity search across all types. Exported (PSY-845) so per-line
+ * callers like AddItemsPicker's plain-text auto-match can fan out a search
+ * for each pasted line WITHOUT the `useEntitySearch` hook's single-query +
+ * debounce machinery (a hook can't be called once per line). The
+ * `useEntitySearch` hook is still the canonical surface for an interactive
+ * single search box; this is the underlying query for batch/per-line use.
+ */
+export async function fetchEntitySearch(query: string): Promise<FetchEntitySearchResult> {
   const encoded = encodeURIComponent(query)
 
   // Fire all requests in parallel via allSettled so we can tally rejections
@@ -313,6 +321,27 @@ async function fetchEntitySearch(query: string): Promise<FetchEntitySearchResult
     },
     allFailed,
   }
+}
+
+/**
+ * Flatten grouped search results into a single ordered list (PSY-845).
+ * Order mirrors AddItemsPicker's existing `searchRows` memo so the per-line
+ * auto-match and the interactive search list agree on candidate ordering.
+ * Tags are intentionally EXCLUDED — they are not a collectible entity type
+ * (CollectionEntityType has no `tag`), so a plain-text line must never
+ * auto-match to a tag.
+ */
+export function flattenEntitySearchResults(
+  results: EntitySearchResults
+): EntitySearchResult[] {
+  return [
+    ...results.artists,
+    ...results.shows,
+    ...results.venues,
+    ...results.releases,
+    ...results.labels,
+    ...results.festivals,
+  ]
 }
 
 // ============================================================================
