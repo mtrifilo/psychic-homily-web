@@ -17,9 +17,6 @@ export const TAG_SORT_OPTIONS: { value: TagSortOption; label: string; backend: s
 
 export const DEFAULT_TAG_SORT: TagSortOption = 'popularity'
 
-export type TagView = 'grid' | 'cloud'
-export const DEFAULT_TAG_VIEW: TagView = 'grid'
-
 export const TAG_ENTITY_TYPES = [
   // PSY-354: collection joined the polymorphic tag corpus. Order matches
   // backend `models.TagEntityTypes`.
