@@ -151,7 +151,12 @@ jobs:
           files: backend/coverage.out
           flags: backend
           disable_search: true
-          fail_ci_if_error: true
+          # PSY-976: don't let a flaky Codecov *upload* block merges. The
+          # action's GPG uploader-key import fails intermittently (upstream
+          # codecov/codecov-action#1876) — a transient upload error must not
+          # fail an otherwise-green job. `go test` above still gates real
+          # test failures; this only relaxes the post-test upload step.
+          fail_ci_if_error: false
           token: ${{ secrets.CODECOV_TOKEN }}
 
   # PSY-772: backend lint gate.
@@ -239,7 +244,10 @@ jobs:
           files: coverage/lcov.info
           flags: frontend
           disable_search: true
-          fail_ci_if_error: true
+          # PSY-976: see backend upload above — a flaky Codecov upload
+          # (codecov/codecov-action#1876) must not fail an otherwise-green
+          # job. `bun run test:coverage` still gates real test failures.
+          fail_ci_if_error: false
           working-directory: ./frontend
           token: ${{ secrets.CODECOV_TOKEN }}
 
