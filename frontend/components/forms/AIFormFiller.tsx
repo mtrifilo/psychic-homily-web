@@ -429,7 +429,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
                           variant={artist.matched_id ? 'default' : 'secondary'}
                           className={`text-xs ${
                             !artist.matched_id && artist.suggestions?.length
-                              ? 'border-amber-500 text-amber-700 dark:text-amber-400'
+                              ? 'border-pending-foreground text-pending-foreground'
                               : ''
                           }`}
                         >
@@ -452,14 +452,14 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
                             key={`suggestion-${i}`}
                             className="ml-4 flex items-center gap-1.5 flex-wrap text-xs"
                           >
-                            <span className="text-amber-600 dark:text-amber-400">
+                            <span className="text-pending-foreground">
                               Did you mean:
                             </span>
                             {artist.suggestions.map(s => (
                               <button
                                 key={s.id}
                                 type="button"
-                                className="rounded-md border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-xs hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
+                                className="rounded-md border border-pending-foreground bg-pending text-pending-foreground px-2 py-0.5 text-xs hover:bg-pending/70 transition-colors"
                                 onClick={() => acceptArtistSuggestion(i, s)}
                               >
                                 {s.name}
@@ -492,7 +492,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
                         className={`text-xs ${
                           !extractionResult.venue.matched_id &&
                           extractionResult.venue.suggestions?.length
-                            ? 'border-amber-500 text-amber-700 dark:text-amber-400'
+                            ? 'border-pending-foreground text-pending-foreground'
                             : ''
                         }`}
                       >
@@ -510,14 +510,14 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
                       extractionResult.venue.suggestions &&
                       extractionResult.venue.suggestions.length > 0 && (
                         <div className="ml-4 flex items-center gap-1.5 flex-wrap text-xs">
-                          <span className="text-amber-600 dark:text-amber-400">
+                          <span className="text-pending-foreground">
                             Did you mean:
                           </span>
                           {extractionResult.venue.suggestions.map(s => (
                             <button
                               key={s.id}
                               type="button"
-                              className="rounded-md border border-amber-400 dark:border-amber-600 bg-amber-50 dark:bg-amber-950/40 px-2 py-0.5 text-xs hover:bg-amber-100 dark:hover:bg-amber-900/50 transition-colors"
+                              className="rounded-md border border-pending-foreground bg-pending text-pending-foreground px-2 py-0.5 text-xs hover:bg-pending/70 transition-colors"
                               onClick={() => acceptVenueSuggestion(s)}
                             >
                               {s.name}
@@ -588,7 +588,7 @@ export function AIFormFiller({ onExtracted }: AIFormFillerProps) {
 
               {/* Warnings */}
               {warnings.length > 0 && (
-                <div className="text-xs text-amber-600 dark:text-amber-400 mt-2">
+                <div className="text-xs text-pending-foreground mt-2">
                   {warnings.map((warning, i) => (
                     <div key={i}>{warning}</div>
                   ))}

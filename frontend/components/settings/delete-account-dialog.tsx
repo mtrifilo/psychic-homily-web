@@ -171,9 +171,9 @@ export function DeleteAccountDialog({
                     </ul>
                   </div>
 
-                  <div className="rounded-lg border border-amber-500/20 bg-amber-500/5 p-4">
+                  <div className="rounded-lg border border-pending-foreground bg-pending p-4">
                     <div className="flex items-start gap-3">
-                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-amber-500" />
+                      <AlertTriangle className="mt-0.5 h-5 w-5 shrink-0 text-pending-foreground" />
                       <div className="space-y-1 text-sm">
                         <p className="font-medium text-foreground">
                           30-Day Grace Period
@@ -226,7 +226,7 @@ export function DeleteAccountDialog({
             <div className="space-y-4 py-4">
               {/* OAuth-only user notice */}
               {!hasPassword && (
-                <div className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400">
+                <div className="rounded-md bg-pending p-3 text-sm text-pending-foreground">
                   OAuth accounts require email confirmation for deletion. This
                   feature is coming soon. Please contact support to delete your
                   account.
@@ -341,14 +341,14 @@ export function DeleteAccountDialog({
         {step === 'success' && (
           <>
             <DialogHeader>
-              <DialogTitle className="flex items-center gap-2 text-emerald-600 dark:text-emerald-400">
+              <DialogTitle className="flex items-center gap-2 text-success-foreground">
                 <CheckCircle2 className="h-5 w-5" />
                 Account Scheduled for Deletion
               </DialogTitle>
             </DialogHeader>
 
             <div className="space-y-4 py-4">
-              <div className="rounded-lg border border-emerald-500/20 bg-emerald-500/5 p-4">
+              <div className="rounded-lg border border-success-foreground bg-success p-4">
                 <p className="text-sm text-foreground">
                   Your account has been deactivated and will be permanently
                   deleted on{' '}

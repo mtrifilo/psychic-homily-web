@@ -101,7 +101,7 @@ export function ChangePassword() {
         >
           {/* Success message */}
           {successMessage && (
-            <div className="flex items-center gap-2 rounded-md bg-emerald-500/10 p-3 text-sm text-emerald-600 dark:text-emerald-400">
+            <div className="flex items-center gap-2 rounded-md bg-success p-3 text-sm text-success-foreground">
               <CheckCircle2 className="h-4 w-4 shrink-0" />
               <span>{successMessage}</span>
             </div>
@@ -232,7 +232,7 @@ export function ChangePassword() {
                 )}
                 {/* Password match indicator */}
                 {confirmPasswordValue && field.state.meta.errors.length === 0 && (
-                  <p className={`text-xs ${passwordsMatch ? 'text-green-600 dark:text-green-500' : 'text-muted-foreground'}`}>
+                  <p className={`text-xs ${passwordsMatch ? 'text-success-foreground' : 'text-muted-foreground'}`}>
                     {passwordsMatch ? 'Passwords match' : 'Passwords do not match'}
                   </p>
                 )}

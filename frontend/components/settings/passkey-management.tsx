@@ -174,7 +174,7 @@ export function PasskeyManagement() {
                         <span>Last used {formatDate(credential.last_used_at)}</span>
                       )}
                       {credential.backup_state && (
-                        <span className="text-green-600 dark:text-green-500">Synced</span>
+                        <span className="text-success-foreground">Synced</span>
                       )}
                     </div>
                   </div>

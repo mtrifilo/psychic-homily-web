@@ -168,9 +168,9 @@ export function ArtistEditForm({
         </DialogHeader>
 
         {showSuccess && (
-          <Alert className="mb-4 border-green-500 bg-green-50 dark:bg-green-950">
-            <CheckCircle2 className="h-4 w-4 text-green-600" />
-            <AlertDescription className="text-green-600">
+          <Alert className="mb-4 border-success-foreground bg-success">
+            <CheckCircle2 className="h-4 w-4 text-success-foreground" />
+            <AlertDescription className="text-success-foreground">
               Artist updated successfully!
             </AlertDescription>
           </Alert>
