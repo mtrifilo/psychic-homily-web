@@ -617,7 +617,7 @@ function ExtractedRow({
             <button
               key={s.id}
               type="button"
-              className="rounded-md border border-pending bg-pending px-2 py-0.5 text-xs text-pending-foreground hover:bg-pending/80 transition-colors"
+              className="rounded-md border border-pending-foreground/20 bg-pending px-2 py-0.5 text-xs text-pending-foreground hover:bg-pending/80 transition-colors"
               onClick={() => onAcceptSuggestion(s)}
               data-testid="ai-collection-filler-row-pick"
             >
