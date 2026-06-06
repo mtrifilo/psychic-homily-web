@@ -250,6 +250,12 @@ export function AICollectionFiller({
   // network). Surfaced inline on the row so the action isn't a silent no-op;
   // the create/queue button stays so the user can retry.
   const [requestErrors, setRequestErrors] = useState<Record<string, string>>({})
+  // Rows with an entity-request currently in flight. Tracked per-row (not via
+  // the shared mutation's isPending) because the single useMutation only
+  // remembers its LATEST variables — clicking row B while row A is in flight
+  // would otherwise re-enable A's button mid-flight and let it double-file
+  // (the backend has no create-side dedup).
+  const [inFlightRows, setInFlightRows] = useState<Set<string>>(new Set())
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const { user } = useAuthContext()
@@ -475,6 +481,9 @@ export function AICollectionFiller({
   // backend's decision_state, not assumed) so the affordance can't be
   // double-fired.
   const requestRow = (rowKey: string, name: string, confirmed: boolean) => {
+    // Guard against a double-submit for the same row (the resolved/errored
+    // chip already guards a settled row; this guards the in-flight window).
+    if (inFlightRows.has(rowKey)) return
     // Clear any prior error on this row so a retry starts clean.
     setRequestErrors(prev => {
       if (!(rowKey in prev)) return prev
@@ -482,11 +491,19 @@ export function AICollectionFiller({
       delete next[rowKey]
       return next
     })
+    setInFlightRows(prev => new Set(prev).add(rowKey))
+    const clearInFlight = () =>
+      setInFlightRows(prev => {
+        const next = new Set(prev)
+        next.delete(rowKey)
+        return next
+      })
     queueRequest.mutate(
       { rowKey, entityType: 'artist', name, confirmed },
       {
         onSuccess: ({ outcome }) => {
           setRequestedRows(prev => ({ ...prev, [rowKey]: outcome }))
+          clearInFlight()
         },
         onError: (err: unknown) => {
           setRequestErrors(prev => ({
@@ -496,6 +513,7 @@ export function AICollectionFiller({
                 ? err.message
                 : 'Failed to submit. Please try again.',
           }))
+          clearInFlight()
         },
       }
     )
@@ -670,10 +688,7 @@ export function AICollectionFiller({
                     affordance={affordance}
                     requestOutcome={requestedRows[rowKey]}
                     requestError={requestErrors[rowKey]}
-                    isRequesting={
-                      queueRequest.isPending &&
-                      queueRequest.variables?.rowKey === rowKey
-                    }
+                    isRequesting={inFlightRows.has(rowKey)}
                     onAdd={() => stageItem(item)}
                     onAcceptSuggestion={s => acceptSuggestion(idx, s)}
                     onDismissSuggestions={() => dismissSuggestions(idx)}

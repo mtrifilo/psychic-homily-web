@@ -576,6 +576,23 @@ describe('AICollectionFiller', () => {
     ).toBeInTheDocument()
   })
 
+  it('does not double-file when the create button is clicked twice fast', async () => {
+    mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
+    // Never-resolving fetch keeps the request in flight so a second click
+    // would double-file if the in-flight guard were missing.
+    const fetchMock = vi.fn().mockReturnValue(new Promise(() => {}))
+    vi.stubGlobal('fetch', fetchMock)
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    const btn = screen.getByTestId('ai-collection-filler-row-request')
+    await user.click(btn)
+    // Button is now disabled (in flight) — a second click must be a no-op.
+    await user.click(btn)
+
+    expect(fetchMock).toHaveBeenCalledTimes(1)
+  })
+
   it('matched-row [Add] still works when a tier user is present (no regress)', async () => {
     mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
     mockExtractResult = {
