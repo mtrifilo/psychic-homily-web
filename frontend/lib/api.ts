@@ -271,6 +271,10 @@ export const API_ENDPOINTS = {
     // PSY-823: paste-URL preview helper. Maps (entity_type, slug) pairs to
     // entity_ids + display metadata.
     RESOLVE_ITEMS: `${API_BASE_URL}/collections/resolve-items`,
+    // PSY-997: queue an entity-creation request for admin moderation. Used by
+    // PSY-845 (AddItemsPicker plain-text queue-for-review) + PSY-853
+    // (AICollectionFiller). Auth-gated (rc.Protected).
+    ENTITY_REQUESTS: `${API_BASE_URL}/entity-requests`,
     ITEM: (slug: string, itemId: number) =>
       `${API_BASE_URL}/collections/${slug}/items/${itemId}`,
     UPDATE_ITEM: (slug: string, itemId: number) =>
