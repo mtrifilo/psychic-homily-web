@@ -587,4 +587,60 @@ describe('AddItemsPicker', () => {
     expect(mockResolveMutate).not.toHaveBeenCalled()
     expect(screen.getByText(/canonical PH paths/i)).toBeInTheDocument()
   })
+
+  // ── PSY-962: overview strip + drag-reorder ──
+  // Full drag interaction is exercised by @dnd-kit itself + manual repro;
+  // these cover the strip render, count/plural, overflow cap, and the
+  // reorder-affordance gating (handle only when there's >1 item to reorder).
+  const staged = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      entityType: 'artist' as const,
+      entityId: i + 1,
+      name: `Artist ${i + 1}`,
+      subtitle: null,
+    }))
+
+  it('renders the overview strip with item count + reorder hint (>1 item)', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(3)} onStagedItemsChange={vi.fn()} />
+    )
+    const strip = screen.getByTestId('add-items-picker-overview-strip')
+    expect(strip).toHaveTextContent('3 items')
+    expect(strip).toHaveTextContent('drag to reorder')
+  })
+
+  it('overview strip: singular "item" + no reorder hint for a single item', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(1)} onStagedItemsChange={vi.fn()} />
+    )
+    const strip = screen.getByTestId('add-items-picker-overview-strip')
+    expect(strip).toHaveTextContent('1 item')
+    expect(strip).not.toHaveTextContent('drag to reorder')
+  })
+
+  it('overview strip caps its preview and shows a +N overflow chip', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(30)} onStagedItemsChange={vi.fn()} />
+    )
+    // 24 shown + 6 overflow.
+    expect(
+      screen.getByTestId('add-items-picker-overview-strip')
+    ).toHaveTextContent('+6')
+  })
+
+  it('renders a drag handle per row when reorderable (>1 staged item)', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(3)} onStagedItemsChange={vi.fn()} />
+    )
+    expect(screen.getAllByTestId('staged-row-drag-handle')).toHaveLength(3)
+  })
+
+  it('hides the drag handle for a single staged item (nothing to reorder)', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(1)} onStagedItemsChange={vi.fn()} />
+    )
+    expect(
+      screen.queryByTestId('staged-row-drag-handle')
+    ).not.toBeInTheDocument()
+  })
 })

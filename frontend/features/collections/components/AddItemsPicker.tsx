@@ -24,7 +24,14 @@
  * extraction via Claude Haiku.
  */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+} from 'react'
 import { useDebounce } from 'use-debounce'
 import {
   Plus,
@@ -35,6 +42,7 @@ import {
   Library,
   Loader2,
   Info,
+  GripVertical,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -56,6 +64,25 @@ import { useResolveCollectionItems } from '../hooks'
 import { getEntityTypeLabel, type CollectionEntityType } from '../types'
 import { cn } from '@/lib/utils'
 import { AICollectionFiller } from './AICollectionFiller'
+import {
+  DndContext,
+  closestCenter,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  sortableKeyboardCoordinates,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import { ENTITY_ICONS } from './collectionDetailShared'
 
 // ──────────────────────────────────────────────
 // Types
@@ -391,6 +418,33 @@ export function AddItemsPicker({
     )
   }
 
+  // ─── Reorder (PSY-962) ───
+  // Drag-to-reorder the staged list; the overview strip mirrors this order.
+  // Sensors mirror the collections drag-drop primitive (PSY-348): pointer 8px,
+  // touch long-press, keyboard arrow-key fallback.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
+    useSensor(TouchSensor, {
+      activationConstraint: { delay: 200, tolerance: 8 },
+    }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
+  )
+  const stagedIds = useMemo(
+    () => stagedItems.map((s) => `${s.entityType}-${s.entityId}`),
+    [stagedItems]
+  )
+  const handleReorder = useCallback(
+    (event: DragEndEvent) => {
+      const { active, over } = event
+      if (!over || active.id === over.id) return
+      const oldIndex = stagedIds.indexOf(String(active.id))
+      const newIndex = stagedIds.indexOf(String(over.id))
+      if (oldIndex === -1 || newIndex === -1) return
+      onStagedItemsChange(arrayMove(stagedItems, oldIndex, newIndex))
+    },
+    [stagedIds, stagedItems, onStagedItemsChange]
+  )
+
   // ─── Render ───
 
   const stagedCount = stagedItems.length
@@ -463,25 +517,39 @@ export function AddItemsPicker({
         )}
       </Tabs>
 
-      {/* Staged list */}
+      {/* Staged list (PSY-962: overview strip + drag-reorderable detail list) */}
       {stagedCount > 0 && (
-        <div className="mt-3 border-t border-border/50 pt-3">
-          <div
-            className={cn(
-              'space-y-0.5',
-              stagedCount > STAGED_LIST_MAX_VISIBLE && 'max-h-[420px] overflow-y-auto'
-            )}
-            data-testid="add-items-picker-staged-list"
+        <div className="mt-3 border-t border-border/50 pt-3 space-y-2">
+          <StagedOverviewStrip items={stagedItems} />
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleReorder}
           >
-            {stagedItems.map((item, index) => (
-              <StagedRow
-                key={`${item.entityType}-${item.entityId}`}
-                index={index}
-                item={item}
-                onRemove={() => unstageItem(item.entityType, item.entityId)}
-              />
-            ))}
-          </div>
+            <SortableContext
+              items={stagedIds}
+              strategy={verticalListSortingStrategy}
+            >
+              <div
+                className={cn(
+                  'space-y-0.5',
+                  stagedCount > STAGED_LIST_MAX_VISIBLE &&
+                    'max-h-[420px] overflow-y-auto'
+                )}
+                data-testid="add-items-picker-staged-list"
+              >
+                {stagedItems.map((item, index) => (
+                  <StagedRow
+                    key={`${item.entityType}-${item.entityId}`}
+                    index={index}
+                    item={item}
+                    canReorder={stagedCount > 1}
+                    onRemove={() => unstageItem(item.entityType, item.entityId)}
+                  />
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
         </div>
       )}
     </div>
@@ -831,20 +899,102 @@ function PastePreviewRow({
   )
 }
 
+/**
+ * PSY-962: at-a-glance overview strip above the staged list — item count + a
+ * capped row of entity-type icon chips. The numbered list below stays the
+ * detail + drag-reorder surface; this strip mirrors its order. Icon-only +
+ * monochrome by design (color is reserved for the AI status chips). Enter
+ * animation is gated on `motion-safe` so it honors prefers-reduced-motion.
+ */
+const STRIP_PREVIEW_CAP = 24
+function StagedOverviewStrip({ items }: { items: StagedCollectionItem[] }) {
+  const shown = items.slice(0, STRIP_PREVIEW_CAP)
+  const overflow = items.length - shown.length
+  return (
+    <div className="space-y-1.5" data-testid="add-items-picker-overview-strip">
+      <div className="flex items-center justify-between">
+        <span className="text-xs font-mono text-muted-foreground">
+          {items.length} {items.length === 1 ? 'item' : 'items'}
+        </span>
+        {items.length > 1 && (
+          <span className="text-[10px] font-mono text-muted-foreground">
+            ⇅ drag to reorder
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap gap-1.5">
+        {shown.map((item) => {
+          const Icon = ENTITY_ICONS[item.entityType] ?? Library
+          return (
+            <span
+              key={`${item.entityType}-${item.entityId}`}
+              className="flex h-7 w-7 items-center justify-center rounded border border-border bg-secondary text-secondary-foreground motion-safe:animate-in motion-safe:fade-in"
+              title={`${item.name} — ${getEntityTypeLabel(item.entityType)}`}
+            >
+              <Icon className="h-3.5 w-3.5" aria-hidden="true" />
+            </span>
+          )
+        })}
+        {overflow > 0 && (
+          <span className="flex h-7 items-center rounded border border-border bg-muted px-2 text-[10px] font-mono text-muted-foreground">
+            +{overflow}
+          </span>
+        )}
+      </div>
+    </div>
+  )
+}
+
 function StagedRow({
   index,
   item,
+  canReorder,
   onRemove,
 }: {
   index: number
   item: StagedCollectionItem
+  canReorder: boolean
   onRemove: () => void
 }) {
+  // useSortable returns no-op refs/listeners when reorder is disabled (single
+  // item), keeping hook order stable across renders.
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({
+    id: `${item.entityType}-${item.entityId}`,
+    disabled: !canReorder,
+  })
+  const sortableStyle: CSSProperties = canReorder
+    ? {
+        transform: CSS.Transform.toString(transform),
+        transition,
+        opacity: isDragging ? 0.6 : undefined,
+      }
+    : {}
   return (
     <div
-      className="flex items-center gap-3 rounded-md px-2 py-1.5 border border-border/40"
+      ref={canReorder ? setNodeRef : undefined}
+      style={sortableStyle}
+      className="flex items-center gap-2 rounded-md px-2 py-1.5 border border-border/40 bg-popover motion-safe:animate-in motion-safe:fade-in"
       data-testid="add-items-picker-staged-row"
     >
+      {canReorder && (
+        <button
+          type="button"
+          {...attributes}
+          {...listeners}
+          className="touch-none cursor-grab active:cursor-grabbing flex h-6 w-4 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground rounded focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={`Drag to reorder ${item.name}. Use space to lift, arrow keys to move.`}
+          data-testid="staged-row-drag-handle"
+        >
+          <GripVertical className="h-3.5 w-3.5" />
+        </button>
+      )}
       <span className="text-xs font-mono text-muted-foreground w-6 shrink-0 text-right">
         {String(index + 1).padStart(2, '0')}
       </span>
