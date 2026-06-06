@@ -331,7 +331,7 @@ function BulkImportDialog({
 
           {result && (
             <div className="space-y-3">
-              <div className="rounded-lg border border-green-500/30 bg-green-500/10 p-3 text-sm text-green-400 flex items-start gap-2">
+              <div className="rounded-lg border border-success-foreground bg-success p-3 text-sm text-success-foreground flex items-start gap-2">
                 <CheckCircle2 className="h-4 w-4 mt-0.5 flex-shrink-0" />
                 <span>
                   Imported {result.imported} alias{result.imported === 1 ? '' : 'es'}.
@@ -341,8 +341,8 @@ function BulkImportDialog({
               </div>
 
               {result.skipped.length > 0 && (
-                <div className="rounded-lg border border-amber-500/30">
-                  <div className="bg-amber-500/10 px-3 py-2 text-sm font-medium text-amber-400 flex items-center gap-2 border-b border-amber-500/30">
+                <div className="rounded-lg border border-pending-foreground">
+                  <div className="bg-pending px-3 py-2 text-sm font-medium text-pending-foreground flex items-center gap-2 border-b border-pending-foreground">
                     <X className="h-4 w-4" />
                     Rejected rows
                   </div>
@@ -359,7 +359,7 @@ function BulkImportDialog({
                           <div className="font-mono">
                             {s.alias || '(empty)'} → {s.canonical || '(empty)'}
                           </div>
-                          <div className="text-amber-400 mt-0.5">{s.reason}</div>
+                          <div className="text-pending-foreground mt-0.5">{s.reason}</div>
                         </div>
                       </div>
                     ))}
