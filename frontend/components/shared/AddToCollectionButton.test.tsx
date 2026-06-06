@@ -116,6 +116,12 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// PSY-961: the "Create … with {entity}" CTA opens the app-level Create drawer.
+const mockOpenCreateDrawer = vi.fn()
+vi.mock('@/features/collections/components/CreateCollectionDrawer', () => ({
+  useCreateCollectionDrawer: () => ({ openCreateDrawer: mockOpenCreateDrawer }),
+}))
+
 describe('AddToCollectionButton', () => {
   beforeEach(() => {
     vi.clearAllMocks()
@@ -440,7 +446,7 @@ describe('AddToCollectionButton', () => {
     })
   })
 
-  it('shows "Create new collection" link', async () => {
+  it('opens the Create drawer pre-filled with the entity from the main CTA (D4)', async () => {
     const user = userEvent.setup()
     render(
       <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
@@ -448,12 +454,18 @@ describe('AddToCollectionButton', () => {
 
     await user.click(screen.getByRole('button', { name: /add to collection/i }))
 
-    const link = await screen.findByText('Create new collection')
-    expect(link).toBeInTheDocument()
-    expect(link.closest('a')).toHaveAttribute('href', '/collections')
+    const cta = await screen.findByRole('button', {
+      name: /create new collection with test artist/i,
+    })
+    await user.click(cta)
+    expect(mockOpenCreateDrawer).toHaveBeenCalledWith({
+      initialStagedItems: [
+        { entityType: 'artist', entityId: 1, name: 'Test Artist', subtitle: null },
+      ],
+    })
   })
 
-  it('shows empty state with a primary Create CTA when user has no collections (D5)', async () => {
+  it('shows a primary Create CTA that pre-fills the entity in the empty state (D5)', async () => {
     mockMyCollections.mockReturnValue({
       data: { collections: [] },
       isLoading: false,
@@ -469,11 +481,15 @@ describe('AddToCollectionButton', () => {
     expect(
       await screen.findByText('No collections yet — start one.')
     ).toBeInTheDocument()
-    // D5: Create is promoted to a primary action (a link styled as a button).
-    const createLink = screen.getByRole('link', {
-      name: /create new collection/i,
+    // D5: Create is the primary action and pre-fills the current entity.
+    await user.click(
+      screen.getByRole('button', { name: /create with test artist/i })
+    )
+    expect(mockOpenCreateDrawer).toHaveBeenCalledWith({
+      initialStagedItems: [
+        { entityType: 'artist', entityId: 1, name: 'Test Artist', subtitle: null },
+      ],
     })
-    expect(createLink).toHaveAttribute('href', '/collections')
     // No submit row / no checkbox list in the empty state.
     expect(screen.queryByRole('checkbox')).not.toBeInTheDocument()
   })

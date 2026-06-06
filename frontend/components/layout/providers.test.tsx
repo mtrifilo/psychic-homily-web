@@ -20,6 +20,12 @@ vi.mock('@/features/auth', () => ({
   useLogout: () => mockUseLogout(),
 }))
 
+// PSY-961: Providers now mounts CreateCollectionDrawerProvider, which reads
+// useRouter() — stub it so the provider tree mounts without a Next router.
+vi.mock('next/navigation', () => ({
+  useRouter: () => ({ push: vi.fn() }),
+}))
+
 describe('Providers', () => {
   beforeEach(() => {
     vi.clearAllMocks()
