@@ -848,6 +848,28 @@ describe('AddItemsPicker', () => {
     expect(mockApiRequest).not.toHaveBeenCalled()
   })
 
+  it('Paste mode: queues EACH zero-result line independently (no last-write-wins)', async () => {
+    // Guards the multi-junk-line case: usePastePreview reuses ONE
+    // queueMutation instance across the bounded worker pool. Each per-call
+    // mutate() must fire its own onSuccess targeting its own row index —
+    // a last-write-wins bug would queue only one line / one POST.
+    const user = userEvent.setup()
+    render(<AddItemsPicker stagedItems={[]} onStagedItemsChange={vi.fn()} />)
+    await user.click(screen.getByTestId('tab-paste'))
+    await pasteInto(user, 'JunkOne\nJunkTwo\nJunkThree')
+
+    await waitFor(() =>
+      expect(
+        screen.getAllByTestId('add-items-picker-paste-row-queued')
+      ).toHaveLength(3)
+    )
+    expect(mockApiRequest).toHaveBeenCalledTimes(3)
+    const names = mockApiRequest.mock.calls
+      .map((c) => JSON.parse((c[1] as { body: string }).body).payload.name)
+      .sort()
+    expect(names).toEqual(['JunkOne', 'JunkThree', 'JunkTwo'])
+  })
+
   // ── PSY-962: overview strip + drag-reorder ──
   // Full drag interaction is exercised by @dnd-kit itself + manual repro;
   // these cover the strip render, count/plural, overflow cap, and the

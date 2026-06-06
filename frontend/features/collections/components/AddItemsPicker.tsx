@@ -36,7 +36,6 @@ import {
   type CSSProperties,
 } from 'react'
 import { useDebounce } from 'use-debounce'
-import { useMutation } from '@tanstack/react-query'
 import {
   Plus,
   Search,
@@ -256,35 +255,39 @@ export function parsePasteLine(line: string): ParsedPasteLine {
 // ──────────────────────────────────────────────
 
 /**
- * LOCAL queue-create mutation (PSY-845). Posts an `entity_request` to
- * PSY-997's `POST /entity-requests` so a plain-text line with ZERO matches
- * becomes an admin-reviewable artist-creation request rather than being
- * silently dropped.
+ * LOCAL queue-create call (PSY-845). Posts an `entity_request` to PSY-997's
+ * `POST /entity-requests` so a plain-text line with ZERO matches becomes an
+ * admin-reviewable artist-creation request rather than being silently dropped.
  *
  * Deliberately LOCAL (not a shared exported hook): PSY-853 posts to the same
  * endpoint from AICollectionFiller in parallel. Keeping each consumer's
- * mutation local avoids a cross-PR file collision; a future ticket dedups the
- * two into one shared `useCreateEntityRequest` hook. The small duplication is
- * intentional (see coordination note on PSY-845).
+ * queue-create local avoids a cross-PR file collision; a future ticket dedups
+ * the two into one shared hook. The small duplication is intentional (see
+ * coordination note on PSY-845).
  *
- * Entity type is `artist`: a bare plain-text line in a music collection
- * picker is overwhelmingly an artist name, and `artist` is the only
- * entity_request payload whose sole required field is `name` (releases need a
- * title, shows need an event_date, venues need city+state, etc.) — so the
- * line text is sufficient to file a well-formed request. The admin reviewing
- * the queue retypes/reclassifies if it was actually a release or venue.
+ * A plain async function, NOT a `useMutation` hook: a single paste can queue
+ * several zero-result lines CONCURRENTLY (the bounded worker pool), and one
+ * shared `useMutation` observer only tracks the latest in-flight mutation —
+ * rapid successive `.mutate()` calls drop earlier per-call callbacks, so only
+ * the last line would end up queued. Per-call `apiRequest` has no such shared
+ * state; usePastePreview owns the per-row status, so the hook's
+ * data/isPending/error were unused anyway.
+ *
+ * Entity type is `artist`: a bare plain-text line in a music collection picker
+ * is overwhelmingly an artist name, and `artist` is the only entity_request
+ * payload whose sole required field is `name` (releases need a title, shows an
+ * event_date, venues city+state, etc.) — so the line text is sufficient to
+ * file a well-formed request. The admin reviewing the queue retypes /
+ * reclassifies if it was actually a release or venue.
  */
-function useQueueEntityRequest() {
-  return useMutation({
-    mutationFn: (name: string) =>
-      apiRequest(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
-        method: 'POST',
-        body: JSON.stringify({
-          entity_type: 'artist',
-          payload: { name },
-          source_context: 'paste_mode',
-        }),
-      }),
+function queueEntityRequest(name: string): Promise<unknown> {
+  return apiRequest(API_ENDPOINTS.COLLECTIONS.ENTITY_REQUESTS, {
+    method: 'POST',
+    body: JSON.stringify({
+      entity_type: 'artist',
+      payload: { name },
+      source_context: 'paste_mode',
+    }),
   })
 }
 
@@ -425,7 +428,6 @@ function usePastePreview(pasteText: string): {
 } {
   const [debouncedPaste] = useDebounce(pasteText, 400)
   const resolveMutation = useResolveCollectionItems()
-  const queueMutation = useQueueEntityRequest()
   const [previewRows, setPreviewRows] = useState<PreviewRow[]>([])
   const generationRef = useRef(0)
 
@@ -445,16 +447,18 @@ function usePastePreview(pasteText: string): {
   )
 
   // File a queue-for-review request for a zero-result plain-text line.
-  // Extracted so the initial pass AND retryQueue share one code path.
+  // Extracted so the initial pass AND retryQueue share one code path. Each
+  // call is an independent POST (see queueEntityRequest) so concurrent
+  // zero-result lines each get their own request + row update.
   const fileQueueRequest = useCallback(
     (generation: number, index: number, raw: string) => {
       updateRow(generation, index, { status: 'queuing' })
-      queueMutation.mutate(raw, {
-        onSuccess: () => updateRow(generation, index, { status: 'queued' }),
-        onError: () => updateRow(generation, index, { status: 'queue_failed' }),
-      })
+      queueEntityRequest(raw).then(
+        () => updateRow(generation, index, { status: 'queued' }),
+        () => updateRow(generation, index, { status: 'queue_failed' })
+      )
     },
-    [queueMutation, updateRow]
+    [updateRow]
   )
 
   useEffect(() => {
