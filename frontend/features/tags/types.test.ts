@@ -3,7 +3,6 @@ import {
   TAG_CATEGORIES,
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
-  DEFAULT_TAG_VIEW,
   TAG_ENTITY_TYPES,
   LOW_QUALITY_REASON_LABELS,
   LOW_QUALITY_SIGNAL_CHIPS,
@@ -26,9 +25,8 @@ describe('tag constants', () => {
     ])
   })
 
-  it('defaults sort to popularity and view to grid', () => {
+  it('defaults sort to popularity', () => {
     expect(DEFAULT_TAG_SORT).toBe('popularity')
-    expect(DEFAULT_TAG_VIEW).toBe('grid')
   })
 
   it('lists the polymorphic tag entity types (collection included)', () => {

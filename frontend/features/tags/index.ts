@@ -25,12 +25,11 @@ export {
   TAG_ENTITY_TYPES,
   TAG_SORT_OPTIONS,
   DEFAULT_TAG_SORT,
-  DEFAULT_TAG_VIEW,
   getCategoryColor,
   getCategoryLabel,
 } from './types'
 
-export type { TagSortOption, TagView } from './types'
+export type { TagSortOption } from './types'
 
 export {
   useTags,

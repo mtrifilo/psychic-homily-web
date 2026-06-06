@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import type { TagListItem } from '../types'
@@ -23,22 +23,17 @@ vi.mock('next/navigation', () => ({
 }))
 
 vi.mock('next/link', () => ({
-  default: ({
-    href,
-    children,
-    ...props
-  }: {
-    href: string
-    children: React.ReactNode
-    [key: string]: unknown
-  }) => (
-    <a href={href} {...props}>
+  default: React.forwardRef<
+    HTMLAnchorElement,
+    React.AnchorHTMLAttributes<HTMLAnchorElement> & { href: string }
+  >(({ href, children, ...props }, ref) => (
+    <a href={href} ref={ref} {...props}>
       {children}
     </a>
-  ),
+  )),
 }))
 
-import { TagBrowse, cloudFontSizePx } from './TagBrowse'
+import { TagBrowse } from './TagBrowse'
 
 function setUrlParams(params: Record<string, string> = {}) {
   mockSearchParamsStore = new URLSearchParams(params)
@@ -73,43 +68,75 @@ function makeTag(overrides: Partial<TagListItem> = {}): TagListItem {
   }
 }
 
+/**
+ * Helper to drive the multi-query `useTags` mock. The component issues:
+ *   1. main list query (category/search/sort/offset)
+ *   2-4. one count query per category ({genre|locale|other}, limit:1)
+ * We key the count responses off the `category` param so facet counts and the
+ * main list are independently controllable.
+ */
+function mockTags({
+  list,
+  total = list.length,
+  counts = { genre: 0, locale: 0, other: 0 },
+  isLoading = false,
+  error = null as Error | null,
+  refetch = vi.fn(),
+}: {
+  list: TagListItem[]
+  total?: number
+  counts?: { genre: number; locale: number; other: number }
+  isLoading?: boolean
+  error?: Error | null
+  refetch?: () => void
+}) {
+  mockUseTags.mockImplementation((params?: { category?: string; limit?: number }) => {
+    // Count queries are the limit:1, category-scoped calls.
+    if (params?.limit === 1 && params.category) {
+      const cat = params.category as 'genre' | 'locale' | 'other'
+      return {
+        data: { tags: [], total: counts[cat] ?? 0 },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
+      }
+    }
+    // Main list query.
+    return {
+      data: error ? undefined : { tags: list, total },
+      isLoading,
+      error,
+      refetch,
+    }
+  })
+}
+
 describe('TagBrowse', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     setUrlParams()
-    mockUseTags.mockReturnValue({
-      data: { tags: [], total: 0 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockTags({ list: [], total: 0 })
   })
 
   // ── Loading state ──
 
   it('shows loading spinner on initial load', () => {
-    mockUseTags.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-      error: null,
-      refetch: vi.fn(),
+    mockUseTags.mockImplementation((params?: { limit?: number; category?: string }) => {
+      if (params?.limit === 1 && params.category) {
+        return { data: { tags: [], total: 0 }, isLoading: false, error: null, refetch: vi.fn() }
+      }
+      return { data: undefined, isLoading: true, error: null, refetch: vi.fn() }
     })
 
     renderWithProviders(<TagBrowse />)
 
-    const spinner = document.querySelector('.animate-spin')
-    expect(spinner).toBeInTheDocument()
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
   })
 
   // ── Error state ──
 
   it('shows error message on error', () => {
-    mockUseTags.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      error: new Error('Server error'),
-      refetch: vi.fn(),
-    })
+    mockTags({ list: [], error: new Error('Server error') })
 
     renderWithProviders(<TagBrowse />)
 
@@ -120,12 +147,7 @@ describe('TagBrowse', () => {
 
   it('shows Retry button on error', async () => {
     const mockRefetch = vi.fn()
-    mockUseTags.mockReturnValue({
-      data: undefined,
-      isLoading: false,
-      error: new Error('Server error'),
-      refetch: mockRefetch,
-    })
+    mockTags({ list: [], error: new Error('Server error'), refetch: mockRefetch })
 
     const user = userEvent.setup()
     renderWithProviders(<TagBrowse />)
@@ -137,204 +159,242 @@ describe('TagBrowse', () => {
   // ── Empty state ──
 
   it('shows generic empty copy when no filter is active', () => {
-    mockUseTags.mockReturnValue({
-      data: { tags: [], total: 0 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockTags({ list: [], total: 0 })
 
     renderWithProviders(<TagBrowse />)
 
     expect(screen.getByText('No tags found.')).toBeInTheDocument()
   })
 
-  it('shows filter-aware empty copy when a category pill is active', async () => {
-    mockUseTags.mockReturnValue({
-      data: { tags: [], total: 0 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+  it('shows filter-aware empty copy when a category facet is active', async () => {
+    mockTags({ list: [], total: 0, counts: { genre: 0, locale: 3, other: 0 } })
 
     const user = userEvent.setup()
     renderWithProviders(<TagBrowse />)
 
-    await user.click(screen.getByRole('button', { name: 'Locale' }))
+    await user.click(screen.getByTestId('facet-locale'))
 
     expect(screen.getByText('No locale tags yet.')).toBeInTheDocument()
   })
 
-  // ── Tag rendering (grid) ──
+  // ── Dense table rendering ──
 
-  it('renders tag cards as links in grid view (default)', () => {
-    const tags = [
-      makeTag({ id: 1, name: 'rock', slug: 'rock' }),
-      makeTag({ id: 2, name: 'punk', slug: 'punk', category: 'other' }),
-    ]
-    mockUseTags.mockReturnValue({
-      data: { tags, total: 2 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+  it('renders a directory table with Tag / Category / Uses column headers', () => {
+    mockTags({ list: [makeTag()], total: 1 })
 
     renderWithProviders(<TagBrowse />)
 
-    const rockLink = screen.getByRole('link', { name: /rock/ })
-    expect(rockLink).toHaveAttribute('href', '/tags/rock')
-
-    const punkLink = screen.getByRole('link', { name: /punk/ })
-    expect(punkLink).toHaveAttribute('href', '/tags/punk')
-
-    // Default view is grid — tag cloud must not be rendered.
-    expect(screen.queryByTestId('tag-cloud')).not.toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Tag' })).toBeInTheDocument()
+    expect(
+      screen.getByRole('columnheader', { name: 'Category' })
+    ).toBeInTheDocument()
+    expect(screen.getByRole('columnheader', { name: 'Uses' })).toBeInTheDocument()
   })
 
-  it('renders usage count on tag cards', () => {
-    mockUseTags.mockReturnValue({
-      data: { tags: [makeTag({ usage_count: 42 })], total: 1 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
+  it('renders each tag as a row link to its detail page', () => {
+    mockTags({
+      list: [
+        makeTag({ id: 1, name: 'rock', slug: 'rock' }),
+        makeTag({ id: 2, name: 'punk', slug: 'punk', category: 'other' }),
+      ],
+      total: 2,
     })
 
     renderWithProviders(<TagBrowse />)
 
-    expect(screen.getByText('42 uses')).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: /rock/ })).toHaveAttribute(
+      'href',
+      '/tags/rock'
+    )
+    expect(screen.getByRole('link', { name: /punk/ })).toHaveAttribute(
+      'href',
+      '/tags/punk'
+    )
   })
 
-  it('renders singular usage count', () => {
-    mockUseTags.mockReturnValue({
-      data: { tags: [makeTag({ usage_count: 1 })], total: 1 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+  it('renders the category as a tinted text label (not a pill)', () => {
+    mockTags({ list: [makeTag({ category: 'genre' })], total: 1 })
 
     renderWithProviders(<TagBrowse />)
 
-    expect(screen.getByText('1 use')).toBeInTheDocument()
+    const rows = screen.getAllByRole('row')
+    // Header row + 1 data row.
+    const dataRow = rows[1]
+    const label = within(dataRow).getByText('Genre')
+    // chart-6 = denim genre tint, no bg/border pill classes.
+    expect(label.className).toContain('text-chart-6')
+    expect(label.className).not.toContain('rounded-full')
   })
 
-  it('renders Official badge on official tags', () => {
-    mockUseTags.mockReturnValue({
-      data: { tags: [makeTag({ is_official: true })], total: 1 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+  it('renders the usage count in a right-aligned cell', () => {
+    mockTags({ list: [makeTag({ usage_count: 142 })], total: 1 })
 
     renderWithProviders(<TagBrowse />)
 
-    expect(screen.getByText('Official')).toBeInTheDocument()
+    const cell = screen.getByText('142')
+    expect(cell).toHaveClass('text-right')
+    expect(cell).toHaveClass('tabular-nums')
+  })
+
+  it('renders Official indicator on official tags', () => {
+    mockTags({ list: [makeTag({ is_official: true })], total: 1 })
+
+    renderWithProviders(<TagBrowse />)
+
+    // Dense rows use the compact icon-only indicator (aria-label, no visible text).
+    expect(screen.getByRole('img', { name: 'Official tag' })).toBeInTheDocument()
   })
 
   it('renders total count', () => {
-    mockUseTags.mockReturnValue({
-      data: { tags: [makeTag()], total: 15 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockTags({ list: [makeTag()], total: 15 })
 
     renderWithProviders(<TagBrowse />)
 
-    expect(screen.getByText('15 tags found')).toBeInTheDocument()
+    expect(screen.getByText('15 tags')).toBeInTheDocument()
   })
 
   it('renders singular total count', () => {
-    mockUseTags.mockReturnValue({
-      data: { tags: [makeTag()], total: 1 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockTags({ list: [makeTag()], total: 1 })
 
     renderWithProviders(<TagBrowse />)
 
-    expect(screen.getByText('1 tag found')).toBeInTheDocument()
+    expect(screen.getByText('1 tag')).toBeInTheDocument()
   })
 
-  // ── Category filter tabs ──
+  // ── Category facet chips with counts ──
 
-  it('renders all category filter buttons plus "All"', () => {
+  it('renders All + per-category facet chips', () => {
+    mockTags({ list: [makeTag()], total: 1, counts: { genre: 18, locale: 4, other: 2 } })
+
     renderWithProviders(<TagBrowse />)
 
-    expect(screen.getByText('All')).toBeInTheDocument()
-    expect(screen.getByText('Genre')).toBeInTheDocument()
-    expect(screen.getByText('Locale')).toBeInTheDocument()
-    expect(screen.getByText('Other')).toBeInTheDocument()
+    expect(screen.getByTestId('facet-all')).toBeInTheDocument()
+    expect(screen.getByTestId('facet-genre')).toBeInTheDocument()
+    expect(screen.getByTestId('facet-locale')).toBeInTheDocument()
+    expect(screen.getByTestId('facet-other')).toBeInTheDocument()
   })
 
-  it('calls useTags with category when a category button is clicked', async () => {
+  it('shows live per-category counts (and All = sum) on the facet chips', () => {
+    mockTags({ list: [makeTag()], total: 24, counts: { genre: 18, locale: 4, other: 2 } })
+
+    renderWithProviders(<TagBrowse />)
+
+    expect(within(screen.getByTestId('facet-all')).getByText('24')).toBeInTheDocument()
+    expect(within(screen.getByTestId('facet-genre')).getByText('18')).toBeInTheDocument()
+    expect(within(screen.getByTestId('facet-locale')).getByText('4')).toBeInTheDocument()
+    expect(within(screen.getByTestId('facet-other')).getByText('2')).toBeInTheDocument()
+  })
+
+  it('disables a facet chip with zero results', () => {
+    mockTags({ list: [makeTag()], total: 22, counts: { genre: 18, locale: 4, other: 0 } })
+
+    renderWithProviders(<TagBrowse />)
+
+    expect(screen.getByTestId('facet-other')).toBeDisabled()
+    expect(screen.getByTestId('facet-genre')).not.toBeDisabled()
+  })
+
+  it('calls useTags with category when a facet chip is clicked', async () => {
+    mockTags({ list: [makeTag()], total: 18, counts: { genre: 18, locale: 4, other: 2 } })
+
     const user = userEvent.setup()
     renderWithProviders(<TagBrowse />)
 
-    await user.click(screen.getByText('Genre'))
+    await user.click(screen.getByTestId('facet-genre'))
 
-    const lastCall = mockUseTags.mock.calls[mockUseTags.mock.calls.length - 1]
-    expect(lastCall[0]).toEqual(
+    const listCalls = mockUseTags.mock.calls.filter(
+      c => (c[0] as { limit?: number })?.limit !== 1
+    )
+    expect(listCalls[listCalls.length - 1][0]).toEqual(
       expect.objectContaining({ category: 'genre' })
     )
   })
 
   // ── Search ──
 
-  it('renders search input', () => {
+  it('renders an autofocused search input', () => {
+    mockTags({ list: [], total: 0 })
+
     renderWithProviders(<TagBrowse />)
 
-    expect(screen.getByPlaceholderText('Search tags...')).toBeInTheDocument()
+    const input = screen.getByPlaceholderText('Search tags...')
+    expect(input).toBeInTheDocument()
+    expect(input).toHaveFocus()
   })
 
-  // ── Sort dropdown ──
+  // ── Sort segmented control ──
 
-  it('renders all sort options', () => {
+  it('renders the three sort options as a segmented control', () => {
+    mockTags({ list: [makeTag()], total: 1 })
+
     renderWithProviders(<TagBrowse />)
 
-    const select = screen.getByLabelText('Sort tags') as HTMLSelectElement
-    const values = Array.from(select.options).map(o => o.value)
-    expect(values).toEqual(['popularity', 'alphabetical', 'newest'])
+    expect(screen.getByTestId('sort-popularity')).toBeInTheDocument()
+    expect(screen.getByTestId('sort-alphabetical')).toBeInTheDocument()
+    expect(screen.getByTestId('sort-newest')).toBeInTheDocument()
+  })
+
+  it('marks popularity as the default checked sort', () => {
+    mockTags({ list: [makeTag()], total: 1 })
+
+    renderWithProviders(<TagBrowse />)
+
+    expect(screen.getByTestId('sort-popularity')).toHaveAttribute('aria-checked', 'true')
+    expect(screen.getByTestId('sort-alphabetical')).toHaveAttribute('aria-checked', 'false')
   })
 
   it('defaults to popularity sort → calls useTags with backend sort "usage"', () => {
+    mockTags({ list: [makeTag()], total: 1 })
+
     renderWithProviders(<TagBrowse />)
 
-    const lastCall = mockUseTags.mock.calls[mockUseTags.mock.calls.length - 1]
-    expect(lastCall[0]).toEqual(
+    const listCalls = mockUseTags.mock.calls.filter(
+      c => (c[0] as { limit?: number })?.limit !== 1
+    )
+    expect(listCalls[listCalls.length - 1][0]).toEqual(
       expect.objectContaining({ sort: 'usage' })
     )
   })
 
-  it('reflects URL sort param ?sort=alphabetical in the select and in the useTags call', () => {
+  it('reflects URL ?sort=alphabetical in the control and the useTags call', () => {
     setUrlParams({ sort: 'alphabetical' })
+    mockTags({ list: [makeTag()], total: 1 })
 
     renderWithProviders(<TagBrowse />)
 
-    const select = screen.getByLabelText('Sort tags') as HTMLSelectElement
-    expect(select.value).toBe('alphabetical')
+    expect(screen.getByTestId('sort-alphabetical')).toHaveAttribute('aria-checked', 'true')
 
-    const lastCall = mockUseTags.mock.calls[mockUseTags.mock.calls.length - 1]
-    expect(lastCall[0]).toEqual(expect.objectContaining({ sort: 'name' }))
+    const listCalls = mockUseTags.mock.calls.filter(
+      c => (c[0] as { limit?: number })?.limit !== 1
+    )
+    expect(listCalls[listCalls.length - 1][0]).toEqual(
+      expect.objectContaining({ sort: 'name' })
+    )
   })
 
-  it('reflects URL sort param ?sort=newest and maps to backend "created"', () => {
+  it('reflects URL ?sort=newest and maps to backend "created"', () => {
     setUrlParams({ sort: 'newest' })
+    mockTags({ list: [makeTag()], total: 1 })
 
     renderWithProviders(<TagBrowse />)
 
-    const select = screen.getByLabelText('Sort tags') as HTMLSelectElement
-    expect(select.value).toBe('newest')
+    expect(screen.getByTestId('sort-newest')).toHaveAttribute('aria-checked', 'true')
 
-    const lastCall = mockUseTags.mock.calls[mockUseTags.mock.calls.length - 1]
-    expect(lastCall[0]).toEqual(expect.objectContaining({ sort: 'created' }))
+    const listCalls = mockUseTags.mock.calls.filter(
+      c => (c[0] as { limit?: number })?.limit !== 1
+    )
+    expect(listCalls[listCalls.length - 1][0]).toEqual(
+      expect.objectContaining({ sort: 'created' })
+    )
   })
 
-  it('selecting a non-default sort pushes it into the URL via router.replace', async () => {
+  it('selecting a non-default sort pushes it into the URL', async () => {
+    mockTags({ list: [makeTag()], total: 1 })
+
     const user = userEvent.setup()
     renderWithProviders(<TagBrowse />)
 
-    await user.selectOptions(screen.getByLabelText('Sort tags'), 'alphabetical')
+    await user.click(screen.getByTestId('sort-alphabetical'))
 
     expect(mockReplace).toHaveBeenCalled()
     const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
@@ -343,109 +403,62 @@ describe('TagBrowse', () => {
 
   it('selecting the default sort strips ?sort from the URL', async () => {
     setUrlParams({ sort: 'alphabetical' })
+    mockTags({ list: [makeTag()], total: 1 })
+
     const user = userEvent.setup()
     renderWithProviders(<TagBrowse />)
 
-    await user.selectOptions(screen.getByLabelText('Sort tags'), 'popularity')
+    await user.click(screen.getByTestId('sort-popularity'))
 
     const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
     expect(call[0]).toBe('/tags')
   })
 
-  // ── View toggle (grid / cloud) ──
+  // ── Keyboard nav (↑/↓ between rows; Enter is native on the anchor) ──
 
-  it('renders the view toggle with grid selected by default', () => {
-    renderWithProviders(<TagBrowse />)
-
-    const grid = screen.getByTestId('view-grid')
-    const cloud = screen.getByTestId('view-cloud')
-
-    expect(grid).toHaveAttribute('aria-checked', 'true')
-    expect(cloud).toHaveAttribute('aria-checked', 'false')
-  })
-
-  it('clicking the cloud button pushes ?view=cloud into the URL', async () => {
-    const user = userEvent.setup()
-    renderWithProviders(<TagBrowse />)
-
-    await user.click(screen.getByTestId('view-cloud'))
-
-    const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
-    expect(call[0]).toBe('/tags?view=cloud')
-  })
-
-  it('clicking back to grid strips ?view from the URL', async () => {
-    setUrlParams({ view: 'cloud' })
-    const user = userEvent.setup()
-    renderWithProviders(<TagBrowse />)
-
-    await user.click(screen.getByTestId('view-grid'))
-
-    const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
-    expect(call[0]).toBe('/tags')
-  })
-
-  it('toggling cloud view with a non-default sort already in the URL preserves both params', async () => {
-    // Simulate an incoming URL of /tags?sort=newest, then user clicks Cloud.
-    setUrlParams({ sort: 'newest' })
-    const user = userEvent.setup()
-    renderWithProviders(<TagBrowse />)
-
-    await user.click(screen.getByTestId('view-cloud'))
-
-    const call = mockReplace.mock.calls[mockReplace.mock.calls.length - 1]
-    const url = new URL(call[0], 'http://t')
-    expect(url.pathname).toBe('/tags')
-    expect(url.searchParams.get('sort')).toBe('newest')
-    expect(url.searchParams.get('view')).toBe('cloud')
-  })
-
-  // ── Cloud view rendering & log-scale font sizing ──
-
-  it('renders cloud view when ?view=cloud with usage-count-driven font sizes', () => {
-    setUrlParams({ view: 'cloud' })
-    const tags = [
-      makeTag({ id: 1, name: 'tiny', slug: 'tiny', usage_count: 1 }),
-      makeTag({ id: 2, name: 'medium', slug: 'medium', usage_count: 25 }),
-      makeTag({ id: 3, name: 'huge', slug: 'huge', usage_count: 500 }),
-    ]
-    mockUseTags.mockReturnValue({
-      data: { tags, total: 3 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
+  it('moves row focus with ArrowDown / ArrowUp', async () => {
+    mockTags({
+      list: [
+        makeTag({ id: 1, name: 'rock', slug: 'rock' }),
+        makeTag({ id: 2, name: 'punk', slug: 'punk' }),
+        makeTag({ id: 3, name: 'jazz', slug: 'jazz' }),
+      ],
+      total: 3,
     })
 
+    const user = userEvent.setup()
     renderWithProviders(<TagBrowse />)
 
-    expect(screen.getByTestId('tag-cloud')).toBeInTheDocument()
+    const rock = screen.getByRole('link', { name: /rock/ })
+    const punk = screen.getByRole('link', { name: /punk/ })
 
-    const tiny = screen.getByTestId('tag-cloud-item-tiny')
-    const medium = screen.getByTestId('tag-cloud-item-medium')
-    const huge = screen.getByTestId('tag-cloud-item-huge')
+    rock.focus()
+    expect(rock).toHaveFocus()
 
-    const sizePx = (el: HTMLElement) =>
-      parseFloat((el as HTMLElement).style.fontSize.replace('px', ''))
+    await user.keyboard('{ArrowDown}')
+    expect(punk).toHaveFocus()
 
-    expect(sizePx(tiny)).toBeLessThan(sizePx(medium))
-    expect(sizePx(medium)).toBeLessThan(sizePx(huge))
+    await user.keyboard('{ArrowUp}')
+    expect(rock).toHaveFocus()
   })
 
-  it('cloudFontSizePx uses a log scale (compressed relative to linear)', () => {
-    const minU = 1
-    const maxU = 1000
-    const mid = Math.sqrt(minU * maxU) // geometric mid ≈ 31
-    const size = cloudFontSizePx(mid, minU, maxU)
-    // With log scaling, the geometric mean lands near the midpoint of the
-    // font-size range (≈21.5px), not near the low end (≈13px) as linear
-    // scaling would give. Assert it's comfortably above halfway-low.
-    expect(size).toBeGreaterThan(19)
-    expect(size).toBeLessThan(24)
-  })
+  it('ArrowUp on the first row stays on the first row', async () => {
+    mockTags({
+      list: [
+        makeTag({ id: 1, name: 'rock', slug: 'rock' }),
+        makeTag({ id: 2, name: 'punk', slug: 'punk' }),
+      ],
+      total: 2,
+    })
 
-  it('cloudFontSizePx clamps min and max to the configured range', () => {
-    expect(cloudFontSizePx(1, 1, 1000)).toBeCloseTo(13, 0)
-    expect(cloudFontSizePx(1000, 1, 1000)).toBeCloseTo(30, 0)
+    const user = userEvent.setup()
+    renderWithProviders(<TagBrowse />)
+
+    const rock = screen.getByRole('link', { name: /rock/ })
+    rock.focus()
+
+    await user.keyboard('{ArrowUp}')
+    expect(rock).toHaveFocus()
   })
 
   // ── Pagination ──
@@ -454,30 +467,21 @@ describe('TagBrowse', () => {
     const tags = Array.from({ length: 50 }, (_, i) =>
       makeTag({ id: i + 1, name: `tag-${i}`, slug: `tag-${i}` })
     )
-    mockUseTags.mockReturnValue({
-      data: { tags, total: 100 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockTags({ list: tags, total: 100 })
 
     renderWithProviders(<TagBrowse />)
 
     expect(screen.getByText('Next')).toBeInTheDocument()
     expect(screen.getByText('Previous')).toBeInTheDocument()
     expect(screen.getByText('Page 1 of 2')).toBeInTheDocument()
+    expect(screen.getByText('Showing 1–50 of 100')).toBeInTheDocument()
   })
 
   it('Previous button is disabled on first page', () => {
     const tags = Array.from({ length: 50 }, (_, i) =>
       makeTag({ id: i + 1, name: `tag-${i}`, slug: `tag-${i}` })
     )
-    mockUseTags.mockReturnValue({
-      data: { tags, total: 100 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockTags({ list: tags, total: 100 })
 
     renderWithProviders(<TagBrowse />)
 
@@ -485,12 +489,7 @@ describe('TagBrowse', () => {
   })
 
   it('does not show pagination when all results fit on one page', () => {
-    mockUseTags.mockReturnValue({
-      data: { tags: [makeTag()], total: 1 },
-      isLoading: false,
-      error: null,
-      refetch: vi.fn(),
-    })
+    mockTags({ list: [makeTag()], total: 1 })
 
     renderWithProviders(<TagBrowse />)
 
