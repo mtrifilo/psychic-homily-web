@@ -45,7 +45,7 @@ export function PendingShowCard({
 
   return (
     <>
-      <Card className={`border-amber-500/30 bg-card/50 transition-colors ${selected ? 'ring-2 ring-primary/50 border-primary/50' : ''}`}>
+      <Card className={`border-pending-foreground/30 bg-card/50 transition-colors ${selected ? 'ring-2 ring-primary/50 border-primary/50' : ''}`}>
         <CardHeader className="pb-3">
           <div className="flex items-start justify-between gap-4">
             {onSelectChange && (
@@ -66,7 +66,7 @@ export function PendingShowCard({
               <div className="flex flex-wrap items-center gap-2 mt-1">
                 <Badge
                   variant="outline"
-                  className="text-amber-500 border-amber-500/50"
+                  className="text-pending-foreground border-pending-foreground/50"
                 >
                   Pending Review
                 </Badge>

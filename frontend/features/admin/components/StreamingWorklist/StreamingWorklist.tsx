@@ -317,7 +317,7 @@ function WorklistRow({ entry, onActionSuccess }: WorklistRowProps) {
             variant="ghost"
             size="sm"
             onClick={() => setOpenAction('linked')}
-            className="gap-1.5 text-green-300 hover:text-green-200"
+            className="gap-1.5 text-success-foreground hover:text-success-foreground/80"
             data-testid={`streaming-worklist-open-linked-${entry.artist_id}`}
           >
             <Link2 className="h-3.5 w-3.5" />
