@@ -128,6 +128,43 @@ describe('useTags', () => {
     const url = mockApiRequest.mock.calls[0][0] as string
     expect(url).not.toContain('entity_type=')
   })
+
+  // PSY-982: the /shows facet forwards the active city filter so counts are
+  // city-scoped. Verify the hook serializes cities into the pipe-delimited
+  // wire format used by /shows/upcoming.
+  it('forwards cities as the pipe-delimited param', async () => {
+    mockApiRequest.mockResolvedValueOnce({ tags: [], total: 0 })
+
+    const { result } = renderHook(
+      () =>
+        useTags({
+          entity_type: 'show',
+          cities: [
+            { city: 'Phoenix', state: 'AZ' },
+            { city: 'Mesa', state: 'AZ' },
+          ],
+        }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const url = mockApiRequest.mock.calls[0][0] as string
+    // URLSearchParams encodes the pipe/comma; assert on the decoded form.
+    expect(decodeURIComponent(url)).toContain('cities=Phoenix,AZ|Mesa,AZ')
+  })
+
+  it('omits cities when the list is empty', async () => {
+    mockApiRequest.mockResolvedValueOnce({ tags: [], total: 0 })
+
+    const { result } = renderHook(
+      () => useTags({ entity_type: 'show', cities: [] }),
+      { wrapper: createWrapper() }
+    )
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true))
+    const url = mockApiRequest.mock.calls[0][0] as string
+    expect(url).not.toContain('cities=')
+  })
 })
 
 describe('useSearchTags', () => {

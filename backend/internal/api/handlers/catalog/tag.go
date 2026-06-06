@@ -46,6 +46,11 @@ type ListTagsRequest struct {
 	// than the global cross-entity total. The /tags browse page omits this
 	// param to keep the global count.
 	EntityType string `query:"entity_type" required:"false" doc:"Scope usage_count to a single entity type (artist, release, label, show, venue, festival)"`
+	// Cities scopes the show facet count to the active /shows city filter
+	// (PSY-982). Pipe-delimited "City,ST|City,ST" pairs, same wire format as
+	// /shows/upcoming. Honoured only when entity_type=show so the facet count
+	// matches the city-filtered shows list and no chip dead-ends at 0 results.
+	Cities string `query:"cities" required:"false" doc:"Scope show facet counts to these cities (entity_type=show only). Pipe-delimited 'Phoenix,AZ|Mesa,AZ'."`
 }
 
 type ListTagsResponse struct {
@@ -65,7 +70,12 @@ func (h *TagHandler) ListTagsHandler(ctx context.Context, req *ListTagsRequest) 
 		return nil, huma.Error422UnprocessableEntity("Invalid entity_type")
 	}
 
-	tags, total, err := h.tagService.ListTags(req.Category, req.Search, parentID, req.Sort, req.Limit, req.Offset, req.EntityType)
+	// cities is only meaningful for the show facet (PSY-982); for any other
+	// entity_type the service ignores it, but parsing it unconditionally keeps
+	// the handler simple and the validation in one place (the service).
+	cities := parseCityStateFilters(req.Cities)
+
+	tags, total, err := h.tagService.ListTags(req.Category, req.Search, parentID, req.Sort, req.Limit, req.Offset, req.EntityType, cities)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to list tags")
 	}

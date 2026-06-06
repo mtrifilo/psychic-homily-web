@@ -227,7 +227,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_All() {
 	suite.createTag("jazz", "genre")
 	suite.createTag("1990s", "other")
 
-	tags, total, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "")
+	tags, total, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "", nil)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(3), total)
 	suite.Assert().Len(tags, 3)
@@ -238,7 +238,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_FilterByCategory() {
 	suite.createTag("jazz", "genre")
 	suite.createTag("1990s", "other")
 
-	tags, total, err := suite.tagService.ListTags("genre", "", nil, "name", 50, 0, "")
+	tags, total, err := suite.tagService.ListTags("genre", "", nil, "name", 50, 0, "", nil)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(2), total)
 	suite.Assert().Len(tags, 2)
@@ -249,7 +249,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_Search() {
 	suite.createTag("post-rock", "genre")
 	suite.createTag("jazz", "genre")
 
-	tags, total, err := suite.tagService.ListTags("", "post", nil, "name", 50, 0, "")
+	tags, total, err := suite.tagService.ListTags("", "post", nil, "name", 50, 0, "", nil)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(2), total)
 	suite.Assert().Len(tags, 2)
@@ -262,7 +262,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_FilterByParent() {
 	_, err := suite.tagService.CreateTag("post-rock", nil, &parent.ID, "genre", false, nil)
 	suite.Require().NoError(err)
 
-	tags, total, err := suite.tagService.ListTags("", "", &parent.ID, "name", 50, 0, "")
+	tags, total, err := suite.tagService.ListTags("", "", &parent.ID, "name", 50, 0, "", nil)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(1), total)
 	suite.Assert().Len(tags, 1)
@@ -304,7 +304,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedCounts
 	suite.Assert().Equal(1, reloaded.UsageCount)
 
 	// artist scope: punk=2, rock=0
-	tags, _, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "artist")
+	tags, _, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "artist", nil)
 	suite.Require().NoError(err)
 	suite.Require().Len(tags, 2)
 	got := map[string]int{}
@@ -315,7 +315,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedCounts
 	suite.Assert().Equal(0, got["rock"], "rock should have 0 artist applications")
 
 	// venue scope: punk=0, rock=1
-	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "venue")
+	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "venue", nil)
 	suite.Require().NoError(err)
 	got = map[string]int{}
 	for _, t := range tags {
@@ -325,14 +325,14 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedCounts
 	suite.Assert().Equal(1, got["rock"], "rock should have 1 venue application")
 
 	// festival scope: both 0 (no festival tags created)
-	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "festival")
+	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "festival", nil)
 	suite.Require().NoError(err)
 	for _, t := range tags {
 		suite.Assert().Equal(0, t.UsageCount, "tag %q should have 0 festival applications", t.Name)
 	}
 
 	// Empty entity_type → original global count comes through
-	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "")
+	tags, _, err = suite.tagService.ListTags("", "", nil, "name", 50, 0, "", nil)
 	suite.Require().NoError(err)
 	got = map[string]int{}
 	for _, t := range tags {
@@ -384,13 +384,13 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedSort()
 	}
 
 	// Global usage: rock=3, punk=2 → rock first when no entity_type.
-	tags, _, err := suite.tagService.ListTags("", "", nil, "usage", 50, 0, "")
+	tags, _, err := suite.tagService.ListTags("", "", nil, "usage", 50, 0, "", nil)
 	suite.Require().NoError(err)
 	suite.Require().GreaterOrEqual(len(tags), 2)
 	suite.Assert().Equal("rock", tags[0].Name, "global usage sort should put rock first")
 
 	// Venue scope: punk=2, rock=1 → punk first.
-	tags, _, err = suite.tagService.ListTags("", "", nil, "usage", 50, 0, "venue")
+	tags, _, err = suite.tagService.ListTags("", "", nil, "usage", 50, 0, "venue", nil)
 	suite.Require().NoError(err)
 	suite.Require().GreaterOrEqual(len(tags), 2)
 	suite.Assert().Equal("punk", tags[0].Name, "venue-scoped usage sort should put punk first")
@@ -401,7 +401,7 @@ func (suite *TagServiceIntegrationTestSuite) TestListTags_EntityTypeScopedSort()
 // entity types so we don't paper over a frontend typo with "all zero counts".
 func (suite *TagServiceIntegrationTestSuite) TestListTags_InvalidEntityType() {
 	suite.createTag("punk", "genre")
-	_, _, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "user")
+	_, _, err := suite.tagService.ListTags("", "", nil, "name", 50, 0, "user", nil)
 	suite.Assert().Error(err)
 	suite.Assert().Contains(err.Error(), "invalid entity type")
 }
@@ -1081,7 +1081,7 @@ func (suite *TagServiceIntegrationTestSuite) TestAddTagToEntity_InlineCreate_Exi
 	suite.Assert().NotNil(et)
 
 	// Verify only one tag with that name exists
-	tags, total, err := suite.tagService.ListTags("", "ambient", nil, "name", 50, 0, "")
+	tags, total, err := suite.tagService.ListTags("", "ambient", nil, "name", 50, 0, "", nil)
 	suite.Require().NoError(err)
 	suite.Assert().Equal(int64(1), total)
 	suite.Assert().Len(tags, 1)

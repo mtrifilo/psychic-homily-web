@@ -39,15 +39,36 @@ const entityTypeOverrides: Record<string, Record<string, number>> = {
   festival: { shoegaze: 0, phoenix: 0, diy: 0 },
 }
 
+// City-scoped overrides (PSY-982): when entity_type=show AND cities are passed,
+// some tags drop to 0 because the selected city has no matching shows. shoegaze
+// keeps a non-zero count so we can assert a mix of enabled + disabled chips.
+const cityScopedShowCounts: Record<string, number> = {
+  'post-punk': 4,
+  shoegaze: 0,
+  phoenix: 0,
+  diy: 0,
+}
+
 vi.mock('../hooks', () => ({
-  useTags: (params: { category?: keyof typeof tagsByCategory; entity_type?: string }) => {
+  useTags: (params: {
+    category?: keyof typeof tagsByCategory
+    entity_type?: string
+    cities?: Array<{ city: string; state: string }>
+  }) => {
     const baseTags = params?.category ? tagsByCategory[params.category] ?? [] : []
-    const tags = params?.entity_type
-      ? baseTags.map(t => {
-          const override = entityTypeOverrides[params.entity_type ?? '']?.[t.slug]
-          return override !== undefined ? { ...t, usage_count: override } : t
-        })
-      : baseTags
+    const cityScoped =
+      params?.entity_type === 'show' && (params?.cities?.length ?? 0) > 0
+    const tags = cityScoped
+      ? baseTags.map(t => ({
+          ...t,
+          usage_count: cityScopedShowCounts[t.slug] ?? 0,
+        }))
+      : params?.entity_type
+        ? baseTags.map(t => {
+            const override = entityTypeOverrides[params.entity_type ?? '']?.[t.slug]
+            return override !== undefined ? { ...t, usage_count: override } : t
+          })
+        : baseTags
     return {
       data: { tags, total: tags.length },
       isLoading: false,
@@ -254,6 +275,99 @@ describe('TagFacetPanel', () => {
     const shoegaze = screen.getByTestId('tag-facet-chip-shoegaze')
     expect(shoegaze).toBeInTheDocument()
     expect(shoegaze).toHaveAttribute('aria-pressed', 'true')
+  })
+
+  // PSY-982: city-scoped /shows facet. When a city is selected, zero-in-city
+  // chips are SHOWN but DISABLED (not hidden) so they can't dead-end at
+  // "0 shows", and the non-zero chips stay clickable.
+  describe('city-scoped show facet (PSY-982)', () => {
+    const cities = [{ city: 'Phoenix', state: 'AZ' }]
+
+    it('shows zero-in-city chips disabled instead of hiding them', () => {
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+          entityType="show"
+          selectedCities={cities}
+        />
+      )
+      // post-punk has shows in Phoenix → enabled.
+      const postPunk = screen.getByTestId('tag-facet-chip-post-punk')
+      expect(postPunk).toBeInTheDocument()
+      expect(postPunk).not.toBeDisabled()
+      // shoegaze / phoenix / diy have 0 Phoenix shows → present but disabled.
+      const shoegaze = screen.getByTestId('tag-facet-chip-shoegaze')
+      expect(shoegaze).toBeInTheDocument()
+      expect(shoegaze).toBeDisabled()
+      expect(screen.getByTestId('tag-facet-chip-phoenix')).toBeDisabled()
+      expect(screen.getByTestId('tag-facet-chip-diy')).toBeDisabled()
+    })
+
+    it('does not call onToggle when a disabled zero-in-city chip is clicked', async () => {
+      const user = userEvent.setup()
+      const onToggle = vi.fn()
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={onToggle}
+          onClear={() => {}}
+          entityType="show"
+          selectedCities={cities}
+        />
+      )
+      await user.click(screen.getByTestId('tag-facet-chip-shoegaze'))
+      expect(onToggle).not.toHaveBeenCalled()
+    })
+
+    it('omits the "Show all tags" expander in city-scoped mode', () => {
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+          entityType="show"
+          selectedCities={cities}
+        />
+      )
+      expect(screen.queryByTestId('tag-facet-show-all')).not.toBeInTheDocument()
+    })
+
+    it('keeps a selected zero-in-city chip interactive so it can be deselected', async () => {
+      const user = userEvent.setup()
+      const onToggle = vi.fn()
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={['shoegaze']}
+          onToggle={onToggle}
+          onClear={() => {}}
+          entityType="show"
+          selectedCities={cities}
+        />
+      )
+      const shoegaze = screen.getByTestId('tag-facet-chip-shoegaze')
+      expect(shoegaze).not.toBeDisabled()
+      await user.click(shoegaze)
+      expect(onToggle).toHaveBeenCalledWith([])
+    })
+
+    it('falls back to the global hide-behavior when no city is selected', () => {
+      // entityType=show with no cities → not city-scoped → uses the PSY-484
+      // path. With the default stub counts every show chip is non-zero, so all
+      // chips render enabled and the expander reappears only if something is
+      // hidden (nothing is here).
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+          entityType="show"
+        />
+      )
+      expect(screen.getByTestId('tag-facet-chip-post-punk')).not.toBeDisabled()
+      expect(screen.getByTestId('tag-facet-chip-shoegaze')).not.toBeDisabled()
+    })
   })
 
   // PSY-499: transitive filter info tooltip. Only rendered for show/festival

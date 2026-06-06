@@ -4,6 +4,7 @@ import (
 	"strings"
 
 	catalogm "psychic-homily-backend/internal/models/catalog"
+	"psychic-homily-backend/internal/services/contracts"
 
 	"gorm.io/gorm"
 )
@@ -153,6 +154,62 @@ func CountTransitiveArtistTagUsage(
 		Select("entity_tags.tag_id AS tag_id, COUNT(DISTINCT "+junctionTable+"."+containerIDColumn+") AS count").
 		Joins("JOIN entity_tags ON entity_tags.entity_type = ? AND entity_tags.entity_id = "+junctionTable+"."+artistIDColumn, catalogm.TagEntityArtist).
 		Where("entity_tags.tag_id IN ?", tagIDs).
+		Group("entity_tags.tag_id").
+		Scan(&rows).Error
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range rows {
+		out[r.TagID] = r.Count
+	}
+	return out, nil
+}
+
+// CountTransitiveArtistTagUsageInShowCities is the city-scoped variant of
+// CountTransitiveArtistTagUsage for the `show` entity type (PSY-982).
+//
+// It counts only shows whose denormalized `(city, state)` matches one of the
+// provided pairs — mirroring exactly the predicate `GetUpcomingShows` uses for
+// its multi-city filter (it filters on `shows.city`/`shows.state`, NOT a join
+// through `show_venues → venues`). Using the same predicate as the list query
+// is load-bearing: the `/shows` facet count and the `/shows` result set must be
+// derived from one filter so a non-zero facet can never dead-end at "0 shows".
+//
+// `cities` is the active city filter (empty → caller should use the unscoped
+// CountTransitiveArtistTagUsage instead). Counts are transitive: a show matches
+// a tag when any billed artist carries it, joined through `show_artists` and
+// `entity_tags` scoped to `entity_type='artist'`. Tags with zero matches are
+// absent from the returned map (callers treat missing keys as zero).
+func CountTransitiveArtistTagUsageInShowCities(
+	db *gorm.DB,
+	tagIDs []uint,
+	cities []contracts.CityStateFilter,
+) (map[uint]int64, error) {
+	out := make(map[uint]int64)
+	if len(tagIDs) == 0 || len(cities) == 0 {
+		return out, nil
+	}
+	type row struct {
+		TagID uint
+		Count int64
+	}
+	// Build the (city = ? AND state = ?) OR … predicate the same way
+	// GetUpcomingShows does, so the facet count stays consistent with the list.
+	cityCond := db
+	for i, cs := range cities {
+		if i == 0 {
+			cityCond = cityCond.Where("(shows.city = ? AND shows.state = ?)", cs.City, cs.State)
+		} else {
+			cityCond = cityCond.Or("(shows.city = ? AND shows.state = ?)", cs.City, cs.State)
+		}
+	}
+	var rows []row
+	err := db.Table("show_artists").
+		Select("entity_tags.tag_id AS tag_id, COUNT(DISTINCT show_artists.show_id) AS count").
+		Joins("JOIN entity_tags ON entity_tags.entity_type = ? AND entity_tags.entity_id = show_artists.artist_id", catalogm.TagEntityArtist).
+		Joins("JOIN shows ON shows.id = show_artists.show_id").
+		Where("entity_tags.tag_id IN ?", tagIDs).
+		Where(cityCond).
 		Group("entity_tags.tag_id").
 		Scan(&rows).Error
 	if err != nil {

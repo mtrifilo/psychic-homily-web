@@ -9,6 +9,8 @@
 import { useQuery, useMutation, useQueryClient, keepPreviousData } from '@tanstack/react-query'
 import { apiRequest, API_ENDPOINTS } from '@/lib/api'
 import { queryKeys } from '@/lib/queryClient'
+import { buildCitiesParam } from '@/components/filters/cityParams'
+import type { CityState } from '@/components/filters'
 import type {
   TagDetailResponse,
   TagEnrichedDetailResponse,
@@ -40,6 +42,15 @@ interface UseTagsParams {
    * omits this param to keep the global count.
    */
   entity_type?: string
+  /**
+   * Scope the show facet count to the active /shows city filter (PSY-982).
+   * Honoured by the backend only when `entity_type === 'show'`. Wired so the
+   * facet count matches the city-filtered shows list — a tag with no shows in
+   * the selected city reports 0 and its chip is disabled rather than
+   * dead-ending at "0 shows matching <tag>". Omit (or pass empty) for the
+   * global, city-agnostic count.
+   */
+  cities?: CityState[]
 }
 
 /** Fetch tags list with optional filters */
@@ -52,6 +63,9 @@ export function useTags(params?: UseTagsParams) {
   if (params?.limit) searchParams.set('limit', String(params.limit))
   if (params?.offset) searchParams.set('offset', String(params.offset))
   if (params?.entity_type) searchParams.set('entity_type', params.entity_type)
+  if (params?.cities && params.cities.length > 0) {
+    searchParams.set('cities', buildCitiesParam(params.cities))
+  }
 
   const queryString = searchParams.toString()
   const url = queryString

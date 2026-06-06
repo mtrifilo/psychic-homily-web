@@ -283,8 +283,10 @@ type TagServiceInterface interface {
 	// ListTags returns tags with optional filters/sort. When entityType is
 	// non-empty, each returned tag's UsageCount is overridden with the count
 	// of entity_tags rows for that specific entity type (PSY-484). The
-	// persisted tags.usage_count is never mutated.
-	ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string) ([]catalogm.Tag, int64, error)
+	// persisted tags.usage_count is never mutated. cities scopes the count to
+	// a set of (city, state) pairs and is honoured only for entityType=="show"
+	// (PSY-982); pass nil when no city filter is active.
+	ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string, cities []CityStateFilter) ([]catalogm.Tag, int64, error)
 	UpdateTag(tagID uint, name *string, description *string, parentID *uint, category *string, isOfficial *bool) (*catalogm.Tag, error)
 	DeleteTag(tagID uint) error
 
