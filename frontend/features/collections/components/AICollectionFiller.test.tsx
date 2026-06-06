@@ -1,9 +1,11 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
 import React from 'react'
-import { render, screen } from '@testing-library/react'
+import { render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 
 import { AICollectionFiller } from './AICollectionFiller'
+import type { AICollectionFillerProps } from './AICollectionFiller'
 import type { ExtractedCollectionData } from '@/lib/types/extraction'
 
 // ──────────────────────────────────────────────
@@ -33,6 +35,12 @@ vi.mock('../hooks', () => ({
   }),
 }))
 
+// Tier-gated affordances read user.is_admin + user.user_tier from auth context.
+let mockUser: { is_admin?: boolean; user_tier?: string } | null = null
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ user: mockUser }),
+}))
+
 vi.mock('@/components/ui/button', () => ({
   Button: ({
     children,
@@ -52,7 +60,15 @@ vi.mock('@/components/ui/button', () => ({
 }))
 
 vi.mock('@/components/ui/badge', () => ({
-  Badge: ({ children }: { children: React.ReactNode }) => <span>{children}</span>,
+  // Forward arbitrary props (incl. data-testid) so chip testids survive the
+  // mock — the real Badge spreads props onto its root element too.
+  Badge: ({
+    children,
+    ...props
+  }: {
+    children: React.ReactNode
+    [key: string]: unknown
+  }) => <span {...(props as Record<string, unknown>)}>{children}</span>,
 }))
 
 vi.mock('@/components/shared', () => ({
@@ -69,16 +85,36 @@ vi.mock('@/components/shared', () => ({
 // Component
 // ──────────────────────────────────────────────
 
+// Wrap renders in a QueryClientProvider — the component now always mounts a
+// local useMutation (queue-create), which needs a QueryClient even in tests
+// where the queue path isn't exercised.
+function renderFiller(props: AICollectionFillerProps) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  })
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <AICollectionFiller {...props} />
+    </QueryClientProvider>
+  )
+}
+
 describe('AICollectionFiller', () => {
   beforeEach(() => {
     mockExtractResult = { data: undefined, warnings: undefined }
     mockExtractIsPending = false
     mockExtractError = null
     mockExtractCalls = []
+    mockUser = null
+  })
+
+  afterEach(() => {
+    vi.restoreAllMocks()
+    vi.unstubAllGlobals()
   })
 
   it('renders textarea + image drop zone + disabled extract button', () => {
-    render(<AICollectionFiller onStageItems={vi.fn()} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
     expect(screen.getByTestId('ai-collection-filler-textarea')).toBeInTheDocument()
     expect(screen.getByTestId('ai-collection-filler-file-input')).toBeInTheDocument()
     expect(screen.getByTestId('ai-collection-filler-extract')).toBeDisabled()
@@ -86,7 +122,7 @@ describe('AICollectionFiller', () => {
 
   it('enables Extract once text is typed', async () => {
     const user = userEvent.setup()
-    render(<AICollectionFiller onStageItems={vi.fn()} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
     await user.type(
       screen.getByTestId('ai-collection-filler-textarea'),
       '1. Kendrick Lamar — TPAB'
@@ -95,7 +131,7 @@ describe('AICollectionFiller', () => {
   })
 
   it('file input accepts HEIC + HEIF for iOS Safari paste', () => {
-    render(<AICollectionFiller onStageItems={vi.fn()} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
     const input = screen.getByTestId('ai-collection-filler-file-input') as HTMLInputElement
     expect(input.getAttribute('accept')).toContain('image/heic')
     expect(input.getAttribute('accept')).toContain('image/heif')
@@ -133,7 +169,7 @@ describe('AICollectionFiller', () => {
       },
     }
     const user = userEvent.setup()
-    render(<AICollectionFiller onStageItems={vi.fn()} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
     await user.type(
       screen.getByTestId('ai-collection-filler-textarea'),
       'list goes here'
@@ -162,7 +198,7 @@ describe('AICollectionFiller', () => {
     }
     const onStage = vi.fn()
     const user = userEvent.setup()
-    render(<AICollectionFiller onStageItems={onStage} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: onStage, alreadyStaged: () => false })
     await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
     await user.click(screen.getByTestId('ai-collection-filler-extract'))
 
@@ -214,7 +250,7 @@ describe('AICollectionFiller', () => {
     }
     const onStage = vi.fn()
     const user = userEvent.setup()
-    render(<AICollectionFiller onStageItems={onStage} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: onStage, alreadyStaged: () => false })
     await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
     await user.click(screen.getByTestId('ai-collection-filler-extract'))
 
@@ -243,7 +279,7 @@ describe('AICollectionFiller', () => {
       },
     }
     const user = userEvent.setup()
-    render(<AICollectionFiller onStageItems={vi.fn()} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
     await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
     await user.click(screen.getByTestId('ai-collection-filler-extract'))
 
@@ -270,7 +306,7 @@ describe('AICollectionFiller', () => {
       },
     }
     const user = userEvent.setup()
-    render(<AICollectionFiller onStageItems={vi.fn()} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
     await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
     await user.click(screen.getByTestId('ai-collection-filler-extract'))
 
@@ -308,7 +344,7 @@ describe('AICollectionFiller', () => {
     }
     const onStage = vi.fn()
     const user = userEvent.setup()
-    render(<AICollectionFiller onStageItems={onStage} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: onStage, alreadyStaged: () => false })
     await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
     await user.click(screen.getByTestId('ai-collection-filler-extract'))
 
@@ -334,12 +370,10 @@ describe('AICollectionFiller', () => {
       },
     }
     const user = userEvent.setup()
-    render(
-      <AICollectionFiller
-        onStageItems={vi.fn()}
-        alreadyStaged={(t, id) => t === 'artist' && id === 42}
-      />
-    )
+    renderFiller({
+      onStageItems: vi.fn(),
+      alreadyStaged: (t, id) => t === 'artist' && id === 42,
+    })
     await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
     await user.click(screen.getByTestId('ai-collection-filler-extract'))
 
@@ -350,10 +384,200 @@ describe('AICollectionFiller', () => {
   it('surfaces a hook error via InlineErrorBanner', async () => {
     mockExtractError = new Error('AI service temporarily unavailable.')
     const user = userEvent.setup()
-    render(<AICollectionFiller onStageItems={vi.fn()} alreadyStaged={() => false} />)
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
     await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
 
     const banner = screen.getByTestId('ai-collection-filler-error')
     expect(banner).toHaveTextContent(/temporarily unavailable/i)
+  })
+
+  // ────────────────────────────────────────────────────────────
+  // PSY-853: tier-gated create / queue actions on unmatched (NEW) rows
+  // ────────────────────────────────────────────────────────────
+
+  // One unmatched (NEW) row — no match, no suggestions — so the tier-gated
+  // create/queue affordance is the only action on the row.
+  const ONE_UNMATCHED_ROW: ExtractedCollectionData = {
+    items: [{ artist_name: 'Some Made Up Band', release_title: 'Nowhere Album' }],
+  }
+
+  /** Stub global.fetch with a single JSON response for the entity-request POST. */
+  function stubFetch(decisionState: 'approved' | 'pending', ok = true) {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok,
+      json: async () => ({ id: 7, decision_state: decisionState }),
+    })
+    vi.stubGlobal('fetch', fetchMock)
+    return fetchMock
+  }
+
+  async function extractOneUnmatchedRow(user: ReturnType<typeof userEvent.setup>) {
+    mockExtractResult = { data: ONE_UNMATCHED_ROW }
+    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
+    await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
+    await user.click(screen.getByTestId('ai-collection-filler-extract'))
+  }
+
+  it('admin sees [Create + Add] on an unmatched row (no Queue button)', async () => {
+    mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    const btn = screen.getByTestId('ai-collection-filler-row-request')
+    expect(btn).toHaveTextContent('Create + Add')
+    expect(btn).not.toHaveTextContent('Queue for review')
+  })
+
+  it('local_ambassador sees [Create + Add] (auto-approve tier, not admin)', async () => {
+    mockUser = { is_admin: false, user_tier: 'local_ambassador' }
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    expect(
+      screen.getByTestId('ai-collection-filler-row-request')
+    ).toHaveTextContent('Create + Add')
+  })
+
+  it('contributor sees [Queue for review] (never an inline create)', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    const btn = screen.getByTestId('ai-collection-filler-row-request')
+    expect(btn).toHaveTextContent('Queue for review')
+    expect(btn).not.toHaveTextContent('Create + Add')
+  })
+
+  it('new_user sees [Queue for review]', async () => {
+    mockUser = { is_admin: false, user_tier: 'new_user' }
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    expect(
+      screen.getByTestId('ai-collection-filler-row-request')
+    ).toHaveTextContent('Queue for review')
+  })
+
+  it('anonymous / unknown tier sees NO create or queue action', async () => {
+    mockUser = null
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-request')
+    ).not.toBeInTheDocument()
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-confirm')
+    ).not.toBeInTheDocument()
+  })
+
+  it('trusted_contributor requires inline [Confirm] before filing', async () => {
+    mockUser = { is_admin: false, user_tier: 'trusted_contributor' }
+    const fetchMock = stubFetch('approved')
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    // First click reveals Confirm/Cancel — it does NOT file the request.
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(
+      screen.getByTestId('ai-collection-filler-row-confirm')
+    ).toBeInTheDocument()
+    expect(
+      screen.getByTestId('ai-collection-filler-row-cancel')
+    ).toBeInTheDocument()
+
+    // Cancel backs out without filing.
+    await user.click(screen.getByTestId('ai-collection-filler-row-cancel'))
+    expect(fetchMock).not.toHaveBeenCalled()
+    expect(
+      screen.getByTestId('ai-collection-filler-row-request')
+    ).toBeInTheDocument()
+
+    // Re-open and Confirm files a confirmed request.
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+    await user.click(screen.getByTestId('ai-collection-filler-row-confirm'))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/entity-requests')
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.confirmed).toBe(true)
+    expect(body.entity_type).toBe('artist')
+    expect(body.source_context).toBe('ai_extraction')
+    expect(body.payload).toEqual({ name: 'Some Made Up Band' })
+  })
+
+  it('queue path POSTs an entity_request and shows a "Queued" chip', async () => {
+    mockUser = { is_admin: false, user_tier: 'contributor' }
+    const fetchMock = stubFetch('pending')
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    // Sanity: the unmatched row rendered before we act on it.
+    expect(screen.getByText('Some Made Up Band')).toBeInTheDocument()
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+
+    await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1))
+    const [url, init] = fetchMock.mock.calls[0]
+    expect(url).toBe('/api/entity-requests')
+    const body = JSON.parse((init as RequestInit).body as string)
+    expect(body.confirmed).toBe(false)
+    expect(body.source_context).toBe('ai_extraction')
+
+    // Pending decision_state → "Queued" chip; create/queue button replaced.
+    const chip = await screen.findByTestId(
+      'ai-collection-filler-row-request-chip'
+    )
+    expect(chip).toHaveTextContent('Queued')
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-request')
+    ).not.toBeInTheDocument()
+  })
+
+  it('auto-approved (admin) request shows a "Requested" chip', async () => {
+    mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
+    stubFetch('approved')
+    const user = userEvent.setup()
+    await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+
+    const chip = await screen.findByTestId(
+      'ai-collection-filler-row-request-chip'
+    )
+    expect(chip).toHaveTextContent('Requested')
+  })
+
+  it('matched-row [Add] still works when a tier user is present (no regress)', async () => {
+    mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
+    mockExtractResult = {
+      data: {
+        items: [
+          {
+            artist_name: 'Kendrick Lamar',
+            release_title: 'To Pimp a Butterfly',
+            matched_artist_id: 42,
+            matched_artist_name: 'Kendrick Lamar',
+          },
+        ],
+      },
+    }
+    const onStage = vi.fn()
+    const user = userEvent.setup()
+    renderFiller({ onStageItems: onStage, alreadyStaged: () => false })
+    await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
+    await user.click(screen.getByTestId('ai-collection-filler-extract'))
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-add'))
+    expect(onStage).toHaveBeenCalledTimes(1)
+    expect(onStage.mock.calls[0][0][0]).toEqual(
+      expect.objectContaining({ entityType: 'artist', entityId: 42 })
+    )
+    // A matched row never shows the create/queue affordance.
+    expect(
+      screen.queryByTestId('ai-collection-filler-row-request')
+    ).not.toBeInTheDocument()
   })
 })

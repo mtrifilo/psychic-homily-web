@@ -25,6 +25,7 @@
  */
 
 import { useCallback, useRef, useState } from 'react'
+import { useMutation } from '@tanstack/react-query'
 import {
   Sparkles,
   X,
@@ -38,6 +39,7 @@ import {
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { InlineErrorBanner } from '@/components/shared'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { useCollectionExtraction } from '../hooks'
 import type {
   ExtractedCollectionData,
@@ -100,6 +102,117 @@ function compressImage(dataUrl: string): Promise<string> {
   })
 }
 
+// ─── Tier-gated create / queue policy (PSY-853) ───
+//
+// Unmatched rows have no existing entity to stage. What the user can do with
+// them depends on trust tier. The backend's tier policy lives in PSY-869's
+// EntityRequestService (autoApproves): admin / local_ambassador auto-approve;
+// trusted_contributor auto-approves only on a FE-confirmed request; everyone
+// else queues for admin review (feedback_human_verify_ai_entity_data — no
+// autonomous AI entity creation for low-trust tiers). We mirror that policy
+// in the UI but DO NOT re-implement authorization client-side — the backend
+// enforces it; this only picks the right affordance.
+//
+// IMPORTANT (architectural constraint, verified against backend on PSY-853):
+// every catalog create endpoint (POST /admin/artists, /releases, …) is
+// rc.Admin-gated, so non-admin trusted tiers CANNOT create entities through
+// them — a 403 path. The ONLY cross-tier create mechanism is
+// POST /entity-requests (PSY-997). On auto-approve that endpoint marks the
+// request approved but does NOT fulfill it into a catalog row, so there is no
+// new entity_id to stage into the bulk-add pipeline yet. The "Create + Add"
+// label therefore files an (auto-approved) request rather than staging the
+// new entity into the collection in the same step. Closing that gap — fulfill
+// on auto-approve + return created_entity_id so the row can stage — is a
+// backend follow-up; it is out of this frontend-only ticket's scope.
+type CreateAffordance = 'create' | 'confirm' | 'queue' | 'none'
+
+/**
+ * Maps an authenticated user's admin flag + trust tier to the create
+ * affordance shown on an unmatched row. Returns 'none' for anonymous or
+ * unknown-tier users (fail-closed — never offer a create action we can't
+ * map to a backend-enforced policy).
+ */
+function createAffordanceFor(
+  isAdmin: boolean | undefined,
+  tier: string | undefined
+): CreateAffordance {
+  if (isAdmin) return 'create'
+  switch (tier) {
+    case 'local_ambassador':
+      return 'create'
+    case 'trusted_contributor':
+      return 'confirm'
+    case 'contributor':
+    case 'new_user':
+      return 'queue'
+    default:
+      // Anonymous, missing, or an unrecognized tier → no create action.
+      return 'none'
+  }
+}
+
+// Outcome of a successful entity-request POST, used to pick the per-row chip.
+// 'requested' = auto-approved (admin / local_ambassador / confirmed trusted) —
+// the request skipped the queue; 'queued' = pending admin review.
+type RequestOutcome = 'requested' | 'queued'
+
+interface QueueEntityRequestVars {
+  /** The unmatched row this request was filed from (used for per-row state). */
+  rowKey: string
+  /** Always 'artist' in V1 — extraction only matches/creates artists today. */
+  entityType: 'artist'
+  /** User-supplied creation payload (artist name from the extracted row). */
+  name: string
+  /**
+   * FE-side confirm step. Only meaningful for trusted_contributor (the backend
+   * auto-approves a confirmed trusted request); ignored for other tiers.
+   */
+  confirmed: boolean
+}
+
+/**
+ * Local queue-create mutation (PSY-853). Intentionally NOT a shared exported
+ * hook — PSY-845 posts to the same POST /entity-requests endpoint from a
+ * different component (AddItemsPicker) and a small, deliberate duplication is
+ * preferred over premature coupling while both land in parallel. A follow-up
+ * dedups once both have shipped (see coordination note in the ticket).
+ *
+ * The body carries source_context: 'ai_extraction' so the admin moderation
+ * surface can see the request originated from the AI collection flow.
+ */
+function useQueueEntityRequest() {
+  return useMutation({
+    mutationFn: async (vars: QueueEntityRequestVars) => {
+      const response = await fetch('/api/entity-requests', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({
+          entity_type: vars.entityType,
+          payload: { name: vars.name },
+          source_context: 'ai_extraction',
+          confirmed: vars.confirmed,
+        }),
+      })
+
+      const data = await response.json().catch(() => null)
+
+      if (!response.ok) {
+        throw new Error(
+          (data && (data.detail || data.message)) ||
+            'Failed to submit entity request'
+        )
+      }
+
+      // decision_state distinguishes auto-approved (skips the queue) from
+      // pending (awaiting admin review) so the row chip reads correctly.
+      const outcome: RequestOutcome =
+        data?.decision_state === 'approved' ? 'requested' : 'queued'
+      return { outcome, rowKey: vars.rowKey }
+    },
+  })
+}
+
 export interface AICollectionFillerProps {
   /**
    * Fires when the user stages one or more extracted items via the per-row
@@ -127,7 +240,17 @@ export function AICollectionFiller({
   const [extractionResult, setExtractionResult] =
     useState<ExtractedCollectionData | null>(null)
   const [warnings, setWarnings] = useState<string[]>([])
+  // Per-row outcome of a filed entity-request, keyed by the row's stable key.
+  // Drives the "Requested" / "Queued" chip and hides the create affordance
+  // once a row has been acted on (prevents double-filing).
+  const [requestedRows, setRequestedRows] = useState<
+    Record<string, RequestOutcome>
+  >({})
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  const { user } = useAuthContext()
+  const affordance = createAffordanceFor(user?.is_admin, user?.user_tier)
+  const queueRequest = useQueueEntityRequest()
 
   const { mutate, isPending, error, reset } = useCollectionExtraction()
 
@@ -243,6 +366,9 @@ export function AICollectionFiller({
       if (response.data) {
         setExtractionResult(response.data)
         setWarnings(response.warnings || [])
+        // A fresh extraction replaces the row matrix, so any prior
+        // Requested/Queued chips no longer correspond to a visible row.
+        setRequestedRows({})
       }
     }
 
@@ -335,6 +461,22 @@ export function AICollectionFiller({
       return { ...item, artist_suggestions: undefined }
     })
     setExtractionResult({ ...extractionResult, items: updatedItems })
+  }
+
+  // Files an entity-request for an unmatched row. Tier policy is enforced
+  // server-side; `confirmed` is only meaningful for trusted_contributor.
+  // On success the row flips to a Requested/Queued chip (set from the
+  // backend's decision_state, not assumed) so the affordance can't be
+  // double-fired.
+  const requestRow = (rowKey: string, name: string, confirmed: boolean) => {
+    queueRequest.mutate(
+      { rowKey, entityType: 'artist', name, confirmed },
+      {
+        onSuccess: ({ outcome }) => {
+          setRequestedRows(prev => ({ ...prev, [rowKey]: outcome }))
+        },
+      }
+    )
   }
 
   const matchedReadyCount = extractionResult
@@ -492,20 +634,32 @@ export function AICollectionFiller({
             </p>
           ) : (
             <div className="max-h-72 overflow-y-auto space-y-1">
-              {extractionResult.items.map((item, idx) => (
-                <ExtractedRow
-                  key={`${idx}-${item.artist_name}`}
-                  item={item}
-                  alreadyStaged={
-                    item.matched_artist_id
-                      ? alreadyStaged('artist', item.matched_artist_id)
-                      : false
-                  }
-                  onAdd={() => stageItem(item)}
-                  onAcceptSuggestion={s => acceptSuggestion(idx, s)}
-                  onDismissSuggestions={() => dismissSuggestions(idx)}
-                />
-              ))}
+              {extractionResult.items.map((item, idx) => {
+                const rowKey = `${idx}-${item.artist_name}`
+                return (
+                  <ExtractedRow
+                    key={rowKey}
+                    item={item}
+                    alreadyStaged={
+                      item.matched_artist_id
+                        ? alreadyStaged('artist', item.matched_artist_id)
+                        : false
+                    }
+                    affordance={affordance}
+                    requestOutcome={requestedRows[rowKey]}
+                    isRequesting={
+                      queueRequest.isPending &&
+                      queueRequest.variables?.rowKey === rowKey
+                    }
+                    onAdd={() => stageItem(item)}
+                    onAcceptSuggestion={s => acceptSuggestion(idx, s)}
+                    onDismissSuggestions={() => dismissSuggestions(idx)}
+                    onRequest={confirmed =>
+                      requestRow(rowKey, item.artist_name, confirmed)
+                    }
+                  />
+                )
+              })}
             </div>
           )}
 
@@ -518,9 +672,9 @@ export function AICollectionFiller({
           )}
 
           <p className="text-xs text-muted-foreground">
-            Unmatched rows show suggestions for the closest existing entity.
-            Creating new artists / releases via the AI flow lands in a
-            follow-up — for V1 only matched (or picked) rows commit.
+            {affordance === 'queue'
+              ? 'Unmatched rows show suggestions for the closest existing entity. New artists you queue go to a moderator for review before they’re created.'
+              : 'Unmatched rows show suggestions for the closest existing entity. New artists you add are submitted for creation.'}
           </p>
         </div>
       )}
@@ -531,16 +685,32 @@ export function AICollectionFiller({
 function ExtractedRow({
   item,
   alreadyStaged,
+  affordance,
+  requestOutcome,
+  isRequesting,
   onAdd,
   onAcceptSuggestion,
   onDismissSuggestions,
+  onRequest,
 }: {
   item: ExtractedCollectionItem
   alreadyStaged: boolean
+  /** Tier-derived create affordance for unmatched rows. */
+  affordance: CreateAffordance
+  /** Set once this row's entity-request resolves (Requested vs Queued chip). */
+  requestOutcome: RequestOutcome | undefined
+  /** True while THIS row's request is in flight. */
+  isRequesting: boolean
   onAdd: () => void
   onAcceptSuggestion: (suggestion: MatchSuggestion) => void
   onDismissSuggestions: () => void
+  /** Files the entity-request. `confirmed` is the trusted_contributor step. */
+  onRequest: (confirmed: boolean) => void
 }) {
+  // trusted_contributor confirm step is INLINE (not a Dialog) so the picker
+  // context stays visible — entity creation is irreversible, so the extra
+  // tap is a deliberate friction point, not a modal interruption.
+  const [confirming, setConfirming] = useState(false)
   const displayName = item.matched_artist_name ?? item.artist_name
   const hasSuggestions =
     !item.matched_artist_id && (item.artist_suggestions?.length ?? 0) > 0
@@ -609,6 +779,78 @@ function ExtractedRow({
             >
               <Plus className="h-3.5 w-3.5 mr-1" />
               Add
+            </Button>
+          ))}
+
+        {/* Tier-gated create / queue affordance for unmatched (NEW) rows.
+            Suggestion (PICK) rows resolve via "Did you mean" below, not here.
+            Authorization is enforced server-side by POST /entity-requests; this
+            only selects the affordance and never bypasses the queue for
+            low-trust tiers (a contributor only ever sees [Queue for review]). */}
+        {isNew &&
+          (requestOutcome ? (
+            <Badge
+              variant="secondary"
+              className="text-xs shrink-0 motion-safe:animate-in motion-safe:fade-in"
+              data-testid="ai-collection-filler-row-request-chip"
+            >
+              {requestOutcome === 'queued' ? 'Queued' : 'Requested'}
+            </Badge>
+          ) : affordance === 'none' ? null : confirming ? (
+            // trusted_contributor inline confirm — irreversible creation.
+            <div className="flex items-center gap-1 shrink-0">
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-destructive"
+                disabled={isRequesting}
+                onClick={() => {
+                  setConfirming(false)
+                  onRequest(true)
+                }}
+                data-testid="ai-collection-filler-row-confirm"
+              >
+                {isRequesting ? (
+                  <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                ) : (
+                  'Confirm'
+                )}
+              </Button>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-7 px-2 text-muted-foreground"
+                disabled={isRequesting}
+                onClick={() => setConfirming(false)}
+                data-testid="ai-collection-filler-row-cancel"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 shrink-0"
+              disabled={isRequesting}
+              onClick={() => {
+                if (affordance === 'confirm') {
+                  setConfirming(true)
+                } else {
+                  // admin / local_ambassador (create) and contributor /
+                  // new_user (queue) both file immediately; the backend's
+                  // tier policy decides auto-approve vs pending.
+                  onRequest(false)
+                }
+              }}
+              data-testid="ai-collection-filler-row-request"
+            >
+              {isRequesting ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin mr-1" />
+              ) : (
+                <Plus className="h-3.5 w-3.5 mr-1" />
+              )}
+              {affordance === 'queue' ? 'Queue for review' : 'Create + Add'}
             </Button>
           ))}
       </div>
