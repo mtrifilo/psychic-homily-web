@@ -40,32 +40,14 @@ vi.mock('use-debounce', () => ({
 // Mock collection hooks
 const mockUseCollections = vi.fn()
 const mockUseMyCollections = vi.fn()
-const mockCreateMutate = vi.fn()
 
+// PSY-961: CollectionList no longer renders the create form (moved to the
+// app-level CreateCollectionDrawer), so it only needs the browse-list hooks.
 vi.mock('../hooks', () => ({
   useCollections: (params: unknown) => mockUseCollections(params),
   // PSY-580: Yours-tab hook now takes an optional `{ search }` arg. Forward
   // it to the spy so tests can assert the search box is wired through.
   useMyCollections: (params: unknown) => mockUseMyCollections(params),
-  useCreateCollection: () => ({
-    mutate: mockCreateMutate,
-    // PSY-823: form now uses mutateAsync to chain create → bulk-add.
-    // Resolve with a slug shape so the sequel doesn't blow up.
-    mutateAsync: (data: unknown) => {
-      mockCreateMutate(data)
-      return Promise.resolve({ slug: 'test-slug' })
-    },
-    isPending: false,
-    error: null as Error | null,
-  }),
-  // PSY-823: bulk-add mutation used after create to commit staged items.
-  // Tests don't exercise the staged-items flow today; resolve with an empty
-  // partial-success response so the chain proceeds cleanly.
-  useBulkAddCollectionItems: () => ({
-    mutateAsync: () => Promise.resolve({ added: [], errors: [] }),
-    isPending: false,
-    error: null as Error | null,
-  }),
 }))
 
 // Mock child components
@@ -94,32 +76,11 @@ vi.mock('@/components/ui/input', () => ({
   Input: (props: React.InputHTMLAttributes<HTMLInputElement>) => <input {...props} />,
 }))
 
-vi.mock('@/components/ui/textarea', () => ({
-  Textarea: (props: React.TextareaHTMLAttributes<HTMLTextAreaElement>) => <textarea {...props} />,
-}))
-
-// PSY-823: the Create flow swapped its Dialog for a Sheet drawer. Mock the
-// Sheet so the form children render synchronously without a portal — tests
-// can assert against the form fields directly via getByLabelText.
-vi.mock('@/components/ui/sheet', () => ({
-  Sheet: ({ children, open }: { children: React.ReactNode; open: boolean }) => (
-    <div data-testid="sheet" data-open={open}>{children}</div>
-  ),
-  SheetContent: ({ children }: { children: React.ReactNode }) => (
-    <div data-testid="sheet-content">{children}</div>
-  ),
-  SheetHeader: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
-  SheetTitle: ({ children }: { children: React.ReactNode }) => <h2>{children}</h2>,
-  SheetTrigger: ({ children }: { children: React.ReactNode; asChild?: boolean }) => (
-    <>{children}</>
-  ),
-}))
-
-// PSY-823: stub the picker so create-form tests don't have to provision
-// useEntitySearch / useResolveCollectionItems. The picker has its own
-// test file (AddItemsPicker.test.tsx) for that surface.
-vi.mock('./AddItemsPicker', () => ({
-  AddItemsPicker: () => <div data-testid="add-items-picker-stub" />,
+// PSY-961: the Create drawer is now app-level; CollectionList's button just
+// opens it. The form itself is tested in CreateCollectionForm.test.tsx.
+const mockOpenCreateDrawer = vi.fn()
+vi.mock('./CreateCollectionDrawer', () => ({
+  useCreateCollectionDrawer: () => ({ openCreateDrawer: mockOpenCreateDrawer }),
 }))
 
 // Track the active tab value for selective rendering of TabsContent. Also
@@ -496,180 +457,30 @@ describe('CollectionList', () => {
       expect(headerButton).toBeUndefined()
     })
 
-    it('shows create dialog with form', () => {
-      mockAuthContext.mockReturnValue({
-        user: { id: '1' },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
-      mockUseCollections.mockReturnValue({
-        data: { collections: [] },
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-      })
-      render(<CollectionList />)
-      // Dialog content renders (since we mock Dialog to always render children)
-      expect(screen.getByLabelText('Title')).toBeInTheDocument()
-      expect(screen.getByLabelText('Description (optional)')).toBeInTheDocument()
-    })
-
-    it('renders create form with Public checkbox checked by default', () => {
-      mockAuthContext.mockReturnValue({
-        user: { id: '1' },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
-      mockUseCollections.mockReturnValue({
-        data: { collections: [] },
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-      })
-      render(<CollectionList />)
-      const publicCheckbox = screen.getByLabelText('Public') as HTMLInputElement
-      expect(publicCheckbox.checked).toBe(true)
-    })
-
-    it('renders create form with Collaborative checkbox unchecked by default', () => {
-      mockAuthContext.mockReturnValue({
-        user: { id: '1' },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
-      mockUseCollections.mockReturnValue({
-        data: { collections: [] },
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-      })
-      render(<CollectionList />)
-      const collabCheckbox = screen.getByLabelText('Collaborative') as HTMLInputElement
-      expect(collabCheckbox.checked).toBe(false)
-    })
-  })
-
-  // PSY-585: Cover image URL field on the Create modal — parity with Edit.
-  // The field renders, an empty value submits cleanly (no cover key in the
-  // payload), and a valid URL submits with the cover_image_url key set.
-  describe('cover image URL field on create (PSY-585)', () => {
-    beforeEach(() => {
-      mockAuthContext.mockReturnValue({
-        user: { id: '1' },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: vi.fn(),
-      })
-      mockUseCollections.mockReturnValue({
-        data: { collections: [] },
-        isLoading: false,
-        error: null,
-        refetch: vi.fn(),
-      })
-    })
-
-    it('renders the Cover image URL field with the create-only helper text', () => {
-      render(<CollectionList />)
-
-      // Field is present and has the URL input semantics. The accessible
-      // label includes the trailing "(optional)" hint span, so we match
-      // by data-testid to keep the assertion stable against copy tweaks.
-      const input = screen.getByTestId(
-        'create-cover-image-url-input'
-      ) as HTMLInputElement
-      expect(input).toBeInTheDocument()
-      expect(input.type).toBe('url')
-
-      // Helper copy: matches Edit form sans the "remove the current cover"
-      // half (no current cover to remove on create).
-      expect(
-        screen.getByText('Paste a direct image URL (e.g. Bandcamp art).')
-      ).toBeInTheDocument()
-    })
-
-    it('submits with cover_image_url when a valid URL is entered', async () => {
+    it('opens the app-level Create drawer when the Create button is clicked', async () => {
+      // PSY-961: the form moved to the app-level CreateCollectionDrawer (tested
+      // in CreateCollectionForm.test.tsx) — CollectionList's button just opens it.
       const user = userEvent.setup()
-      render(<CollectionList />)
-
-      const titleInput = screen.getByLabelText('Title') as HTMLInputElement
-      await user.type(titleInput, 'My Picks')
-
-      const coverInput = screen.getByTestId(
-        'create-cover-image-url-input'
-      ) as HTMLInputElement
-      await user.type(coverInput, 'https://example.com/cover.jpg')
-
-      // The form's submit button is the only button labeled "Create" (the
-      // header button reads "Create Collection"). Click it to fire submit.
-      const submitButton = screen.getByRole('button', { name: 'Create' })
-      await user.click(submitButton)
-
-      expect(mockCreateMutate).toHaveBeenCalled()
-      const callArgs = mockCreateMutate.mock.calls[0]
-      const payload = callArgs[0] as Record<string, unknown>
-      expect(payload).toMatchObject({
-        title: 'My Picks',
-        is_public: true,
-        collaborative: false,
-        cover_image_url: 'https://example.com/cover.jpg',
+      mockAuthContext.mockReturnValue({
+        user: { id: '1' },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: vi.fn(),
       })
-    })
-
-    it('omits cover_image_url from the payload when the field is empty', async () => {
-      const user = userEvent.setup()
-      render(<CollectionList />)
-
-      const titleInput = screen.getByLabelText('Title') as HTMLInputElement
-      await user.type(titleInput, 'No Cover')
-
-      // Don't touch the cover field — it stays empty.
-      const submitButton = screen.getByRole('button', { name: 'Create' })
-      await user.click(submitButton)
-
-      expect(mockCreateMutate).toHaveBeenCalled()
-      const payload = mockCreateMutate.mock.calls[0][0] as Record<
-        string,
-        unknown
-      >
-      // JSON.stringify in the hook drops `undefined` keys, so we mirror
-      // that: empty cover URL means the key carries `undefined` here and
-      // never appears in the wire body.
-      expect(payload.cover_image_url).toBeUndefined()
-      expect(payload).toMatchObject({
-        title: 'No Cover',
-        is_public: true,
-        collaborative: false,
+      mockUseCollections.mockReturnValue({
+        data: { collections: [] },
+        isLoading: false,
+        error: null,
+        refetch: vi.fn(),
       })
-    })
-
-    it('blocks submit and shows an inline error for an invalid URL', async () => {
-      const user = userEvent.setup()
       render(<CollectionList />)
-
-      const titleInput = screen.getByLabelText('Title') as HTMLInputElement
-      await user.type(titleInput, 'Bad URL Test')
-
-      const coverInput = screen.getByTestId(
-        'create-cover-image-url-input'
-      ) as HTMLInputElement
-      // `not-a-url` fails the WHATWG URL parser → validateCoverImageUrl
-      // returns the "Enter a valid URL..." message.
-      await user.type(coverInput, 'not-a-url')
-      // Blur to flip `coverImageUrlTouched` so the error renders.
-      coverInput.blur()
-
-      // The Create submit button must be disabled while the URL is invalid.
-      const submitButton = screen.getByRole('button', {
-        name: 'Create',
-      }) as HTMLButtonElement
-      expect(submitButton.disabled).toBe(true)
-
-      // Clicking it should be a no-op (mutate must not fire).
-      await user.click(submitButton)
-      expect(mockCreateMutate).not.toHaveBeenCalled()
+      const button = screen
+        .getAllByText('Create Collection')
+        .map((el) => el.closest('button'))
+        .find((b): b is HTMLButtonElement => b !== null)
+      expect(button).toBeTruthy()
+      await user.click(button!)
+      expect(mockOpenCreateDrawer).toHaveBeenCalledTimes(1)
     })
   })
 

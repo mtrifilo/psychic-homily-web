@@ -1,7 +1,6 @@
 'use client'
 
 import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
-import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
 import { Library, Check, Plus, Loader2, AlertCircle, Search } from 'lucide-react'
@@ -24,6 +23,7 @@ import {
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { CollectionEntityType } from '@/features/collections/types'
+import { useCreateCollectionDrawer } from '@/features/collections/components/CreateCollectionDrawer'
 import {
   readCollectionAddRecency,
   recordCollectionAdd,
@@ -101,7 +101,23 @@ export function AddToCollectionButton({
   const router = useRouter()
   const pathname = usePathname()
   const queryClient = useQueryClient()
+  const { openCreateDrawer } = useCreateCollectionDrawer()
   const [open, setOpen] = useState(false)
+
+  // PSY-961 / PSY-893 D4: close the popover and open the app-level Create
+  // drawer pre-filled with this entity as item 1 — "I'm reading about this
+  // artist, start a collection around them". The drawer opens IN PLACE (no
+  // navigation); on successful create it routes to the new collection's page
+  // (consistent with the /collections create flow) so the user can keep
+  // curating it.
+  const handleCreateWithEntity = () => {
+    setOpen(false)
+    openCreateDrawer({
+      initialStagedItems: [
+        { entityType, entityId, name: entityName, subtitle: null },
+      ],
+    })
+  }
 
   // The contains query is gated on `open` so we don't fetch on every
   // entity page render — only when the user actually opens the popover.
@@ -642,11 +658,13 @@ export function AddToCollectionButton({
               <p className="text-sm text-muted-foreground mb-3">
                 No collections yet — start one.
               </p>
-              <Button asChild size="sm" className="w-full">
-                <Link href="/collections" onClick={() => setOpen(false)}>
-                  <Plus className="h-3.5 w-3.5 mr-1.5" />
-                  Create new collection
-                </Link>
+              <Button
+                size="sm"
+                className="w-full"
+                onClick={handleCreateWithEntity}
+              >
+                <Plus className="h-3.5 w-3.5 mr-1.5" />
+                Create with {entityName}
               </Button>
             </div>
           ) : filteredCollections.length === 0 ? (
@@ -695,22 +713,21 @@ export function AddToCollectionButton({
           </div>
         )}
 
-        {/* Create new link. D3 (recently-used promotion) shipped in PSY-960
-            via a client-side add-recency signal (see the grouped list above).
-            D4 (create-from-entity pre-fill) is still deferred to PSY-961 —
-            needs the Create drawer reachable from entity pages; until then
-            this stays a plain link to the collections page rather than
-            "Create … with {entity}". */}
+        {/* Create-from-entity CTA. D4 (PSY-961): a button that opens the
+            app-level Create drawer pre-filled with this entity as item 1,
+            replacing the former plain link to /collections. D3 (PSY-960):
+            recently-used promotion lands above the separator via the
+            client-side add-recency signal — see the grouped list above. */}
         {hasCollections && (
           <div className="p-2 border-t border-border">
-            <Link
-              href="/collections"
-              className="flex items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
-              onClick={() => setOpen(false)}
+            <button
+              type="button"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-muted-foreground hover:text-foreground hover:bg-muted/50 transition-colors"
+              onClick={handleCreateWithEntity}
             >
               <Plus className="h-3.5 w-3.5" />
-              Create new collection
-            </Link>
+              Create new collection with {entityName}
+            </button>
           </div>
         )}
       </PopoverContent>
