@@ -119,7 +119,7 @@ function compressImage(dataUrl: string): Promise<string> {
 // them — a 403 path. The ONLY cross-tier create mechanism is
 // POST /entity-requests (PSY-997). On auto-approve that endpoint marks the
 // request approved but does NOT fulfill it into a catalog row, so there is no
-// new entity_id to stage into the bulk-add pipeline yet. The "Create + Add"
+// new entity_id to stage into the bulk-add pipeline yet. The "Submit for creation"
 // label therefore files an (auto-approved) request rather than staging the
 // new entity into the collection in the same step. Closing that gap — fulfill
 // on auto-approve + return created_entity_id so the row can stage — is a
@@ -891,7 +891,7 @@ function ExtractedRow({
               ) : (
                 <Plus className="h-3.5 w-3.5 mr-1" />
               )}
-              {affordance === 'queue' ? 'Queue for review' : 'Create + Add'}
+              {affordance === 'queue' ? 'Queue for review' : 'Submit for creation'}
             </Button>
           ))}
       </div>
