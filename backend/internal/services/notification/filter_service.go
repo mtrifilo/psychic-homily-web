@@ -22,6 +22,7 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 	"psychic-homily-backend/internal/services/engagement"
 	"psychic-homily-backend/internal/services/shared"
+	"psychic-homily-backend/internal/utils"
 )
 
 // NotificationFilterService handles notification filter CRUD, matching, and delivery.
@@ -550,14 +551,35 @@ func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, 
 
 	// Build show info
 	showTitle := show.Title
-	// Render in the venue's local zone (PSY-996); show.State drives the fallback.
-	showDate := show.EventDate.In(eventLocation(nil, derefString(show.State))).Format("Monday, January 2, 2006")
 
-	var venueNames []string
+	// Fetch venues with timezone so the event time renders in the venue's local
+	// zone (PSY-996), preferring the first venue's timezone over the state map.
+	type venueRow struct {
+		Name     string
+		Timezone *string
+		State    string
+	}
+	var venueRows []venueRow
 	s.db.Table("show_venues").
+		Select("venues.name, venues.timezone, venues.state").
 		Joins("JOIN venues ON venues.id = show_venues.venue_id").
 		Where("show_venues.show_id = ?", show.ID).
-		Pluck("venues.name", &venueNames)
+		Scan(&venueRows)
+
+	venueNames := make([]string, 0, len(venueRows))
+	var venueTZ *string
+	venueState := derefString(show.State)
+	for i, v := range venueRows {
+		venueNames = append(venueNames, v.Name)
+		if i == 0 {
+			venueTZ = v.Timezone
+			if v.State != "" {
+				venueState = v.State
+			}
+		}
+	}
+
+	showDate := show.EventDate.In(utils.EventLocation(venueTZ, venueState)).Format("Monday, January 2, 2006")
 
 	var artistNames []string
 	s.db.Table("show_artists").

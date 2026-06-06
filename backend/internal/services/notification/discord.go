@@ -19,32 +19,16 @@ import (
 	"psychic-homily-backend/internal/utils"
 )
 
-// eventLocation resolves the IANA location for rendering a show's event time in
-// the venue's local zone: prefer an explicit venue timezone (PSY-985), fall back
-// to the US state->tz map, then UTC. Notifications previously formatted the raw
-// UTC instant, so an evening US show (e.g. 8 PM Central, stored as 01:00Z the
-// next day) rendered as "1:00 AM" on the wrong date. (PSY-996)
-func eventLocation(timezone *string, stateFallback string) *time.Location {
-	tz := ""
-	if timezone != nil {
-		tz = *timezone
-	}
-	if tz == "" {
-		tz = utils.GetTimezoneForState(stateFallback)
-	}
-	if loc, err := time.LoadLocation(tz); err == nil {
-		return loc
-	}
-	return time.UTC
-}
-
 // showResponseLocation resolves the event-time location for a ShowResponse from
-// its first venue's timezone, falling back to the show's state.
+// its first venue's timezone, falling back to the show's state. Show
+// notifications previously formatted the raw UTC instant, so an evening US show
+// (e.g. 8 PM Central, stored as 01:00Z the next day) rendered as "1:00 AM" on
+// the wrong date. (PSY-996)
 func showResponseLocation(show *contracts.ShowResponse) *time.Location {
 	if len(show.Venues) > 0 {
-		return eventLocation(show.Venues[0].Timezone, show.Venues[0].State)
+		return utils.EventLocation(show.Venues[0].Timezone, show.Venues[0].State)
 	}
-	return eventLocation(nil, derefString(show.State))
+	return utils.EventLocation(nil, derefString(show.State))
 }
 
 // derefString returns the pointed-to string, or "" when nil.
@@ -269,7 +253,7 @@ func (s *DiscordService) NotifyShowReport(report *communitym.ShowReport, reporte
 	eventDate := "Unknown Date"
 	if report.Show.ID != 0 {
 		showTitle = report.Show.Title
-		eventDate = report.Show.EventDate.In(eventLocation(nil, derefString(report.Show.State))).Format("Jan 2, 2006")
+		eventDate = report.Show.EventDate.In(utils.EventLocation(nil, derefString(report.Show.State))).Format("Jan 2, 2006")
 	}
 
 	fields := []DiscordEmbedField{

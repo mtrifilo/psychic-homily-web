@@ -905,7 +905,10 @@ func TestNotifyNewShow_RendersEventTimeInVenueTimezone(t *testing.T) {
 		Title:     "Snooper",
 		EventDate: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC), // 8 PM CDT on Jul 9
 		Status:    "approved",
-		Venues:    []contracts.VenueResponse{{Name: "Gremlin", City: "McAllen", State: "TX", Timezone: &chicago}},
+		// State and Timezone deliberately disagree (NY=Eastern vs Chicago=Central)
+		// so the assertion proves venue.Timezone wins over the state fallback:
+		// 01:00Z is 8 PM in Chicago but 9 PM in New York.
+		Venues: []contracts.VenueResponse{{Name: "Gremlin", City: "McAllen", State: "NY", Timezone: &chicago}},
 	}
 
 	svc.NotifyNewShow(show, "submitter@test.com")
@@ -915,21 +918,4 @@ func TestNotifyNewShow_RendersEventTimeInVenueTimezone(t *testing.T) {
 	require.Len(t, payload.Embeds, 1)
 	assert.Contains(t, payload.Embeds[0].Description, "Jul 9, 2026 8:00 PM")
 	assert.NotContains(t, payload.Embeds[0].Description, "1:00 AM")
-}
-
-// TestEventLocation covers the timezone resolution: venue timezone wins, US state
-// is the fallback, and unknown input degrades to America/Phoenix (no crash).
-func TestEventLocation(t *testing.T) {
-	instant := time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC) // 8 PM CDT on Jul 9
-
-	if got := instant.In(eventLocation(nil, "TX")).Format("Jan 2, 2006 3:04 PM"); got != "Jul 9, 2026 8:00 PM" {
-		t.Errorf("TX state fallback: got %q, want %q", got, "Jul 9, 2026 8:00 PM")
-	}
-	london := "Europe/London"
-	if got := eventLocation(&london, "TX").String(); got != "Europe/London" {
-		t.Errorf("explicit venue tz should win: got %q, want Europe/London", got)
-	}
-	if got := eventLocation(nil, "").String(); got != "America/Phoenix" {
-		t.Errorf("empty fallback: got %q, want America/Phoenix", got)
-	}
 }
