@@ -872,3 +872,263 @@ describe('AddToCollectionButton — bracket variant (PSY-641)', () => {
     }
   )
 })
+
+describe('AddToCollectionButton — recently-used promotion (PSY-960)', () => {
+  // 9 collections so the grouping (>=5) AND the search box (>8) are both
+  // active — lets us exercise the searching-collapses-grouping rule too.
+  const NAMES = [
+    'Alpha',
+    'Bravo',
+    'Charlie',
+    'Delta',
+    'Echo',
+    'Foxtrot',
+    'Golf',
+    'Hotel',
+    'India',
+  ]
+  const MANY_COLLECTIONS = NAMES.map((title, i) => ({
+    id: i + 1,
+    slug: `c${i + 1}`,
+    title,
+    item_count: 3,
+    is_public: true,
+    cover_image_url: null,
+  }))
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    window.localStorage.clear()
+    mockAuthContext.mockReturnValue({
+      user: { id: '1' },
+      isAuthenticated: true,
+      isLoading: false,
+      logout: vi.fn(),
+    })
+    mockContaining.mockReturnValue({
+      data: new Map<number, number>(),
+      isLoading: false,
+    })
+    mockMutateAsync.mockResolvedValue({ id: 999 })
+    mockRemoveMutateAsync.mockResolvedValue(undefined)
+  })
+
+  const openPopover = async () => {
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton
+        entityType="artist"
+        entityId={1}
+        entityName="Test Artist"
+      />
+    )
+    await user.click(
+      screen.getByRole('button', { name: /add to collection/i })
+    )
+    return user
+  }
+
+  it('promotes recently-used collections above a separator, newest first', async () => {
+    mockMyCollections.mockReturnValue({
+      data: { collections: MANY_COLLECTIONS },
+      isLoading: false,
+    })
+    // Charlie (id 3) added most recently, then Alpha (id 1).
+    window.localStorage.setItem(
+      'psy:collection-add-recency',
+      JSON.stringify({ '3': 2000, '1': 1000 })
+    )
+
+    await openPopover()
+
+    expect(await screen.findByText('Recently used')).toBeInTheDocument()
+    expect(screen.getByText('All collections')).toBeInTheDocument()
+
+    // Promoted rows render first, newest-first: Charlie then Alpha.
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes).toHaveLength(9)
+    expect(checkboxes[0]).toHaveAccessibleName(/charlie/i)
+    expect(checkboxes[1]).toHaveAccessibleName(/alpha/i)
+    // The third row is the start of the (un-promoted) remainder.
+    expect(checkboxes[2]).not.toHaveAccessibleName(/charlie|alpha/i)
+    // Each section is its own a11y group, labelled by its header.
+    const labelledGroups = screen
+      .getAllByRole('group')
+      .filter((g) => g.hasAttribute('aria-labelledby'))
+    expect(labelledGroups).toHaveLength(2)
+  })
+
+  it('orders a multi-select batch newest-first (last-checked promoted highest)', async () => {
+    mockMyCollections.mockReturnValue({
+      data: { collections: MANY_COLLECTIONS },
+      isLoading: false,
+    })
+
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+    )
+    const trigger = screen.getByRole('button', { name: /add to collection/i })
+
+    await user.click(trigger)
+    // Check Bravo (id 2) THEN Delta (id 4) in one batch — Delta is checked
+    // last, so it must get the newer stamp (strictly-increasing per batch).
+    await user.click(await screen.findByRole('checkbox', { name: /bravo/i }))
+    await user.click(screen.getByRole('checkbox', { name: /delta/i }))
+    await user.click(screen.getByRole('button', { name: /add to 2 collections/i }))
+    await waitFor(() => {
+      const stored = JSON.parse(
+        window.localStorage.getItem('psy:collection-add-recency') ?? '{}'
+      )
+      expect(stored['2']).toBeGreaterThan(0)
+      // Delta (last-checked) is strictly newer than Bravo, not a Date.now() tie.
+      expect(stored['4']).toBeGreaterThan(stored['2'])
+    })
+
+    // Reopen — Delta promoted above Bravo under "Recently used".
+    await user.click(trigger)
+    await user.click(trigger)
+    expect(await screen.findByText('Recently used')).toBeInTheDocument()
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes[0]).toHaveAccessibleName(/delta/i)
+    expect(checkboxes[1]).toHaveAccessibleName(/bravo/i)
+  })
+
+  it('stays flat (no grouping) below the collection threshold', async () => {
+    // DEFAULT_COLLECTIONS has 3 (< RECENTLY_USED_MIN_COLLECTIONS); recency is
+    // present but must be ignored.
+    mockMyCollections.mockReturnValue({
+      data: { collections: DEFAULT_COLLECTIONS },
+      isLoading: false,
+    })
+    window.localStorage.setItem(
+      'psy:collection-add-recency',
+      JSON.stringify({ '1': 1000 })
+    )
+
+    await openPopover()
+
+    expect(await screen.findByText('My Favorites')).toBeInTheDocument()
+    expect(screen.queryByText('Recently used')).not.toBeInTheDocument()
+    expect(screen.queryByText('All collections')).not.toBeInTheDocument()
+  })
+
+  it('stays flat on a cold start (no add-recency yet)', async () => {
+    mockMyCollections.mockReturnValue({
+      data: { collections: MANY_COLLECTIONS },
+      isLoading: false,
+    })
+    // localStorage intentionally empty.
+
+    await openPopover()
+
+    expect(await screen.findByText('Alpha')).toBeInTheDocument()
+    expect(screen.queryByText('Recently used')).not.toBeInTheDocument()
+  })
+
+  it('collapses to a flat filtered list while searching', async () => {
+    mockMyCollections.mockReturnValue({
+      data: { collections: MANY_COLLECTIONS },
+      isLoading: false,
+    })
+    window.localStorage.setItem(
+      'psy:collection-add-recency',
+      JSON.stringify({ '3': 2000 })
+    )
+
+    const user = await openPopover()
+    // Grouped before searching.
+    expect(await screen.findByText('Recently used')).toBeInTheDocument()
+
+    // Type a filter — the section headers disappear, results go flat.
+    await user.type(
+      screen.getByRole('textbox', { name: /filter collections/i }),
+      'char'
+    )
+    expect(screen.queryByText('Recently used')).not.toBeInTheDocument()
+    expect(screen.queryByText('All collections')).not.toBeInTheDocument()
+    expect(screen.getByText('Charlie')).toBeInTheDocument()
+  })
+
+  it('records the add in localStorage on a successful submit', async () => {
+    mockMyCollections.mockReturnValue({
+      data: { collections: MANY_COLLECTIONS },
+      isLoading: false,
+    })
+
+    const user = await openPopover()
+    // Check Delta (id 4) and submit.
+    await user.click(
+      await screen.findByRole('checkbox', { name: /delta/i })
+    )
+    await user.click(
+      screen.getByRole('button', { name: /add to 1 collection/i })
+    )
+
+    await waitFor(() => {
+      const stored = JSON.parse(
+        window.localStorage.getItem('psy:collection-add-recency') ?? '{}'
+      )
+      expect(stored['4']).toBeGreaterThan(0)
+    })
+  })
+
+  it('surfaces a collection under "Recently used" after an add + reopen', async () => {
+    mockMyCollections.mockReturnValue({
+      data: { collections: MANY_COLLECTIONS },
+      isLoading: false,
+    })
+
+    const user = userEvent.setup()
+    render(
+      <AddToCollectionButton entityType="artist" entityId={1} entityName="Test Artist" />
+    )
+    const trigger = screen.getByRole('button', { name: /add to collection/i })
+
+    // First open: cold start, flat (no grouping).
+    await user.click(trigger)
+    expect(await screen.findByText('Echo')).toBeInTheDocument()
+    expect(screen.queryByText('Recently used')).not.toBeInTheDocument()
+
+    // Add to Echo (id 5) and submit.
+    await user.click(screen.getByRole('checkbox', { name: /echo/i }))
+    await user.click(screen.getByRole('button', { name: /add to 1 collection/i }))
+    await waitFor(() => {
+      const stored = JSON.parse(
+        window.localStorage.getItem('psy:collection-add-recency') ?? '{}'
+      )
+      expect(stored['5']).toBeGreaterThan(0)
+    })
+
+    // Close and reopen — Echo now promoted to the top of "Recently used".
+    await user.click(trigger)
+    await user.click(trigger)
+    expect(await screen.findByText('Recently used')).toBeInTheDocument()
+    expect(screen.getAllByRole('checkbox')[0]).toHaveAccessibleName(/echo/i)
+  })
+
+  it('caps "Recently used" at 5 and overflows extra stamped collections into "All collections"', async () => {
+    mockMyCollections.mockReturnValue({
+      data: { collections: MANY_COLLECTIONS },
+      isLoading: false,
+    })
+    // Six collections stamped (ids 1–6), distinct increasing timestamps.
+    window.localStorage.setItem(
+      'psy:collection-add-recency',
+      JSON.stringify({ '1': 1000, '2': 2000, '3': 3000, '4': 4000, '5': 5000, '6': 6000 })
+    )
+
+    await openPopover()
+
+    expect(await screen.findByText('Recently used')).toBeInTheDocument()
+    const checkboxes = screen.getAllByRole('checkbox')
+    expect(checkboxes).toHaveLength(9)
+    // Promoted = the newest 5: Foxtrot(6) Echo(5) Delta(4) Charlie(3) Bravo(2).
+    expect(checkboxes[0]).toHaveAccessibleName(/foxtrot/i)
+    expect(checkboxes[4]).toHaveAccessibleName(/bravo/i)
+    // Alpha (id 1, oldest stamp) exceeds the cap → overflows into the
+    // remainder, NOT promoted, and is not duplicated.
+    expect(checkboxes[5]).not.toHaveAccessibleName(/foxtrot|echo|delta|charlie|bravo/i)
+    expect(screen.getAllByText('Alpha')).toHaveLength(1)
+  })
+})

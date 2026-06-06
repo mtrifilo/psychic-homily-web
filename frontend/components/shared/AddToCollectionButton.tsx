@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useRef, useState } from 'react'
+import { useId, useMemo, useRef, useState, type ReactNode } from 'react'
 import Link from 'next/link'
 import { useRouter, usePathname } from 'next/navigation'
 import { useQueryClient } from '@tanstack/react-query'
@@ -24,6 +24,10 @@ import {
 import { queryKeys } from '@/lib/queryClient'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import type { CollectionEntityType } from '@/features/collections/types'
+import {
+  readCollectionAddRecency,
+  recordCollectionAdd,
+} from '@/features/collections/collectionAddRecency'
 
 interface AddToCollectionButtonProps {
   entityType: CollectionEntityType
@@ -53,10 +57,33 @@ const UNSET = Symbol('unset')
 // exact cutoff is a judgment call (the design doesn't specify a number).
 const SEARCH_THRESHOLD = 8
 
+// PSY-960 / PSY-893 D3: the popover promotes up to this many recently-used
+// collections above a separator ("up to 5" per the locked design; tunable 3–5).
+const MAX_PROMOTED = 5
+
+// Grouping (RECENTLY USED / ALL COLLECTIONS) only earns its visual overhead
+// once the library is large enough that surfacing recents saves scanning. The
+// locked PSY-893 design draws the default-open mock (4 collections) FLAT and
+// the recently-used mock (5 collections) GROUPED — so the cutoff is 5.
+const RECENTLY_USED_MIN_COLLECTIONS = 5
+
 function describeError(reason: unknown): string {
   if (reason instanceof Error && reason.message) return reason.message
   if (typeof reason === 'string' && reason.length > 0) return reason
   return 'Failed to add to this collection'
+}
+
+/** Uppercase section label for the RECENTLY USED / ALL COLLECTIONS groups.
+ *  `id` lets each section's group reference it via aria-labelledby. */
+function SectionLabel({ id, children }: { id?: string; children: ReactNode }) {
+  return (
+    <p
+      id={id}
+      className="px-2 pb-1 pt-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground"
+    >
+      {children}
+    </p>
+  )
 }
 
 export function AddToCollectionButton({
@@ -179,6 +206,52 @@ export function AddToCollectionButton({
     if (!q) return collections
     return collections.filter((c) => c.title.toLowerCase().includes(q))
   }, [collections, search])
+
+  // Stable ids so each grouped section can label its own role="group".
+  const recentlyUsedLabelId = useId()
+  const allCollectionsLabelId = useId()
+
+  // Snapshot the add-recency signal when the popover OPENS. Reading per-open
+  // (not per-render) keeps the order stable while open — recording an add must
+  // not make the list jump under the user; the new order shows on next open.
+  // `{}` while closed avoids touching localStorage on SSR / on every
+  // entity-page render of this high-traffic affordance.
+  const recencySnapshot = useMemo<Record<string, number>>(
+    () => (open ? readCollectionAddRecency() : {}),
+    [open]
+  )
+
+  // Partition the (unfiltered) list into a promoted "recently used" group and
+  // the rest. Promoted = collections with a recency stamp, newest first,
+  // capped at MAX_PROMOTED; rest = everything else in the server's order. The
+  // two are disjoint (a promoted row is not repeated below), matching the
+  // locked design. Suppressed while filtering and for small libraries.
+  const { promotedCollections, restCollections, showRecentlyUsed } =
+    useMemo(() => {
+      const searching = search.trim().length > 0
+      if (searching || collections.length < RECENTLY_USED_MIN_COLLECTIONS) {
+        return {
+          promotedCollections: [],
+          restCollections: [],
+          showRecentlyUsed: false,
+        }
+      }
+      const promoted = collections
+        .filter((c) => recencySnapshot[String(c.id)] != null)
+        .sort(
+          (a, b) =>
+            recencySnapshot[String(b.id)] - recencySnapshot[String(a.id)]
+        )
+        .slice(0, MAX_PROMOTED)
+      const promotedIds = new Set(promoted.map((c) => c.id))
+      const rest = collections.filter((c) => !promotedIds.has(c.id))
+      // Need both a promoted item AND a remainder for grouping to add meaning.
+      return {
+        promotedCollections: promoted,
+        restCollections: rest,
+        showRecentlyUsed: promoted.length >= 1 && rest.length >= 1,
+      }
+    }, [collections, recencySnapshot, search])
 
   // Unauthenticated bracket variant — render the public [Add to collection]
   // affordance and redirect to /auth on click, mirroring FollowButton /
@@ -341,11 +414,23 @@ export function AddToCollectionButton({
     const nextSessionItemIds = new Map(sessionItemIds)
     const errors: SubmitError[] = []
 
+    // PSY-960: stamp this batch's adds with strictly-increasing timestamps so
+    // "Recently used" keeps a stable newest-first order across a multi-select
+    // submit — a bare Date.now() per add would tie within the same millisecond
+    // and collapse to server order. `results` is in checked-row order, so the
+    // last-checked collection gets the newest stamp.
+    const recordedAt = Date.now()
+    let addedRank = 0
+
     for (const result of results) {
       if (result.status === 'fulfilled') {
         nextSaved.add(result.value.id)
         nextPending.delete(result.value.id)
         nextSessionItemIds.set(result.value.id, result.value.itemId)
+        // Record the add client-side so this collection promotes to "Recently
+        // used" on the next open of the popover.
+        recordCollectionAdd(result.value.id, recordedAt + addedRank)
+        addedRank += 1
       } else {
         const reason = result.reason as { id: number; error: unknown }
         // Drop the failed row out of the add batch so it unchecks (matching
@@ -378,6 +463,113 @@ export function AddToCollectionButton({
       : 'Add'
   const showSearch = collections.length > SEARCH_THRESHOLD
   const hasCollections = collections.length > 0
+
+  // A single collection row, shared by the flat list and the grouped
+  // (RECENTLY USED / ALL COLLECTIONS) layout so both render identically.
+  const renderRow = (collection: (typeof collections)[number]) => {
+    const checked = isChecked(collection.id)
+    const added = savedIds.has(collection.id)
+    const errorMessage = errorByCollection.get(collection.id)
+    const rowRemoveError =
+      removeError?.collectionId === collection.id
+        ? removeError.message
+        : undefined
+    const checkboxId = `collection-checkbox-${collection.id}`
+    const isConfirming = removeConfirmId === collection.id
+    const isRemoving = removingId === collection.id
+    const subtitle = `${collection.item_count} ${collection.item_count === 1 ? 'item' : 'items'} · ${collection.is_public ? 'Public' : 'Private'}`
+
+    return (
+      <div key={collection.id} className="px-1">
+        <label
+          htmlFor={checkboxId}
+          className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer"
+        >
+          <Checkbox
+            id={checkboxId}
+            checked={checked}
+            onCheckedChange={(value) =>
+              handleCheckedChange(collection.id, value === true)
+            }
+            disabled={submitting || isRemoving}
+            aria-describedby={
+              errorMessage || rowRemoveError
+                ? `${checkboxId}-error`
+                : undefined
+            }
+          />
+          <CollectionCoverImage
+            url={collection.cover_image_url}
+            alt=""
+            className="h-7 w-7 shrink-0 rounded bg-muted/50"
+            fallback={
+              <div className="flex h-full w-full items-center justify-center rounded bg-muted/50">
+                <Library className="h-3.5 w-3.5 text-muted-foreground" />
+              </div>
+            }
+          />
+          <span className="flex min-w-0 flex-1 flex-col">
+            <span className="truncate font-medium leading-tight">
+              {collection.title}
+            </span>
+            <span className="text-xs text-muted-foreground leading-tight">
+              {subtitle}
+            </span>
+          </span>
+          {added && !isConfirming && (
+            <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 shrink-0">
+              <Check className="h-3.5 w-3.5" />
+              Added
+            </span>
+          )}
+        </label>
+
+        {/* D1: inline remove-with-confirm for an already-in row. */}
+        {isConfirming && (
+          <div className="ml-8 mr-2 mb-1.5 flex items-center justify-between gap-2">
+            <span className="text-xs text-muted-foreground">
+              Remove from this collection?
+            </span>
+            <span className="flex items-center gap-1.5 shrink-0">
+              <Button
+                type="button"
+                variant="destructive"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={() => confirmRemove(collection.id)}
+                disabled={isRemoving}
+              >
+                {isRemoving && (
+                  <Loader2 className="h-3 w-3 animate-spin mr-1" />
+                )}
+                Remove
+              </Button>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                className="h-6 px-2 text-xs"
+                onClick={cancelRemove}
+                disabled={isRemoving}
+              >
+                Cancel
+              </Button>
+            </span>
+          </div>
+        )}
+
+        {(errorMessage || rowRemoveError) && (
+          <div
+            id={`${checkboxId}-error`}
+            className="ml-8 mr-2 mb-1 flex items-start gap-1 text-xs text-destructive"
+          >
+            <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
+            <span className="flex-1">{errorMessage ?? rowRemoveError}</span>
+          </div>
+        )}
+      </div>
+    )
+  }
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -463,113 +655,24 @@ export function AddToCollectionButton({
                 No collections match “{search.trim()}”
               </p>
             </div>
+          ) : showRecentlyUsed ? (
+            <>
+              <div role="group" aria-labelledby={recentlyUsedLabelId}>
+                <SectionLabel id={recentlyUsedLabelId}>
+                  Recently used
+                </SectionLabel>
+                {promotedCollections.map(renderRow)}
+              </div>
+              <div className="mx-2 my-1 h-px bg-border" aria-hidden="true" />
+              <div role="group" aria-labelledby={allCollectionsLabelId}>
+                <SectionLabel id={allCollectionsLabelId}>
+                  All collections
+                </SectionLabel>
+                {restCollections.map(renderRow)}
+              </div>
+            </>
           ) : (
-            filteredCollections.map((collection) => {
-              const checked = isChecked(collection.id)
-              const added = savedIds.has(collection.id)
-              const errorMessage = errorByCollection.get(collection.id)
-              const rowRemoveError =
-                removeError?.collectionId === collection.id
-                  ? removeError.message
-                  : undefined
-              const checkboxId = `collection-checkbox-${collection.id}`
-              const isConfirming = removeConfirmId === collection.id
-              const isRemoving = removingId === collection.id
-              const subtitle = `${collection.item_count} ${collection.item_count === 1 ? 'item' : 'items'} · ${collection.is_public ? 'Public' : 'Private'}`
-
-              return (
-                <div key={collection.id} className="px-1">
-                  <label
-                    htmlFor={checkboxId}
-                    className="flex items-center gap-2.5 rounded-md px-2 py-1.5 text-sm hover:bg-muted/50 transition-colors cursor-pointer"
-                  >
-                    <Checkbox
-                      id={checkboxId}
-                      checked={checked}
-                      onCheckedChange={(value) =>
-                        handleCheckedChange(collection.id, value === true)
-                      }
-                      disabled={submitting || isRemoving}
-                      aria-describedby={
-                        errorMessage || rowRemoveError
-                          ? `${checkboxId}-error`
-                          : undefined
-                      }
-                    />
-                    <CollectionCoverImage
-                      url={collection.cover_image_url}
-                      alt=""
-                      className="h-7 w-7 shrink-0 rounded bg-muted/50"
-                      fallback={
-                        <div className="flex h-full w-full items-center justify-center rounded bg-muted/50">
-                          <Library className="h-3.5 w-3.5 text-muted-foreground" />
-                        </div>
-                      }
-                    />
-                    <span className="flex min-w-0 flex-1 flex-col">
-                      <span className="truncate font-medium leading-tight">
-                        {collection.title}
-                      </span>
-                      <span className="text-xs text-muted-foreground leading-tight">
-                        {subtitle}
-                      </span>
-                    </span>
-                    {added && !isConfirming && (
-                      <span className="flex items-center gap-1 text-xs text-green-600 dark:text-green-400 shrink-0">
-                        <Check className="h-3.5 w-3.5" />
-                        Added
-                      </span>
-                    )}
-                  </label>
-
-                  {/* D1: inline remove-with-confirm for an already-in row. */}
-                  {isConfirming && (
-                    <div className="ml-8 mr-2 mb-1.5 flex items-center justify-between gap-2">
-                      <span className="text-xs text-muted-foreground">
-                        Remove from this collection?
-                      </span>
-                      <span className="flex items-center gap-1.5 shrink-0">
-                        <Button
-                          type="button"
-                          variant="destructive"
-                          size="sm"
-                          className="h-6 px-2 text-xs"
-                          onClick={() => confirmRemove(collection.id)}
-                          disabled={isRemoving}
-                        >
-                          {isRemoving && (
-                            <Loader2 className="h-3 w-3 animate-spin mr-1" />
-                          )}
-                          Remove
-                        </Button>
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="sm"
-                          className="h-6 px-2 text-xs"
-                          onClick={cancelRemove}
-                          disabled={isRemoving}
-                        >
-                          Cancel
-                        </Button>
-                      </span>
-                    </div>
-                  )}
-
-                  {(errorMessage || rowRemoveError) && (
-                    <div
-                      id={`${checkboxId}-error`}
-                      className="ml-8 mr-2 mb-1 flex items-start gap-1 text-xs text-destructive"
-                    >
-                      <AlertCircle className="h-3 w-3 shrink-0 mt-0.5" />
-                      <span className="flex-1">
-                        {errorMessage ?? rowRemoveError}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              )
-            })
+            filteredCollections.map(renderRow)
           )}
         </div>
 
@@ -592,13 +695,12 @@ export function AddToCollectionButton({
           </div>
         )}
 
-        {/* Create new link. Two PSY-893 decisions are deferred to follow-ups
-            (see the PR's Deferred section for the ticket ids):
-            - D3 (recently-used promotion above a separator) — needs an
-              add-recency signal the data model doesn't carry yet.
-            - D4 (create-from-entity pre-fill) — needs the Create drawer to be
-              reachable from entity pages; until then this stays a plain link to
-              the collections page rather than "Create … with {entity}". */}
+        {/* Create new link. D3 (recently-used promotion) shipped in PSY-960
+            via a client-side add-recency signal (see the grouped list above).
+            D4 (create-from-entity pre-fill) is still deferred to PSY-961 —
+            needs the Create drawer reachable from entity pages; until then
+            this stays a plain link to the collections page rather than
+            "Create … with {entity}". */}
         {hasCollections && (
           <div className="p-2 border-t border-border">
             <Link
