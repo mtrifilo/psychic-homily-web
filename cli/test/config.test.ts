@@ -1,5 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { readConfig, writeConfig, resolveEnvironment } from "../src/lib/config";
+import {
+  readConfig,
+  writeConfig,
+  resolveEnvironment,
+  suggestEnvironment,
+} from "../src/lib/config";
 import { join } from "path";
 import { tmpdir } from "os";
 import { mkdtemp, rm } from "fs/promises";
@@ -104,5 +109,48 @@ describe("config", () => {
 
     const result = resolveEnvironment(config, "staging");
     expect(result).toBeNull();
+  });
+
+  describe("suggestEnvironment", () => {
+    const configured = ["local", "stage", "production"];
+
+    test("suggests stage for staging (edit distance 3, not a substring)", () => {
+      // The PSY-975 motivating case. "staging" does NOT contain "stage"
+      // (s-t-a-g-i-n-g), so this is caught by the edit-distance fallback at
+      // distance 3 (drop "ing", substitute to "e") — which is why the
+      // threshold is 3, not 2.
+      expect(suggestEnvironment("staging", configured)).toBe("stage");
+    });
+
+    test("suggests the substring match for prod -> production", () => {
+      // "production" starts with "prod", so this hits the substring branch.
+      expect(suggestEnvironment("prod", configured)).toBe("production");
+    });
+
+    test("suggests the nearest name by edit distance for a small typo", () => {
+      // "stge" contains no configured name as a substring, so this exercises
+      // the Levenshtein fallback (distance 1) rather than the substring branch.
+      expect(suggestEnvironment("stge", configured)).toBe("stage");
+    });
+
+    test("returns null when nothing is close enough", () => {
+      expect(suggestEnvironment("xyzzy", configured)).toBeNull();
+    });
+
+    test("returns null for an empty configured list", () => {
+      expect(suggestEnvironment("stage", [])).toBeNull();
+    });
+
+    test("returns null for empty input (does not spuriously match)", () => {
+      // Every string contains "", so without the guard the substring check
+      // would return the first configured name for empty input.
+      expect(suggestEnvironment("", configured)).toBeNull();
+    });
+
+    test("ignores an empty-string configured name", () => {
+      // A hand-edited config with a "" env key must not become the suggestion
+      // (target.includes("") is always true).
+      expect(suggestEnvironment("stage", ["", "stage"])).toBe("stage");
+    });
   });
 });

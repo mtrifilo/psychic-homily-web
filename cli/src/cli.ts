@@ -1,6 +1,6 @@
 import { Command } from "commander";
 import { version } from "../package.json";
-import { readConfig, resolveEnvironment } from "./lib/config";
+import { readConfig, resolveEnvironment, suggestEnvironment } from "./lib/config";
 import { APIError } from "./lib/api";
 import * as display from "./lib/display";
 import { runInit } from "./commands/init";
@@ -199,9 +199,18 @@ async function resolveEnvOrExit(
 
   if (!resolved) {
     const envName = envOverride || config.default_environment || "(not set)";
-    display.error(
-      `Environment "${envName}" not found. Run "ph init" to configure one.`,
-    );
+    const configured = Object.keys(config.environments);
+    if (configured.length === 0) {
+      display.error(
+        `Environment "${envName}" not found. Run "ph init" to configure one.`,
+      );
+    } else {
+      const suggestion = suggestEnvironment(envName, configured);
+      const hint = suggestion ? ` Did you mean "${suggestion}"?` : "";
+      display.error(
+        `Environment "${envName}" not found.${hint} Configured: ${configured.join(", ")}.`,
+      );
+    }
     process.exit(1);
   }
 
