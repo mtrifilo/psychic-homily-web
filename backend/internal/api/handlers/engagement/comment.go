@@ -375,14 +375,14 @@ func (h *CommentHandler) CreateReplyHandler(ctx context.Context, req *CreateRepl
 // UpdateCommentRequest represents the request for updating a comment.
 //
 // `StructuredData` is field-note-only (PSY-567): when supplied AND the target
-// is a field note, ratings + verified-attendee + spoiler flag are atomically
-// replaced as a unit alongside the body. Regular comments ignore it. Omit
-// the field for a body-only edit.
+// is a field note, ratings + spoiler flag are atomically replaced as a unit
+// alongside the body. Regular comments ignore it. Omit the field for a
+// body-only edit.
 type UpdateCommentRequest struct {
 	CommentID string `path:"comment_id" doc:"Comment ID" example:"1"`
 	Body      struct {
 		Body           string                             `json:"body" doc:"Updated comment body (Markdown)" example:"Updated: Great show last night!"`
-		StructuredData *contracts.FieldNoteStructuredData `json:"structured_data,omitempty" required:"false" doc:"Field-note-only: replaces ratings / verified-attendee / spoiler as a unit"`
+		StructuredData *contracts.FieldNoteStructuredData `json:"structured_data,omitempty" required:"false" doc:"Field-note-only: replaces ratings / spoiler as a unit"`
 	}
 }
 

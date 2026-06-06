@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { MessageSquare, Star, CheckCircle, Eye, EyeOff, Flag, Clock, Pencil, Trash2, History } from 'lucide-react'
+import { MessageSquare, Star, Eye, EyeOff, Flag, Clock, Pencil, Trash2, History } from 'lucide-react'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { Button } from '@/components/ui/button'
@@ -98,7 +98,6 @@ export function FieldNoteCard({
 
   const sd = comment.structured_data
   const isSpoiler = sd?.setlist_spoiler === true
-  const isVerified = sd?.is_verified_attendee === true
 
   // Find artist name from show_artist_id
   const artistName = sd?.show_artist_id
@@ -116,10 +115,10 @@ export function FieldNoteCard({
   // PUT/DELETE /comments/{id} endpoints operate on the row regardless of
   // kind, so field-note edits go through the same useUpdateComment hook
   // and inherit the comment_edits history (admin-visible via PSY-297).
-  // PSY-567: structured fields (ratings, verified-attendee, spoiler,
-  // notable moments, artist set, song position) are now editable as a
-  // unit — the FieldNoteForm carries the same fields as creation and
-  // the backend replaces structured_data atomically with the body.
+  // PSY-567: structured fields (ratings, spoiler, notable moments, artist
+  // set, song position) are now editable as a unit — the FieldNoteForm
+  // carries the same fields as creation and the backend replaces
+  // structured_data atomically with the body.
   const handleEdit = (input: CreateFieldNoteInput) => {
     const structuredData: FieldNoteStructuredData = {
       show_artist_id: input.show_artist_id ?? null,
@@ -128,7 +127,6 @@ export function FieldNoteCard({
       crowd_energy: input.crowd_energy ?? null,
       notable_moments: input.notable_moments ?? null,
       setlist_spoiler: input.setlist_spoiler ?? false,
-      is_verified_attendee: input.verified_attendee ?? false,
     }
     updateMutation.mutate(
       {
@@ -178,16 +176,6 @@ export function FieldNoteCard({
           className="font-medium text-foreground hover:underline"
           testId={comment.author_username ? 'field-note-author-link' : 'field-note-author-name'}
         />
-        {isVerified && (
-          <Badge
-            variant="secondary"
-            className="text-[10px] px-1.5 py-0 bg-success text-success-foreground"
-            data-testid="verified-badge"
-          >
-            <CheckCircle className="h-3 w-3 mr-0.5" />
-            Verified Attendee
-          </Badge>
-        )}
         <span className="text-muted-foreground">
           {formatRelativeTime(comment.created_at)}
         </span>
@@ -246,10 +234,10 @@ export function FieldNoteCard({
       {/* Body — with spoiler handling. PSY-590: edit mode replaces the
           rendered body with an edit form.
           PSY-567: the ROOT field-note edits via FieldNoteForm so structured
-          fields (sound / crowd / notable / artist / position / spoiler /
-          verified-attendee) are editable as a unit. Replies under a field
-          note are regular comments (kind="comment", no structured data) and
-          continue to edit body-only via CommentForm. */}
+          fields (sound / crowd / notable / artist / position / spoiler) are
+          editable as a unit. Replies under a field note are regular comments
+          (kind="comment", no structured data) and continue to edit body-only
+          via CommentForm. */}
       {isEditing && isFieldNote ? (
         <div className="mt-2">
           <FieldNoteForm
@@ -267,7 +255,6 @@ export function FieldNoteCard({
               setlist_spoiler: sd?.setlist_spoiler ?? false,
               show_artist_id: sd?.show_artist_id ?? null,
               song_position: sd?.song_position ?? null,
-              verified_attendee: sd?.is_verified_attendee ?? false,
             }}
           />
         </div>

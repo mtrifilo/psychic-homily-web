@@ -60,7 +60,6 @@ type CreateFieldNoteRequest struct {
 		CrowdEnergy      *int    `json:"crowd_energy,omitempty" required:"false" doc:"Crowd energy rating 1-5" example:"5"`
 		NotableMoments   *string `json:"notable_moments,omitempty" required:"false" doc:"Notable moments description" example:"Surprise cover of Ziggy Stardust"`
 		SetlistSpoiler   bool    `json:"setlist_spoiler" required:"false" doc:"Whether this note contains setlist spoilers" example:"false"`
-		VerifiedAttendee bool    `json:"verified_attendee" required:"false" doc:"Self-claim that the author attended this show (snapshot at post time, PSY-568)" example:"true"`
 	}
 }
 
@@ -94,7 +93,6 @@ func (h *FieldNoteHandler) CreateFieldNoteHandler(ctx context.Context, req *Crea
 		CrowdEnergy:      req.Body.CrowdEnergy,
 		NotableMoments:   req.Body.NotableMoments,
 		SetlistSpoiler:   req.Body.SetlistSpoiler,
-		VerifiedAttendee: req.Body.VerifiedAttendee,
 	}
 
 	fieldNote, err := h.writer.CreateFieldNote(user.ID, serviceReq)

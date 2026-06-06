@@ -266,7 +266,7 @@ describe('FieldNoteForm', () => {
     )
   })
 
-  it('does not include optional fields when empty (PSY-568: verified_attendee is always sent as the explicit user choice)', () => {
+  it('does not include optional fields when empty', () => {
     const handleSubmit = vi.fn()
     render(<FieldNoteForm onSubmit={handleSubmit} />)
 
@@ -276,91 +276,10 @@ describe('FieldNoteForm', () => {
     fireEvent.click(screen.getByTestId('field-note-submit'))
 
     const call = handleSubmit.mock.calls[0][0]
-    // PSY-568: verified_attendee is always included so the backend stores
-    // the explicit user choice. Default is false (unchecked) when there is
-    // no Going RSVP, matching the server-side default.
-    expect(call).toEqual({ body: 'Simple note', verified_attendee: false })
+    expect(call).toEqual({ body: 'Simple note' })
     expect(call).not.toHaveProperty('sound_quality')
     expect(call).not.toHaveProperty('crowd_energy')
     expect(call).not.toHaveProperty('notable_moments')
     expect(call).not.toHaveProperty('setlist_spoiler')
-  })
-
-  // PSY-568: Self-claim verified-attendee checkbox.
-  describe('PSY-568 verified-attendee checkbox', () => {
-    it('renders the "I attended this show" checkbox', () => {
-      render(<FieldNoteForm onSubmit={vi.fn()} />)
-
-      const checkbox = screen.getByTestId('verified-attendee-checkbox')
-      expect(checkbox).toBeInTheDocument()
-      expect(screen.getByText('I attended this show')).toBeInTheDocument()
-    })
-
-    it('checkbox is unchecked by default when defaultVerifiedAttendee is false (no Going RSVP)', () => {
-      render(<FieldNoteForm onSubmit={vi.fn()} />)
-
-      const checkbox = screen.getByTestId('verified-attendee-checkbox')
-      expect(checkbox).toHaveAttribute('aria-checked', 'false')
-    })
-
-    it('checkbox is pre-checked when defaultVerifiedAttendee is true (user has Going set)', () => {
-      render(<FieldNoteForm onSubmit={vi.fn()} defaultVerifiedAttendee />)
-
-      const checkbox = screen.getByTestId('verified-attendee-checkbox')
-      expect(checkbox).toHaveAttribute('aria-checked', 'true')
-    })
-
-    it('sends verified_attendee=true when the user checks the box', async () => {
-      const user = userEvent.setup()
-      const handleSubmit = vi.fn()
-      render(<FieldNoteForm onSubmit={handleSubmit} />)
-
-      fireEvent.change(screen.getByTestId('field-note-textarea'), {
-        target: { value: 'I was there.' },
-      })
-      await user.click(screen.getByTestId('verified-attendee-checkbox'))
-      fireEvent.click(screen.getByTestId('field-note-submit'))
-
-      expect(handleSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          body: 'I was there.',
-          verified_attendee: true,
-        })
-      )
-    })
-
-    it('sends verified_attendee=false when the user unchecks a pre-checked box (override)', async () => {
-      const user = userEvent.setup()
-      const handleSubmit = vi.fn()
-      render(<FieldNoteForm onSubmit={handleSubmit} defaultVerifiedAttendee />)
-
-      fireEvent.change(screen.getByTestId('field-note-textarea'), {
-        target: { value: 'Marked Going but couldn\'t make it.' },
-      })
-      // Box pre-checked; user unticks it.
-      await user.click(screen.getByTestId('verified-attendee-checkbox'))
-      fireEvent.click(screen.getByTestId('field-note-submit'))
-
-      expect(handleSubmit).toHaveBeenCalledWith(
-        expect.objectContaining({
-          verified_attendee: false,
-        })
-      )
-    })
-
-    it('re-syncs the checkbox when defaultVerifiedAttendee changes (attendance loads after mount)', () => {
-      const { rerender } = render(<FieldNoteForm onSubmit={vi.fn()} />)
-      expect(screen.getByTestId('verified-attendee-checkbox')).toHaveAttribute(
-        'aria-checked',
-        'false'
-      )
-
-      // Attendance query resolves and the parent passes defaultVerifiedAttendee=true.
-      rerender(<FieldNoteForm onSubmit={vi.fn()} defaultVerifiedAttendee />)
-      expect(screen.getByTestId('verified-attendee-checkbox')).toHaveAttribute(
-        'aria-checked',
-        'true'
-      )
-    })
   })
 })
