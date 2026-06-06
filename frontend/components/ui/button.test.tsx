@@ -48,6 +48,20 @@ describe('Button', () => {
     expect(link).toHaveClass('inline-flex')
   })
 
+  it('applies the success variant classes', () => {
+    render(<Button variant="success">Publish</Button>)
+    const button = screen.getByRole('button')
+    expect(button).toHaveClass('bg-success')
+    expect(button).toHaveClass('text-success-foreground')
+  })
+
+  it('applies the pending variant classes', () => {
+    render(<Button variant="pending">Unpublish</Button>)
+    const button = screen.getByRole('button')
+    expect(button).toHaveClass('bg-pending')
+    expect(button).toHaveClass('text-pending-foreground')
+  })
+
   it('exposes a buttonVariants helper that reflects variant/size', () => {
     const cls = buttonVariants({ variant: 'outline', size: 'lg' })
     expect(cls).toContain('border')

@@ -48,7 +48,7 @@ export function PublishShowDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <Globe className="h-5 w-5 text-emerald-500" />
+            <Globe className="h-5 w-5 text-success-foreground" />
             Publish Show
           </DialogTitle>
           <DialogDescription>
@@ -57,7 +57,7 @@ export function PublishShowDialog({
         </DialogHeader>
 
         {hasUnverifiedVenue && (
-          <div className="rounded-md bg-amber-500/10 p-3 text-sm text-amber-600 dark:text-amber-400 flex items-start gap-2">
+          <div className="rounded-md bg-pending p-3 text-sm text-pending-foreground flex items-start gap-2">
             <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
             <span>
               This show has an unverified venue. It will be set to
@@ -82,8 +82,7 @@ export function PublishShowDialog({
             Cancel
           </Button>
           <Button
-            variant="secondary"
-            className="bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+            variant="success"
             onClick={handlePublish}
             disabled={publishMutation.isPending}
           >
