@@ -86,7 +86,6 @@ function makeFieldNote(overrides: Partial<Comment> = {}): Comment {
       crowd_energy: 5,
       notable_moments: 'Played 3 new songs',
       setlist_spoiler: false,
-      is_verified_attendee: true,
     },
     ...overrides,
   }
@@ -111,29 +110,6 @@ describe('FieldNoteCard', () => {
     expect(screen.getByText('TestUser')).toBeInTheDocument()
   })
 
-  it('shows verified attendee badge', () => {
-    render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
-
-    expect(screen.getByTestId('verified-badge')).toBeInTheDocument()
-    expect(screen.getByText('Verified Attendee')).toBeInTheDocument()
-  })
-
-  it('does not show verified badge when not verified', () => {
-    render(
-      <FieldNoteCard
-        comment={makeFieldNote({
-          structured_data: {
-            setlist_spoiler: false,
-            is_verified_attendee: false,
-          },
-        })}
-        showId={10}
-      />
-    )
-
-    expect(screen.queryByTestId('verified-badge')).not.toBeInTheDocument()
-  })
-
   it('displays sound quality and crowd energy ratings', () => {
     render(<FieldNoteCard comment={makeFieldNote()} showId={10} />)
 
@@ -148,7 +124,6 @@ describe('FieldNoteCard', () => {
         comment={makeFieldNote({
           structured_data: {
             setlist_spoiler: false,
-            is_verified_attendee: false,
           },
         })}
         showId={10}
@@ -171,7 +146,6 @@ describe('FieldNoteCard', () => {
         comment={makeFieldNote({
           structured_data: {
             setlist_spoiler: true,
-            is_verified_attendee: false,
           },
         })}
         showId={10}
@@ -191,7 +165,6 @@ describe('FieldNoteCard', () => {
         comment={makeFieldNote({
           structured_data: {
             setlist_spoiler: true,
-            is_verified_attendee: false,
           },
         })}
         showId={10}
@@ -211,7 +184,6 @@ describe('FieldNoteCard', () => {
           structured_data: {
             show_artist_id: 42,
             setlist_spoiler: false,
-            is_verified_attendee: true,
           },
         })}
         showId={10}
@@ -233,7 +205,6 @@ describe('FieldNoteCard', () => {
           structured_data: {
             song_position: 7,
             setlist_spoiler: false,
-            is_verified_attendee: false,
           },
         })}
         showId={10}
@@ -280,7 +251,6 @@ describe('FieldNoteCard', () => {
         comment={makeFieldNote({
           structured_data: {
             setlist_spoiler: true,
-            is_verified_attendee: false,
             notable_moments: 'Secret setlist info',
           },
         })}
@@ -585,13 +555,10 @@ describe('FieldNoteCard', () => {
       expect(textarea.value).toBe('My original take')
       // The read-only body view is replaced while editing.
       expect(screen.queryByTestId('field-note-body')).not.toBeInTheDocument()
-      // PSY-567: structured-data inputs are present so ratings / verified-
-      // attendee / spoiler can be edited as a unit.
+      // PSY-567: structured-data inputs are present so ratings / spoiler
+      // can be edited as a unit.
       expect(screen.getByTestId('sound-quality-rating')).toBeInTheDocument()
       expect(screen.getByTestId('crowd-energy-rating')).toBeInTheDocument()
-      expect(
-        screen.getByTestId('verified-attendee-checkbox')
-      ).toBeInTheDocument()
       expect(
         screen.getByTestId('setlist-spoiler-checkbox')
       ).toBeInTheDocument()
@@ -630,7 +597,6 @@ describe('FieldNoteCard', () => {
           crowd_energy: 5,
           notable_moments: 'Played 3 new songs',
           setlist_spoiler: false,
-          is_verified_attendee: true,
         },
       })
     })

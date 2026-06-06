@@ -34,15 +34,6 @@ interface FieldNoteFormProps {
    */
   resetSignal?: number
   /**
-   * PSY-568: pre-checks the "I attended this show" checkbox when the
-   * current user has Going set on this show. The checkbox value sent on
-   * submit is authoritative — the user can uncheck it (e.g. they were
-   * marked Going but couldn't actually make it). Snapshot semantics:
-   * toggling Going after posting does NOT flip the badge on existing
-   * notes.
-   */
-  defaultVerifiedAttendee?: boolean
-  /**
    * PSY-567: optional initial values for edit mode. When supplied, all
    * fields pre-populate from the existing note. resetSignal still works
    * but resets back to these initial values (not blank). Mode visibility
@@ -57,7 +48,6 @@ interface FieldNoteFormProps {
     setlist_spoiler?: boolean
     show_artist_id?: number | null
     song_position?: number | null
-    verified_attendee?: boolean
   }
   /**
    * PSY-567: submit-button label override. Defaults to "Post Field Note"
@@ -120,7 +110,6 @@ export function FieldNoteForm({
   disabledMessage,
   errorMessage,
   resetSignal,
-  defaultVerifiedAttendee = false,
   initialValues,
   submitLabel,
   onCancel,
@@ -140,30 +129,9 @@ export function FieldNoteForm({
   const [songPosition, setSongPosition] = useState(
     initialValues?.song_position != null ? String(initialValues.song_position) : ''
   )
-  // PSY-568: self-claim "I attended this show". Initial state mirrors the
-  // user's current Going RSVP; falls back to false. Re-syncs when the
-  // default changes (e.g. attendance loads after the form mounts).
-  // PSY-567: in edit mode, the stored value takes precedence over the
-  // Going-RSVP default — the user's prior self-claim is what they're
-  // editing.
-  const [verifiedAttendee, setVerifiedAttendee] = useState(
-    initialValues?.verified_attendee ?? defaultVerifiedAttendee
-  )
-  useEffect(() => {
-    // PSY-567: only re-sync from Going status on the CREATE path. Editing
-    // an existing note must not silently overwrite the prior self-claim
-    // when attendance data loads after the form mounts.
-    if (initialValues) return
-    setVerifiedAttendee(defaultVerifiedAttendee)
-  }, [defaultVerifiedAttendee, initialValues])
 
   // PSY-608: parent bumps resetSignal from mutation onSuccess. Mirrors the
   // CommentForm pattern so a 4xx response keeps the user's draft intact.
-  // PSY-568: also resets the verified-attendee checkbox to the current
-  // default. defaultVerifiedAttendee is intentionally OMITTED from the
-  // dep array — its own useEffect above handles re-sync when Going status
-  // changes, and including it here would wipe the user's draft on every
-  // attendance refetch.
   // PSY-567: in edit mode, reset returns to initialValues (not blank) so
   // a save-then-reopen cycle shows the freshly-saved state.
   useEffect(() => {
@@ -180,7 +148,6 @@ export function FieldNoteForm({
           ? String(initialValues.song_position)
           : ''
       )
-      setVerifiedAttendee(initialValues.verified_attendee ?? false)
       return
     }
     setBody('')
@@ -190,7 +157,6 @@ export function FieldNoteForm({
     setSetlistSpoiler(false)
     setShowArtistId(undefined)
     setSongPosition('')
-    setVerifiedAttendee(defaultVerifiedAttendee)
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resetSignal])
 
@@ -209,9 +175,6 @@ export function FieldNoteForm({
     if (songPosition && parseInt(songPosition, 10) > 0) {
       input.song_position = parseInt(songPosition, 10)
     }
-    // PSY-568: always send the flag so the backend stores the explicit
-    // user choice (default-false on the server matches an unchecked box).
-    input.verified_attendee = verifiedAttendee
 
     onSubmit(input)
     // PSY-608: reset is parent-driven via resetSignal (mirrors CommentForm).
@@ -260,24 +223,6 @@ export function FieldNoteForm({
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wider">
           Optional Details
         </p>
-
-        {/* PSY-568: self-claim "I attended this show". Pre-checked when the
-            user has Going set; user can override (snapshot at post time). */}
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id="verified-attendee"
-            checked={verifiedAttendee}
-            onCheckedChange={(checked) => setVerifiedAttendee(checked === true)}
-            disabled={isPending}
-            data-testid="verified-attendee-checkbox"
-          />
-          <Label
-            htmlFor="verified-attendee"
-            className="text-sm text-foreground cursor-pointer"
-          >
-            I attended this show
-          </Label>
-        </div>
 
         {/* Star ratings */}
         <StarRating

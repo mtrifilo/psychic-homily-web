@@ -19,6 +19,13 @@ const (
 	CodeEntityRequestEmptyPayload    = "ENTITY_REQUEST_EMPTY_PAYLOAD"
 	CodeEntityRequestInvalidDecision = "ENTITY_REQUEST_INVALID_DECISION"
 	CodeEntityRequestInvalidState    = "ENTITY_REQUEST_INVALID_STATE"
+	// CodeEntityRequestFulfillUnsupported: approve cannot create the entity for
+	// this entity_type because the payload lacks required associations (show ⇒
+	// venues + artists; festival ⇒ series_slug). PSY-997.
+	CodeEntityRequestFulfillUnsupported = "ENTITY_REQUEST_FULFILL_UNSUPPORTED"
+	// CodeEntityRequestPayloadInvalid: the stored payload failed to decode into
+	// its typed struct on the fulfillment path (schema drift / corruption).
+	CodeEntityRequestPayloadInvalid = "ENTITY_REQUEST_PAYLOAD_INVALID"
 )
 
 // EntityRequestError represents an entity-request error with context.
@@ -91,5 +98,24 @@ func ErrEntityRequestInvalidState(requestID uint, currentState string) *EntityRe
 		Code:      CodeEntityRequestInvalidState,
 		Message:   fmt.Sprintf("Entity request %d is %s, expected pending", requestID, currentState),
 		RequestID: requestID,
+	}
+}
+
+// ErrEntityRequestFulfillUnsupported creates an error when an approved request's
+// entity_type cannot be auto-created from its payload (show / festival). PSY-997.
+func ErrEntityRequestFulfillUnsupported(entityType string) *EntityRequestError {
+	return &EntityRequestError{
+		Code:    CodeEntityRequestFulfillUnsupported,
+		Message: fmt.Sprintf("Approving a %s request cannot auto-create the entity (its payload lacks required associations); create it manually", entityType),
+	}
+}
+
+// ErrEntityRequestPayloadInvalid creates an error when a stored payload fails to
+// decode into its typed struct on the fulfillment path. PSY-997.
+func ErrEntityRequestPayloadInvalid(entityType string, internal error) *EntityRequestError {
+	return &EntityRequestError{
+		Code:     CodeEntityRequestPayloadInvalid,
+		Message:  fmt.Sprintf("Stored %s payload is invalid and cannot be fulfilled", entityType),
+		Internal: internal,
 	}
 }

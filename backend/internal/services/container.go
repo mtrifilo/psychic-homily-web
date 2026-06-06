@@ -41,6 +41,8 @@ type ServiceContainer struct {
 	Calendar               *engagement.CalendarService
 	Collection             *community.CollectionService
 	Request                *community.RequestService
+	EntityRequest          *community.EntityRequestService
+	EntityRequestFulfiller *community.EntityRequestFulfiller
 	Tag                    *catalog.TagService
 	ArtistRelationship     *catalog.ArtistRelationshipService
 	Scene                  *catalog.SceneService
@@ -142,6 +144,14 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	radioSvc := catalog.NewRadioService(database)
 	artistRelSvc := catalog.NewArtistRelationshipService(database)
 
+	// PSY-997: entity_requests creation queue + its fulfillment adapter. The
+	// fulfiller composes the catalog create services so the admin decide-approve
+	// handler can create the entity from an approved request's payload.
+	labelSvc := catalog.NewLabelService(database)
+	releaseSvc := catalog.NewReleaseService(database)
+	entityRequestSvc := community.NewEntityRequestService(database)
+	entityRequestFulfiller := community.NewEntityRequestFulfiller(artist, venue, labelSvc, releaseSvc)
+
 	// PSY-289: wire the comment notifier into the comment service so new
 	// comments fan out notification emails fire-and-forget.
 	commentSvc := engagement.NewCommentService(database, utils.NewMarkdownRenderer())
@@ -182,6 +192,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Calendar:               engagement.NewCalendarService(database, savedShow),
 		Collection:             collectionSvc,
 		Request:                community.NewRequestService(database),
+		EntityRequest:          entityRequestSvc,
+		EntityRequestFulfiller: entityRequestFulfiller,
 		Tag:                    tagSvc,
 		ArtistRelationship:     artistRelSvc,
 		Scene:                  catalog.NewSceneService(database),
@@ -193,8 +205,8 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Follow:                 engagement.NewFollowService(database),
 		Festival:               catalog.NewFestivalService(database),
 		FestivalIntelligence:   catalog.NewFestivalIntelligenceService(database),
-		Label:                  catalog.NewLabelService(database),
-		Release:                catalog.NewReleaseService(database),
+		Label:                  labelSvc,
+		Release:                releaseSvc,
 		SavedShow:              savedShow,
 		Show:                   catalog.NewShowService(database),
 		ShowReport:             adminsvc.NewShowReportService(database),

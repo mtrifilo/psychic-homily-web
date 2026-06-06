@@ -289,6 +289,35 @@ func MapEntityReportError(err error) error {
 	return nil
 }
 
+// MapEntityRequestError converts an EntityRequestError to an appropriate Huma
+// HTTP error. Returns nil if err is not a *apperrors.EntityRequestError so the
+// caller can fall through to a 500. PSY-997.
+//
+// not-found → 404; already-decided (invalid state for a decision) → 409;
+// invalid type / source / decision / empty payload (semantic validation) → 422.
+func MapEntityRequestError(err error) error {
+	var reqErr *apperrors.EntityRequestError
+	if errors.As(err, &reqErr) {
+		switch reqErr.Code {
+		case apperrors.CodeEntityRequestNotFound:
+			return huma.Error404NotFound(reqErr.Message)
+		case apperrors.CodeEntityRequestInvalidState:
+			return huma.Error409Conflict(reqErr.Message)
+		case apperrors.CodeEntityRequestInvalidType,
+			apperrors.CodeEntityRequestInvalidSource,
+			apperrors.CodeEntityRequestEmptyPayload,
+			apperrors.CodeEntityRequestInvalidDecision,
+			apperrors.CodeEntityRequestFulfillUnsupported:
+			return huma.Error422UnprocessableEntity(reqErr.Message)
+		case apperrors.CodeEntityRequestPayloadInvalid:
+			// Stored payload corruption — server-side data fault, not the
+			// admin's input.
+			return huma.Error500InternalServerError(reqErr.Message)
+		}
+	}
+	return nil
+}
+
 // MapLeaderboardError converts a LeaderboardError to an appropriate Huma HTTP
 // error. Returns nil if err is not a *apperrors.LeaderboardError.
 //

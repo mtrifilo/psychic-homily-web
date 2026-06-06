@@ -893,3 +893,29 @@ func TestNotifyBackfillCompleted_CapsAtTwentyFive(t *testing.T) {
 	assert.Contains(t, payload.Embeds[0].Fields[0].Value, "…and 5 more")
 	assert.Contains(t, payload.Embeds[0].Description, "30 show(s)")
 }
+
+// TestNotifyNewShow_RendersEventTimeInVenueTimezone is the regression for PSY-996:
+// an 8 PM Central show (stored as 01:00Z the next day) must render in venue-local
+// time, not the raw UTC instant ("Jul 10, 2026 1:00 AM").
+func TestNotifyNewShow_RendersEventTimeInVenueTimezone(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+	chicago := "America/Chicago"
+	show := &contracts.ShowResponse{
+		ID:        68,
+		Title:     "Snooper",
+		EventDate: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC), // 8 PM CDT on Jul 9
+		Status:    "approved",
+		// State and Timezone deliberately disagree (NY=Eastern vs Chicago=Central)
+		// so the assertion proves venue.Timezone wins over the state fallback:
+		// 01:00Z is 8 PM in Chicago but 9 PM in New York.
+		Venues: []contracts.VenueResponse{{Name: "Gremlin", City: "McAllen", State: "NY", Timezone: &chicago}},
+	}
+
+	svc.NotifyNewShow(show, "submitter@test.com")
+
+	raw := waitForPayload(t, payloads)
+	payload := parseWebhookPayload(t, raw)
+	require.Len(t, payload.Embeds, 1)
+	assert.Contains(t, payload.Embeds[0].Description, "Jul 9, 2026 8:00 PM")
+	assert.NotContains(t, payload.Embeds[0].Description, "1:00 AM")
+}

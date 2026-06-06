@@ -1,6 +1,9 @@
 package utils
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // StateTimezones maps US state abbreviations to IANA timezone names.
 var StateTimezones = map[string]string{
@@ -21,4 +24,23 @@ func GetTimezoneForState(state string) string {
 		return tz
 	}
 	return "America/Phoenix"
+}
+
+// EventLocation resolves the IANA location for rendering an event time in a
+// venue's local zone. Precedence: a valid explicit venue timezone, then the US
+// state->tz map (GetTimezoneForState, which itself defaults unknown/empty input
+// to America/Phoenix), and finally UTC only if a non-empty timezone string
+// fails to load. A malformed venue timezone falls through to the state map
+// rather than jumping straight to UTC. (PSY-996)
+func EventLocation(timezone *string, stateFallback string) *time.Location {
+	if timezone != nil && *timezone != "" {
+		if loc, err := time.LoadLocation(*timezone); err == nil {
+			return loc
+		}
+		// Malformed/unknown IANA string — fall through to the state map below.
+	}
+	if loc, err := time.LoadLocation(GetTimezoneForState(stateFallback)); err == nil {
+		return loc
+	}
+	return time.UTC
 }

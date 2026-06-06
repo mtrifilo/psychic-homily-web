@@ -130,7 +130,13 @@ func (s *TagService) GetTagBySlug(slug string) (*catalogm.Tag, error) {
 // is set so the facet on each browse page lists the most-applicable tags
 // first. entityType is validated against TagEntityTypes; an unknown value
 // returns an error.
-func (s *TagService) ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string) ([]catalogm.Tag, int64, error) {
+//
+// cities scopes the per-tag count to a set of (city, state) pairs (PSY-982).
+// It is honoured only for entityType=="show": when the /shows facet carries the
+// active city filter, the count reflects shows in those cities so a non-zero
+// chip can never dead-end at "0 shows". cities is ignored for every other
+// entity type (no city-scoped facet exists for them today).
+func (s *TagService) ListTags(category string, search string, parentID *uint, sort string, limit, offset int, entityType string, cities []contracts.CityStateFilter) ([]catalogm.Tag, int64, error) {
 	if s.db == nil {
 		return nil, 0, fmt.Errorf("database not initialized")
 	}
@@ -179,7 +185,7 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 		for i, t := range tags {
 			ids[i] = t.ID
 		}
-		countByID, err := s.computeEntityTypeTagCounts(entityType, ids)
+		countByID, err := s.computeEntityTypeTagCounts(entityType, ids, cities)
 		if err != nil {
 			return nil, 0, fmt.Errorf("failed to compute per-entity-type tag counts: %w", err)
 		}
@@ -208,10 +214,16 @@ func (s *TagService) ListTags(category string, search string, parentID *uint, so
 // shows" instead of the misleading "0" when 3 shows have shoegaze-tagged
 // artists on the bill).
 //
+// cities further narrows the show count to the active city filter (PSY-982).
+// It applies only to entityType=="show"; it is ignored for every other type.
+//
 // Tags absent from the relevant tables get 0 (missing from the returned map).
-func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint) (map[uint]int64, error) {
+func (s *TagService) computeEntityTypeTagCounts(entityType string, tagIDs []uint, cities []contracts.CityStateFilter) (map[uint]int64, error) {
 	switch entityType {
 	case catalogm.TagEntityShow:
+		if len(cities) > 0 {
+			return CountTransitiveArtistTagUsageInShowCities(s.db, tagIDs, cities)
+		}
 		return CountTransitiveArtistTagUsage(s.db, "show_artists", "show_id", "artist_id", tagIDs)
 	case catalogm.TagEntityFestival:
 		return CountTransitiveArtistTagUsage(s.db, "festival_artists", "festival_id", "artist_id", tagIDs)

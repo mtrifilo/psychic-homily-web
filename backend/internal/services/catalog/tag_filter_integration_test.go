@@ -652,7 +652,7 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_Transitive()
 	// Direct show-level tag: legacy/possible admin action. Must be ignored.
 	s.tag("show", sD, "shoegaze")
 
-	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow)
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow, nil)
 	s.Require().NoError(err)
 	counts := map[string]int{}
 	for _, t := range tags {
@@ -679,7 +679,7 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_MultipleArti
 	s.tag("artist", a2, "shoegaze")
 	s.tag("artist", a3, "shoegaze")
 
-	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow)
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow, nil)
 	s.Require().NoError(err)
 	var shoegazeCount int
 	for _, t := range tags {
@@ -688,6 +688,93 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_MultipleArti
 		}
 	}
 	s.Equal(1, shoegazeCount, "show with 3 shoegaze artists should count once")
+}
+
+// seedShowInCity creates an approved upcoming show with denormalized
+// (city, state) set — the columns GetUpcomingShows filters on (PSY-982).
+func (s *TagFilterIntegrationTestSuite) seedShowInCity(title, city, state string) uint {
+	show := &catalogm.Show{
+		Title:       title,
+		EventDate:   time.Now().Add(24 * time.Hour).UTC(),
+		Status:      catalogm.ShowStatusApproved,
+		SubmittedBy: &s.user.ID,
+		City:        &city,
+		State:       &state,
+	}
+	s.Require().NoError(s.db.Create(show).Error)
+	return show.ID
+}
+
+// TestListTags_ShowEntityType_CityScoped is the core PSY-982 regression: the
+// `/tags?entity_type=show&cities=…` facet count must reflect ONLY shows in the
+// active city filter, transitively via billed artists. Without the city filter
+// the count is global; with it the count shrinks to the city — and crucially a
+// tag present only in another city must report 0 so the chip can be disabled
+// rather than dead-ending at "0 shows".
+func (s *TagFilterIntegrationTestSuite) TestListTags_ShowEntityType_CityScoped() {
+	// 2 shoegaze shows in Phoenix, 1 shoegaze show in Tucson, 1 post-punk show
+	// in Phoenix. The shoegaze artist plays all three shoegaze shows.
+	phxA := s.seedShowInCity("PHX-SG-A", "Phoenix", "AZ")
+	phxB := s.seedShowInCity("PHX-SG-B", "Phoenix", "AZ")
+	tucC := s.seedShowInCity("TUC-SG-C", "Tucson", "AZ")
+	phxPP := s.seedShowInCity("PHX-PP", "Phoenix", "AZ")
+
+	sgArtist := s.seedArtist("CityScopeSG")
+	ppArtist := s.seedArtist("CityScopePP")
+	s.addArtistToShow(phxA, sgArtist, 0)
+	s.addArtistToShow(phxB, sgArtist, 0)
+	s.addArtistToShow(tucC, sgArtist, 0)
+	s.addArtistToShow(phxPP, ppArtist, 0)
+	s.tag("artist", sgArtist, "shoegaze")
+	s.tag("artist", ppArtist, "post-punk")
+
+	// Global (no city filter): shoegaze=3 (2 PHX + 1 TUC), post-punk=1.
+	global, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow, nil)
+	s.Require().NoError(err)
+	globalCounts := map[string]int{}
+	for _, t := range global {
+		globalCounts[t.Slug] = t.UsageCount
+	}
+	s.Equal(3, globalCounts["shoegaze"], "global shoegaze across all cities")
+	s.Equal(1, globalCounts["post-punk"], "global post-punk across all cities")
+
+	// Phoenix-only: shoegaze=2 (PHX-A, PHX-B; Tucson excluded), post-punk=1.
+	phx := []contracts.CityStateFilter{{City: "Phoenix", State: "AZ"}}
+	phxTags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow, phx)
+	s.Require().NoError(err)
+	phxCounts := map[string]int{}
+	for _, t := range phxTags {
+		phxCounts[t.Slug] = t.UsageCount
+	}
+	s.Equal(2, phxCounts["shoegaze"], "Phoenix-scoped shoegaze excludes the Tucson show")
+	s.Equal(1, phxCounts["post-punk"], "Phoenix-scoped post-punk")
+
+	// Tucson-only: shoegaze=1, post-punk=0 (no post-punk show in Tucson →
+	// the chip would be disabled, never a dead-end).
+	tuc := []contracts.CityStateFilter{{City: "Tucson", State: "AZ"}}
+	tucTags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow, tuc)
+	s.Require().NoError(err)
+	tucCounts := map[string]int{}
+	for _, t := range tucTags {
+		tucCounts[t.Slug] = t.UsageCount
+	}
+	s.Equal(1, tucCounts["shoegaze"], "Tucson-scoped shoegaze")
+	s.Equal(0, tucCounts["post-punk"], "post-punk has no Tucson show → 0 (disabled, not dead-end)")
+
+	// Multi-city (Phoenix + Tucson) restores the union: shoegaze=3.
+	both := []contracts.CityStateFilter{
+		{City: "Phoenix", State: "AZ"},
+		{City: "Tucson", State: "AZ"},
+	}
+	bothTags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityShow, both)
+	s.Require().NoError(err)
+	var bothShoegaze int
+	for _, t := range bothTags {
+		if t.Slug == "shoegaze" {
+			bothShoegaze = t.UsageCount
+		}
+	}
+	s.Equal(3, bothShoegaze, "Phoenix+Tucson union covers all shoegaze shows")
 }
 
 // TestListTags_FestivalEntityType_Transitive mirrors the show test for
@@ -708,7 +795,7 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_FestivalEntityType_Transiti
 	// Direct festival tag, should NOT count.
 	s.tag("festival", f3, "electronic")
 
-	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityFestival)
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityFestival, nil)
 	s.Require().NoError(err)
 	counts := map[string]int{}
 	for _, t := range tags {
@@ -727,7 +814,7 @@ func (s *TagFilterIntegrationTestSuite) TestListTags_ArtistEntityType_DirectCoun
 	s.tag("artist", a1, "post-punk")
 	s.tag("artist", a2, "post-punk")
 
-	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityArtist)
+	tags, _, err := s.tagService.ListTags("", "", nil, "name", 50, 0, catalogm.TagEntityArtist, nil)
 	s.Require().NoError(err)
 	var ppCount int
 	for _, t := range tags {
