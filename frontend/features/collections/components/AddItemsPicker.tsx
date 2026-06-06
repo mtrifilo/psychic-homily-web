@@ -106,6 +106,15 @@ export interface StagedCollectionItem {
   subtitle: string | null
 }
 
+/**
+ * Stable identity for a staged item — used as BOTH the React key and the
+ * @dnd-kit sortable id. These MUST agree character-for-character (the
+ * SortableContext `items` list vs each row's `useSortable` id) or drag-reorder
+ * silently no-ops. Single-source it so the call sites can't drift (PSY-962).
+ */
+const stagedKey = (s: { entityType: string; entityId: number }): string =>
+  `${s.entityType}-${s.entityId}`
+
 interface ExistingItemKey {
   entity_type: string
   entity_id: number
@@ -430,7 +439,7 @@ export function AddItemsPicker({
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   )
   const stagedIds = useMemo(
-    () => stagedItems.map((s) => `${s.entityType}-${s.entityId}`),
+    () => stagedItems.map(stagedKey),
     [stagedItems]
   )
   const handleReorder = useCallback(
@@ -540,7 +549,7 @@ export function AddItemsPicker({
               >
                 {stagedItems.map((item, index) => (
                   <StagedRow
-                    key={`${item.entityType}-${item.entityId}`}
+                    key={stagedKey(item)}
                     index={index}
                     item={item}
                     canReorder={stagedCount > 1}
@@ -927,7 +936,7 @@ function StagedOverviewStrip({ items }: { items: StagedCollectionItem[] }) {
           const Icon = ENTITY_ICONS[item.entityType] ?? Library
           return (
             <span
-              key={`${item.entityType}-${item.entityId}`}
+              key={stagedKey(item)}
               className="flex h-7 w-7 items-center justify-center rounded border border-border bg-secondary text-secondary-foreground motion-safe:animate-in motion-safe:fade-in"
               title={`${item.name} — ${getEntityTypeLabel(item.entityType)}`}
             >
@@ -966,7 +975,7 @@ function StagedRow({
     transition,
     isDragging,
   } = useSortable({
-    id: `${item.entityType}-${item.entityId}`,
+    id: stagedKey(item),
     disabled: !canReorder,
   })
   const sortableStyle: CSSProperties = canReorder
