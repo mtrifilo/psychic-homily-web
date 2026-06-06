@@ -558,7 +558,7 @@ function ExtractedRow({
             {item.matched_artist_id && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-success text-success-foreground"
+                className="text-[10px] px-1.5 py-0 shrink-0 bg-success text-success-foreground motion-safe:animate-in motion-safe:fade-in"
               >
                 <CheckCircle2 className="h-3 w-3 mr-0.5" />
                 MATCH
@@ -567,16 +567,21 @@ function ExtractedRow({
             {hasSuggestions && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground"
+                className="text-[10px] px-1.5 py-0 shrink-0 bg-pending text-pending-foreground motion-safe:animate-in motion-safe:fade-in"
               >
                 <AlertTriangle className="h-3 w-3 mr-0.5" />
                 PICK
               </Badge>
             )}
+            {/* NEW uses the SOFT destructive tint (bg-destructive/10), not the
+                solid bg-destructive action token MATCH/PICK-style: "will be
+                created" is an advisory outcome, not an error/failure. The DS has
+                no soft destructive *surface* token, so this uses /10; success +
+                pending ARE soft surface tokens, so MATCH/PICK apply them directly. */}
             {isNew && (
               <Badge
                 variant="secondary"
-                className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive"
+                className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
               >
                 <AlertCircle className="h-3 w-3 mr-0.5" />
                 NEW

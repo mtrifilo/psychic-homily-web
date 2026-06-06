@@ -3,7 +3,11 @@ import React from 'react'
 import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { AddItemsPicker, parsePasteLine } from './AddItemsPicker'
+import {
+  AddItemsPicker,
+  parsePasteLine,
+  reorderStagedItems,
+} from './AddItemsPicker'
 
 // ──────────────────────────────────────────────
 // Mocks
@@ -586,5 +590,95 @@ describe('AddItemsPicker', () => {
     // Resolver should NOT be called when there are zero URL entries.
     expect(mockResolveMutate).not.toHaveBeenCalled()
     expect(screen.getByText(/canonical PH paths/i)).toBeInTheDocument()
+  })
+
+  // ── PSY-962: overview strip + drag-reorder ──
+  // Full drag interaction is exercised by @dnd-kit itself + manual repro;
+  // these cover the strip render, count/plural, overflow cap, and the
+  // reorder-affordance gating (handle only when there's >1 item to reorder).
+  const staged = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      entityType: 'artist' as const,
+      entityId: i + 1,
+      name: `Artist ${i + 1}`,
+      subtitle: null,
+    }))
+
+  it('renders the overview strip with item count + reorder hint (>1 item)', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(3)} onStagedItemsChange={vi.fn()} />
+    )
+    const strip = screen.getByTestId('add-items-picker-overview-strip')
+    expect(strip).toHaveTextContent('3 items')
+    expect(strip).toHaveTextContent('drag to reorder')
+  })
+
+  it('overview strip: singular "item" + no reorder hint for a single item', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(1)} onStagedItemsChange={vi.fn()} />
+    )
+    const strip = screen.getByTestId('add-items-picker-overview-strip')
+    expect(strip).toHaveTextContent('1 item')
+    expect(strip).not.toHaveTextContent('drag to reorder')
+  })
+
+  it('overview strip caps its preview and shows a +N overflow chip', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(30)} onStagedItemsChange={vi.fn()} />
+    )
+    // 24 shown + 6 overflow.
+    expect(
+      screen.getByTestId('add-items-picker-overview-strip')
+    ).toHaveTextContent('+6')
+  })
+
+  it('renders a drag handle per row when reorderable (>1 staged item)', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(3)} onStagedItemsChange={vi.fn()} />
+    )
+    expect(screen.getAllByTestId('staged-row-drag-handle')).toHaveLength(3)
+  })
+
+  it('hides the drag handle for a single staged item (nothing to reorder)', () => {
+    render(
+      <AddItemsPicker stagedItems={staged(1)} onStagedItemsChange={vi.fn()} />
+    )
+    expect(
+      screen.queryByTestId('staged-row-drag-handle')
+    ).not.toBeInTheDocument()
+  })
+})
+
+// PSY-962 adversarial-review: the reorder CONTRACT (preserve all items, no
+// dupes/drops, correct order) is the ticket's load-bearing behavior — unit it
+// directly via the pure helper rather than driving @dnd-kit.
+describe('reorderStagedItems', () => {
+  const mk = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      entityType: 'artist' as const,
+      entityId: i + 1,
+      name: `Artist ${i + 1}`,
+      subtitle: null,
+    }))
+
+  it('moves the active item to the over position, preserving every item', () => {
+    const next = reorderStagedItems(mk(3), 'artist-1', 'artist-3')
+    expect(next).not.toBeNull()
+    expect(next!.map((s) => s.entityId)).toEqual([2, 3, 1])
+    expect(next).toHaveLength(3)
+    expect(new Set(next!.map((s) => s.entityId))).toEqual(new Set([1, 2, 3]))
+  })
+
+  it('returns null (no-op) when there is no drop target', () => {
+    expect(reorderStagedItems(mk(3), 'artist-1', null)).toBeNull()
+  })
+
+  it('returns null (no-op) when an item is dropped on itself', () => {
+    expect(reorderStagedItems(mk(3), 'artist-2', 'artist-2')).toBeNull()
+  })
+
+  it('returns null (no-op) for an id not in the list', () => {
+    expect(reorderStagedItems(mk(3), 'artist-9', 'artist-1')).toBeNull()
+    expect(reorderStagedItems(mk(3), 'artist-1', 'artist-9')).toBeNull()
   })
 })
