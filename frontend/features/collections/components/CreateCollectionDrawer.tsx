@@ -4,6 +4,7 @@ import {
   createContext,
   useCallback,
   useContext,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
@@ -65,14 +66,17 @@ export function CreateCollectionDrawerProvider({
   const [initialStagedItems, setInitialStagedItems] = useState<
     StagedCollectionItem[]
   >([])
-  // Bumped on every open so the form remounts fresh (new pre-fill, cleared
-  // fields) even if Radix keeps the content mounted between rapid reopens.
-  const [openNonce, setOpenNonce] = useState(0)
+  // If the user dismisses the drawer (Esc / overlay / X) WHILE a create is
+  // still in flight, skip the post-success navigation so they aren't yanked
+  // off the page they just backed out of. Radix's onOpenChange fires only on
+  // a user-driven close (not on our own setOpen(false)), so it cleanly marks
+  // intent. The collection is still created — the request already fired.
+  const userDismissedRef = useRef(false)
 
   const openCreateDrawer = useCallback(
     (options?: OpenCreateDrawerOptions) => {
+      userDismissedRef.current = false
       setInitialStagedItems(options?.initialStagedItems ?? [])
-      setOpenNonce((n) => n + 1)
       setOpen(true)
     },
     []
@@ -81,7 +85,13 @@ export function CreateCollectionDrawerProvider({
   return (
     <CreateCollectionDrawerContext.Provider value={{ openCreateDrawer }}>
       {children}
-      <Sheet open={open} onOpenChange={setOpen}>
+      <Sheet
+        open={open}
+        onOpenChange={(next) => {
+          if (!next) userDismissedRef.current = true
+          setOpen(next)
+        }}
+      >
         <SheetContent
           side="right"
           className="w-full sm:max-w-xl flex flex-col overflow-y-auto"
@@ -90,15 +100,16 @@ export function CreateCollectionDrawerProvider({
             <SheetTitle>Create Collection</SheetTitle>
           </SheetHeader>
           <div className="px-4 pb-4">
-            {/* Only mount the form while open so the lazy chunk + its queries
-                load on first open, not on every page. */}
+            {/* Only mount the form while open: the lazy chunk + its queries
+                load on first open (not on every page), and unmounting on
+                close resets the form so each open starts fresh with the
+                current pre-fill. */}
             {open && (
               <CreateCollectionForm
-                key={openNonce}
                 initialStagedItems={initialStagedItems}
                 onSuccess={(newSlug) => {
                   setOpen(false)
-                  if (newSlug) {
+                  if (newSlug && !userDismissedRef.current) {
                     router.push(`/collections/${newSlug}`)
                   }
                 }}

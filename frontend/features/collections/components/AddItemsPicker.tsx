@@ -53,7 +53,7 @@ import {
   type EntitySearchResult,
 } from '@/lib/hooks/common/useEntitySearch'
 import { useResolveCollectionItems } from '../hooks'
-import { getEntityTypeLabel } from '../types'
+import { getEntityTypeLabel, type CollectionEntityType } from '../types'
 import { cn } from '@/lib/utils'
 import { AICollectionFiller } from './AICollectionFiller'
 
@@ -61,18 +61,11 @@ import { AICollectionFiller } from './AICollectionFiller'
 // Types
 // ──────────────────────────────────────────────
 
-/**
- * The six KG entity types that collections accept. Mirrors the backend
- * communitym.CollectionEntity* enum. Keep in sync with backend
- * IsValidCollectionEntityType.
- */
-export type CollectionEntityType =
-  | 'artist'
-  | 'release'
-  | 'label'
-  | 'show'
-  | 'venue'
-  | 'festival'
+// Re-exported so existing importers of this symbol from AddItemsPicker keep
+// working; `../types` (derived from COLLECTION_ENTITY_TYPES) is the single
+// backend-synced source of truth — there is no second hand-written union to
+// drift (PSY-961 adversarial-review fix).
+export type { CollectionEntityType }
 
 /**
  * A staged item that's queued for bulk-add but not yet committed. The

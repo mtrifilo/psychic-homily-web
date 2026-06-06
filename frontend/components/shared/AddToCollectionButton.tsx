@@ -79,7 +79,10 @@ export function AddToCollectionButton({
 
   // PSY-961 / PSY-893 D4: close the popover and open the app-level Create
   // drawer pre-filled with this entity as item 1 — "I'm reading about this
-  // artist, start a collection around them" without leaving the page.
+  // artist, start a collection around them". The drawer opens IN PLACE (no
+  // navigation); on successful create it routes to the new collection's page
+  // (consistent with the /collections create flow) so the user can keep
+  // curating it.
   const handleCreateWithEntity = () => {
     setOpen(false)
     openCreateDrawer({
@@ -608,9 +611,10 @@ export function AddToCollectionButton({
         )}
 
         {/* Create-from-entity CTA (PSY-893 D4, shipped PSY-961): opens the
-            app-level Create drawer pre-filled with this entity as item 1,
-            in place (no navigation). D3 (recently-used promotion) ships
-            separately in PSY-960. */}
+            app-level Create drawer pre-filled with this entity as item 1.
+            D3 (recently-used promotion above the separator) is tracked in
+            PSY-960 and lands in this same create-CTA region — whichever PR
+            merges second reconciles these comments. */}
         {hasCollections && (
           <div className="p-2 border-t border-border">
             <button
