@@ -23,6 +23,14 @@ describe('Badge', () => {
     expect(screen.getByText('Danger')).toHaveClass('bg-destructive')
   })
 
+  it('applies the accent variant classes', () => {
+    render(<Badge variant="accent">Accent</Badge>)
+    const badge = screen.getByText('Accent')
+    expect(badge).toHaveClass('bg-primary/10')
+    expect(badge).toHaveClass('text-primary')
+    expect(badge).toHaveClass('border-primary/20')
+  })
+
   it('exposes a badgeVariants helper that reflects the variant', () => {
     expect(badgeVariants({ variant: 'secondary' })).toContain('bg-secondary')
     expect(badgeVariants({ variant: 'outline' })).toContain('text-foreground')

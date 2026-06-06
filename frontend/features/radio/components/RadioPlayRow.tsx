@@ -165,7 +165,7 @@ export function RadioPlayRow({ play, showPosition = true }: RadioPlayRowProps) {
         {/* Badges */}
         <div className="flex items-center gap-1.5 shrink-0">
           {play.is_new && (
-            <Badge className="bg-green-500/15 text-green-400 border-green-500/20 text-[10px] px-1.5 py-0">
+            <Badge variant="accent" className="text-[10px] px-1.5 py-0">
               NEW
             </Badge>
           )}

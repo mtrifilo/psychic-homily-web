@@ -45,7 +45,7 @@ export function UnpublishShowDialog({
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <EyeOff className="h-5 w-5 text-amber-500" />
+            <EyeOff className="h-5 w-5 text-pending-foreground" />
             Unpublish Show
           </DialogTitle>
           <DialogDescription>
@@ -70,8 +70,7 @@ export function UnpublishShowDialog({
             Cancel
           </Button>
           <Button
-            variant="secondary"
-            className="bg-amber-500/10 text-amber-600 hover:bg-amber-500/20 hover:text-amber-600 dark:text-amber-400 dark:hover:text-amber-400"
+            variant="pending"
             onClick={handleUnpublish}
             disabled={unpublishMutation.isPending}
           >
