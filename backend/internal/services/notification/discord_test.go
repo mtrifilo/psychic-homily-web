@@ -893,3 +893,43 @@ func TestNotifyBackfillCompleted_CapsAtTwentyFive(t *testing.T) {
 	assert.Contains(t, payload.Embeds[0].Fields[0].Value, "…and 5 more")
 	assert.Contains(t, payload.Embeds[0].Description, "30 show(s)")
 }
+
+// TestNotifyNewShow_RendersEventTimeInVenueTimezone is the regression for PSY-996:
+// an 8 PM Central show (stored as 01:00Z the next day) must render in venue-local
+// time, not the raw UTC instant ("Jul 10, 2026 1:00 AM").
+func TestNotifyNewShow_RendersEventTimeInVenueTimezone(t *testing.T) {
+	svc, payloads, _ := setupDiscordTest(t)
+	chicago := "America/Chicago"
+	show := &contracts.ShowResponse{
+		ID:        68,
+		Title:     "Snooper",
+		EventDate: time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC), // 8 PM CDT on Jul 9
+		Status:    "approved",
+		Venues:    []contracts.VenueResponse{{Name: "Gremlin", City: "McAllen", State: "TX", Timezone: &chicago}},
+	}
+
+	svc.NotifyNewShow(show, "submitter@test.com")
+
+	raw := waitForPayload(t, payloads)
+	payload := parseWebhookPayload(t, raw)
+	require.Len(t, payload.Embeds, 1)
+	assert.Contains(t, payload.Embeds[0].Description, "Jul 9, 2026 8:00 PM")
+	assert.NotContains(t, payload.Embeds[0].Description, "1:00 AM")
+}
+
+// TestEventLocation covers the timezone resolution: venue timezone wins, US state
+// is the fallback, and unknown input degrades to America/Phoenix (no crash).
+func TestEventLocation(t *testing.T) {
+	instant := time.Date(2026, 7, 10, 1, 0, 0, 0, time.UTC) // 8 PM CDT on Jul 9
+
+	if got := instant.In(eventLocation(nil, "TX")).Format("Jan 2, 2006 3:04 PM"); got != "Jul 9, 2026 8:00 PM" {
+		t.Errorf("TX state fallback: got %q, want %q", got, "Jul 9, 2026 8:00 PM")
+	}
+	london := "Europe/London"
+	if got := eventLocation(&london, "TX").String(); got != "Europe/London" {
+		t.Errorf("explicit venue tz should win: got %q, want Europe/London", got)
+	}
+	if got := eventLocation(nil, "").String(); got != "America/Phoenix" {
+		t.Errorf("empty fallback: got %q, want America/Phoenix", got)
+	}
+}

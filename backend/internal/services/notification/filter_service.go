@@ -550,7 +550,8 @@ func (s *NotificationFilterService) sendFilterEmail(userID uint, filterID uint, 
 
 	// Build show info
 	showTitle := show.Title
-	showDate := show.EventDate.Format("Monday, January 2, 2006")
+	// Render in the venue's local zone (PSY-996); show.State drives the fallback.
+	showDate := show.EventDate.In(eventLocation(nil, derefString(show.State))).Format("Monday, January 2, 2006")
 
 	var venueNames []string
 	s.db.Table("show_venues").
