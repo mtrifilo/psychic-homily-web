@@ -19,7 +19,11 @@ const buttonVariants = cva(
         destructive:
           "bg-destructive text-white hover:bg-destructive/90 focus-visible:ring-destructive/20 dark:focus-visible:ring-destructive/40 dark:bg-destructive/60",
         outline:
-          "border bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50",
+          // PSY-983: dark-mode hover darkens the background (dark:hover:bg-input/50)
+          // but the light-mode hover:text-accent-foreground (near-black) carried over,
+          // turning the label + icon unreadable on the dark hover surface. Pin the
+          // dark-hover text to the cream foreground so contrast holds.
+          "border bg-background hover:bg-accent hover:text-accent-foreground dark:bg-input/30 dark:border-input dark:hover:bg-input/50 dark:hover:text-foreground",
         secondary:
           "bg-secondary text-secondary-foreground hover:bg-secondary/80",
         success:
