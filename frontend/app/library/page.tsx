@@ -224,10 +224,10 @@ function SavedShowCard({ show }: { show: SavedShowResponse }) {
 
         <div className="text-right shrink-0">
           <div className="text-sm font-medium text-primary">
-            {formatShowDate(show.event_date, show.state)}
+            {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
           </div>
           <div className="text-xs text-muted-foreground">
-            {formatShowTime(show.event_date, show.state)}
+            {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
           </div>
         </div>
       </div>
@@ -411,7 +411,7 @@ function SubmissionShowCard({
         {/* Left column: Date, Location, and Status */}
         <div className="w-full md:w-1/5 md:pr-4 mb-2 md:mb-0">
           <h2 className="text-sm font-bold tracking-wide text-primary">
-            {formatShowDate(show.event_date, show.state)}
+            {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
           </h2>
           <h3 className="text-xs text-muted-foreground mt-0.5">
             {show.city}, {show.state}
@@ -629,7 +629,7 @@ function SubmissionShowCard({
               <span>&nbsp;•&nbsp;{show.age_requirement}</span>
             )}
             <span>
-              &nbsp;•&nbsp;{formatShowTime(show.event_date, show.state)}
+              &nbsp;•&nbsp;{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
             </span>
             {SHOW_LIST_FEATURE_POLICY.ownership.showDetailsLink && (
               <>

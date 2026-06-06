@@ -3,8 +3,14 @@
  */
 
 /**
- * Map of US states to their IANA timezones
- * Most shows are in Arizona which doesn't observe DST
+ * Map of US state codes to their IANA timezones. This is the FALLBACK used only
+ * when a venue has no resolved `timezone` (e.g. rows created before PSY-985's
+ * geocoding, until the PSY-987 backfill runs). New code should prefer
+ * `venue.timezone`; this map only narrows the guess for US venues.
+ *
+ * Kept in sync with the CLI's map in cli/src/lib/timezone.ts — both must list
+ * the same states. (PSY-986 fixed the prior drift: this map had only 7 states,
+ * so non-listed US states like IL/WA/MN/MA silently fell back to Arizona time.)
  */
 const STATE_TIMEZONES: Record<string, string> = {
   AZ: 'America/Phoenix',
@@ -14,11 +20,61 @@ const STATE_TIMEZONES: Record<string, string> = {
   NM: 'America/Denver',
   TX: 'America/Chicago',
   NY: 'America/New_York',
-  // Add more as needed
+  // Eastern
+  CT: 'America/New_York',
+  DC: 'America/New_York',
+  DE: 'America/New_York',
+  FL: 'America/New_York',
+  GA: 'America/New_York',
+  MA: 'America/New_York',
+  MD: 'America/New_York',
+  ME: 'America/New_York',
+  MI: 'America/New_York',
+  NC: 'America/New_York',
+  NH: 'America/New_York',
+  NJ: 'America/New_York',
+  OH: 'America/New_York',
+  PA: 'America/New_York',
+  RI: 'America/New_York',
+  SC: 'America/New_York',
+  VA: 'America/New_York',
+  VT: 'America/New_York',
+  WV: 'America/New_York',
+  // Central
+  AL: 'America/Chicago',
+  AR: 'America/Chicago',
+  IA: 'America/Chicago',
+  IL: 'America/Chicago',
+  IN: 'America/Indiana/Indianapolis',
+  KS: 'America/Chicago',
+  KY: 'America/New_York',
+  LA: 'America/Chicago',
+  MN: 'America/Chicago',
+  MO: 'America/Chicago',
+  MS: 'America/Chicago',
+  ND: 'America/Chicago',
+  NE: 'America/Chicago',
+  OK: 'America/Chicago',
+  SD: 'America/Chicago',
+  TN: 'America/Chicago',
+  WI: 'America/Chicago',
+  // Mountain
+  ID: 'America/Boise',
+  MT: 'America/Denver',
+  UT: 'America/Denver',
+  WY: 'America/Denver',
+  // Pacific
+  OR: 'America/Los_Angeles',
+  WA: 'America/Los_Angeles',
+  // Non-contiguous
+  AK: 'America/Anchorage',
+  HI: 'Pacific/Honolulu',
 }
 
 /**
- * Get timezone for a US state (defaults to America/Phoenix for Arizona shows)
+ * Get the IANA timezone for a US state. Defaults to America/Phoenix (Arizona,
+ * no DST) for unknown/international input — callers should prefer a venue's
+ * resolved `timezone` and use this only as a fallback.
  */
 export function getTimezoneForState(state: string): string {
   return STATE_TIMEZONES[state.toUpperCase()] || 'America/Phoenix'
@@ -151,6 +207,37 @@ export function formatTimeInTimezone(
     minute: '2-digit',
     hour12: true,
   })
+}
+
+/**
+ * Format a UTC date string as an ISO 8601 string carrying the venue's local UTC
+ * offset, e.g. "2026-03-14T20:00:00-07:00" for an 8 PM Phoenix show. Used for
+ * structured data (JSON-LD MusicEvent.startDate) so crawlers index the local
+ * start time, not the bare UTC instant. `timezone` must be a valid IANA name. (PSY-986)
+ */
+export function toZonedISOString(
+  utcDateString: string,
+  timezone: string
+): string {
+  const date = new Date(utcDateString)
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+    timeZoneName: 'longOffset',
+  }).formatToParts(date)
+  const p = (type: string) => parts.find(x => x.type === type)?.value ?? ''
+  let hour = p('hour')
+  if (hour === '24') hour = '00' // Intl may render midnight as 24
+  // longOffset → "GMT-07:00" / "GMT+05:30" / "GMT" (UTC)
+  const match = p('timeZoneName').match(/GMT([+-]\d{2}:\d{2})/)
+  const offset = match ? match[1] : '+00:00'
+  return `${p('year')}-${p('month')}-${p('day')}T${hour}:${p('minute')}:${p('second')}${offset}`
 }
 
 /**

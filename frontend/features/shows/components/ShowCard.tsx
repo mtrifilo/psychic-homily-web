@@ -175,8 +175,8 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
     (resolvedUserId && show.submitted_by && String(show.submitted_by) === resolvedUserId)
 
   const dateBadge = useMemo(
-    () => formatShowDateBadge(show.event_date, show.state),
-    [show.event_date, show.state]
+    () => formatShowDateBadge(show.event_date, show.state, show.venues?.[0]?.timezone),
+    [show.event_date, show.state, show.venues]
   )
 
   const handleEditSuccess = () => {
@@ -246,7 +246,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
 
         {/* Time */}
         <span className="text-xs text-muted-foreground shrink-0 hidden sm:inline tabular-nums">
-          {formatShowTime(show.event_date, show.state)}
+          {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
         </span>
 
         {/* Price */}
@@ -326,7 +326,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
               <div className="shrink-0 flex flex-col items-end gap-1.5">
                 <div className="text-right">
                   <div className="text-sm font-medium">
-                    {formatShowTime(show.event_date, show.state)}
+                    {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
                   </div>
                   <div className="text-xs text-muted-foreground">
                     {show.price != null && (
@@ -563,7 +563,7 @@ export function ShowCard({ show, isAdmin, userId, isSaved, density = 'comfortabl
             <div className="shrink-0 flex flex-col items-end gap-1">
               <div className="text-right">
                 <div className="text-sm font-medium">
-                  {formatShowTime(show.event_date, show.state)}
+                  {formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}
                 </div>
                 <div className="text-xs text-muted-foreground">
                   {show.price != null && (

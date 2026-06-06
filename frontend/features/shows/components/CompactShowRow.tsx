@@ -28,6 +28,8 @@ interface CompactShowVenue {
 interface CompactShowRowProps {
   show: CompactShowData
   state: string | null | undefined
+  /** Venue IANA timezone — preferred over the state map for rendering times (PSY-986). */
+  timezone?: string | null
   isPastShow?: boolean
   showDetailsLink?: boolean
   showVenueLine?: boolean
@@ -98,6 +100,7 @@ function VenueLine({ venue }: { venue: CompactShowVenue | null | undefined }) {
 export function CompactShowRow({
   show,
   state,
+  timezone,
   isPastShow = false,
   showDetailsLink = true,
   showVenueLine = false,
@@ -108,7 +111,7 @@ export function CompactShowRow({
 }: CompactShowRowProps) {
   const timezoneState = state || 'AZ'
   const detailsHref = `/shows/${show.slug || show.id}`
-  const dateBadge = formatShowDateBadge(show.event_date, timezoneState)
+  const dateBadge = formatShowDateBadge(show.event_date, timezoneState, timezone)
 
   return (
     <div className="py-2.5 border-b border-border/30 last:border-b-0">
@@ -173,7 +176,7 @@ export function CompactShowRow({
 
           <div className="text-right text-xs text-muted-foreground shrink-0">
             <div className="font-medium text-foreground/80">
-              {formatShowTime(show.event_date, timezoneState)}
+              {formatShowTime(show.event_date, timezoneState, timezone)}
             </div>
             {show.price != null && <div>{formatPrice(show.price)}</div>}
             {showDetailsLink && (

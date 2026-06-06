@@ -47,7 +47,7 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
         {/* Date and Status Badges */}
         <div className="flex items-center gap-2 mb-2">
           <span className="text-lg font-bold text-primary">
-            {formatShowDate(show.event_date, show.state)}
+            {formatShowDate(show.event_date, show.state, false, show.venues?.[0]?.timezone)}
           </span>
           {show.is_sold_out && (
             <Badge
@@ -145,7 +145,7 @@ export function ShowHeader({ show, actions }: ShowHeaderProps) {
 
         {/* Show Details */}
         <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground mt-3">
-          <span>{formatShowTime(show.event_date, show.state)}</span>
+          <span>{formatShowTime(show.event_date, show.state, show.venues?.[0]?.timezone)}</span>
           {show.price != null && <span>{formatPrice(show.price)}</span>}
           {show.age_requirement && <span>{show.age_requirement}</span>}
         </div>

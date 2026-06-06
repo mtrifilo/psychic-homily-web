@@ -10,13 +10,14 @@ vi.mock('./timeUtils', () => ({
     }
     return map[state.toUpperCase()] || 'America/Phoenix'
   }),
+  // Honor the passed timezone (the real formatInTimezone does) so tests can
+  // verify venue-tz threading, not just the hardcoded-Phoenix path.
   formatInTimezone: vi.fn(
-    (dateString: string, _timezone: string, options: Intl.DateTimeFormatOptions) => {
-      const date = new Date(dateString)
-      if (options.weekday === 'short') return date.toLocaleString('en-US', { weekday: 'short', timeZone: 'America/Phoenix' })
-      if (options.month === 'short') return date.toLocaleString('en-US', { month: 'short', timeZone: 'America/Phoenix' })
-      if (options.day === 'numeric') return date.toLocaleString('en-US', { day: 'numeric', timeZone: 'America/Phoenix' })
-      return ''
+    (dateString: string, timezone: string, options: Intl.DateTimeFormatOptions) => {
+      return new Date(dateString).toLocaleString('en-US', {
+        ...options,
+        timeZone: timezone,
+      })
     }
   ),
 }))
@@ -40,6 +41,14 @@ describe('formatShowDateBadge', () => {
 
     // Both should produce the same result (AZ timezone)
     expect(result1).toEqual(result2)
+  })
+
+  it('prefers the venue timezone over state (PSY-986)', () => {
+    // 05:30 UTC: Mar 14 in Phoenix vs Mar 15 in New York. Venue tz must win.
+    const result = formatShowDateBadge('2026-03-15T05:30:00Z', 'NY', 'America/Phoenix')
+    expect(result.monthDay).toBe('MAR 14')
+    // State-only (no venue tz) renders the New York date instead.
+    expect(formatShowDateBadge('2026-03-15T05:30:00Z', 'NY').monthDay).toBe('MAR 15')
   })
 
   it('uppercases dayOfWeek and month', () => {

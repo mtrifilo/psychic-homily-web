@@ -338,6 +338,7 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
             venueName={venue.name}
             venueCity={venue.city}
             venueState={venue.state}
+            venueTimezone={venue.timezone}
             venueAddress={venue.address}
             venueVerified={venue.verified}
             onShowAdded={handleShowAdded}

@@ -15,6 +15,8 @@ export interface Venue {
   address: string | null
   city: string
   state: string
+  /** IANA timezone resolved from the venue's location (PSY-985). Null until backfilled. */
+  timezone?: string | null
   zipcode?: string | null
   description?: string | null
   /** Optional venue photo URL (PSY-521). */

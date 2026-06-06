@@ -6,28 +6,56 @@ import {
 } from './timeUtils'
 
 /**
- * Format a show date in venue timezone: "Mon, Dec 1" or "Mon Dec 1, 2026"
+ * Resolve the IANA timezone for rendering a show time. Prefers the venue's
+ * resolved `timezone` (PSY-985); falls back to the US state→tz map for venues
+ * without one (pre-backfill rows). A malformed/unknown `timezone` string falls
+ * through to the state map rather than crashing the render (`Intl` throws a
+ * RangeError on a bad zone), mirroring the backend's EventLocation (PSY-996/986).
+ */
+export function resolveShowTimezone(
+  state?: string | null,
+  timezone?: string | null
+): string {
+  if (timezone && isValidTimeZone(timezone)) return timezone
+  return getTimezoneForState(state || 'AZ')
+}
+
+function isValidTimeZone(tz: string): boolean {
+  try {
+    // Throws RangeError for an unknown/malformed IANA name.
+    new Intl.DateTimeFormat('en-US', { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Format a show date in the venue's timezone: "Mon, Dec 1" or "Mon Dec 1, 2026".
+ * Pass the venue's `timezone` when available; `state` is the fallback.
  */
 export function formatShowDate(
   dateString: string,
   state?: string | null,
-  includeYear = false
+  includeYear = false,
+  timezone?: string | null
 ): string {
-  const timezone = getTimezoneForState(state || 'AZ')
+  const tz = resolveShowTimezone(state, timezone)
   return includeYear
-    ? formatDateWithYearInTimezone(dateString, timezone)
-    : formatDateInTimezone(dateString, timezone)
+    ? formatDateWithYearInTimezone(dateString, tz)
+    : formatDateInTimezone(dateString, tz)
 }
 
 /**
- * Format a show time in venue timezone: "7:30 PM"
+ * Format a show time in the venue's timezone: "7:30 PM".
+ * Pass the venue's `timezone` when available; `state` is the fallback.
  */
 export function formatShowTime(
   dateString: string,
-  state?: string | null
+  state?: string | null,
+  timezone?: string | null
 ): string {
-  const timezone = getTimezoneForState(state || 'AZ')
-  return formatTimeInTimezone(dateString, timezone)
+  return formatTimeInTimezone(dateString, resolveShowTimezone(state, timezone))
 }
 
 /**

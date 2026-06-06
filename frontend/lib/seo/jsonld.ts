@@ -5,6 +5,9 @@
  * embedded in pages to improve search engine understanding.
  */
 
+import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { toZonedISOString } from '@/lib/utils/timeUtils'
+
 export interface OrganizationSchema {
   '@context': 'https://schema.org'
   '@type': 'Organization'
@@ -205,6 +208,7 @@ export function generateMusicEventSchema(show: {
     address?: string
     city?: string
     state?: string
+    timezone?: string | null
     zip_code?: string
   }
   artists?: Array<{
@@ -223,7 +227,14 @@ export function generateMusicEventSchema(show: {
     '@context': 'https://schema.org',
     '@type': 'MusicEvent',
     name: eventName,
-    startDate: show.date,
+    // Emit the venue-local start time with offset (PSY-986) so crawlers index
+    // the real local time, not the bare UTC instant.
+    startDate: show.venue
+      ? toZonedISOString(
+          show.date,
+          resolveShowTimezone(show.venue.state, show.venue.timezone)
+        )
+      : show.date,
     eventStatus: show.is_cancelled
       ? 'https://schema.org/EventCancelled'
       : 'https://schema.org/EventScheduled',

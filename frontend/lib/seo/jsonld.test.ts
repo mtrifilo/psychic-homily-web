@@ -79,7 +79,9 @@ describe('generateMusicEventSchema', () => {
     expect(schema['@context']).toBe('https://schema.org')
     expect(schema['@type']).toBe('MusicEvent')
     expect(schema.name).toBeDefined()
-    expect(schema.startDate).toBe('2026-03-15T20:00:00Z')
+    // startDate is rendered in the venue's local time with offset (PSY-986):
+    // 20:00Z at The Rebel Lounge (AZ default → America/Phoenix, UTC-7) = 1:00 PM.
+    expect(schema.startDate).toBe('2026-03-15T13:00:00-07:00')
     expect(schema.location).toBeDefined()
     expect(schema.eventAttendanceMode).toBe('https://schema.org/OfflineEventAttendanceMode')
     expect(schema.eventStatus).toBeDefined()

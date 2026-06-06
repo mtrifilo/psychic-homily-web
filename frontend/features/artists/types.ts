@@ -136,6 +136,8 @@ export interface ArtistShowVenue {
   name: string
   city: string
   state: string
+  /** IANA timezone for rendering this show's time in venue-local time (PSY-985/986). Null until backfilled. */
+  timezone?: string | null
 }
 
 /**
