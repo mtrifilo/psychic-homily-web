@@ -437,8 +437,10 @@ describe("submitShows", () => {
     });
 
     const result = await submitShows(client, json, false); // dry-run
-    expect(result.created).toBe(0);
-    expect(result.skipped).toBe(1);
+    // Dry-run reports the would-be-created show under `created` (not `skipped`),
+    // mirroring the confirmed-run accounting and the other batch entity types.
+    expect(result.created).toBe(1);
+    expect(result.skipped).toBe(0);
     expect(postCalled).toBe(false);
   });
 
@@ -509,6 +511,42 @@ describe("submitShows", () => {
     expect(result.created).toBe(1);
     expect(result.plans[0].valid).toBe(true);
     expect(result.plans[1].valid).toBe(false);
+  });
+
+  test("dry-run with a valid + invalid show: invalid counts as skipped", async () => {
+    // Exercises the dry-run branch's `skipped: invalidCount + duplicateCount`:
+    // the creatable show reports under `created` (1) and the invalid one under
+    // `skipped` (1). Reaching this branch requires creatablePlans.length > 0,
+    // so a valid+invalid mix is the discriminating case. (Pre-fix, the creatable
+    // show was reported as skipped and `created` was 0.)
+    let postCalled = false;
+    const client = createMockClient({
+      get: async () => ({ artists: [], venues: [] }),
+      post: async () => {
+        postCalled = true;
+        return { id: 1 };
+      },
+    });
+
+    const json = JSON.stringify([
+      {
+        event_date: "2026-04-15",
+        city: "Phoenix",
+        state: "AZ",
+        artists: [{ name: "Test" }],
+        venues: [{ name: "Test Venue" }],
+      },
+      {
+        // Missing event_date, city, state -> invalid
+        artists: [{ name: "Test" }],
+        venues: [{ name: "Test Venue" }],
+      },
+    ]);
+
+    const result = await submitShows(client, json, false); // dry-run
+    expect(result.created).toBe(1);
+    expect(result.skipped).toBe(1);
+    expect(postCalled).toBe(false);
   });
 });
 

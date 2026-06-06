@@ -83,13 +83,6 @@ vi.mock('@/features/contributions', () => ({
   useSuggestEdit: () => ({ mutate: vi.fn(), isPending: false }),
 }))
 
-// Mock comments feature
-vi.mock('@/features/comments', () => ({
-  CommentThread: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
-    <div data-testid="comment-thread">Comments for {entityType} {entityId}</div>
-  ),
-}))
-
 // Mock next/navigation
 vi.mock('next/navigation', () => ({
   usePathname: () => '/artists/test-artist',
@@ -382,8 +375,10 @@ describe('ArtistDetail', () => {
       expect(screen.queryByTestId('tab-labels')).not.toBeInTheDocument()
       // Main-column content renders directly.
       expect(screen.getByTestId('artist-shows-list')).toBeInTheDocument()
-      expect(screen.getByTestId('comment-thread')).toBeInTheDocument()
       expect(screen.getByTestId('revision-history')).toBeInTheDocument()
+      // The community Discussion (comments) section was removed from artist
+      // pages in PSY-980 — the shared CommentThread is no longer mounted here.
+      expect(screen.queryByTestId('comment-thread')).not.toBeInTheDocument()
     })
 
     it('renders the header action linkbox as bracket links', () => {

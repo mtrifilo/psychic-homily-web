@@ -3,8 +3,13 @@ import { cva, type VariantProps } from 'class-variance-authority'
 
 import { cn } from '@/lib/utils'
 
+// PSY-970: badge labels use Space Mono Bold to match the PSY-646 Figma design
+// system (Figma badge uses Space Mono; the code badge previously inherited the
+// default sans font). `font-mono` maps to --font-space-mono (see globals.css
+// @theme); Space Mono ships a real Bold (700) weight so `font-bold` is genuine,
+// not synthetic. App-wide legibility reconciliation — every badge is now mono+bold.
 const badgeVariants = cva(
-  'inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
+  'inline-flex items-center rounded-md border px-2.5 py-0.5 text-xs font-mono font-bold transition-colors focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-2',
   {
     variants: {
       variant: {
@@ -14,6 +19,7 @@ const badgeVariants = cva(
           'border-transparent bg-secondary text-secondary-foreground hover:bg-secondary/80',
         destructive:
           'border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/80',
+        accent: 'border-primary/20 bg-primary/10 text-primary',
         outline: 'text-foreground',
       },
     },

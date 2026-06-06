@@ -331,9 +331,8 @@ describe("addArtistsToShow", () => {
       (c) => c.method === "PUT" && /\/shows\/668$/.test(c.url),
     );
     expect(putCalls).toHaveLength(1);
-    const newArtist = putCalls[0].body.artists.find(
-      (a: { id: number }) => a.id === 50,
-    );
+    const putBody = putCalls[0].body as { artists: { id: number }[] };
+    const newArtist = putBody.artists.find((a) => a.id === 50);
     expect(newArtist).toMatchObject({ id: 50, is_headliner: true });
   });
 
