@@ -123,7 +123,8 @@ describe('FieldNoteCard', () => {
       <FieldNoteCard
         comment={makeFieldNote({
           structured_data: {
-            setlist_spoiler: false,          },
+            setlist_spoiler: false,
+          },
         })}
         showId={10}
       />
@@ -144,7 +145,8 @@ describe('FieldNoteCard', () => {
       <FieldNoteCard
         comment={makeFieldNote({
           structured_data: {
-            setlist_spoiler: true,          },
+            setlist_spoiler: true,
+          },
         })}
         showId={10}
       />
@@ -162,7 +164,8 @@ describe('FieldNoteCard', () => {
       <FieldNoteCard
         comment={makeFieldNote({
           structured_data: {
-            setlist_spoiler: true,          },
+            setlist_spoiler: true,
+          },
         })}
         showId={10}
       />
@@ -201,7 +204,8 @@ describe('FieldNoteCard', () => {
         comment={makeFieldNote({
           structured_data: {
             song_position: 7,
-            setlist_spoiler: false,          },
+            setlist_spoiler: false,
+          },
         })}
         showId={10}
       />
@@ -246,7 +250,8 @@ describe('FieldNoteCard', () => {
       <FieldNoteCard
         comment={makeFieldNote({
           structured_data: {
-            setlist_spoiler: true,            notable_moments: 'Secret setlist info',
+            setlist_spoiler: true,
+            notable_moments: 'Secret setlist info',
           },
         })}
         showId={10}
