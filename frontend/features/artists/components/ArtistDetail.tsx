@@ -52,7 +52,6 @@ import { EntityTagList, AddTagDialog } from '@/features/tags'
 import { EntityEditDrawer, EntitySaveSuccessBanner, useEntitySaveSuccessBanner, AttributionLine, ReportEntityDialog, ContributionPrompt, useSuggestEdit } from '@/features/contributions'
 import { AsHeardOn } from '@/features/radio'
 import { EntityCollections } from '@/features/collections'
-import { CommentThread } from '@/features/comments'
 import { NotifyMeButton } from '@/features/notifications'
 import { ArtistShowsList } from './ArtistShowsList'
 import { ArtistSimilarSidebar, ArtistGraphDialog } from './RelatedArtists'
@@ -1240,8 +1239,6 @@ export function ArtistDetail({ artistId }: ArtistDetailProps) {
             entityId={artist.id}
             isAdmin={!!isAdmin}
           />
-
-          <CommentThread entityType="artist" entityId={artist.id} />
         </div>
       </EntityDetailLayout>
 
