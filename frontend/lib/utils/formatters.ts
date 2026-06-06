@@ -8,13 +8,26 @@ import {
 /**
  * Resolve the IANA timezone for rendering a show time. Prefers the venue's
  * resolved `timezone` (PSY-985); falls back to the US state→tz map for venues
- * without one (pre-backfill rows). (PSY-986)
+ * without one (pre-backfill rows). A malformed/unknown `timezone` string falls
+ * through to the state map rather than crashing the render (`Intl` throws a
+ * RangeError on a bad zone), mirroring the backend's EventLocation (PSY-996/986).
  */
 export function resolveShowTimezone(
   state?: string | null,
   timezone?: string | null
 ): string {
-  return timezone || getTimezoneForState(state || 'AZ')
+  if (timezone && isValidTimeZone(timezone)) return timezone
+  return getTimezoneForState(state || 'AZ')
+}
+
+function isValidTimeZone(tz: string): boolean {
+  try {
+    // Throws RangeError for an unknown/malformed IANA name.
+    new Intl.DateTimeFormat('en-US', { timeZone: tz })
+    return true
+  } catch {
+    return false
+  }
 }
 
 /**

@@ -95,20 +95,28 @@ describe('formatShowTime', () => {
 })
 
 describe('venue timezone preference (PSY-986)', () => {
-  const utcDate = '2026-03-15T02:30:00Z' // 7:30 PM Phoenix / 10:30 PM New York
+  // 05:30 UTC crosses the calendar boundary: Mar 14 10:30 PM in Phoenix (UTC-7)
+  // vs Mar 15 1:30 AM in New York (UTC-4, DST active by Mar 15) — so the
+  // assertions actually discriminate venue-tz from the state fallback.
+  const boundaryUtc = '2026-03-15T05:30:00Z'
 
-  it('formatShowTime prefers the explicit venue timezone over the state fallback', () => {
-    // state=NY alone → 10:30 PM, but an explicit Phoenix tz must win → 7:30 PM.
-    expect(formatShowTime(utcDate, 'NY', 'America/Phoenix')).toBe('7:30 PM')
+  it('formatShowTime prefers the explicit venue timezone over state', () => {
+    expect(formatShowTime(boundaryUtc, 'NY', 'America/Phoenix')).toBe('10:30 PM')
+    expect(formatShowTime(boundaryUtc, 'NY')).toBe('1:30 AM') // state fallback differs
   })
 
-  it('formatShowDate prefers the explicit venue timezone over the state fallback', () => {
-    // In Phoenix (UTC-7) 02:30Z is Mar 14; venue tz must win over NY (Mar 15 here is 10:30 PM, still 14th... use date check).
-    expect(formatShowDate(utcDate, 'NY', false, 'America/Phoenix')).toContain('14')
+  it('formatShowDate prefers the venue timezone over state across a date boundary', () => {
+    // Phoenix → Mar 14; New York → Mar 15. The venue tz (Phoenix) must win.
+    expect(formatShowDate(boundaryUtc, 'NY', false, 'America/Phoenix')).toContain('14')
+    expect(formatShowDate(boundaryUtc, 'NY')).toContain('15')
   })
 
   it('falls back to the state map when no venue timezone is given', () => {
-    expect(formatShowTime(utcDate, 'NY')).toBe('10:30 PM')
+    expect(formatShowTime(boundaryUtc, 'AZ')).toBe('10:30 PM')
+  })
+
+  it('falls back to the state map when the venue timezone is malformed (no crash)', () => {
+    expect(formatShowTime(boundaryUtc, 'AZ', 'Not/AZone')).toBe('10:30 PM')
   })
 })
 

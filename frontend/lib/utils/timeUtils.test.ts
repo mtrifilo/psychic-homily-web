@@ -20,7 +20,8 @@ describe('getTimezoneForState', () => {
   })
 
   // PSY-986 regression: the map was synced to full US coverage. These states
-  // previously fell through to America/Phoenix (the live display bug).
+  // previously fell through to America/Phoenix (the live display bug). MI/ND/NE/SD
+  // were the last gaps found in adversarial review.
   it('covers US states beyond the original 7 (full-US sync)', () => {
     expect(getTimezoneForState('IL')).toBe('America/Chicago')
     expect(getTimezoneForState('MN')).toBe('America/Chicago')
@@ -29,8 +30,28 @@ describe('getTimezoneForState', () => {
     expect(getTimezoneForState('MA')).toBe('America/New_York')
     expect(getTimezoneForState('FL')).toBe('America/New_York')
     expect(getTimezoneForState('UT')).toBe('America/Denver')
+    expect(getTimezoneForState('MI')).toBe('America/New_York')
+    expect(getTimezoneForState('ND')).toBe('America/Chicago')
+    expect(getTimezoneForState('NE')).toBe('America/Chicago')
+    expect(getTimezoneForState('SD')).toBe('America/Chicago')
     expect(getTimezoneForState('AK')).toBe('America/Anchorage')
     expect(getTimezoneForState('HI')).toBe('Pacific/Honolulu')
+  })
+
+  // Stronger guard: every US state + DC must resolve to a real zone, never the
+  // Arizona default (except AZ itself). Catches any future dropped state.
+  it('maps all 50 states + DC without falling back to Phoenix (except AZ)', () => {
+    const allStates = [
+      'AL', 'AK', 'AZ', 'AR', 'CA', 'CO', 'CT', 'DE', 'DC', 'FL', 'GA',
+      'HI', 'ID', 'IL', 'IN', 'IA', 'KS', 'KY', 'LA', 'ME', 'MD', 'MA',
+      'MI', 'MN', 'MS', 'MO', 'MT', 'NE', 'NV', 'NH', 'NJ', 'NM', 'NY',
+      'NC', 'ND', 'OH', 'OK', 'OR', 'PA', 'RI', 'SC', 'SD', 'TN', 'TX',
+      'UT', 'VT', 'VA', 'WA', 'WV', 'WI', 'WY',
+    ]
+    for (const s of allStates) {
+      if (s === 'AZ') continue
+      expect(getTimezoneForState(s)).not.toBe('America/Phoenix')
+    }
   })
 
   it('handles lowercase state codes', () => {

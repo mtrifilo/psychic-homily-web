@@ -1,5 +1,6 @@
 import { ImageResponse } from 'next/og'
 import * as Sentry from '@sentry/nextjs'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
 
 export const runtime = 'edge'
 export const alt = 'Show details'
@@ -17,17 +18,22 @@ interface ShowData {
   event_date: string
   is_sold_out: boolean
   is_cancelled: boolean
-  venues: Array<{ name: string; city: string; state: string }>
+  venues: Array<{ name: string; city: string; state: string; timezone?: string | null }>
   artists: Array<{ name: string; is_headliner?: boolean | null }>
 }
 
-function formatDate(dateString: string): string {
+function formatDate(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null
+): string {
   const date = new Date(dateString)
   return date.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone: resolveShowTimezone(state, timezone), // venue-local for share card (PSY-986)
   })
 }
 
@@ -79,7 +85,7 @@ export default async function Image({ params }: { params: Promise<{ slug: string
   const venue = show.venues?.[0]
   const venueName = venue?.name || 'TBA'
   const location = venue ? `${venue.city}, ${venue.state}` : ''
-  const showDate = formatDate(show.event_date)
+  const showDate = formatDate(show.event_date, venue?.state, venue?.timezone)
   const displayTitle = show.title || `${headliner} at ${venueName}`
   const otherArtists = show.artists
     ?.filter(a => a.name !== headliner)

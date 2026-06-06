@@ -8,6 +8,7 @@ import { ShowDetail } from '@/features/shows'
 import type { ShowResponse } from '@/features/shows/types'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateMusicEventSchema, generateBreadcrumbSchema } from '@/lib/seo/jsonld'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
 import { API_BASE_URL } from '@/lib/api-base'
 import { queryKeys } from '@/lib/queryClient'
 import { prefetchEntity } from '@/lib/query-hydration'
@@ -48,13 +49,18 @@ const getShow = cache(async (slug: string): Promise<ShowResponse | null> => {
   return null
 })
 
-function formatShowDate(dateString: string): string {
+function formatShowDate(
+  dateString: string,
+  state?: string | null,
+  timezone?: string | null
+): string {
   const date = new Date(dateString)
   return date.toLocaleDateString('en-US', {
     weekday: 'long',
     year: 'numeric',
     month: 'long',
     day: 'numeric',
+    timeZone: resolveShowTimezone(state, timezone), // venue-local for SEO (PSY-986)
   })
 }
 
@@ -65,7 +71,7 @@ export async function generateMetadata({ params }: ShowPageProps): Promise<Metad
   if (show) {
     const headliner = show.artists?.find(a => a.is_headliner)?.name || show.artists?.[0]?.name || 'Live Music'
     const venueName = show.venues?.[0]?.name || 'TBA'
-    const showDate = formatShowDate(show.event_date)
+    const showDate = formatShowDate(show.event_date, show.venues?.[0]?.state, show.venues?.[0]?.timezone)
     const title = `${headliner} at ${venueName}`
     const generatedDesc = `${headliner} live at ${venueName} on ${showDate}`
     const description = show.description

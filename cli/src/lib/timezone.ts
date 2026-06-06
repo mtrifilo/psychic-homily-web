@@ -23,6 +23,7 @@ const STATE_TIMEZONES: Record<string, string> = {
   MA: "America/New_York",
   MD: "America/New_York",
   ME: "America/New_York",
+  MI: "America/New_York",
   NC: "America/New_York",
   NH: "America/New_York",
   NJ: "America/New_York",
@@ -45,7 +46,10 @@ const STATE_TIMEZONES: Record<string, string> = {
   MN: "America/Chicago",
   MO: "America/Chicago",
   MS: "America/Chicago",
+  ND: "America/Chicago",
+  NE: "America/Chicago",
   OK: "America/Chicago",
+  SD: "America/Chicago",
   TN: "America/Chicago",
   WI: "America/Chicago",
   // Mountain
