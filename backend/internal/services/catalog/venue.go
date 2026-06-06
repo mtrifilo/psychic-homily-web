@@ -39,20 +39,11 @@ func NewVenueService(database *gorm.DB) *VenueService {
 // errors). A miss leaves the fields nil so display falls back to the legacy
 // state->timezone map — no regression. (PSY-985)
 func (s *VenueService) applyGeocoding(v *catalogm.Venue) {
-	if s.geocoder == nil {
-		return
-	}
 	country := ""
 	if v.Country != nil {
 		country = *v.Country
 	}
-	res, ok := s.geocoder.Resolve(v.City, v.State, country)
-	if !ok {
-		return
-	}
-	v.Latitude = &res.Latitude
-	v.Longitude = &res.Longitude
-	v.Timezone = &res.Timezone
+	v.Latitude, v.Longitude, v.Timezone = geo.LookupPointers(s.geocoder, v.City, v.State, country)
 }
 
 // CreateVenue creates a new venue
@@ -284,7 +275,7 @@ func (s *VenueService) UpdateVenue(venueID uint, req *contracts.UpdateVenueReque
 	// Re-geocode when any location field changes so latitude/longitude/timezone
 	// stay consistent with the new city/state/country (PSY-985). Reuses the
 	// create-path resolver (applyGeocoding) on the effective post-update values
-	// — checkCity already coalesced city — so a miss leaves the columns untouched.
+	// (checkCity already coalesced city); a miss clears all three to NULL (below).
 	if req.City != nil || req.State != nil || req.Country != nil {
 		effective := catalogm.Venue{City: checkCity, State: currentVenue.State, Country: currentVenue.Country}
 		if req.State != nil {

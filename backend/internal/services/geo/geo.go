@@ -77,6 +77,23 @@ func Default() Geocoder {
 	return defaultGeo
 }
 
+// LookupPointers resolves a location and returns nullable latitude/longitude/
+// timezone pointers — all nil on a miss (or a nil geocoder). This is the shared
+// entry point for every venue write path (VenueService, pending-edit apply,
+// data-sync import): assign the results to a model's fields or a GORM updates
+// map, where a nil pointer writes SQL NULL so display falls back to the legacy
+// state->tz map. (PSY-985)
+func LookupPointers(g Geocoder, city, state, country string) (lat, lng *float64, tz *string) {
+	if g == nil {
+		return nil, nil, nil
+	}
+	res, ok := g.Resolve(city, state, country)
+	if !ok {
+		return nil, nil, nil
+	}
+	return &res.Latitude, &res.Longitude, &res.Timezone
+}
+
 func newOfflineGeocoder() *offlineGeocoder {
 	g := &offlineGeocoder{
 		byCity:      make(map[string][]cityRow, 40000),
