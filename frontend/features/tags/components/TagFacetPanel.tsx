@@ -12,6 +12,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip'
+import type { CityState } from '@/components/filters'
 import { useTags } from '../hooks'
 import {
   TAG_CATEGORIES,
@@ -56,6 +57,17 @@ export interface TagFacetPanelProps {
    * `/tags` browse where the global count is the right signal.
    */
   entityType?: TagEntityType
+  /**
+   * Active city filter passed through to the facet count query (PSY-982).
+   * Used only by `/shows` (entityType="show"): the backend scopes each tag's
+   * count to shows in these cities so the facet matches the city-filtered
+   * shows list. While a city is selected, zero-in-city chips are shown
+   * DISABLED (greyed, non-clickable) rather than hidden — the user sees the
+   * tag exists but has no shows here, instead of it silently vanishing and
+   * instead of dead-ending at "0 shows matching <tag>". Omit for the global,
+   * city-agnostic facet (every other browse page).
+   */
+  selectedCities?: CityState[]
 }
 
 /**
@@ -77,6 +89,7 @@ export function TagFacetPanel({
   hideHeading = false,
   className,
   entityType,
+  selectedCities,
 }: TagFacetPanelProps) {
   const selectedSet = useMemo(() => new Set(selectedSlugs), [selectedSlugs])
   // When entity_type is set we hide zero-count chips — they would lie about
@@ -84,6 +97,11 @@ export function TagFacetPanel({
   // full vocabulary. Without entity_type (e.g. `/tags` browse) every chip is
   // a valid destination so we show them all.
   const [showAll, setShowAll] = useState(false)
+  // City-scoped mode (PSY-982): while a city is selected on /shows the facet
+  // counts are city-scoped, so a zero-count chip means "no shows here". We
+  // SHOW those chips DISABLED instead of hiding them — the expander is
+  // redundant in this mode, and a disabled chip can never dead-end on click.
+  const cityScoped = (selectedCities?.length ?? 0) > 0
   const handleToggle = (slug: string) => {
     if (selectedSet.has(slug)) {
       onToggle(selectedSlugs.filter(s => s !== slug))
@@ -146,12 +164,16 @@ export function TagFacetPanel({
           selectedSet={selectedSet}
           onToggle={handleToggle}
           entityType={entityType}
+          selectedCities={selectedCities}
           showAll={showAll}
+          cityScoped={cityScoped}
         />
       ))}
 
-      {/* "Show all tags" expander only matters when we're filtering chips */}
-      {entityType && (
+      {/* "Show all tags" expander only matters when we hide zero-count chips.
+          In city-scoped mode they are shown disabled instead, so the expander
+          is redundant and omitted. */}
+      {entityType && !cityScoped && (
         <div className="pt-1">
           <button
             type="button"
@@ -173,7 +195,10 @@ interface CategoryGroupProps {
   selectedSet: Set<string>
   onToggle: (slug: string) => void
   entityType?: TagEntityType
+  selectedCities?: CityState[]
   showAll: boolean
+  /** When true, zero-count chips are shown disabled instead of hidden. */
+  cityScoped: boolean
 }
 
 function CategoryGroup({
@@ -182,23 +207,31 @@ function CategoryGroup({
   selectedSet,
   onToggle,
   entityType,
+  selectedCities,
   showAll,
+  cityScoped,
 }: CategoryGroupProps) {
   const { data, isLoading } = useTags({
     category,
     sort: 'usage',
     limit,
     entity_type: entityType,
+    // Only the show facet honours cities backend-side; passing it for other
+    // entity types is harmless (the backend ignores it) but we keep it to the
+    // city-scoped case so cache keys stay clean for the global pages.
+    cities: cityScoped ? selectedCities : undefined,
   })
   const allTags = data?.tags ?? []
-  // When entity_type is set, the API returns per-entity-type counts. Hide
-  // zero-count chips by default so the surface area shrinks to *useful*
-  // filters; the user can expand to see the full vocabulary.
-  // Selected chips stay visible regardless of count so the selection
-  // controls remain reachable even when the user navigates to a different
-  // browse page where the tag has zero matches (preserves clear/toggle UX).
+  // When entity_type is set, the API returns per-entity-type counts.
+  // - Default (city-agnostic) mode: hide zero-count chips so the surface area
+  //   shrinks to *useful* filters; the user can expand to see the full vocab.
+  // - City-scoped mode (PSY-982): show every chip, but render zero-in-city
+  //   chips disabled — the user sees the tag exists with no shows here rather
+  //   than it vanishing, and a disabled chip can never dead-end on click.
+  // Selected chips stay visible regardless of count so the selection controls
+  // remain reachable (preserves clear/toggle UX across navigation).
   const visibleTags =
-    entityType && !showAll
+    entityType && !cityScoped && !showAll
       ? allTags.filter(
           tag => tag.usage_count > 0 || selectedSet.has(tag.slug),
         )
@@ -226,6 +259,13 @@ function CategoryGroup({
               tag={tag}
               selected={selectedSet.has(tag.slug)}
               onToggle={onToggle}
+              // Disable only an unselected zero-in-city chip: a selected chip
+              // must stay interactive so the user can always deselect it.
+              disabled={
+                cityScoped &&
+                tag.usage_count === 0 &&
+                !selectedSet.has(tag.slug)
+              }
             />
           ))}
         </div>
@@ -238,22 +278,29 @@ interface TagChipProps {
   tag: TagListItem
   selected: boolean
   onToggle: (slug: string) => void
+  /** Zero-match chip in city-scoped mode: shown but non-interactive. */
+  disabled?: boolean
 }
 
-function TagChip({ tag, selected, onToggle }: TagChipProps) {
+function TagChip({ tag, selected, onToggle, disabled = false }: TagChipProps) {
   const catColors = getCategoryColor(tag.category)
   return (
     <button
       type="button"
       onClick={() => onToggle(tag.slug)}
       aria-pressed={selected}
+      disabled={disabled}
+      title={disabled ? `No shows for ${tag.name} in the selected city` : undefined}
       data-testid={`tag-facet-chip-${tag.slug}`}
       className={cn(
         'inline-flex items-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium',
-        'transition-all duration-100 select-none cursor-pointer',
+        'transition-all duration-100 select-none',
+        disabled
+          ? 'cursor-not-allowed opacity-40'
+          : 'cursor-pointer',
         selected
           ? 'bg-primary text-primary-foreground border-primary shadow-sm ring-1 ring-primary/40'
-          : `${catColors} hover:bg-muted/60`
+          : `${catColors} ${disabled ? '' : 'hover:bg-muted/60'}`
       )}
     >
       <span>{tag.name}</span>

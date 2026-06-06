@@ -270,6 +270,7 @@ export function ShowList() {
           onClear={handleTagsClear}
           title="Filter shows by tag"
           entityType="show"
+          selectedCities={selectedCities}
         />
         <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
@@ -282,6 +283,7 @@ export function ShowList() {
             onClear={handleTagsClear}
             heading="Filter shows by tag"
             entityType="show"
+            selectedCities={selectedCities}
           />
         </aside>
 

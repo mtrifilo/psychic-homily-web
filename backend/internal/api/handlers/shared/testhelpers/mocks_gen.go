@@ -3224,7 +3224,7 @@ type MockTagService struct {
 	CreateTagFn                func(string, *string, *uint, string, bool, *uint) (*catalogm.Tag, error)
 	GetTagFn                   func(uint) (*catalogm.Tag, error)
 	GetTagBySlugFn             func(string) (*catalogm.Tag, error)
-	ListTagsFn                 func(string, string, *uint, string, int, int, string) ([]catalogm.Tag, int64, error)
+	ListTagsFn                 func(string, string, *uint, string, int, int, string, []contracts.CityStateFilter) ([]catalogm.Tag, int64, error)
 	UpdateTagFn                func(uint, *string, *string, *uint, *string, *bool) (*catalogm.Tag, error)
 	DeleteTagFn                func(uint) error
 	AddTagToEntityFn           func(uint, string, string, uint, uint, string) (*catalogm.EntityTag, error)
@@ -3272,9 +3272,9 @@ func (m *MockTagService) GetTagBySlug(slug string) (*catalogm.Tag, error) {
 	}
 	return nil, nil
 }
-func (m *MockTagService) ListTags(category string, search string, parentID *uint, sort string, limit int, offset int, entityType string) ([]catalogm.Tag, int64, error) {
+func (m *MockTagService) ListTags(category string, search string, parentID *uint, sort string, limit int, offset int, entityType string, cities []contracts.CityStateFilter) ([]catalogm.Tag, int64, error) {
 	if m.ListTagsFn != nil {
-		return m.ListTagsFn(category, search, parentID, sort, limit, offset, entityType)
+		return m.ListTagsFn(category, search, parentID, sort, limit, offset, entityType, cities)
 	}
 	return nil, 0, nil
 }
