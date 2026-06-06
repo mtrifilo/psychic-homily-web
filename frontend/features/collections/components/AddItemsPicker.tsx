@@ -449,11 +449,15 @@ function usePastePreview(pasteText: string): {
   // File a queue-for-review request for a zero-result plain-text line.
   // Extracted so the initial pass AND retryQueue share one code path. Each
   // call is an independent POST (see queueEntityRequest) so concurrent
-  // zero-result lines each get their own request + row update.
+  // zero-result lines each get their own request + row update. Returns the
+  // settle promise so the bounded worker pool can AWAIT it — that keeps a
+  // 200-junk-line paste from firing 200 simultaneous POSTs (the same
+  // "don't hammer the backend" bound the search side gets). retryQueue, a
+  // single user-triggered call, ignores the return (fire-and-forget).
   const fileQueueRequest = useCallback(
-    (generation: number, index: number, raw: string) => {
+    (generation: number, index: number, raw: string): Promise<void> => {
       updateRow(generation, index, { status: 'queuing' })
-      queueEntityRequest(raw).then(
+      return queueEntityRequest(raw).then(
         () => updateRow(generation, index, { status: 'queued' }),
         () => updateRow(generation, index, { status: 'queue_failed' })
       )
@@ -573,8 +577,11 @@ function usePastePreview(pasteText: string): {
                 .map(toPreviewItem),
             })
           } else {
-            // Zero results ⇒ queue for admin review.
-            fileQueueRequest(generation, entry.index, entry.raw)
+            // Zero results ⇒ queue for admin review. Await the POST so it
+            // counts against the concurrency budget — without this, a paste
+            // of N all-junk lines would fire N POSTs at once (the search
+            // bound would be moot for the queue side).
+            await fileQueueRequest(generation, entry.index, entry.raw)
           }
         }
       )
