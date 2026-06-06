@@ -3,7 +3,11 @@ import React from 'react'
 import { render, screen, act } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 
-import { AddItemsPicker, parsePasteLine } from './AddItemsPicker'
+import {
+  AddItemsPicker,
+  parsePasteLine,
+  reorderStagedItems,
+} from './AddItemsPicker'
 
 // ──────────────────────────────────────────────
 // Mocks
@@ -642,5 +646,39 @@ describe('AddItemsPicker', () => {
     expect(
       screen.queryByTestId('staged-row-drag-handle')
     ).not.toBeInTheDocument()
+  })
+})
+
+// PSY-962 adversarial-review: the reorder CONTRACT (preserve all items, no
+// dupes/drops, correct order) is the ticket's load-bearing behavior — unit it
+// directly via the pure helper rather than driving @dnd-kit.
+describe('reorderStagedItems', () => {
+  const mk = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
+      entityType: 'artist' as const,
+      entityId: i + 1,
+      name: `Artist ${i + 1}`,
+      subtitle: null,
+    }))
+
+  it('moves the active item to the over position, preserving every item', () => {
+    const next = reorderStagedItems(mk(3), 'artist-1', 'artist-3')
+    expect(next).not.toBeNull()
+    expect(next!.map((s) => s.entityId)).toEqual([2, 3, 1])
+    expect(next).toHaveLength(3)
+    expect(new Set(next!.map((s) => s.entityId))).toEqual(new Set([1, 2, 3]))
+  })
+
+  it('returns null (no-op) when there is no drop target', () => {
+    expect(reorderStagedItems(mk(3), 'artist-1', null)).toBeNull()
+  })
+
+  it('returns null (no-op) when an item is dropped on itself', () => {
+    expect(reorderStagedItems(mk(3), 'artist-2', 'artist-2')).toBeNull()
+  })
+
+  it('returns null (no-op) for an id not in the list', () => {
+    expect(reorderStagedItems(mk(3), 'artist-9', 'artist-1')).toBeNull()
+    expect(reorderStagedItems(mk(3), 'artist-1', 'artist-9')).toBeNull()
   })
 })

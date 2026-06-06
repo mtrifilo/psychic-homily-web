@@ -115,6 +115,24 @@ export interface StagedCollectionItem {
 const stagedKey = (s: { entityType: string; entityId: number }): string =>
   `${s.entityType}-${s.entityId}`
 
+/**
+ * Pure reorder behind the drag-end handler — exported so the reorder contract
+ * (preserve every item, no dupes, correct new order) is unit-testable without
+ * driving @dnd-kit. Returns the reordered array, or null for a no-op (no drop
+ * target, dropped on itself, or an id not in the list).
+ */
+export function reorderStagedItems(
+  items: StagedCollectionItem[],
+  activeId: string,
+  overId: string | null
+): StagedCollectionItem[] | null {
+  if (!overId || activeId === overId) return null
+  const oldIndex = items.findIndex((s) => stagedKey(s) === activeId)
+  const newIndex = items.findIndex((s) => stagedKey(s) === overId)
+  if (oldIndex === -1 || newIndex === -1) return null
+  return arrayMove(items, oldIndex, newIndex)
+}
+
 interface ExistingItemKey {
   entity_type: string
   entity_id: number
@@ -430,7 +448,12 @@ export function AddItemsPicker({
   // ─── Reorder (PSY-962) ───
   // Drag-to-reorder the staged list; the overview strip mirrors this order.
   // Sensors mirror the collections drag-drop primitive (PSY-348): pointer 8px,
-  // touch long-press, keyboard arrow-key fallback.
+  // touch long-press, and KeyboardSensor for keyboard reorder (focus the drag
+  // handle → Space to lift → arrow keys to move → Space to drop). Unlike
+  // CollectionItemCard (the heavier detail-page surface), this transient
+  // staging list intentionally omits the separate up/down arrow BUTTONS — the
+  // locked PSY-962 design is a drag-handle-only row; all three input modalities
+  // (pointer/touch/keyboard) can still reorder via the sensors above.
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
     useSensor(TouchSensor, {
@@ -445,13 +468,14 @@ export function AddItemsPicker({
   const handleReorder = useCallback(
     (event: DragEndEvent) => {
       const { active, over } = event
-      if (!over || active.id === over.id) return
-      const oldIndex = stagedIds.indexOf(String(active.id))
-      const newIndex = stagedIds.indexOf(String(over.id))
-      if (oldIndex === -1 || newIndex === -1) return
-      onStagedItemsChange(arrayMove(stagedItems, oldIndex, newIndex))
+      const next = reorderStagedItems(
+        stagedItems,
+        String(active.id),
+        over ? String(over.id) : null
+      )
+      if (next) onStagedItemsChange(next)
     },
-    [stagedIds, stagedItems, onStagedItemsChange]
+    [stagedItems, onStagedItemsChange]
   )
 
   // ─── Render ───
@@ -873,7 +897,7 @@ function PastePreviewRow({
         <>
           <Badge
             variant="secondary"
-            className="text-[10px] px-1.5 py-0 shrink-0 bg-emerald-500/10 text-emerald-700 dark:text-emerald-400"
+            className="text-[10px] px-1.5 py-0 shrink-0 bg-success text-success-foreground motion-safe:animate-in motion-safe:fade-in"
           >
             <Check className="h-3 w-3 mr-0.5" />
             MATCH
@@ -898,7 +922,7 @@ function PastePreviewRow({
       {row.status === 'unresolved' && (
         <Badge
           variant="secondary"
-          className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive"
+          className="text-[10px] px-1.5 py-0 shrink-0 bg-destructive/10 text-destructive motion-safe:animate-in motion-safe:fade-in"
         >
           <AlertCircle className="h-3 w-3 mr-0.5" />
           NO MATCH
@@ -915,6 +939,9 @@ function PastePreviewRow({
  * monochrome by design (color is reserved for the AI status chips). Enter
  * animation is gated on `motion-safe` so it honors prefers-reduced-motion.
  */
+/** Overview-strip preview cap — render at most this many entity-type icon
+ *  chips, then a "+N" overflow chip. ~2 wrapped rows of 28px chips at the
+ *  drawer's min width; the numbered list below stays the complete view. */
 const STRIP_PREVIEW_CAP = 24
 function StagedOverviewStrip({ items }: { items: StagedCollectionItem[] }) {
   const shown = items.slice(0, STRIP_PREVIEW_CAP)
@@ -931,7 +958,9 @@ function StagedOverviewStrip({ items }: { items: StagedCollectionItem[] }) {
           </span>
         )}
       </div>
-      <div className="flex flex-wrap gap-1.5">
+      {/* Decorative: icons duplicate the numbered list below, which is the
+          accessible source of truth (full names + type badges). */}
+      <div className="flex flex-wrap gap-1.5" aria-hidden="true">
         {shown.map((item) => {
           const Icon = ENTITY_ICONS[item.entityType] ?? Library
           return (
