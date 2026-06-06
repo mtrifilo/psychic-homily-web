@@ -103,6 +103,14 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, huma.Error422UnprocessableEntity("Payload is required")
 	}
 
+	// Validate the payload decodes cleanly into its typed struct (rejects
+	// unknown fields / wrong shape / missing required fields) at the trust
+	// boundary, so a malformed contributor payload is rejected here rather than
+	// stored as junk in the queue and failing confusingly on admin approve.
+	if err := communitym.ValidateEntityRequestPayload(entityType, req.Body.Payload); err != nil {
+		return nil, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
+	}
+
 	created, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, req.Body.Confirmed)
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {

@@ -87,6 +87,44 @@ func TestCreateEntityRequest_EmptyPayload(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// Payload missing the type's required field (empty name) → 422 at create time,
+// not deferred to fulfillment.
+func TestCreateEntityRequest_PayloadMissingRequiredField(t *testing.T) {
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+				t.Fatal("service must NOT be called for an invalid payload")
+				return nil, nil
+			},
+		},
+		nil, nil,
+	)
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = json.RawMessage(`{"name":""}`)
+	_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
+// Payload with an unknown field (schema drift) → 422 (UnmarshalPayload's
+// DisallowUnknownFields guard surfaces at the boundary).
+func TestCreateEntityRequest_PayloadUnknownField(t *testing.T) {
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+				t.Fatal("service must NOT be called for an invalid payload")
+				return nil, nil
+			},
+		},
+		nil, nil,
+	)
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = json.RawMessage(`{"name":"Boris","sneaky":"x"}`)
+	_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 // ============================================================================
 // Tests: Queue-create — success
 // ============================================================================
