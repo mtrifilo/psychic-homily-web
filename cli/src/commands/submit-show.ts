@@ -283,12 +283,17 @@ export async function submitShows(
     const resolvedArtistIds = artists.filter((a) => a.id !== undefined).map((a) => a.id!);
     const resolvedArtistNames = artists.map((a) => a.name);
 
+    // Match buildShowPayload's timezone source so the dedup window aligns with
+    // how event_date will be stored (venue-local evening → UTC).
+    const venueState = venues[0]?.state || show.venues[0]?.state || show.state;
+
     const duplicate = await checkShowDuplicate(
       client,
       show.event_date,
       resolvedVenueIds,
       resolvedArtistIds,
       resolvedArtistNames,
+      venueState,
     );
 
     plans.push({

@@ -5,7 +5,46 @@ import {
   compareFields,
   classifyAction,
   classifyMatch,
+  showDedupWindow,
 } from "../src/lib/duplicates";
+
+describe("showDedupWindow", () => {
+  // Regression guard: shows are stored at venue-local 20:00 → UTC, which for
+  // every US timezone lands on the NEXT UTC day. The dedup window must follow
+  // the same venue-local day so a re-run can see the row it already created
+  // (otherwise the backend rejects the re-insert with a 422 SHOW_CREATE_FAILED).
+  test("CA (PDT) window covers a show stored as 20:00 local → UTC", () => {
+    const { fromDate, toDate } = showDedupWindow("2026-07-17", "CA");
+    const from = new Date(fromDate).getTime();
+    const to = new Date(toDate).getTime();
+    // normalizeDate("2026-07-17","CA") = 2026-07-18T03:00:00Z — must be inside.
+    const stored = new Date("2026-07-18T03:00:00Z").getTime();
+    expect(stored).toBeGreaterThanOrEqual(from);
+    expect(stored).toBeLessThanOrEqual(to);
+  });
+
+  test("window does not bleed into the adjacent local day", () => {
+    const { toDate } = showDedupWindow("2026-07-17", "CA");
+    // Next local day's evening show (2026-07-18 20:00 PDT = 2026-07-19T03:00Z).
+    const nextDay = new Date("2026-07-19T03:00:00Z").getTime();
+    expect(nextDay).toBeGreaterThan(new Date(toDate).getTime());
+  });
+
+  test("from_date stays on the input calendar day for US timezones", () => {
+    // The mixed-batch dedup test keys its mock on from_date.includes(date),
+    // so 00:00 local must not roll back past midnight UTC.
+    expect(showDedupWindow("2026-04-15", "NY").fromDate).toContain("2026-04-15");
+    expect(showDedupWindow("2026-04-15", "CA").fromDate).toContain("2026-04-15");
+  });
+
+  test("defaults to Arizona time when no state is given", () => {
+    const { fromDate } = showDedupWindow("2026-07-17");
+    // America/Phoenix is UTC-7 year-round → 00:00 local = 07:00Z.
+    expect(new Date(fromDate).getTime()).toBe(
+      new Date("2026-07-17T07:00:00Z").getTime(),
+    );
+  });
+});
 
 describe("normalizeForComparison", () => {
   test("lowercases text", () => {

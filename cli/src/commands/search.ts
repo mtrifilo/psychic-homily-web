@@ -63,7 +63,6 @@ async function searchArtists(client: APIClient, query: string): Promise<void> {
       slug: string;
       city?: string;
       state?: string;
-      show_count?: number;
     }>;
     count: number;
   }>("/artists/search", { q: query });
@@ -73,14 +72,16 @@ async function searchArtists(client: APIClient, query: string): Promise<void> {
     return;
   }
 
+  // NOTE: /artists/search does not populate an upcoming-show count, so we do not
+  // render a "Shows" column here — it was always 0 and misled callers into
+  // thinking an artist had no shows. Use `/artists/{id}/shows` for real counts.
   display.table([
-    ["ID", "Name", "Slug", "City", "Shows"],
+    ["ID", "Name", "Slug", "City"],
     ...result.artists.map((a) => [
       String(a.id),
       a.name,
       a.slug,
       a.city ? `${a.city}, ${a.state || ""}`.trim() : dim("—"),
-      String(a.show_count ?? 0),
     ]),
   ]);
 }

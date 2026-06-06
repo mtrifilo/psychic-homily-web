@@ -1,5 +1,6 @@
 import type { APIClient } from "./api";
 import type { EntityType } from "./types";
+import { getTimezoneForState, localTimeToUTC } from "./timezone";
 
 export type MatchResult = "exact" | "fuzzy" | "none";
 export type ActionType = "create" | "update" | "skip";
@@ -680,10 +681,39 @@ function extractCalendarDate(dateStr: string): string {
 }
 
 /**
+ * Compute the UTC query window that covers a show's local calendar day.
+ *
+ * Shows are stored with their event_date normalized to the venue's local
+ * evening time converted to UTC (see `normalizeDate` in submit-show.ts) — e.g.
+ * 2026-07-17 at a California (PDT) venue is stored as 2026-07-18T03:00:00Z.
+ * A naive `${date}T00:00:00Z`..`${date}T23:59:59Z` window therefore queries the
+ * wrong UTC day for every US timezone (20:00 local always crosses into the next
+ * UTC day), never matches the stored row, and lets a re-run miss the duplicate —
+ * the backend then rejects the re-insert with a confusing 422 SHOW_CREATE_FAILED.
+ *
+ * Deriving the window from venue-local 00:00..23:59 (converted to UTC) keeps the
+ * dedup check aligned with how the show was actually stored. The default
+ * (America/Phoenix) mirrors `normalizeDate`'s fallback.
+ */
+export function showDedupWindow(
+  eventDate: string,
+  state?: string,
+): { fromDate: string; toDate: string } {
+  const calendarDate = extractCalendarDate(eventDate);
+  const timezone = state ? getTimezoneForState(state) : "America/Phoenix";
+  return {
+    fromDate: localTimeToUTC(calendarDate, "00:00", timezone),
+    toDate: localTimeToUTC(calendarDate, "23:59", timezone),
+  };
+}
+
+/**
  * Check if a show is a duplicate by searching for existing shows on the same
  * date with the same venue and at least one overlapping artist.
  *
  * Requires at least one resolved venue ID and one resolved artist ID/name to check.
+ * `state` (the venue/show state) is used to align the query window with the
+ * venue-timezone normalization applied when the show is created.
  */
 export async function checkShowDuplicate(
   client: APIClient,
@@ -691,6 +721,7 @@ export async function checkShowDuplicate(
   resolvedVenueIds: number[],
   resolvedArtistIds: number[],
   resolvedArtistNames: string[],
+  state?: string,
 ): Promise<ShowDuplicateResult> {
   const noMatch: ShowDuplicateResult = { isDuplicate: false };
 
@@ -700,13 +731,10 @@ export async function checkShowDuplicate(
   // Need at least one artist identifier to compare
   if (resolvedArtistIds.length === 0 && resolvedArtistNames.length === 0) return noMatch;
 
-  const calendarDate = extractCalendarDate(eventDate);
-
   try {
-    // Query shows on the same day using from_date and to_date
-    // Set to_date to the next day to get all shows on calendarDate
-    const fromDate = `${calendarDate}T00:00:00Z`;
-    const toDate = `${calendarDate}T23:59:59Z`;
+    // Query shows across the venue-local calendar day (converted to UTC) so the
+    // window matches how event_date is stored. See showDedupWindow.
+    const { fromDate, toDate } = showDedupWindow(eventDate, state);
 
     const result = await client.get<ShowResponseForDedup[]>("/shows", {
       from_date: fromDate,

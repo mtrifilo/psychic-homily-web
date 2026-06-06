@@ -185,6 +185,25 @@ bun run src/entry.ts submit artist --confirm '[{"name": "Missing Artist"}]'
 bun run src/entry.ts submit release --confirm '[{"title": "Album", "artists": [{"name": "Missing Artist"}]}]'
 ```
 
+## Troubleshooting & gotchas
+
+- **`event_date` is stored as a timestamp, not a bare date.** A date-only `event_date` (`YYYY-MM-DD`) is normalized to **20:00 venue-local time → UTC** (timezone from the venue's state; PSY-985/986). So `2026-07-17` at a CA venue is stored as `2026-07-18T03:00:00Z`. This is expected — don't "correct" it.
+
+- **A `422 SHOW_CREATE_FAILED` when (re-)submitting a show usually means the show already exists.** The backend enforces a unique `(artist, venue, event_date)` key. If a confirmed run already created the show, re-running hits that constraint. Before assuming a real failure, verify existence (see below). *(The CLI's client-side dedup pre-check was timezone-corrected so legitimate re-runs now report `DUPLICATE (ID: …) — skipping` cleanly instead of erroring — but older shells/builds may still surface the 422.)*
+
+- **Verify whether a show exists by date, not by the artist's "Shows" count.** `search artist` / `/artists/search` does **not** populate an upcoming-show count, so it is *not* evidence an artist has no shows. To check real shows, query the date window or the per-artist endpoint:
+  ```bash
+  # Shows on a given UTC day (note the venue-local→UTC shift: an evening show on
+  # 7/17 local lands in the 7/18 UTC window)
+  curl -s "$URL/shows?from_date=2026-07-18T00:00:00Z&to_date=2026-07-18T23:59:59Z" -H "Authorization: Bearer $TOKEN"
+  # All upcoming shows for an artist (authoritative count)
+  curl -s "$URL/artists/<id>/shows?time_filter=upcoming&limit=50" -H "Authorization: Bearer $TOKEN"
+  ```
+
+- **`search show "<query>"` matches by city only** (not title/artist/venue), and is unreliable for existence checks — prefer the date-window query above.
+
+- **Festival-named tour stops are festivals, not venues.** When a tour flyer lists a stop like "Mosswood Meltdown" or "Desert Fox Festival", create a `festival` entity (with the touring act on the bill) rather than a venue/show. A festival's own **pre-party/aftershow** at a real venue *is* a separate titled `show` (use the `title` field, e.g. "Mosswood Meltdown Pre-Party").
+
 ## Individual Commands Reference
 
 ```bash
