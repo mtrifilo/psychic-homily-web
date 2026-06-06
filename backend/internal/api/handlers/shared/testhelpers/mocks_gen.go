@@ -1552,6 +1552,85 @@ func (m *MockEntityReportService) DismissEntityReport(reportID uint, reviewerID 
 }
 
 // ============================================================================
+// Mock: EntityRequestFulfillerInterface
+// ============================================================================
+
+type MockEntityRequestFulfiller struct {
+	CreateArtistFn  func(*contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error)
+	CreateVenueFn   func(*contracts.CreateVenueRequest, bool) (*contracts.VenueDetailResponse, error)
+	CreateLabelFn   func(*contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error)
+	CreateReleaseFn func(*contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
+}
+
+func (m *MockEntityRequestFulfiller) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+	if m.CreateArtistFn != nil {
+		return m.CreateArtistFn(req)
+	}
+	return nil, nil
+}
+func (m *MockEntityRequestFulfiller) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
+	if m.CreateVenueFn != nil {
+		return m.CreateVenueFn(req, isAdmin)
+	}
+	return nil, nil
+}
+func (m *MockEntityRequestFulfiller) CreateLabel(req *contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error) {
+	if m.CreateLabelFn != nil {
+		return m.CreateLabelFn(req)
+	}
+	return nil, nil
+}
+func (m *MockEntityRequestFulfiller) CreateRelease(req *contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
+	if m.CreateReleaseFn != nil {
+		return m.CreateReleaseFn(req)
+	}
+	return nil, nil
+}
+
+// ============================================================================
+// Mock: EntityRequestServiceInterface
+// ============================================================================
+
+type MockEntityRequestService struct {
+	CreateRequestFn func(*authm.User, string, []byte, string, bool) (*communitym.EntityRequest, error)
+	GetRequestFn    func(uint) (*communitym.EntityRequest, error)
+	ListPendingFn   func(string, int, int) ([]communitym.EntityRequest, int64, error)
+	ListRequestsFn  func(*contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error)
+	DecideFn        func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error)
+}
+
+func (m *MockEntityRequestService) CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+	if m.CreateRequestFn != nil {
+		return m.CreateRequestFn(user, entityType, payload, sourceContext, confirmed)
+	}
+	return nil, nil
+}
+func (m *MockEntityRequestService) GetRequest(requestID uint) (*communitym.EntityRequest, error) {
+	if m.GetRequestFn != nil {
+		return m.GetRequestFn(requestID)
+	}
+	return nil, nil
+}
+func (m *MockEntityRequestService) ListPending(entityType string, limit int, offset int) ([]communitym.EntityRequest, int64, error) {
+	if m.ListPendingFn != nil {
+		return m.ListPendingFn(entityType, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockEntityRequestService) ListRequests(filters *contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error) {
+	if m.ListRequestsFn != nil {
+		return m.ListRequestsFn(filters)
+	}
+	return nil, 0, nil
+}
+func (m *MockEntityRequestService) Decide(requestID uint, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+	if m.DecideFn != nil {
+		return m.DecideFn(requestID, adminID, newState, note)
+	}
+	return nil, nil
+}
+
+// ============================================================================
 // Mock: ExploreServiceInterface
 // ============================================================================
 
@@ -4111,6 +4190,8 @@ var _ contracts.DiscoveryServiceInterface = (*MockDiscoveryService)(nil)
 var _ contracts.EmailServiceInterface = (*MockEmailService)(nil)
 var _ contracts.EnrichmentServiceInterface = (*MockEnrichmentService)(nil)
 var _ contracts.EntityReportServiceInterface = (*MockEntityReportService)(nil)
+var _ contracts.EntityRequestFulfillerInterface = (*MockEntityRequestFulfiller)(nil)
+var _ contracts.EntityRequestServiceInterface = (*MockEntityRequestService)(nil)
 var _ contracts.ExploreServiceInterface = (*MockExploreService)(nil)
 var _ contracts.ExtractionServiceInterface = (*MockExtractionService)(nil)
 var _ contracts.FeaturedSlotServiceInterface = (*MockFeaturedSlotService)(nil)

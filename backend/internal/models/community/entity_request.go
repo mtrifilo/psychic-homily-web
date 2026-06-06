@@ -53,3 +53,28 @@ type EntityRequest struct {
 
 // TableName specifies the table name for EntityRequest.
 func (EntityRequest) TableName() string { return "entity_requests" }
+
+// IsValidEntityRequestState reports whether s is a recognized decision_state.
+// Used at the admin-list trust boundary to validate the optional state filter
+// before it reaches the query. PSY-997.
+func IsValidEntityRequestState(s string) bool {
+	switch EntityRequestDecisionState(s) {
+	case EntityRequestStatePending, EntityRequestStateApproved, EntityRequestStateRejected:
+		return true
+	default:
+		return false
+	}
+}
+
+// IsValidEntityRequestSource reports whether s is a recognized source_context.
+// Mirrors the migration's CHECK constraint and the service's (unexported)
+// source-context guard; exported so the HTTP handlers can validate the
+// queue-create body + the admin-list source filter. PSY-997.
+func IsValidEntityRequestSource(s string) bool {
+	switch s {
+	case EntityRequestSourceAIExtraction, EntityRequestSourcePasteMode, EntityRequestSourceManual:
+		return true
+	default:
+		return false
+	}
+}

@@ -91,6 +91,7 @@ func SetupRoutes(router *chi.Mux, sc *services.ServiceContainer, cfg *config.Con
 	setupChartsRoutes(rc)
 	setupPendingEditRoutes(rc)
 	setupEntityReportRoutes(rc)
+	setupEntityRequestRoutes(rc)
 	setupContributeRoutes(rc)
 	setupLeaderboardRoutes(rc)
 	setupDataGapsRoutes(rc)
