@@ -171,6 +171,31 @@ type TaggedEntityItem struct {
 	HeadlinerSlug string `json:"headliner_slug,omitempty"`
 }
 
+// TagIntersectionGroup is the per-entity-type slice of a cross-entity tag
+// intersection (PSY-995): the total number of entities of EntityType that
+// match the tag intersection, plus a small preview (page 1 of the per-type
+// "show all" browse). Count is the full match count even when len(Preview)
+// is clamped to the request's preview_limit.
+type TagIntersectionGroup struct {
+	EntityType string             `json:"entity_type"`
+	Count      int64              `json:"count"`
+	Preview    []TaggedEntityItem `json:"preview"`
+}
+
+// TagIntersectionResponse is the body of GET /tags/intersection (PSY-995).
+//
+// Tags echoes the resolved input tags (in request order) so the chip UI can
+// render canonical names. TagMatch is "all" (AND) or "any" (OR). Groups
+// contains one entry per valid tag entity type — including zero-count groups
+// (complete keyset, mirroring GetTagDetail.UsageBreakdown) so the frontend
+// decides which sections to show or hide. Groups are returned in the canonical
+// TagEntityTypes order.
+type TagIntersectionResponse struct {
+	Tags     []TagSummary           `json:"tags"`
+	TagMatch string                 `json:"tag_match"`
+	Groups   []TagIntersectionGroup `json:"groups"`
+}
+
 // TagAliasResponse represents a tag alias returned to clients.
 type TagAliasResponse struct {
 	ID        uint      `json:"id"`
@@ -319,6 +344,12 @@ type TagServiceInterface interface {
 
 	// Tag entities
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
+
+	// Cross-entity tag intersection (PSY-995): entities matching ≥2 tags,
+	// grouped by entity type with per-type count + preview. tagSlugs must
+	// already be resolved against `tags`; unknown slugs are the caller's
+	// responsibility to reject. matchAny=false ⇒ AND, true ⇒ OR.
+	IntersectEntitiesByTags(tagSlugs []string, matchAny bool, previewLimit int) (*TagIntersectionResponse, error)
 
 	// Tag detail enrichment
 	GetTagDetail(tagID uint) (*TagDetailResponse, error)

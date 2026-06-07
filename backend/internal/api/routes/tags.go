@@ -21,6 +21,10 @@ func setupTagRoutes(rc RouteContext) {
 	// Public tag endpoints
 	huma.Get(rc.API, "/tags", tagHandler.ListTagsHandler)
 	huma.Get(rc.API, "/tags/search", tagHandler.SearchTagsHandler)
+	// PSY-995: cross-entity multi-tag intersection. Registered before the
+	// `/tags/{tag_id}` wildcard so the literal `intersection` segment is not
+	// captured as a tag_id.
+	huma.Get(rc.API, "/tags/intersection", tagHandler.GetTagIntersectionHandler)
 	huma.Get(rc.API, "/tags/{tag_id}", tagHandler.GetTagHandler)
 	huma.Get(rc.API, "/tags/{tag_id}/detail", tagHandler.GetTagDetailHandler)
 	huma.Get(rc.API, "/tags/{tag_id}/aliases", tagHandler.ListAliasesHandler)

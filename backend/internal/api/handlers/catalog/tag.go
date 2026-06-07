@@ -151,6 +151,72 @@ func (h *TagHandler) GetTagDetailHandler(ctx context.Context, req *GetTagDetailR
 }
 
 // ============================================================================
+// Tag Intersection (public) — cross-entity multi-tag intersection (PSY-995)
+// ============================================================================
+
+// intersectionPreviewLimitDefault / Max bound the per-type preview slice.
+const (
+	intersectionPreviewLimitDefault = 4
+	intersectionPreviewLimitMax     = 12
+	intersectionMinTags             = 2
+)
+
+type GetTagIntersectionRequest struct {
+	Tags         string `query:"tags" doc:"Comma-separated tag slugs (>= 2)" example:"shoegaze,ambient"`
+	TagMatch     string `query:"tag_match" required:"false" doc:"all (AND, default) | any (OR)" example:"all"`
+	PreviewLimit int    `query:"preview_limit" required:"false" minimum:"1" maximum:"12" doc:"Per-type preview size (default 4, max 12)" example:"4"`
+}
+
+type GetTagIntersectionResponse struct {
+	Body *contracts.TagIntersectionResponse
+}
+
+// GetTagIntersectionHandler returns entities matching a tag intersection,
+// grouped by entity type with a per-type count + preview (PSY-995). Direct
+// types (artist/release/label/venue/collection) match on their own
+// entity_tags; transitive types (show/festival) match via a billed artist's
+// tags. Each group's "show all" is built client-side from
+// /{entity_type}?tags=<slugs>&tag_match=<match>.
+func (h *TagHandler) GetTagIntersectionHandler(ctx context.Context, req *GetTagIntersectionRequest) (*GetTagIntersectionResponse, error) {
+	filter := parseTagFilter(req.Tags, req.TagMatch)
+	if len(filter.TagSlugs) < intersectionMinTags {
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("at least %d distinct tags are required", intersectionMinTags),
+		)
+	}
+
+	// Resolve every slug up front; an unknown slug is a 400 so the caller fixes
+	// the URL rather than silently getting all-zero groups. Resolution is
+	// slug-only (not the ID-or-slug resolveTag) because the contract is
+	// slug-based and the downstream filter matches on LOWER(tags.slug) — a
+	// numeric ID would resolve here but match nothing in the intersection.
+	for _, slug := range filter.TagSlugs {
+		tag, err := h.tagService.GetTagBySlug(slug)
+		if err != nil {
+			return nil, huma.Error500InternalServerError("Failed to resolve tag")
+		}
+		if tag == nil {
+			return nil, huma.Error400BadRequest(fmt.Sprintf("unknown tag: %s", slug))
+		}
+	}
+
+	previewLimit := req.PreviewLimit
+	if previewLimit <= 0 {
+		previewLimit = intersectionPreviewLimitDefault
+	}
+	if previewLimit > intersectionPreviewLimitMax {
+		previewLimit = intersectionPreviewLimitMax
+	}
+
+	result, err := h.tagService.IntersectEntitiesByTags(filter.TagSlugs, filter.MatchAny, previewLimit)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to compute tag intersection")
+	}
+
+	return &GetTagIntersectionResponse{Body: result}, nil
+}
+
+// ============================================================================
 // List Tagged Entities (public)
 // ============================================================================
 

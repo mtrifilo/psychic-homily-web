@@ -3331,6 +3331,7 @@ type MockTagService struct {
 	GetGenreHierarchyFn        func() ([]*catalogm.Tag, error)
 	SetTagParentFn             func(uint, *uint, uint) error
 	GetTagEntitiesFn           func(uint, string, int, int) ([]contracts.TaggedEntityItem, int64, error)
+	IntersectEntitiesByTagsFn  func([]string, bool, int) (*contracts.TagIntersectionResponse, error)
 	GetTagDetailFn             func(uint) (*contracts.TagDetailResponse, error)
 	GetLowQualityTagQueueFn    func(int, int) (*contracts.LowQualityTagQueueResponse, error)
 	SnoozeLowQualityTagFn      func(uint, uint) error
@@ -3483,6 +3484,12 @@ func (m *MockTagService) GetTagEntities(tagID uint, entityType string, limit int
 		return m.GetTagEntitiesFn(tagID, entityType, limit, offset)
 	}
 	return nil, 0, nil
+}
+func (m *MockTagService) IntersectEntitiesByTags(tagSlugs []string, matchAny bool, previewLimit int) (*contracts.TagIntersectionResponse, error) {
+	if m.IntersectEntitiesByTagsFn != nil {
+		return m.IntersectEntitiesByTagsFn(tagSlugs, matchAny, previewLimit)
+	}
+	return nil, nil
 }
 func (m *MockTagService) GetTagDetail(tagID uint) (*contracts.TagDetailResponse, error) {
 	if m.GetTagDetailFn != nil {
