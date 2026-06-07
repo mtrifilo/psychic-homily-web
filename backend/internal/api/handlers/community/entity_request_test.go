@@ -299,6 +299,34 @@ func TestCreateEntityRequest_AutoApprove_FulfillFails(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 500)
 }
 
+// A catalog "already exists" conflict on the auto-approve create path maps to
+// 409, NOT 500 — inline create-and-add of an entity that already exists is a
+// benign conflict, not a server fault. (Regression guard for the adversarial
+// finding that catalog errors fell through to 500.)
+func TestCreateEntityRequest_AutoApprove_ExistsConflictIs409(t *testing.T) {
+	approved := approvedRequest(16, "artist")
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				return approved, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				return nil, apperrors.ErrArtistExists("Boris")
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+	_, err := h.CreateEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
 // source_detail is normalized (trimmed, empties dropped) and marshalled through
 // to the service so the admin queue can show the AI source context.
 func TestCreateEntityRequest_SourceDetailPassthrough(t *testing.T) {
@@ -615,6 +643,32 @@ func TestAdminDecide_ApproveFulfillFails(t *testing.T) {
 	req.Body.Decision = "approved"
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// A catalog "already exists" conflict on admin approve maps to 409, not 500
+// (regression guard for the adversarial finding).
+func TestAdminDecide_ApproveExistsConflictIs409(t *testing.T) {
+	decided := pendingRequest(18, "artist")
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				return nil, apperrors.ErrArtistExists("Boris")
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "18"}
+	req.Body.Decision = "approved"
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 // ============================================================================

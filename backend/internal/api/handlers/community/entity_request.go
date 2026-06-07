@@ -168,7 +168,10 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 					"entity_type", created.EntityType,
 					"error", ferr.Error(),
 				)
-				if mapped := shared.MapEntityRequestError(ferr); mapped != nil {
+				// A duplicate catalog entity (e.g. ArtistExists) maps to 409 here,
+				// not 500 — inline create-and-add of an already-existing entity is
+				// a benign conflict, not a server fault.
+				if mapped := mapFulfillmentError(ferr); mapped != nil {
 					return nil, mapped
 				}
 				return nil, huma.Error500InternalServerError("Request approved but creating the entity failed: " + ferr.Error())
@@ -341,15 +344,15 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 			// The row is already approved (claimed). Surface the fulfillment
 			// failure so the admin knows the entity was NOT created and can act,
 			// rather than silently returning success. FulfillUnsupported
-			// (show/festival) maps to a 422 via MapEntityRequestError so the
-			// admin creates those manually (PSY-998).
+			// (show/festival) maps to 422 and a duplicate catalog entity to 409
+			// via mapFulfillmentError; only an unrecognized fault falls to 500.
 			logger.FromContext(ctx).Error("entity_request_fulfill_failed",
 				"request_id", requestID,
 				"admin_id", admin.ID,
 				"entity_type", decided.EntityType,
 				"error", err.Error(),
 			)
-			if mapped := shared.MapEntityRequestError(err); mapped != nil {
+			if mapped := mapFulfillmentError(err); mapped != nil {
 				return nil, mapped
 			}
 			return nil, huma.Error500InternalServerError("Request approved but creating the entity failed: " + err.Error())

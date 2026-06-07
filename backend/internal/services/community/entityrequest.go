@@ -149,6 +149,14 @@ func (s *EntityRequestService) CreateRequest(
 		// so only pending rows can collide; this never masks a clash on an
 		// already-decided row.
 		if servicesshared.IsDuplicateKey(err) {
+			// ferr is intentionally swallowed in favor of the original create
+			// error: if the lookup fails OR finds nothing, we fall through to the
+			// wrapped duplicate-key error below. The find returns nothing only in
+			// a narrow race — the colliding pending row was decided (→ no longer
+			// 'pending', so the partial index no longer covers it) between the
+			// constraint violation and this lookup. That yields a rare transient
+			// error the caller can simply retry (a retry would now succeed), not a
+			// data fault.
 			if existing, ferr := s.findPendingDuplicate(entityType, user.ID, payload); ferr == nil && existing != nil {
 				return existing, nil
 			}

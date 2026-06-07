@@ -3,6 +3,7 @@ package community
 import (
 	"errors"
 
+	"psychic-homily-backend/internal/api/handlers/shared"
 	apperrors "psychic-homily-backend/internal/errors"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
@@ -22,6 +23,33 @@ func isFulfillUnsupported(err error) bool {
 		return reqErr.Code == apperrors.CodeEntityRequestFulfillUnsupported
 	}
 	return false
+}
+
+// mapFulfillmentError maps an error from fulfilling a request's payload into a
+// catalog entity to the right HTTP status. fulfillEntity surfaces two error
+// families: request-level errors (FulfillUnsupported → 422, payload corruption
+// → 500, via MapEntityRequestError) and catalog-service errors bubbled up from
+// the create (e.g. ArtistExists / LabelExists / ReleaseExists → 409). Without
+// the catalog mappers, a benign "already exists" conflict on the inline
+// create-and-add path would surface as a 500 leaking the internal error code.
+// Returns nil when err is none of these so the caller falls back to a 500.
+func mapFulfillmentError(err error) error {
+	if mapped := shared.MapEntityRequestError(err); mapped != nil {
+		return mapped
+	}
+	if mapped := shared.MapArtistError(err); mapped != nil {
+		return mapped
+	}
+	if mapped := shared.MapVenueError(err); mapped != nil {
+		return mapped
+	}
+	if mapped := shared.MapLabelError(err); mapped != nil {
+		return mapped
+	}
+	if mapped := shared.MapReleaseError(err); mapped != nil {
+		return mapped
+	}
+	return nil
 }
 
 // PSY-997: fulfillment dispatcher — turns an approved entity_request's typed
