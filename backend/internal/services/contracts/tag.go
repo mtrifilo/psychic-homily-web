@@ -196,6 +196,35 @@ type TagIntersectionResponse struct {
 	Groups   []TagIntersectionGroup `json:"groups"`
 }
 
+// Intersection preview-limit policy (PSY-995) — the single source of truth
+// shared by the handler (which clamps the request value) and the service
+// (which floors a non-positive value for direct, non-HTTP callers). Keep the
+// handler's `maximum:"12"` query-param schema tag in sync with
+// MaxIntersectionPreviewLimit.
+const (
+	DefaultIntersectionPreviewLimit = 4
+	MaxIntersectionPreviewLimit     = 12
+)
+
+// ClampIntersectionPreviewLimit applies the default (for non-positive input)
+// and the upper bound.
+func ClampIntersectionPreviewLimit(n int) int {
+	if n <= 0 {
+		return DefaultIntersectionPreviewLimit
+	}
+	if n > MaxIntersectionPreviewLimit {
+		return MaxIntersectionPreviewLimit
+	}
+	return n
+}
+
+// UnknownTagSlugError is returned by IntersectEntitiesByTags when a requested
+// tag slug does not resolve to an existing tag. The handler maps it to a 400
+// (naming the offending slug) rather than a 500, so the caller can fix the URL.
+type UnknownTagSlugError struct{ Slug string }
+
+func (e *UnknownTagSlugError) Error() string { return "unknown tag slug: " + e.Slug }
+
 // TagAliasResponse represents a tag alias returned to clients.
 type TagAliasResponse struct {
 	ID        uint      `json:"id"`
@@ -346,9 +375,9 @@ type TagServiceInterface interface {
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
 
 	// Cross-entity tag intersection (PSY-995): entities matching ≥2 tags,
-	// grouped by entity type with per-type count + preview. tagSlugs must
-	// already be resolved against `tags`; unknown slugs are the caller's
-	// responsibility to reject. matchAny=false ⇒ AND, true ⇒ OR.
+	// grouped by entity type with per-type count + preview. Validates the slugs
+	// itself — an unknown slug returns *UnknownTagSlugError (the handler maps it
+	// to 400). matchAny=false ⇒ AND, true ⇒ OR.
 	IntersectEntitiesByTags(tagSlugs []string, matchAny bool, previewLimit int) (*TagIntersectionResponse, error)
 
 	// Tag detail enrichment

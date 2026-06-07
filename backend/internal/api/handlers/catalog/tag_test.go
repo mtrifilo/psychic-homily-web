@@ -103,13 +103,22 @@ func TestGetTagIntersection_DuplicateCollapsesBelowTwo(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
+func TestGetTagIntersection_TooManyTags(t *testing.T) {
+	// More than intersectionMaxTags (10) distinct slugs → 400 before the service
+	// is touched, bounding fan-out on this public endpoint.
+	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{
+		Tags: "t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11",
+	})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
 func TestGetTagIntersection_UnknownTag(t *testing.T) {
+	// The service resolves + validates slugs in one batched query and returns a
+	// typed UnknownTagSlugError for a ghost slug; the handler maps it to 400.
 	mock := &testhelpers.MockTagService{
-		GetTagBySlugFn: func(slug string) (*catalogm.Tag, error) {
-			if slug == "shoegaze" {
-				return &catalogm.Tag{ID: 1, Slug: slug}, nil
-			}
-			return nil, nil // ghost slug → unknown
+		IntersectEntitiesByTagsFn: func(_ []string, _ bool, _ int) (*contracts.TagIntersectionResponse, error) {
+			return nil, &contracts.UnknownTagSlugError{Slug: "ghost"}
 		},
 	}
 	h := NewTagHandler(mock, nil)
@@ -120,9 +129,6 @@ func TestGetTagIntersection_UnknownTag(t *testing.T) {
 func TestGetTagIntersection_PreviewLimitClampedToMax(t *testing.T) {
 	var gotLimit int
 	mock := &testhelpers.MockTagService{
-		GetTagBySlugFn: func(slug string) (*catalogm.Tag, error) {
-			return &catalogm.Tag{ID: 1, Slug: slug}, nil
-		},
 		IntersectEntitiesByTagsFn: func(_ []string, _ bool, previewLimit int) (*contracts.TagIntersectionResponse, error) {
 			gotLimit = previewLimit
 			return &contracts.TagIntersectionResponse{TagMatch: "all"}, nil
@@ -136,8 +142,8 @@ func TestGetTagIntersection_PreviewLimitClampedToMax(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotLimit != intersectionPreviewLimitMax {
-		t.Errorf("expected preview_limit clamped to %d, got %d", intersectionPreviewLimitMax, gotLimit)
+	if gotLimit != contracts.MaxIntersectionPreviewLimit {
+		t.Errorf("expected preview_limit clamped to %d, got %d", contracts.MaxIntersectionPreviewLimit, gotLimit)
 	}
 }
 
@@ -145,9 +151,6 @@ func TestGetTagIntersection_DefaultPreviewLimitAndMatch(t *testing.T) {
 	var gotLimit int
 	var gotMatchAny bool
 	mock := &testhelpers.MockTagService{
-		GetTagBySlugFn: func(slug string) (*catalogm.Tag, error) {
-			return &catalogm.Tag{ID: 1, Slug: slug}, nil
-		},
 		IntersectEntitiesByTagsFn: func(_ []string, matchAny bool, previewLimit int) (*contracts.TagIntersectionResponse, error) {
 			gotLimit = previewLimit
 			gotMatchAny = matchAny
@@ -159,8 +162,8 @@ func TestGetTagIntersection_DefaultPreviewLimitAndMatch(t *testing.T) {
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if gotLimit != intersectionPreviewLimitDefault {
-		t.Errorf("expected default preview_limit %d, got %d", intersectionPreviewLimitDefault, gotLimit)
+	if gotLimit != contracts.DefaultIntersectionPreviewLimit {
+		t.Errorf("expected default preview_limit %d, got %d", contracts.DefaultIntersectionPreviewLimit, gotLimit)
 	}
 	if gotMatchAny {
 		t.Errorf("expected AND (matchAny=false) by default")
@@ -170,9 +173,6 @@ func TestGetTagIntersection_DefaultPreviewLimitAndMatch(t *testing.T) {
 func TestGetTagIntersection_AnyMatch(t *testing.T) {
 	var gotMatchAny bool
 	mock := &testhelpers.MockTagService{
-		GetTagBySlugFn: func(slug string) (*catalogm.Tag, error) {
-			return &catalogm.Tag{ID: 1, Slug: slug}, nil
-		},
 		IntersectEntitiesByTagsFn: func(_ []string, matchAny bool, _ int) (*contracts.TagIntersectionResponse, error) {
 			gotMatchAny = matchAny
 			return &contracts.TagIntersectionResponse{TagMatch: "any"}, nil
@@ -190,9 +190,6 @@ func TestGetTagIntersection_AnyMatch(t *testing.T) {
 
 func TestGetTagIntersection_ServiceError(t *testing.T) {
 	mock := &testhelpers.MockTagService{
-		GetTagBySlugFn: func(slug string) (*catalogm.Tag, error) {
-			return &catalogm.Tag{ID: 1, Slug: slug}, nil
-		},
 		IntersectEntitiesByTagsFn: func(_ []string, _ bool, _ int) (*contracts.TagIntersectionResponse, error) {
 			return nil, fmt.Errorf("db error")
 		},

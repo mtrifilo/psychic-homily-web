@@ -204,6 +204,44 @@ func (s *TagIntersectionIntegrationTestSuite) TestIntersection_CompleteKeysetAnd
 	s.Equal(int64(0), counts["collection"])
 }
 
+// TestIntersection_DirectReleaseAndLabel exercises the two direct types that no
+// other test reaches — release and label — so their count, enrich hydration,
+// and bespoke preview ORDER BY ("releases.release_year DESC NULLS LAST" and
+// "labels.name ASC") run against real rows rather than only zero-count
+// short-circuits.
+func (s *TagIntersectionIntegrationTestSuite) TestIntersection_DirectReleaseAndLabel() {
+	rBoth := s.seedRelease("RBoth")
+	rOne := s.seedRelease("ROne")
+	s.tag("release", rBoth, "shoegaze")
+	s.tag("release", rBoth, "electronic")
+	s.tag("release", rOne, "shoegaze")
+
+	lBoth := s.seedLabel("LBoth")
+	lOne := s.seedLabel("LOne")
+	s.tag("label", lBoth, "shoegaze")
+	s.tag("label", lBoth, "electronic")
+	s.tag("label", lOne, "electronic")
+
+	resp, err := s.tagService.IntersectEntitiesByTags([]string{"shoegaze", "electronic"}, false, 4)
+	s.Require().NoError(err)
+	groups := map[string]contracts.TagIntersectionGroup{}
+	for _, g := range resp.Groups {
+		groups[g.EntityType] = g
+	}
+
+	// AND ⇒ only the doubly-tagged row in each type; the preview is hydrated
+	// (exercises the per-type ORDER BY + enrich helper).
+	s.Equal(int64(1), groups["release"].Count, "AND release: only the doubly-tagged release")
+	s.Require().Len(groups["release"].Preview, 1)
+	s.Equal("release", groups["release"].Preview[0].EntityType)
+	s.NotEmpty(groups["release"].Preview[0].Name, "release preview hydrated via enrichReleases")
+
+	s.Equal(int64(1), groups["label"].Count, "AND label: only the doubly-tagged label")
+	s.Require().Len(groups["label"].Preview, 1)
+	s.Equal("label", groups["label"].Preview[0].EntityType)
+	s.NotEmpty(groups["label"].Preview[0].Name, "label preview hydrated via enrichLabels")
+}
+
 // TestIntersection_AND_vs_OR_MixDirectAndTransitive: AND requires all tags;
 // OR requires any. Mixes a direct type (artist) and a transitive type (show).
 func (s *TagIntersectionIntegrationTestSuite) TestIntersection_AND_vs_OR_MixDirectAndTransitive() {
