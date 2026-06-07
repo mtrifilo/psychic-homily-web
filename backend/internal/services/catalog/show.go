@@ -316,6 +316,14 @@ func (s *ShowService) GetShows(filters map[string]interface{}) ([]*contracts.Sho
 	if state, ok := filters["state"].(string); ok && state != "" {
 		query = query.Where("state = ?", state)
 	}
+	// Timezone note (PSY-987): from_date/to_date are matched against the stored
+	// UTC event_date verbatim — this endpoint does NOT reinterpret a bare
+	// calendar date into a venue-local day window. Callers that want a
+	// "venue-local calendar day" window must convert the boundaries to UTC
+	// themselves before calling, the way the ph CLI's showDedupWindow does
+	// (PSY-999): a date-only show is stored at 20:00 venue-local -> UTC, which
+	// lands on the next UTC day for US zones, so a naive midnight-UTC window
+	// would miss it.
 	if fromDate, ok := filters["from_date"].(time.Time); ok {
 		query = query.Where("event_date >= ?", fromDate.UTC())
 	}

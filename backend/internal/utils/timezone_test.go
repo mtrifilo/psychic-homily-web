@@ -18,6 +18,37 @@ func TestGetTimezoneForState_KnownStates(t *testing.T) {
 	assert.Equal(t, "America/New_York", GetTimezoneForState("NY"))
 }
 
+// The map must cover all 50 states + DC (PSY-987/PSY-1009). A short map that
+// defaulted unmapped states to Phoenix would reintroduce the venue-timezone
+// backfill corruption (a correctly-stored explicit-time show reading as a false
+// 20:00 Phoenix default). Spot-check representative states across every zone.
+func TestGetTimezoneForState_FullMapCoverage(t *testing.T) {
+	cases := map[string]string{
+		"WA": "America/Los_Angeles",          // Pacific
+		"OR": "America/Los_Angeles",          // Pacific
+		"ID": "America/Boise",                // Mountain (distinct zone)
+		"MT": "America/Denver",               // Mountain
+		"UT": "America/Denver",               // Mountain
+		"WI": "America/Chicago",              // Central
+		"TN": "America/Chicago",              // Central
+		"MO": "America/Chicago",              // Central
+		"IN": "America/Indiana/Indianapolis", // Eastern-ish (distinct zone)
+		"FL": "America/New_York",             // Eastern
+		"GA": "America/New_York",             // Eastern
+		"MA": "America/New_York",             // Eastern
+		"MI": "America/New_York",             // Eastern
+		"DC": "America/New_York",             // Eastern (district)
+		"KY": "America/New_York",             // split-state, predominant Eastern
+		"AK": "America/Anchorage",            // non-contiguous
+		"HI": "Pacific/Honolulu",             // non-contiguous
+	}
+	for state, want := range cases {
+		assert.Equalf(t, want, GetTimezoneForState(state), "state %s", state)
+	}
+	// All 50 states + DC must resolve to a real (non-default) entry.
+	assert.Len(t, StateTimezones, 51, "expected 50 states + DC")
+}
+
 func TestGetTimezoneForState_CaseInsensitive(t *testing.T) {
 	assert.Equal(t, "America/Phoenix", GetTimezoneForState("az"))
 	assert.Equal(t, "America/Los_Angeles", GetTimezoneForState("ca"))

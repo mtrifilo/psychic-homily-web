@@ -6,6 +6,10 @@ import (
 	"testing"
 	"time"
 
+	// Embed the IANA tz database so LoadLocation works in any CI image.
+	// Test-only — not linked into the server.
+	_ "time/tzdata"
+
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/suite"
 	"gorm.io/gorm"
@@ -81,6 +85,49 @@ func TestGenerateICSFeed_Format(t *testing.T) {
 	assert.Contains(t, unfolded, "Artist Two")
 	assert.Contains(t, icsStr, "https://psychichomily.com/shows/test-show")
 	assert.Contains(t, icsStr, "METHOD:PUBLISH")
+}
+
+func TestGenerateICSFeed_VenueLocalTime(t *testing.T) {
+	nyLoc, err := time.LoadLocation("America/New_York")
+	assert.NoError(t, err)
+	nyTzid := "America/New_York"
+
+	// A future instant so the 30-day-past cutoff never filters it, regardless
+	// of the wall clock running the test.
+	eventDate := time.Now().Add(48 * time.Hour)
+	expectedLocal := eventDate.In(nyLoc).Format("20060102T150405")
+	expectedEnd := eventDate.In(nyLoc).Add(defaultShowDuration).Format("20060102T150405")
+
+	mockShows := []*contracts.SavedShowResponse{
+		{
+			ShowResponse: contracts.ShowResponse{
+				ID:        7,
+				Slug:      "ny-show",
+				Title:     "NY Show",
+				EventDate: eventDate,
+				Status:    "approved",
+				Venues: []contracts.VenueResponse{
+					{ID: 1, Name: "Brooklyn Steel", City: "Brooklyn", State: "NY", Timezone: ptrString(nyTzid)},
+				},
+				CreatedAt: time.Now(),
+				UpdatedAt: time.Now(),
+			},
+		},
+	}
+	mockSvc := &mockSavedShowSvc{shows: mockShows, total: 1}
+
+	svc := &CalendarService{db: &gorm.DB{}, savedShowSvc: mockSvc}
+	data, err := svc.GenerateICSFeed(1, "https://psychichomily.com")
+	assert.NoError(t, err)
+
+	icsStr := string(data)
+	// DTSTART/DTEND must carry the venue's IANA TZID and the venue-local time,
+	// not a bare UTC instant (which a calendar client would re-shift into the
+	// viewer's own zone).
+	assert.Contains(t, icsStr, "DTSTART;TZID="+nyTzid+":"+expectedLocal)
+	assert.Contains(t, icsStr, "DTEND;TZID="+nyTzid+":"+expectedEnd)
+	// No floating/UTC DTSTART form for this event.
+	assert.NotContains(t, icsStr, "DTSTART:"+eventDate.UTC().Format("20060102T150405")+"Z")
 }
 
 func TestGenerateICSFeed_SoldOutLabel(t *testing.T) {
