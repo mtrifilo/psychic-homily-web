@@ -134,6 +134,8 @@ export function ArtistList() {
         )}
       </div>
 
+      {/* Mobile: Sheet trigger + density toggle. Desktop hides the Sheet (the
+          bar below takes over) but keeps the density toggle on this row. */}
       <div className="flex items-center justify-between mb-4 gap-2">
         <TagFacetSheet
           selectedSlugs={selectedTags}
@@ -145,57 +147,58 @@ export function ArtistList() {
         <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <aside className="hidden lg:block lg:w-64 lg:shrink-0">
-          <TagFacetPanel
-            selectedSlugs={selectedTags}
-            onToggle={handleTagsChange}
-            onClear={handleTagsClear}
-            heading="Filter artists by tag"
-            entityType="artist"
-          />
-        </aside>
+      {/* PSY-1001: full-width top-bar tag filter above a full-width list (no
+          left rail). Desktop only — mobile uses the Sheet trigger above. */}
+      <div className="mb-4 hidden lg:block">
+        <TagFacetPanel
+          selectedSlugs={selectedTags}
+          onToggle={handleTagsChange}
+          onClear={handleTagsClear}
+          heading="Filter artists by tag"
+          entityType="artist"
+          layout="bar"
+        />
+      </div>
 
-        <div className={`flex-1 min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
-          <p className="mb-3 text-sm text-muted-foreground" data-testid="artist-count">
-            {artists.length} {artists.length === 1 ? 'artist' : 'artists'}
-            {hasTagFilter && ` matching ${selectedTags.join(', ')}`}
-          </p>
-          {artists.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p>
-                {hasAnyFilter
-                  ? 'No artists match the current filters.'
-                  : 'No artists available at this time.'}
-              </p>
-              {hasAnyFilter && (
-                <button
-                  onClick={() => {
-                    if (hasTagFilter) handleTagsClear()
-                    if (selectedCities.length > 0) handleFilterChange([])
-                  }}
-                  className="mt-4 text-primary hover:underline"
-                >
-                  Clear filters
-                </button>
-              )}
+      <div className={`min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
+        <p className="mb-3 text-sm text-muted-foreground" data-testid="artist-count">
+          {artists.length} {artists.length === 1 ? 'artist' : 'artists'}
+          {hasTagFilter && ` matching ${selectedTags.join(', ')}`}
+        </p>
+        {artists.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>
+              {hasAnyFilter
+                ? 'No artists match the current filters.'
+                : 'No artists available at this time.'}
+            </p>
+            {hasAnyFilter && (
+              <button
+                onClick={() => {
+                  if (hasTagFilter) handleTagsClear()
+                  if (selectedCities.length > 0) handleFilterChange([])
+                }}
+                className="mt-4 text-primary hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="@container">
+            <div className={
+              density === 'compact'
+                ? 'flex flex-col gap-px'
+                : density === 'expanded'
+                  ? 'grid grid-cols-1 gap-5'
+                  : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
+            }>
+              {artists.map(artist => (
+                <ArtistCard key={artist.id} artist={artist} density={density} />
+              ))}
             </div>
-          ) : (
-            <div className="@container">
-              <div className={
-                density === 'compact'
-                  ? 'flex flex-col gap-px'
-                  : density === 'expanded'
-                    ? 'grid grid-cols-1 gap-5'
-                    : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
-              }>
-                {artists.map(artist => (
-                  <ArtistCard key={artist.id} artist={artist} density={density} />
-                ))}
-              </div>
-            </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </section>
   )
