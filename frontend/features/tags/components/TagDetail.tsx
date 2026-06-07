@@ -301,9 +301,14 @@ function TagDetailContent({
       <RelatedTagsRail
         relatedTags={tag.related_tags ?? []}
         activeSlugs={intersectionSlugs}
-        onAddTag={(addSlug) =>
-          setAddedSlugs([...addedSlugs, addSlug.toLowerCase()])
-        }
+        onAddTag={(addSlug) => {
+          const normalized = addSlug.toLowerCase()
+          // Guard against re-adding an already-active tag (would write a
+          // `?with=ambient,ambient` URL). The backend dedupes anyway, but a
+          // clean URL keeps the chip UI honest.
+          if (normalized === slug || addedSlugs.includes(normalized)) return
+          setAddedSlugs([...addedSlugs, normalized])
+        }}
       />
     </div>
   )

@@ -153,8 +153,10 @@ export function getRowFields(item: TaggedEntityItem): RowFields {
         metric: null,
       }
     default:
+      // Unknown entity type — link via getEntityUrl (returns '#' for types it
+      // doesn't know) and show the bare name so we never silently drop a row.
       return {
-        href: href === '#' ? getEntityUrl(item.entity_type, item.slug) : href,
+        href,
         primary: item.name,
         secondary: [],
         metric: null,
