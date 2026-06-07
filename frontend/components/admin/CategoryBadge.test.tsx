@@ -38,4 +38,16 @@ describe('CategoryBadge', () => {
     const badge = screen.getByText('Edit').closest('div')
     expect(badge).toHaveClass('shrink-0', 'ml-2')
   })
+
+  // PSY-871: the Request kind honors the locked purple (#a855f7); the chart
+  // palette has no second purple besides comment's plum, so this stays a raw
+  // tint until PSY-872 token-ifies the moderation palette.
+  it('renders the Request kind with the purple tint and an icon', () => {
+    const { container } = render(<CategoryBadge kind="request" />)
+
+    const badge = screen.getByText('Request').closest('div')
+    expect(badge?.className).toContain('#a855f7')
+    expect(badge?.className).toContain('text-[#7e22ce]')
+    expect(container.querySelector('svg')).toBeInTheDocument()
+  })
 })

@@ -216,6 +216,14 @@ export const API_ENDPOINTS = {
       DISMISS: (reportId: string | number) =>
         `${API_BASE_URL}/admin/entity-reports/${reportId}/dismiss`,
     },
+    // PSY-871: queued entity-creation requests (entity_requests). LIST powers
+    // the 4th moderation-queue card type; DECIDE approves (→ creates the
+    // entity, PSY-1008) or rejects with a note.
+    ENTITY_REQUESTS: {
+      LIST: `${API_BASE_URL}/admin/entity-requests`,
+      DECIDE: (requestId: string | number) =>
+        `${API_BASE_URL}/admin/entity-requests/${requestId}/decide`,
+    },
     PIPELINE: {
       VENUES: `${API_BASE_URL}/admin/pipeline/venues`,
       IMPORTS: `${API_BASE_URL}/admin/pipeline/imports`,

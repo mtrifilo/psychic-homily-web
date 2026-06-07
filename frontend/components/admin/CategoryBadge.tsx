@@ -1,4 +1,4 @@
-import { Pencil, Flag, MessageSquare, type LucideIcon } from 'lucide-react'
+import { Pencil, Flag, MessageSquare, PlusCircle, type LucideIcon } from 'lucide-react'
 
 import { Badge } from '@/components/ui/badge'
 import { cn } from '@/lib/utils'
@@ -7,7 +7,7 @@ import { cn } from '@/lib/utils'
  * Moderation "kind" of a queue item. Drives the colored category badge on
  * each moderation card.
  */
-export type AdminCategoryKind = 'edit' | 'report' | 'comment'
+export type AdminCategoryKind = 'edit' | 'report' | 'comment' | 'request'
 
 interface KindConfig {
   label: string
@@ -37,6 +37,17 @@ const KIND_CONFIG: Record<AdminCategoryKind, KindConfig> = {
     label: 'Comment',
     icon: MessageSquare,
     tone: 'bg-chart-7/10 text-chart-7 border-chart-7/30',
+  },
+  // PSY-871: "Request" (queued entity CREATION). Purple "make new thing" tint,
+  // locked in the design decision (#5) as distinct from edit/report/comment.
+  // The categorical --chart-* palette has no second purple (chart-7 plum is
+  // comment's), so this honors the locked purple via a raw hex with a dark
+  // variant. Token-ifying the moderation palette (so all four kinds bind to
+  // --chart-* uniformly) is scoped to PSY-872's admin cohesion pass (#8).
+  request: {
+    label: 'Request',
+    icon: PlusCircle,
+    tone: 'bg-[#a855f7]/10 text-[#7e22ce] border-[#a855f7]/30 dark:text-[#c084fc] dark:border-[#a855f7]/40',
   },
 }
 

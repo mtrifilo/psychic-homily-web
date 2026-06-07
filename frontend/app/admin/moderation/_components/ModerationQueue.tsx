@@ -8,6 +8,7 @@ import {
   ChevronRight,
   ExternalLink,
   History,
+  PlusCircle,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardContent } from '@/components/ui/card'
@@ -35,11 +36,16 @@ import {
   useAdminRejectComment,
   useAdminHideComment,
 } from '@/lib/hooks/admin/useAdminComments'
+import {
+  useAdminEntityRequests,
+  useDecideEntityRequest,
+} from '@/lib/hooks/admin/useAdminEntityRequests'
 import { CommentEditHistory } from '@/features/comments'
 import { EntitySaveSuccessBanner } from '@/features/contributions'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
 import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
+import type { AdminEntityRequest } from '@/lib/hooks/admin/useAdminEntityRequests'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -106,7 +112,7 @@ function renderValue(value: unknown): string {
 
 // ─── Filter Types ────────────────────────────────────────────────────────────
 
-type ItemTypeFilter = 'all' | 'edits' | 'reports' | 'comments'
+type ItemTypeFilter = 'all' | 'edits' | 'reports' | 'comments' | 'requests'
 type EntityTypeFilter = '' | 'artist' | 'venue' | 'festival' | 'show' | 'collection' | 'release' | 'label'
 
 // ─── Unified Item Type ───────────────────────────────────────────────────────
@@ -115,6 +121,7 @@ type ModerationItem =
   | { type: 'edit'; data: PendingEditResponse }
   | { type: 'report'; data: EntityReportResponse }
   | { type: 'comment'; data: PendingComment }
+  | { type: 'request'; data: AdminEntityRequest }
 
 // ─── PSY-603: success banner state ───────────────────────────────────────────
 
@@ -256,6 +263,172 @@ function PendingEditCard({
         {(approveMutation.isError || rejectMutation.isError) && (
           <p className="mt-2 text-xs text-destructive">
             {(approveMutation.error || rejectMutation.error)?.message || 'Action failed'}
+          </p>
+        )}
+      </CardContent>
+    </Card>
+  )
+}
+
+// ─── Entity Request Card (PSY-871) ───────────────────────────────────────────
+
+/** Display label for a request: the payload's name/title, else a type fallback. */
+function requestEntityLabel(req: AdminEntityRequest): string {
+  const p = req.payload || {}
+  const name = p.name ?? p.title
+  if (typeof name === 'string' && name.trim()) return name
+  return `${entityTypeLabel(req.entity_type)} request`
+}
+
+function sourceContextLabel(source: string): string {
+  switch (source) {
+    case 'ai_extraction':
+      return 'AI extraction'
+    case 'paste_mode':
+      return 'paste'
+    case 'manual':
+      return 'manual'
+    default:
+      return source
+  }
+}
+
+// name/title are surfaced as the card header (requestEntityLabel), so the
+// preview omits them to avoid repeating the label — mirroring PendingEditCard,
+// whose preview shows the changes, not the already-headed entity name.
+const PREVIEW_OMIT_KEYS = new Set(['name', 'title'])
+
+/** Non-header payload fields as [key, displayValue] pairs for the preview box. */
+function payloadPreviewEntries(payload: Record<string, unknown>): Array<[string, string]> {
+  return Object.entries(payload || {})
+    .filter(([k, v]) => !PREVIEW_OMIT_KEYS.has(k) && v !== null && v !== undefined && v !== '')
+    .map(
+      ([k, v]) => [k, typeof v === 'object' ? JSON.stringify(v) : String(v)] as [string, string]
+    )
+}
+
+/**
+ * The 4th moderation card type: a queued entity-CREATION request. Mirrors
+ * PendingEditCard's structure (meta row → attribution/source → preview →
+ * action row) so admins keep one scan path. "Create" approves the request →
+ * the backend creates the catalog entity (PSY-1008); "Reject" expands the
+ * shared required-reason textarea. No entity link in the header — the entity
+ * does not exist yet.
+ */
+function RequestCard({
+  request,
+  onActionSuccess,
+}: {
+  request: AdminEntityRequest
+  onActionSuccess: (action: ModerationAction) => void
+}) {
+  const decideMutation = useDecideEntityRequest()
+  const isActioning = decideMutation.isPending
+  // One mutation drives both actions; key each spinner off which decision is in
+  // flight so only the active button spins (the two-mutation cards get this for
+  // free; here we read the mutation's in-flight variables).
+  const pendingDecision = isActioning ? decideMutation.variables?.decision : undefined
+
+  const entityLabel = requestEntityLabel(request)
+  const previewEntries = payloadPreviewEntries(request.payload)
+
+  const handleCreate = useCallback(() => {
+    decideMutation.mutate(
+      { id: request.id, decision: 'approved' },
+      { onSuccess: () => onActionSuccess({ verb: 'approved', entityLabel }) }
+    )
+  }, [decideMutation, request.id, onActionSuccess, entityLabel])
+
+  const handleReject = useCallback(
+    (reason: string) => {
+      decideMutation.mutate(
+        { id: request.id, decision: 'rejected', note: reason },
+        { onSuccess: () => onActionSuccess({ verb: 'rejected', entityLabel }) }
+      )
+    },
+    [decideMutation, request.id, onActionSuccess, entityLabel]
+  )
+
+  return (
+    <Card className="overflow-hidden">
+      <CardContent className="p-4">
+        {/* Header row — no entity link: the entity does not exist yet */}
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex items-center gap-2 min-w-0 flex-1">
+            <CategoryBadge kind="request" />
+            <Badge variant="outline" className="shrink-0">
+              {entityTypeLabel(request.entity_type)}
+            </Badge>
+            <span className="text-sm font-medium text-foreground truncate">
+              {entityLabel}
+            </span>
+          </div>
+          <span className="text-xs text-muted-foreground shrink-0">
+            {timeAgo(request.created_at)}
+          </span>
+        </div>
+
+        {/* Attribution + source context */}
+        <div className="mt-2 text-sm text-muted-foreground">
+          <span>
+            by{' '}
+            <UserAttribution
+              name={request.requester_name}
+              username={request.requester_username}
+            />
+          </span>
+          <span className="ml-1">
+            &middot; via {sourceContextLabel(request.source_context)}
+          </span>
+          {request.source_detail?.url && (
+            <a
+              href={request.source_detail.url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="ml-1 inline-flex items-center gap-0.5 hover:text-foreground hover:underline"
+            >
+              source
+              <ExternalLink className="h-3 w-3" />
+            </a>
+          )}
+        </div>
+
+        {/* Source excerpt (AI-extracted requests) */}
+        {request.source_detail?.excerpt && (
+          <p className="mt-1 text-xs italic text-muted-foreground line-clamp-2">
+            &ldquo;{request.source_detail.excerpt}&rdquo;
+          </p>
+        )}
+
+        {/* Payload preview — key:value monospace in a muted box. Always shown
+            (the request payload is small; the action is inline, not
+            expand-to-detail per the locked design). */}
+        {previewEntries.length > 0 && (
+          <div className="mt-2 space-y-0.5 rounded-md border bg-muted/30 p-3 text-xs font-mono">
+            {previewEntries.map(([key, value]) => (
+              <div key={key} className="flex gap-2">
+                <span className="text-muted-foreground">{key}:</span>
+                <span className="text-foreground break-all">{value}</span>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Create-immediate + reject-with-required-reason (same model as edits) */}
+        <RejectWithReasonRow
+          onApprove={handleCreate}
+          onReject={handleReject}
+          isActioning={isActioning}
+          isApproving={pendingDecision === 'approved'}
+          isRejecting={pendingDecision === 'rejected'}
+          approveLabel="Create"
+          approveIcon={PlusCircle}
+          rejectPlaceholder="Rejection reason (required) -- tell the requester why"
+        />
+
+        {decideMutation.isError && (
+          <p className="mt-2 text-xs text-destructive">
+            {decideMutation.error?.message || 'Action failed'}
           </p>
         )}
       </CardContent>
@@ -778,8 +951,19 @@ export function ModerationQueue() {
     error: commentsError,
   } = useAdminPendingComments()
 
-  const isLoading = editsLoading || reportsLoading || commentsLoading
-  const error = editsError || reportsError || commentsError
+  // Fetch pending entity-creation requests (PSY-871). Shares the entity_type
+  // filter; source_context is left unfiltered (the queue shows all origins).
+  const {
+    data: requestsData,
+    isLoading: requestsLoading,
+    error: requestsError,
+  } = useAdminEntityRequests({
+    state: 'pending',
+    entity_type: entityTypeFilter || undefined,
+  })
+
+  const isLoading = editsLoading || reportsLoading || commentsLoading || requestsLoading
+  const error = editsError || reportsError || commentsError || requestsError
 
   // Merge and sort items by created_at (oldest first for review fairness)
   const items = useMemo<ModerationItem[]>(() => {
@@ -796,8 +980,12 @@ export function ModerationQueue() {
       type: 'comment' as const,
       data: c,
     }))
+    const requestItems: ModerationItem[] = (requestsData?.requests || []).map(r => ({
+      type: 'request' as const,
+      data: r,
+    }))
 
-    let merged = [...editItems, ...reportItems, ...commentItems]
+    let merged = [...editItems, ...reportItems, ...commentItems, ...requestItems]
 
     // Apply item type filter
     if (itemTypeFilter === 'edits') {
@@ -806,6 +994,8 @@ export function ModerationQueue() {
       merged = merged.filter(i => i.type === 'report')
     } else if (itemTypeFilter === 'comments') {
       merged = merged.filter(i => i.type === 'comment')
+    } else if (itemTypeFilter === 'requests') {
+      merged = merged.filter(i => i.type === 'request')
     }
 
     // Sort oldest first (review fairness)
@@ -815,12 +1005,13 @@ export function ModerationQueue() {
     )
 
     return merged
-  }, [editsData, reportsData, commentsData, itemTypeFilter])
+  }, [editsData, reportsData, commentsData, requestsData, itemTypeFilter])
 
   const totalEdits = editsData?.total || 0
   const totalReports = reportsData?.total || 0
   const totalComments = commentsData?.total || 0
-  const totalItems = totalEdits + totalReports + totalComments
+  const totalRequests = requestsData?.total || 0
+  const totalItems = totalEdits + totalReports + totalComments + totalRequests
 
   if (isLoading) {
     return (
@@ -882,6 +1073,12 @@ export function ModerationQueue() {
             label="Comments"
             count={totalComments}
           />
+          <FilterButton
+            active={itemTypeFilter === 'requests'}
+            onClick={() => setItemTypeFilter('requests')}
+            label="Requests"
+            count={totalRequests}
+          />
         </div>
 
         {/* Entity type filter */}
@@ -918,7 +1115,9 @@ export function ModerationQueue() {
                 ? 'No pending entity reports to review.'
                 : itemTypeFilter === 'comments'
                   ? 'No pending comments to review.'
-                  : 'No items need moderation. Pending entity edits, reports, and comments will appear here when users submit them.'
+                  : itemTypeFilter === 'requests'
+                    ? 'No pending entity-creation requests to review.'
+                    : 'No items need moderation. Pending entity edits, reports, comments, and creation requests will appear here when users submit them.'
           }
         />
       )}
@@ -938,6 +1137,15 @@ export function ModerationQueue() {
             }
             if (item.type === 'comment') {
               return <PendingCommentCard key={`comment-${item.data.id}`} comment={item.data as PendingComment} />
+            }
+            if (item.type === 'request') {
+              return (
+                <RequestCard
+                  key={`request-${item.data.id}`}
+                  request={item.data as AdminEntityRequest}
+                  onActionSuccess={handleActionSuccess}
+                />
+              )
             }
             // Reports — type-specific cards for kinds that need bespoke
             // moderation actions (hide-comment, hide-collection); generic
