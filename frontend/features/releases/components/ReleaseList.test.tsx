@@ -41,8 +41,13 @@ vi.mock('@/components/shared', () => ({
   ),
 }))
 
+// Forward the `layout` prop into `data-layout` so tests can assert the
+// desktop panel renders as the top bar (PSY-1002) without re-testing the
+// real panel internals (covered by TagFacetPanel's own suite).
 vi.mock('@/features/tags', () => ({
-  TagFacetPanel: () => <div data-testid="tag-facet-panel" />,
+  TagFacetPanel: ({ layout }: { layout?: string }) => (
+    <div data-testid="tag-facet-panel" data-layout={layout ?? 'rail'} />
+  ),
   TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
   parseTagsParam: (s: string | null) => (s ? s.split(',').filter(Boolean) : []),
   buildTagsParam: (slugs: string[]) => slugs.join(','),
@@ -100,6 +105,16 @@ describe('ReleaseList', () => {
     renderWithProviders(<ReleaseList />)
     expect(screen.getByTestId('density-toggle')).toHaveTextContent(
       'comfortable'
+    )
+  })
+
+  it('renders the desktop tag filter as a top bar (PSY-1002)', () => {
+    renderWithProviders(<ReleaseList />)
+    // The desktop TagFacetPanel adopts the horizontal bar layout above a
+    // full-width list — no left rail. The mobile Sheet is unaffected.
+    expect(screen.getByTestId('tag-facet-panel')).toHaveAttribute(
+      'data-layout',
+      'bar'
     )
   })
 
