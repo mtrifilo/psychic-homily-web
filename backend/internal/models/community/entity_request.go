@@ -2,6 +2,7 @@ package community
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"psychic-homily-backend/internal/models/auth"
@@ -34,21 +35,63 @@ const (
 // *json.RawMessage (project convention for JSONB — datatypes.JSON is not in
 // go.mod; mirrors admin.AuditLog / admin.PendingEntityEdit).
 type EntityRequest struct {
-	ID            uint                       `json:"id" gorm:"primaryKey"`
-	EntityType    string                     `json:"entity_type" gorm:"column:entity_type;not null"`
-	Payload       *json.RawMessage           `json:"payload" gorm:"column:payload;type:jsonb;not null"`
-	RequesterID   uint                       `json:"requester_id" gorm:"column:requester_id;not null"`
-	SourceContext string                     `json:"source_context" gorm:"column:source_context;not null;default:'manual'"`
+	ID            uint             `json:"id" gorm:"primaryKey"`
+	EntityType    string           `json:"entity_type" gorm:"column:entity_type;not null"`
+	Payload       *json.RawMessage `json:"payload" gorm:"column:payload;type:jsonb;not null"`
+	RequesterID   uint             `json:"requester_id" gorm:"column:requester_id;not null"`
+	SourceContext string           `json:"source_context" gorm:"column:source_context;not null;default:'manual'"`
+	// SourceDetail (PSY-1008) is optional structured origin context — chiefly
+	// the AI source article URL + excerpt — stored opaquely as JSONB and typed
+	// in Go via EntityRequestSourceDetail. NULL for requests with no source
+	// context. Distinct from SourceContext (the origin enum discriminator).
+	SourceDetail  *json.RawMessage           `json:"source_detail,omitempty" gorm:"column:source_detail;type:jsonb"`
 	DecisionState EntityRequestDecisionState `json:"decision_state" gorm:"column:decision_state;not null;default:'pending'"`
 	DecidedBy     *uint                      `json:"decided_by,omitempty" gorm:"column:decided_by"`
 	DecidedAt     *time.Time                 `json:"decided_at,omitempty" gorm:"column:decided_at"`
 	DecisionNote  *string                    `json:"decision_note,omitempty" gorm:"column:decision_note"`
-	CreatedAt     time.Time                  `json:"created_at"`
-	UpdatedAt     time.Time                  `json:"updated_at"`
+	// CreatedEntityID (PSY-1008) is the catalog entity created when this request
+	// was fulfilled (auto-approve create or admin approve). Cross-type id keyed
+	// by EntityType (no FK). NULL while pending/rejected, or when an approval is
+	// orphaned (approved but fulfillment failed/deferred — e.g. show/festival).
+	CreatedEntityID *uint     `json:"created_entity_id,omitempty" gorm:"column:created_entity_id"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 
 	// Relationships
 	Requester auth.User  `json:"-" gorm:"foreignKey:RequesterID"`
 	Decider   *auth.User `json:"-" gorm:"foreignKey:DecidedBy"`
+}
+
+// EntityRequestSourceDetail is the typed shape of the source_detail JSONB
+// column (PSY-1008): the origin context a requester saw, primarily for
+// AI-extracted requests. Both fields are optional; an all-empty detail is
+// normalized to a nil column rather than an empty object (see Normalize).
+type EntityRequestSourceDetail struct {
+	URL     *string `json:"url,omitempty" doc:"Source article / page URL the request was extracted from"`
+	Excerpt *string `json:"excerpt,omitempty" doc:"Source text excerpt the request was extracted from"`
+}
+
+// Normalize trims both fields, drops them when empty, and reports whether any
+// content remains. A detail with no content after trimming returns ok=false so
+// the caller stores NULL instead of an empty {} object. Keeps the trust-boundary
+// cleanup in the model next to the struct it cleans.
+func (d *EntityRequestSourceDetail) Normalize() (clean EntityRequestSourceDetail, ok bool) {
+	if d == nil {
+		return EntityRequestSourceDetail{}, false
+	}
+	if d.URL != nil {
+		if t := strings.TrimSpace(*d.URL); t != "" {
+			clean.URL = &t
+			ok = true
+		}
+	}
+	if d.Excerpt != nil {
+		if t := strings.TrimSpace(*d.Excerpt); t != "" {
+			clean.Excerpt = &t
+			ok = true
+		}
+	}
+	return clean, ok
 }
 
 // TableName specifies the table name for EntityRequest.

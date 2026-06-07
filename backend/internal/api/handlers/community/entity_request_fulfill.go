@@ -1,10 +1,28 @@
 package community
 
 import (
+	"errors"
+
 	apperrors "psychic-homily-backend/internal/errors"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
 )
+
+// isFulfillUnsupported reports whether err is the typed "fulfillment
+// unsupported" error fulfillEntity returns for entity types whose catalog
+// Create contracts need associations the request payload doesn't carry
+// (show / festival; association-resolution tracked in PSY-998). Callers use it
+// to decide whether the error is fatal: the admin decide path surfaces it (422
+// → admin creates the entity manually), while the auto-approve create path
+// swallows it (the request is filed-and-approved; immediate creation is just
+// deferred).
+func isFulfillUnsupported(err error) bool {
+	var reqErr *apperrors.EntityRequestError
+	if errors.As(err, &reqErr) {
+		return reqErr.Code == apperrors.CodeEntityRequestFulfillUnsupported
+	}
+	return false
+}
 
 // PSY-997: fulfillment dispatcher — turns an approved entity_request's typed
 // payload into a real catalog entity via the narrow fulfiller interface.

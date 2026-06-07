@@ -59,12 +59,19 @@ func NewEntityRequestHandler(
 // the handler only enforces it is present + non-empty here.
 type CreateEntityRequestRequest struct {
 	Body struct {
-		EntityType    string          `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
-		Payload       json.RawMessage `json:"payload" doc:"Typed creation payload for the entity_type"`
-		SourceContext string          `json:"source_context" required:"false" doc:"How the request originated (ai_extraction, paste_mode, manual); defaults to manual"`
-		Confirmed     bool            `json:"confirmed" required:"false" doc:"FE-side confirm step (only relevant to trusted_contributor tier)"`
+		EntityType    string                                `json:"entity_type" doc:"Entity type to request (artist, venue, label, release, show, festival)"`
+		Payload       json.RawMessage                       `json:"payload" doc:"Typed creation payload for the entity_type"`
+		SourceContext string                                `json:"source_context" required:"false" doc:"How the request originated (ai_extraction, paste_mode, manual); defaults to manual"`
+		SourceDetail  *communitym.EntityRequestSourceDetail `json:"source_detail" required:"false" doc:"Optional origin context (source URL + excerpt), chiefly for AI extraction; shown in the admin moderation queue"`
+		Confirmed     bool                                  `json:"confirmed" required:"false" doc:"FE-side confirm step (only relevant to trusted_contributor tier)"`
 	}
 }
+
+// Defensive caps for the optional source_detail fields at the trust boundary.
+const (
+	maxSourceURLLen     = 2048
+	maxSourceExcerptLen = 10000
+)
 
 // CreateEntityRequestResponse is the Huma response for POST /entity-requests.
 type CreateEntityRequestResponse struct {
@@ -111,7 +118,15 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, huma.Error422UnprocessableEntity("Invalid payload for " + entityType + ": " + err.Error())
 	}
 
-	created, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, req.Body.Confirmed)
+	// Normalize the optional source detail (trim, drop empties) and cap its
+	// fields at the trust boundary. An all-empty detail becomes nil so the row
+	// stores NULL rather than an empty object.
+	sourceDetail, err := normalizeSourceDetail(req.Body.SourceDetail)
+	if err != nil {
+		return nil, err
+	}
+
+	created, err := h.entityRequestService.CreateRequest(user, entityType, req.Body.Payload, sourceContext, sourceDetail, req.Body.Confirmed)
 	if err != nil {
 		if mapped := shared.MapEntityRequestError(err); mapped != nil {
 			return nil, mapped
@@ -125,6 +140,42 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		return nil, huma.Error500InternalServerError("Failed to create entity request")
 	}
 
+	// Auto-approve fulfillment (PSY-1008): when a trusted tier's request lands
+	// already-approved (the service stamped it), create the catalog entity now
+	// and stamp created_entity_id onto the returned row so the frontend can
+	// stage the new entity in the same step (true inline create-and-add). The
+	// CreatedEntityID == nil guard skips the idempotent-dedup path, which only
+	// ever returns an existing PENDING row (never approved/fulfilled).
+	if created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
+		if _, ferr := h.fulfillAndRecord(ctx, created); ferr != nil {
+			if isFulfillUnsupported(ferr) {
+				// show/festival auto-approve: the request is filed-and-approved,
+				// but its catalog Create needs associations the payload lacks
+				// (PSY-998). Leave it approved-but-unfulfilled (created_entity_id
+				// NULL → surfaced by the admin queue) instead of failing the
+				// whole request.
+				logger.FromContext(ctx).Warn("entity_request_autoapprove_fulfill_deferred",
+					"request_id", created.ID,
+					"entity_type", created.EntityType,
+				)
+			} else {
+				// Real fulfillment failure. The row is already approved; surface
+				// so the requester knows the entity was NOT created (and the
+				// staging step won't happen) rather than returning a misleading
+				// success with no created_entity_id.
+				logger.FromContext(ctx).Error("entity_request_autoapprove_fulfill_failed",
+					"request_id", created.ID,
+					"entity_type", created.EntityType,
+					"error", ferr.Error(),
+				)
+				if mapped := shared.MapEntityRequestError(ferr); mapped != nil {
+					return nil, mapped
+				}
+				return nil, huma.Error500InternalServerError("Request approved but creating the entity failed: " + ferr.Error())
+			}
+		}
+	}
+
 	// Fire-and-forget audit log. Distinguish auto-approved (trusted tiers) from
 	// queued so the activity feed reads correctly.
 	if h.auditLogService != nil {
@@ -134,12 +185,16 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 		}
 		reqID := created.ID
 		state := string(created.DecisionState)
+		metadata := map[string]interface{}{
+			"request_id":     reqID,
+			"source_context": sourceContext,
+			"decision_state": state,
+		}
+		if created.CreatedEntityID != nil {
+			metadata["created_entity_id"] = *created.CreatedEntityID
+		}
 		servicesshared.GoSafe(ctx, "audit_log", func() {
-			h.auditLogService.LogAction(user.ID, action, entityType, reqID, map[string]interface{}{
-				"request_id":     reqID,
-				"source_context": sourceContext,
-				"decision_state": state,
-			})
+			h.auditLogService.LogAction(user.ID, action, entityType, reqID, metadata)
 		})
 	}
 
@@ -281,11 +336,13 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	resp.Body.Request = decided
 
 	if newState == communitym.EntityRequestStateApproved {
-		createdID, err := h.fulfillEntity(decided)
+		createdID, err := h.fulfillAndRecord(ctx, decided)
 		if err != nil {
 			// The row is already approved (claimed). Surface the fulfillment
 			// failure so the admin knows the entity was NOT created and can act,
-			// rather than silently returning success.
+			// rather than silently returning success. FulfillUnsupported
+			// (show/festival) maps to a 422 via MapEntityRequestError so the
+			// admin creates those manually (PSY-998).
 			logger.FromContext(ctx).Error("entity_request_fulfill_failed",
 				"request_id", requestID,
 				"admin_id", admin.ID,
@@ -323,4 +380,60 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 	}
 
 	return resp, nil
+}
+
+// ============================================================================
+// Shared fulfillment + request-body helpers (PSY-1008)
+// ============================================================================
+
+// fulfillAndRecord creates the catalog entity from an approved request's payload
+// (via the per-type dispatcher) and persists created_entity_id back onto the
+// request row. It sets req.CreatedEntityID so the response body reflects the new
+// entity even if the persistence write fails — best-effort: the entity WAS
+// created, so surfacing a 500 there would wrongly imply it wasn't. The
+// fulfillEntity error is returned verbatim (including the typed
+// FulfillUnsupported for show/festival) so callers classify it via
+// isFulfillUnsupported. Used by both the auto-approve create path and the admin
+// approve path so they record fulfillment identically.
+func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *communitym.EntityRequest) (uint, error) {
+	createdID, err := h.fulfillEntity(req)
+	if err != nil {
+		return 0, err
+	}
+	idCopy := createdID
+	req.CreatedEntityID = &idCopy
+	if rerr := h.entityRequestService.RecordFulfillment(req.ID, createdID); rerr != nil {
+		// The entity WAS created; only the link-back write failed. Log loudly
+		// and continue — the response already carries created_entity_id (set
+		// above), and the row's created_entity_id is reconcilable later.
+		logger.FromContext(ctx).Error("entity_request_record_fulfillment_failed",
+			"request_id", req.ID,
+			"created_entity_id", createdID,
+			"entity_type", req.EntityType,
+			"error", rerr.Error(),
+		)
+	}
+	return createdID, nil
+}
+
+// normalizeSourceDetail trims + length-caps the optional source detail and
+// marshals it to JSONB bytes for storage. Returns (nil, nil) when there is no
+// usable content (so the row stores NULL, not an empty object), or a 422 when a
+// field exceeds its cap.
+func normalizeSourceDetail(in *communitym.EntityRequestSourceDetail) ([]byte, error) {
+	clean, ok := in.Normalize()
+	if !ok {
+		return nil, nil
+	}
+	if clean.URL != nil && len(*clean.URL) > maxSourceURLLen {
+		return nil, huma.Error422UnprocessableEntity("source_detail.url exceeds maximum length")
+	}
+	if clean.Excerpt != nil && len(*clean.Excerpt) > maxSourceExcerptLen {
+		return nil, huma.Error422UnprocessableEntity("source_detail.excerpt exceeds maximum length")
+	}
+	b, err := json.Marshal(clean)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to encode source detail")
+	}
+	return b, nil
 }

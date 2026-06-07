@@ -12,6 +12,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	authm "psychic-homily-backend/internal/models/auth"
 	communitym "psychic-homily-backend/internal/models/community"
+	servicesshared "psychic-homily-backend/internal/services/shared"
 )
 
 // PSY-869: EntityRequestService implements the trust-tier-gated creation flow
@@ -96,6 +97,7 @@ func (s *EntityRequestService) CreateRequest(
 	entityType string,
 	payload []byte,
 	sourceContext string,
+	sourceDetail []byte,
 	confirmed bool,
 ) (*communitym.EntityRequest, error) {
 	if s.db == nil {
@@ -122,6 +124,10 @@ func (s *EntityRequestService) CreateRequest(
 		SourceContext: sourceContext,
 		DecisionState: communitym.EntityRequestStatePending,
 	}
+	if len(sourceDetail) > 0 {
+		sd := json.RawMessage(sourceDetail)
+		req.SourceDetail = &sd
+	}
 
 	if autoApproves(user, confirmed) {
 		now := time.Now().UTC()
@@ -135,9 +141,71 @@ func (s *EntityRequestService) CreateRequest(
 	}
 
 	if err := s.db.Create(req).Error; err != nil {
+		// Dedup (PSY-1008): the partial unique index blocks a second PENDING
+		// request for the same (entity_type, requester, normalized name). Treat
+		// the collision as idempotent — return the existing pending row so a
+		// repeated paste/extraction line resolves to the same queued request
+		// instead of erroring. The index is partial on decision_state='pending',
+		// so only pending rows can collide; this never masks a clash on an
+		// already-decided row.
+		if servicesshared.IsDuplicateKey(err) {
+			if existing, ferr := s.findPendingDuplicate(entityType, user.ID, payload); ferr == nil && existing != nil {
+				return existing, nil
+			}
+		}
 		return nil, fmt.Errorf("failed to create entity request: %w", err)
 	}
 	return req, nil
+}
+
+// findPendingDuplicate returns the existing PENDING request that collides with a
+// would-be-new request on the dedup key (entity_type, requester, normalized
+// name), or (nil, nil) if none. The name comparison uses the SAME Postgres
+// expression as the uq_entity_requests_pending_dedup index —
+// lower(trim(coalesce(payload->>'name', payload->>'title'))) — applied to BOTH
+// the stored row's payload and the candidate payload, so there is no Go-vs-SQL
+// normalization mismatch (e.g. collation-sensitive lowercasing). Requester is
+// preloaded to match GetRequest's shape.
+func (s *EntityRequestService) findPendingDuplicate(entityType string, requesterID uint, payload []byte) (*communitym.EntityRequest, error) {
+	const storedName = "lower(trim(coalesce(payload->>'name', payload->>'title')))"
+	const candidateName = "lower(trim(coalesce(?::jsonb->>'name', ?::jsonb->>'title')))"
+	candidate := string(payload)
+
+	var existing communitym.EntityRequest
+	err := s.db.Preload("Requester").
+		Where("entity_type = ? AND requester_id = ? AND decision_state = ?",
+			entityType, requesterID, communitym.EntityRequestStatePending).
+		Where(storedName+" = "+candidateName, candidate, candidate).
+		First(&existing).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &existing, nil
+}
+
+// RecordFulfillment persists created_entity_id on a fulfilled request (PSY-1008).
+// The handler calls it after the fulfiller creates the catalog entity, on both
+// the auto-approve create path and the admin approve path. A scoped UPDATE of
+// the single column; created_entity_id has no FK (cross-type id keyed by
+// entity_type), so this is a plain write. Not-found is an error so a caller
+// passing a stale id learns of it rather than silently succeeding.
+func (s *EntityRequestService) RecordFulfillment(requestID, createdEntityID uint) error {
+	if s.db == nil {
+		return fmt.Errorf("database not initialized")
+	}
+	result := s.db.Model(&communitym.EntityRequest{}).
+		Where("id = ?", requestID).
+		Update("created_entity_id", createdEntityID)
+	if result.Error != nil {
+		return fmt.Errorf("failed to record fulfillment: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return apperrors.ErrEntityRequestNotFound(requestID)
+	}
+	return nil
 }
 
 // GetRequest retrieves an entity request by ID with requester + decider

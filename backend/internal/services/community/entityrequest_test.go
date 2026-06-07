@@ -1,6 +1,7 @@
 package community
 
 import (
+	"encoding/json"
 	"fmt"
 	"testing"
 	"time"
@@ -70,7 +71,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_NewUser_Pendin
 	user := suite.createUser("newbie", tierNewUser, false)
 
 	req, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		suite.marshalArtist("Pending Band"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Pending Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().NotNil(req)
 
@@ -87,7 +88,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_Contributor_Pe
 	user := suite.createUser("contrib", tierContributor, false)
 
 	req, err := suite.service.CreateRequest(user, communitym.EntityRequestVenue,
-		mustMarshalVenue(suite, "The Pending Room"), communitym.EntityRequestSourcePasteMode, false)
+		mustMarshalVenue(suite, "The Pending Room"), communitym.EntityRequestSourcePasteMode, nil, false)
 	suite.Require().NoError(err)
 
 	suite.Assert().Equal(communitym.EntityRequestStatePending, req.DecisionState)
@@ -100,7 +101,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_Admin_AutoAppr
 	user := suite.createUser("boss", tierNewUser, true) // tier irrelevant; IsAdmin wins
 
 	req, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		suite.marshalArtist("Auto Approved Band"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Auto Approved Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	suite.Assert().Equal(communitym.EntityRequestStateApproved, req.DecisionState)
@@ -114,7 +115,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_LocalAmbassado
 	user := suite.createUser("amb", tierLocalAmbassador, false)
 
 	req, err := suite.service.CreateRequest(user, communitym.EntityRequestLabel,
-		mustMarshalLabel(suite, "Ambassador Records"), communitym.EntityRequestSourceManual, false)
+		mustMarshalLabel(suite, "Ambassador Records"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	suite.Assert().Equal(communitym.EntityRequestStateApproved, req.DecisionState)
@@ -127,7 +128,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_TrustedConfirm
 	user := suite.createUser("trusted", tierTrustedContributor, false)
 
 	req, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		suite.marshalArtist("Trusted Confirmed Band"), communitym.EntityRequestSourceManual, true)
+		suite.marshalArtist("Trusted Confirmed Band"), communitym.EntityRequestSourceManual, nil, true)
 	suite.Require().NoError(err)
 
 	suite.Assert().Equal(communitym.EntityRequestStateApproved, req.DecisionState)
@@ -140,7 +141,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_TrustedUnconfi
 	user := suite.createUser("trusted2", tierTrustedContributor, false)
 
 	req, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		suite.marshalArtist("Trusted Unconfirmed Band"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Trusted Unconfirmed Band"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	suite.Assert().Equal(communitym.EntityRequestStatePending, req.DecisionState)
@@ -170,7 +171,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestArtistPayload_RoundTr
 	suite.Require().NoError(err)
 
 	created, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		raw, communitym.EntityRequestSourceManual, false)
+		raw, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	// Re-fetch from the DB (not the in-memory struct) to prove JSONB persistence.
@@ -189,21 +190,21 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestArtistPayload_RoundTr
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_InvalidEntityType() {
 	user := suite.createUser("bad", tierNewUser, false)
 	_, err := suite.service.CreateRequest(user, "podcast",
-		suite.marshalArtist("X"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("X"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().Error(err)
 }
 
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_InvalidSourceContext() {
 	user := suite.createUser("bad2", tierNewUser, false)
 	_, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		suite.marshalArtist("X"), "telepathy", false)
+		suite.marshalArtist("X"), "telepathy", nil, false)
 	suite.Require().Error(err)
 }
 
 func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_EmptyPayload() {
 	user := suite.createUser("bad3", tierNewUser, false)
 	_, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
-		nil, communitym.EntityRequestSourceManual, false)
+		nil, communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().Error(err)
 }
 
@@ -215,7 +216,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_ApprovePending
 	admin := suite.createUser("mod", tierNewUser, true)
 
 	pending, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
-		suite.marshalArtist("Needs Review"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Needs Review"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStatePending, pending.DecisionState)
 
@@ -235,7 +236,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_AlreadyResolve
 
 	// Admin-created request is already approved on create.
 	approved, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
-		suite.marshalArtist("Already Approved"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Already Approved"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	suite.Require().Equal(communitym.EntityRequestStateApproved, approved.DecisionState)
 
@@ -253,7 +254,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_SecondDecision
 	admin := suite.createUser("mod4", tierNewUser, true)
 
 	pending, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
-		suite.marshalArtist("Contested"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Contested"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	// First decision wins: approve.
@@ -276,7 +277,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestDecide_InvalidTargetS
 	requester := suite.createUser("req2", tierNewUser, false)
 	admin := suite.createUser("mod3", tierNewUser, true)
 	pending, err := suite.service.CreateRequest(requester, communitym.EntityRequestArtist,
-		suite.marshalArtist("X"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("X"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	_, err = suite.service.Decide(pending.ID, admin.ID, communitym.EntityRequestStatePending, nil)
@@ -294,13 +295,13 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListPending_FiltersAn
 	// One pending artist (new_user), one pending venue (new_user), one approved
 	// artist (admin auto-approve) that must NOT appear.
 	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
-		suite.marshalArtist("Pending A"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Pending A"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	_, err = suite.service.CreateRequest(newbie, communitym.EntityRequestVenue,
-		mustMarshalVenue(suite, "Pending V"), communitym.EntityRequestSourceManual, false)
+		mustMarshalVenue(suite, "Pending V"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	_, err = suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
-		suite.marshalArtist("Approved A"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Approved A"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	all, total, err := suite.service.ListPending("", 50, 0)
@@ -324,10 +325,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_DefaultP
 	admin := suite.createUser("lr-admin", tierNewUser, true)
 
 	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
-		suite.marshalArtist("LR Pending"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("LR Pending"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	_, err = suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
-		suite.marshalArtist("LR Approved"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("LR Approved"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{})
@@ -341,7 +342,7 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_DefaultP
 func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_StateApproved() {
 	admin := suite.createUser("lr-admin2", tierNewUser, true)
 	_, err := suite.service.CreateRequest(admin, communitym.EntityRequestArtist,
-		suite.marshalArtist("LR Approved 2"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("LR Approved 2"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{
@@ -358,10 +359,10 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_SourceCo
 	newbie := suite.createUser("lr-src", tierNewUser, false)
 
 	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
-		suite.marshalArtist("Manual one"), communitym.EntityRequestSourceManual, false)
+		suite.marshalArtist("Manual one"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 	_, err = suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
-		suite.marshalArtist("Paste one"), communitym.EntityRequestSourcePasteMode, false)
+		suite.marshalArtist("Paste one"), communitym.EntityRequestSourcePasteMode, nil, false)
 	suite.Require().NoError(err)
 
 	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{
@@ -380,11 +381,11 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_EntityTy
 
 	for i := 0; i < 3; i++ {
 		_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestArtist,
-			suite.marshalArtist(fmt.Sprintf("Page artist %d", i)), communitym.EntityRequestSourceManual, false)
+			suite.marshalArtist(fmt.Sprintf("Page artist %d", i)), communitym.EntityRequestSourceManual, nil, false)
 		suite.Require().NoError(err)
 	}
 	_, err := suite.service.CreateRequest(newbie, communitym.EntityRequestVenue,
-		mustMarshalVenue(suite, "Page venue"), communitym.EntityRequestSourceManual, false)
+		mustMarshalVenue(suite, "Page venue"), communitym.EntityRequestSourceManual, nil, false)
 	suite.Require().NoError(err)
 
 	rows, total, err := suite.service.ListRequests(&contracts.EntityRequestFilters{
@@ -398,6 +399,142 @@ func (suite *EntityRequestServiceIntegrationTestSuite) TestListRequests_EntityTy
 	for _, r := range rows {
 		suite.Assert().Equal(communitym.EntityRequestArtist, r.EntityType)
 	}
+}
+
+// --- PSY-1008: dedup of duplicate PENDING requests --------------------------
+
+// A second PENDING request for the same (entity_type, requester, normalized
+// name) returns the EXISTING row idempotently — no error, no duplicate row.
+// Casing + surrounding whitespace are normalized, matching the unique index.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicatePending_ReturnsExisting() {
+	user := suite.createUser("dup", tierContributor, false)
+
+	first, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Duplicate Band"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().Equal(communitym.EntityRequestStatePending, first.DecisionState)
+
+	second, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("  duplicate band  "), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(first.ID, second.ID, "duplicate pending request must resolve to the existing row")
+
+	var count int64
+	suite.Require().NoError(suite.db.Model(&communitym.EntityRequest{}).Count(&count).Error)
+	suite.Assert().Equal(int64(1), count, "no duplicate row should be created")
+}
+
+// Dedup is PENDING-only: once the prior request is decided, an identical new
+// request creates a fresh row (a user may legitimately re-request).
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateAfterDecision_CreatesNew() {
+	user := suite.createUser("redup", tierContributor, false)
+	admin := suite.createUser("redup-admin", tierNewUser, true)
+
+	first, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Reborn Band"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	_, err = suite.service.Decide(first.ID, admin.ID, communitym.EntityRequestStateRejected, nil)
+	suite.Require().NoError(err)
+
+	second, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Reborn Band"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().NotEqual(first.ID, second.ID, "after the prior request is decided, a re-request is a new row")
+}
+
+// Dedup is per-requester: two different users requesting the same name each get
+// their own pending row.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateAcrossRequesters_Separate() {
+	u1 := suite.createUser("dup-a", tierContributor, false)
+	u2 := suite.createUser("dup-b", tierContributor, false)
+
+	r1, err := suite.service.CreateRequest(u1, communitym.EntityRequestArtist,
+		suite.marshalArtist("Shared Name"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	r2, err := suite.service.CreateRequest(u2, communitym.EntityRequestArtist,
+		suite.marshalArtist("Shared Name"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().NotEqual(r1.ID, r2.ID, "different requesters are not duplicates")
+}
+
+// The dedup key coalesces to the payload's TITLE for release/show (not name),
+// so two release requests with the same title dedup.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_DuplicateReleaseByTitle() {
+	user := suite.createUser("rel-dup", tierContributor, false)
+	raw, err := communitym.MarshalPayload(communitym.ReleaseRequestPayload{Title: "Same Title"})
+	suite.Require().NoError(err)
+
+	first, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, raw,
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	second, err := suite.service.CreateRequest(user, communitym.EntityRequestRelease, raw,
+		communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Assert().Equal(first.ID, second.ID, "release dedup keys on title")
+}
+
+// --- PSY-1008: source_detail persistence ------------------------------------
+
+// source_detail round-trips through the JSONB column intact.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_SourceDetail_RoundTripsThroughDB() {
+	user := suite.createUser("sd", tierNewUser, false)
+	detail, err := json.Marshal(communitym.EntityRequestSourceDetail{
+		URL:     strptr("https://example.com/article"),
+		Excerpt: strptr("Boris announced a tour."),
+	})
+	suite.Require().NoError(err)
+
+	created, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Sourced Band"), communitym.EntityRequestSourceAIExtraction, detail, false)
+	suite.Require().NoError(err)
+
+	fetched, err := suite.service.GetRequest(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.SourceDetail)
+
+	var sd communitym.EntityRequestSourceDetail
+	suite.Require().NoError(json.Unmarshal(*fetched.SourceDetail, &sd))
+	suite.Require().NotNil(sd.URL)
+	suite.Assert().Equal("https://example.com/article", *sd.URL)
+	suite.Require().NotNil(sd.Excerpt)
+	suite.Assert().Equal("Boris announced a tour.", *sd.Excerpt)
+}
+
+// No source_detail → the column is NULL (nil), not an empty object.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestCreate_NoSourceDetail_StoresNull() {
+	user := suite.createUser("nosd", tierNewUser, false)
+	created, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Plain Band"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+
+	fetched, err := suite.service.GetRequest(created.ID)
+	suite.Require().NoError(err)
+	suite.Assert().Nil(fetched.SourceDetail)
+}
+
+// --- PSY-1008: RecordFulfillment --------------------------------------------
+
+// RecordFulfillment persists created_entity_id onto the request row.
+func (suite *EntityRequestServiceIntegrationTestSuite) TestRecordFulfillment_PersistsCreatedEntityID() {
+	user := suite.createUser("rf", tierNewUser, false)
+	created, err := suite.service.CreateRequest(user, communitym.EntityRequestArtist,
+		suite.marshalArtist("Fulfilled Band"), communitym.EntityRequestSourceManual, nil, false)
+	suite.Require().NoError(err)
+	suite.Require().Nil(created.CreatedEntityID)
+
+	suite.Require().NoError(suite.service.RecordFulfillment(created.ID, 4242))
+
+	fetched, err := suite.service.GetRequest(created.ID)
+	suite.Require().NoError(err)
+	suite.Require().NotNil(fetched.CreatedEntityID)
+	suite.Assert().Equal(uint(4242), *fetched.CreatedEntityID)
+}
+
+// RecordFulfillment on a missing request is an error (no silent success).
+func (suite *EntityRequestServiceIntegrationTestSuite) TestRecordFulfillment_NotFound() {
+	err := suite.service.RecordFulfillment(999999, 1)
+	suite.Require().Error(err)
 }
 
 // strptr is a local pointer helper for the entity-request payload fixtures.

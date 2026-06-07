@@ -22,7 +22,17 @@ import (
 type EntityRequestServiceInterface interface {
 	// CreateRequest persists a typed entity-creation request, applying
 	// trust-tier gating to decide whether it auto-approves or queues.
-	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error)
+	// sourceDetail is the optional, already-marshalled source-context JSONB
+	// (nil = none). On a duplicate PENDING request (same entity_type +
+	// requester + normalized name), it returns the EXISTING pending row
+	// idempotently rather than erroring (PSY-1008).
+	CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error)
+
+	// RecordFulfillment persists created_entity_id on a request after its
+	// payload has been fulfilled into a real catalog entity (PSY-1008). The
+	// handler calls this on both the auto-approve create path and the admin
+	// approve path once the fulfiller returns the new entity's id.
+	RecordFulfillment(requestID, createdEntityID uint) error
 
 	// GetRequest retrieves a request by ID (requester + decider preloaded);
 	// returns (nil, nil) when not found.
