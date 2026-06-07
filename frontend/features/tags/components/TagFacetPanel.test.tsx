@@ -444,4 +444,127 @@ describe('TagFacetPanel', () => {
       screen.queryByTestId('tag-facet-transitive-info')
     ).not.toBeInTheDocument()
   })
+
+  // PSY-1000: horizontal top-bar layout. Same data + behavior as the rail
+  // default — chips, live counts, selection, disabled zero-result facets,
+  // and the "show all tags" expander all carry over — only the container
+  // changes (one wrapping row above a full-width list instead of a sidebar).
+  describe('bar layout (PSY-1000)', () => {
+    it('defaults to the rail layout when no layout prop is given', () => {
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+        />
+      )
+      expect(screen.getByTestId('tag-facet-panel')).toHaveAttribute(
+        'data-layout',
+        'rail'
+      )
+    })
+
+    it('renders all categories and chips in bar layout', () => {
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+          layout="bar"
+        />
+      )
+      expect(screen.getByTestId('tag-facet-panel')).toHaveAttribute(
+        'data-layout',
+        'bar'
+      )
+      // Every category's chips still render (flowed into one row).
+      expect(screen.getByTestId('tag-facet-chip-post-punk')).toBeInTheDocument()
+      expect(screen.getByTestId('tag-facet-chip-phoenix')).toBeInTheDocument()
+      expect(screen.getByTestId('tag-facet-chip-diy')).toBeInTheDocument()
+    })
+
+    it('toggles a chip in bar layout', async () => {
+      const user = userEvent.setup()
+      const onToggle = vi.fn()
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={['shoegaze']}
+          onToggle={onToggle}
+          onClear={() => {}}
+          layout="bar"
+        />
+      )
+      await user.click(screen.getByTestId('tag-facet-chip-post-punk'))
+      expect(onToggle).toHaveBeenCalledWith(['shoegaze', 'post-punk'])
+    })
+
+    it('shows the Clear all button in bar layout when there is a selection', async () => {
+      const user = userEvent.setup()
+      const onClear = vi.fn()
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={['post-punk']}
+          onToggle={() => {}}
+          onClear={onClear}
+          layout="bar"
+        />
+      )
+      const clearBtn = screen.getByTestId('tag-facet-clear')
+      await user.click(clearBtn)
+      expect(onClear).toHaveBeenCalled()
+    })
+
+    it('renders the "Show all tags" expander in bar layout', async () => {
+      const user = userEvent.setup()
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+          entityType="festival"
+          layout="bar"
+        />
+      )
+      // shoegaze is hidden (0 festival applications) until the expander fires.
+      expect(
+        screen.queryByTestId('tag-facet-chip-shoegaze')
+      ).not.toBeInTheDocument()
+      const expander = screen.getByTestId('tag-facet-show-all')
+      await user.click(expander)
+      expect(screen.getByTestId('tag-facet-chip-shoegaze')).toBeInTheDocument()
+    })
+
+    it('disables zero-in-city chips in bar layout (city-scoped show facet)', () => {
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+          entityType="show"
+          selectedCities={[{ city: 'Phoenix', state: 'AZ' }]}
+          layout="bar"
+        />
+      )
+      // post-punk has Phoenix shows → enabled; shoegaze has 0 → disabled.
+      expect(screen.getByTestId('tag-facet-chip-post-punk')).not.toBeDisabled()
+      expect(screen.getByTestId('tag-facet-chip-shoegaze')).toBeDisabled()
+      // City-scoped mode omits the expander in bar layout too.
+      expect(
+        screen.queryByTestId('tag-facet-show-all')
+      ).not.toBeInTheDocument()
+    })
+
+    it('renders the transitive info tooltip in bar layout for show entityType', () => {
+      renderWithProviders(
+        <TagFacetPanel
+          selectedSlugs={[]}
+          onToggle={() => {}}
+          onClear={() => {}}
+          entityType="show"
+          layout="bar"
+        />
+      )
+      expect(screen.getByTestId('tag-facet-transitive-info')).toBeInTheDocument()
+    })
+  })
 })
