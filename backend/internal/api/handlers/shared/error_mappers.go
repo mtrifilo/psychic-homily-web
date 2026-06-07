@@ -209,6 +209,40 @@ func MapVenueError(err error) error {
 	return nil
 }
 
+// MapLabelError converts a LabelError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.LabelError. not-found → 404;
+// already-exists → 409. Mirrors MapArtistError/MapVenueError; used by the
+// entity-request fulfillment path so a duplicate label surfaces as a 409.
+func MapLabelError(err error) error {
+	var labelErr *apperrors.LabelError
+	if errors.As(err, &labelErr) {
+		switch labelErr.Code {
+		case apperrors.CodeLabelNotFound:
+			return huma.Error404NotFound(labelErr.Message)
+		case apperrors.CodeLabelExists:
+			return huma.Error409Conflict(labelErr.Message)
+		}
+	}
+	return nil
+}
+
+// MapReleaseError converts a ReleaseError to an appropriate Huma HTTP error.
+// Returns nil if err is not a *apperrors.ReleaseError. not-found → 404;
+// already-exists → 409. Used by the entity-request fulfillment path so a
+// duplicate release surfaces as a 409.
+func MapReleaseError(err error) error {
+	var releaseErr *apperrors.ReleaseError
+	if errors.As(err, &releaseErr) {
+		switch releaseErr.Code {
+		case apperrors.CodeReleaseNotFound:
+			return huma.Error404NotFound(releaseErr.Message)
+		case apperrors.CodeReleaseExists:
+			return huma.Error409Conflict(releaseErr.Message)
+		}
+	}
+	return nil
+}
+
 // MapFestivalError converts a FestivalError to an appropriate Huma HTTP error.
 // Returns nil if err is not a *apperrors.FestivalError.
 //
