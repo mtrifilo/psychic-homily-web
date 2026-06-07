@@ -142,6 +142,8 @@ export function VenueList() {
         )}
       </div>
 
+      {/* Mobile: Sheet trigger row. Desktop hides the Sheet (the bar below
+          takes over). */}
       <div className="flex items-center justify-between mb-4 gap-2">
         <TagFacetSheet
           selectedSlugs={selectedTags}
@@ -152,70 +154,71 @@ export function VenueList() {
         />
       </div>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <aside className="hidden lg:block lg:w-64 lg:shrink-0">
-          <TagFacetPanel
-            selectedSlugs={selectedTags}
-            onToggle={handleTagsChange}
-            onClear={handleTagsClear}
-            heading="Filter venues by tag"
-            entityType="venue"
-          />
-        </aside>
+      {/* PSY-1003: full-width top-bar tag filter above a full-width list (no
+          left rail). Desktop only — mobile uses the Sheet trigger above. */}
+      <div className="mb-4 hidden lg:block">
+        <TagFacetPanel
+          selectedSlugs={selectedTags}
+          onToggle={handleTagsChange}
+          onClear={handleTagsClear}
+          heading="Filter venues by tag"
+          entityType="venue"
+          layout="bar"
+        />
+      </div>
 
-        <div className={`flex-1 min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
-          {(() => {
-            const allVenues = [...accumulatedVenues, ...(data?.venues || [])]
-            const hasAnyFilter = selectedTags.length > 0 || selectedCities.length > 0
-            return (
-              <>
-                <p className="mb-3 text-sm text-muted-foreground" data-testid="venue-count">
-                  {allVenues.length} of {data?.total ?? allVenues.length}{' '}
-                  {(data?.total ?? allVenues.length) === 1 ? 'venue' : 'venues'}
-                  {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
-                </p>
-                {allVenues.length === 0 ? (
-                  <div className="text-center py-12 text-muted-foreground">
-                    <p>
-                      {hasAnyFilter
-                        ? 'No venues match the current filters.'
-                        : 'No venues available at this time.'}
-                    </p>
-                    {hasAnyFilter && (
-                      <button
-                        onClick={() => {
-                          if (selectedTags.length > 0) handleTagsClear()
-                          if (selectedCities.length > 0) handleFilterChange([])
-                        }}
-                        className="mt-4 text-primary hover:underline"
+      <div className={`min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
+        {(() => {
+          const allVenues = [...accumulatedVenues, ...(data?.venues || [])]
+          const hasAnyFilter = selectedTags.length > 0 || selectedCities.length > 0
+          return (
+            <>
+              <p className="mb-3 text-sm text-muted-foreground" data-testid="venue-count">
+                {allVenues.length} of {data?.total ?? allVenues.length}{' '}
+                {(data?.total ?? allVenues.length) === 1 ? 'venue' : 'venues'}
+                {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
+              </p>
+              {allVenues.length === 0 ? (
+                <div className="text-center py-12 text-muted-foreground">
+                  <p>
+                    {hasAnyFilter
+                      ? 'No venues match the current filters.'
+                      : 'No venues available at this time.'}
+                  </p>
+                  {hasAnyFilter && (
+                    <button
+                      onClick={() => {
+                        if (selectedTags.length > 0) handleTagsClear()
+                        if (selectedCities.length > 0) handleFilterChange([])
+                      }}
+                      className="mt-4 text-primary hover:underline"
+                    >
+                      Clear filters
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <>
+                  {allVenues.map(venue => (
+                    <VenueCard key={venue.id} venue={venue} />
+                  ))}
+
+                  {data && allVenues.length < data.total && (
+                    <div className="text-center py-6">
+                      <Button
+                        variant="outline"
+                        onClick={handleLoadMore}
+                        disabled={isFetching}
                       >
-                        Clear filters
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <>
-                    {allVenues.map(venue => (
-                      <VenueCard key={venue.id} venue={venue} />
-                    ))}
-
-                    {data && allVenues.length < data.total && (
-                      <div className="text-center py-6">
-                        <Button
-                          variant="outline"
-                          onClick={handleLoadMore}
-                          disabled={isFetching}
-                        >
-                          {isFetching ? 'Loading...' : 'Load More'}
-                        </Button>
-                      </div>
-                    )}
-                  </>
-                )}
-              </>
-            )
-          })()}
-        </div>
+                        {isFetching ? 'Loading...' : 'Load More'}
+                      </Button>
+                    </div>
+                  )}
+                </>
+              )}
+            </>
+          )
+        })()}
       </div>
     </section>
   )

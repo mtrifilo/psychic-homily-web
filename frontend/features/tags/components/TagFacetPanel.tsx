@@ -33,6 +33,18 @@ const TRANSITIVE_TOOLTIP_COPY: Partial<Record<TagEntityType, string>> = {
 
 const DEFAULT_TAGS_PER_CATEGORY = 20
 
+/**
+ * Layout mode for the facet panel.
+ * - `rail` (default): vertical sidebar — categories stacked, each with its
+ *   own heading. The original PSY-309 layout used by the non-migrated browse
+ *   pages and the mobile Sheet.
+ * - `bar` (PSY-1000): horizontal top bar — chips from all categories flow into
+ *   a single wrapping row beside the heading, the list renders full-width
+ *   below. Same data + behavior (live counts, disabled zero-result facets,
+ *   selection, "show all tags"); only the container layout changes.
+ */
+export type TagFacetLayout = 'rail' | 'bar'
+
 export interface TagFacetPanelProps {
   /** Currently selected tag slugs. */
   selectedSlugs: string[]
@@ -46,6 +58,13 @@ export interface TagFacetPanelProps {
   heading?: string
   /** Hide the internal heading (useful when rendered inside a Sheet). */
   hideHeading?: boolean
+  /**
+   * Container layout (PSY-1000). `rail` (default) is the vertical sidebar;
+   * `bar` is the horizontal top-bar used on `/shows`. Default stays vertical
+   * so non-migrated callers (the other browse pages, the mobile Sheet) are
+   * unaffected.
+   */
+  layout?: TagFacetLayout
   /** Tailwind class overrides for the root container. */
   className?: string
   /**
@@ -87,6 +106,7 @@ export function TagFacetPanel({
   tagsPerCategory = DEFAULT_TAGS_PER_CATEGORY,
   heading = 'Filter by tags',
   hideHeading = false,
+  layout = 'rail',
   className,
   entityType,
   selectedCities,
@@ -102,6 +122,7 @@ export function TagFacetPanel({
   // SHOW those chips DISABLED instead of hiding them — the expander is
   // redundant in this mode, and a disabled chip can never dead-end on click.
   const cityScoped = (selectedCities?.length ?? 0) > 0
+  const isBar = layout === 'bar'
   const handleToggle = (slug: string) => {
     if (selectedSet.has(slug)) {
       onToggle(selectedSlugs.filter(s => s !== slug))
@@ -110,10 +131,88 @@ export function TagFacetPanel({
     }
   }
 
+  // The "Show all tags" expander only matters when we hide zero-count chips.
+  // In city-scoped mode they are shown disabled instead, so the expander is
+  // redundant and omitted. Shared between both layouts; bar mode renders it
+  // inline at the end of the chip row, rail mode stacks it below the groups.
+  const showAllExpander = entityType && !cityScoped && (
+    <button
+      type="button"
+      onClick={() => setShowAll(prev => !prev)}
+      className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
+      data-testid="tag-facet-show-all"
+    >
+      {showAll ? 'Hide tags with no matches' : 'Show all tags'}
+    </button>
+  )
+
+  // Shared "Clear all" control — the same button, positioned per layout.
+  const clearButton = selectedSlugs.length > 0 && (
+    <Button
+      type="button"
+      variant="ghost"
+      size="sm"
+      className="h-7 px-2 text-xs"
+      onClick={onClear}
+      data-testid="tag-facet-clear"
+    >
+      <X className="mr-1 h-3 w-3" /> Clear all
+    </Button>
+  )
+
+  // Bar layout (PSY-1000): the full vocabulary flows into ONE wrapping row so
+  // the chips sit above a full-width list. We flatten the categories rather
+  // than stacking per-category headings — the chip colors (from
+  // getCategoryColor) already encode the category, matching the Figma
+  // `474:9` "Filter by tag" row. The heading, chips, the "show all"
+  // expander, and "Clear all" all share that single flex-wrap row.
+  if (isBar) {
+    return (
+      <div
+        className={cn('flex flex-wrap items-center gap-x-3 gap-y-2', className)}
+        data-testid="tag-facet-panel"
+        data-layout="bar"
+      >
+        {!hideHeading && (
+          <h2 className="flex items-center gap-1.5 text-sm font-semibold text-foreground">
+            <TagIcon className="h-3.5 w-3.5" aria-hidden />
+            {heading}
+            {entityType && TRANSITIVE_TOOLTIP_COPY[entityType] && (
+              <TransitiveTagTooltip
+                text={TRANSITIVE_TOOLTIP_COPY[entityType] ?? ''}
+              />
+            )}
+          </h2>
+        )}
+
+        {TAG_CATEGORIES.map(cat => (
+          <CategoryGroup
+            key={cat}
+            category={cat}
+            limit={tagsPerCategory}
+            selectedSet={selectedSet}
+            onToggle={handleToggle}
+            entityType={entityType}
+            selectedCities={selectedCities}
+            showAll={showAll}
+            cityScoped={cityScoped}
+            inline
+          />
+        ))}
+
+        {showAllExpander}
+        {clearButton}
+      </div>
+    )
+  }
+
+  // Rail layout (default, PSY-309): vertical sidebar with stacked,
+  // per-category groups.
   return (
     <aside
       className={cn('space-y-5', className)}
       data-testid="tag-facet-panel"
+      data-layout="rail"
     >
       {!hideHeading && (
         <div className="flex items-center justify-between">
@@ -126,34 +225,12 @@ export function TagFacetPanel({
               />
             )}
           </h2>
-          {selectedSlugs.length > 0 && (
-            <Button
-              type="button"
-              variant="ghost"
-              size="sm"
-              className="h-7 px-2 text-xs"
-              onClick={onClear}
-              data-testid="tag-facet-clear"
-            >
-              <X className="mr-1 h-3 w-3" /> Clear all
-            </Button>
-          )}
+          {clearButton}
         </div>
       )}
 
       {hideHeading && selectedSlugs.length > 0 && (
-        <div className="flex justify-end">
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs"
-            onClick={onClear}
-            data-testid="tag-facet-clear"
-          >
-            <X className="mr-1 h-3 w-3" /> Clear all
-          </Button>
-        </div>
+        <div className="flex justify-end">{clearButton}</div>
       )}
 
       {TAG_CATEGORIES.map(cat => (
@@ -170,21 +247,7 @@ export function TagFacetPanel({
         />
       ))}
 
-      {/* "Show all tags" expander only matters when we hide zero-count chips.
-          In city-scoped mode they are shown disabled instead, so the expander
-          is redundant and omitted. */}
-      {entityType && !cityScoped && (
-        <div className="pt-1">
-          <button
-            type="button"
-            onClick={() => setShowAll(prev => !prev)}
-            className="text-xs text-muted-foreground hover:text-foreground underline underline-offset-2"
-            data-testid="tag-facet-show-all"
-          >
-            {showAll ? 'Hide tags with no matches' : 'Show all tags'}
-          </button>
-        </div>
-      )}
+      {showAllExpander && <div className="pt-1">{showAllExpander}</div>}
     </aside>
   )
 }
@@ -199,6 +262,12 @@ interface CategoryGroupProps {
   showAll: boolean
   /** When true, zero-count chips are shown disabled instead of hidden. */
   cityScoped: boolean
+  /**
+   * Bar layout (PSY-1000): render the chips bare so they flow into the
+   * parent's single wrapping row — no per-category heading, no own
+   * container. Rail layout (default) keeps the stacked heading + group.
+   */
+  inline?: boolean
 }
 
 function CategoryGroup({
@@ -210,6 +279,7 @@ function CategoryGroup({
   selectedCities,
   showAll,
   cityScoped,
+  inline = false,
 }: CategoryGroupProps) {
   const { data, isLoading } = useTags({
     category,
@@ -240,36 +310,45 @@ function CategoryGroup({
 
   if (!isLoading && visibleTags.length === 0) return null
 
+  const chips = visibleTags.map(tag => (
+    <TagChip
+      key={tag.id}
+      tag={tag}
+      selected={selectedSet.has(tag.slug)}
+      onToggle={onToggle}
+      // Disable only an unselected zero-in-city chip: a selected chip
+      // must stay interactive so the user can always deselect it.
+      disabled={
+        cityScoped && tag.usage_count === 0 && !selectedSet.has(tag.slug)
+      }
+    />
+  ))
+
+  const skeletons = Array.from({ length: 6 }).map((_, i) => (
+    <Skeleton key={i} className="h-6 w-16 rounded-full" />
+  ))
+
+  // Bar layout (PSY-1000): emit chips bare so they flow into the parent's
+  // single wrapping row. No heading, no own container — the chip color
+  // already signals the category. We still tag the group with a testid so
+  // tests can scope assertions to a category in either layout.
+  if (inline) {
+    return (
+      <span
+        className="contents"
+        data-testid={`tag-facet-category-${category}`}
+      >
+        {isLoading ? skeletons : chips}
+      </span>
+    )
+  }
+
   return (
     <div className="space-y-2" data-testid={`tag-facet-category-${category}`}>
       <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
         {label}
       </h3>
-      {isLoading ? (
-        <div className="flex flex-wrap gap-1.5">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <Skeleton key={i} className="h-6 w-16 rounded-full" />
-          ))}
-        </div>
-      ) : (
-        <div className="flex flex-wrap gap-1.5">
-          {visibleTags.map(tag => (
-            <TagChip
-              key={tag.id}
-              tag={tag}
-              selected={selectedSet.has(tag.slug)}
-              onToggle={onToggle}
-              // Disable only an unselected zero-in-city chip: a selected chip
-              // must stay interactive so the user can always deselect it.
-              disabled={
-                cityScoped &&
-                tag.usage_count === 0 &&
-                !selectedSet.has(tag.slug)
-              }
-            />
-          ))}
-        </div>
-      )}
+      <div className="flex flex-wrap gap-1.5">{isLoading ? skeletons : chips}</div>
     </div>
   )
 }

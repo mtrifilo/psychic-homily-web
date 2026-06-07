@@ -75,7 +75,11 @@ vi.mock('@/components/shared', () => ({
 }))
 
 vi.mock('@/features/tags', () => ({
-  TagFacetPanel: () => <div data-testid="tag-facet-panel" />,
+  // PSY-1001: surface the `layout` prop as `data-layout` so the test can
+  // assert the desktop facet panel renders as the top bar (not the old rail).
+  TagFacetPanel: ({ layout }: { layout?: 'rail' | 'bar' }) => (
+    <div data-testid="tag-facet-panel" data-layout={layout ?? 'rail'} />
+  ),
   TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
   parseTagsParam: (s: string | null) => (s ? s.split(',').filter(Boolean) : []),
   buildTagsParam: (slugs: string[]) => slugs.join(','),
@@ -153,6 +157,17 @@ describe('ArtistList', () => {
   it('renders density toggle with current density', () => {
     renderWithProviders(<ArtistList />)
     expect(screen.getByTestId('density-toggle')).toHaveTextContent('comfortable')
+  })
+
+  // PSY-1001: the desktop tag facet is a full-width top bar above a
+  // full-width list (Variant A), not the old left rail. The shared
+  // TagFacetPanel must receive layout="bar".
+  it('renders the desktop tag facet as a top bar (layout="bar")', () => {
+    renderWithProviders(<ArtistList />)
+    expect(screen.getByTestId('tag-facet-panel')).toHaveAttribute(
+      'data-layout',
+      'bar'
+    )
   })
 
   it('renders empty state when no artists', () => {

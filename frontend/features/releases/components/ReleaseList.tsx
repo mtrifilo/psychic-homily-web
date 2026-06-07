@@ -308,86 +308,87 @@ export function ReleaseList() {
         </div>
       </div>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <aside className="hidden lg:block lg:w-64 lg:shrink-0">
-          <TagFacetPanel
-            selectedSlugs={selectedTags}
-            onToggle={handleTagsChange}
-            onClear={handleTagsClear}
-            heading="Filter releases by tag"
-            entityType="release"
-          />
-        </aside>
+      {/* PSY-1002: full-width top-bar tag filter above a full-width list (no
+          left rail). Desktop only — mobile uses the Sheet trigger above. */}
+      <div className="mb-4 hidden lg:block">
+        <TagFacetPanel
+          selectedSlugs={selectedTags}
+          onToggle={handleTagsChange}
+          onClear={handleTagsClear}
+          heading="Filter releases by tag"
+          entityType="release"
+          layout="bar"
+        />
+      </div>
 
-        <div className={`flex-1 min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
-          {releases.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p>
-                {hasFilters || selectedTags.length > 0
-                  ? 'No releases found matching your filters.'
-                  : 'No releases available at this time.'}
-              </p>
-              {(hasFilters || selectedTags.length > 0) && (
-                <button
-                  onClick={() => {
-                    clearFilters()
-                    if (selectedTags.length > 0) handleTagsClear()
-                  }}
-                  className="mt-4 text-primary hover:underline"
-                >
-                  View all releases
-                </button>
-              )}
-            </div>
-          ) : (
-            <div className="@container">
-              <div
-                className={
-                  density === 'compact'
-                    ? 'flex flex-col gap-px'
-                    : density === 'expanded'
-                      ? 'grid grid-cols-1 gap-5'
-                      : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
-                }
+      <div className={`min-w-0 ${isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75'}`}>
+        {releases.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>
+              {hasFilters || selectedTags.length > 0
+                ? 'No releases found matching your filters.'
+                : 'No releases available at this time.'}
+            </p>
+            {(hasFilters || selectedTags.length > 0) && (
+              <button
+                onClick={() => {
+                  clearFilters()
+                  if (selectedTags.length > 0) handleTagsClear()
+                }}
+                className="mt-4 text-primary hover:underline"
               >
-                {releases.map(release => (
-                  <ReleaseCard
-                    key={release.id}
-                    release={release}
-                    density={density}
-                  />
-                ))}
-              </div>
+                View all releases
+              </button>
+            )}
+          </div>
+        ) : (
+          <div className="@container">
+            <div
+              className={
+                density === 'compact'
+                  ? 'flex flex-col gap-px'
+                  : density === 'expanded'
+                    ? 'grid grid-cols-1 gap-5'
+                    : 'grid grid-cols-1 @sm:grid-cols-2 @2xl:grid-cols-3 gap-3'
+              }
+            >
+              {releases.map(release => (
+                <ReleaseCard
+                  key={release.id}
+                  release={release}
+                  density={density}
+                />
+              ))}
             </div>
-          )}
+          </div>
+        )}
 
-          {/* Pagination */}
-          {totalPages > 1 && (
-            <div className="flex items-center justify-center gap-2 mt-8">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage <= 1}
-                onClick={() => handlePageChange(currentPage - 1)}
-              >
-                <ChevronLeft className="h-4 w-4 mr-1" />
-                Previous
-              </Button>
-              <span className="text-sm text-muted-foreground px-3">
-                Page {currentPage} of {totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={currentPage >= totalPages}
-                onClick={() => handlePageChange(currentPage + 1)}
-              >
-                Next
-                <ChevronRight className="h-4 w-4 ml-1" />
-              </Button>
-            </div>
-          )}
-        </div>
+        {/* Pagination */}
+        {totalPages > 1 && (
+          <div className="flex items-center justify-center gap-2 mt-8">
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage <= 1}
+              onClick={() => handlePageChange(currentPage - 1)}
+            >
+              <ChevronLeft className="h-4 w-4 mr-1" />
+              Previous
+            </Button>
+            <span className="text-sm text-muted-foreground px-3">
+              Page {currentPage} of {totalPages}
+            </span>
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={currentPage >= totalPages}
+              onClick={() => handlePageChange(currentPage + 1)}
+            >
+              Next
+              <ChevronRight className="h-4 w-4 ml-1" />
+            </Button>
+          </div>
+        )}
       </div>
     </section>
   )

@@ -263,6 +263,8 @@ export function ShowList() {
         </div>
       )}
 
+      {/* Mobile: Sheet trigger + density toggle. Desktop hides the Sheet (the
+          bar below takes over) but keeps the density toggle on this row. */}
       <div className="flex items-center justify-between mb-4 gap-2">
         <TagFacetSheet
           selectedSlugs={selectedTags}
@@ -275,77 +277,78 @@ export function ShowList() {
         <DensityToggle density={density} onDensityChange={setDensity} />
       </div>
 
-      <div className="flex flex-col gap-6 lg:flex-row">
-        <aside className="hidden lg:block lg:w-64 lg:shrink-0">
-          <TagFacetPanel
-            selectedSlugs={selectedTags}
-            onToggle={handleTagsChange}
-            onClear={handleTagsClear}
-            heading="Filter shows by tag"
-            entityType="show"
-            selectedCities={selectedCities}
-          />
-        </aside>
+      {/* PSY-1000: full-width top-bar tag filter above a full-width list (no
+          left rail). Desktop only — mobile uses the Sheet trigger above. */}
+      <div className="mb-4 hidden lg:block">
+        <TagFacetPanel
+          selectedSlugs={selectedTags}
+          onToggle={handleTagsChange}
+          onClear={handleTagsClear}
+          heading="Filter shows by tag"
+          entityType="show"
+          selectedCities={selectedCities}
+          layout="bar"
+        />
+      </div>
 
-        <div className={cn('flex-1 min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
-          <p className="mb-3 text-sm text-muted-foreground" data-testid="show-count">
-            {allShows.length} {allShows.length === 1 ? 'show' : 'shows'}
-            {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
-          </p>
-          {allShows.length === 0 ? (
-            <div className="text-center py-12 text-muted-foreground">
-              <p>
-                {selectedTags.length > 0 || selectedCities.length > 0
-                  ? 'No upcoming shows match the current filters.'
-                  : 'No upcoming shows at this time.'}
-              </p>
-              {(selectedTags.length > 0 || selectedCities.length > 0) && (
-                <button
-                  onClick={() => {
-                    if (selectedTags.length > 0) handleTagsClear()
-                    if (selectedCities.length > 0) handleFilterChange([])
-                  }}
-                  className="mt-4 text-primary hover:underline"
-                >
-                  Clear filters
-                </button>
-              )}
+      <div className={cn('min-w-0', isUpdating ? 'opacity-60 transition-opacity duration-75' : 'transition-opacity duration-75')}>
+        <p className="mb-3 text-sm text-muted-foreground" data-testid="show-count">
+          {allShows.length} {allShows.length === 1 ? 'show' : 'shows'}
+          {selectedTags.length > 0 && ` matching ${selectedTags.join(', ')}`}
+        </p>
+        {allShows.length === 0 ? (
+          <div className="text-center py-12 text-muted-foreground">
+            <p>
+              {selectedTags.length > 0 || selectedCities.length > 0
+                ? 'No upcoming shows match the current filters.'
+                : 'No upcoming shows at this time.'}
+            </p>
+            {(selectedTags.length > 0 || selectedCities.length > 0) && (
+              <button
+                onClick={() => {
+                  if (selectedTags.length > 0) handleTagsClear()
+                  if (selectedCities.length > 0) handleFilterChange([])
+                }}
+                className="mt-4 text-primary hover:underline"
+              >
+                Clear filters
+              </button>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className={cn(
+              'flex flex-col',
+              density === 'compact' && 'gap-0.5',
+              density === 'comfortable' && 'gap-3',
+              density === 'expanded' && 'gap-5'
+            )}>
+              {allShows.map(show => (
+                <ShowCard
+                  key={show.id}
+                  show={show}
+                  isAdmin={isAdmin}
+                  userId={user?.id}
+                  isSaved={savedShowIds?.has(show.id)}
+                  density={density}
+                  attendanceData={batchAttendance?.[String(show.id)]}
+                />
+              ))}
             </div>
-          ) : (
-            <>
-              <div className={cn(
-                'flex flex-col',
-                density === 'compact' && 'gap-0.5',
-                density === 'comfortable' && 'gap-3',
-                density === 'expanded' && 'gap-5'
-              )}>
-                {allShows.map(show => (
-                  <ShowCard
-                    key={show.id}
-                    show={show}
-                    isAdmin={isAdmin}
-                    userId={user?.id}
-                    isSaved={savedShowIds?.has(show.id)}
-                    density={density}
-                    attendanceData={batchAttendance?.[String(show.id)]}
-                  />
-                ))}
-              </div>
 
-              {data?.pagination.has_more && (
-                <div className="text-center py-6">
-                  <Button
-                    variant="outline"
-                    onClick={handleLoadMore}
-                    disabled={isFetching}
-                  >
-                    {isFetching ? 'Loading...' : 'Load More'}
-                  </Button>
-                </div>
-              )}
-            </>
-          )}
-        </div>
+            {data?.pagination.has_more && (
+              <div className="text-center py-6">
+                <Button
+                  variant="outline"
+                  onClick={handleLoadMore}
+                  disabled={isFetching}
+                >
+                  {isFetching ? 'Loading...' : 'Load More'}
+                </Button>
+              </div>
+            )}
+          </>
+        )}
       </div>
     </section>
   )

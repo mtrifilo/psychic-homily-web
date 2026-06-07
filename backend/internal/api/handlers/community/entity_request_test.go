@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"testing"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
@@ -44,6 +45,14 @@ func pendingRequest(id uint, entityType string) *communitym.EntityRequest {
 		SourceContext: communitym.EntityRequestSourceManual,
 		DecisionState: communitym.EntityRequestStatePending,
 	}
+}
+
+// approvedRequest is a pendingRequest already flipped to approved — the shape an
+// auto-approve tier's CreateRequest returns (the service stamps the decision).
+func approvedRequest(id uint, entityType string) *communitym.EntityRequest {
+	r := pendingRequest(id, entityType)
+	r.DecisionState = communitym.EntityRequestStateApproved
+	return r
 }
 
 // ============================================================================
@@ -92,7 +101,7 @@ func TestCreateEntityRequest_EmptyPayload(t *testing.T) {
 func TestCreateEntityRequest_PayloadMissingRequiredField(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
 				t.Fatal("service must NOT be called for an invalid payload")
 				return nil, nil
 			},
@@ -111,7 +120,7 @@ func TestCreateEntityRequest_PayloadMissingRequiredField(t *testing.T) {
 func TestCreateEntityRequest_PayloadUnknownField(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
 				t.Fatal("service must NOT be called for an invalid payload")
 				return nil, nil
 			},
@@ -134,7 +143,7 @@ func TestCreateEntityRequest_ContributorQueuesPending(t *testing.T) {
 	want := pendingRequest(7, "artist")
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
 				if user.ID != 2 {
 					t.Errorf("expected requester 2, got %d", user.ID)
 				}
@@ -167,10 +176,257 @@ func TestCreateEntityRequest_ContributorQueuesPending(t *testing.T) {
 	}
 }
 
+// ============================================================================
+// Tests: Queue-create — auto-approve fulfillment + source detail (PSY-1008)
+// ============================================================================
+
+// An auto-approve tier's request is fulfilled inline: the catalog entity is
+// created, created_entity_id is persisted (RecordFulfillment) AND rides back on
+// the response body so the frontend can stage it (true inline create-and-add).
+func TestCreateEntityRequest_AutoApprove_FulfillsAndReturnsID(t *testing.T) {
+	approved := approvedRequest(11, "artist")
+	createCalled := false
+	recordedID := uint(0)
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				return approved, nil
+			},
+			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
+				if requestID != 11 {
+					t.Errorf("expected RecordFulfillment for request 11, got %d", requestID)
+				}
+				recordedID = createdEntityID
+				return nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				createCalled = true
+				return &contracts.ArtistDetailResponse{ID: 77}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Auto Band")
+
+	resp, err := h.CreateEntityRequestHandler(erAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !createCalled {
+		t.Error("expected fulfiller CreateArtist to be called on auto-approve")
+	}
+	if recordedID != 77 {
+		t.Errorf("expected created_entity_id 77 persisted via RecordFulfillment, got %d", recordedID)
+	}
+	if resp.Body.CreatedEntityID == nil || *resp.Body.CreatedEntityID != 77 {
+		t.Errorf("expected created_entity_id 77 on response body, got %v", resp.Body.CreatedEntityID)
+	}
+	if resp.Body.DecisionState != communitym.EntityRequestStateApproved {
+		t.Errorf("expected approved, got %s", resp.Body.DecisionState)
+	}
+}
+
+// Auto-approving a show is gracefully DEFERRED (not an error): the request is
+// filed-and-approved, but show fulfillment needs associations the payload lacks
+// (PSY-998), so no entity is created, no created_entity_id is returned, the
+// link-back is not recorded, and the create still succeeds (200).
+func TestCreateEntityRequest_AutoApprove_ShowDeferredNotError(t *testing.T) {
+	approved := approvedRequest(12, "show")
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				return approved, nil
+			},
+			RecordFulfillmentFn: func(requestID, createdEntityID uint) error {
+				t.Fatal("RecordFulfillment must NOT be called when fulfillment is unsupported")
+				return nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	showPayload, err := communitym.MarshalPayload(communitym.ShowRequestPayload{Title: "Big Fest", EventDate: "2026-07-01"})
+	if err != nil {
+		t.Fatalf("marshal show payload: %v", err)
+	}
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "show"
+	req.Body.Payload = showPayload
+
+	resp, err := h.CreateEntityRequestHandler(erAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("auto-approve of an unsupported type must not error, got %v", err)
+	}
+	if resp.Body.CreatedEntityID != nil {
+		t.Errorf("show fulfillment is deferred; expected no created_entity_id, got %v", resp.Body.CreatedEntityID)
+	}
+	if resp.Body.DecisionState != communitym.EntityRequestStateApproved {
+		t.Errorf("expected the request to remain approved, got %s", resp.Body.DecisionState)
+	}
+}
+
+// A real fulfillment failure (catalog error, not unsupported) on the auto-approve
+// path surfaces a 500 so the requester learns the entity was NOT created.
+func TestCreateEntityRequest_AutoApprove_FulfillFails(t *testing.T) {
+	approved := approvedRequest(13, "artist")
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				return approved, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				return nil, fmt.Errorf("slug collision")
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boom")
+	_, err := h.CreateEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// A catalog "already exists" conflict on the auto-approve create path maps to
+// 409, NOT 500 — inline create-and-add of an entity that already exists is a
+// benign conflict, not a server fault. (Regression guard for the adversarial
+// finding that catalog errors fell through to 500.)
+func TestCreateEntityRequest_AutoApprove_ExistsConflictIs409(t *testing.T) {
+	approved := approvedRequest(16, "artist")
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				return approved, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				return nil, apperrors.ErrArtistExists("Boris")
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+	_, err := h.CreateEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
+// source_detail is normalized (trimmed, empties dropped) and marshalled through
+// to the service so the admin queue can show the AI source context.
+func TestCreateEntityRequest_SourceDetailPassthrough(t *testing.T) {
+	want := pendingRequest(14, "artist")
+	var gotDetail []byte
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				gotDetail = sourceDetail
+				return want, nil
+			},
+		},
+		nil,
+		&testhelpers.MockAuditLogService{},
+	)
+
+	url := "  https://example.com/show  "
+	excerpt := "  Boris at The Venue  "
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+	req.Body.SourceContext = communitym.EntityRequestSourceAIExtraction
+	req.Body.SourceDetail = &communitym.EntityRequestSourceDetail{URL: &url, Excerpt: &excerpt}
+
+	if _, err := h.CreateEntityRequestHandler(erUserCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDetail == nil {
+		t.Fatal("expected source_detail to be passed to the service")
+	}
+	var sd communitym.EntityRequestSourceDetail
+	if err := json.Unmarshal(gotDetail, &sd); err != nil {
+		t.Fatalf("source_detail is not valid json: %v", err)
+	}
+	if sd.URL == nil || *sd.URL != "https://example.com/show" {
+		t.Errorf("expected trimmed url, got %v", sd.URL)
+	}
+	if sd.Excerpt == nil || *sd.Excerpt != "Boris at The Venue" {
+		t.Errorf("expected trimmed excerpt, got %v", sd.Excerpt)
+	}
+}
+
+// An empty (all-blank) source_detail is normalized to nil so the row stores
+// NULL, not an empty object.
+func TestCreateEntityRequest_EmptySourceDetailDropped(t *testing.T) {
+	want := pendingRequest(15, "artist")
+	sawDetail := true
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				sawDetail = sourceDetail != nil
+				return want, nil
+			},
+		},
+		nil,
+		&testhelpers.MockAuditLogService{},
+	)
+
+	blank := "   "
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+	req.Body.SourceDetail = &communitym.EntityRequestSourceDetail{URL: &blank}
+
+	if _, err := h.CreateEntityRequestHandler(erUserCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sawDetail {
+		t.Error("expected an all-blank source_detail to normalize to nil")
+	}
+}
+
+// An over-long source_detail excerpt is rejected at the trust boundary (422)
+// before the service is called.
+func TestCreateEntityRequest_SourceDetailTooLong(t *testing.T) {
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
+				t.Fatal("service must NOT be called when source_detail is invalid")
+				return nil, nil
+			},
+		},
+		nil, nil,
+	)
+
+	huge := strings.Repeat("x", maxSourceExcerptLen+1)
+	req := &CreateEntityRequestRequest{}
+	req.Body.EntityType = "artist"
+	req.Body.Payload = artistPayload(t, "Boris")
+	req.Body.SourceDetail = &communitym.EntityRequestSourceDetail{Excerpt: &huge}
+	_, err := h.CreateEntityRequestHandler(erUserCtx(), req)
+	testhelpers.AssertHumaError(t, err, 422)
+}
+
 func TestCreateEntityRequest_ServiceError(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
 				return nil, fmt.Errorf("db down")
 			},
 		},
@@ -187,7 +443,7 @@ func TestCreateEntityRequest_ServiceError(t *testing.T) {
 func TestCreateEntityRequest_MapsTypedError(t *testing.T) {
 	h := NewEntityRequestHandler(
 		&testhelpers.MockEntityRequestService{
-			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+			CreateRequestFn: func(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
 				return nil, apperrors.ErrEntityRequestEmptyPayload("artist")
 			},
 		},
@@ -387,6 +643,32 @@ func TestAdminDecide_ApproveFulfillFails(t *testing.T) {
 	req.Body.Decision = "approved"
 	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
 	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// A catalog "already exists" conflict on admin approve maps to 409, not 500
+// (regression guard for the adversarial finding).
+func TestAdminDecide_ApproveExistsConflictIs409(t *testing.T) {
+	decided := pendingRequest(18, "artist")
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				return nil, apperrors.ErrArtistExists("Boris")
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "18"}
+	req.Body.Decision = "approved"
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
 }
 
 // ============================================================================

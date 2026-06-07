@@ -1592,18 +1592,25 @@ func (m *MockEntityRequestFulfiller) CreateRelease(req *contracts.CreateReleaseR
 // ============================================================================
 
 type MockEntityRequestService struct {
-	CreateRequestFn func(*authm.User, string, []byte, string, bool) (*communitym.EntityRequest, error)
-	GetRequestFn    func(uint) (*communitym.EntityRequest, error)
-	ListPendingFn   func(string, int, int) ([]communitym.EntityRequest, int64, error)
-	ListRequestsFn  func(*contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error)
-	DecideFn        func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error)
+	CreateRequestFn     func(*authm.User, string, []byte, string, []byte, bool) (*communitym.EntityRequest, error)
+	RecordFulfillmentFn func(uint, uint) error
+	GetRequestFn        func(uint) (*communitym.EntityRequest, error)
+	ListPendingFn       func(string, int, int) ([]communitym.EntityRequest, int64, error)
+	ListRequestsFn      func(*contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error)
+	DecideFn            func(uint, uint, communitym.EntityRequestDecisionState, *string) (*communitym.EntityRequest, error)
 }
 
-func (m *MockEntityRequestService) CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, confirmed bool) (*communitym.EntityRequest, error) {
+func (m *MockEntityRequestService) CreateRequest(user *authm.User, entityType string, payload []byte, sourceContext string, sourceDetail []byte, confirmed bool) (*communitym.EntityRequest, error) {
 	if m.CreateRequestFn != nil {
-		return m.CreateRequestFn(user, entityType, payload, sourceContext, confirmed)
+		return m.CreateRequestFn(user, entityType, payload, sourceContext, sourceDetail, confirmed)
 	}
 	return nil, nil
+}
+func (m *MockEntityRequestService) RecordFulfillment(requestID uint, createdEntityID uint) error {
+	if m.RecordFulfillmentFn != nil {
+		return m.RecordFulfillmentFn(requestID, createdEntityID)
+	}
+	return nil
 }
 func (m *MockEntityRequestService) GetRequest(requestID uint) (*communitym.EntityRequest, error) {
 	if m.GetRequestFn != nil {
