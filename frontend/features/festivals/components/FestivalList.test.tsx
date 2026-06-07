@@ -22,9 +22,15 @@ vi.mock('@/lib/hooks/common/useDensity', () => ({
   useDensity: () => ({ density: 'comfortable', setDensity: vi.fn() }),
 }))
 
-// Tag faceting (pulls in tag query infra otherwise)
+// Tag faceting (pulls in tag query infra otherwise). The panel mock forwards
+// its `layout` prop onto `data-layout` so the test can assert the top-bar
+// adoption (PSY-1005) without rendering the real tag-query stack — the bar
+// rendering itself (counts, disabled facets, expander) is covered by
+// TagFacetPanel.test.tsx.
 vi.mock('@/features/tags', () => ({
-  TagFacetPanel: () => <div data-testid="tag-facet-panel" />,
+  TagFacetPanel: ({ layout }: { layout?: string }) => (
+    <div data-testid="tag-facet-panel" data-layout={layout ?? 'rail'} />
+  ),
   TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
   parseTagsParam: (raw: string | null) =>
     raw ? raw.split(',').filter(Boolean) : [],
@@ -124,6 +130,22 @@ describe('FestivalList', () => {
     expect(
       screen.getByRole('link', { name: 'Desert Daze' })
     ).toBeInTheDocument()
+  })
+
+  it('renders the desktop tag filter as a top bar (PSY-1005), not a rail', () => {
+    mockUseFestivals.mockReturnValue({
+      data: { festivals: [makeFestival(1, 'FORM')], count: 1 },
+      isLoading: false,
+      isFetching: false,
+      error: null,
+      refetch: vi.fn(),
+    })
+    render(<FestivalList />)
+
+    expect(screen.getByTestId('tag-facet-panel')).toHaveAttribute(
+      'data-layout',
+      'bar'
+    )
   })
 
   it('pushes a status filter to the URL when a status chip is clicked', async () => {
