@@ -154,10 +154,13 @@ func (s *TagService) intersectGroup(entityType string, filter TagFilter, preview
 	}
 
 	// Preview IDs: page 1 in the same default sort the per-type browse uses.
+	// artist/venue order by upcoming-show count DESC — matching their public
+	// browse lists (GetAllArtists orders upcoming_show_count DESC; the design
+	// surfaces the busiest entities first) — which needs a joined count column,
+	// so those types get the join here rather than a plain ORDER string.
 	var ids []uint
-	if err := filtered().
-		Select(idColumn).
-		Order(s.intersectPreviewOrder(entityType)).
+	previewQuery := s.applyPreviewOrder(filtered().Select(idColumn), entityType)
+	if err := previewQuery.
 		Limit(previewLimit).
 		Scan(&ids).Error; err != nil {
 		return group, fmt.Errorf("preview id scan failed: %w", err)
@@ -259,8 +262,45 @@ func (s *TagService) applyIntersectionTagFilter(query *gorm.DB, entityType, idCo
 	}
 }
 
-// intersectPreviewOrder returns the ORDER BY clause for a type's preview so the
-// preview matches page 1 of the per-type browse's default sort.
+// applyPreviewOrder applies a type's default preview sort to the preview-ID
+// query so the preview matches page 1 of that type's "show all" browse.
+//
+// Most types order by a plain column expression (intersectPreviewOrder).
+// artist and venue order by upcoming-show count DESC — the busiest entities
+// first, matching GetAllArtists' `upcoming_show_count DESC` browse sort and the
+// PSY-993 design's "12 shows / 8 shows / 5 shows" rows. That count isn't a base
+// column, so those two types LEFT JOIN the same upcoming-count subquery the
+// enrich* helpers use and order by it (name ASC as the stable tiebreaker).
+func (s *TagService) applyPreviewOrder(query *gorm.DB, entityType string) *gorm.DB {
+	switch entityType {
+	case catalogm.TagEntityArtist:
+		return query.
+			Joins(`LEFT JOIN (
+				SELECT sa.artist_id, COUNT(DISTINCT s.id) AS cnt
+				FROM show_artists sa
+				JOIN shows s ON s.id = sa.show_id
+				WHERE s.event_date >= NOW()
+				GROUP BY sa.artist_id
+			) usc ON usc.artist_id = artists.id`).
+			Order("COALESCE(usc.cnt, 0) DESC, artists.name ASC")
+	case catalogm.TagEntityVenue:
+		return query.
+			Joins(`LEFT JOIN (
+				SELECT sv.venue_id, COUNT(DISTINCT s.id) AS cnt
+				FROM show_venues sv
+				JOIN shows s ON s.id = sv.show_id
+				WHERE s.event_date >= NOW()
+				GROUP BY sv.venue_id
+			) usc ON usc.venue_id = venues.id`).
+			Order("COALESCE(usc.cnt, 0) DESC, venues.name ASC")
+	default:
+		return query.Order(s.intersectPreviewOrder(entityType))
+	}
+}
+
+// intersectPreviewOrder returns the ORDER BY clause for the types whose preview
+// sort is a plain column expression (no joined computed column). artist/venue
+// are handled in applyPreviewOrder because they order by a joined show count.
 func (s *TagService) intersectPreviewOrder(entityType string) string {
 	switch entityType {
 	case catalogm.TagEntityShow:
@@ -272,10 +312,6 @@ func (s *TagService) intersectPreviewOrder(entityType string) string {
 	case catalogm.TagEntityRelease:
 		// ListReleases default ("newest"): newest year first.
 		return "releases.release_year DESC NULLS LAST, releases.title ASC"
-	case catalogm.TagEntityArtist:
-		return "artists.name ASC"
-	case catalogm.TagEntityVenue:
-		return "venues.name ASC"
 	case catalogm.TagEntityLabel:
 		return "labels.name ASC"
 	case catalogm.TagEntityCollection:

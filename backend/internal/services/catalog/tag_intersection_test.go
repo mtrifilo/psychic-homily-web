@@ -413,6 +413,70 @@ func (s *TagIntersectionIntegrationTestSuite) TestIntersection_TagsEcho() {
 	s.Equal("all", resp.TagMatch)
 }
 
+// TestIntersection_SingleTagTransitiveShow: PSY-993 drives the rebuilt
+// /tags/{slug} detail page's grouped sections through this endpoint with a
+// SINGLE tag. The load-bearing case is the Upcoming-shows section: a show is
+// never directly tagged, so a direct entity_tags lookup would report 0 — but
+// through the transitive lineup path the show's count + preview populate from a
+// single billed-artist tag. This is the gap the old GetTagEntities (direct-only)
+// would have shipped as an empty section.
+func (s *TagIntersectionIntegrationTestSuite) TestIntersection_SingleTagTransitiveShow() {
+	// One artist directly tagged shoegaze.
+	artist := s.seedArtist("SoloShoegaze")
+	s.tag("artist", artist, "shoegaze")
+
+	// An upcoming show whose lineup includes that artist (no direct show tag).
+	show := s.seedApprovedUpcomingShow("ShoegazeShow")
+	s.addArtistToShow(show, artist, 0)
+
+	resp, err := s.tagService.IntersectEntitiesByTags([]string{"shoegaze"}, false, 4)
+	s.Require().NoError(err)
+
+	byCount := map[string]int64{}
+	byPreview := map[string][]string{}
+	for _, g := range resp.Groups {
+		byCount[g.EntityType] = g.Count
+		for _, p := range g.Preview {
+			byPreview[g.EntityType] = append(byPreview[g.EntityType], p.Name)
+		}
+	}
+	s.Equal(int64(1), byCount["artist"], "single-tag artist match")
+	s.Equal(int64(1), byCount["show"], "single-tag show counted transitively, NOT direct-only 0")
+	s.Contains(byPreview["show"], "ShoegazeShow", "transitive show appears in the preview")
+}
+
+// TestIntersection_ArtistPreviewOrderedByShowCount: the artist preview must lead
+// with the busiest artists (upcoming-show count DESC), matching the public
+// /artists?tags= browse sort and the PSY-993 design. Tag two artists with the
+// same tag; the one billed on more upcoming shows must come first in the preview.
+func (s *TagIntersectionIntegrationTestSuite) TestIntersection_ArtistPreviewOrderedByShowCount() {
+	busy := s.seedArtist("BusyArtist")
+	quiet := s.seedArtist("QuietArtist")
+	s.tag("artist", busy, "shoegaze")
+	s.tag("artist", quiet, "shoegaze")
+
+	// busy plays two upcoming shows; quiet plays none.
+	for i := 0; i < 2; i++ {
+		sh := s.seedApprovedUpcomingShow(fmt.Sprintf("BusyShow%d", i))
+		s.addArtistToShow(sh, busy, 0)
+	}
+
+	resp, err := s.tagService.IntersectEntitiesByTags([]string{"shoegaze"}, false, 4)
+	s.Require().NoError(err)
+
+	var artistPreview []string
+	for _, g := range resp.Groups {
+		if g.EntityType == "artist" {
+			for _, p := range g.Preview {
+				artistPreview = append(artistPreview, p.Name)
+			}
+		}
+	}
+	s.Require().Len(artistPreview, 2)
+	s.Equal("BusyArtist", artistPreview[0], "busiest artist leads the preview (show-count DESC)")
+	s.Equal("QuietArtist", artistPreview[1])
+}
+
 // counts collapses an IntersectEntitiesByTags result into entity_type → count,
 // failing the test on error.
 func (s *TagIntersectionIntegrationTestSuite) counts(resp *contracts.TagIntersectionResponse, err error) map[string]int64 {

@@ -1,302 +1,219 @@
 'use client'
 
 /**
- * Tagged-entity card row renderers (PSY-485).
+ * Dense tagged-entity rows (PSY-993 — content-first tag detail rebuild).
  *
- * Adapts the lightweight `TaggedEntityItem` returned by GET /tags/{slug}/entities
- * into the entity-specific shapes consumed by the existing feature-module cards
- * (ArtistCard, FestivalCard, LabelCard, ReleaseCard) wherever those work with
- * minimal data, and renders venue/show rows inline because the heavyweight
- * VenueCard/ShowCard pull in feature-specific dependencies (favorite buttons,
- * attendance, music embeds) that don't make sense in this context.
+ * Replaces the heavyweight per-type entity cards (ArtistCard / ReleaseCard / …)
+ * with a single density-first row primitive shared across all entity types:
  *
- * Each renderer accepts the raw `TaggedEntityItem` so the parent (TagDetail) can
- * stay agnostic about which fields the backend populated for which type.
+ *     [ primary name ]  · secondary           right-aligned metric
+ *
+ * - primary: bold, links to the entity detail page.
+ * - secondary: muted, ` · `-joined context (location / artist · type / venue ·
+ *   location). Omitted when empty.
+ * - metric: right-aligned Space-Mono data point per the design (12 shows / 1991
+ *   / Jul 28 / 34 releases). Omitted when not applicable.
+ *
+ * A generic <TaggedEntityRow> renders the shape; getRowFields maps each
+ * TaggedEntityItem's per-type fields onto {primary, secondary, metric, href}.
+ * The tag detail page (TagDetail) renders these inside a borderless dense list,
+ * mirroring the PSY-992 /tags browse DenseTable treatment.
  */
 
 import Link from 'next/link'
-import { BadgeCheck, Library, MapPin } from 'lucide-react'
-import { ArtistCard } from '@/features/artists'
-import type { ArtistListItem } from '@/features/artists/types'
-import { FestivalCard } from '@/features/festivals'
-import type { FestivalListItem } from '@/features/festivals/types'
-import { LabelCard } from '@/features/labels'
-import type { LabelListItem } from '@/features/labels/types'
-import { ReleaseCard } from '@/features/releases'
-import type { ReleaseListItem } from '@/features/releases/types'
-import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
+import { BadgeCheck } from 'lucide-react'
+import { resolveShowTimezone } from '@/lib/utils/formatters'
+import { formatInTimezone } from '@/lib/utils/timeUtils'
 import type { TaggedEntityItem } from '../types'
 import { getEntityUrl } from '../types'
 
 // ──────────────────────────────────────────────
-// Per-type adapters
+// Per-type field mapping
 // ──────────────────────────────────────────────
 
-function TaggedArtistCard({ item }: { item: TaggedEntityItem }) {
-  // Adapt to ArtistListItem. ArtistCard only reads name, slug, city, state,
-  // and upcoming_show_count, so we can pass a minimal shape with the rest
-  // stubbed out.
-  const artist: ArtistListItem = {
-    id: item.entity_id,
-    slug: item.slug,
-    name: item.name,
-    city: item.city ?? null,
-    state: item.state ?? null,
-    bandcamp_embed_url: null,
-    description: null,
-    social: {
-      instagram: null,
-      facebook: null,
-      twitter: null,
-      youtube: null,
-      spotify: null,
-      soundcloud: null,
-      bandcamp: null,
-      website: null,
-    },
-    created_at: '',
-    updated_at: '',
-    upcoming_show_count: item.upcoming_show_count ?? 0,
-  }
-  return <ArtistCard artist={artist} density="comfortable" />
+interface RowFields {
+  /** Entity detail URL. */
+  href: string
+  /** Bold primary label (the entity name). */
+  primary: string
+  /** Muted, ` · `-joined secondary context. Empty when none applies. */
+  secondary: string[]
+  /** Right-aligned Space-Mono metric (e.g. "12 shows", "1991"). Null = omit. */
+  metric: string | null
+  /** True for verified venues — renders a check beside the primary name. */
+  verified?: boolean
 }
 
-function TaggedFestivalCard({ item }: { item: TaggedEntityItem }) {
-  // Adapt to FestivalListItem. The card reads name, slug, city, state,
-  // edition_year, start_date, end_date, status, artist_count, venue_count.
-  const festival: FestivalListItem = {
-    id: item.entity_id,
-    name: item.name,
-    slug: item.slug,
-    series_slug: '', // unused by FestivalCard
-    edition_year: item.edition_year ?? 0,
-    city: item.city || null,
-    state: item.state || null,
-    start_date: item.start_date ?? '',
-    end_date: item.end_date ?? '',
-    status: item.status ?? 'announced',
-    artist_count: item.artist_count ?? 0,
-    venue_count: item.venue_count ?? 0,
-  }
-  return <FestivalCard festival={festival} density="comfortable" />
+/** Join city/state into "Phoenix, AZ" (either may be missing). */
+function locationOf(item: TaggedEntityItem): string | null {
+  const parts = [item.city, item.state].filter(Boolean)
+  return parts.length > 0 ? parts.join(', ') : null
 }
 
-function TaggedLabelCard({ item }: { item: TaggedEntityItem }) {
-  const label: LabelListItem = {
-    id: item.entity_id,
-    name: item.name,
-    slug: item.slug,
-    city: item.city || null,
-    state: item.state || null,
-    status: item.status ?? 'active',
-    artist_count: item.artist_count ?? 0,
-    release_count: item.release_count ?? 0,
-  }
-  return <LabelCard label={label} density="comfortable" />
+/** Pluralize a count: countLabel(12, "show") -> "12 shows". */
+function countLabel(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? '' : 's'}`
 }
 
-function TaggedReleaseCard({ item }: { item: TaggedEntityItem }) {
-  // ReleaseCard expects ReleaseListItem with an `artists` array. The tag
-  // detail endpoint doesn't return per-release artist credits (would require
-  // an extra JOIN per row), so we render an empty artists array — the card
-  // gracefully handles that case (no artist line when the array is empty).
-  const release: ReleaseListItem = {
-    id: item.entity_id,
-    title: item.name,
-    slug: item.slug,
-    release_type: item.release_type ?? 'lp',
-    release_year: item.release_year ?? null,
-    cover_art_url: item.cover_art_url ?? null,
-    artist_count: 0,
-    artists: [],
-    label_name: null,
-    label_slug: null,
-  }
-  return <ReleaseCard release={release} density="comfortable" />
+/** "Jul 28" in the show's venue timezone (matches the design metric format). */
+function formatShowMetric(item: TaggedEntityItem): string | null {
+  if (!item.event_date) return null
+  const tz = resolveShowTimezone(item.state ?? null, null)
+  return formatInTimezone(item.event_date, tz, {
+    month: 'short',
+    day: 'numeric',
+  })
 }
 
 /**
- * Inline venue card. We don't reuse VenueCard because it pulls in
- * useVenueShows, FollowButton, edit/delete dialogs, and other
- * authenticated affordances that aren't appropriate in this read-only,
- * cross-entity browsing context. The visual treatment matches the artist
- * card so the tabs feel cohesive.
+ * Map a TaggedEntityItem to its dense-row fields. Keeping the per-type knowledge
+ * here lets TagDetail stay agnostic about which backend fields each type
+ * populates (mirrors the prior card-adapter split).
  */
-function TaggedVenueRow({ item }: { item: TaggedEntityItem }) {
-  const hasLocation = item.city || item.state
-  const location = hasLocation
-    ? [item.city, item.state].filter(Boolean).join(', ')
-    : null
-  const upcoming = item.upcoming_show_count ?? 0
-  return (
-    <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <Link
-            href={getEntityUrl('venue', item.slug)}
-            className="block group"
-          >
-            <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors truncate inline-flex items-center gap-1.5">
-              {item.name}
-              {item.verified && (
-                <BadgeCheck className="h-4 w-4 text-primary shrink-0" aria-label="Verified venue" />
-              )}
-            </h3>
-          </Link>
-          {location && (
-            <div className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-              <MapPin className="h-3.5 w-3.5 shrink-0" />
-              <span>{location}</span>
-            </div>
-          )}
-        </div>
-        <span
-          className={`text-xs font-medium px-2 py-1 rounded-full shrink-0 ${
-            upcoming > 0
-              ? 'bg-primary/10 text-primary'
-              : 'bg-muted text-muted-foreground'
-          }`}
-        >
-          {upcoming} {upcoming === 1 ? 'show' : 'shows'}
-        </span>
-      </div>
-    </article>
-  )
-}
+export function getRowFields(item: TaggedEntityItem): RowFields {
+  const href = getEntityUrl(item.entity_type, item.slug)
+  const location = locationOf(item)
 
-/**
- * Inline show row. ShowCard wants a full ShowResponse with bill positions,
- * attendance counters, edit/delete affordances, and music embed plumbing —
- * none of which the tag-entities endpoint exposes. We render the headliner +
- * venue + date with the same visual rhythm.
- */
-function TaggedShowRow({ item }: { item: TaggedEntityItem }) {
-  const dateBadge = item.event_date
-    ? formatShowDateBadge(item.event_date, item.state ?? null)
-    : null
-  const headliner = item.headliner_name
-  const venue = item.venue_name
-  const location =
-    item.city && item.state
-      ? `${item.city}, ${item.state}`
-      : item.city || item.state || null
-
-  return (
-    <article className="rounded-lg border border-border/50 bg-card p-3 sm:p-4 transition-shadow hover:shadow-sm">
-      <div className="flex gap-3 sm:gap-4">
-        {dateBadge && (
-          <Link
-            href={getEntityUrl('show', item.slug)}
-            className="shrink-0 flex flex-col items-center justify-center rounded-md bg-muted/50 hover:bg-muted transition-colors w-14 sm:w-16 py-2"
-          >
-            <span className="text-[10px] sm:text-xs font-bold tracking-widest uppercase text-muted-foreground leading-none">
-              {dateBadge.dayOfWeek}
-            </span>
-            <span className="text-xs sm:text-sm font-semibold text-primary leading-tight mt-0.5">
-              {dateBadge.monthDay}
-            </span>
-          </Link>
-        )}
-        <div className="flex-1 min-w-0">
-          <Link href={getEntityUrl('show', item.slug)} className="block group">
-            <h3 className="font-bold text-base sm:text-lg text-foreground group-hover:text-primary transition-colors truncate">
-              {headliner || item.name || 'Show'}
-            </h3>
-          </Link>
-          {venue && (
-            <div className="text-sm text-muted-foreground mt-0.5">
-              {item.venue_slug ? (
-                <Link
-                  href={`/venues/${item.venue_slug}`}
-                  className="text-primary/80 hover:text-primary font-medium transition-colors"
-                >
-                  {venue}
-                </Link>
-              ) : (
-                <span className="text-primary/80 font-medium">{venue}</span>
-              )}
-              {location && (
-                <span className="text-muted-foreground/80">
-                  {' '}&middot; {location}
-                </span>
-              )}
-            </div>
-          )}
-        </div>
-      </div>
-    </article>
-  )
-}
-
-/**
- * PSY-553: tagged collection row. The backend (`enrichCollections`) only
- * populates name + slug for collections (no city/state/counts), and the
- * full CollectionCard requires a heavyweight shape with item counts,
- * contributor counts, like state, etc. that the tag-entities endpoint
- * doesn't return. Following the TaggedShowRow / TaggedVenueRow precedent,
- * we render a minimal inline row that links to /collections/{slug}.
- */
-function TaggedCollectionRow({ item }: { item: TaggedEntityItem }) {
-  return (
-    <article className="rounded-lg border border-border/50 bg-card p-4 transition-shadow hover:shadow-sm">
-      <div className="flex items-start gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-muted/50">
-          <Library className="h-5 w-5 text-muted-foreground/70" />
-        </div>
-        <div className="min-w-0 flex-1">
-          <Link
-            href={getEntityUrl('collection', item.slug)}
-            className="block group"
-          >
-            <h3 className="font-bold text-base text-foreground group-hover:text-primary transition-colors truncate">
-              {item.name}
-            </h3>
-          </Link>
-        </div>
-      </div>
-    </article>
-  )
+  switch (item.entity_type) {
+    case 'artist': {
+      const upcoming = item.upcoming_show_count ?? 0
+      return {
+        href,
+        primary: item.name,
+        secondary: location ? [location] : [],
+        metric: upcoming > 0 ? countLabel(upcoming, 'show') : null,
+      }
+    }
+    case 'venue': {
+      const upcoming = item.upcoming_show_count ?? 0
+      return {
+        href,
+        primary: item.name,
+        secondary: location ? [location] : [],
+        metric: countLabel(upcoming, 'show'),
+        verified: item.verified ?? false,
+      }
+    }
+    case 'release': {
+      // "Loveless · My Bloody Valentine · LP" — but the tag-entities endpoint
+      // doesn't return per-release artist credits, so secondary carries the
+      // release type only. Metric = release year.
+      const secondary: string[] = []
+      if (item.release_type) secondary.push(item.release_type.toUpperCase())
+      return {
+        href,
+        primary: item.name,
+        secondary,
+        metric: item.release_year ? String(item.release_year) : null,
+      }
+    }
+    case 'show': {
+      // "Whirr · The Rebel Lounge · Phoenix, AZ" — headliner leads, venue +
+      // location in the secondary. Metric = show date.
+      const secondary: string[] = []
+      const venue = item.venue_name
+      if (venue) secondary.push(venue)
+      if (location) secondary.push(location)
+      return {
+        href,
+        primary: item.headliner_name || item.name || 'Show',
+        secondary,
+        metric: formatShowMetric(item),
+      }
+    }
+    case 'label': {
+      const releaseCount = item.release_count ?? 0
+      return {
+        href,
+        primary: item.name,
+        secondary: location ? [location] : [],
+        metric: releaseCount > 0 ? countLabel(releaseCount, 'release') : null,
+      }
+    }
+    case 'festival': {
+      const secondary: string[] = []
+      if (location) secondary.push(location)
+      const artistCount = item.artist_count ?? 0
+      return {
+        href,
+        primary: item.name,
+        secondary,
+        metric: item.edition_year
+          ? String(item.edition_year)
+          : artistCount > 0
+            ? countLabel(artistCount, 'artist')
+            : null,
+      }
+    }
+    case 'collection':
+      return {
+        href,
+        primary: item.name,
+        secondary: [],
+        metric: null,
+      }
+    default:
+      return {
+        href: href === '#' ? getEntityUrl(item.entity_type, item.slug) : href,
+        primary: item.name,
+        secondary: [],
+        metric: null,
+      }
+  }
 }
 
 // ──────────────────────────────────────────────
-// Public renderer
+// Dense row
 // ──────────────────────────────────────────────
 
-interface TaggedEntityCardProps {
+interface TaggedEntityRowProps {
   item: TaggedEntityItem
 }
 
 /**
- * Render a single tagged-entity card based on its type. Any unknown entity
- * type falls back to a minimal link row so we never silently drop data when
- * the backend learns about a new tag-eligible entity type.
+ * A single dense tagged-entity row. The whole left cluster (name + secondary)
+ * sits under one link target; the metric is plain text on the right so the row
+ * keeps a single anchor (avoids nested-link strict-mode collisions).
  */
-export function TaggedEntityCard({ item }: TaggedEntityCardProps) {
-  switch (item.entity_type) {
-    case 'artist':
-      return <TaggedArtistCard item={item} />
-    case 'venue':
-      return <TaggedVenueRow item={item} />
-    case 'festival':
-      return <TaggedFestivalCard item={item} />
-    case 'label':
-      return <TaggedLabelCard item={item} />
-    case 'release':
-      return <TaggedReleaseCard item={item} />
-    case 'show':
-      return <TaggedShowRow item={item} />
-    case 'collection':
-      return <TaggedCollectionRow item={item} />
-    default:
-      return (
-        <article className="rounded-lg border border-border/50 bg-card p-4">
-          <Link
-            href={getEntityUrl(item.entity_type, item.slug)}
-            className="font-medium text-foreground hover:text-primary transition-colors"
-          >
-            {item.name}
-          </Link>
-        </article>
-      )
-  }
+export function TaggedEntityRow({ item }: TaggedEntityRowProps) {
+  const { href, primary, secondary, metric, verified } = getRowFields(item)
+
+  return (
+    <div
+      className="flex items-baseline justify-between gap-3 border-b border-border/30 py-2 last:border-b-0"
+      data-testid={`tagged-row-${item.entity_type}`}
+    >
+      <div className="min-w-0 flex-1 truncate">
+        <Link
+          href={href}
+          className="font-semibold text-foreground hover:underline"
+        >
+          {primary}
+        </Link>
+        {verified && (
+          <BadgeCheck
+            className="ml-1 inline-block h-3.5 w-3.5 -translate-y-px text-primary"
+            aria-label="Verified venue"
+          />
+        )}
+        {secondary.length > 0 && (
+          <span className="text-sm text-muted-foreground">
+            {secondary.map((part, idx) => (
+              <span key={idx}>
+                <span className="mx-1.5 text-muted-foreground/40" aria-hidden>
+                  ·
+                </span>
+                {part}
+              </span>
+            ))}
+          </span>
+        )}
+      </div>
+      {metric && (
+        <span className="shrink-0 font-mono text-sm tabular-nums text-muted-foreground">
+          {metric}
+        </span>
+      )}
+    </div>
+  )
 }

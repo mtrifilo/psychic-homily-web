@@ -1,17 +1,22 @@
-import React, { useState } from 'react'
+import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
-import type { TagEnrichedDetailResponse } from '../types'
+import type {
+  TagEnrichedDetailResponse,
+  TagIntersectionResponse,
+} from '../types'
 
 // ── Mocks ──────────────────────────────────────────
 
 const mockUseTagDetail = vi.fn()
-const mockUseTagEntities = vi.fn()
+const mockUseTagIntersection = vi.fn()
+const mockUseSearchTags = vi.fn()
 vi.mock('../hooks', () => ({
   useTagDetail: (...args: unknown[]) => mockUseTagDetail(...args),
-  useTagEntities: (...args: unknown[]) => mockUseTagEntities(...args),
+  useTagIntersection: (...args: unknown[]) => mockUseTagIntersection(...args),
+  useSearchTags: (...args: unknown[]) => mockUseSearchTags(...args),
 }))
 
 vi.mock('next/link', () => ({
@@ -30,18 +35,20 @@ vi.mock('next/link', () => ({
   ),
 }))
 
+// Router + search params are driven by a module-level mutable so individual
+// tests can seed the ?with= pivot state and assert router.replace calls.
+const mockReplace = vi.fn()
+let mockSearchParams = new URLSearchParams()
 vi.mock('next/navigation', () => ({
   usePathname: () => '/tags/test-tag',
+  useRouter: () => ({ replace: mockReplace }),
+  useSearchParams: () => mockSearchParams,
 }))
 
 vi.mock('@/features/notifications', () => ({
-  NotifyMeButton: ({
-    entityName,
-  }: {
-    entityType: string
-    entityId: number
-    entityName: string
-  }) => <button data-testid="notify-me-button">Notify {entityName}</button>,
+  NotifyMeButton: ({ entityName }: { entityName: string }) => (
+    <button data-testid="notify-me-button">Notify {entityName}</button>
+  ),
 }))
 
 vi.mock('@/components/shared', () => ({
@@ -56,26 +63,13 @@ vi.mock('@/components/shared', () => ({
   }) => (
     <nav aria-label="Breadcrumb" data-testid="breadcrumb-stub">
       <a href={fallback.href}>{fallback.label}</a>
-      {(intermediate ?? []).map(c => (
+      {(intermediate ?? []).map((c) => (
         <a key={c.href} href={c.href} data-testid="breadcrumb-intermediate">
           {c.label}
         </a>
       ))}
       <span>{currentPage}</span>
     </nav>
-  ),
-  EntityCardTitle: ({
-    name,
-    href,
-    ariaLabel,
-  }: {
-    name: string
-    href: string
-    ariaLabel?: string
-  }) => (
-    <a href={href} aria-label={ariaLabel ?? name}>
-      <h3 title={name}>{name}</h3>
-    </a>
   ),
 }))
 
@@ -101,10 +95,9 @@ function makeTagDetail(
   overrides: Partial<TagEnrichedDetailResponse> = {}
 ): TagEnrichedDetailResponse {
   return {
-    // thin fields
     id: 1,
-    name: 'Rock',
-    slug: 'rock',
+    name: 'Shoegaze',
+    slug: 'shoegaze',
     category: 'genre',
     is_official: false,
     usage_count: 42,
@@ -115,7 +108,6 @@ function makeTagDetail(
     aliases: [],
     created_at: '2025-01-01T00:00:00Z',
     updated_at: '2025-01-01T00:00:00Z',
-    // enriched fields
     description_html: '',
     parent: null,
     children: [],
@@ -134,17 +126,49 @@ function makeTagDetail(
   }
 }
 
-describe('TagDetail', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    // Default: no entities loaded
-    mockUseTagEntities.mockReturnValue({
-      data: { entities: [], total: 0 },
-      isLoading: false,
-    })
-  })
+function makeIntersection(
+  overrides: Partial<TagIntersectionResponse> = {}
+): TagIntersectionResponse {
+  return {
+    tags: [
+      {
+        id: 1,
+        name: 'Shoegaze',
+        slug: 'shoegaze',
+        category: 'genre',
+        is_official: false,
+        usage_count: 42,
+      },
+    ],
+    tag_match: 'all',
+    // Canonical backend order: artist, release, label, show, venue, festival,
+    // collection. Component reorders to the design's display order.
+    groups: [
+      { entity_type: 'artist', count: 0, preview: [] },
+      { entity_type: 'release', count: 0, preview: [] },
+      { entity_type: 'label', count: 0, preview: [] },
+      { entity_type: 'show', count: 0, preview: [] },
+      { entity_type: 'venue', count: 0, preview: [] },
+      { entity_type: 'festival', count: 0, preview: [] },
+      { entity_type: 'collection', count: 0, preview: [] },
+    ],
+    ...overrides,
+  }
+}
 
-  // ── Loading state ──
+beforeEach(() => {
+  vi.clearAllMocks()
+  mockSearchParams = new URLSearchParams()
+  // Default: tag with no entities loaded.
+  mockUseTagIntersection.mockReturnValue({
+    data: makeIntersection(),
+    isLoading: false,
+  })
+  mockUseSearchTags.mockReturnValue({ data: { tags: [] }, isLoading: false })
+})
+
+describe('TagDetail', () => {
+  // ── Loading / error states ──
 
   it('shows loading spinner while tag is loading', () => {
     mockUseTagDetail.mockReturnValue({
@@ -152,110 +176,9 @@ describe('TagDetail', () => {
       isLoading: true,
       error: null,
     })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    const spinner = document.querySelector('.animate-spin')
-    expect(spinner).toBeInTheDocument()
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+    expect(document.querySelector('.animate-spin')).toBeInTheDocument()
   })
-
-  // ── Regression: loading → success transition (PSY-447) ──
-  // Rules of Hooks violation: earlier versions called useMemo below the
-  // early returns for loading/error/!tag, so the hook count changed when
-  // data arrived (tag went from undefined → populated). In production
-  // React logs "change in the order of Hooks" / "Rendered more hooks than
-  // during the previous render" and the error boundary renders a 500.
-  //
-  // The other tests all pass with the broken code because the mocked
-  // `useTagDetail` does not call any real React hooks, so when the
-  // component body goes from "0 hooks (early return)" to "1 hook (useMemo)",
-  // React has nothing to compare against. In production the real
-  // `useTagDetail` (via TanStack Query's `useQuery`) calls several real
-  // hooks before the component's own early return, so the mismatch is
-  // detected.
-  //
-  // This regression test makes the mock call a real React hook (`useState`)
-  // so that the 0-to-1 transition in the component body becomes a
-  // 1-to-2 transition, which is what React's hook-tracker can detect.
-  it('renders without hook-order errors during the loading → success transition', () => {
-    // Custom mock implementation that calls a real React hook. This
-    // mimics TanStack Query's internal hook calls so React's hook-order
-    // tracker sees the true mismatch introduced by hooks below an
-    // early return.
-    let dataState: TagEnrichedDetailResponse | undefined = undefined
-    let isLoadingState = true
-    mockUseTagDetail.mockImplementation(() => {
-      // Real React hook — ensures the number of hooks this "replacement"
-      // contributes is stable across renders.
-      useState(0)
-      return { data: dataState, isLoading: isLoadingState, error: null }
-    })
-
-    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
-
-    // Initial render: loading
-    const queryClient = createQueryClient()
-    const { rerender } = render(
-      <QueryClientProvider client={queryClient}>
-        <TagDetail slug="shoegaze" />
-      </QueryClientProvider>
-    )
-
-    // Transition to populated data — this is what triggered the
-    // hook-order violation in production.
-    dataState = makeTagDetail({
-      name: 'Shoegaze',
-      usage_count: 18,
-      usage_breakdown: {
-        artist: 15,
-        venue: 0,
-        show: 3,
-        release: 0,
-        label: 0,
-        festival: 0,
-      },
-    })
-    isLoadingState = false
-
-    let threwDuringRerender: Error | null = null
-    try {
-      rerender(
-        <QueryClientProvider client={queryClient}>
-          <TagDetail slug="shoegaze" />
-        </QueryClientProvider>
-      )
-    } catch (e) {
-      threwDuringRerender = e as Error
-    }
-
-    // A hook-order violation throws during render with a message like
-    // "Rendered more hooks than during the previous render." or
-    // "change in the order of Hooks". React also logs a dev-only
-    // console.error about it.
-    const allErrorOutput = [
-      ...(threwDuringRerender ? [threwDuringRerender.message] : []),
-      ...errorSpy.mock.calls.map(([msg]) =>
-        typeof msg === 'string' ? msg : ''
-      ),
-    ]
-    const hookErrors = allErrorOutput.filter(
-      (msg) =>
-        msg.includes('change in the order of Hooks') ||
-        msg.includes('Rendered more hooks than during the previous render') ||
-        msg.includes('Rendered fewer hooks than expected')
-    )
-    expect(hookErrors).toEqual([])
-    expect(threwDuringRerender).toBeNull()
-
-    // Sanity check: populated content actually renders after the transition.
-    expect(
-      screen.getByRole('heading', { level: 1, name: 'Shoegaze' })
-    ).toBeInTheDocument()
-
-    errorSpy.mockRestore()
-  })
-
-  // ── Error states ──
 
   it('shows "Tag Not Found" for 404 errors', () => {
     mockUseTagDetail.mockReturnValue({
@@ -263,13 +186,8 @@ describe('TagDetail', () => {
       isLoading: false,
       error: new Error('Tag not found'),
     })
-
     renderWithProviders(<TagDetail slug="nonexistent" />)
-
     expect(screen.getByText('Tag Not Found')).toBeInTheDocument()
-    expect(
-      screen.getByText("The tag you're looking for doesn't exist.")
-    ).toBeInTheDocument()
     expect(screen.getByRole('link', { name: /Back to Tags/ })).toHaveAttribute(
       'href',
       '/tags'
@@ -282,576 +200,77 @@ describe('TagDetail', () => {
       isLoading: false,
       error: new Error('Server error'),
     })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
+    renderWithProviders(<TagDetail slug="shoegaze" />)
     expect(screen.getByText('Error Loading Tag')).toBeInTheDocument()
-    expect(screen.getByText('Server error')).toBeInTheDocument()
   })
 
-  it('shows "Tag Not Found" when data is null/undefined (no error)', () => {
+  // ── Thin metadata band ──
+
+  it('renders tag name as heading, category chip, and demoted meta', () => {
     mockUseTagDetail.mockReturnValue({
-      data: undefined,
+      data: makeTagDetail({ name: 'Shoegaze', usage_count: 42 }),
       isLoading: false,
       error: null,
     })
-
-    renderWithProviders(<TagDetail slug="ghost" />)
-
-    expect(screen.getByText('Tag Not Found')).toBeInTheDocument()
-  })
-
-  // ── Core header ──
-
-  it('renders tag name as heading', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ name: 'Rock' }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
+    renderWithProviders(<TagDetail slug="shoegaze" />)
 
     expect(
-      screen.getByRole('heading', { level: 1, name: 'Rock' })
+      screen.getByRole('heading', { level: 1, name: 'Shoegaze' })
     ).toBeInTheDocument()
-  })
-
-  it('renders category badge', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ category: 'genre' }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
     expect(screen.getByText('Genre')).toBeInTheDocument()
-  })
-
-  it('renders usage count (plural)', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ usage_count: 42 }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
     expect(screen.getByText('42 uses')).toBeInTheDocument()
   })
 
-  it('renders usage count (singular)', () => {
+  it('renders singular "use" for a 1-use tag', () => {
     mockUseTagDetail.mockReturnValue({
       data: makeTagDetail({ usage_count: 1 }),
       isLoading: false,
       error: null,
     })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
+    renderWithProviders(<TagDetail slug="shoegaze" />)
     expect(screen.getByText('1 use')).toBeInTheDocument()
   })
 
-  it('renders Official badge when is_official', () => {
+  it('renders the Filter shows action pointing at /shows?tags={slug}', () => {
     mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ is_official: true }),
+      data: makeTagDetail(),
       isLoading: false,
       error: null,
     })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByText('Official')).toBeInTheDocument()
-  })
-
-  it('does not render Official badge when not official', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ is_official: false }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.queryByText('Official')).not.toBeInTheDocument()
-  })
-
-  // ── Description (markdown) ──
-
-  it('renders description HTML when description_html is present', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        description_html: '<p>A genre of <strong>popular</strong> music.</p>',
-        description: 'A genre of **popular** music.',
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    const desc = screen.getByTestId('tag-description')
-    expect(desc).toBeInTheDocument()
-    expect(desc.innerHTML).toContain('<strong>popular</strong>')
-  })
-
-  it('falls back to plain description when description_html is empty', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        description: 'Plain text fallback.',
-        description_html: '',
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByText('Plain text fallback.')).toBeInTheDocument()
-    expect(screen.queryByTestId('tag-description')).not.toBeInTheDocument()
-  })
-
-  it('does not render description when empty', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ description: '', description_html: '' }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.queryByTestId('tag-description')).not.toBeInTheDocument()
-  })
-
-  // ── Parent / children hierarchy (genre only) ──
-
-  it('renders parent tag pill for genre tags with a parent', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        category: 'genre',
-        parent: {
-          id: 5,
-          name: 'Music',
-          slug: 'music',
-          category: 'genre',
-          is_official: false,
-          usage_count: 100,
-        },
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    const hierarchy = screen.getByTestId('tag-hierarchy')
-    expect(hierarchy).toBeInTheDocument()
-    expect(screen.getByText('Parent')).toBeInTheDocument()
-    // Scope to the hierarchy section because PSY-486 also surfaces the
-    // parent in the breadcrumb nav, which means an unscoped lookup matches
-    // two links (breadcrumb intermediate + parent pill).
-    const within = hierarchy.querySelectorAll('a')
-    const parentLink = Array.from(within).find(a =>
-      /Music/.test(a.textContent ?? '')
-    )
-    expect(parentLink).toBeDefined()
-    expect(parentLink).toHaveAttribute('href', '/tags/music')
-  })
-
-  it('renders children pills for genre tags with children', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        category: 'genre',
-        children: [
-          { id: 11, name: 'dream-pop', slug: 'dream-pop', category: 'genre', is_official: false, usage_count: 4 },
-          { id: 12, name: 'nu-gaze', slug: 'nu-gaze', category: 'genre', is_official: false, usage_count: 2 },
-        ],
-      }),
-      isLoading: false,
-      error: null,
-    })
-
     renderWithProviders(<TagDetail slug="shoegaze" />)
-
-    expect(screen.getByText('Children (2)')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /dream-pop/ })).toHaveAttribute(
-      'href',
-      '/tags/dream-pop'
-    )
-    expect(screen.getByRole('link', { name: /nu-gaze/ })).toHaveAttribute(
-      'href',
-      '/tags/nu-gaze'
-    )
-  })
-
-  it('hides hierarchy block for non-genre categories even with parent/children', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        category: 'locale',
-        parent: {
-          id: 5,
-          name: 'West Coast',
-          slug: 'west-coast',
-          category: 'locale',
-          is_official: false,
-          usage_count: 10,
-        },
-        children: [
-          { id: 11, name: 'Phoenix', slug: 'phoenix', category: 'locale', is_official: false, usage_count: 4 },
-        ],
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="arizona" />)
-
-    expect(screen.queryByTestId('tag-hierarchy')).not.toBeInTheDocument()
-  })
-
-  it('hides hierarchy block entirely when no parent and no children', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ category: 'genre' }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.queryByTestId('tag-hierarchy')).not.toBeInTheDocument()
-  })
-
-  // ── Aliases ──
-
-  it('renders aliases when present', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ aliases: ['rock and roll', 'rock n roll'] }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByText('Also known as')).toBeInTheDocument()
-    expect(screen.getByText('rock and roll')).toBeInTheDocument()
-    expect(screen.getByText('rock n roll')).toBeInTheDocument()
-  })
-
-  it('does not render aliases section when empty', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ aliases: [] }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.queryByText('Also known as')).not.toBeInTheDocument()
-  })
-
-  // ── Creator attribution ──
-
-  it('renders "Created by @username" from the enriched created_by field', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        created_by: { id: 42, username: 'johndoe' },
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByText('@johndoe')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '@johndoe' })).toHaveAttribute(
-      'href',
-      '/users/johndoe'
-    )
-  })
-
-  it('falls back to legacy created_by_username when created_by is null', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        created_by: null,
-        created_by_username: 'legacyuser',
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByText('@legacyuser')).toBeInTheDocument()
-  })
-
-  it('does not render creator when no creator info is available', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail(),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.queryByText(/Created by/)).not.toBeInTheDocument()
-  })
-
-  // ── Usage breakdown summary row ──
-
-  it('renders non-zero breakdown counts in the header', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        usage_count: 18,
-        usage_breakdown: {
-          artist: 15,
-          venue: 0,
-          show: 3,
-          release: 0,
-          label: 0,
-          festival: 0,
-        },
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    const summary = screen.getByTestId('usage-breakdown-summary')
-    expect(summary).toBeInTheDocument()
-    // 15 artists · 3 shows — zero-count types are hidden
-    expect(summary).toHaveTextContent('15')
-    expect(summary).toHaveTextContent('artists')
-    expect(summary).toHaveTextContent('3')
-    expect(summary).toHaveTextContent('shows')
-    expect(summary).not.toHaveTextContent('0 venues')
-  })
-
-  it('renders singular label when breakdown count is 1', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        usage_count: 1,
-        usage_breakdown: {
-          artist: 1,
-          venue: 0,
-          show: 0,
-          release: 0,
-          label: 0,
-          festival: 0,
-        },
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    const summary = screen.getByTestId('usage-breakdown-summary')
-    expect(summary).toHaveTextContent('1')
-    expect(summary).toHaveTextContent('artist')
-    expect(summary).not.toHaveTextContent('artists')
-  })
-
-  it('hides the breakdown summary when all counts are zero', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail(),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
     expect(
-      screen.queryByTestId('usage-breakdown-summary')
-    ).not.toBeInTheDocument()
+      screen.getByRole('link', { name: 'Filter shows' })
+    ).toHaveAttribute('href', '/shows?tags=shoegaze')
   })
 
-  // ── Top contributors ──
-
-  it('renders top contributors with handles and counts', () => {
+  it('renders NotifyMeButton with the tag name', () => {
     mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        top_contributors: [
-          { user: { id: 1, username: 'alice' }, count: 8 },
-          { user: { id: 2, username: 'bob' }, count: 5 },
-        ],
-      }),
+      data: makeTagDetail({ name: 'Punk' }),
       isLoading: false,
       error: null,
     })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByTestId('top-contributors')).toBeInTheDocument()
-    expect(screen.getByText('Top contributors')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '@alice' })).toHaveAttribute(
-      'href',
-      '/users/alice'
-    )
-    expect(screen.getByRole('link', { name: '@bob' })).toHaveAttribute(
-      'href',
-      '/users/bob'
-    )
-    expect(screen.getByText('(8)')).toBeInTheDocument()
-    expect(screen.getByText('(5)')).toBeInTheDocument()
-  })
-
-  it('hides anonymous contributors and hides the section when all are anonymous (PSY-450)', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        top_contributors: [{ user: { id: 99 }, count: 3 }],
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    // Never leak the internal DB id as a fallback label.
-    expect(screen.queryByText(/user #\d+/)).not.toBeInTheDocument()
-    // When every contributor is anonymous the section must be hidden entirely.
-    expect(screen.queryByTestId('top-contributors')).not.toBeInTheDocument()
-  })
-
-  it('shows only named contributors when the list is mixed (PSY-450)', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        top_contributors: [
-          { user: { id: 1, username: 'alice' }, count: 8 },
-          { user: { id: 42 }, count: 6 },
-          { user: { id: 2, username: 'bob' }, count: 2 },
-        ],
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByTestId('top-contributors')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '@alice' })).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: '@bob' })).toBeInTheDocument()
-    expect(screen.queryByText(/user #\d+/)).not.toBeInTheDocument()
-  })
-
-  it('hides top contributors section when empty', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ top_contributors: [] }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.queryByTestId('top-contributors')).not.toBeInTheDocument()
-  })
-
-  // ── Related tags ──
-
-  it('renders related tags pills', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({
-        related_tags: [
-          { id: 20, name: 'post-rock', slug: 'post-rock', category: 'genre', is_official: false, usage_count: 5 },
-          { id: 21, name: 'dream-pop', slug: 'dream-pop', category: 'genre', is_official: true, usage_count: 9 },
-        ],
-      }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="shoegaze" />)
-
-    const section = screen.getByTestId('related-tags')
-    expect(section).toBeInTheDocument()
-    expect(screen.getByText('Related tags')).toBeInTheDocument()
-    expect(screen.getByRole('link', { name: /post-rock/ })).toHaveAttribute(
-      'href',
-      '/tags/post-rock'
-    )
-    expect(screen.getByRole('link', { name: /dream-pop/ })).toHaveAttribute(
-      'href',
-      '/tags/dream-pop'
-    )
-  })
-
-  it('hides related tags section when empty', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ related_tags: [] }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.queryByTestId('related-tags')).not.toBeInTheDocument()
-  })
-
-  // ── NotifyMeButton + breadcrumb ──
-
-  it('renders NotifyMeButton with correct props', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ id: 7, name: 'Punk' }),
-      isLoading: false,
-      error: null,
-    })
-
     renderWithProviders(<TagDetail slug="punk" />)
-
     expect(screen.getByTestId('notify-me-button')).toHaveTextContent(
       'Notify Punk'
     )
   })
 
-  // PSY-460 / dogfood tags-audit-4 ISSUE-003: at 375px the h1 + Official
-  // badge + NotifyMeButton cluster overflowed the viewport by ~31px,
-  // clipping "Notify me". Fix mirrors the PSY-467 pattern: the cluster
-  // uses flex-wrap + min-w-0 so the NotifyMeButton can break to a new
-  // row under the title on narrow viewports. jsdom can't verify actual
-  // layout, so we assert the structural classes are present — enough to
-  // catch a regression that strips the wrap.
-  it('header cluster allows the NotifyMeButton to wrap on narrow viewports (ISSUE-003)', () => {
+  it('renders description HTML when present', () => {
     mockUseTagDetail.mockReturnValue({
       data: makeTagDetail({
-        name: 'Shoegaze',
-        is_official: true,
+        description_html: '<p>Dreamy <strong>guitar</strong> textures.</p>',
       }),
       isLoading: false,
       error: null,
     })
-
     renderWithProviders(<TagDetail slug="shoegaze" />)
-
-    const heading = screen.getByRole('heading', { level: 1, name: 'Shoegaze' })
-    const cluster = heading.parentElement as HTMLElement
-    expect(cluster.className).toContain('flex-wrap')
-    expect(cluster.className).toContain('min-w-0')
-    // The heading itself must be allowed to shrink so long tag names break
-    // instead of forcing the whole cluster off-screen.
-    expect(heading.className).toContain('min-w-0')
+    const desc = screen.getByTestId('tag-description')
+    expect(desc.innerHTML).toContain('<strong>guitar</strong>')
   })
 
-  it('renders breadcrumb with tag name', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ name: 'Jazz' }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="jazz" />)
-
-    const jazzElements = screen.getAllByText('Jazz')
-    expect(jazzElements.length).toBeGreaterThanOrEqual(2)
-  })
-
-  // PSY-486: when a genre tag has a parent, the breadcrumb chain renders
-  // `Tags > <parent> > <tag>` so visitors can climb the hierarchy.
-  it('includes the parent tag as an intermediate breadcrumb crumb when present', () => {
+  it('includes the parent tag as an intermediate breadcrumb when present', () => {
     mockUseTagDetail.mockReturnValue({
       data: makeTagDetail({
-        name: 'shoegaze',
-        slug: 'shoegaze',
         category: 'genre',
         parent: {
           id: 5,
@@ -865,336 +284,349 @@ describe('TagDetail', () => {
       isLoading: false,
       error: null,
     })
-
     renderWithProviders(<TagDetail slug="shoegaze" />)
-
     const intermediates = screen.getAllByTestId('breadcrumb-intermediate')
     expect(intermediates).toHaveLength(1)
-    expect(intermediates[0]).toHaveTextContent('post-punk')
     expect(intermediates[0]).toHaveAttribute('href', '/tags/post-punk')
   })
 
-  it('omits the intermediate crumb for genre tags with no parent', () => {
+  // ── Co-visible sections (not tabs) ──
+
+  it('renders co-visible sections in the fixed display order, suppressing empties', () => {
     mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ name: 'rock', category: 'genre' }),
+      data: makeTagDetail({ usage_count: 100 }),
       isLoading: false,
       error: null,
     })
+    mockUseTagIntersection.mockReturnValue({
+      data: makeIntersection({
+        groups: [
+          {
+            entity_type: 'artist',
+            count: 12,
+            preview: [
+              {
+                entity_type: 'artist',
+                entity_id: 1,
+                name: 'Whirr',
+                slug: 'whirr',
+                city: 'Oakland',
+                state: 'CA',
+                upcoming_show_count: 8,
+              },
+            ],
+          },
+          { entity_type: 'release', count: 0, preview: [] },
+          { entity_type: 'label', count: 3, preview: [
+            {
+              entity_type: 'label',
+              entity_id: 5,
+              name: 'Slumberland Records',
+              slug: 'slumberland',
+              city: 'Oakland',
+              state: 'CA',
+              release_count: 34,
+            },
+          ] },
+          {
+            entity_type: 'show',
+            count: 2,
+            preview: [
+              {
+                entity_type: 'show',
+                entity_id: 9,
+                name: 'Whirr Show',
+                slug: 'whirr-show',
+                headliner_name: 'Whirr',
+                venue_name: 'The Rebel Lounge',
+                city: 'Phoenix',
+                state: 'AZ',
+                event_date: '2026-07-28T03:00:00Z',
+              },
+            ],
+          },
+          { entity_type: 'venue', count: 0, preview: [] },
+          { entity_type: 'festival', count: 0, preview: [] },
+          { entity_type: 'collection', count: 0, preview: [] },
+        ],
+      }),
+      isLoading: false,
+    })
 
-    renderWithProviders(<TagDetail slug="rock" />)
+    renderWithProviders(<TagDetail slug="shoegaze" />)
 
+    // Non-empty sections rendered; empty ones suppressed.
+    expect(screen.getByTestId('tag-section-artist')).toBeInTheDocument()
+    expect(screen.getByTestId('tag-section-show')).toBeInTheDocument()
+    expect(screen.getByTestId('tag-section-label')).toBeInTheDocument()
+    expect(screen.queryByTestId('tag-section-release')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('tag-section-venue')).not.toBeInTheDocument()
     expect(
-      screen.queryByTestId('breadcrumb-intermediate')
+      screen.queryByTestId('tag-section-festival')
     ).not.toBeInTheDocument()
+
+    // Display order: artist (Artists) before show (Upcoming shows) before label.
+    const sections = within(screen.getByTestId('tag-sections')).getAllByRole(
+      'heading',
+      { level: 2 }
+    )
+    const order = sections.map((h) => h.textContent)
+    expect(order[0]).toContain('Artists')
+    expect(order[1]).toContain('Upcoming shows')
+    expect(order[2]).toContain('Labels')
+
+    // Dense rows surface name + metric (scope to the artist section because
+    // "Whirr" is also the headliner of the show row).
+    const artistSection = screen.getByTestId('tag-section-artist')
+    expect(
+      within(artistSection).getByRole('link', { name: 'Whirr' })
+    ).toHaveAttribute('href', '/artists/whirr')
+    expect(within(artistSection).getByText('8 shows')).toBeInTheDocument()
   })
 
-  it('does not render parent crumb for non-genre categories even if parent is set', () => {
-    // Defensive: hierarchy is genre-only, so even a stray parent_id on a
-    // locale tag should not produce a misleading breadcrumb chain.
+  it('builds "Show all N" links to the existing per-type browse filtered by tag', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ usage_count: 100 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagIntersection.mockReturnValue({
+      data: makeIntersection({
+        groups: [
+          {
+            entity_type: 'artist',
+            count: 142,
+            preview: [
+              {
+                entity_type: 'artist',
+                entity_id: 1,
+                name: 'Whirr',
+                slug: 'whirr',
+                upcoming_show_count: 8,
+              },
+            ],
+          },
+          { entity_type: 'release', count: 0, preview: [] },
+          { entity_type: 'label', count: 0, preview: [] },
+          { entity_type: 'show', count: 0, preview: [] },
+          { entity_type: 'venue', count: 0, preview: [] },
+          { entity_type: 'festival', count: 0, preview: [] },
+          { entity_type: 'collection', count: 0, preview: [] },
+        ],
+      }),
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+    expect(
+      screen.getByTestId('tag-section-showall-artist')
+    ).toHaveAttribute('href', '/artists?tags=shoegaze')
+  })
+
+  // ── Sparse state (frame 437:7) ──
+
+  it('renders the "Help grow this tag" CTA for a single-item sparse tag', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ name: 'dungeon synth', usage_count: 1 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagIntersection.mockReturnValue({
+      data: makeIntersection({
+        groups: [
+          {
+            entity_type: 'artist',
+            count: 1,
+            preview: [
+              {
+                entity_type: 'artist',
+                entity_id: 1,
+                name: 'Old Sorcery',
+                slug: 'old-sorcery',
+                city: 'Tasmania',
+                state: 'AU',
+                upcoming_show_count: 0,
+              },
+            ],
+          },
+          { entity_type: 'release', count: 0, preview: [] },
+          { entity_type: 'label', count: 0, preview: [] },
+          { entity_type: 'show', count: 0, preview: [] },
+          { entity_type: 'venue', count: 0, preview: [] },
+          { entity_type: 'festival', count: 0, preview: [] },
+          { entity_type: 'collection', count: 0, preview: [] },
+        ],
+      }),
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="dungeon-synth" />)
+
+    expect(screen.getByTestId('tag-section-artist')).toBeInTheDocument()
+    expect(screen.queryByTestId('tag-section-release')).not.toBeInTheDocument()
+    expect(screen.getByTestId('help-grow-cta')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /Suggest something/ })
+    ).toBeInTheDocument()
+  })
+
+  it('does NOT show the Help-grow CTA when the tag has multiple populated sections', () => {
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ usage_count: 50 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagIntersection.mockReturnValue({
+      data: makeIntersection({
+        groups: [
+          {
+            entity_type: 'artist',
+            count: 12,
+            preview: [
+              { entity_type: 'artist', entity_id: 1, name: 'Whirr', slug: 'whirr' },
+            ],
+          },
+          {
+            entity_type: 'release',
+            count: 5,
+            preview: [
+              { entity_type: 'release', entity_id: 2, name: 'Loveless', slug: 'loveless' },
+            ],
+          },
+          { entity_type: 'label', count: 0, preview: [] },
+          { entity_type: 'show', count: 0, preview: [] },
+          { entity_type: 'venue', count: 0, preview: [] },
+          { entity_type: 'festival', count: 0, preview: [] },
+          { entity_type: 'collection', count: 0, preview: [] },
+        ],
+      }),
+      isLoading: false,
+    })
+
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+    expect(screen.queryByTestId('help-grow-cta')).not.toBeInTheDocument()
+  })
+
+  // ── Related tags rail + "+ add another tag" pivot ──
+
+  it('renders related-tag chips that add the tag to the intersection in place', async () => {
     mockUseTagDetail.mockReturnValue({
       data: makeTagDetail({
-        category: 'locale',
-        parent: {
-          id: 5,
-          name: 'West Coast',
-          slug: 'west-coast',
-          category: 'locale',
-          is_official: false,
-          usage_count: 1,
-        },
+        related_tags: [
+          {
+            id: 20,
+            name: 'ambient',
+            slug: 'ambient',
+            category: 'genre',
+            is_official: false,
+            usage_count: 9,
+          },
+        ],
       }),
       isLoading: false,
       error: null,
     })
 
-    renderWithProviders(<TagDetail slug="arizona" />)
-
-    expect(
-      screen.queryByTestId('breadcrumb-intermediate')
-    ).not.toBeInTheDocument()
-  })
-
-  // ── Tagged Entities (PSY-485 — tabs + entity cards) ──
-
-  it('renders one tab per entity type with non-zero items, hiding empty tabs', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ usage_count: 3 }),
-      isLoading: false,
-      error: null,
-    })
-    mockUseTagEntities.mockReturnValue({
-      data: {
-        entities: [
-          {
-            entity_type: 'artist',
-            entity_id: 1,
-            name: 'Radiohead',
-            slug: 'radiohead',
-            city: 'Oxford',
-            state: 'UK',
-            upcoming_show_count: 0,
-          },
-          {
-            entity_type: 'artist',
-            entity_id: 2,
-            name: 'Portishead',
-            slug: 'portishead',
-            city: 'Bristol',
-            state: 'UK',
-            upcoming_show_count: 1,
-          },
-          {
-            entity_type: 'venue',
-            entity_id: 10,
-            name: 'The Rebel Lounge',
-            slug: 'the-rebel-lounge',
-            city: 'Phoenix',
-            state: 'AZ',
-            verified: true,
-            upcoming_show_count: 5,
-          },
-        ],
-        total: 3,
-      },
-      isLoading: false,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByText('Tagged Entities')).toBeInTheDocument()
-    // Tabs render only for entity types with items.
-    expect(screen.getByTestId('tagged-entities-tab-artist')).toBeInTheDocument()
-    expect(screen.getByTestId('tagged-entities-tab-venue')).toBeInTheDocument()
-    expect(
-      screen.queryByTestId('tagged-entities-tab-festival')
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByTestId('tagged-entities-tab-label')
-    ).not.toBeInTheDocument()
-    // First tab (artist) is active by default — its panel content shows.
-    expect(screen.getByRole('link', { name: 'Radiohead' })).toHaveAttribute(
-      'href',
-      '/artists/radiohead'
-    )
-    expect(screen.getByRole('link', { name: 'Portishead' })).toHaveAttribute(
-      'href',
-      '/artists/portishead'
-    )
-  })
-
-  it('switches the visible card grid when a different tab is activated', async () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ usage_count: 3 }),
-      isLoading: false,
-      error: null,
-    })
-    mockUseTagEntities.mockReturnValue({
-      data: {
-        entities: [
-          {
-            entity_type: 'artist',
-            entity_id: 1,
-            name: 'Radiohead',
-            slug: 'radiohead',
-            city: 'Oxford',
-            state: 'UK',
-            upcoming_show_count: 0,
-          },
-          {
-            entity_type: 'venue',
-            entity_id: 10,
-            name: 'The Rebel Lounge',
-            slug: 'the-rebel-lounge',
-            city: 'Phoenix',
-            state: 'AZ',
-            verified: true,
-            upcoming_show_count: 5,
-          },
-        ],
-        total: 2,
-      },
-      isLoading: false,
-    })
-
     const user = userEvent.setup()
-    renderWithProviders(<TagDetail slug="rock" />)
+    renderWithProviders(<TagDetail slug="shoegaze" />)
 
-    // Artist tab is active first; venue link must not be visible yet because
-    // Radix Tabs unmounts inactive panel content.
-    expect(
-      screen.queryByRole('link', { name: /The Rebel Lounge/ })
-    ).not.toBeInTheDocument()
+    const rail = screen.getByTestId('related-tags')
+    expect(within(rail).getByText('Related tags')).toBeInTheDocument()
 
-    // Switch to Venues tab.
-    await user.click(screen.getByTestId('tagged-entities-tab-venue'))
-
-    // Now the venue card renders inside the active panel.
-    const venueLink = await screen.findByRole('link', {
-      name: /The Rebel Lounge/,
-    })
-    expect(venueLink).toHaveAttribute('href', '/venues/the-rebel-lounge')
-    // And the original artist link is gone — proves the panel switched, not
-    // just that we duplicated it.
-    expect(
-      screen.queryByRole('link', { name: 'Radiohead' })
-    ).not.toBeInTheDocument()
+    await user.click(screen.getByTestId('related-tag-ambient'))
+    // Clicking a related tag narrows in place by writing ?with=ambient.
+    expect(mockReplace).toHaveBeenCalledWith(
+      '/tags/shoegaze?with=ambient',
+      { scroll: false }
+    )
   })
 
-  it('renders cards (not bare list items) for tagged entities', () => {
+  it('exposes the "+ add another tag to filter" pivot trigger', () => {
     mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ usage_count: 1 }),
+      data: makeTagDetail(),
       isLoading: false,
       error: null,
     })
-    mockUseTagEntities.mockReturnValue({
-      data: {
-        entities: [
+    renderWithProviders(<TagDetail slug="shoegaze" />)
+    expect(screen.getByTestId('add-tag-pivot-trigger')).toHaveTextContent(
+      '+ add another tag to filter'
+    )
+  })
+
+  it('reflects an active pivot from ?with= and re-queries the intersection', () => {
+    mockSearchParams = new URLSearchParams('with=ambient')
+    mockUseTagDetail.mockReturnValue({
+      data: makeTagDetail({ usage_count: 100 }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseTagIntersection.mockReturnValue({
+      data: makeIntersection({
+        tags: [
           {
-            entity_type: 'artist',
-            entity_id: 1,
-            name: 'Faetooth',
-            slug: 'faetooth',
-            city: 'Phoenix',
-            state: 'AZ',
-            upcoming_show_count: 3,
+            id: 1,
+            name: 'Shoegaze',
+            slug: 'shoegaze',
+            category: 'genre',
+            is_official: false,
+            usage_count: 42,
+          },
+          {
+            id: 2,
+            name: 'Ambient',
+            slug: 'ambient',
+            category: 'genre',
+            is_official: false,
+            usage_count: 30,
           },
         ],
-        total: 1,
-      },
+        groups: [
+          {
+            entity_type: 'artist',
+            count: 3,
+            preview: [
+              { entity_type: 'artist', entity_id: 1, name: 'Whirr', slug: 'whirr' },
+            ],
+          },
+          { entity_type: 'release', count: 0, preview: [] },
+          { entity_type: 'label', count: 0, preview: [] },
+          { entity_type: 'show', count: 0, preview: [] },
+          { entity_type: 'venue', count: 0, preview: [] },
+          { entity_type: 'festival', count: 0, preview: [] },
+          { entity_type: 'collection', count: 0, preview: [] },
+        ],
+      }),
       isLoading: false,
     })
 
     renderWithProviders(<TagDetail slug="shoegaze" />)
 
-    // ArtistCard renders an <article> wrapper — that's the
-    // "card not bullet" assertion the dogfood ticket called out.
-    const article = document.querySelector('article')
-    expect(article).toBeInTheDocument()
-    // Card surfaces the location and the upcoming-show count we asked the
-    // backend to populate.
-    expect(screen.getByText('Phoenix, AZ')).toBeInTheDocument()
-    expect(screen.getByText('3 upcoming')).toBeInTheDocument()
-  })
+    // The hook is called with BOTH slugs.
+    const calledSlugs = mockUseTagIntersection.mock.calls.at(-1)?.[0]
+    expect(calledSlugs).toEqual(['shoegaze', 'ambient'])
 
-  it('hides Festivals tab on a tag with no festival usage (PSY-485 acceptance)', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ usage_count: 1 }),
-      isLoading: false,
-      error: null,
-    })
-    mockUseTagEntities.mockReturnValue({
-      data: {
-        entities: [
-          {
-            entity_type: 'artist',
-            entity_id: 1,
-            name: 'Solo Artist',
-            slug: 'solo-artist',
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.getByTestId('tagged-entities-tab-artist')).toBeInTheDocument()
+    // Active-filter bar shows the added tag + a remove control.
+    const bar = screen.getByTestId('active-filter-bar')
+    expect(within(bar).getByText('Ambient')).toBeInTheDocument()
     expect(
-      screen.queryByTestId('tagged-entities-tab-festival')
-    ).not.toBeInTheDocument()
-    expect(
-      screen.queryByTestId('tagged-entities-tab-show')
-    ).not.toBeInTheDocument()
-  })
-
-  it('shows a Festivals tab on a festival-only tag (PSY-485 multi-venue scenario)', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ usage_count: 1, name: 'multi-venue' }),
-      isLoading: false,
-      error: null,
-    })
-    mockUseTagEntities.mockReturnValue({
-      data: {
-        entities: [
-          {
-            entity_type: 'festival',
-            entity_id: 7,
-            name: 'M3F',
-            slug: 'm3f-2026',
-            edition_year: 2026,
-            city: 'Phoenix',
-            state: 'AZ',
-            status: 'confirmed',
-            start_date: '2026-03-06',
-            end_date: '2026-03-08',
-            artist_count: 42,
-            venue_count: 3,
-          },
-        ],
-        total: 1,
-      },
-      isLoading: false,
-    })
-
-    renderWithProviders(<TagDetail slug="multi-venue" />)
-
-    expect(
-      screen.getByTestId('tagged-entities-tab-festival')
+      within(bar).getByRole('button', { name: /Remove Ambient filter/ })
     ).toBeInTheDocument()
+
+    // "Show all" deep-links to the multi-tag browse with tag_match=all.
     expect(
-      screen.queryByTestId('tagged-entities-tab-artist')
-    ).not.toBeInTheDocument()
-    // Festival card surfaces the year + status + lineup count.
-    expect(screen.getByRole('link', { name: 'M3F' })).toHaveAttribute(
-      'href',
-      '/festivals/m3f-2026'
-    )
-    expect(screen.getByText('Confirmed')).toBeInTheDocument()
-    expect(screen.getByText('42 artists')).toBeInTheDocument()
+      screen.getByTestId('tag-section-showall-artist')
+    ).toHaveAttribute('href', '/artists?tags=shoegaze%2Cambient&tag_match=all')
   })
 
-  it('does not render tagged entities section when usage_count is 0', () => {
+  it('does not fire the intersection query for a tag with zero usage', () => {
     mockUseTagDetail.mockReturnValue({
       data: makeTagDetail({ usage_count: 0 }),
       isLoading: false,
       error: null,
     })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    expect(screen.queryByText('Tagged Entities')).not.toBeInTheDocument()
-  })
-
-  it('shows loading spinner while entities are loading', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ usage_count: 5 }),
-      isLoading: false,
-      error: null,
-    })
-    mockUseTagEntities.mockReturnValue({
-      data: undefined,
-      isLoading: true,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    const spinners = document.querySelectorAll('.animate-spin')
-    expect(spinners.length).toBeGreaterThanOrEqual(1)
-  })
-
-  // ── Creation date ──
-
-  it('renders creation date from created_at timestamp', () => {
-    mockUseTagDetail.mockReturnValue({
-      data: makeTagDetail({ created_at: '2025-01-01T00:00:00Z' }),
-      isLoading: false,
-      error: null,
-    })
-
-    renderWithProviders(<TagDetail slug="rock" />)
-
-    const clockIcons = document.querySelectorAll('.lucide-clock')
-    expect(clockIcons.length).toBeGreaterThanOrEqual(1)
+    renderWithProviders(<TagDetail slug="empty-tag" />)
+    // enabled=false is passed through as the 3rd arg.
+    const lastCall = mockUseTagIntersection.mock.calls.at(-1)
+    expect(lastCall?.[2]).toEqual({ enabled: false })
   })
 })

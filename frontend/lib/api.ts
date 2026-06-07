@@ -331,6 +331,9 @@ export const API_ENDPOINTS = {
     ALIASES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/aliases`,
     DELETE_ALIAS: (tagId: number, aliasId: number) => `${API_BASE_URL}/tags/${tagId}/aliases/${aliasId}`,
     ENTITIES: (idOrSlug: string | number) => `${API_BASE_URL}/tags/${idOrSlug}/entities`,
+    // Cross-entity tag intersection (PSY-995). Accepts 1+ comma-separated slugs
+    // (PSY-993 drives the single-tag detail sections through this same endpoint).
+    INTERSECTION: `${API_BASE_URL}/tags/intersection`,
     ADMIN_ALIASES_ALL: `${API_BASE_URL}/admin/tags/aliases`,
     ADMIN_ALIASES_BULK: `${API_BASE_URL}/admin/tags/aliases/bulk`,
     ADMIN_MERGE: (sourceId: number) => `${API_BASE_URL}/admin/tags/${sourceId}/merge`,

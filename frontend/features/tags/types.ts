@@ -187,6 +187,91 @@ export interface TagEntitiesResponse {
   total: number
 }
 
+// ──────────────────────────────────────────────
+// Cross-entity tag intersection (GET /tags/intersection — PSY-995)
+// ──────────────────────────────────────────────
+
+/**
+ * One entity-type slice of a tag intersection: the full match `count` plus a
+ * `preview` (page 1 of that type's "show all" browse). The rebuilt tag detail
+ * page (PSY-993) renders its grouped sections from these groups — for both the
+ * single-tag case (`tags=[slug]`) and the multi-tag "+ add a tag" pivot.
+ */
+export interface TagIntersectionGroup {
+  entity_type: string
+  count: number
+  preview: TaggedEntityItem[]
+}
+
+/**
+ * Response body of GET /tags/intersection. `tags` echoes the resolved input
+ * tags (request order) for the chip UI. `groups` carries one entry per valid
+ * entity type — zero-count groups included (complete keyset) so the frontend
+ * decides which sections to show. Groups arrive in the backend's canonical
+ * TagEntityTypes order; the detail page reorders them to the design's fixed
+ * display order (TAG_DETAIL_SECTION_ORDER).
+ */
+export interface TagIntersectionResponse {
+  tags: TagSummary[]
+  tag_match: string
+  groups: TagIntersectionGroup[]
+}
+
+/**
+ * Fixed display order for the rebuilt /tags/{slug} detail page sections
+ * (PSY-993, design frame 424:7). Differs from the backend's canonical
+ * TagEntityTypes order — the design leads with the discovery-relevant types
+ * (artists, releases, upcoming shows) before the supporting ones. Empty-count
+ * sections are suppressed at render time.
+ */
+export const TAG_DETAIL_SECTION_ORDER = [
+  'artist',
+  'release',
+  'show',
+  'venue',
+  'label',
+  'festival',
+  'collection',
+] as const
+
+/**
+ * Section heading label per entity type, matching the design copy. Mostly the
+ * plural label, except shows which read "Upcoming shows" (the section is gated
+ * to upcoming/approved shows by the backend).
+ */
+export function getTagSectionLabel(entityType: string): string {
+  if (entityType === 'show') return 'Upcoming shows'
+  return getEntityTypePluralLabel(entityType)
+}
+
+/**
+ * Build the "show all" deep-link for a section: the existing per-type browse
+ * filtered by the active tag(s). The six entity browse pages
+ * (artists/releases/shows/venues/labels/festivals) already support `?tags=` +
+ * `tag_match=` (PSY-993 decision #1); multiple slugs join with `tag_match=all`.
+ * Collections have no tag-filtered browse, so this returns null for them and
+ * the collection section omits its "show all" link.
+ */
+export function getTagSectionBrowseUrl(
+  entityType: string,
+  slugs: string[]
+): string | null {
+  const base: Record<string, string> = {
+    artist: '/artists',
+    release: '/releases',
+    show: '/shows',
+    venue: '/venues',
+    label: '/labels',
+    festival: '/festivals',
+  }
+  const path = base[entityType]
+  if (!path) return null
+  const params = new URLSearchParams()
+  params.set('tags', slugs.join(','))
+  if (slugs.length > 1) params.set('tag_match', 'all')
+  return `${path}?${params.toString()}`
+}
+
 export interface TagAliasesResponse {
   aliases: TagAlias[]
 }
