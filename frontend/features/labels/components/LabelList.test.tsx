@@ -41,7 +41,11 @@ vi.mock('@/components/shared', () => ({
 }))
 
 vi.mock('@/features/tags', () => ({
-  TagFacetPanel: () => <div data-testid="tag-facet-panel" />,
+  // Surface the `layout` prop via data-layout so the suite can assert the
+  // page renders the panel as a top bar (PSY-1004) rather than a rail.
+  TagFacetPanel: ({ layout }: { layout?: string }) => (
+    <div data-testid="tag-facet-panel" data-layout={layout ?? 'rail'} />
+  ),
   TagFacetSheet: () => <div data-testid="tag-facet-sheet" />,
   parseTagsParam: (s: string | null) => (s ? s.split(',').filter(Boolean) : []),
   buildTagsParam: (slugs: string[]) => slugs.join(','),
@@ -94,6 +98,14 @@ describe('LabelList', () => {
     renderWithProviders(<LabelList />)
     expect(screen.getByTestId('label-search')).toBeInTheDocument()
     expect(screen.getByTestId('density-toggle')).toHaveTextContent('comfortable')
+  })
+
+  it('renders the tag facet panel as a top bar, not a rail (PSY-1004)', () => {
+    renderWithProviders(<LabelList />)
+    expect(screen.getByTestId('tag-facet-panel')).toHaveAttribute(
+      'data-layout',
+      'bar'
+    )
   })
 
   it('renders the unfiltered empty state when there are no labels', () => {
