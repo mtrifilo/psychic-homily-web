@@ -101,6 +101,17 @@ func (s *ExploreService) GetUpcomingShows(limit, offset int, cities []contracts.
 		offset = 0
 	}
 
+	// Timezone caveat (PSY-987): this list is deliberately UTC-bounded
+	// (event_date >= now UTC) rather than "start of today in the viewer's
+	// timezone" the way services/catalog.GetUpcomingShows is. /explore is
+	// SSR-prefetched with no viewer context, and keeping the query
+	// timezone-free is what lets that prefetch stay cacheable/seedable. The
+	// only observable difference is a show that already started earlier *today*
+	// in the viewer's zone but is still before UTC "now": it drops off this
+	// list slightly early. The picker-count vs row-count consequence of that is
+	// documented on applyUpcomingCityFilter below. Show *times* still render in
+	// venue-local zones everywhere via the venue timezone (PSY-985/986); only
+	// this list's day boundary is UTC.
 	now := time.Now().UTC()
 
 	// Count first so the response carries an authoritative total

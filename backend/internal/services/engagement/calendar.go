@@ -16,7 +16,17 @@ import (
 	authm "psychic-homily-backend/internal/models/auth"
 	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
+
+// icalLocalTimeFormat is RFC 5545's "date with local time" layout
+// (golang-ical's unexported icalTimestampFormatLocal). Used for DTSTART/DTEND
+// values that carry an explicit TZID parameter instead of a trailing Z.
+const icalLocalTimeFormat = "20060102T150405"
+
+// defaultShowDuration is the assumed length of a show when building calendar
+// events (the source data has no end time).
+const defaultShowDuration = 3 * time.Hour
 
 const (
 	// CalendarTokenPrefix is prepended to calendar tokens for identification
@@ -205,9 +215,18 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 		event := cal.AddEvent(fmt.Sprintf("show-%d@psychichomily.com", show.ID))
 		event.SetCreatedTime(show.CreatedAt)
 		event.SetModifiedAt(show.UpdatedAt)
-		event.SetStartAt(show.EventDate)
-		// Default to 3-hour duration for shows
-		event.SetEndAt(show.EventDate.Add(3 * time.Hour))
+
+		// Anchor the event to the venue's local timezone so it reads at the
+		// correct wall-clock time for every subscriber (PSY-987). A bare UTC
+		// DTSTART would let each client re-shift the show into the viewer's
+		// own zone — wrong for a fixed-location event.
+		var venueTimezone *string
+		var venueState string
+		if len(show.Venues) > 0 {
+			venueTimezone = show.Venues[0].Timezone
+			venueState = show.Venues[0].State
+		}
+		setVenueLocalEventTimes(event, show.EventDate, defaultShowDuration, venueTimezone, venueState)
 
 		// Summary
 		summary := show.Title
@@ -261,4 +280,34 @@ func (s *CalendarService) GenerateICSFeed(userID uint, frontendURL string) ([]by
 	}
 
 	return []byte(cal.Serialize()), nil
+}
+
+// setVenueLocalEventTimes writes DTSTART/DTEND anchored to the venue's local
+// timezone instead of UTC. A show happens at a fixed wall-clock time in the
+// venue's city, so the calendar event must read e.g. "8:00 PM" for every
+// subscriber regardless of where they live — a bare UTC DTSTART would be
+// silently re-shifted into the viewer's own zone by their calendar client.
+//
+// We emit DTSTART;TZID=<IANA>:<local time> using the venue's IANA zone
+// (PSY-985 geocoding, falling back to the legacy state map via
+// utils.EventLocation). We deliberately do NOT emit a VTIMEZONE component:
+// golang-ical cannot synthesize the DST transition RRULEs a correct VTIMEZONE
+// needs, and a hand-rolled partial one would be less accurate than letting the
+// client resolve the well-known IANA TZID against its own bundled tz database
+// (Google Calendar, Apple Calendar, and modern Outlook all do this). If no
+// usable zone resolves (loc collapses to UTC) we fall back to the prior UTC
+// instant. (PSY-987)
+func setVenueLocalEventTimes(event *ics.VEvent, start time.Time, duration time.Duration, venueTimezone *string, venueState string) {
+	loc := utils.EventLocation(venueTimezone, venueState)
+	tzid := loc.String()
+	if tzid == "" || tzid == "UTC" {
+		event.SetStartAt(start)
+		event.SetEndAt(start.Add(duration))
+		return
+	}
+
+	localStart := start.In(loc)
+	localEnd := localStart.Add(duration)
+	event.SetProperty(ics.ComponentPropertyDtStart, localStart.Format(icalLocalTimeFormat), ics.WithTZID(tzid))
+	event.SetProperty(ics.ComponentPropertyDtEnd, localEnd.Format(icalLocalTimeFormat), ics.WithTZID(tzid))
 }
