@@ -171,6 +171,60 @@ type TaggedEntityItem struct {
 	HeadlinerSlug string `json:"headliner_slug,omitempty"`
 }
 
+// TagIntersectionGroup is the per-entity-type slice of a cross-entity tag
+// intersection (PSY-995): the total number of entities of EntityType that
+// match the tag intersection, plus a small preview (page 1 of the per-type
+// "show all" browse). Count is the full match count even when len(Preview)
+// is clamped to the request's preview_limit.
+type TagIntersectionGroup struct {
+	EntityType string             `json:"entity_type"`
+	Count      int64              `json:"count"`
+	Preview    []TaggedEntityItem `json:"preview"`
+}
+
+// TagIntersectionResponse is the body of GET /tags/intersection (PSY-995).
+//
+// Tags echoes the resolved input tags (in request order) so the chip UI can
+// render canonical names. TagMatch is "all" (AND) or "any" (OR). Groups
+// contains one entry per valid tag entity type — including zero-count groups
+// (complete keyset, mirroring GetTagDetail.UsageBreakdown) so the frontend
+// decides which sections to show or hide. Groups are returned in the canonical
+// TagEntityTypes order.
+type TagIntersectionResponse struct {
+	Tags     []TagSummary           `json:"tags"`
+	TagMatch string                 `json:"tag_match"`
+	Groups   []TagIntersectionGroup `json:"groups"`
+}
+
+// Intersection preview-limit policy (PSY-995) — the single source of truth
+// shared by the handler (which clamps the request value) and the service
+// (which floors a non-positive value for direct, non-HTTP callers). Keep the
+// handler's `maximum:"12"` query-param schema tag in sync with
+// MaxIntersectionPreviewLimit.
+const (
+	DefaultIntersectionPreviewLimit = 4
+	MaxIntersectionPreviewLimit     = 12
+)
+
+// ClampIntersectionPreviewLimit applies the default (for non-positive input)
+// and the upper bound.
+func ClampIntersectionPreviewLimit(n int) int {
+	if n <= 0 {
+		return DefaultIntersectionPreviewLimit
+	}
+	if n > MaxIntersectionPreviewLimit {
+		return MaxIntersectionPreviewLimit
+	}
+	return n
+}
+
+// UnknownTagSlugError is returned by IntersectEntitiesByTags when a requested
+// tag slug does not resolve to an existing tag. The handler maps it to a 400
+// (naming the offending slug) rather than a 500, so the caller can fix the URL.
+type UnknownTagSlugError struct{ Slug string }
+
+func (e *UnknownTagSlugError) Error() string { return "unknown tag slug: " + e.Slug }
+
 // TagAliasResponse represents a tag alias returned to clients.
 type TagAliasResponse struct {
 	ID        uint      `json:"id"`
@@ -319,6 +373,12 @@ type TagServiceInterface interface {
 
 	// Tag entities
 	GetTagEntities(tagID uint, entityType string, limit, offset int) ([]TaggedEntityItem, int64, error)
+
+	// Cross-entity tag intersection (PSY-995): entities matching ≥2 tags,
+	// grouped by entity type with per-type count + preview. Validates the slugs
+	// itself — an unknown slug returns *UnknownTagSlugError (the handler maps it
+	// to 400). matchAny=false ⇒ AND, true ⇒ OR.
+	IntersectEntitiesByTags(tagSlugs []string, matchAny bool, previewLimit int) (*TagIntersectionResponse, error)
 
 	// Tag detail enrichment
 	GetTagDetail(tagID uint) (*TagDetailResponse, error)

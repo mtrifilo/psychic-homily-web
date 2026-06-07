@@ -87,6 +87,119 @@ func TestListTagEntities_ServiceError(t *testing.T) {
 }
 
 // ============================================================================
+// GetTagIntersectionHandler (PSY-995)
+// ============================================================================
+
+func TestGetTagIntersection_FewerThanTwoTags(t *testing.T) {
+	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestGetTagIntersection_DuplicateCollapsesBelowTwo(t *testing.T) {
+	// "shoegaze,shoegaze" dedupes to one distinct slug → still < 2 → 400.
+	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,shoegaze"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestGetTagIntersection_TooManyTags(t *testing.T) {
+	// More than intersectionMaxTags (10) distinct slugs → 400 before the service
+	// is touched, bounding fan-out on this public endpoint.
+	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{
+		Tags: "t1,t2,t3,t4,t5,t6,t7,t8,t9,t10,t11",
+	})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestGetTagIntersection_UnknownTag(t *testing.T) {
+	// The service resolves + validates slugs in one batched query and returns a
+	// typed UnknownTagSlugError for a ghost slug; the handler maps it to 400.
+	mock := &testhelpers.MockTagService{
+		IntersectEntitiesByTagsFn: func(_ []string, _ bool, _ int) (*contracts.TagIntersectionResponse, error) {
+			return nil, &contracts.UnknownTagSlugError{Slug: "ghost"}
+		},
+	}
+	h := NewTagHandler(mock, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,ghost"})
+	testhelpers.AssertHumaError(t, err, 400)
+}
+
+func TestGetTagIntersection_PreviewLimitClampedToMax(t *testing.T) {
+	var gotLimit int
+	mock := &testhelpers.MockTagService{
+		IntersectEntitiesByTagsFn: func(_ []string, _ bool, previewLimit int) (*contracts.TagIntersectionResponse, error) {
+			gotLimit = previewLimit
+			return &contracts.TagIntersectionResponse{TagMatch: "all"}, nil
+		},
+	}
+	h := NewTagHandler(mock, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{
+		Tags:         "shoegaze,ambient",
+		PreviewLimit: 999,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotLimit != contracts.MaxIntersectionPreviewLimit {
+		t.Errorf("expected preview_limit clamped to %d, got %d", contracts.MaxIntersectionPreviewLimit, gotLimit)
+	}
+}
+
+func TestGetTagIntersection_DefaultPreviewLimitAndMatch(t *testing.T) {
+	var gotLimit int
+	var gotMatchAny bool
+	mock := &testhelpers.MockTagService{
+		IntersectEntitiesByTagsFn: func(_ []string, matchAny bool, previewLimit int) (*contracts.TagIntersectionResponse, error) {
+			gotLimit = previewLimit
+			gotMatchAny = matchAny
+			return &contracts.TagIntersectionResponse{TagMatch: "all"}, nil
+		},
+	}
+	h := NewTagHandler(mock, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,ambient"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotLimit != contracts.DefaultIntersectionPreviewLimit {
+		t.Errorf("expected default preview_limit %d, got %d", contracts.DefaultIntersectionPreviewLimit, gotLimit)
+	}
+	if gotMatchAny {
+		t.Errorf("expected AND (matchAny=false) by default")
+	}
+}
+
+func TestGetTagIntersection_AnyMatch(t *testing.T) {
+	var gotMatchAny bool
+	mock := &testhelpers.MockTagService{
+		IntersectEntitiesByTagsFn: func(_ []string, matchAny bool, _ int) (*contracts.TagIntersectionResponse, error) {
+			gotMatchAny = matchAny
+			return &contracts.TagIntersectionResponse{TagMatch: "any"}, nil
+		},
+	}
+	h := NewTagHandler(mock, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,ambient", TagMatch: "any"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !gotMatchAny {
+		t.Errorf("expected matchAny=true for tag_match=any")
+	}
+}
+
+func TestGetTagIntersection_ServiceError(t *testing.T) {
+	mock := &testhelpers.MockTagService{
+		IntersectEntitiesByTagsFn: func(_ []string, _ bool, _ int) (*contracts.TagIntersectionResponse, error) {
+			return nil, fmt.Errorf("db error")
+		},
+	}
+	h := NewTagHandler(mock, nil)
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,ambient"})
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
+// ============================================================================
 // GetGenreHierarchyHandler
 // ============================================================================
 

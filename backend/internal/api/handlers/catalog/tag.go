@@ -2,6 +2,7 @@ package catalog
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strconv"
 
@@ -148,6 +149,65 @@ func (h *TagHandler) GetTagDetailHandler(ctx context.Context, req *GetTagDetailR
 	}
 
 	return &GetTagDetailResponse{Body: detail}, nil
+}
+
+// ============================================================================
+// Tag Intersection (public) — cross-entity multi-tag intersection (PSY-995)
+// ============================================================================
+
+const (
+	intersectionMinTags = 2
+	// intersectionMaxTags bounds the fan-out of a single request: every tag
+	// adds a term to the per-group entity_tags self-joins across all 7 entity
+	// types, and this endpoint is public + unauthenticated. Cap mirrors the
+	// maxCityFilters bound used elsewhere in tag filtering.
+	intersectionMaxTags = 10
+)
+
+type GetTagIntersectionRequest struct {
+	Tags         string `query:"tags" maxLength:"200" doc:"Comma-separated tag slugs (2-10)" example:"shoegaze,ambient"`
+	TagMatch     string `query:"tag_match" required:"false" doc:"all (AND, default) | any (OR)" example:"all"`
+	PreviewLimit int    `query:"preview_limit" required:"false" minimum:"1" maximum:"12" doc:"Per-type preview size (default 4, max 12)" example:"4"`
+}
+
+type GetTagIntersectionResponse struct {
+	Body *contracts.TagIntersectionResponse
+}
+
+// GetTagIntersectionHandler returns entities matching a tag intersection,
+// grouped by entity type with a per-type count + preview (PSY-995). Direct
+// types (artist/release/label/venue/collection) match on their own
+// entity_tags; transitive types (show/festival) match via a billed artist's
+// tags. Each group's "show all" is built client-side from
+// /{entity_type}?tags=<slugs>&tag_match=<match>.
+func (h *TagHandler) GetTagIntersectionHandler(ctx context.Context, req *GetTagIntersectionRequest) (*GetTagIntersectionResponse, error) {
+	filter := parseTagFilter(req.Tags, req.TagMatch)
+	if len(filter.TagSlugs) < intersectionMinTags {
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("at least %d distinct tags are required", intersectionMinTags),
+		)
+	}
+	if len(filter.TagSlugs) > intersectionMaxTags {
+		return nil, huma.Error400BadRequest(
+			fmt.Sprintf("at most %d tags may be intersected", intersectionMaxTags),
+		)
+	}
+
+	previewLimit := contracts.ClampIntersectionPreviewLimit(req.PreviewLimit)
+
+	// The service resolves + validates every slug in a SINGLE batched query and
+	// surfaces an unknown slug as a typed error, so the caller gets a 400 (fix
+	// the URL) rather than silently-empty groups — without a per-slug round-trip.
+	result, err := h.tagService.IntersectEntitiesByTags(filter.TagSlugs, filter.MatchAny, previewLimit)
+	if err != nil {
+		var unknown *contracts.UnknownTagSlugError
+		if errors.As(err, &unknown) {
+			return nil, huma.Error400BadRequest(fmt.Sprintf("unknown tag: %s", unknown.Slug))
+		}
+		return nil, huma.Error500InternalServerError("Failed to compute tag intersection")
+	}
+
+	return &GetTagIntersectionResponse{Body: result}, nil
 }
 
 // ============================================================================
