@@ -59,5 +59,6 @@ export {
 export type {
   AddTagDialogProps,
   TagFacetPanelProps,
+  TagFacetLayout,
   TagFacetSheetProps,
 } from './components'

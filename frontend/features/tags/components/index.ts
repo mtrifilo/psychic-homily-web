@@ -8,5 +8,6 @@ export {
   parseTagsParam,
   buildTagsParam,
   type TagFacetPanelProps,
+  type TagFacetLayout,
 } from './TagFacetPanel'
 export { TagFacetSheet, type TagFacetSheetProps } from './TagFacetSheet'
