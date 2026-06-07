@@ -22,17 +22,26 @@ import (
 //     reports zero changes.
 //
 //  2. Re-anchor show event_date instants that were stored under a WRONG assumed
-//     timezone. Before this epic, a date-only show was stored as 20:00 in a
-//     guessed zone (the US state map, defaulting non-US to America/Phoenix), so
+//     timezone. The CLI ingest (cli/src/commands/submit-show.ts normalizeDate)
+//     and the web ShowForm stamp a date-only show at 20:00 in a guessed zone
+//     (the state map, defaulting empty/non-US states to America/Phoenix), so
 //     e.g. a Berlin show landed at 20:00 Phoenix → 03:00Z and now renders at
 //     05:00 in Berlin instead of 20:00. Re-anchoring recovers the intended
 //     20:00 wall-time and re-stamps it in the venue's real geocoded zone.
 //
 // The re-anchor pass is deliberately CONSERVATIVE (see reanchorEventDate): it
-// only touches shows it can confidently recognize as mis-zoned date-only shows,
-// and leaves anything ambiguous untouched for manual review. event_date is a
-// destructive rewrite of shared data, so the safe default is to do nothing when
-// unsure.
+// only touches shows it can confidently recognize as mis-zoned 20:00 date-only
+// shows, and leaves anything ambiguous untouched for manual review. event_date
+// is a destructive rewrite of shared data, so the safe default is to do nothing
+// when unsure.
+//
+// NOT every date-only show is a 20:00 show: the AI-discovery pipeline
+// (services/pipeline/discovery.go parseEventDate) stamps date-only events at
+// 00:00 UTC, which this pass deliberately leaves ambiguous (no 20:00 marker) —
+// it does not attempt to recover them. And the safety argument is airtight only
+// for US venues (see reanchorEventDate); for empty/non-US-state venues the
+// assumed zone falls back to Phoenix, so a dry-run review before --confirm is
+// the backstop, not just a courtesy.
 
 // defaultEveningHour is the local hour a date-only show defaults to when it is
 // created (mirrors the CLI's normalizeDate, which stamps 20:00 venue-local).
@@ -71,18 +80,21 @@ type ShowReanchorChange struct {
 	GeocodedTz string
 	OldInstant time.Time
 	NewInstant time.Time
-	Action     string // "reanchored", "already-correct", "ambiguous", "no-venue-tz"
+	// Action is one of "reanchored", "ambiguous", "no-venue-tz". (Already-correct
+	// shows are counted in the report but not recorded as a change row.)
+	Action string
 }
 
 // BackfillReport is the structured outcome of a backfill run.
 type BackfillReport struct {
 	// Venue pass
-	VenuesScanned   int
-	VenuesSet       int // tz set where there was none
-	VenuesUpdated   int // tz changed from an existing value
-	VenuesUnchanged int
-	VenuesMissed    int // no geocode match
-	VenueChanges    []VenueGeoChange
+	VenuesScanned    int
+	VenuesSet        int // tz set where there was none
+	VenuesUpdated    int // tz changed from an existing value
+	VenuesCoordsOnly int // tz unchanged, only latitude/longitude changed
+	VenuesUnchanged  int
+	VenuesMissed     int // no geocode match
+	VenueChanges     []VenueGeoChange
 
 	// Show pass
 	ShowsScanned    int
@@ -186,11 +198,20 @@ func backfillVenuePass(
 				VenueID: v.ID, Name: v.Name, City: v.City, State: v.State,
 				OldTz: v.Timezone, NewTz: &newTz, Action: "set",
 			})
-		default:
+		case tzChanged:
 			report.VenuesUpdated++
 			report.VenueChanges = append(report.VenueChanges, VenueGeoChange{
 				VenueID: v.ID, Name: v.Name, City: v.City, State: v.State,
 				OldTz: v.Timezone, NewTz: &newTz, Action: "updated",
+			})
+		default:
+			// Timezone unchanged; only the coordinates moved (e.g. a GeoNames
+			// refresh shifted the city centroid). Don't print a misleading
+			// "tz -> tz" line.
+			report.VenuesCoordsOnly++
+			report.VenueChanges = append(report.VenueChanges, VenueGeoChange{
+				VenueID: v.ID, Name: v.Name, City: v.City, State: v.State,
+				OldTz: v.Timezone, NewTz: &newTz, Action: "coords",
 			})
 		}
 
@@ -252,18 +273,20 @@ func reanchorShowPass(
 			report.Errors = append(report.Errors, fmt.Sprintf("show %d: bad geocoded tz %q: %v", show.ID, *tzPtr, err))
 			continue
 		}
-		// Key the assumed (legacy-fallback) zone on the VENUE's state, mirroring
-		// how the data was written: the CLI's normalizeDate and the backend
-		// notification path both resolve the zone from the venue's state, not the
-		// show's denormalized State (which can be NULL or drift). GetTimezoneForState
-		// defaults unknown states to America/Phoenix — the same default the writers
-		// used — so non-US / unmapped-state shows that were stamped under Phoenix are
-		// recoverable. (Backend StateTimezones is currently 8 states; PSY-1009 will
-		// widen it. Until then an unmapped US state resolves to Phoenix, so a show
-		// stored under its CORRECT non-Phoenix zone is caught by the already-correct
-		// check above, and one stored under Phoenix is recovered; only a show stored
-		// under some THIRD wrong zone stays ambiguous — which the writers don't
-		// produce.)
+		// Key the assumed (legacy-fallback) zone on the VENUE's state — the field
+		// the writers keyed on — not the show's denormalized State (which can be
+		// NULL or drift). utils.StateTimezones is the full 50-state + DC map, kept
+		// in sync with the CLI writer's map (cli/src/lib/timezone.ts); for US
+		// states this REQUIRED-for-safety match makes a correctly-stored US show
+		// resolve assumed == geocoded so sameZone() short-circuits the recover
+		// branch (a short map defaulting to Phoenix would corrupt a real 11pm
+		// Eastern show — see reanchorEventDate). This is a best-effort
+		// reconstruction, not an exact replay: the web ShowForm stamps 20:00 in
+		// the SUBMITTER'S BROWSER zone when the venue has no state, and non-US
+		// states fall back to Phoenix here. Those cases either land on
+		// outcomeAmbiguous (safe) or are recovered correctly; the one residual
+		// false-positive (a non-US explicit show at exactly 03:00Z) is covered by
+		// the dry-run review (see reanchorEventDate's doc).
 		assumedName := utils.GetTimezoneForState(primary.State)
 		assumed, err := time.LoadLocation(assumedName)
 		if err != nil {
@@ -349,12 +372,22 @@ const (
 //   - outcomeAmbiguous: an explicit non-20:00 time, or a case where neither
 //     zone yields 20:00 — left untouched for manual review.
 //
-// This avoids the data-corruption trap of blindly assuming a single source zone
-// (e.g. "everything was Phoenix"): a correctly-stored show in a zone whose UTC
-// offset differs from the assumed one would otherwise be shifted by an hour. An
-// inaccurate `assumed` zone can only ever cause under-recovery (outcomeAmbiguous
-// instead of outcomeReanchored), never a wrong rewrite — the re-stamp fires only
-// on an exact 20:00 match in the assumed zone.
+// Safety relies on `assumed` matching the zone the data was actually written
+// under. For US shows that holds exactly: StateTimezones is the full 50-state +
+// DC writer map, so a correctly-stored show resolves assumed == geocoded (its
+// real zone) and sameZone() short-circuits before the re-stamp can fire — a real
+// 11pm-Eastern show (= 20:00 Phoenix wall-clock) is therefore left untouched,
+// not corrupted.
+//
+// For empty/non-US-state venues `assumed` falls back to Phoenix (the writers'
+// own default for them), which is what lets the genuinely mis-zoned non-US
+// date-only shows recover. The residual risk: a correctly-stored NON-US
+// explicit-time show whose UTC instant happens to be exactly 03:00:00Z reads as
+// 20:00 in Phoenix and would be wrongly re-anchored. This is an inherent
+// ambiguity (a 20:00-Phoenix date-only show and a foreign 03:00Z explicit show
+// are indistinguishable from the instant alone) — not closable without dropping
+// non-US recovery entirely. The backstop is the mandatory dry-run review before
+// --confirm: every re-anchor is listed old→new for the operator to eyeball.
 func reanchorEventDate(stored time.Time, geocoded, assumed *time.Location) (time.Time, reanchorOutcome) {
 	// Already correct in the venue's real zone.
 	if isDefaultEveningWall(stored.In(geocoded)) {

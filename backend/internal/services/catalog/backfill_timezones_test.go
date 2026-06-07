@@ -114,6 +114,63 @@ func TestReanchorEventDate(t *testing.T) {
 	}
 }
 
+// Regression for the adversarial-review CRITICAL finding: a correctly-stored
+// explicit-time show must NOT be re-anchored. The trap is that an 11pm Eastern
+// show (= 03:00Z in summer) reads as exactly 20:00 in America/Phoenix, so if the
+// assumed zone is wrongly Phoenix (the old 8-state map default for unmapped
+// states) it would be falsely "recovered" and corrupted 3 hours earlier. With
+// the assumed zone correctly resolved from the full StateTimezones map
+// (FL -> America/New_York == geocoded), sameZone() short-circuits and the show
+// is left untouched.
+func TestReanchorEventDate_ExplicitTimeNotCorrupted(t *testing.T) {
+	ny := mustLoc(t, "America/New_York")
+	phoenix := mustLoc(t, "America/Phoenix")
+
+	// A real 11pm Eastern show in summer: 23:00 EDT (UTC-4) = 03:00Z next day,
+	// which is also exactly 20:00 in America/Phoenix (UTC-7).
+	stored := time.Date(2026, 7, 17, 23, 0, 0, 0, ny)
+	if got := stored.UTC().Format(time.RFC3339); got != "2026-07-18T03:00:00Z" {
+		t.Fatalf("test setup wrong: stored=%s, want 2026-07-18T03:00:00Z", got)
+	}
+
+	// Correct assumed zone (full map: FL/GA/... -> America/New_York == geocoded).
+	if _, outcome := reanchorEventDate(stored, ny, ny); outcome != outcomeAmbiguous {
+		t.Errorf("explicit 11pm show with correct assumed zone: outcome=%v, want ambiguous (left untouched)", outcome)
+	}
+
+	// The bug the full map prevents: a Phoenix assumed zone (old short-map
+	// default) WOULD have wrongly re-anchored this correctly-stored show.
+	if _, outcome := reanchorEventDate(stored, ny, phoenix); outcome != outcomeReanchored {
+		t.Errorf("sanity: with a wrong Phoenix assumed zone the bug should manifest as a re-anchor; outcome=%v", outcome)
+	}
+}
+
+// Documents the one residual false-positive (adversarial-review round 2): a
+// correctly-stored NON-US explicit-time show whose UTC instant is exactly
+// 03:00Z reads as 20:00 in the Phoenix fallback (the assumed zone for
+// empty/non-US-state venues) and IS re-anchored. This is inherent ambiguity — a
+// 20:00-Phoenix date-only show and a foreign 03:00Z explicit show are
+// indistinguishable from the instant — and cannot be closed without dropping
+// non-US date-only recovery (the item-5 deliverable). The backstop is the
+// mandatory dry-run review before --confirm. This test pins the behavior so a
+// future change to it is a conscious decision, not an accident.
+func TestReanchorEventDate_NonUSExplicitAt0300Z_KnownLimitation(t *testing.T) {
+	phoenix := mustLoc(t, "America/Phoenix")
+	kolkata := mustLoc(t, "Asia/Kolkata")
+
+	// 08:30 Kolkata (IST, UTC+5:30) = 03:00Z — a real morning show, correctly
+	// stored, that unfortunately coincides with 20:00 Phoenix.
+	stored := time.Date(2026, 7, 17, 8, 30, 0, 0, kolkata)
+	if got := stored.UTC().Format(time.RFC3339); got != "2026-07-17T03:00:00Z" {
+		t.Fatalf("setup: stored=%s want 2026-07-17T03:00:00Z", got)
+	}
+	_, outcome := reanchorEventDate(stored, kolkata, phoenix)
+	if outcome != outcomeReanchored {
+		t.Errorf("documented limitation changed: non-US explicit show at 03:00Z outcome=%v (was reanchored). "+
+			"If this is intentional, update the dry-run-review guidance accordingly.", outcome)
+	}
+}
+
 // Re-anchoring must be idempotent: feeding a freshly corrected instant back
 // through reanchorEventDate (with the same geocoded zone) yields no change.
 func TestReanchorEventDateIsIdempotent(t *testing.T) {

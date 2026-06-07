@@ -23,6 +23,7 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net/url"
 	"os"
 
 	"github.com/joho/godotenv"
@@ -60,7 +61,11 @@ func main() {
 	if confirm {
 		mode = "LIVE"
 	}
-	fmt.Printf("=== Venue Timezone Backfill (%s) — PSY-987 ===\n\n", mode)
+	fmt.Printf("=== Venue Timezone Backfill (%s) — PSY-987 ===\n", mode)
+	// Surface the resolved target so a mistargeted --confirm (e.g. prod via the
+	// wrong --env) is caught before any write. Credentials are redacted.
+	fmt.Printf("Target: ENVIRONMENT=%q  db=%s\n\n",
+		os.Getenv(config.EnvEnvironment), redactDBHost(cfg.Database.URL))
 
 	report, err := catalog.BackfillVenueTimezones(database, geo.Default(), catalog.BackfillOptions{
 		DryRun:  !confirm,
@@ -90,6 +95,16 @@ func loadEnv() {
 	log.Println("no .env loaded; using process environment")
 }
 
+// redactDBHost extracts host[:port]/dbname from a database URL, dropping any
+// embedded credentials, so the target can be logged without leaking secrets.
+func redactDBHost(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil || u.Host == "" {
+		return "<unparseable>"
+	}
+	return u.Host + u.Path
+}
+
 func printReport(r *catalog.BackfillReport) {
 	fmt.Println("--- Venue geocoding ---")
 	for _, c := range r.VenueChanges {
@@ -97,6 +112,9 @@ func printReport(r *catalog.BackfillReport) {
 		case "set", "updated":
 			fmt.Printf("  [%s] venue %d %q (%s, %s): %s -> %s\n",
 				c.Action, c.VenueID, c.Name, c.City, c.State, tzStr(c.OldTz), tzStr(c.NewTz))
+		case "coords":
+			fmt.Printf("  [coords] venue %d %q (%s, %s): coordinates updated (tz unchanged: %s)\n",
+				c.VenueID, c.Name, c.City, c.State, tzStr(c.NewTz))
 		case "miss":
 			fmt.Printf("  [miss] venue %d %q (%s, %s): no geocode match (left %s)\n",
 				c.VenueID, c.Name, c.City, c.State, tzStr(c.OldTz))
@@ -135,6 +153,7 @@ func printReport(r *catalog.BackfillReport) {
 	fmt.Printf("Venues scanned:    %d\n", r.VenuesScanned)
 	fmt.Printf("  tz set:          %d\n", r.VenuesSet)
 	fmt.Printf("  tz updated:      %d\n", r.VenuesUpdated)
+	fmt.Printf("  coords only:     %d\n", r.VenuesCoordsOnly)
 	fmt.Printf("  unchanged:       %d\n", r.VenuesUnchanged)
 	fmt.Printf("  no geocode hit:  %d\n", r.VenuesMissed)
 	fmt.Printf("Shows scanned:     %d\n", r.ShowsScanned)
