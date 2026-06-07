@@ -321,6 +321,58 @@ describe('ModerationQueue', () => {
     )
   })
 
+  it('rejects a request with the trimmed reason', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [mockEntityRequest] })
+
+    render(<ModerationQueue />)
+
+    fireEvent.click(screen.getByRole('button', { name: /^reject$/i }))
+    fireEvent.change(screen.getByPlaceholderText(/rejection reason/i), {
+      target: { value: '  not notable  ' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /confirm reject/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 9, decision: 'rejected', note: 'not notable' }),
+      expect.anything()
+    )
+  })
+
+  it('renders the source line, safe external link, and excerpt for AI requests', () => {
+    setDefaultMocks({ requests: [mockEntityRequest] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByText(/via AI extraction/i)).toBeInTheDocument()
+    const sourceLink = screen.getByRole('link', { name: /source/i })
+    expect(sourceLink).toHaveAttribute('href', 'https://example.com/article')
+    expect(screen.getByText(/a great new band announced a tour/i)).toBeInTheDocument()
+  })
+
+  it('disables Create for show/festival requests (fulfillment deferred) but allows Reject', () => {
+    const showRequest: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 11,
+      entity_type: 'show',
+      payload: { title: 'Big Fest', event_date: '2026-07-01' },
+      source_detail: null,
+    }
+    setDefaultMocks({ requests: [showRequest] })
+
+    render(<ModerationQueue />)
+
+    // Header uses the payload title; the preview omits the header'd title.
+    expect(screen.getByText('Big Fest')).toBeInTheDocument()
+    expect(screen.queryByText('title:')).not.toBeInTheDocument()
+    expect(screen.getByText('event_date:')).toBeInTheDocument()
+    // Create disabled (unsupported fulfillment), Reject still available + hint.
+    expect(screen.getByRole('button', { name: /create/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^reject$/i })).not.toBeDisabled()
+    expect(screen.getByText(/must be created\s+manually for now/i)).toBeInTheDocument()
+  })
+
   it('renders comment report card for comment-type reports', () => {
     setDefaultMocks({ reports: [mockCommentReport] })
 

@@ -47,6 +47,13 @@ export interface RejectWithReasonRowProps {
    * request card passes a "make new thing" icon (e.g. PlusCircle).
    */
   approveIcon?: LucideIcon
+  /**
+   * Disables ONLY the approve button while leaving Reject available. The
+   * entity-request card (PSY-871) sets this for show/festival requests, whose
+   * backend fulfillment isn't supported yet (PSY-998) — the admin can still
+   * reject, but can't "Create" until that lands.
+   */
+  approveDisabled?: boolean
 }
 
 /**
@@ -72,6 +79,7 @@ export function RejectWithReasonRow({
   rejectPlaceholder,
   approveLabel = 'Approve',
   approveIcon: ApproveIcon = Check,
+  approveDisabled = false,
 }: RejectWithReasonRowProps) {
   const [rejecting, setRejecting] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
@@ -126,7 +134,7 @@ export function RejectWithReasonRow({
 
   return (
     <div className="mt-3 flex items-center gap-2">
-      <Button size="sm" onClick={onApprove} disabled={isActioning}>
+      <Button size="sm" onClick={onApprove} disabled={isActioning || approveDisabled}>
         {isApproving ? (
           <Loader2 className="h-3 w-3 animate-spin mr-1" />
         ) : (

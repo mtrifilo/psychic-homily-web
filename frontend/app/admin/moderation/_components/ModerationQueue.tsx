@@ -125,7 +125,7 @@ type ModerationItem =
 
 // ─── PSY-603: success banner state ───────────────────────────────────────────
 
-type ModerationActionVerb = 'approved' | 'rejected'
+type ModerationActionVerb = 'approved' | 'rejected' | 'created'
 
 interface ModerationAction {
   verb: ModerationActionVerb
@@ -307,6 +307,16 @@ function payloadPreviewEntries(payload: Record<string, unknown>): Array<[string,
     )
 }
 
+// Entity types whose request payloads the backend can fulfill on approve
+// (PSY-1008). show/festival need associations the payload lacks, so their
+// fulfillment is deferred (PSY-998) — the card disables "Create" for them.
+const FULFILLABLE_REQUEST_TYPES = new Set(['artist', 'venue', 'label', 'release'])
+
+/** Returns url only when it's a safe http(s) link, else undefined (no link). */
+function safeHttpUrl(url: string | undefined): string | undefined {
+  return url && /^https?:\/\//i.test(url) ? url : undefined
+}
+
 /**
  * The 4th moderation card type: a queued entity-CREATION request. Mirrors
  * PendingEditCard's structure (meta row → attribution/source → preview →
@@ -331,11 +341,13 @@ function RequestCard({
 
   const entityLabel = requestEntityLabel(request)
   const previewEntries = payloadPreviewEntries(request.payload)
+  const sourceUrl = safeHttpUrl(request.source_detail?.url)
+  const canCreate = FULFILLABLE_REQUEST_TYPES.has(request.entity_type)
 
   const handleCreate = useCallback(() => {
     decideMutation.mutate(
       { id: request.id, decision: 'approved' },
-      { onSuccess: () => onActionSuccess({ verb: 'approved', entityLabel }) }
+      { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
     )
   }, [decideMutation, request.id, onActionSuccess, entityLabel])
 
@@ -380,9 +392,9 @@ function RequestCard({
           <span className="ml-1">
             &middot; via {sourceContextLabel(request.source_context)}
           </span>
-          {request.source_detail?.url && (
+          {sourceUrl && (
             <a
-              href={request.source_detail.url}
+              href={sourceUrl}
               target="_blank"
               rel="noopener noreferrer"
               className="ml-1 inline-flex items-center gap-0.5 hover:text-foreground hover:underline"
@@ -414,6 +426,15 @@ function RequestCard({
           </div>
         )}
 
+        {/* show/festival can't be fulfilled from the payload yet (PSY-998) —
+            Create is disabled for them, but the admin can still reject. */}
+        {!canCreate && (
+          <p className="mt-2 text-xs text-muted-foreground">
+            {entityTypeLabel(request.entity_type)} requests must be created
+            manually for now — Create isn&rsquo;t supported for this type yet.
+          </p>
+        )}
+
         {/* Create-immediate + reject-with-required-reason (same model as edits) */}
         <RejectWithReasonRow
           onApprove={handleCreate}
@@ -423,6 +444,7 @@ function RequestCard({
           isRejecting={pendingDecision === 'rejected'}
           approveLabel="Create"
           approveIcon={PlusCircle}
+          approveDisabled={!canCreate}
           rejectPlaceholder="Rejection reason (required) -- tell the requester why"
         />
 
@@ -1179,9 +1201,14 @@ export function ModerationQueue() {
  * an optional `message` prop.
  */
 function formatModerationActionMessage(action: ModerationAction): string {
-  return action.verb === 'approved'
-    ? `Approved — change applied to ${action.entityLabel}`
-    : 'Rejected — submitter notified of reason'
+  switch (action.verb) {
+    case 'created':
+      return `Created — ${action.entityLabel} added to the catalog`
+    case 'approved':
+      return `Approved — change applied to ${action.entityLabel}`
+    default:
+      return 'Rejected — submitter notified of reason'
+  }
 }
 
 // ─── Filter Button ───────────────────────────────────────────────────────────
