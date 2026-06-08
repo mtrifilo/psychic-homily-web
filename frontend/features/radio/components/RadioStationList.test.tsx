@@ -39,19 +39,19 @@ describe('RadioStationList', () => {
     expect(screen.getByText('London')).toBeInTheDocument()
   })
 
-  it('exposes stations as a vertical tablist with the selected one marked', () => {
+  it('exposes stations as a labeled group of buttons with the selected one pressed', () => {
     render(<RadioStationList stations={stations} selectedSlug="wfmu" onSelect={() => {}} />)
-    const tabs = screen.getAllByRole('tab')
-    expect(tabs).toHaveLength(3)
-    expect(screen.getByRole('tab', { name: /WFMU/ })).toHaveAttribute('aria-selected', 'true')
-    expect(screen.getByRole('tab', { name: /KEXP/ })).toHaveAttribute('aria-selected', 'false')
+    const buttons = screen.getAllByRole('button')
+    expect(buttons).toHaveLength(3)
+    expect(screen.getByRole('button', { name: /WFMU/ })).toHaveAttribute('aria-pressed', 'true')
+    expect(screen.getByRole('button', { name: /KEXP/ })).toHaveAttribute('aria-pressed', 'false')
   })
 
   it('calls onSelect with the station slug when a station is clicked', async () => {
     const onSelect = vi.fn()
     const user = userEvent.setup()
     render(<RadioStationList stations={stations} selectedSlug="kexp" onSelect={onSelect} />)
-    await user.click(screen.getByRole('tab', { name: /NTS/ }))
+    await user.click(screen.getByRole('button', { name: /NTS/ }))
     expect(onSelect).toHaveBeenCalledWith('nts')
   })
 
@@ -59,7 +59,7 @@ describe('RadioStationList', () => {
     const onSelect = vi.fn()
     const user = userEvent.setup()
     render(<RadioStationList stations={stations} selectedSlug="kexp" onSelect={onSelect} />)
-    const wfmu = screen.getByRole('tab', { name: /WFMU/ })
+    const wfmu = screen.getByRole('button', { name: /WFMU/ })
     wfmu.focus()
     await user.keyboard('{Enter}')
     expect(onSelect).toHaveBeenCalledWith('wfmu')

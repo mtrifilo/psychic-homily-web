@@ -26,11 +26,16 @@ export function RadioStationList({
   selectedSlug,
   onSelect,
 }: RadioStationListProps) {
+  // A11y: a labeled group of toggle buttons rather than an ARIA tablist. The
+  // full tab pattern (tabpanel + aria-controls + arrow-key roving focus) isn't
+  // implemented here — the overview pane isn't a tabpanel and selection is via
+  // native button focus + Tab — so `role="tab"` would over-promise an
+  // interaction model we don't deliver. `aria-pressed` honestly conveys which
+  // station is the active selection.
   return (
     <div
-      role="tablist"
+      role="group"
       aria-label="Radio stations"
-      aria-orientation="vertical"
       className="flex flex-col gap-0.5"
     >
       <h2 className="mb-1 font-mono text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
@@ -43,8 +48,7 @@ export function RadioStationList({
           <button
             key={station.id}
             type="button"
-            role="tab"
-            aria-selected={selected}
+            aria-pressed={selected}
             onClick={() => onSelect(station.slug)}
             className={cn(
               'flex w-full items-center gap-2 rounded-md p-2 text-left outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring/50',
