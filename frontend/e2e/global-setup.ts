@@ -89,10 +89,32 @@ async function startDatabase() {
   log('Starting ephemeral PostgreSQL on port 5433...')
   // Don't use --wait: the migrate container is a one-shot that exits with 0,
   // which docker compose --wait treats as failure.
-  execSync('docker compose -p e2e -f docker-compose.e2e.yml up -d', {
-    cwd: BACKEND_DIR,
-    stdio: 'inherit',
-  })
+  //
+  // PSY-1006: `up -d` pulls the postgres + migrate images from Docker Hub. A
+  // transient registry timeout ("context deadline exceeded" against
+  // registry-1.docker.io) was failing the E2E Smoke gate before any test ran.
+  // Retry the bring-up a few times with backoff so a flaky registry pull can't
+  // fail the whole run. The happy path is unchanged (first attempt succeeds).
+  const upCmd = 'docker compose -p e2e -f docker-compose.e2e.yml up -d'
+  const MAX_ATTEMPTS = 3
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      execSync(upCmd, { cwd: BACKEND_DIR, stdio: 'inherit' })
+      break
+    } catch (err) {
+      if (attempt === MAX_ATTEMPTS) {
+        throw new Error(
+          `docker compose up failed after ${MAX_ATTEMPTS} attempts ` +
+            `(likely a Docker Hub registry timeout): ${(err as Error).message}`
+        )
+      }
+      log(
+        `docker compose up failed (attempt ${attempt}/${MAX_ATTEMPTS}); ` +
+          `retrying in ${attempt * 5}s...`
+      )
+      await new Promise((r) => setTimeout(r, attempt * 5000))
+    }
+  }
   // Wait for DB to be healthy
   log('Waiting for PostgreSQL to be ready...')
   for (let i = 0; i < 30; i++) {
