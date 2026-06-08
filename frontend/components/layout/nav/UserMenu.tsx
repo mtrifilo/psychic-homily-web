@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { Loader2, LogOut, Shield, Settings, Library, Bell } from 'lucide-react'
+import { Loader2, LogOut, Shield, UserCircle, Library, Bell } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   DropdownMenu,
@@ -30,6 +30,15 @@ export function UserMenu() {
   }
 
   if (isAuthenticated && user) {
+    // "Profile" lands the user on their OWN public identity view
+    // (`/users/[username]`) — the same dense page visitors see — not the
+    // settings form. The route is keyed on username, which is nullable
+    // (OAuth-only accounts; see users.username migration). When the user has
+    // no username yet, fall back to /profile (the settings form, where they
+    // can set one) so the link is never broken. Mirrors the UserAttribution
+    // linkability rule (only link when username is non-empty). PSY-1025.
+    const profileHref = user.username ? `/users/${user.username}` : '/profile'
+
     return (
       <div className="flex items-center gap-1">
         <NotificationBell />
@@ -70,8 +79,8 @@ export function UserMenu() {
                 </Link>
               </DropdownMenuItem>
               <DropdownMenuItem asChild>
-                <Link href="/profile">
-                  <Settings className="mr-2 size-4" />
+                <Link href={profileHref}>
+                  <UserCircle className="mr-2 size-4" />
                   Profile
                 </Link>
               </DropdownMenuItem>

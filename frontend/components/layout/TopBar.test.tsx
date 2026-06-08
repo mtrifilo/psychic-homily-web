@@ -29,6 +29,7 @@ const mockLogout = vi.fn()
 type MockAuthContextValue = {
   user: {
     email: string
+    username?: string
     first_name?: string
     last_name?: string
     is_admin: boolean
@@ -196,6 +197,36 @@ describe('TopBar', () => {
       await user.click(screen.getByRole('button', { name: 'User menu' }))
       expect(await screen.findByRole('menuitem', { name: 'Profile' })).toBeInTheDocument()
       expect(screen.queryByRole('menuitem', { name: 'Admin' })).not.toBeInTheDocument()
+    })
+
+    // PSY-1025: "Profile" lands the user on their OWN public identity view,
+    // not the settings form.
+    it('points "Profile" at the user public identity page when they have a username', async () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', username: 'reggie', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'User menu' }))
+      const profileItem = await screen.findByRole('menuitem', { name: 'Profile' })
+      expect(profileItem).toHaveAttribute('href', '/users/reggie')
+    })
+
+    it('falls back "Profile" to /profile (settings) when the user has no username', async () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'User menu' }))
+      const profileItem = await screen.findByRole('menuitem', { name: 'Profile' })
+      expect(profileItem).toHaveAttribute('href', '/profile')
     })
   })
 
