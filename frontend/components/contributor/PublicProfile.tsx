@@ -1,8 +1,11 @@
 'use client'
 
+import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Lock, CalendarDays, Clock } from 'lucide-react'
+import { Button } from '@/components/ui/button'
+import { Lock, CalendarDays, Clock, Pencil } from 'lucide-react'
+import { useAuthContext } from '@/lib/context/AuthContext'
 import { ActivityHeatmap } from './ActivityHeatmap'
 import { UserTierBadge } from './UserTierBadge'
 import { ContributionStatsGrid } from './ContributionStatsGrid'
@@ -62,6 +65,8 @@ interface PublicProfileProps {
 }
 
 export function PublicProfile({ username }: PublicProfileProps) {
+  const { user } = useAuthContext()
+
   const {
     data: profile,
     isLoading,
@@ -71,6 +76,17 @@ export function PublicProfile({ username }: PublicProfileProps) {
   const {
     data: contributionsData,
   } = usePublicContributions(username, { limit: 10 })
+
+  // The viewer is the profile owner when their logged-in username matches the
+  // profile being viewed. Compared case-insensitively only to stay robust to
+  // URL casing — it gates ONLY a convenience "Edit profile" affordance and
+  // exposes no owner-only data, so a spurious match would leak nothing (the
+  // /profile edit route is itself auth-gated and scoped to the logged-in user
+  // server-side; this is a UI shortcut, not an authorization boundary). PSY-1025.
+  const isOwner = Boolean(
+    user?.username &&
+      user.username.toLowerCase() === username.toLowerCase()
+  )
 
   if (isLoading) {
     return <ProfileSkeleton />
@@ -107,7 +123,12 @@ export function PublicProfile({ username }: PublicProfileProps) {
     return null
   }
 
-  // Private profile
+  // Private profile. The backend returns this page to the owner even when
+  // private (with full owner data), so without the isOwner branch an owner
+  // who clicks "Profile" (which now routes here) would hit a dead-end wall
+  // with no way to reach settings. Give the owner their own copy + the Edit
+  // affordance so they can change visibility; visitors keep the plain wall.
+  // PSY-1025.
   if (profile.profile_visibility === 'private') {
     return (
       <div className="container max-w-4xl mx-auto px-4 py-12">
@@ -115,10 +136,22 @@ export function PublicProfile({ username }: PublicProfileProps) {
           <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
             <Lock className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">Private Profile</h1>
+          <h1 className="text-2xl font-bold mb-2">
+            {isOwner ? 'Your Profile Is Private' : 'Private Profile'}
+          </h1>
           <p className="text-muted-foreground">
-            This user&apos;s profile is set to private.
+            {isOwner
+              ? 'Only you can see this page. Edit your profile to make it public.'
+              : "This user's profile is set to private."}
           </p>
+          {isOwner && (
+            <Button asChild variant="outline" size="sm" className="mt-6">
+              <Link href="/profile">
+                <Pencil className="mr-1.5 size-3.5" />
+                Edit profile
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
     )
@@ -135,6 +168,22 @@ export function PublicProfile({ username }: PublicProfileProps) {
       {/* Profile Header */}
       <div className="mb-8">
         <div className="flex items-start gap-4">
+          {/* Owner-only Edit affordance: links to the settings/edit form.
+              Rendered only for the logged-in profile owner; visitors never
+              see it. PSY-1025. */}
+          {isOwner && (
+            <Button
+              asChild
+              variant="outline"
+              size="sm"
+              className="order-last ml-auto shrink-0"
+            >
+              <Link href="/profile">
+                <Pencil className="mr-1.5 size-3.5" />
+                Edit profile
+              </Link>
+            </Button>
+          )}
           {/* Avatar */}
           {profile.avatar_url ? (
             <img

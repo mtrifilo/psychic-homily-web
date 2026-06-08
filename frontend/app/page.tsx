@@ -1,166 +1,74 @@
 import Link from 'next/link'
 import { HomeShowList } from '@/features/shows'
-import { getBlogSlugs, getBlogPost, getAllMixes, MDXContent, SoundCloud } from '@/features/blog'
+import { HomeHero, LatestRadioShows, ActivityFeedPlaceholder } from '@/features/home'
+import { Button } from '@/components/ui/button'
 import { JsonLd } from '@/components/seo/JsonLd'
 import { generateWebSiteSchema } from '@/lib/seo/jsonld'
-import { formatContentDate } from '@/lib/utils/formatters'
-import { getTextExcerpt } from '@/lib/utils/markdownExcerpt'
 
+// PSY-389: logged-out discovery landing ("This is not a mirage"). Drops the old
+// "Arizona Music Community" framing. NOTE: Next.js does NOT apply a layout's
+// `title.template` to a page in the SAME route segment as that layout — and the
+// root `page.tsx` shares the root `layout.tsx` segment — so the global
+// "%s | Psychic Homily" template can't decorate this page. We therefore set the
+// full title via `title.absolute` to match that template's output exactly. The
+// logged-in customizable dashboard is a separate project (out of scope).
 export const metadata = {
-  title: 'Psychic Homily | Arizona Music Community',
+  title: { absolute: 'Discover live music | Psychic Homily' },
   description:
-    'Discover upcoming live music shows, blog posts, and DJ sets from the Arizona music scene.',
+    'Find upcoming live shows in any city, dig into artists, labels, releases, and freeform radio — the underground, mapped link by link.',
   alternates: {
     canonical: 'https://psychichomily.com',
   },
   openGraph: {
-    title: 'Psychic Homily | Arizona Music Community',
-    description: 'Discover upcoming live music shows, blog posts, and DJ sets from the Arizona music scene.',
+    title: 'Psychic Homily',
+    description:
+      'Find upcoming live shows in any city, dig into artists, labels, releases, and freeform radio — the underground, mapped link by link.',
     url: '/',
     type: 'website',
   },
 }
 
-/**
- * Extract embed from MDX content
- */
-function extractEmbed(content: string): string | null {
-  const embedMatch = content.match(/<(Bandcamp|SoundCloud)[^>]+\/>/)
-  return embedMatch ? embedMatch[0] : null
-}
-
 export default function Home() {
-  // Get latest blog post
-  const blogSlugs = getBlogSlugs()
-  const allPosts = blogSlugs
-    .map(slug => getBlogPost(slug))
-    .filter((post): post is NonNullable<typeof post> => post !== null)
-    .sort(
-      (a, b) =>
-        new Date(b.frontmatter.date).getTime() -
-        new Date(a.frontmatter.date).getTime()
-    )
-  const latestPost = allPosts[0]
-
-  // Get latest DJ set
-  const allMixes = getAllMixes()
-  const latestMix = allMixes[0]
-
   return (
     <>
-    <JsonLd data={generateWebSiteSchema()} />
-    <div className="flex min-h-screen items-start justify-center">
-      <main className="w-full max-w-6xl px-4 py-8 md:px-8">
-        {/* Upcoming Shows Section */}
-        <section className="mb-14">
-          <div className="flex justify-between items-center mb-5">
-            <h2 className="text-2xl font-bold tracking-tight">
-              Upcoming Shows
-            </h2>
-            <Link
-              href="/shows"
-              className="text-sm text-muted-foreground hover:text-primary transition-colors hover:underline underline-offset-4"
-            >
-              View all →
-            </Link>
-          </div>
-          <HomeShowList />
-        </section>
+      <JsonLd data={generateWebSiteSchema()} />
+      <div className="flex w-full justify-center">
+        <div className="flex w-full max-w-6xl flex-col gap-14 px-4 pb-16 pt-12 md:px-8">
+          <HomeHero />
 
-        {/* Latest Blog Post Section */}
-        {latestPost && (
-          <section className="mb-14">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-2xl font-bold tracking-tight">
-                Latest from the Blog
+          {/* Upcoming shows — the unique advantage, privileged at top. The city
+              filter, geo-default, and popular-cities row all live inside the
+              reused HomeShowList. */}
+          <section aria-labelledby="home-shows-heading" className="flex w-full flex-col gap-4">
+            <div className="flex items-center justify-between">
+              <h2
+                id="home-shows-heading"
+                className="text-2xl font-semibold tracking-tight text-foreground"
+              >
+                Upcoming shows
               </h2>
               <Link
-                href="/blog"
-                className="text-sm text-muted-foreground hover:text-primary transition-colors hover:underline underline-offset-4"
+                href="/shows"
+                className="text-sm font-medium text-muted-foreground transition-colors hover:text-primary hover:underline underline-offset-4"
               >
-                View all →
+                View all shows →
               </Link>
             </div>
-            <article className="bg-card/50 border border-border/50 rounded-xl p-6 hover:border-border transition-colors">
-              <h3 className="text-xl font-semibold leading-tight tracking-tight">
-                <Link
-                  href={`/blog/${latestPost.slug}`}
-                  className="hover:text-primary transition-colors"
-                >
-                  {latestPost.frontmatter.title}
-                </Link>
-              </h3>
-              <div className="text-sm text-muted-foreground mt-1.5">
-                {formatContentDate(latestPost.frontmatter.date)}
-              </div>
 
-              {extractEmbed(latestPost.content) && (
-                <div className="mt-4">
-                  <MDXContent source={extractEmbed(latestPost.content)!} />
-                </div>
-              )}
+            <HomeShowList />
 
-              <div className="mt-3 leading-relaxed text-foreground/85">
-                {getTextExcerpt(latestPost.content)}
-              </div>
-
-              <Link
-                href={`/blog/${latestPost.slug}`}
-                className="inline-block mt-4 px-4 py-2 text-sm bg-muted/50 border border-border/50 rounded-lg hover:bg-muted hover:border-border transition-colors"
-              >
-                Read more
-              </Link>
-            </article>
-          </section>
-        )}
-
-        {/* Latest DJ Set Section */}
-        {latestMix && (
-          <section className="mb-14">
-            <div className="flex justify-between items-center mb-5">
-              <h2 className="text-2xl font-bold tracking-tight">
-                Latest DJ Set
-              </h2>
-              <Link
-                href="/dj-sets"
-                className="text-sm text-muted-foreground hover:text-primary transition-colors hover:underline underline-offset-4"
-              >
-                View all →
-              </Link>
+            <div className="flex justify-center pt-1.5">
+              <Button asChild size="lg">
+                <Link href="/shows">View more shows →</Link>
+              </Button>
             </div>
-            <article className="bg-card/50 border border-border/50 rounded-xl p-6 hover:border-border transition-colors">
-              <h3 className="text-xl font-semibold leading-tight tracking-tight">
-                <Link
-                  href={`/dj-sets/${latestMix.slug}`}
-                  className="hover:text-primary transition-colors"
-                >
-                  {latestMix.title}
-                </Link>
-              </h3>
-              <div className="text-sm text-muted-foreground mt-1.5">
-                {formatContentDate(latestMix.date)} by {latestMix.artist}
-              </div>
-
-              {latestMix.description && (
-                <div className="mt-3 leading-relaxed text-foreground/85">
-                  {latestMix.description}
-                </div>
-              )}
-
-              <div className="mt-4">
-                <SoundCloud
-                  url={latestMix.soundcloud_url}
-                  title={latestMix.title}
-                  artist={latestMix.artist}
-                  artist_url={latestMix.artist_url}
-                  track_url={latestMix.track_url}
-                />
-              </div>
-            </article>
           </section>
-        )}
-      </main>
-    </div>
+
+          <LatestRadioShows />
+
+          <ActivityFeedPlaceholder />
+        </div>
+      </div>
     </>
   )
 }

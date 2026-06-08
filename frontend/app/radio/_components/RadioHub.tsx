@@ -2,24 +2,16 @@
 
 import Link from 'next/link'
 import { Radio, Loader2, Disc3 } from 'lucide-react'
-import {
-  useRadioStations,
-  useRadioStats,
-  useNewReleaseRadar,
-  RadioStationCard,
-  isStationVisibleOnIndex,
-} from '@/features/radio'
+import { useRadioStats, useNewReleaseRadar, RadioPanel } from '@/features/radio'
 import type { RadioNewReleaseRadarEntry } from '@/features/radio'
 
+// PSY-1016: the /radio page now leads with the same Option-D2 station-overview
+// layout as the Radio nav panel (RadioPanel), rendered full-width/expanded
+// instead of inside a popover. The page keeps the stats header and New Release
+// Radar below it as the existing radio-feature context.
 export default function RadioHub() {
-  const { data: stationsData, isLoading, error } = useRadioStations()
   const { data: stats } = useRadioStats()
   const { data: radarData, isLoading: radarLoading } = useNewReleaseRadar({ limit: 10 })
-
-  // PSY-673: hide non-flagship siblings of any network. Sub-streams remain
-  // reachable via their direct /radio/{slug} URL and via the flagship's tab
-  // bar (PSY-674).
-  const visibleStations = stationsData?.stations.filter(isStationVisibleOnIndex) ?? []
 
   return (
     <div className="flex min-h-screen items-start justify-center">
@@ -43,38 +35,15 @@ export default function RadioHub() {
           )}
         </div>
 
+        {/* Option-D2 station overview (expanded). Reuses the same layout as the
+            Radio nav panel. RadioPanel owns its own loading / empty / error
+            states. */}
+        <div className="mb-10 overflow-hidden rounded-xl border border-border bg-popover">
+          <RadioPanel className="min-h-[360px]" />
+        </div>
+
         {/* New Release Radar */}
         <NewReleaseRadarSection releases={radarData?.releases} isLoading={radarLoading} />
-
-        {isLoading && (
-          <div className="flex justify-center items-center py-12">
-            <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
-          </div>
-        )}
-
-        {error && (
-          <div className="py-12 text-center text-sm text-destructive">
-            Failed to load radio stations
-          </div>
-        )}
-
-        {!isLoading && !error && stationsData && (
-          visibleStations.length > 0 ? (
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-              {visibleStations.map(station => (
-                <RadioStationCard key={station.id} station={station} />
-              ))}
-            </div>
-          ) : (
-            <div className="py-12 text-center">
-              <Radio className="h-12 w-12 text-muted-foreground/30 mx-auto mb-3" />
-              <p className="text-muted-foreground">No radio stations yet</p>
-              <p className="text-sm text-muted-foreground/60 mt-1">
-                Radio stations will appear here once they are added.
-              </p>
-            </div>
-          )
-        )}
       </main>
     </div>
   )

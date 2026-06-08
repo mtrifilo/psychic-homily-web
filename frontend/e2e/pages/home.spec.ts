@@ -5,17 +5,23 @@ test.describe('Homepage', () => {
   test('loads and displays upcoming shows', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/')
 
-    // Page title
+    // Page title (PSY-389: global "%s | Psychic Homily" template, no
+    // "Arizona Music Community").
     await expect(page).toHaveTitle(/Psychic Homily/)
 
-    // "Upcoming Shows" section heading
+    // Discovery hero (PSY-389)
+    await expect(
+      page.getByRole('heading', { name: 'This is not a mirage.' })
+    ).toBeVisible()
+
+    // "Upcoming shows" section heading
     await expect(
       page.getByRole('heading', { name: /upcoming shows/i })
     ).toBeVisible()
 
-    // "View all" link to /shows
+    // "View all shows" link to /shows (quiet link above the list)
     await expect(
-      page.getByRole('link', { name: /view all/i }).first()
+      page.getByRole('link', { name: /view all shows/i }).first()
     ).toBeVisible()
 
     // Wait for show cards to load (client-side fetch via TanStack Query)
@@ -33,37 +39,62 @@ test.describe('Homepage', () => {
     await page.goto('/')
 
     // Top-bar primary nav (PSY-1013): explicit links + the menu triggers,
-    // visible on the default 1280x720 viewport (>= the lg breakpoint).
-    await expect(page.getByRole('link', { name: 'Shows' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Artists' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Browse the catalog' })).toBeVisible()
-    await expect(page.getByRole('button', { name: 'Contribute' })).toBeVisible()
+    // visible on the default 1280x720 viewport (>= the lg breakpoint). Scope to
+    // the Primary nav landmark — the editorial footer (PSY-389) and the hero
+    // discovery row also expose "Shows"/"Artists" links, so an unscoped
+    // getByRole would strict-mode-violate.
+    const primaryNav = page.getByRole('navigation', { name: 'Primary' })
+    await expect(primaryNav.getByRole('link', { name: 'Shows' })).toBeVisible()
+    await expect(primaryNav.getByRole('link', { name: 'Artists' })).toBeVisible()
+    await expect(primaryNav.getByRole('button', { name: 'Browse the catalog' })).toBeVisible()
+    await expect(primaryNav.getByRole('button', { name: 'Contribute' })).toBeVisible()
 
     // Login link visible when not authenticated
     await expect(page.getByRole('link', { name: /login/i })).toBeVisible()
 
     // Destinations the retired sidebar exposed directly are now reachable
     // inside the menus (no discoverability regression — PSY-1013).
-    await page.getByRole('button', { name: 'Browse the catalog' }).click()
+    await primaryNav.getByRole('button', { name: 'Browse the catalog' }).click()
     await expect(page.getByRole('menuitem', { name: 'Venues' })).toBeVisible()
     await page.keyboard.press('Escape')
 
-    await page.getByRole('button', { name: 'Contribute' }).click()
+    await primaryNav.getByRole('button', { name: 'Contribute' }).click()
     await expect(page.getByRole('menuitem', { name: 'Blog' })).toBeVisible()
     await expect(page.getByRole('menuitem', { name: 'DJ Sets' })).toBeVisible()
   })
 
-  test('displays blog and DJ set sections', async ({ page }) => {
+  test('displays discovery sections and footer (PSY-389)', async ({ page }) => {
     await page.goto('/')
 
-    // Blog section (server-rendered from markdown files)
+    // Discover quick-links row in the hero
     await expect(
-      page.getByRole('heading', { name: /latest from the blog/i })
+      page.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
-    // DJ Set section (server-rendered from markdown files)
+    // Latest radio shows section + cards that link to /radio
     await expect(
-      page.getByRole('heading', { name: /latest dj set/i })
+      page.getByRole('heading', { name: /latest radio shows/i })
+    ).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: /KEXP.*Variety Mix/i })
+    ).toHaveAttribute('href', '/radio')
+
+    // Across the scene — reserved activity-feed placeholder
+    await expect(
+      page.getByRole('heading', { name: /across the scene/i })
+    ).toBeVisible()
+    await expect(
+      page.getByText('Reserved for the Activity feed')
+    ).toBeVisible()
+
+    // Editorial footer columns (PSY-389). Scope to the footer landmark — the
+    // hero also renders a "Discover" quick-links nav, so an unscoped match is
+    // a strict-mode violation (two `navigation[name="Discover"]` on the page).
+    await expect(
+      page.getByRole('contentinfo').getByRole('navigation', { name: 'Discover' })
+    ).toBeVisible()
+    await expect(
+      page.getByText('Made by the scene, for the scene.')
     ).toBeVisible()
   })
 })

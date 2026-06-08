@@ -31,6 +31,15 @@ vi.mock('@/features/auth', () => ({
     mockUsePublicContributions(username, opts),
 }))
 
+// Owner-detection compares the logged-in user (from AuthContext) against the
+// viewed profile's username. Default to an anonymous viewer; owner tests set
+// mockUser explicitly. PSY-1025.
+let mockUser: { username?: string } | null = null
+
+vi.mock('@/lib/context/AuthContext', () => ({
+  useAuthContext: () => ({ user: mockUser }),
+}))
+
 // Mock child components
 vi.mock('./UserTierBadge', () => ({
   UserTierBadge: ({ tier }: { tier: string }) => (
@@ -97,6 +106,7 @@ describe('PublicProfile', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-19T12:00:00Z'))
     mockUsePublicContributions.mockReturnValue({ data: null })
+    mockUser = null
   })
 
   afterEach(() => {
@@ -163,6 +173,37 @@ describe('PublicProfile', () => {
     expect(
       screen.getByText("This user's profile is set to private.")
     ).toBeInTheDocument()
+  })
+
+  it('does NOT show "Edit profile" on a visitor view of a private profile', () => {
+    mockUser = { username: 'bob' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice', profile_visibility: 'private' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByText('Private Profile')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /edit profile/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows owner copy + Edit affordance on the owner view of a private profile', () => {
+    // The backend returns the private profile to its owner; the owner must be
+    // able to reach settings to change visibility (PSY-1025).
+    mockUser = { username: 'alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice', profile_visibility: 'private' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByText('Your Profile Is Private')).toBeInTheDocument()
+    const editLink = screen.getByRole('link', { name: /edit profile/i })
+    expect(editLink).toHaveAttribute('href', '/profile')
   })
 
   it('renders null when profile data is missing', () => {
@@ -523,5 +564,77 @@ describe('PublicProfile', () => {
     // Should show full stats, not just count
     expect(screen.getByTestId('stats-grid')).toBeInTheDocument()
     expect(screen.queryByText(/total contributions/)).not.toBeInTheDocument()
+  })
+
+  // --- Owner-only Edit affordance (PSY-1025) ---
+
+  it('shows "Edit profile" affordance to the profile owner', () => {
+    mockUser = { username: 'alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    const editLink = screen.getByRole('link', { name: /edit profile/i })
+    expect(editLink).toBeInTheDocument()
+    expect(editLink).toHaveAttribute('href', '/profile')
+  })
+
+  it('matches owner case-insensitively (URL casing differs from stored)', () => {
+    mockUser = { username: 'Alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(
+      screen.getByRole('link', { name: /edit profile/i })
+    ).toBeInTheDocument()
+  })
+
+  it('does NOT show "Edit profile" to a different logged-in user', () => {
+    mockUser = { username: 'bob' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(
+      screen.queryByRole('link', { name: /edit profile/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT show "Edit profile" to an anonymous visitor', () => {
+    mockUser = null
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(
+      screen.queryByRole('link', { name: /edit profile/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT match owner when the logged-in user has no username', () => {
+    mockUser = {}
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(
+      screen.queryByRole('link', { name: /edit profile/i })
+    ).not.toBeInTheDocument()
   })
 })
