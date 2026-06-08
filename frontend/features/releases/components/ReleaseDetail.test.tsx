@@ -50,6 +50,9 @@ vi.mock('@/lib/queryClient', () => ({
 // EntityDetailLayout must render header + sidebar + children so their content
 // is assertable in the same tree.
 vi.mock('@/components/shared', () => ({
+  EntityDetailContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="entity-detail-container">{children}</div>
+  ),
   EntityDetailLayout: ({
     header,
     sidebar,

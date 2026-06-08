@@ -7,6 +7,7 @@ import { Loader2, Tag, MapPin } from 'lucide-react'
 import { useLabel, useLabelRoster, useLabelCatalog } from '../hooks/useLabels'
 import {
   EntityDetailLayout,
+  EntityDetailContainer,
   EntityHeader,
   SocialLinks,
   FollowButton,
@@ -371,15 +372,12 @@ export function LabelDetail({ idOrSlug }: LabelDetailProps) {
       </div>
     </EntityDetailLayout>
 
-    {/* Revision History */}
-    <div className="mt-0">
+    {/* History + Discussion — shared container matches EntityDetailLayout's
+        gutter + max-width so they align with the rest of the page (PSY-1026). */}
+    <EntityDetailContainer>
       <RevisionHistory entityType="label" entityId={label.id} />
-    </div>
-
-    {/* Discussion */}
-    <div className="mt-0 px-4 md:px-0">
       <CommentThread entityType="label" entityId={label.id} />
-    </div>
+    </EntityDetailContainer>
 
     {/* Edit Drawer (all authenticated users) */}
     {isAuthenticated && (
