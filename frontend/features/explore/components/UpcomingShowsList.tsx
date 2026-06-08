@@ -52,7 +52,7 @@ import type { CityState, CityWithCount } from '@/components/filters/CityFilters'
 import type { GeoLocation } from '@/lib/geo-default'
 
 // CityFilters pulls in cmdk (Command) + Radix Popover. Those bytes are
-// already in the global bundle (CommandPalette in SidebarLayout), but
+// already in the global bundle (CommandPalette in AppShell), but
 // MOUNTING the combobox eagerly on /explore hydrates that interactive
 // tree on the critical path, which pushed the TTI gate (error-level,
 // PSY-868) over budget. dynamic(ssr:false) defers the filter's hydration

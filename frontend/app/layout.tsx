@@ -41,7 +41,7 @@ import {
   Footer,
   CookieConsentBanner,
   PostHogProvider,
-  SidebarLayout,
+  AppShell,
   AuthHydrator,
 } from '@/components/layout'
 import { CookieConsentProvider } from '@/lib/context/CookieConsentContext'
@@ -111,10 +111,10 @@ export default function RootLayout({
               <PostHogProvider>
                 <Suspense fallback={null}>
                   <AuthHydrator>
-                    <SidebarLayout>
-                      <main className="flex-1">{children}</main>
+                    <AppShell>
+                      <main id="main-content" className="flex-1">{children}</main>
                       <Footer />
-                    </SidebarLayout>
+                    </AppShell>
                   </AuthHydrator>
                 </Suspense>
                 <CookieConsentBanner />
