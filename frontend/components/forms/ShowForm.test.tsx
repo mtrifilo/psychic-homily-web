@@ -227,6 +227,11 @@ describe('ShowForm — artists list stable keys', () => {
     // any value (see isOpen / showDropdown). aria-expanded reflects the local
     // useState in that specific component instance, which is exactly what
     // leaks across rows when React reuses an instance via a stale key.
+    //
+    // These three assertions are a load-bearing PRECONDITION guard, not just
+    // description: they prove the per-row open state genuinely diverged before
+    // removal. Don't delete them — without this guard the canary at the end of
+    // the test could false-pass if the open-on-change wiring ever broke.
     expect(getInputs()[0]).toHaveAttribute('aria-expanded', 'true')
     expect(getInputs()[1]).toHaveAttribute('aria-expanded', 'false')
     expect(getInputs()[2]).toHaveAttribute('aria-expanded', 'true')
