@@ -9,8 +9,8 @@ vi.mock('next/navigation', () => ({
 }))
 
 // The admin drawer is a dynamically-imported chunk (AdminDrawerNav, kept off the
-// public bundle); stub next/dynamic so TopBar renders a synchronous marker. The
-// drawer's own behavior is covered by AdminDrawerNav.test.tsx.
+// public bundle); stub next/dynamic so the mobile sheet renders a synchronous
+// marker. The drawer's own behavior is covered by AdminDrawerNav.test.tsx.
 vi.mock('next/dynamic', () => ({
   default: () =>
     function AdminDrawerNavStub() {
@@ -26,8 +26,6 @@ vi.mock('next/image', () => ({
 }))
 
 const mockLogout = vi.fn()
-// Return type widened so individual tests can override `user`/`isAuthenticated`
-// without TS narrowing from the default-null literal.
 type MockAuthContextValue = {
   user: {
     email: string
@@ -52,21 +50,20 @@ vi.mock('@/lib/context/AuthContext', () => ({
 let mockTheme = 'dark'
 const mockSetTheme = vi.fn()
 vi.mock('next-themes', () => ({
-  useTheme: () => ({ theme: mockTheme, setTheme: mockSetTheme }),
+  useTheme: () => ({ theme: mockTheme, resolvedTheme: mockTheme, setTheme: mockSetTheme }),
 }))
 
-// Mock NotificationBell to a stub — it uses TanStack Query and is covered
-// by its own unit test (PSY-595). The TopBar test only cares that the bell
-// renders for authenticated users; the bell's internal behaviour is out of
-// scope here.
 vi.mock('@/features/notifications', () => ({
   NotificationBell: () => <button data-testid="notification-bell">Bell</button>,
 }))
 
-describe('TopBar', () => {
-  const onMobileOpenChange = vi.fn()
-  const onSearchClick = vi.fn()
+// SearchTrigger opens the global CommandPalette directly; assert the call.
+const mockOpenCommandPalette = vi.fn()
+vi.mock('@/lib/hooks/common/useCommandPalette', () => ({
+  openCommandPalette: () => mockOpenCommandPalette(),
+}))
 
+describe('TopBar', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     mockPathname = '/'
@@ -79,426 +76,184 @@ describe('TopBar', () => {
     })
   })
 
-  it('renders logo image', () => {
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    expect(screen.getByAltText('Psychic Homily Logo')).toBeInTheDocument()
-  })
-
-  it('renders site name', () => {
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    expect(screen.getByText('Psychic Homily')).toBeInTheDocument()
-  })
-
-  it('renders search placeholder button', () => {
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    expect(screen.getByText('Search...')).toBeInTheDocument()
-    expect(screen.getByText('\u2318K')).toBeInTheDocument()
-  })
-
-  it('calls onSearchClick when search button is clicked', async () => {
-    const user = userEvent.setup()
-    render(
-      <TopBar
-        mobileOpen={false}
-        onMobileOpenChange={onMobileOpenChange}
-        onSearchClick={onSearchClick}
-      />
-    )
-    await user.click(screen.getByText('Search...'))
-    expect(onSearchClick).toHaveBeenCalledTimes(1)
-  })
-
-  it('shows login link when unauthenticated', () => {
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    // There are two login links (desktop + mobile), just verify at least one exists
-    const links = screen.getAllByText('login / sign-up')
-    expect(links.length).toBeGreaterThanOrEqual(1)
-  })
-
-  it('shows user avatar button when authenticated', () => {
-    mockAuthContext.mockReturnValue({
-      user: { email: 'test@test.com', first_name: 'John', last_name: 'Doe', is_admin: false },
-      isAuthenticated: true,
-      isLoading: false,
-      logout: mockLogout,
+  describe('brand', () => {
+    it('renders the brand link to home with the logo', () => {
+      render(<TopBar />)
+      const brand = screen.getByRole('link', { name: /psychic homily/i })
+      expect(brand).toHaveAttribute('href', '/')
+      expect(brand.querySelector('img')).toBeInTheDocument()
+      expect(screen.getByText('Psychic Homily')).toBeInTheDocument()
     })
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    expect(screen.getByRole('button', { name: 'User menu' })).toBeInTheDocument()
-    expect(screen.getByText('JD')).toBeInTheDocument()
   })
 
-  it('shows loading spinner while auth is loading', () => {
-    mockAuthContext.mockReturnValue({
-      user: null,
-      isAuthenticated: false,
-      isLoading: true,
-      logout: mockLogout,
-    })
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
-  })
-
-  it('renders hamburger menu button', () => {
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    expect(screen.getByRole('button', { name: 'Open menu' })).toBeInTheDocument()
-  })
-
-  it('renders theme toggle button', () => {
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    expect(screen.getByRole('button', { name: 'Toggle theme' })).toBeInTheDocument()
-  })
-
-  it('calls setTheme when desktop theme toggle is clicked', async () => {
-    const user = userEvent.setup()
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
-    expect(mockSetTheme).toHaveBeenCalledWith('light')
-  })
-
-  it('toggles to dark when current theme is light', async () => {
-    mockTheme = 'light'
-    const user = userEvent.setup()
-    render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-    await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
-    expect(mockSetTheme).toHaveBeenCalledWith('dark')
-  })
-
-  describe('authenticated user dropdown', () => {
-    beforeEach(() => {
-      mockAuthContext.mockReturnValue({
-        user: {
-          email: 'admin@test.com',
-          first_name: 'Alice',
-          last_name: 'Admin',
-          is_admin: true,
-        },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+  describe('search', () => {
+    it('renders the search field with placeholder + shortcut', () => {
+      render(<TopBar />)
+      expect(screen.getByText(/Search shows, artists, labels/)).toBeInTheDocument()
+      expect(screen.getByText('⌘K')).toBeInTheDocument()
     })
 
-    it('shows admin link in dropdown when user is admin', async () => {
+    it('opens the command palette when the search field is clicked', async () => {
       const user = userEvent.setup()
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      await user.click(screen.getByRole('button', { name: 'User menu' }))
-      // Dropdown should show Admin link
-      expect(screen.getByRole('menuitem', { name: /Admin/ })).toBeInTheDocument()
-    })
-
-    it('shows profile link in dropdown', async () => {
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      await user.click(screen.getByRole('button', { name: 'User menu' }))
-      expect(screen.getByRole('menuitem', { name: /Profile/ })).toBeInTheDocument()
-    })
-
-    it('shows sign out in dropdown and calls logout on click', async () => {
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      await user.click(screen.getByRole('button', { name: 'User menu' }))
-      const signOutItem = screen.getByRole('menuitem', { name: /Sign out/ })
-      expect(signOutItem).toBeInTheDocument()
-      await user.click(signOutItem)
-      expect(mockLogout).toHaveBeenCalledTimes(1)
-    })
-
-    it('shows user email in dropdown', async () => {
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      await user.click(screen.getByRole('button', { name: 'User menu' }))
-      expect(screen.getByText('admin@test.com')).toBeInTheDocument()
-    })
-
-    it('shows user display name in dropdown', async () => {
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      await user.click(screen.getByRole('button', { name: 'User menu' }))
-      expect(screen.getByText('Alice Admin')).toBeInTheDocument()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Search shows, artists, labels' }))
+      expect(mockOpenCommandPalette).toHaveBeenCalledTimes(1)
     })
   })
 
-  describe('non-admin authenticated user', () => {
-    beforeEach(() => {
-      mockAuthContext.mockReturnValue({
-        user: {
-          email: 'user@test.com',
-          first_name: 'Bob',
-          is_admin: false,
-        },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-    })
-
-    it('does not show admin link in dropdown for non-admin', async () => {
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      await user.click(screen.getByRole('button', { name: 'User menu' }))
-      const menuItems = screen.getAllByRole('menuitem')
-      const adminItem = menuItems.find(item => item.textContent?.includes('Admin'))
-      expect(adminItem).toBeUndefined()
-    })
-
-    it('shows initials from first name only when no last name', () => {
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('B')).toBeInTheDocument()
+  describe('primary nav', () => {
+    it('renders the explicit Home and Explore links + the three menus', () => {
+      render(<TopBar />)
+      expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
+      expect(screen.getByRole('link', { name: 'Explore' })).toHaveAttribute('href', '/explore')
+      expect(screen.getByRole('button', { name: 'Radio' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Browse the catalog' })).toBeInTheDocument()
+      expect(screen.getByRole('button', { name: 'Contribute' })).toBeInTheDocument()
     })
   })
 
-  describe('user with email only (no name)', () => {
-    beforeEach(() => {
-      mockAuthContext.mockReturnValue({
-        user: {
-          email: 'emailonly@test.com',
-          is_admin: false,
-        },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+  describe('theme toggle', () => {
+    it('renders a bare sun/moon toggle', () => {
+      render(<TopBar />)
+      expect(screen.getByRole('button', { name: 'Toggle theme' })).toBeInTheDocument()
     })
 
-    it('shows email initial as avatar', () => {
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('E')).toBeInTheDocument()
-    })
-
-    it('does not show display name in dropdown when no name provided', async () => {
+    it('toggles to light when current theme is dark', async () => {
       const user = userEvent.setup()
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      await user.click(screen.getByRole('button', { name: 'User menu' }))
-      // Only the email should appear, not a separate display name
-      expect(screen.getByText('emailonly@test.com')).toBeInTheDocument()
-    })
-  })
-
-  describe('mobile menu content', () => {
-    it('shows sidebar navigation groups in mobile menu', () => {
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('Discover')).toBeInTheDocument()
-      expect(screen.getByText('Community')).toBeInTheDocument()
-    })
-
-    it('shows Library and Settings links when authenticated on mobile', () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'test@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('Library')).toBeInTheDocument()
-      expect(screen.getByText('Settings')).toBeInTheDocument()
-      // "Collection" singular should not exist; the Sidebar Discover group's
-      // "Collections" (plural) lives elsewhere.
-      expect(screen.queryByText('Collection')).not.toBeInTheDocument()
-    })
-
-    it('shows Admin link on mobile when user is admin', () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'admin@test.com', is_admin: true },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      // Admin link should appear in the mobile menu
-      const adminLinks = screen.getAllByText('Admin')
-      expect(adminLinks.length).toBeGreaterThanOrEqual(1)
-    })
-
-    it('does not show Admin link on mobile when user is not admin', () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'user@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      // No admin link should appear
-      expect(screen.queryByText('Admin')).not.toBeInTheDocument()
-    })
-
-    it('calls logout and closes mobile menu on sign out click', async () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'test@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      await user.click(screen.getByText('Sign out'))
-      expect(mockLogout).toHaveBeenCalledTimes(1)
-      expect(onMobileOpenChange).toHaveBeenCalledWith(false)
-    })
-
-    it('shows mobile theme toggle with correct label in dark mode', () => {
-      mockTheme = 'dark'
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('Light mode')).toBeInTheDocument()
-    })
-
-    it('shows mobile theme toggle with correct label in light mode', () => {
-      mockTheme = 'light'
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('Dark mode')).toBeInTheDocument()
-    })
-
-    it('shows user email in mobile authenticated section', () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'mobile@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('mobile@test.com')).toBeInTheDocument()
-    })
-
-    it('shows login link in mobile menu when unauthenticated', () => {
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      const loginLinks = screen.getAllByText('login / sign-up')
-      expect(loginLinks.length).toBeGreaterThanOrEqual(1)
-    })
-
-    it('highlights active nav item based on pathname', () => {
-      mockPathname = '/shows'
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      const showsLink = screen.getByText('Shows').closest('a')
-      expect(showsLink?.className).toContain('bg-accent')
-    })
-
-    it('highlights items for sub-paths', () => {
-      mockPathname = '/artists/some-artist'
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      const artistsLink = screen.getByText('Artists').closest('a')
-      expect(artistsLink?.className).toContain('bg-accent')
-    })
-
-    it('clicking a mobile nav link closes the mobile menu', async () => {
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-
-      await user.click(screen.getByText('Shows'))
-      expect(onMobileOpenChange).toHaveBeenCalledWith(false)
-    })
-
-    it('mobile theme toggle calls setTheme on click (light branch)', async () => {
-      mockTheme = 'light'
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-
-      // The text "Dark mode" lives on the mobile toggle when current is light.
-      await user.click(screen.getByText('Dark mode'))
-      expect(mockSetTheme).toHaveBeenCalledWith('dark')
-    })
-
-    it('mobile theme toggle calls setTheme on click (dark branch)', async () => {
-      mockTheme = 'dark'
-      const user = userEvent.setup()
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-
-      await user.click(screen.getByText('Light mode'))
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
       expect(mockSetTheme).toHaveBeenCalledWith('light')
     })
 
-    it('clicking the mobile Notifications link closes the menu (authenticated)', async () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'test@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
+    it('toggles to dark when current theme is light', async () => {
+      mockTheme = 'light'
       const user = userEvent.setup()
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-
-      await user.click(screen.getByText('Notifications'))
-      expect(onMobileOpenChange).toHaveBeenCalledWith(false)
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Toggle theme' }))
+      expect(mockSetTheme).toHaveBeenCalledWith('dark')
     })
   })
 
-  // PSY-933: the mobile drawer is the ONLY admin nav on mobile (the desktop
-  // Sidebar is hidden < md). TopBar mounts the lazily-loaded AdminDrawerNav only
-  // for an admin on the exact /admin shell; its contents are tested in
-  // AdminDrawerNav.test.tsx.
-  describe('admin drawer delegation (PSY-933)', () => {
-    const asAdmin = () =>
+  describe('account cluster', () => {
+    it('shows the login link when unauthenticated', () => {
+      render(<TopBar />)
+      expect(screen.getAllByText('login / sign-up').length).toBeGreaterThanOrEqual(1)
+    })
+
+    it('shows the avatar + notification bell when authenticated', () => {
       mockAuthContext.mockReturnValue({
-        user: { email: 'admin@test.com', is_admin: true },
+        user: { email: 'test@test.com', first_name: 'John', last_name: 'Doe', is_admin: false },
         isAuthenticated: true,
         isLoading: false,
         logout: mockLogout,
       })
-
-    it('mounts the admin drawer (hides public groups) for an admin on /admin', () => {
-      asAdmin()
-      mockPathname = '/admin'
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByTestId('admin-drawer-nav')).toBeInTheDocument()
-      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
-    })
-
-    it('keeps the public nav for a non-admin at /admin', () => {
-      mockAuthContext.mockReturnValue({
-        user: { email: 'user@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      mockPathname = '/admin'
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('Discover')).toBeInTheDocument()
-      expect(screen.queryByTestId('admin-drawer-nav')).not.toBeInTheDocument()
-    })
-
-    it('keeps the public nav on standalone /admin/<section> sub-routes (scoped to the tab-shell)', () => {
-      asAdmin()
-      mockPathname = '/admin/featured'
-      render(<TopBar mobileOpen={true} onMobileOpenChange={onMobileOpenChange} />)
-      expect(screen.getByText('Discover')).toBeInTheDocument()
-      expect(screen.queryByTestId('admin-drawer-nav')).not.toBeInTheDocument()
-    })
-  })
-
-  describe('notification bell visibility', () => {
-    it('renders NotificationBell only when authenticated', () => {
-      // Default mock is unauthenticated → no bell.
-      const { rerender } = render(
-        <TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />
-      )
-      expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
-
-      mockAuthContext.mockReturnValue({
-        user: { email: 'bell@test.com', is_admin: false },
-        isAuthenticated: true,
-        isLoading: false,
-        logout: mockLogout,
-      })
-      rerender(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
+      render(<TopBar />)
+      expect(screen.getByRole('button', { name: 'User menu' })).toBeInTheDocument()
+      expect(screen.getByText('JD')).toBeInTheDocument()
       expect(screen.getByTestId('notification-bell')).toBeInTheDocument()
     })
 
-    it('hides NotificationBell while auth is loading', () => {
+    it('hides the bell + avatar while auth is loading', () => {
       mockAuthContext.mockReturnValue({
         user: null,
         isAuthenticated: false,
         isLoading: true,
         logout: mockLogout,
       })
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
+      render(<TopBar />)
+      expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
       expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
+      expect(screen.queryByText('login / sign-up')).not.toBeInTheDocument()
+    })
+
+    it('opens the account dropdown with profile, admin, and sign out for an admin', async () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'admin@test.com', first_name: 'Ada', last_name: 'Min', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'User menu' }))
+      expect(await screen.findByRole('menuitem', { name: 'Profile' })).toBeInTheDocument()
+      expect(screen.getByRole('menuitem', { name: 'Admin' })).toBeInTheDocument()
+      expect(screen.getByText('Ada Min')).toBeInTheDocument()
+      expect(screen.getByText('admin@test.com')).toBeInTheDocument()
+      await user.click(screen.getByRole('menuitem', { name: 'Sign out' }))
+      expect(mockLogout).toHaveBeenCalledTimes(1)
+    })
+
+    it('does not show the Admin item for a non-admin', async () => {
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', first_name: 'Reg', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'User menu' }))
+      expect(await screen.findByRole('menuitem', { name: 'Profile' })).toBeInTheDocument()
+      expect(screen.queryByRole('menuitem', { name: 'Admin' })).not.toBeInTheDocument()
     })
   })
 
-  describe('logo link', () => {
-    it('logo links to the home page', () => {
-      render(<TopBar mobileOpen={false} onMobileOpenChange={onMobileOpenChange} />)
-      const logo = screen.getByAltText('Psychic Homily Logo')
-      const link = logo.closest('a')
-      expect(link).toHaveAttribute('href', '/')
+  describe('mobile sheet', () => {
+    it('opens the hamburger sheet and shows the long-tail nav groups', async () => {
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Open menu' }))
+      expect(await screen.findByText('Discover')).toBeInTheDocument()
+      expect(screen.getByText('Community')).toBeInTheDocument()
+      // a destination that only lives in the long-tail menu
+      expect(screen.getByRole('link', { name: 'Festivals' })).toHaveAttribute('href', '/festivals')
+    })
+
+    it('shows the mobile theme toggle label for the current theme', async () => {
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Open menu' }))
+      expect(await screen.findByText('Light mode')).toBeInTheDocument()
+    })
+
+    it('closes the sheet when a nav link is clicked', async () => {
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Open menu' }))
+      const link = await screen.findByRole('link', { name: 'Festivals' })
+      await user.click(link)
+      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
+    })
+
+    it('delegates to the admin drawer for an admin on the /admin shell', async () => {
+      mockPathname = '/admin'
+      mockAuthContext.mockReturnValue({
+        user: { email: 'admin@test.com', is_admin: true },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Open menu' }))
+      expect(await screen.findByTestId('admin-drawer-nav')).toBeInTheDocument()
+      expect(screen.queryByText('Discover')).not.toBeInTheDocument()
+    })
+
+    it('keeps the public nav for a non-admin on /admin', async () => {
+      mockPathname = '/admin'
+      mockAuthContext.mockReturnValue({
+        user: { email: 'user@test.com', is_admin: false },
+        isAuthenticated: true,
+        isLoading: false,
+        logout: mockLogout,
+      })
+      const user = userEvent.setup()
+      render(<TopBar />)
+      await user.click(screen.getByRole('button', { name: 'Open menu' }))
+      expect(await screen.findByText('Discover')).toBeInTheDocument()
+      expect(screen.queryByTestId('admin-drawer-nav')).not.toBeInTheDocument()
     })
   })
 })
