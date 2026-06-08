@@ -10,12 +10,15 @@ import { USER_COUNT, userAuthFileForWorker } from '../global-setup'
 // when useAuthContext returns isAuthenticated=false at click time. The
 // buttons render regardless of auth state (only tooltip copy differs),
 // so visibility checks don't gate against the SSR-pre-hydration → client
-// propagation race window. The sidebar's "Library" link is rendered only
-// when isAuthenticated=true (Sidebar.tsx), so waiting on it is a reliable
-// signal that auth has propagated before we click an auth-gated button.
+// propagation race window. The account "User menu" avatar button (the top
+// bar's UserMenu) is rendered only when isAuthenticated=true, so waiting on
+// it is a reliable signal that auth has propagated before we click an
+// auth-gated button. (PSY-1013 retired the sidebar — which previously
+// carried this auth-only "Library" link — in favour of the top-bar account
+// menu; Library now lives inside that dropdown.)
 async function waitForAuthHydrated(page: Page) {
   await expect(
-    page.getByRole('link', { name: 'Library' })
+    page.getByRole('button', { name: 'User menu' })
   ).toBeVisible({ timeout: 10_000 })
 }
 

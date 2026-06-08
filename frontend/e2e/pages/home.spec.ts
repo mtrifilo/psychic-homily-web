@@ -32,14 +32,25 @@ test.describe('Homepage', () => {
   test('displays navigation links', async ({ page }) => {
     await page.goto('/')
 
-    // Desktop nav links (visible on default 1280x720 viewport)
+    // Top-bar primary nav (PSY-1013): explicit links + the menu triggers,
+    // visible on the default 1280x720 viewport (>= the lg breakpoint).
     await expect(page.getByRole('link', { name: 'Shows' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Venues' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'Blog' })).toBeVisible()
-    await expect(page.getByRole('link', { name: 'DJ Sets' })).toBeVisible()
+    await expect(page.getByRole('link', { name: 'Artists' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Browse the catalog' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Contribute' })).toBeVisible()
 
     // Login link visible when not authenticated
     await expect(page.getByRole('link', { name: /login/i })).toBeVisible()
+
+    // Destinations the retired sidebar exposed directly are now reachable
+    // inside the menus (no discoverability regression — PSY-1013).
+    await page.getByRole('button', { name: 'Browse the catalog' }).click()
+    await expect(page.getByRole('menuitem', { name: 'Venues' })).toBeVisible()
+    await page.keyboard.press('Escape')
+
+    await page.getByRole('button', { name: 'Contribute' }).click()
+    await expect(page.getByRole('menuitem', { name: 'Blog' })).toBeVisible()
+    await expect(page.getByRole('menuitem', { name: 'DJ Sets' })).toBeVisible()
   })
 
   test('displays blog and DJ set sections', async ({ page }) => {
