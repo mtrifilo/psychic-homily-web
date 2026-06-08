@@ -23,25 +23,33 @@ export function useShowLatestEpisode(showSlug: string | undefined) {
     enabled: slug.length > 0,
   })
 
-  const latestDate = episodesQuery.data?.episodes[0]?.air_date ?? ''
+  // useRadioEpisodes uses keepPreviousData, so on a slug change `.data` is the
+  // PREVIOUS show's list until the new one resolves. Ignore that placeholder
+  // here — otherwise we'd feed the old show's air-date into the new slug's
+  // by-date query and fire a wasted (usually 404) request for the wrong show.
+  const episodesData = episodesQuery.isPlaceholderData ? undefined : episodesQuery.data
+
+  const latestDate = episodesData?.episodes[0]?.air_date ?? ''
 
   const episodeQuery = useRadioEpisode(slug, latestDate)
 
   const episode: RadioEpisodeDetail | undefined =
     latestDate.length > 0 ? episodeQuery.data : undefined
 
-  // Loading while the list is in flight, or while we have a date but the
-  // detail hasn't resolved yet. A show with zero episodes resolves the list
-  // with an empty array, leaves latestDate empty, and is therefore "not
-  // loading, no episode" — the graceful empty state.
+  // Loading while the list is in flight (or showing stale placeholder data),
+  // or while we have a date but the detail hasn't resolved yet. A show with
+  // zero episodes resolves the list with an empty array, leaves latestDate
+  // empty, and is therefore "not loading, no episode" — the graceful empty
+  // state.
   const isLoading =
     episodesQuery.isLoading ||
+    episodesQuery.isPlaceholderData ||
     (latestDate.length > 0 && episodeQuery.isLoading)
 
   return {
     episode,
     isLoading,
     error: episodesQuery.error ?? episodeQuery.error,
-    hasEpisodes: (episodesQuery.data?.episodes.length ?? 0) > 0,
+    hasEpisodes: (episodesData?.episodes.length ?? 0) > 0,
   }
 }
