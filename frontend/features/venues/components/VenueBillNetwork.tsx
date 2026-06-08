@@ -243,8 +243,13 @@ export function VenueBillNetwork({ venueIdOrSlug, venueName }: VenueBillNetworkP
         // PSY-366: `id="graph"` enables Cmd+K deep-links from the command
         // palette (`/venues/{slug}#graph`). `scroll-mt-20` accounts for the
         // sticky header on the entity layout.
+        // PSY-1034/PSY-949: `min-w-0` is load-bearing — the ResizeObserver
+        // below feeds this element's measured width to the graph as an explicit
+        // pixel width. Without `min-w-0` the canvas's min-content width can push
+        // this container wider than its grid track, which re-fires the RO with a
+        // larger width and balloons the layout. Do NOT remove it.
         id="graph"
-        className="mt-8 px-4 md:px-0 scroll-mt-20"
+        className="mt-8 px-4 md:px-0 scroll-mt-20 min-w-0"
         // Hide inline copy from assistive tech while the overlay is open —
         // the overlay's own header is the single source of truth in that mode.
         aria-hidden={isFullscreen || undefined}

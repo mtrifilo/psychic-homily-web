@@ -175,9 +175,15 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
       />
 
       {/* Main Content - Two Column Layout */}
-      <div className="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-8">
+      {/* PSY-1034: `minmax(0,1fr)` (not `1fr`) caps the main track's implicit
+          `min-width: auto`. Without it, the ResizeObserver-measured graph in
+          VenueBillNetwork grows the track, which re-fires the RO with a larger
+          width, ballooning the layout rightward each cycle. Same class as
+          PSY-949's Dialog fix; `min-w-0` on the main column is the
+          belt-and-suspenders sibling. */}
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_400px] gap-8">
         {/* Main Column - Header + Shows */}
-        <div className="order-2 lg:order-1">
+        <div className="order-2 lg:order-1 min-w-0">
           {/* Header */}
           <header className="mb-8">
             <EntityHeader
