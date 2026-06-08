@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { screen, waitFor } from '@testing-library/react'
+import { screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { ExtractedShowData } from '@/lib/types/extraction'
@@ -195,25 +195,33 @@ describe('ShowForm — artists list stable keys', () => {
     resetMockState()
   })
 
-  it('removing the middle artist keeps each remaining row\'s component state with its row (not its index)', async () => {
-    const user = userEvent.setup()
+  it('removing the middle artist keeps each remaining row\'s component state with its row (not its index)', () => {
+    // PSY-1006 flake fix: drive this test with fireEvent, NOT userEvent.
+    // userEvent moves real focus between rows; ArtistInput.handleBlur schedules
+    // setTimeout(close, 150ms) on blur, and that timer raced the synchronous
+    // aria-expanded assertions below — under CI load the 150ms elapsed first,
+    // the dropdown closed (aria-expanded → "false"), and the test failed
+    // intermittently. fireEvent doesn't manage focus, so no blur fires, no
+    // close timer is scheduled, and the open state stays deterministic. The
+    // test only exercises onChange-driven open state + key stability, which
+    // fireEvent covers fully.
     renderWithProviders(<ShowForm mode="create" />)
 
     // Start with 1, add two more → 3 artist rows.
     const addButton = screen.getByRole('button', { name: /add another artist/i })
-    await user.click(addButton)
-    await user.click(addButton)
+    fireEvent.click(addButton)
+    fireEvent.click(addButton)
 
     const getInputs = () =>
       screen.getAllByPlaceholderText('Enter artist name') as HTMLInputElement[]
     expect(getInputs()).toHaveLength(3)
 
-    // Type into rows 0 and 2 with values that visibly differ. Row 1 stays
+    // Set rows 0 and 2 to distinct values (opens their dropdowns). Row 1 stays
     // empty so the bug — if present — surfaces as the third row's local
     // ArtistInput state (typed value + aria-expanded dropdown state) leaking
     // onto the new second slot after the middle row is removed.
-    await user.type(getInputs()[0], 'Artist A')
-    await user.type(getInputs()[2], 'Artist C')
+    fireEvent.change(getInputs()[0], { target: { value: 'Artist A' } })
+    fireEvent.change(getInputs()[2], { target: { value: 'Artist C' } })
 
     // ArtistInput.tsx opens its autocomplete listbox the moment the input has
     // any value (see isOpen / showDropdown). aria-expanded reflects the local
@@ -226,7 +234,7 @@ describe('ShowForm — artists list stable keys', () => {
     // Remove the empty middle row.
     const removeButtons = screen.getAllByRole('button', { name: /remove artist/i })
     expect(removeButtons).toHaveLength(3)
-    await user.click(removeButtons[1])
+    fireEvent.click(removeButtons[1])
 
     const remaining = getInputs()
     expect(remaining).toHaveLength(2)

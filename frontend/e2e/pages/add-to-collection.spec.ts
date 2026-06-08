@@ -49,9 +49,18 @@ test.describe('Add to Collection', () => {
       await expect(collectionCheckbox).toBeVisible({ timeout: 5_000 })
       await collectionCheckbox.click()
 
+      // PSY-1006: sync on the check registering BEFORE looking for the submit
+      // button. The button's label reflects the selected count ("Add to 1
+      // collection"); if the click→state→label update hasn't propagated, the
+      // submitButton.click() below auto-waits into the 30s test-level timeout
+      // instead of failing fast here. An explicit, well-scoped wait makes the
+      // sequencing deterministic.
+      await expect(collectionCheckbox).toBeChecked({ timeout: 5_000 })
+
       const submitButton = authenticatedPage.getByRole('button', {
         name: /Add to 1 collection/,
       })
+      await expect(submitButton).toBeVisible({ timeout: 5_000 })
 
       // PSY-430: waitForResponse wraps the mutation so we don't race on the
       // optimistic UI state — the popover updates before the request completes.
