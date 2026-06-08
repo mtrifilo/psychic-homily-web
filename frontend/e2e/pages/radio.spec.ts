@@ -64,14 +64,17 @@ test.describe('Radio browse flow', () => {
       main.getByRole('heading', { name: 'Radio', level: 1 })
     ).toBeVisible({ timeout: 10_000 })
 
-    // Station cards render as links. KEXP / WFMU / NTS are the three
-    // index-visible stations (the 3 WFMU sub-channels are hidden by
-    // isStationVisibleOnIndex per PSY-673).
+    // PSY-1016: the /radio index now leads with the Option-D2 station-overview
+    // panel — the station list is a selectable button group (left pane), not
+    // link cards. KEXP / WFMU / NTS are the three index-visible stations (the 3
+    // WFMU sub-channels are hidden by isStationVisibleOnIndex per PSY-673). The
+    // selected station's full detail page stays reachable via the right-pane
+    // station link (exercised by the next test).
     await expect(
-      main.getByRole('link', { name: KEXP_STATION_NAME })
+      main.getByRole('button', { name: KEXP_STATION_NAME })
     ).toBeVisible({ timeout: 10_000 })
-    await expect(main.getByRole('link', { name: 'WFMU' })).toBeVisible()
-    await expect(main.getByRole('link', { name: 'NTS Radio' })).toBeVisible()
+    await expect(main.getByRole('button', { name: 'WFMU' })).toBeVisible()
+    await expect(main.getByRole('button', { name: 'NTS Radio' })).toBeVisible()
   })
 
   test('clicking a station opens station detail and lists its shows', async ({
