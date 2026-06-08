@@ -40,11 +40,15 @@
  *
  * Privacy
  * -------
- * City + region only, read transiently per request, never stored against an
- * identity and never written to a cookie. The decoded value flows to the
- * client as a render prop (/explore) or a no-store JSON response (route
- * handler) and is discarded after use. Disclosed in the privacy policy
- * (§2.3 / §3).
+ * City + region, plus the visitor's approximate IP-derived lat/long (PSY-981,
+ * used only to pick the nearest has-shows city — never persisted as a
+ * coordinate, only the resulting canonical city is). All read transiently per
+ * request, never stored against an identity and never written to a cookie. The
+ * decoded value flows to the client as a render prop (/explore) or a no-store
+ * JSON response (route handler) and is discarded after use. The lat/long is the
+ * visitor's OWN coarse location, echoed only back to that visitor through the
+ * `private, no-store` route — no cross-visitor exposure. Disclosed in the
+ * privacy policy (§2.3 / §3).
  *
  * `getGeoDefaultCity` imports `next/headers`, so importing IT from a client
  * component throws at build time — the "server-only" boundary is enforced by
