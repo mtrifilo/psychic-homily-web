@@ -828,6 +828,52 @@ func TestBeginSignupHandler_MissingTermsVersion(t *testing.T) {
 	}
 }
 
+// TestBeginSignupHandler_MissingAgeConfirmation mirrors the terms-rejection
+// tests (PSY-1023): passkey signup must be blocked when the age confirmation is
+// absent, even with terms accepted.
+func TestBeginSignupHandler_MissingAgeConfirmation(t *testing.T) {
+	h := testPasskeyHandler()
+	input := &BeginSignupRequest{}
+	input.Body.Email = "test@example.com"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "v1"
+	input.Body.AgeConfirmed = false
+
+	resp, err := h.BeginSignupHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	}
+}
+
+// TestBeginSignupHandler_AgeBelowMinimum guards the server-side age floor for
+// the passkey path.
+func TestBeginSignupHandler_AgeBelowMinimum(t *testing.T) {
+	h := testPasskeyHandler()
+	input := &BeginSignupRequest{}
+	input.Body.Email = "test@example.com"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "v1"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge - 1
+
+	resp, err := h.BeginSignupHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	}
+}
+
 func TestBeginSignupHandler_EmailCheckFails(t *testing.T) {
 	mockUS := &testhelpers.MockUserService{
 		GetUserByEmailFn: func(email string) (*authm.User, error) {
@@ -840,6 +886,8 @@ func TestBeginSignupHandler_EmailCheckFails(t *testing.T) {
 	input.Body.Email = "new@example.com"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "v1"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
 	if err != nil {
@@ -869,6 +917,8 @@ func TestBeginSignupHandler_EmailAlreadyExists(t *testing.T) {
 	input.Body.Email = email
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "v1"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
 	if err != nil {
@@ -902,6 +952,8 @@ func TestBeginSignupHandler_BeginRegistrationForEmailFails(t *testing.T) {
 	input.Body.Email = "new@example.com"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "v1"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
 	if err != nil {
@@ -935,6 +987,8 @@ func TestBeginSignupHandler_StoreChallengeWithEmailFails(t *testing.T) {
 	input.Body.Email = "new@example.com"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "v1"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
 	if err != nil {
@@ -976,6 +1030,8 @@ func TestBeginSignupHandler_Success(t *testing.T) {
 	input.Body.Email = "new@example.com"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "v1"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.BeginSignupHandler(context.Background(), input)
 	if err != nil {

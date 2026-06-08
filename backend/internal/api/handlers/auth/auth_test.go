@@ -333,6 +333,98 @@ func TestRegisterHandler_MissingTermsAcceptance(t *testing.T) {
 	}
 }
 
+// TestRegisterHandler_MissingAgeConfirmation mirrors the terms-rejection test
+// (PSY-1023): a signup with terms accepted but no age confirmation must be
+// rejected with the AGE_CONFIRMATION_REQUIRED code.
+func TestRegisterHandler_MissingAgeConfirmation(t *testing.T) {
+	h := testAuthHandler()
+	input := &RegisterRequest{}
+	input.Body.Email = "user@example.com"
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = false
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	}
+}
+
+// TestRegisterHandler_AgeBelowMinimum guards the server-side age floor: a client
+// that attests an age below MinSignupAge (e.g. tampered request) must be
+// rejected even though the age_confirmed flag is set.
+func TestRegisterHandler_AgeBelowMinimum(t *testing.T) {
+	h := testAuthHandler()
+	input := &RegisterRequest{}
+	input.Body.Email = "user@example.com"
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge - 1
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success {
+		t.Error("expected success=false")
+	}
+	if resp.Body.ErrorCode != autherrors.CodeAgeConfirmationRequired {
+		t.Errorf("expected error_code=%s, got %s", autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
+	}
+}
+
+// TestRegisterHandler_RecordsAgeConfirmation asserts the handler forwards the
+// age confirmation into the LegalAcceptance passed to the user service, so the
+// evidence is persisted on the new user.
+func TestRegisterHandler_RecordsAgeConfirmation(t *testing.T) {
+	var captured contracts.LegalAcceptance
+	h := authHandler(func(ah *AuthHandler) {
+		ah.userService = &testhelpers.MockUserService{
+			CreateUserWithPasswordWithLegalFn: func(email, password, firstName, lastName string, acceptance contracts.LegalAcceptance) (*authm.User, error) {
+				captured = acceptance
+				return &authm.User{ID: 11, Email: strPtr(email)}, nil
+			},
+		}
+		ah.jwtService = &testhelpers.MockJWTService{
+			CreateTokenFn: func(u *authm.User) (string, error) { return "tok", nil },
+		}
+		ah.discordService = &testhelpers.MockDiscordService{
+			NotifyNewUserFn: func(u *authm.User) {},
+		}
+	})
+
+	input := &RegisterRequest{}
+	input.Body.Email = "new@example.com"
+	input.Body.Password = "a-valid-password-123"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !resp.Body.Success {
+		t.Fatalf("expected success=true, got message=%q", resp.Body.Message)
+	}
+	if captured.MinAgeAttested != MinSignupAge {
+		t.Errorf("expected MinAgeAttested=%d on LegalAcceptance, got %d", MinSignupAge, captured.MinAgeAttested)
+	}
+	if captured.AgeConfirmedAt.IsZero() {
+		t.Error("expected AgeConfirmedAt to be set on LegalAcceptance")
+	}
+}
+
 func TestRegisterHandler_NilUserService(t *testing.T) {
 	// No passwordValidator, no userService → hits userService nil check
 	h := testAuthHandler()
@@ -341,6 +433,8 @@ func TestRegisterHandler_NilUserService(t *testing.T) {
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
@@ -365,6 +459,8 @@ func TestRegisterHandler_WeakPassword(t *testing.T) {
 	input.Body.Password = "abc" // too short (min 12)
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 	input.Body.PrivacyVersion = "2026-02-15"
 
 	resp, err := h.RegisterHandler(context.Background(), input)
@@ -1117,6 +1213,8 @@ func TestRegisterHandler_Success(t *testing.T) {
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -1157,6 +1255,8 @@ func TestRegisterHandler_UserExists(t *testing.T) {
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	// Option A: HTTP 200, so the handler returns a nil error. A non-nil error
@@ -1199,6 +1299,8 @@ func TestRegisterHandler_UnknownServiceErrorFailsClosed(t *testing.T) {
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 
@@ -1248,6 +1350,8 @@ func TestRegisterHandler_WeakPasswordMock(t *testing.T) {
 	input.Body.Password = "short"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {
@@ -1283,6 +1387,8 @@ func TestRegisterHandler_TokenFails(t *testing.T) {
 	input.Body.Password = "a-valid-password-123"
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	if err != nil {

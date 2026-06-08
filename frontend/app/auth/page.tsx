@@ -25,7 +25,7 @@ import { PasskeyLoginButton } from '@/app/auth/_components/passkey-login'
 import { PasskeySignupButton } from '@/app/auth/_components/passkey-signup'
 import { GoogleOAuthButton } from '@/app/auth/_components/google-oauth-button'
 import { getUniqueErrors } from '@/lib/utils/formErrors'
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import {
   safeDecodeQueryParam,
   sanitizeReturnTo,
@@ -51,6 +51,11 @@ const signupSchema = z.object({
     .boolean()
     .refine((val) => val === true, {
       message: 'You must agree to the Terms of Service and Privacy Policy',
+    }),
+  ageConfirmed: z
+    .boolean()
+    .refine((val) => val === true, {
+      message: `You must confirm that you are at least ${MIN_SIGNUP_AGE} years old`,
     }),
 })
 
@@ -318,6 +323,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
       email: '',
       password: '',
       termsAccepted: false,
+      ageConfirmed: false,
     } as SignupFormData,
     onSubmit: async ({ value }) => {
       registerMutation.mutate(
@@ -327,6 +333,8 @@ function SignupForm({ returnTo }: { returnTo: string }) {
           terms_accepted: value.termsAccepted,
           terms_version: CURRENT_TERMS_VERSION,
           privacy_version: CURRENT_PRIVACY_VERSION,
+          age_confirmed: value.ageConfirmed,
+          min_age_attested: MIN_SIGNUP_AGE,
         },
         {
           onSuccess: data => {
@@ -370,16 +378,21 @@ function SignupForm({ returnTo }: { returnTo: string }) {
 
       {/* OAuth and Passkey signup options */}
       <div className="space-y-3">
-        <form.Subscribe selector={state => state.values.termsAccepted}>
-          {termsAccepted => (
+        <form.Subscribe selector={state => [state.values.termsAccepted, state.values.ageConfirmed]}>
+          {([termsAccepted, ageConfirmed]) => (
             <GoogleOAuthButton
               className="w-full"
               variant="signup"
               termsAccepted={termsAccepted}
               termsVersion={CURRENT_TERMS_VERSION}
               privacyVersion={CURRENT_PRIVACY_VERSION}
+              ageConfirmed={ageConfirmed}
+              minAge={MIN_SIGNUP_AGE}
               onMissingTermsAcceptance={() => {
                 setOauthError('You must agree to the Terms of Service and Privacy Policy before continuing with Google')
+              }}
+              onMissingAgeConfirmation={() => {
+                setOauthError(`You must confirm that you are at least ${MIN_SIGNUP_AGE} years old before continuing with Google`)
               }}
             />
           )}
@@ -390,6 +403,7 @@ function SignupForm({ returnTo }: { returnTo: string }) {
           returnTo={returnTo}
           termsVersion={CURRENT_TERMS_VERSION}
           privacyVersion={CURRENT_PRIVACY_VERSION}
+          minAge={MIN_SIGNUP_AGE}
         />
         <div className="relative">
           <div className="absolute inset-0 flex items-center">
@@ -506,6 +520,39 @@ function SignupForm({ returnTo }: { returnTo: string }) {
                 >
                   Privacy Policy
                 </Link>
+              </Label>
+            </div>
+            {field.state.meta.errors.length > 0 && (
+              <p role="alert" className="text-sm text-destructive">
+                {getUniqueErrors(field.state.meta.errors)}
+              </p>
+            )}
+          </div>
+        )}
+      </form.Field>
+
+      <form.Field name="ageConfirmed">
+        {field => (
+          <div className="space-y-2">
+            <div className="flex items-start space-x-3">
+              <Checkbox
+                id="age-confirmation"
+                checked={field.state.value}
+                onCheckedChange={(checked) => {
+                  const confirmed = checked === true
+                  field.handleChange(confirmed)
+                  if (confirmed) {
+                    setOauthError(null)
+                  }
+                }}
+                aria-invalid={field.state.meta.errors.length > 0}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="age-confirmation"
+                className="text-sm font-normal leading-relaxed cursor-pointer"
+              >
+                I confirm that I am at least {MIN_SIGNUP_AGE} years old
               </Label>
             </div>
             {field.state.meta.errors.length > 0 && (

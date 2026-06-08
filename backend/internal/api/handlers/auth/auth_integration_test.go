@@ -216,6 +216,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
 	input.Body.PrivacyVersion = "2026-02-15"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
@@ -224,6 +226,31 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_Success() {
 	s.NotNil(resp.Body.User)
 	s.Equal("new-user@test.com", *resp.Body.User.Email)
 	s.NotEmpty(resp.SetCookie.Name)
+
+	// PSY-1023: the age confirmation is persisted on the new user.
+	created := s.reloadUser(resp.Body.User.ID)
+	s.Require().NotNil(created.AgeConfirmedAt, "expected age_confirmed_at recorded on new user")
+	s.Require().NotNil(created.MinAgeAttested, "expected min_age_attested recorded on new user")
+	s.Equal(MinSignupAge, *created.MinAgeAttested)
+}
+
+// TestRegister_MissingAgeConfirmation asserts the integration-level register
+// path blocks signup when the age confirmation is absent (PSY-1023).
+func (s *AuthHandlerIntegrationSuite) TestRegister_MissingAgeConfirmation() {
+	h := s.newAuthHandler(false)
+
+	input := &RegisterRequest{}
+	input.Body.Email = "no-age@test.com"
+	input.Body.Password = "very-strong-password-123!"
+	input.Body.TermsAccepted = true
+	input.Body.TermsVersion = "2026-01-31"
+	input.Body.PrivacyVersion = "2026-02-15"
+	input.Body.AgeConfirmed = false
+
+	resp, err := h.RegisterHandler(context.Background(), input)
+	s.Require().NoError(err)
+	s.False(resp.Body.Success)
+	s.Equal(autherrors.CodeAgeConfirmationRequired, resp.Body.ErrorCode)
 }
 
 func (s *AuthHandlerIntegrationSuite) TestRegister_DuplicateEmail() {
@@ -236,6 +263,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_DuplicateEmail() {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
 	input.Body.PrivacyVersion = "2026-02-15"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)
@@ -252,6 +281,8 @@ func (s *AuthHandlerIntegrationSuite) TestRegister_WeakPassword() {
 	input.Body.TermsAccepted = true
 	input.Body.TermsVersion = "2026-01-31"
 	input.Body.PrivacyVersion = "2026-02-15"
+	input.Body.AgeConfirmed = true
+	input.Body.MinAgeAttested = MinSignupAge
 
 	resp, err := h.RegisterHandler(context.Background(), input)
 	s.Require().NoError(err)

@@ -73,6 +73,11 @@ type LegalAcceptance struct {
 	TermsAcceptedAt time.Time
 	TermsVersion    string
 	PrivacyVersion  string
+	// AgeConfirmedAt / MinAgeAttested mirror the terms fields for the required
+	// "I am at least N years old" confirmation (PSY-1023). A zero MinAgeAttested
+	// means the caller did not record an age confirmation.
+	AgeConfirmedAt time.Time
+	MinAgeAttested int
 }
 
 // OAuthSignupConsent carries consent details from OAuth signup initiation.
@@ -81,6 +86,10 @@ type OAuthSignupConsent struct {
 	TermsVersion   string
 	PrivacyVersion string
 	AcceptedAt     time.Time
+	// AgeConfirmed / MinAgeAttested capture the required age confirmation for
+	// OAuth signups (PSY-1023), mirroring TermsAccepted.
+	AgeConfirmed   bool
+	MinAgeAttested int
 }
 
 // ──────────────────────────────────────────────

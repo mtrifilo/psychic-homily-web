@@ -39,6 +39,9 @@ const (
 	// CodeTermsAcceptanceRequired indicates an OAuth signup arrived without the
 	// required Terms of Service / Privacy Policy consent.
 	CodeTermsAcceptanceRequired = "TERMS_ACCEPTANCE_REQUIRED"
+	// CodeAgeConfirmationRequired indicates a signup arrived without the required
+	// minimum-age confirmation (PSY-1023).
+	CodeAgeConfirmationRequired = "AGE_CONFIRMATION_REQUIRED"
 	// CodeInvalidReplyPermission indicates an unrecognized default-reply-permission value.
 	CodeInvalidReplyPermission = "INVALID_REPLY_PERMISSION"
 	// CodeUsernameTaken indicates a username unique-constraint violation on profile update.
@@ -186,6 +189,17 @@ func ErrNoPasswordSet() *AuthError {
 // so logs keep the cause without the handler string-matching the message.
 func ErrTermsAcceptanceRequired(detail string) *AuthError {
 	return NewAuthError(CodeTermsAcceptanceRequired, "Please accept the Terms of Service and Privacy Policy before creating an account.", fmt.Errorf("%s", detail))
+}
+
+// ErrAgeConfirmationRequired creates a signup age-confirmation-missing error.
+// The detail distinguishes "not confirmed" from "attested age below minimum"
+// so logs keep the cause without the handler string-matching the message.
+// NOTE: the "16" in the user-facing copy is kept in sync by hand with
+// auth-handler MinSignupAge / user-service minOAuthSignupAge; if the minimum
+// changes, update this string too (the threshold is enforced by those
+// constants, not parsed from this message).
+func ErrAgeConfirmationRequired(detail string) *AuthError {
+	return NewAuthError(CodeAgeConfirmationRequired, "You must confirm that you are at least 16 years old to create an account.", fmt.Errorf("%s", detail))
 }
 
 // ErrInvalidReplyPermission creates an invalid default-reply-permission error.
