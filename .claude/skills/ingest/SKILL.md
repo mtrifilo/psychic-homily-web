@@ -204,6 +204,61 @@ bun run src/entry.ts submit release --confirm '[{"title": "Album", "artists": [{
 
 - **Festival-named tour stops are festivals, not venues.** When a tour flyer lists a stop like "Mosswood Meltdown" or "Desert Fox Festival", create a `festival` entity (with the touring act on the bill) rather than a venue/show. A festival's own **pre-party/aftershow** at a real venue *is* a separate titled `show` (use the `title` field, e.g. "Mosswood Meltdown Pre-Party").
 
+## Venue events-page periodic ingest
+
+For keeping a venue's whole calendar current (re-run every few weeks). Proven on First Avenue (2026-06-07, ~330 shows / 7 months in one pass).
+
+**Design principle — agent-driven extraction over brittle scrapers.** Venue sites redesign / swap frameworks occasionally. Do NOT hardcode a CSS-selector scraper that silently breaks. Instead: render the page in a browser, have the agent inspect the live DOM each run and adapt, and keep only a tiny per-venue *config* (URL, pagination hint, room→city map, filter prefs) below. When a site changes, you usually just re-inspect — no code to fix.
+
+**Re-runs are safe (idempotent).** Existing artists/venues/shows skip cleanly on `ph batch` thanks to entity dedup + the show-dedup timezone-window fix (PSY-999) — a periodic re-run only adds genuinely new shows.
+
+### Invoking (what the user types)
+
+- **Add a new venue:** `/ingest <env> — add a new venue from its events page: <URL>. Run the venue events-page workflow: extract all upcoming months, music concerts only, correct city/state, dry-run + both QA scans, pause for my OK, then write and add a registry row.`
+- **Refresh an existing venue:** `/ingest <env> — refresh <venue name>'s listings using its registry row below. Re-scrape all upcoming months, dry-run (idempotent → only new shows), both QA scans, my OK, then write.`
+
+Either way: always dry-run + the two QA scans (step 5) and get explicit confirmation before `--confirm`.
+
+### Workflow
+
+1. **Render.** Server-rendered page → `curl -s <url> -A "Mozilla/5.0"`. JS-rendered/paginated → browser MCP (`chrome-devtools`): `new_page(url)` then `evaluate_script`. (First Avenue is JS — current month is server-rendered, later months load via JS.)
+2. **Discover structure once.** One `evaluate_script` to find the show-card selector + sub-fields (headliner / supports / venue / date) and the pagination mechanism (URL param vs. a "next" control). Look at the rendered DOM, don't assume.
+3. **Extract all pages.** If pagination is a URL param, loop same-origin `fetch()` inside one `evaluate_script` (no CORS), `DOMParser` each response, accumulate. Else click the next control and re-extract per page. Stop after 2 consecutive empty pages. **Dates often lack a year** (Empty Bottle) — infer it: start at the current year and bump it whenever a card's month number drops below the previous card's (Dec→Jan rollover). Save raw output via `evaluate_script` `filePath` to a **workspace-internal scratch path you will delete afterward** (`/tmp` is rejected by the MCP; repo root works if you `rm` it, or use a gitignored dir). **Scrub all scratch files before finishing** so nothing lands in a commit.
+4. **Transform programmatically** (never hand-transcribe hundreds of rows) — start from the **skeleton + shared rulesets below**. Apply the room→city/state map, the shared music-only **exclusion** + **headliner-cleaning** rulesets, parse headliner + supports, emit `/tmp/ph-ingest.json`. **Keep co-billed headliners as a single entity** ("X and Y") rather than auto-splitting `and`/`&` (would break real names like "Amyl and The Sniffers"); list them for a manual split pass afterward.
+5. **Dry-run + two QA scans.** `ph batch --env <env> /tmp/ph-ingest.json`. (a) **Artist-skip scan** — check the skip list for fuzzy false-positives (0.6 batch threshold — Casket Cassette / Automatic; pre-create the distinct artist via `POST /admin/artists` so its 1.0 exact match wins). (b) **Headliner sanity scan** — grep kept headliners for leaked presenter/billing tokens: `/presents|present:|featuring| with |aftershow| pass$|hosted by|celebrates| w\/?$/i`. Any hit = the cleaning missed a presenter/theme line (this caught ~20 garbled Empty Bottle entries) → fix the transform and re-run.
+6. **Confirm + ingest.** A 0-show or garbage result means the site changed → re-inspect (step 2). Confirm counts are non-zero and plausible, then `--confirm`. Clean up scratch files.
+
+Manual fix-ups via API: rename an artist `PATCH /admin/artists/{id} {"name":...}`; re-link a show's artists `PUT /shows/{id} {"artists":[{"id","is_headliner"}]}`; create one `POST /admin/artists {"name":...}` (exact find-or-create); delete an orphan (0-show) artist `DELETE /artists/{id}`. (Admin token required.)
+
+### Reusable transform skeleton + shared rulesets
+
+Each venue's transform = these shared parts + a small venue-specific `cleanAct` and city map. Extend the rulesets per venue (the registry "Notes" column records the deltas).
+
+- **Exclude (non-music / non-show)** — test the raw headliner/title: `private event, karaoke, trivia, bingo, sing-along, dance party, drag, burlesque, pride party|edition, wrestling, comedy, zine fest, *moved to*, ticket-bundle ("…two day pass"), cancelled`. **Keep** `★ Local Show ★` and free/residency *live* shows (First Ave "Free Monday" band nights; Empty Bottle's weekly Hoyle Brothers residency).
+- **Clean names** — strip prefixes (`<x> presents:`, `<venue> presents:`, `FREE MONDAY w/`, `Hard Country Honky Tonk with`, `Beyond the Gate featuring`, `… Anniversary with`, `Plantasia - Day N with`, `Special performance by`, album-anniversary `… 20 -`, `… Celebrates …`), strip suffixes (`(Album/Record/EP Release)`, `(… Afterparty)`, `(of <band>)`, `- Lollapalooza Aftershow`, `+more`, leading `*SOLD OUT*` / `*MOVED*`), then **drop pure presenter/theme tokens** (`FREE MONDAY w`, `<x> presents`) and promote the next act to headliner. Comma-split joined acts.
+
+```js
+// node: reads <venue>-raw.json [{date, acts:[...]}] -> writes /tmp/ph-ingest.json
+const VENUE = {name:'', city:'', state:'', address:'', website:''};        // single-venue; OR a {roomName:[city,state]} map
+const reExclude = /private event|karaoke|trivia|sing-?along|dance party|\bdrag\b|burlesque|pride (party|edition)|wrestling|comedy|zine fest|two day pass|\*moved to/i;
+const cleanAct = s => s.replace(/^\*[^*]+\*\s*/,'').replace(/^:\s*/,'')
+  /* + venue-specific prefix/suffix strips */
+  .replace(/\s*\((album release|record release|ep release|of [^)]+|[^)]*afterparty|sold out)\)\s*$/ig,'')
+  .replace(/\s*\+\s*more\s*$/i,'').replace(/\s+/g,' ').trim();
+const isJunk = s => !s || /\bpresents$|^free monday\s*w\/?$|two day pass$/i.test(s.trim());
+// per raw show: const acts = s.acts.flatMap(a=>cleanAct(a).split(/\s*,\s*/)).filter(a=>!isJunk(a));
+//   if (reExclude.test(s.acts[0]) || !acts.length) -> exclude
+//   headliner=acts[0] {is_headliner:true}; supports=acts.slice(1); venue from map/VENUE
+// emit: [...uniqueArtists.map(name=>({entity_type:'artist',name})), {entity_type:'venue',...}, ...shows]
+```
+
+### Venue registry
+
+| Venue org | Events URL | Render | Pagination | Room → city/state | Notes |
+| --- | --- | --- | --- | --- | --- |
+| **First Avenue** (MN) | `https://first-avenue.com/shows/` | JS (WordPress) — browser MCP | GET `?post_type=event&start_date=YYYYMM01` (same-origin `fetch` loop) | First Avenue / 7th St Entry / Fine Line / The Cedar Cultural Center / Orpheum Theatre / Surly Brewing Festival Field / Armory / State Theatre / icehouse MPLS → **Minneapolis, MN**; Turf Club / Palace Theatre / The Fitzgerald Theater / Amsterdam Bar & Hall / Grand Casino Arena → **St. Paul, MN** | Card `.show_list_item`; headliner `.show_name h4`, tour title `.show_name h6`, supports `.show_name h5` (names are the text-nodes between `<em>` connectors), venue `.venue_name`, date `.date .month`+`.day`. **Note the abbreviated name "7th St Entry" dedups to the existing "7th Street Entry".** List view has no per-show price/age. |
+| **Empty Bottle** (Chicago, IL) | `https://www.emptybottle.com/` (homepage; `/ebp-events` is empty) | JS (Squarespace + Hive widget) — browser MCP | None — the homepage lists ALL upcoming on one page (~99 cards, year rolls over to next Jan); infer year by month-decrease | Single venue → Chicago, IL (1035 N Western Ave) | Card `.show-details`; date `.date`+`.start-time`, lineup `ul.performing li` (first li = headliner, rest = supports). **Messier than First Avenue — the `li` list mixes in presenter/theme lines** (e.g. "FREE MONDAY w", "X presents", "Empty Bottle and c3 Present:", album-anniversary billings, "- Lollapalooza Aftershow", "+more", "Plantasia TWO DAY PASS"). Strip those prefixes/suffixes, drop presenter/junk lis and promote the real first act, comma-split joined acts, and exclude drag/zine-fest/ticket-bundle/`*MOVED TO*` rows. ALWAYS dry-run and scan for leaked "presents/featuring/with/aftershow/pass" headliners before `--confirm`. |
+
 ## Individual Commands Reference
 
 ```bash
