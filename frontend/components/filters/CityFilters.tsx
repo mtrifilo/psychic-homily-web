@@ -15,6 +15,15 @@ export interface CityWithCount {
   city: string
   state: string
   count: number
+  /**
+   * Geocoded city centroid (PSY-981), surfaced by `/shows/cities`. Optional:
+   * the venue city list doesn't carry it, and the geocoder misses some small
+   * cities. When present on the show-cities list it lets `useGeoDefaultCity`
+   * pick the NEAREST has-shows city for a visitor whose exact city has no
+   * shows. Absent → that city is simply skipped as a distance candidate.
+   */
+  latitude?: number
+  longitude?: number
 }
 
 /** A city+state pair used for multi-select filtering */

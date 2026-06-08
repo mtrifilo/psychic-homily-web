@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as Sentry from '@sentry/nextjs'
 import type { CityState, CityWithCount } from './CityFilters'
+import type { GeoLocation } from '@/lib/geo-default'
+import { haversineDistanceKm } from '@/lib/haversine'
 import { citiesEqual } from './cityParams'
 
 /**
@@ -41,21 +43,33 @@ const GEO_CACHE_KEY = 'ph-geo-default-city'
 
 /** Shape of the `/api/geo` route-handler response. */
 interface GeoApiResponse {
-  geo: CityState | null
+  geo: GeoLocation | null
 }
 
 /**
- * Narrow an arbitrary parsed value to a `CityState` (two non-empty string
- * halves), else null. Defensive: the only writer of the cache / the route
- * handler always emits this shape, but a malformed value (corrupted
- * sessionStorage, a future route-handler change) must not reach
- * `geoCityWithShows`, where `.trim()` on a non-string would throw mid-render.
+ * Narrow an arbitrary parsed value to a `GeoLocation` (two non-empty string
+ * halves + optional finite coords), else null. Defensive: the only writer of
+ * the cache / the route handler always emits this shape, but a malformed value
+ * (corrupted sessionStorage, a future route-handler change) must not reach
+ * `geoCityWithShows`, where `.trim()` on a non-string would throw mid-render or
+ * a non-finite coord would corrupt the haversine pick.
+ *
+ * The coords are attached only when BOTH are finite numbers; a partial/garbage
+ * pair is dropped so the nearest-city path never sees a half-coordinate.
  */
-function toCityState(value: unknown): CityState | null {
+function toGeoLocation(value: unknown): GeoLocation | null {
   if (typeof value !== 'object' || value === null) return null
-  const { city, state } = value as Record<string, unknown>
+  const { city, state, latitude, longitude } = value as Record<string, unknown>
   if (typeof city !== 'string' || typeof state !== 'string') return null
   if (city.trim() === '' || state.trim() === '') return null
+  if (
+    typeof latitude === 'number' &&
+    Number.isFinite(latitude) &&
+    typeof longitude === 'number' &&
+    Number.isFinite(longitude)
+  ) {
+    return { city, state, latitude, longitude }
+  }
   return { city, state }
 }
 
@@ -74,9 +88,10 @@ interface UseGeoDefaultCityParams {
    *  e.g. /shows has a `?cities=` URL param, or the caller already seeded
    *  favorites. When true the hook never seeds and shows no affordance. */
   hasExistingSelection: boolean
-  /** The geo value read server-side (/explore). When provided, the client
-   *  fetch is skipped. `undefined` (not passed) → use the client fetch. */
-  geoFromServer?: CityState | null
+  /** The geo value read server-side (/explore) — `{city,state}` plus optional
+   *  visitor lat/long (PSY-981). When provided, the client fetch is skipped.
+   *  `undefined` (not passed) → use the client fetch. */
+  geoFromServer?: GeoLocation | null
   /** Fetch `/api/geo` client-side (/shows + home). Mutually exclusive in
    *  practice with `geoFromServer`. */
   enableClientFetch?: boolean
@@ -108,15 +123,15 @@ interface UseGeoDefaultCityResult {
  * value (/explore) — no fetch, no cache.
  */
 function useGeoSource(
-  geoFromServer: CityState | null | undefined,
+  geoFromServer: GeoLocation | null | undefined,
   enableClientFetch: boolean,
   eligible: boolean,
-): CityState | null {
+): GeoLocation | null {
   // Seed synchronously from sessionStorage so a cached value is available on
   // first render (no flash, no redundant fetch). Server render + first
   // hydration return null (sessionStorage is client-only) — the value arrives
   // post-mount, same beat as today's authed-favorites seeding.
-  const [fetched, setFetched] = useState<CityState | null>(null)
+  const [fetched, setFetched] = useState<GeoLocation | null>(null)
   const hasFetched = useRef(false)
 
   useEffect(() => {
@@ -139,7 +154,7 @@ function useGeoSource(
       const cached = window.sessionStorage.getItem(GEO_CACHE_KEY)
       if (cached !== null) {
         const parsed = JSON.parse(cached) as GeoApiResponse
-        const cachedCity = toCityState(parsed?.geo)
+        const cachedCity = toGeoLocation(parsed?.geo)
         let cacheCancelled = false
         Promise.resolve().then(() => {
           if (!cacheCancelled) setFetched(cachedCity)
@@ -157,7 +172,7 @@ function useGeoSource(
       .then(res => (res.ok ? (res.json() as Promise<GeoApiResponse>) : null))
       .then(body => {
         if (cancelled) return
-        const geo = toCityState(body?.geo)
+        const geo = toGeoLocation(body?.geo)
         setFetched(geo)
         try {
           window.sessionStorage.setItem(GEO_CACHE_KEY, JSON.stringify({ geo }))
@@ -236,18 +251,52 @@ export function useGeoDefaultCity({
 
   // The geo suggestion reconciled against PH's has-shows data: returns the
   // CANONICAL {city,state} from `cities` (so the seed matches the backend
-  // filter exactly) when the detected city has upcoming shows, else null.
-  // Match is case/whitespace-insensitive because Vercel's city spelling may
-  // differ slightly from PH's stored name.
+  // filter exactly), else null. Two-tier resolution (PSY-981):
+  //
+  //   1. Exact (city, state) match — preferred when the visitor's own city
+  //      has shows. Case/whitespace-insensitive (Vercel's spelling may differ
+  //      slightly from PH's stored name). This is the pre-PSY-981 behavior,
+  //      kept first so a visitor IN a show city always seeds their own city.
+  //   2. NEAREST has-shows city by haversine, with NO distance cap (PSY-981) —
+  //      the fallback when the exact city has no shows (e.g. Paradise Valley,
+  //      AZ — a Phoenix suburb -> Phoenix). Requires the visitor's coords (from
+  //      Vercel) AND at least one show-city with a geocoded centroid; when
+  //      either is missing we return null, the pre-PSY-981 "no default"
+  //      outcome — never worse than before.
+  //
+  // Either tier seeds the canonical PH casing from `cities`, never the raw
+  // header (injection-safe).
   const geoCityWithShows: CityState | null = useMemo(() => {
     if (!rawGeo || cities.length === 0) return null
+
+    // Tier 1: exact city-name match.
     const norm = (s: string) => s.trim().toLowerCase()
     const wantCity = norm(rawGeo.city)
     const wantState = norm(rawGeo.state)
-    const match = cities.find(
+    const exact = cities.find(
       c => norm(c.city) === wantCity && norm(c.state) === wantState,
     )
-    return match ? { city: match.city, state: match.state } : null
+    if (exact) return { city: exact.city, state: exact.state }
+
+    // Tier 2: nearest has-shows city by haversine (no cap). Only when the
+    // visitor's coords are known; otherwise fall back to "no default".
+    const { latitude, longitude } = rawGeo
+    if (latitude === undefined || longitude === undefined) return null
+
+    let nearest: CityWithCount | null = null
+    let nearestKm = Infinity
+    for (const c of cities) {
+      // Skip cities the geocoder couldn't place — they can't be distance
+      // candidates, but exact-match (tier 1) for them still works for a
+      // visitor whose own city is that uncoded city.
+      if (c.latitude === undefined || c.longitude === undefined) continue
+      const km = haversineDistanceKm(latitude, longitude, c.latitude, c.longitude)
+      if (km < nearestKm) {
+        nearestKm = km
+        nearest = c
+      }
+    }
+    return nearest ? { city: nearest.city, state: nearest.state } : null
   }, [rawGeo, cities])
 
   // Seed once when: no existing selection, auth settled, anon, favorites empty,

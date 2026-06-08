@@ -55,10 +55,29 @@
 import { headers } from 'next/headers'
 import type { CityState } from '@/components/filters/CityFilters'
 
+/**
+ * A decoded geo suggestion: the visitor's `{city, state}` plus, when Vercel
+ * supplies them, their approximate `{latitude, longitude}` (PSY-981).
+ *
+ * The coords drive the "nearest has-shows city" fallback: when the visitor's
+ * exact city has no shows (e.g. Paradise Valley, AZ — a Phoenix suburb), the
+ * client picks the geographically nearest has-shows city by haversine
+ * (`useGeoDefaultCity`). They are OPTIONAL — some IPs/edge configs omit the
+ * lat/long headers — and absence is graceful: the client falls back to exact
+ * city-name matching, exactly as it did before PSY-981. The coords are never
+ * seeded as a city; only the canonical PH `{city,state}` is (injection-safe).
+ */
+export interface GeoLocation extends CityState {
+  latitude?: number
+  longitude?: number
+}
+
 /** Vercel edge geo headers (lowercased — Next normalizes header keys). */
 const HEADER_CITY = 'x-vercel-ip-city'
 const HEADER_REGION = 'x-vercel-ip-country-region'
 const HEADER_COUNTRY = 'x-vercel-ip-country'
+const HEADER_LATITUDE = 'x-vercel-ip-latitude'
+const HEADER_LONGITUDE = 'x-vercel-ip-longitude'
 
 /**
  * Decode a `Headers`-like object carrying the Vercel edge geo headers into a
@@ -91,12 +110,14 @@ const HEADER_COUNTRY = 'x-vercel-ip-country'
  */
 export function decodeGeoHeaders(
   headerList: { get(name: string): string | null },
-): CityState | null {
+): GeoLocation | null {
   const country = decodeHeader(headerList.get(HEADER_COUNTRY))
   // Vercel returns ISO 3166-1 alpha-2 country codes. PH's city data is keyed
   // by US state / Canadian province codes; only US/CA can match, so reject
   // anything else cheaply. An ABSENT country header (local dev, some edge
   // configs) is allowed through — the client has-shows check is the real gate.
+  // The country gate is UNCHANGED by PSY-981's nearest-city work: non-US/CA
+  // visitors still get no geo default (PH's show cities are US/CA only).
   if (country !== null && country !== 'US' && country !== 'CA') {
     return null
   }
@@ -111,6 +132,19 @@ export function decodeGeoHeaders(
     return null
   }
 
+  // Visitor lat/long (PSY-981) for the nearest-has-shows-city fallback. These
+  // headers are plain decimal strings (NOT URL-encoded like the city), and are
+  // OPTIONAL — `parseCoordinate` returns undefined on a missing/unparseable/
+  // out-of-range value, so the city/state suggestion still flows and the client
+  // degrades to exact city-name matching. We only attach BOTH coords or
+  // NEITHER: a lone latitude is useless for a distance calc and would only
+  // invite a half-applied haversine bug downstream.
+  const latitude = parseCoordinate(headerList.get(HEADER_LATITUDE), 90)
+  const longitude = parseCoordinate(headerList.get(HEADER_LONGITUDE), 180)
+  if (latitude !== undefined && longitude !== undefined) {
+    return { city, state, latitude, longitude }
+  }
+
   return { city, state }
 }
 
@@ -120,7 +154,7 @@ export function decodeGeoHeaders(
  * `decodeGeoHeaders`. Throws at build time if imported from a client component
  * (compiler-enforced server-only boundary).
  */
-export async function getGeoDefaultCity(): Promise<CityState | null> {
+export async function getGeoDefaultCity(): Promise<GeoLocation | null> {
   const headerList = await headers()
   return decodeGeoHeaders(headerList)
 }
@@ -141,4 +175,22 @@ function decodeHeader(raw: string | null): string | null {
   }
   const trimmed = decoded.trim()
   return trimmed === '' ? null : trimmed
+}
+
+/**
+ * Parse a Vercel lat/long header into a finite number within ±`max` degrees,
+ * else `undefined`. Defensive at the trust boundary: the value is a raw HTTP
+ * header, so reject anything `Number()` can't turn into a real coordinate —
+ * missing, empty, `NaN`/`Infinity` (Number('') is 0, hence the empty-string
+ * guard), or out of the valid [-max, max] range. A bad value degrades to "no
+ * coords" (exact-match fallback), never a wrong distance calculation.
+ */
+function parseCoordinate(raw: string | null, max: number): number | undefined {
+  if (raw === null) return undefined
+  const trimmed = raw.trim()
+  if (trimmed === '') return undefined
+  const value = Number(trimmed)
+  if (!Number.isFinite(value)) return undefined
+  if (value < -max || value > max) return undefined
+  return value
 }

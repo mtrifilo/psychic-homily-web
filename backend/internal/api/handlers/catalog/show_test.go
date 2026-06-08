@@ -380,9 +380,14 @@ func TestGetShowsHandler_ServiceError(t *testing.T) {
 // ============================================================================
 
 func TestGetShowCitiesHandler_Success(t *testing.T) {
+	// PSY-981: the city carries its geocoded centroid; assert the handler
+	// surfaces lat/long unchanged so the wire response includes them.
+	lat, lng := 33.4484, -112.0740
 	mock := &testhelpers.MockShowService{
 		GetShowCitiesFn: func(timezone string) ([]contracts.ShowCityResponse, error) {
-			return []contracts.ShowCityResponse{{City: "Phoenix", State: "AZ", ShowCount: 5}}, nil
+			return []contracts.ShowCityResponse{
+				{City: "Phoenix", State: "AZ", ShowCount: 5, Latitude: &lat, Longitude: &lng},
+			}, nil
 		},
 	}
 	h := NewShowHandler(mock, nil, nil, nil, nil, nil, nil)
@@ -392,7 +397,14 @@ func TestGetShowCitiesHandler_Success(t *testing.T) {
 		t.Fatalf("unexpected error: %v", err)
 	}
 	if len(resp.Body.Cities) != 1 {
-		t.Errorf("expected 1 city, got %d", len(resp.Body.Cities))
+		t.Fatalf("expected 1 city, got %d", len(resp.Body.Cities))
+	}
+	got := resp.Body.Cities[0]
+	if got.Latitude == nil || got.Longitude == nil {
+		t.Fatalf("expected centroid to pass through, got lat=%v lng=%v", got.Latitude, got.Longitude)
+	}
+	if *got.Latitude != lat || *got.Longitude != lng {
+		t.Errorf("centroid mismatch: got (%v, %v), want (%v, %v)", *got.Latitude, *got.Longitude, lat, lng)
 	}
 }
 

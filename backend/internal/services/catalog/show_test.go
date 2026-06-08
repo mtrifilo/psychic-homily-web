@@ -32,7 +32,7 @@ func (suite *ShowServiceIntegrationTestSuite) SetupSuite() {
 	suite.testDB = testutil.SetupTestPostgres(suite.T())
 	suite.db = suite.testDB.DB
 
-	suite.showService = &ShowService{db: suite.testDB.DB}
+	suite.showService = NewShowService(suite.testDB.DB)
 }
 
 func (suite *ShowServiceIntegrationTestSuite) TearDownSuite() {
@@ -1506,11 +1506,29 @@ func (suite *ShowServiceIntegrationTestSuite) TestGetShowCities_Success() {
 
 	// Phoenix should have more shows
 	cityMap := make(map[string]int)
+	rowByCity := make(map[string]contracts.ShowCityResponse)
 	for _, r := range results {
 		cityMap[r.City] = r.ShowCount
+		rowByCity[r.City] = r
 	}
 	suite.Equal(2, cityMap["Phoenix"])
 	suite.Equal(1, cityMap["Tucson"])
+
+	// PSY-981: each city carries its geocoded centroid (same offline GeoNames
+	// source as PSY-985 venue coords). Phoenix/Tucson are populous enough to be
+	// in the cities15000 dataset, so both coords are non-nil and near the known
+	// centroids. The frontend uses these to pick the NEAREST has-shows city for
+	// a visitor whose exact city has no shows (Paradise Valley -> Phoenix).
+	phx := rowByCity["Phoenix"]
+	suite.Require().NotNil(phx.Latitude, "Phoenix latitude should be populated from the geocoder")
+	suite.Require().NotNil(phx.Longitude, "Phoenix longitude should be populated from the geocoder")
+	suite.InDelta(33.4484, *phx.Latitude, 0.5, "Phoenix latitude near the known centroid")
+	suite.InDelta(-112.0740, *phx.Longitude, 0.5, "Phoenix longitude near the known centroid")
+
+	tuc := rowByCity["Tucson"]
+	suite.Require().NotNil(tuc.Latitude, "Tucson latitude should be populated from the geocoder")
+	suite.Require().NotNil(tuc.Longitude, "Tucson longitude should be populated from the geocoder")
+	suite.InDelta(32.2217, *tuc.Latitude, 0.5, "Tucson latitude near the known centroid")
 }
 
 // =============================================================================

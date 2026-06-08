@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { decodeGeoHeaders } from '@/lib/geo-default'
-import type { CityState } from '@/components/filters/CityFilters'
+import { decodeGeoHeaders, type GeoLocation } from '@/lib/geo-default'
 
 /**
  * IP-geo default-city route handler (PSY-946).
@@ -28,7 +27,9 @@ import type { CityState } from '@/components/filters/CityFilters'
  */
 
 interface GeoResponse {
-  geo: CityState | null
+  // PSY-981: also carries the visitor's optional lat/long (from
+  // x-vercel-ip-latitude/-longitude) for the nearest-has-shows-city fallback.
+  geo: GeoLocation | null
 }
 
 export function GET(request: NextRequest): NextResponse<GeoResponse> {

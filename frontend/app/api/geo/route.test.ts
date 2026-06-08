@@ -76,6 +76,39 @@ describe('GET /api/geo', () => {
     })
   })
 
+  it('surfaces the visitor lat/long when the coordinate headers are present (PSY-981)', async () => {
+    const res = GET(
+      geoRequest({
+        'x-vercel-ip-city': 'Paradise Valley',
+        'x-vercel-ip-country-region': 'AZ',
+        'x-vercel-ip-country': 'US',
+        'x-vercel-ip-latitude': '33.5312',
+        'x-vercel-ip-longitude': '-111.9426',
+      }),
+    )
+    await expect(res.json()).resolves.toEqual({
+      geo: {
+        city: 'Paradise Valley',
+        state: 'AZ',
+        latitude: 33.5312,
+        longitude: -111.9426,
+      },
+    })
+  })
+
+  it('omits coords when the lat/long headers are absent (pre-PSY-981 shape)', async () => {
+    const res = GET(
+      geoRequest({
+        'x-vercel-ip-city': 'Phoenix',
+        'x-vercel-ip-country-region': 'AZ',
+        'x-vercel-ip-country': 'US',
+      }),
+    )
+    await expect(res.json()).resolves.toEqual({
+      geo: { city: 'Phoenix', state: 'AZ' },
+    })
+  })
+
   it('sets a non-shared-cacheable Cache-Control header (no cross-visitor poisoning)', () => {
     const res = GET(
       geoRequest({

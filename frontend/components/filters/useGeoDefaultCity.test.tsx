@@ -5,14 +5,44 @@ import {
   shouldShowGeoAffordance,
 } from './useGeoDefaultCity'
 import type { CityState, CityWithCount } from './CityFilters'
+import type { GeoLocation } from '@/lib/geo-default'
 
 vi.mock('@sentry/nextjs', () => ({
   captureException: vi.fn(),
 }))
 
-const PHOENIX: CityWithCount = { city: 'Phoenix', state: 'AZ', count: 5 }
-const OMAHA: CityWithCount = { city: 'Omaha', state: 'NE', count: 3 }
+// Centroids match the offline geocoder the backend uses (PSY-981).
+const PHOENIX: CityWithCount = {
+  city: 'Phoenix',
+  state: 'AZ',
+  count: 5,
+  latitude: 33.4484,
+  longitude: -112.074,
+}
+const OMAHA: CityWithCount = {
+  city: 'Omaha',
+  state: 'NE',
+  count: 3,
+  latitude: 41.2587,
+  longitude: -95.9384,
+}
+const TUCSON: CityWithCount = {
+  city: 'Tucson',
+  state: 'AZ',
+  count: 2,
+  latitude: 32.2217,
+  longitude: -110.9265,
+}
 const ALL_CITIES: CityWithCount[] = [PHOENIX, OMAHA]
+
+// Real-ish coords for Paradise Valley, AZ — a Phoenix suburb with NO PH shows
+// of its own (the PSY-981 motivating case). Nearest has-shows city = Phoenix.
+const PARADISE_VALLEY = {
+  city: 'Paradise Valley',
+  state: 'AZ',
+  latitude: 33.5312,
+  longitude: -111.9426,
+}
 
 type HookParams = Parameters<typeof useGeoDefaultCity>[0]
 
@@ -216,7 +246,7 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
     window.sessionStorage.clear()
   })
 
-  function mockGeoFetch(geo: CityState | null) {
+  function mockGeoFetch(geo: GeoLocation | null) {
     return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
       new Response(JSON.stringify({ geo }), {
         status: 200,
@@ -343,3 +373,134 @@ describe('useGeoDefaultCity — client-fetch path (/shows + home)', () => {
     expect(onSeed).not.toHaveBeenCalled()
   })
 })
+
+describe('useGeoDefaultCity — nearest has-shows city by haversine (PSY-981)', () => {
+  it('seeds Phoenix for a Paradise Valley visitor whose exact city has no shows', () => {
+    // The motivating case: Paradise Valley, AZ is a Phoenix suburb with no PH
+    // shows. With the visitor's coords + city centroids, the hook picks the
+    // geographically NEAREST has-shows city (Phoenix, ~15 km away) over Tucson
+    // (~160 km) and Omaha (~1,200 km). No exact "Paradise Valley" match exists.
+    const onSeed = vi.fn()
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          cities: [PHOENIX, TUCSON, OMAHA],
+          geoFromServer: PARADISE_VALLEY,
+          onSeed,
+        }),
+      ),
+    )
+    expect(onSeed).toHaveBeenCalledWith({ city: 'Phoenix', state: 'AZ' })
+    expect(result.current.appliedGeoDefault).toEqual({
+      city: 'Phoenix',
+      state: 'AZ',
+    })
+  })
+
+  it('prefers the EXACT city match over the nearest, even when coords are present', () => {
+    // A visitor IN Tucson (which HAS shows) must seed Tucson, not the nearest-
+    // by-distance result — tier 1 (exact match) wins over tier 2 (nearest).
+    const onSeed = vi.fn()
+    renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          cities: [PHOENIX, TUCSON, OMAHA],
+          geoFromServer: {
+            city: 'Tucson',
+            state: 'AZ',
+            latitude: TUCSON.latitude,
+            longitude: TUCSON.longitude,
+          },
+          onSeed,
+        }),
+      ),
+    )
+    expect(onSeed).toHaveBeenCalledWith({ city: 'Tucson', state: 'AZ' })
+  })
+
+  it('falls back to NO default when the exact city has no shows AND coords are absent', () => {
+    // Pre-PSY-981 behavior preserved: no coords → no nearest computation → the
+    // exact-miss case yields no seed (never worse than before).
+    const onSeed = vi.fn()
+    const { result } = renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          cities: [PHOENIX, TUCSON, OMAHA],
+          // Paradise Valley, no lat/long → exact-match only, which misses.
+          geoFromServer: { city: 'Paradise Valley', state: 'AZ' },
+          onSeed,
+        }),
+      ),
+    )
+    expect(onSeed).not.toHaveBeenCalled()
+    expect(result.current.appliedGeoDefault).toBeNull()
+  })
+
+  it('falls back to NO default when no show-city carries a centroid (uncoded cities)', () => {
+    // The backend geocoder missed every show city (coords undefined). The
+    // nearest computation has no candidates → no seed; exact-match for a
+    // visitor whose own city is on the list would still work (covered above).
+    const onSeed = vi.fn()
+    const citiesNoCentroid: CityWithCount[] = [
+      { city: 'Phoenix', state: 'AZ', count: 5 },
+      { city: 'Tucson', state: 'AZ', count: 2 },
+    ]
+    renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          cities: citiesNoCentroid,
+          geoFromServer: PARADISE_VALLEY,
+          onSeed,
+        }),
+      ),
+    )
+    expect(onSeed).not.toHaveBeenCalled()
+  })
+
+  it('skips uncoded cities as distance candidates but still uses coded ones', () => {
+    // Cottonwood (1 show) is too small for the GeoNames slice → no centroid →
+    // it must NOT be chosen as nearest; Phoenix (coded) wins for the suburb.
+    const onSeed = vi.fn()
+    const cottonwood: CityWithCount = { city: 'Cottonwood', state: 'AZ', count: 1 }
+    renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          cities: [cottonwood, PHOENIX, TUCSON],
+          geoFromServer: PARADISE_VALLEY,
+          onSeed,
+        }),
+      ),
+    )
+    expect(onSeed).toHaveBeenCalledWith({ city: 'Phoenix', state: 'AZ' })
+  })
+
+  it('seeds the nearest via the client-fetch path too (home / /shows parity)', async () => {
+    // The same nearest logic must fire on the client-fetch surfaces, not just
+    // /explore's server prop — home and /shows fetch /api/geo with coords.
+    mockGeoFetchPV(PARADISE_VALLEY)
+    const onSeed = vi.fn()
+    renderHook(() =>
+      useGeoDefaultCity(
+        baseParams({
+          cities: [PHOENIX, TUCSON, OMAHA],
+          enableClientFetch: true,
+          onSeed,
+        }),
+      ),
+    )
+    await waitFor(() =>
+      expect(onSeed).toHaveBeenCalledWith({ city: 'Phoenix', state: 'AZ' }),
+    )
+  })
+})
+
+/** Local client-fetch mock for the nearest-city block (its own session clear). */
+function mockGeoFetchPV(geo: GeoLocation | null) {
+  window.sessionStorage.clear()
+  return vi.spyOn(globalThis, 'fetch').mockResolvedValue(
+    new Response(JSON.stringify({ geo }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  )
+}
