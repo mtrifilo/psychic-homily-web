@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback } from 'react'
-import { Loader2, Check, X } from 'lucide-react'
+import { Loader2, Check, X, type LucideIcon } from 'lucide-react'
 
 import { Button } from '@/components/ui/button'
 
@@ -36,6 +36,24 @@ export interface RejectWithReasonRowProps {
    * uses the terse "Rejection reason (required)").
    */
   rejectPlaceholder: string
+  /**
+   * Label for the primary (approve) button. Defaults to "Approve"; the
+   * entity-request card (PSY-871) passes "Create" since approving a request
+   * creates the entity.
+   */
+  approveLabel?: string
+  /**
+   * Icon for the primary (approve) button. Defaults to {@link Check}; the
+   * request card passes a "make new thing" icon (e.g. PlusCircle).
+   */
+  approveIcon?: LucideIcon
+  /**
+   * Disables ONLY the approve button while leaving Reject available. The
+   * entity-request card (PSY-871) sets this for show/festival requests, whose
+   * backend fulfillment isn't supported yet (PSY-998) — the admin can still
+   * reject, but can't "Create" until that lands.
+   */
+  approveDisabled?: boolean
 }
 
 /**
@@ -59,6 +77,9 @@ export function RejectWithReasonRow({
   isApproving,
   isRejecting,
   rejectPlaceholder,
+  approveLabel = 'Approve',
+  approveIcon: ApproveIcon = Check,
+  approveDisabled = false,
 }: RejectWithReasonRowProps) {
   const [rejecting, setRejecting] = useState(false)
   const [rejectionReason, setRejectionReason] = useState('')
@@ -113,13 +134,13 @@ export function RejectWithReasonRow({
 
   return (
     <div className="mt-3 flex items-center gap-2">
-      <Button size="sm" onClick={onApprove} disabled={isActioning}>
+      <Button size="sm" onClick={onApprove} disabled={isActioning || approveDisabled}>
         {isApproving ? (
           <Loader2 className="h-3 w-3 animate-spin mr-1" />
         ) : (
-          <Check className="h-3 w-3 mr-1" />
+          <ApproveIcon className="h-3 w-3 mr-1" />
         )}
-        Approve
+        {approveLabel}
       </Button>
       <Button
         size="sm"

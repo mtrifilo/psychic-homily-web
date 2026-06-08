@@ -7,12 +7,13 @@ import { usePendingShows } from './useAdminShows'
 import { useAdminPendingEdits } from './useAdminPendingEdits'
 import { useAdminEntityReports } from './useAdminEntityReports'
 import { useAdminPendingComments } from './useAdminComments'
+import { useAdminEntityRequests } from './useAdminEntityRequests'
 
 /**
  * The four attention counts the admin navigation surfaces as badges.
- * `moderation` aggregates the three moderation-queue sources (pending edits +
- * entity reports + pending comments) — the same formula the retired admin tab
- * bar used for its moderation badge.
+ * `moderation` aggregates the four moderation-queue sources (pending edits +
+ * entity reports + pending comments + entity-creation requests) — the same
+ * formula the moderation queue itself uses for its "All" count.
  */
 export interface AdminNavCounts {
   moderation: number
@@ -41,12 +42,14 @@ export function useAdminNavCounts({ enabled }: { enabled: boolean }): AdminNavCo
   const { data: pendingEditsData } = useAdminPendingEdits({ status: 'pending', enabled })
   const { data: entityReportsData } = useAdminEntityReports({ status: 'pending', enabled })
   const { data: pendingCommentsData } = useAdminPendingComments(25, 0, { enabled })
+  const { data: entityRequestsData } = useAdminEntityRequests({ state: 'pending', enabled })
 
   return {
     moderation:
       (pendingEditsData?.total || 0) +
       (entityReportsData?.total || 0) +
-      (pendingCommentsData?.total || 0),
+      (pendingCommentsData?.total || 0) +
+      (entityRequestsData?.total || 0),
     pendingShows: pendingShowsData?.total || 0,
     unverifiedVenues: unverifiedVenuesData?.total || 0,
     reports: (reportsData?.total || 0) + (artistReportsData?.total || 0),

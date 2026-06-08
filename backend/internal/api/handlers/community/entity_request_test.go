@@ -492,6 +492,46 @@ func TestAdminListEntityRequests_Success(t *testing.T) {
 	}
 }
 
+// The admin list resolves the requester's display name/username (the raw model
+// serializes Requester as json:"-") and carries the payload so the moderation
+// card can attribute + preview each request. PSY-871.
+func TestAdminListEntityRequests_ResolvesRequesterAndPayload(t *testing.T) {
+	uname := "alice"
+	row := pendingRequest(3, "artist")
+	row.RequesterID = 42
+	row.Requester = authm.User{ID: 42, Username: &uname}
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			ListRequestsFn: func(f *contracts.EntityRequestFilters) ([]communitym.EntityRequest, int64, error) {
+				return []communitym.EntityRequest{*row}, 1, nil
+			},
+		},
+		nil, nil,
+	)
+
+	resp, err := h.AdminListEntityRequestsHandler(erAdminCtx(), &AdminListEntityRequestsRequest{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(resp.Body.Requests) != 1 {
+		t.Fatalf("expected 1 request, got %d", len(resp.Body.Requests))
+	}
+	v := resp.Body.Requests[0]
+	if v.RequesterID != 42 {
+		t.Errorf("expected requester_id 42, got %d", v.RequesterID)
+	}
+	if v.RequesterName != "alice" {
+		t.Errorf("expected requester_name alice, got %q", v.RequesterName)
+	}
+	if v.RequesterUsername == nil || *v.RequesterUsername != "alice" {
+		t.Errorf("expected requester_username alice, got %v", v.RequesterUsername)
+	}
+	if v.EntityType != "artist" || v.Payload == nil {
+		t.Errorf("expected entity_type artist + non-nil payload, got %s payload=%v", v.EntityType, v.Payload)
+	}
+}
+
 func TestAdminListEntityRequests_InvalidEntityType(t *testing.T) {
 	h := NewEntityRequestHandler(nil, nil, nil)
 	_, err := h.AdminListEntityRequestsHandler(erAdminCtx(), &AdminListEntityRequestsRequest{EntityType: "wizard"})

@@ -184,6 +184,9 @@ export const queryKeys = {
       ['admin', 'pendingEdits', params] as const,
     entityReports: (params?: Record<string, unknown>) =>
       ['admin', 'entityReports', params] as const,
+    // PSY-871: queued entity-creation requests (the moderation queue's 4th type).
+    entityRequests: (params?: Record<string, unknown>) =>
+      ['admin', 'entityRequests', params] as const,
     // Featured slots (admin-curated /explore picks). One list query
     // covers both slot types — list invalidations refresh both
     // panels after Set / Retire.
@@ -483,6 +486,10 @@ export const createInvalidateQueries = (queryClient: QueryClient) => ({
   // Invalidate admin entity reports queries
   adminEntityReports: () =>
     queryClient.invalidateQueries({ queryKey: ['admin', 'entityReports'] }),
+
+  // PSY-871: invalidate admin entity-request (moderation) queries
+  adminEntityRequests: () =>
+    queryClient.invalidateQueries({ queryKey: ['admin', 'entityRequests'] }),
 
   // Invalidate contributor profile queries
   contributor: () =>

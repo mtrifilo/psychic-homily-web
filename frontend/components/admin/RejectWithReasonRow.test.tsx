@@ -151,4 +151,16 @@ describe('RejectWithReasonRow', () => {
     const confirm = screen.getByRole('button', { name: /confirm reject/i })
     expect(confirm.querySelector('.animate-spin')).toBeInTheDocument()
   })
+
+  // PSY-871: the request card relabels the primary action "Create"; default
+  // stays "Approve" so the edit/comment cards are unchanged.
+  it('renders a custom approve label and fires onApprove', () => {
+    const { onApprove } = setup({ approveLabel: 'Create' })
+
+    expect(screen.getByRole('button', { name: /^create$/i })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: /^approve$/i })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    expect(onApprove).toHaveBeenCalledTimes(1)
+  })
 })

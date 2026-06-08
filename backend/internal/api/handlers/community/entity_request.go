@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/danielgtaylor/huma/v2"
 
@@ -217,11 +218,54 @@ type AdminListEntityRequestsRequest struct {
 	Offset        int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination"`
 }
 
+// AdminEntityRequestView is the admin-queue projection of an EntityRequest with
+// the requester's display name/username resolved (PSY-871). The raw model
+// serializes Requester as json:"-", so the moderation UI can't attribute a
+// request from the model alone; this view resolves it via the canonical
+// user_resolver (mirroring the PendingEdit / EntityReport admin responses).
+// It carries exactly what the moderation card needs: the typed payload for the
+// preview, source context (+ AI source_detail), requester attribution, and the
+// decision/fulfillment fields for non-pending views.
+type AdminEntityRequestView struct {
+	ID                uint             `json:"id"`
+	EntityType        string           `json:"entity_type"`
+	Payload           *json.RawMessage `json:"payload"`
+	SourceContext     string           `json:"source_context"`
+	SourceDetail      *json.RawMessage `json:"source_detail,omitempty"`
+	RequesterID       uint             `json:"requester_id"`
+	RequesterName     string           `json:"requester_name"`
+	RequesterUsername *string          `json:"requester_username"`
+	DecisionState     string           `json:"decision_state"`
+	DecisionNote      *string          `json:"decision_note,omitempty"`
+	CreatedEntityID   *uint            `json:"created_entity_id,omitempty"`
+	CreatedAt         time.Time        `json:"created_at"`
+}
+
+// toAdminEntityRequestView projects a model row onto the admin view, resolving
+// the requester display via the user_resolver. The Requester relation MUST be
+// preloaded by the caller (ListRequests preloads it).
+func toAdminEntityRequestView(r *communitym.EntityRequest) AdminEntityRequestView {
+	return AdminEntityRequestView{
+		ID:                r.ID,
+		EntityType:        r.EntityType,
+		Payload:           r.Payload,
+		SourceContext:     r.SourceContext,
+		SourceDetail:      r.SourceDetail,
+		RequesterID:       r.RequesterID,
+		RequesterName:     servicesshared.ResolveUserName(&r.Requester),
+		RequesterUsername: servicesshared.ResolveUserUsername(&r.Requester),
+		DecisionState:     string(r.DecisionState),
+		DecisionNote:      r.DecisionNote,
+		CreatedEntityID:   r.CreatedEntityID,
+		CreatedAt:         r.CreatedAt,
+	}
+}
+
 // AdminListEntityRequestsResponse is the Huma response for GET /admin/entity-requests.
 type AdminListEntityRequestsResponse struct {
 	Body struct {
-		Requests []communitym.EntityRequest `json:"requests"`
-		Total    int64                      `json:"total"`
+		Requests []AdminEntityRequestView `json:"requests"`
+		Total    int64                    `json:"total"`
 	}
 }
 
@@ -250,8 +294,13 @@ func (h *EntityRequestHandler) AdminListEntityRequestsHandler(ctx context.Contex
 		return nil, huma.Error500InternalServerError("Failed to list entity requests")
 	}
 
+	views := make([]AdminEntityRequestView, 0, len(requests))
+	for i := range requests {
+		views = append(views, toAdminEntityRequestView(&requests[i]))
+	}
+
 	resp := &AdminListEntityRequestsResponse{}
-	resp.Body.Requests = requests
+	resp.Body.Requests = views
 	resp.Body.Total = total
 	return resp, nil
 }

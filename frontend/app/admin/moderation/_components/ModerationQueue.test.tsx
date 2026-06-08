@@ -4,6 +4,7 @@ import { ModerationQueue } from './ModerationQueue'
 import type { PendingEditResponse } from '@/lib/hooks/admin/useAdminPendingEdits'
 import type { EntityReportResponse } from '@/lib/hooks/admin/useAdminEntityReports'
 import type { PendingComment } from '@/lib/hooks/admin/useAdminComments'
+import type { AdminEntityRequest } from '@/lib/hooks/admin/useAdminEntityRequests'
 
 // --- Mock data ---
 
@@ -121,6 +122,24 @@ const mockLabelReport: EntityReportResponse = {
   created_at: '2026-04-07T00:00:00Z',
 }
 
+// PSY-871: queued entity-creation request. Carries the resolved requester +
+// the typed payload (rendered key:value) + optional AI source_detail.
+const mockEntityRequest: AdminEntityRequest = {
+  id: 9,
+  entity_type: 'artist',
+  payload: { name: 'Queued Band', city: 'Phoenix' },
+  source_context: 'ai_extraction',
+  source_detail: {
+    url: 'https://example.com/article',
+    excerpt: 'a great new band announced a tour',
+  },
+  requester_id: 9,
+  requester_name: 'requester9',
+  requester_username: null,
+  decision_state: 'pending',
+  created_at: '2026-04-08T00:00:00Z',
+}
+
 // --- Mocks ---
 
 const mockUseAdminPendingEdits = vi.fn()
@@ -134,6 +153,8 @@ const mockUseAdminPendingComments = vi.fn()
 const mockUseAdminApproveComment = vi.fn()
 const mockUseAdminRejectComment = vi.fn()
 const mockUseAdminHideComment = vi.fn()
+const mockUseAdminEntityRequests = vi.fn()
+const mockUseDecideEntityRequest = vi.fn()
 
 const defaultMutationReturn = { mutate: vi.fn(), isPending: false, isError: false, error: null as Error | null }
 
@@ -159,6 +180,11 @@ vi.mock('@/lib/hooks/admin/useAdminComments', () => ({
   useAdminCommentEditHistory: () => ({ data: undefined as unknown, isLoading: false, error: null as Error | null }),
 }))
 
+vi.mock('@/lib/hooks/admin/useAdminEntityRequests', () => ({
+  useAdminEntityRequests: (...args: unknown[]) => mockUseAdminEntityRequests(...args),
+  useDecideEntityRequest: () => mockUseDecideEntityRequest(),
+}))
+
 // PSY-297: stub the edit-history dialog so the badge interaction test doesn't
 // depend on Radix Dialog or the query client.
 vi.mock('@/features/comments', () => ({
@@ -177,12 +203,14 @@ describe('ModerationQueue', () => {
     mockUseAdminRejectComment.mockReturnValue(defaultMutationReturn)
     mockUseAdminHideComment.mockReturnValue(defaultMutationReturn)
     mockUseAdminHideCollection.mockReturnValue(defaultMutationReturn)
+    mockUseDecideEntityRequest.mockReturnValue(defaultMutationReturn)
   })
 
   function setDefaultMocks(overrides?: {
     edits?: unknown[]
     reports?: unknown[]
     comments?: unknown[]
+    requests?: unknown[]
   }) {
     mockUseAdminPendingEdits.mockReturnValue({
       data: { edits: overrides?.edits ?? [], total: overrides?.edits?.length ?? 0 },
@@ -196,6 +224,11 @@ describe('ModerationQueue', () => {
     })
     mockUseAdminPendingComments.mockReturnValue({
       data: { comments: overrides?.comments ?? [], total: overrides?.comments?.length ?? 0 },
+      isLoading: false,
+      error: null,
+    })
+    mockUseAdminEntityRequests.mockReturnValue({
+      data: { requests: overrides?.requests ?? [], total: overrides?.requests?.length ?? 0 },
       isLoading: false,
       error: null,
     })
@@ -242,6 +275,102 @@ describe('ModerationQueue', () => {
     // text node — rather than a single combined string.
     expect(screen.getByText('commenter1')).toBeInTheDocument()
     expect(screen.getByTestId('comment-body')).toBeInTheDocument()
+  })
+
+  // PSY-871: the 4th card type — queued entity-creation requests.
+  it('renders entity request card with payload preview + Create action', () => {
+    setDefaultMocks({ requests: [mockEntityRequest] })
+
+    render(<ModerationQueue />)
+
+    // Purple "Request" category badge + entity type + payload-derived label.
+    expect(screen.getByText('Request')).toBeInTheDocument()
+    expect(screen.getByText('Artist')).toBeInTheDocument()
+    expect(screen.getByText('Queued Band')).toBeInTheDocument()
+    // Requester attribution (unlinked — no username).
+    expect(screen.getByText('requester9')).toBeInTheDocument()
+    // Payload preview shows the non-header fields as key:value (name/title are
+    // the header, so they're omitted from the preview).
+    expect(screen.getByText('city:')).toBeInTheDocument()
+    expect(screen.queryByText('name:')).not.toBeInTheDocument()
+    // Action label is "Create" (not "Approve"); reject stays available.
+    expect(screen.getByRole('button', { name: /create/i })).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /reject/i })).toBeInTheDocument()
+  })
+
+  it('shows the Requests filter tab', () => {
+    setDefaultMocks({ requests: [mockEntityRequest] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByText('Requests')).toBeInTheDocument()
+  })
+
+  it('fires the decide mutation with approved when Create is clicked', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [mockEntityRequest] })
+
+    render(<ModerationQueue />)
+
+    fireEvent.click(screen.getByRole('button', { name: /create/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 9, decision: 'approved' }),
+      expect.anything()
+    )
+  })
+
+  it('rejects a request with the trimmed reason', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    setDefaultMocks({ requests: [mockEntityRequest] })
+
+    render(<ModerationQueue />)
+
+    fireEvent.click(screen.getByRole('button', { name: /^reject$/i }))
+    fireEvent.change(screen.getByPlaceholderText(/rejection reason/i), {
+      target: { value: '  not notable  ' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /confirm reject/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 9, decision: 'rejected', note: 'not notable' }),
+      expect.anything()
+    )
+  })
+
+  it('renders the source line, safe external link, and excerpt for AI requests', () => {
+    setDefaultMocks({ requests: [mockEntityRequest] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByText(/via AI extraction/i)).toBeInTheDocument()
+    const sourceLink = screen.getByRole('link', { name: /source/i })
+    expect(sourceLink).toHaveAttribute('href', 'https://example.com/article')
+    expect(screen.getByText(/a great new band announced a tour/i)).toBeInTheDocument()
+  })
+
+  it('disables Create for show/festival requests (fulfillment deferred) but allows Reject', () => {
+    const showRequest: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 11,
+      entity_type: 'show',
+      payload: { title: 'Big Fest', event_date: '2026-07-01' },
+      source_detail: null,
+    }
+    setDefaultMocks({ requests: [showRequest] })
+
+    render(<ModerationQueue />)
+
+    // Header uses the payload title; the preview omits the header'd title.
+    expect(screen.getByText('Big Fest')).toBeInTheDocument()
+    expect(screen.queryByText('title:')).not.toBeInTheDocument()
+    expect(screen.getByText('event_date:')).toBeInTheDocument()
+    // Create disabled (unsupported fulfillment), Reject still available + hint.
+    expect(screen.getByRole('button', { name: /create/i })).toBeDisabled()
+    expect(screen.getByRole('button', { name: /^reject$/i })).not.toBeDisabled()
+    expect(screen.getByText(/must be created\s+manually for now/i)).toBeInTheDocument()
   })
 
   it('renders comment report card for comment-type reports', () => {
