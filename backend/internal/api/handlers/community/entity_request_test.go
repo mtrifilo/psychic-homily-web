@@ -797,6 +797,84 @@ func TestAdminDecide_ApproveFestival_ExistsConflictIs409(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 409)
 }
 
+// A festival request with a malformed start_date that predates the create-time
+// date validation must be re-validated and rejected cleanly at the fulfill
+// boundary — a typed 500 with a generic message — instead of reaching INSERT
+// and leaking a raw DB date-parse error. The key guard is that CreateFestival
+// is never called (no DB round-trip, no leak, no corrupt festival). PSY-998.
+func TestAdminDecide_ApproveFestival_MalformedStoredDateRejected(t *testing.T) {
+	// Build the row directly (bypassing create-time validation, as a legacy
+	// pre-PSY-998 queued row would).
+	raw := json.RawMessage(`{"name":"Stale Fest","start_date":"next summer","end_date":"2026-01-03"}`)
+	decided := pendingRequest(23, "festival")
+	decided.Payload = &raw
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	createCalled := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateFestivalFn: func(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
+				createCalled = true
+				return &contracts.FestivalDetailResponse{ID: 99}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "23"}
+	req.Body.Decision = "approved"
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	// Stored-payload corruption is a server-side data fault → typed 500 (clean
+	// message, no raw DB error), per MapEntityRequestError.
+	testhelpers.AssertHumaError(t, err, 500)
+	if createCalled {
+		t.Error("CreateFestival must NOT be called when the stored date is malformed")
+	}
+}
+
+// A festival request carrying an explicit non-positive edition_year must be
+// rejected at the fulfill boundary rather than persisting a year-0/negative
+// edition. PSY-998.
+func TestAdminDecide_ApproveFestival_NonPositiveYearRejected(t *testing.T) {
+	festPayload, err := communitym.MarshalPayload(communitym.FestivalRequestPayload{
+		Name:        "Negative Fest",
+		EditionYear: -5,
+		StartDate:   "2026-05-01",
+		EndDate:     "2026-05-03",
+	})
+	if err != nil {
+		t.Fatalf("marshal festival payload: %v", err)
+	}
+	decided := pendingRequest(24, "festival")
+	decided.Payload = &festPayload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateFestivalFn: func(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
+				t.Error("CreateFestival must NOT be called for a non-positive edition_year")
+				return nil, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "24"}
+	req.Body.Decision = "approved"
+	_, err = h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500)
+}
+
 // Fulfillment failure after claim surfaces a 500 (entity NOT created).
 func TestAdminDecide_ApproveFulfillFails(t *testing.T) {
 	decided := pendingRequest(8, "artist")

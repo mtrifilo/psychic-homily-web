@@ -264,8 +264,13 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 	t.Run("festival rejects impossible date", func(t *testing.T) {
 		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","start_date":"2026-13-99","end_date":"2026-01-03"}`)))
 	})
-	t.Run("festival rejects unsluggable name", func(t *testing.T) {
-		// Name slugifies to "" → empty series_slug; must be rejected.
-		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"!!!","start_date":"2026-01-01","end_date":"2026-01-03"}`)))
+	t.Run("festival rejects negative edition_year", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","edition_year":-5,"start_date":"2026-01-01","end_date":"2026-01-03"}`)))
+	})
+	t.Run("festival accepts non-Latin name", func(t *testing.T) {
+		// A name that slugifies to "" (non-ASCII) must NOT be rejected — the
+		// fulfiller tolerates an empty derived series_slug (same as the display
+		// slug), consistent with how artist/venue/label requests behave.
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"東京フェス","start_date":"2026-01-01","end_date":"2026-01-03"}`)))
 	})
 }

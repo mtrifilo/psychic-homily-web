@@ -308,9 +308,10 @@ function payloadPreviewEntries(payload: Record<string, unknown>): Array<[string,
 }
 
 // Entity types whose request payloads the backend can fulfill on approve
-// (PSY-1008). show/festival need associations the payload lacks, so their
-// fulfillment is deferred (PSY-998) — the card disables "Create" for them.
-const FULFILLABLE_REQUEST_TYPES = new Set(['artist', 'venue', 'label', 'release'])
+// (PSY-1008; festival added in PSY-998 — series_slug is derived from the name).
+// show still needs venue + artist associations the payload lacks, so its
+// fulfillment is deferred (a PSY-998 follow-up) — the card disables "Create".
+const FULFILLABLE_REQUEST_TYPES = new Set(['artist', 'venue', 'label', 'release', 'festival'])
 
 /** Returns url only when it's a safe http(s) link, else undefined (no link). */
 function safeHttpUrl(url: string | undefined): string | undefined {
@@ -426,8 +427,9 @@ function RequestCard({
           </div>
         )}
 
-        {/* show/festival can't be fulfilled from the payload yet (PSY-998) —
-            Create is disabled for them, but the admin can still reject. */}
+        {/* show can't be fulfilled from the payload yet (needs venue + artist
+            associations; a PSY-998 follow-up) — Create is disabled for it, but
+            the admin can still reject. */}
         {!canCreate && (
           <p className="mt-2 text-xs text-muted-foreground">
             {entityTypeLabel(request.entity_type)} requests must be created

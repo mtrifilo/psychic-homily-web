@@ -2,8 +2,9 @@ package community
 
 import (
 	"errors"
-	"strconv"
+	"fmt"
 	"strings"
+	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	apperrors "psychic-homily-backend/internal/errors"
@@ -15,7 +16,8 @@ import (
 // isFulfillUnsupported reports whether err is the typed "fulfillment
 // unsupported" error fulfillEntity returns for entity types whose catalog
 // Create contracts need associations the request payload doesn't carry
-// (show / festival; association-resolution tracked in PSY-998). Callers use it
+// (show — its Create needs venue + artist associations the payload lacks,
+// tracked as a PSY-998 follow-up; festival IS fulfilled). Callers use it
 // to decide whether the error is fatal: the admin decide path surfaces it (422
 // → admin creates the entity manually), while the auto-approve create path
 // swallows it (the request is filed-and-approved; immediate creation is just
@@ -168,22 +170,37 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 		return created.ID, nil
 
 	case communitym.EntityRequestFestival:
+		// Re-validate the stored payload before fulfilling. Festival became
+		// fulfillable (PSY-998) after rows could already have been queued under
+		// the looser PSY-997 rules, so fulfill is a second trust boundary: a
+		// malformed start/end date must surface as a 422 here, not a 500 when it
+		// hits the DATE column at INSERT. The sibling branches intentionally skip
+		// this — only festival parses a stored string (start_date) into a derived
+		// value, so only festival's second trust boundary is load-bearing.
+		if verr := communitym.ValidateEntityRequestPayload(req.EntityType, raw); verr != nil {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, verr)
+		}
 		p, err := communitym.UnmarshalPayload[communitym.FestivalRequestPayload](raw)
 		if err != nil {
 			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, err)
 		}
-		// Derive the two fields CreateFestival requires that the payload does
-		// not carry: series_slug (slugified from the name — a recurring series
-		// can be re-linked later via the festival edit endpoint) and a non-zero
-		// edition_year. The request schema doesn't require edition_year, so fall
-		// back to the start_date's calendar year (start_date is required and
-		// stored YYYY-MM-DD); leaving it 0 only if start_date can't be parsed.
+		// edition_year: use the payload value, else fall back to the start_date's
+		// calendar year (start_date is required and validated YYYY-MM-DD above,
+		// so the parse succeeds; TrimSpace mirrors requireDate's own trimming).
 		editionYear := p.EditionYear
 		if editionYear == 0 {
-			if y, perr := strconv.Atoi(strings.SplitN(p.StartDate, "-", 2)[0]); perr == nil {
-				editionYear = y
+			if t, perr := time.Parse("2006-01-02", strings.TrimSpace(p.StartDate)); perr == nil {
+				editionYear = t.Year()
 			}
 		}
+		if editionYear <= 0 {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, fmt.Errorf("festival edition_year must be positive"))
+		}
+		// series_slug is derived from the name (the payload carries no series). A
+		// name with no ASCII-alphanumeric characters slugifies to "" — the same
+		// result the festival's own display-slug derivation produces — which is
+		// acceptable on this rarely-hit path; an admin can re-link the series via
+		// the festival edit endpoint.
 		created, err := h.fulfiller.CreateFestival(&contracts.CreateFestivalRequest{
 			Name:         p.Name,
 			SeriesSlug:   utils.GenerateSlug(p.Name),

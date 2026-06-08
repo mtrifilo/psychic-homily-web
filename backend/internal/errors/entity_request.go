@@ -102,7 +102,9 @@ func ErrEntityRequestInvalidState(requestID uint, currentState string) *EntityRe
 }
 
 // ErrEntityRequestFulfillUnsupported creates an error when an approved request's
-// entity_type cannot be auto-created from its payload (show / festival). PSY-997.
+// entity_type cannot be auto-created from its payload (show — its Create needs
+// venue + artist associations the payload lacks; festival is fulfilled as of
+// PSY-998). PSY-997.
 func ErrEntityRequestFulfillUnsupported(entityType string) *EntityRequestError {
 	return &EntityRequestError{
 		Code:    CodeEntityRequestFulfillUnsupported,

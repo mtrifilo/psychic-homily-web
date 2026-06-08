@@ -6,8 +6,6 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"psychic-homily-backend/internal/utils"
 )
 
 // PSY-869: typed payload schemas for the polymorphic entity_requests table.
@@ -217,16 +215,15 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := requireField("festival", "name", p.Name); err != nil {
 			return err
 		}
-		// Fulfillment derives series_slug from the name (PSY-998); a name with
-		// no slug-able characters (e.g. all punctuation) would persist an empty
-		// series_slug, breaking the (series_slug, edition_year) uniqueness and
-		// series grouping. Reject it at the boundary instead.
-		if utils.GenerateSlug(p.Name) == "" {
-			return fmt.Errorf("festival payload: name must contain letters or numbers (it becomes the series_slug)")
+		// edition_year is optional (0 → derived from start_date at fulfill), but a
+		// negative value is never valid — reject it at the boundary (422) instead
+		// of letting the fulfiller surface it as a server-side 500.
+		if p.EditionYear < 0 {
+			return fmt.Errorf("festival payload: edition_year must not be negative")
 		}
 		// start_date/end_date feed a DATE column, and start_date drives the
-		// derived edition_year — reject a malformed date here (422) rather than
-		// letting it fail at INSERT or silently yield edition_year 0 (500).
+		// derived edition_year (PSY-998) — reject a malformed date here (422)
+		// rather than letting it fail at INSERT or yield a wrong edition_year.
 		if err := requireDate("festival", "start_date", p.StartDate); err != nil {
 			return err
 		}
