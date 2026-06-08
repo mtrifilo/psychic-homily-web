@@ -331,6 +331,11 @@ export const queryKeys = {
     genreHierarchy: ['tags', 'hierarchy', 'genre'] as const,
     entityTags: (entityType: string, entityId: number) => ['tags', 'entityTags', entityType, entityId] as const,
     tagEntities: (idOrSlug: string | number, params?: Record<string, unknown>) => ['tags', 'tagEntities', String(idOrSlug), params] as const,
+    // Cross-entity tag intersection (PSY-995 / PSY-993 detail sections). Keyed on
+    // the normalized (sorted) slug set + match so shoegaze,ambient and
+    // ambient,shoegaze share a cache entry (intersection is symmetric).
+    intersection: (slugs: string[], match: string, previewLimit?: number) =>
+      ['tags', 'intersection', [...slugs].sort().join(','), match, previewLimit ?? null] as const,
   },
 
   // Attendance (going/interested) queries

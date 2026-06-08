@@ -19,6 +19,7 @@ import type {
   EntityTagsResponse,
   EntityTag,
   TagEntitiesResponse,
+  TagIntersectionResponse,
 } from '../types'
 
 // ──────────────────────────────────────────────
@@ -158,6 +159,40 @@ export function useTagEntities(
     queryKey: queryKeys.tags.tagEntities(idOrSlug, params as Record<string, unknown> | undefined),
     queryFn: () => apiRequest<TagEntitiesResponse>(url),
     enabled: options?.enabled ?? true,
+    staleTime: 5 * 60 * 1000,
+    placeholderData: keepPreviousData,
+  })
+}
+
+/**
+ * Fetch the cross-entity tag intersection (PSY-995). Powers the rebuilt
+ * /tags/{slug} detail page's grouped sections — one tag for the single-tag
+ * detail, 2+ for the "+ add a tag" pivot. Returns per-type groups (count +
+ * preview) so each section renders its top-N dense rows + a "show all N" link.
+ *
+ * `enabled` gates the request: the detail page passes `enabled` only once the
+ * tag's slug is known and usage_count > 0, so a brand-new / unused tag doesn't
+ * fire an intersection query that would 400 (unknown slug) or return all zeros.
+ */
+export function useTagIntersection(
+  slugs: string[],
+  params?: { tagMatch?: 'all' | 'any'; previewLimit?: number },
+  options?: { enabled?: boolean }
+) {
+  const tagMatch = params?.tagMatch ?? 'all'
+  const previewLimit = params?.previewLimit
+
+  const searchParams = new URLSearchParams()
+  searchParams.set('tags', slugs.join(','))
+  if (tagMatch !== 'all') searchParams.set('tag_match', tagMatch)
+  if (previewLimit) searchParams.set('preview_limit', String(previewLimit))
+
+  const url = `${API_ENDPOINTS.TAGS.INTERSECTION}?${searchParams.toString()}`
+
+  return useQuery({
+    queryKey: queryKeys.tags.intersection(slugs, tagMatch, previewLimit),
+    queryFn: () => apiRequest<TagIntersectionResponse>(url),
+    enabled: (options?.enabled ?? true) && slugs.length > 0,
     staleTime: 5 * 60 * 1000,
     placeholderData: keepPreviousData,
   })

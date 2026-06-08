@@ -1,96 +1,35 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { ArrowLeft, Hash, Loader2, Library, Music, MapPin, Calendar, Disc3, Tag, Tent, Clock } from 'lucide-react'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { ArrowLeft, Hash, Loader2, X } from 'lucide-react'
 import { NotifyMeButton } from '@/features/notifications'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Breadcrumb } from '@/components/shared'
 import { formatRelativeTime } from '@/lib/formatRelativeTime'
-import { useTagDetail, useTagEntities } from '../hooks'
-import { getCategoryColor, getCategoryLabel, getEntityTypePluralLabel } from '../types'
-import type { TaggedEntityItem, TagSummary } from '../types'
+import { useTagDetail, useTagIntersection, useSearchTags } from '../hooks'
+import {
+  getCategoryColor,
+  getCategoryLabel,
+  getTagSectionLabel,
+  getTagSectionBrowseUrl,
+  TAG_DETAIL_SECTION_ORDER,
+} from '../types'
+import type { TagIntersectionGroup, TagSummary } from '../types'
 import { TagOfficialIndicator } from './TagOfficialIndicator'
-import { TaggedEntityCard } from './TaggedEntityCards'
+import { TaggedEntityRow } from './TaggedEntityCards'
 
 interface TagDetailProps {
   slug: string
 }
 
-/**
- * Entity type display order — genre tags use parent/children nav; others are flat.
- *
- * PSY-553: collections (PSY-354) appear after the existing entity-type tabs
- * because they're a meta-type — a collection-of-entities, not a primary
- * entity. Tabs whose count is zero are filtered out below, so the Collections
- * tab is hidden until at least one tagged collection is public.
- */
-const ENTITY_TYPE_ORDER = [
-  'artist',
-  'venue',
-  'show',
-  'release',
-  'label',
-  'festival',
-  'collection',
-] as const
-
-const ENTITY_TYPE_ICONS: Record<string, React.ComponentType<{ className?: string }>> = {
-  artist: Music,
-  venue: MapPin,
-  show: Calendar,
-  release: Disc3,
-  label: Tag,
-  festival: Tent,
-  collection: Library,
-}
-
-/** Singular display label for entity types used in the breakdown row. */
-function getEntityTypeSingularLabel(entityType: string): string {
-  switch (entityType) {
-    case 'artist':
-      return 'artist'
-    case 'venue':
-      return 'venue'
-    case 'show':
-      return 'show'
-    case 'release':
-      return 'release'
-    case 'label':
-      return 'label'
-    case 'festival':
-      return 'festival'
-    case 'collection':
-      return 'collection'
-    default:
-      return entityType
-  }
-}
+/** Per-type preview size (rows shown before the "Show all" link). */
+const SECTION_PREVIEW_LIMIT = 5
 
 export function TagDetail({ slug }: TagDetailProps) {
   const { data: tag, isLoading, error } = useTagDetail(slug)
-
-  // Usage breakdown: only show non-zero counts. We pad with zeros on the backend
-  // so the object always has all keys, but displaying zero counts is noise.
-  // NOTE: hook must be called unconditionally, above the early returns below.
-  // Guard the logic inside rather than the hook call.
-  const breakdownEntries = useMemo(() => {
-    if (!tag) return []
-    return ENTITY_TYPE_ORDER
-      .map((type) => ({ type, count: tag.usage_breakdown?.[type] ?? 0 }))
-      .filter((e) => e.count > 0)
-  }, [tag])
-
-  // Top contributors: hide anonymous contributors (no username). Rendering
-  // `user #{id}` leaks an internal DB row id and reads like placeholder content
-  // (PSY-450). Contributors without a public username haven't opted in to
-  // public attribution anyway.
-  const visibleContributors = useMemo(() => {
-    if (!tag?.top_contributors) return []
-    return tag.top_contributors.filter((c) => Boolean(c.user.username))
-  }, [tag])
 
   if (isLoading) {
     return (
@@ -147,364 +86,532 @@ export function TagDetail({ slug }: TagDetailProps) {
     )
   }
 
-  // Only genre tags participate in the parent/children hierarchy; other
-  // categories are flat per the tag system design doc.
-  const isGenre = tag.category === 'genre'
-  const hasParent = isGenre && Boolean(tag.parent)
-  const hasChildren = isGenre && tag.children && tag.children.length > 0
+  return <TagDetailContent slug={slug} tag={tag} />
+}
 
-  // Build the parent breadcrumb chain. The detail endpoint exposes only the
-  // direct parent (not the full ancestor chain) — see backend `GetTagDetail`
-  // — so we render at most one intermediate crumb. If we ever expose
-  // ancestors[] we can map them here without changing the Breadcrumb API.
-  // Non-genre categories don't participate in the hierarchy, so skip the
-  // intermediate crumb even if a stray parent_id were ever present.
+// ──────────────────────────────────────────────
+// Loaded content — split out so hooks below can run unconditionally once the
+// tag has resolved (the loading/error/!tag early returns live in TagDetail).
+// ──────────────────────────────────────────────
+
+function TagDetailContent({
+  slug,
+  tag,
+}: {
+  slug: string
+  tag: NonNullable<ReturnType<typeof useTagDetail>['data']>
+}) {
+  const router = useRouter()
+  const searchParams = useSearchParams()
+
+  // Added-tag pivot state lives in the URL (?with=slug,…) so it's shareable and
+  // degrades to the single-tag detail when dropped (PSY-995 decision #5). The
+  // page's own slug is always the first tag of the intersection.
+  const addedSlugs = useMemo(() => {
+    const raw = searchParams.get('with')
+    if (!raw) return []
+    return raw
+      .split(',')
+      .map((s) => s.trim().toLowerCase())
+      .filter((s) => s && s !== slug)
+  }, [searchParams, slug])
+
+  const intersectionSlugs = useMemo(
+    () => [slug, ...addedSlugs],
+    [slug, addedSlugs]
+  )
+  const isFiltering = addedSlugs.length > 0
+
+  const setAddedSlugs = useCallback(
+    (next: string[]) => {
+      const params = new URLSearchParams(searchParams.toString())
+      if (next.length > 0) params.set('with', next.join(','))
+      else params.delete('with')
+      const qs = params.toString()
+      router.replace(qs ? `/tags/${slug}?${qs}` : `/tags/${slug}`, {
+        scroll: false,
+      })
+    },
+    [router, searchParams, slug]
+  )
+
+  const { data: intersection, isLoading: groupsLoading } = useTagIntersection(
+    intersectionSlugs,
+    { previewLimit: SECTION_PREVIEW_LIMIT },
+    // Don't fire for a brand-new / unused tag with no entities — its sections
+    // would all be empty and the endpoint resolves the slug anyway.
+    { enabled: tag.usage_count > 0 }
+  )
+
+  // Reorder the backend's canonical groups into the design's fixed display
+  // order, dropping zero-count sections (empty-suppression).
+  const sections = useMemo(() => {
+    const byType = new Map<string, TagIntersectionGroup>()
+    for (const g of intersection?.groups ?? []) byType.set(g.entity_type, g)
+    return TAG_DETAIL_SECTION_ORDER.map((t) => byType.get(t)).filter(
+      (g): g is TagIntersectionGroup => Boolean(g && g.count > 0)
+    )
+  }, [intersection])
+
+  // Sparse = exactly one non-empty section with a single item, and no active
+  // pivot. Matches Figma frame 437:7 (a 1-use tag).
+  const isSparse =
+    !isFiltering &&
+    sections.length === 1 &&
+    sections[0].count === 1 &&
+    !groupsLoading
+
+  // Only genre tags participate in the parent/children hierarchy.
+  const isGenre = tag.category === 'genre'
   const parentCrumbs =
     isGenre && tag.parent
-      ? [{ href: `/tags/${tag.parent.slug || tag.parent.id}`, label: tag.parent.name }]
+      ? [
+          {
+            href: `/tags/${tag.parent.slug || tag.parent.id}`,
+            label: tag.parent.name,
+          },
+        ]
       : undefined
+
+  const creatorHandle = tag.created_by?.username || tag.created_by_username
 
   return (
     <div className="container max-w-4xl mx-auto px-4 py-6">
-      {/* Breadcrumb Navigation */}
       <Breadcrumb
         fallback={{ href: '/tags', label: 'Tags' }}
         intermediate={parentCrumbs}
         currentPage={tag.name}
       />
 
-      {/* Header */}
-      <header className="mb-8">
-        <div className="flex items-start gap-4">
-          <div
-            className={cn(
-              'mt-1 flex h-12 w-12 shrink-0 items-center justify-center rounded-lg border',
-              getCategoryColor(tag.category)
+      {/* ── Thin metadata band ───────────────────────────────────────────
+          Title + category chip + actions lead; meta (uses · creator · added)
+          and description are DEMOTED below, not the focus. */}
+      <header className="mb-8 mt-2" data-testid="tag-header">
+        <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0">
+            <Hash className="h-6 w-6 shrink-0 text-muted-foreground" aria-hidden />
+            <h1 className="text-3xl font-bold tracking-tight min-w-0 break-words">
+              {tag.name}
+            </h1>
+            <span
+              className={cn(
+                'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
+                getCategoryColor(tag.category)
+              )}
+            >
+              {getCategoryLabel(tag.category)}
+            </span>
+            {tag.is_official && (
+              <TagOfficialIndicator size="md" tagName={tag.name} />
             )}
-          >
-            <Hash className="h-6 w-6" />
           </div>
-          <div className="min-w-0 flex-1">
-            {/* ISSUE-003 (dogfood tags-audit-4): at 375px the h1 + Official
-                badge + NotifyMeButton cluster was clipped ~31px off-screen.
-                flex-wrap + min-w-0 lets the NotifyMeButton break to a new
-                row below the title on narrow viewports; desktop (>=sm)
-                keeps the single-row layout. Same pattern as PSY-467. */}
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-2 min-w-0 mb-1">
-              <h1 className="text-3xl font-bold tracking-tight min-w-0 break-words">{tag.name}</h1>
-              {tag.is_official && (
-                <TagOfficialIndicator size="md" tagName={tag.name} />
-              )}
-              <NotifyMeButton entityType="tag" entityId={tag.id} entityName={tag.name} />
-            </div>
 
-            <div className="flex flex-wrap items-center gap-x-3 gap-y-1 mb-4">
-              <span
-                className={cn(
-                  'inline-flex items-center rounded-full border px-2.5 py-0.5 text-xs font-medium',
-                  getCategoryColor(tag.category)
-                )}
-              >
-                {getCategoryLabel(tag.category)}
-              </span>
-              <span className="text-sm text-muted-foreground">
-                {tag.usage_count} {tag.usage_count === 1 ? 'use' : 'uses'}
-              </span>
-              {(tag.created_by?.username || tag.created_by_username) && (
-                <>
-                  <span className="text-muted-foreground/40">{'·'}</span>
-                  <span className="text-sm text-muted-foreground">
-                    Created by{' '}
-                    <Link
-                      href={`/users/${tag.created_by?.username || tag.created_by_username}`}
-                      className="hover:underline"
-                    >
-                      @{tag.created_by?.username || tag.created_by_username}
-                    </Link>
-                  </span>
-                </>
-              )}
-              {tag.created_at && (
-                <>
-                  <span className="text-muted-foreground/40">{'·'}</span>
-                  <span className="inline-flex items-center gap-1 text-sm text-muted-foreground">
-                    <Clock className="h-3 w-3" />
-                    {formatRelativeTime(tag.created_at)}
-                  </span>
-                </>
-              )}
-            </div>
-
-            {/* Usage breakdown summary row: "15 artists · 0 venues · 3 releases" */}
-            {breakdownEntries.length > 0 && (
-              <div
-                className="flex flex-wrap items-center gap-x-2 gap-y-1 mb-4 text-sm text-muted-foreground"
-                data-testid="usage-breakdown-summary"
-              >
-                {breakdownEntries.map((entry, idx) => (
-                  <span key={entry.type} className="inline-flex items-center gap-1">
-                    {idx > 0 && <span className="text-muted-foreground/40">{'·'}</span>}
-                    <span className="font-medium text-foreground">{entry.count}</span>
-                    <span>
-                      {entry.count === 1
-                        ? getEntityTypeSingularLabel(entry.type)
-                        : getEntityTypePluralLabel(entry.type).toLowerCase()}
-                    </span>
-                  </span>
-                ))}
-              </div>
-            )}
-
-            {/* Description: rendered markdown (goldmark + bluemonday via backend). */}
-            {tag.description_html ? (
-              <div
-                className="prose prose-sm dark:prose-invert max-w-2xl text-muted-foreground"
-                data-testid="tag-description"
-                dangerouslySetInnerHTML={{ __html: tag.description_html }}
-              />
-            ) : tag.description ? (
-              <p className="text-muted-foreground whitespace-pre-line max-w-2xl">
-                {tag.description}
-              </p>
-            ) : null}
+          <div className="flex shrink-0 items-center gap-2">
+            <NotifyMeButton
+              entityType="tag"
+              entityId={tag.id}
+              entityName={tag.name}
+            />
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/shows?tags=${slug}`}>Filter shows</Link>
+            </Button>
           </div>
         </div>
+
+        {/* Demoted one-line meta. */}
+        <div className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 font-mono text-xs text-muted-foreground">
+          <span>
+            {tag.usage_count} {tag.usage_count === 1 ? 'use' : 'uses'}
+          </span>
+          {creatorHandle && (
+            <>
+              <span className="text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <span>
+                created by{' '}
+                <Link
+                  href={`/users/${creatorHandle}`}
+                  className="hover:underline"
+                >
+                  @{creatorHandle}
+                </Link>
+              </span>
+            </>
+          )}
+          {tag.created_at && (
+            <>
+              <span className="text-muted-foreground/40" aria-hidden>
+                ·
+              </span>
+              <span>added {formatRelativeTime(tag.created_at)}</span>
+            </>
+          )}
+        </div>
+
+        {/* Optional description. */}
+        {tag.description_html ? (
+          <div
+            className="prose prose-sm dark:prose-invert max-w-2xl text-muted-foreground mt-3"
+            data-testid="tag-description"
+            dangerouslySetInnerHTML={{ __html: tag.description_html }}
+          />
+        ) : tag.description ? (
+          <p className="text-muted-foreground whitespace-pre-line max-w-2xl mt-3">
+            {tag.description}
+          </p>
+        ) : null}
       </header>
 
-      {/* Parent / Children hierarchy — genre tags only */}
-      {(hasParent || hasChildren) && (
-        <section
-          className="mb-8 rounded-lg border border-border/50 p-4 space-y-3"
-          data-testid="tag-hierarchy"
-        >
-          {hasParent && tag.parent && (
-            <HierarchyRow label="Parent">
-              <TagPill tag={tag.parent} />
-            </HierarchyRow>
-          )}
-          {hasChildren && (
-            <HierarchyRow label={`Children (${tag.children.length})`}>
-              <div className="flex flex-wrap gap-2">
-                {tag.children.map((c) => (
-                  <TagPill key={c.id} tag={c} />
-                ))}
-              </div>
-            </HierarchyRow>
-          )}
-        </section>
+      {/* Active-pivot chip row: shows the added tags + a clear control. */}
+      {isFiltering && intersection && (
+        <ActiveFilterBar
+          baseTag={{ slug, name: tag.name }}
+          addedTags={intersection.tags.filter((t) => t.slug !== slug)}
+          onRemove={(removeSlug) =>
+            setAddedSlugs(addedSlugs.filter((s) => s !== removeSlug))
+          }
+          onClear={() => setAddedSlugs([])}
+        />
       )}
 
-      {/* Metadata cards: aliases. Parent/children moved to the hierarchy row above. */}
-      {tag.aliases && tag.aliases.length > 0 && (
-        <div className="mb-8">
-          <div className="rounded-lg border border-border/50 p-4">
-            <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-              Also known as
-            </h2>
-            <div className="flex flex-wrap gap-2">
-              {tag.aliases.map((alias: string) => (
-                <span
-                  key={alias}
-                  className="inline-flex items-center rounded-full bg-muted px-2.5 py-0.5 text-xs font-medium text-muted-foreground border border-border/50"
-                >
-                  {alias}
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* Top contributors — anonymous contributors (no username) are hidden;
-          see PSY-450. If every contributor is anonymous, the section is hidden
-          entirely rather than showing an empty header. */}
-      {visibleContributors.length > 0 && (
-        <section className="mb-8" data-testid="top-contributors">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Top contributors
-          </h2>
-          <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-            {visibleContributors.map((c, idx) => {
-              const handle = c.user.username as string
-              return (
-                <span key={c.user.id} className="inline-flex items-center gap-1">
-                  {idx > 0 && <span className="text-muted-foreground/40">{'·'}</span>}
-                  <Link
-                    href={`/users/${handle}`}
-                    className="text-foreground hover:underline"
-                  >
-                    @{handle}
-                  </Link>
-                  <span className="text-muted-foreground">({c.count})</span>
-                </span>
-              )
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Related tags pill row */}
-      {tag.related_tags && tag.related_tags.length > 0 && (
-        <section className="mb-8" data-testid="related-tags">
-          <h2 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-            Related tags
-          </h2>
-          <div className="flex flex-wrap gap-2">
-            {tag.related_tags.map((t) => (
-              <TagPill key={t.id} tag={t} />
-            ))}
-          </div>
-        </section>
-      )}
-
-      {/* Usage Stats + Tagged Entities — preserved from the original layout */}
-      {tag.usage_count > 0 && (
-        <TaggedEntitiesSection slug={slug} />
-      )}
-    </div>
-  )
-}
-
-// ──────────────────────────────────────────────
-// Small presentational helpers
-// ──────────────────────────────────────────────
-
-function HierarchyRow({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="text-xs font-semibold text-muted-foreground uppercase tracking-wider min-w-[72px] mt-1.5">
-        {label}
-      </span>
-      <div className="flex-1">{children}</div>
-    </div>
-  )
-}
-
-function TagPill({ tag }: { tag: TagSummary }) {
-  return (
-    <Link
-      href={`/tags/${tag.slug || tag.id}`}
-      className={cn(
-        'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted/50',
-        getCategoryColor(tag.category)
-      )}
-    >
-      <Hash className="h-3.5 w-3.5 opacity-70" />
-      {tag.name}
-      {tag.is_official && (
-        <span className="text-[10px] font-medium uppercase tracking-wider opacity-70">
-          official
-        </span>
-      )}
-    </Link>
-  )
-}
-
-// ──────────────────────────────────────────────
-// Tagged entities section (PSY-485 — tabs + entity cards)
-// ──────────────────────────────────────────────
-
-function TaggedEntitiesSection({ slug }: { slug: string }) {
-  const { data, isLoading } = useTagEntities(slug, { limit: 200 })
-
-  const entities = data?.entities
-  const grouped = useMemo(() => {
-    if (!entities) return {}
-    const groups: Record<string, TaggedEntityItem[]> = {}
-    for (const entity of entities) {
-      if (!groups[entity.entity_type]) {
-        groups[entity.entity_type] = []
-      }
-      groups[entity.entity_type].push(entity)
-    }
-    return groups
-  }, [entities])
-
-  // Hide entity types with zero items so a genre-only tag doesn't render an
-  // empty Festivals tab (PSY-485 acceptance criterion).
-  const sortedTypes = useMemo(() => {
-    return ENTITY_TYPE_ORDER.filter((t) => grouped[t]?.length)
-  }, [grouped])
-
-  // Default the active tab to the first non-empty entity type. We can't
-  // recompute this in render because Radix Tabs is a controlled component —
-  // need a real piece of state. The state is initialised lazily so it picks
-  // up the first available type once entities load.
-  const [activeTab, setActiveTab] = useState<string | undefined>(undefined)
-  const effectiveTab =
-    activeTab && sortedTypes.includes(activeTab as (typeof sortedTypes)[number])
-      ? activeTab
-      : sortedTypes[0]
-
-  if (isLoading) {
-    return (
-      <section className="border-t border-border/50 pt-6">
-        <div className="flex items-center justify-center py-8">
+      {/* ── Co-visible entity-type sections ─────────────────────────────── */}
+      {groupsLoading ? (
+        <div className="flex items-center justify-center py-12">
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         </div>
+      ) : sections.length > 0 ? (
+        <div className="space-y-8" data-testid="tag-sections">
+          {sections.map((group) => (
+            <EntitySection
+              key={group.entity_type}
+              group={group}
+              slugs={intersectionSlugs}
+            />
+          ))}
+        </div>
+      ) : (
+        <EmptyIntersectionState isFiltering={isFiltering} tagName={tag.name} />
+      )}
+
+      {/* "Help grow this tag" CTA for sparse single-item tags (frame 437:7). */}
+      {isSparse && <HelpGrowCta tagName={tag.name} />}
+
+      {/* ── Related tags rail + add-a-tag pivot ─────────────────────────── */}
+      <RelatedTagsRail
+        relatedTags={tag.related_tags ?? []}
+        activeSlugs={intersectionSlugs}
+        onAddTag={(addSlug) => {
+          const normalized = addSlug.toLowerCase()
+          // Guard against re-adding an already-active tag (would write a
+          // `?with=ambient,ambient` URL). The backend dedupes anyway, but a
+          // clean URL keeps the chip UI honest.
+          if (normalized === slug || addedSlugs.includes(normalized)) return
+          setAddedSlugs([...addedSlugs, normalized])
+        }}
+      />
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Entity-type section
+// ──────────────────────────────────────────────
+
+function EntitySection({
+  group,
+  slugs,
+}: {
+  group: TagIntersectionGroup
+  slugs: string[]
+}) {
+  const label = getTagSectionLabel(group.entity_type)
+  const showAllUrl = getTagSectionBrowseUrl(group.entity_type, slugs)
+
+  return (
+    <section data-testid={`tag-section-${group.entity_type}`}>
+      <div className="mb-1 flex items-baseline justify-between gap-3">
+        <h2 className="flex items-baseline gap-2 text-lg font-semibold">
+          {label}
+          <span className="font-mono text-sm font-normal text-muted-foreground tabular-nums">
+            {group.count}
+          </span>
+        </h2>
+        {showAllUrl && (
+          <Link
+            href={showAllUrl}
+            className="shrink-0 text-sm font-medium text-primary hover:underline"
+            data-testid={`tag-section-showall-${group.entity_type}`}
+          >
+            Show all {group.count} &rarr;
+          </Link>
+        )}
+      </div>
+      <div>
+        {group.preview.map((item) => (
+          <TaggedEntityRow
+            key={`${item.entity_type}-${item.entity_id}`}
+            item={item}
+          />
+        ))}
+      </div>
+    </section>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Active-filter bar (pivot chips)
+// ──────────────────────────────────────────────
+
+function ActiveFilterBar({
+  baseTag,
+  addedTags,
+  onRemove,
+  onClear,
+}: {
+  baseTag: { slug: string; name: string }
+  addedTags: TagSummary[]
+  onRemove: (slug: string) => void
+  onClear: () => void
+}) {
+  return (
+    <div
+      className="mb-6 flex flex-wrap items-center gap-2 rounded-lg border border-border/50 bg-muted/20 p-3"
+      data-testid="active-filter-bar"
+    >
+      <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Filtering by
+      </span>
+      <span className="inline-flex items-center gap-1 rounded-md border border-border bg-background px-2 py-0.5 text-sm">
+        <Hash className="h-3 w-3 opacity-60" aria-hidden />
+        {baseTag.name}
+      </span>
+      {addedTags.map((t) => (
+        <span
+          key={t.slug}
+          className="inline-flex items-center gap-1 rounded-md border border-primary/40 bg-primary/5 px-2 py-0.5 text-sm"
+        >
+          <Hash className="h-3 w-3 opacity-60" aria-hidden />
+          {t.name}
+          <button
+            type="button"
+            onClick={() => onRemove(t.slug)}
+            className="ml-0.5 rounded-sm text-muted-foreground hover:text-foreground"
+            aria-label={`Remove ${t.name} filter`}
+          >
+            <X className="h-3 w-3" />
+          </button>
+        </span>
+      ))}
+      <button
+        type="button"
+        onClick={onClear}
+        className="ml-1 text-xs text-muted-foreground hover:text-foreground hover:underline"
+      >
+        Clear
+      </button>
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────
+// Related-tags rail + "+ add another tag to filter" pivot
+// ──────────────────────────────────────────────
+
+function RelatedTagsRail({
+  relatedTags,
+  activeSlugs,
+  onAddTag,
+}: {
+  relatedTags: TagSummary[]
+  activeSlugs: string[]
+  onAddTag: (slug: string) => void
+}) {
+  const [adding, setAdding] = useState(false)
+
+  // Related tags already in the active intersection are not offerable.
+  const offerable = relatedTags.filter((t) => !activeSlugs.includes(t.slug))
+
+  if (offerable.length === 0 && !adding) {
+    // Nothing to suggest and the picker is closed — still expose the pivot so
+    // the user can search for any tag to intersect.
+    return (
+      <section
+        className="mt-12 border-t border-border/50 pt-6"
+        data-testid="related-tags"
+      >
+        <AddTagPivot
+          activeSlugs={activeSlugs}
+          onAddTag={onAddTag}
+          open={adding}
+          setOpen={setAdding}
+        />
       </section>
     )
   }
 
-  if (sortedTypes.length === 0) {
-    return null
+  return (
+    <section
+      className="mt-12 border-t border-border/50 pt-6"
+      data-testid="related-tags"
+    >
+      <h2 className="mb-2 text-xs font-semibold uppercase tracking-wider text-muted-foreground">
+        Related tags
+      </h2>
+      <div className="flex flex-wrap items-center gap-2">
+        {offerable.map((t) => (
+          <button
+            key={t.slug}
+            type="button"
+            onClick={() => onAddTag(t.slug)}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm transition-colors hover:bg-muted/50',
+              getCategoryColor(t.category)
+            )}
+            data-testid={`related-tag-${t.slug}`}
+          >
+            <Hash className="h-3.5 w-3.5 opacity-70" aria-hidden />
+            {t.name}
+          </button>
+        ))}
+        <AddTagPivot
+          activeSlugs={activeSlugs}
+          onAddTag={onAddTag}
+          open={adding}
+          setOpen={setAdding}
+        />
+      </div>
+    </section>
+  )
+}
+
+/**
+ * The "+ add another tag to filter" control. Closed = an orange-bordered button;
+ * open = a small search-as-you-type picker over the tag corpus. Selecting a tag
+ * narrows the page in place (the parent re-queries the intersection).
+ */
+function AddTagPivot({
+  activeSlugs,
+  onAddTag,
+  open,
+  setOpen,
+}: {
+  activeSlugs: string[]
+  onAddTag: (slug: string) => void
+  open: boolean
+  setOpen: (open: boolean) => void
+}) {
+  const [query, setQuery] = useState('')
+  const { data: results, isLoading } = useSearchTags(query.trim(), 8)
+
+  const matches = (results?.tags ?? []).filter(
+    (t) => !activeSlugs.includes(t.slug)
+  )
+
+  if (!open) {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        className="inline-flex items-center gap-1.5 rounded-md border border-primary/50 px-3 py-1.5 text-sm font-medium text-primary transition-colors hover:bg-primary/5"
+        data-testid="add-tag-pivot-trigger"
+      >
+        + add another tag to filter
+      </button>
+    )
   }
 
   return (
-    <section className="border-t border-border/50 pt-6" data-testid="tagged-entities">
-      <h2 className="text-lg font-semibold mb-4">Tagged Entities</h2>
-
-      <Tabs
-        value={effectiveTab}
-        onValueChange={setActiveTab}
-        className="w-full"
-      >
-        {/* Tabs are scrollable on narrow viewports — six entity types of
-            "Artists/Shows/Venues/..." would push past 375px otherwise. */}
-        <div className="overflow-x-auto -mx-4 px-4 sm:mx-0 sm:px-0">
-          <TabsList className="h-auto flex flex-wrap gap-1 bg-muted/40 p-1">
-            {sortedTypes.map((entityType) => {
-              const count = grouped[entityType].length
-              const Icon = ENTITY_TYPE_ICONS[entityType] || Hash
-              return (
-                <TabsTrigger
-                  key={entityType}
-                  value={entityType}
-                  data-testid={`tagged-entities-tab-${entityType}`}
-                  className="gap-1.5"
+    <div className="relative w-full max-w-xs" data-testid="add-tag-pivot-picker">
+      <input
+        autoFocus
+        type="search"
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onBlur={() => {
+          // Defer close so an option click registers first.
+          window.setTimeout(() => setOpen(false), 150)
+        }}
+        placeholder="Search tags to filter…"
+        aria-label="Search tags to filter"
+        className="w-full rounded-md border border-border bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+      />
+      {query.trim().length >= 2 && (
+        <ul className="absolute z-10 mt-1 max-h-56 w-full overflow-auto rounded-md border border-border bg-popover py-1 shadow-md">
+          {isLoading ? (
+            <li className="px-3 py-2 text-sm text-muted-foreground">
+              Searching…
+            </li>
+          ) : matches.length === 0 ? (
+            <li className="px-3 py-2 text-sm text-muted-foreground">
+              No matching tags
+            </li>
+          ) : (
+            matches.map((t) => (
+              <li key={t.slug}>
+                <button
+                  type="button"
+                  // onMouseDown (not onClick) so it fires before the input's
+                  // onBlur close.
+                  onMouseDown={(e) => {
+                    e.preventDefault()
+                    onAddTag(t.slug)
+                    setQuery('')
+                    setOpen(false)
+                  }}
+                  className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm hover:bg-muted/60"
                 >
-                  <Icon className="h-3.5 w-3.5" />
-                  <span>{getEntityTypePluralLabel(entityType)}</span>
-                  <span className="text-xs text-muted-foreground tabular-nums">
-                    {count}
-                  </span>
-                </TabsTrigger>
-              )
-            })}
-          </TabsList>
-        </div>
+                  <Hash className="h-3.5 w-3.5 opacity-60" aria-hidden />
+                  {t.name}
+                </button>
+              </li>
+            ))
+          )}
+        </ul>
+      )}
+    </div>
+  )
+}
 
-        {sortedTypes.map((entityType) => {
-          const entities = grouped[entityType]
-          return (
-            <TabsContent
-              key={entityType}
-              value={entityType}
-              data-testid={`tagged-entities-panel-${entityType}`}
-              className="mt-4"
-            >
-              <div className="grid gap-3">
-                {entities.map((entity) => (
-                  <TaggedEntityCard
-                    key={`${entity.entity_type}-${entity.entity_id}`}
-                    item={entity}
-                  />
-                ))}
-              </div>
-            </TabsContent>
-          )
-        })}
-      </Tabs>
+// ──────────────────────────────────────────────
+// Empty / sparse states
+// ──────────────────────────────────────────────
+
+function EmptyIntersectionState({
+  isFiltering,
+  tagName,
+}: {
+  isFiltering: boolean
+  tagName: string
+}) {
+  return (
+    <div
+      className="rounded-lg border border-border/50 bg-muted/20 p-6 text-center"
+      data-testid="empty-intersection-state"
+    >
+      <p className="text-muted-foreground">
+        {isFiltering
+          ? 'No entities match all of the selected tags.'
+          : `Nothing is tagged ${tagName} yet.`}
+      </p>
+    </div>
+  )
+}
+
+function HelpGrowCta({ tagName }: { tagName: string }) {
+  return (
+    <section
+      className="mt-8 rounded-lg border border-border/50 bg-muted/20 p-4"
+      data-testid="help-grow-cta"
+    >
+      <h2 className="font-semibold">Help grow this tag</h2>
+      <p className="mt-1 text-sm text-muted-foreground">
+        Be the first to tag a release, show, or venue with {tagName} — it takes
+        seconds.
+      </p>
+      <Button asChild size="sm" className="mt-3">
+        <Link href="/shows/submit">Suggest something &rarr;</Link>
+      </Button>
     </section>
   )
 }

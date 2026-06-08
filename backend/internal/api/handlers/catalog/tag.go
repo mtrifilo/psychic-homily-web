@@ -156,7 +156,15 @@ func (h *TagHandler) GetTagDetailHandler(ctx context.Context, req *GetTagDetailR
 // ============================================================================
 
 const (
-	intersectionMinTags = 2
+	// intersectionMinTags = 1: a single tag is a degenerate "intersection" of
+	// one set (its own matches). PSY-993's rebuilt /tags/{slug} detail page
+	// renders its grouped sections from this same endpoint with one tag, then
+	// the "+ add another tag" pivot re-queries with 2+. Serving both through one
+	// path means single-tag sections inherit the transitive show/festival
+	// matching + per-type default sort + public gates for free, instead of
+	// duplicating that logic in GetTagEntities (which is direct-only and would
+	// render an empty Upcoming-shows section).
+	intersectionMinTags = 1
 	// intersectionMaxTags bounds the fan-out of a single request: every tag
 	// adds a term to the per-group entity_tags self-joins across all 7 entity
 	// types, and this endpoint is public + unauthenticated. Cap mirrors the
@@ -165,7 +173,7 @@ const (
 )
 
 type GetTagIntersectionRequest struct {
-	Tags         string `query:"tags" maxLength:"200" doc:"Comma-separated tag slugs (2-10)" example:"shoegaze,ambient"`
+	Tags         string `query:"tags" maxLength:"200" doc:"Comma-separated tag slugs (1-10)" example:"shoegaze,ambient"`
 	TagMatch     string `query:"tag_match" required:"false" doc:"all (AND, default) | any (OR)" example:"all"`
 	PreviewLimit int    `query:"preview_limit" required:"false" minimum:"1" maximum:"12" doc:"Per-type preview size (default 4, max 12)" example:"4"`
 }

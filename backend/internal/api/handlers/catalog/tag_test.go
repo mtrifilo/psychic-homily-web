@@ -90,17 +90,35 @@ func TestListTagEntities_ServiceError(t *testing.T) {
 // GetTagIntersectionHandler (PSY-995)
 // ============================================================================
 
-func TestGetTagIntersection_FewerThanTwoTags(t *testing.T) {
+func TestGetTagIntersection_NoTags(t *testing.T) {
+	// Empty/whitespace tags param resolves to zero distinct slugs → below the
+	// minimum of 1 → 400 before the service is touched.
 	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
-	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze"})
+	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: " , "})
 	testhelpers.AssertHumaError(t, err, 400)
 }
 
-func TestGetTagIntersection_DuplicateCollapsesBelowTwo(t *testing.T) {
-	// "shoegaze,shoegaze" dedupes to one distinct slug → still < 2 → 400.
-	h := NewTagHandler(&testhelpers.MockTagService{}, nil)
+func TestGetTagIntersection_SingleTagAllowed(t *testing.T) {
+	// PSY-993: a single tag is a valid degenerate intersection (the tag's own
+	// matches). The rebuilt /tags/{slug} detail page renders its grouped
+	// sections from this endpoint with one tag, so single-tag must pass through
+	// to the service (not 400). "shoegaze,shoegaze" dedupes to one distinct slug
+	// — still valid.
+	var gotSlugs []string
+	mock := &testhelpers.MockTagService{
+		IntersectEntitiesByTagsFn: func(slugs []string, _ bool, _ int) (*contracts.TagIntersectionResponse, error) {
+			gotSlugs = slugs
+			return &contracts.TagIntersectionResponse{TagMatch: "all"}, nil
+		},
+	}
+	h := NewTagHandler(mock, nil)
 	_, err := h.GetTagIntersectionHandler(context.Background(), &GetTagIntersectionRequest{Tags: "shoegaze,shoegaze"})
-	testhelpers.AssertHumaError(t, err, 400)
+	if err != nil {
+		t.Fatalf("unexpected error for single-tag intersection: %v", err)
+	}
+	if len(gotSlugs) != 1 || gotSlugs[0] != "shoegaze" {
+		t.Errorf("expected single resolved slug [shoegaze], got %v", gotSlugs)
+	}
 }
 
 func TestGetTagIntersection_TooManyTags(t *testing.T) {
