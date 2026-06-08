@@ -70,7 +70,14 @@ export function BrowseMenu() {
   )
 
   return (
-    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+    // modal={false} is REQUIRED for the hover-intent model: Radix's default
+    // modal DropdownMenu sets `pointer-events: none` on <body> while open, which
+    // strips the trigger's pointer events the instant the menu opens → the
+    // browser fires pointerleave on the trigger → scheduleClose → close →
+    // pointer is over the trigger again → scheduleOpen → an endless open/close
+    // flicker. Non-modal keeps the page (and trigger) pointer-interactive;
+    // outside-click + Escape dismissal still work via Radix's dismissable layer.
+    <DropdownMenu open={open} onOpenChange={handleOpenChange} modal={false}>
       <DropdownMenuTrigger
         className={navItemClassName(active)}
         aria-label="Browse the catalog"
