@@ -16,6 +16,7 @@ import { useRelease } from '../hooks/useReleases'
 import { useIsAuthenticated } from '@/features/auth'
 import {
   EntityDetailLayout,
+  EntityDetailContainer,
   EntityHeader,
   RevisionHistory,
   AddToCollectionButton,
@@ -384,18 +385,15 @@ export function ReleaseDetail({ idOrSlug }: ReleaseDetailProps) {
         </div>
       </EntityDetailLayout>
 
-      {/* Revision History */}
-      <div className="mt-0">
+      {/* History + Discussion — shared container matches EntityDetailLayout's
+          gutter + max-width so they align with the rest of the page (PSY-1026). */}
+      <EntityDetailContainer>
         <RevisionHistory
           entityType="release"
           entityId={release.id}
         />
-      </div>
-
-      {/* Discussion */}
-      <div className="mt-0 px-4 md:px-0">
         <CommentThread entityType="release" entityId={release.id} />
-      </div>
+      </EntityDetailContainer>
 
       {/* Edit Drawer (all authenticated users) */}
       {isAuthenticated && (

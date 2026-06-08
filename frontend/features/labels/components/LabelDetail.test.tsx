@@ -102,6 +102,9 @@ vi.mock('@/features/contributions', () => ({
 }))
 
 vi.mock('@/components/shared', () => ({
+  EntityDetailContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="entity-detail-container">{children}</div>
+  ),
   EntityDetailLayout: ({
     children,
     sidebar,

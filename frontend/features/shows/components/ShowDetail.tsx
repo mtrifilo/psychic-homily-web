@@ -11,7 +11,7 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { queryKeys } from '@/lib/queryClient'
 import type { ArtistResponse } from '../types'
 import { Button } from '@/components/ui/button'
-import { SocialLinks, MusicEmbed, EntityDetailLayout, RevisionHistory } from '@/components/shared'
+import { SocialLinks, MusicEmbed, EntityDetailLayout, EntityDetailContainer, RevisionHistory } from '@/components/shared'
 import { EntityCollections } from '@/features/collections'
 import { EntityTagList } from '@/features/tags'
 import { CommentThread, FieldNotesSection } from '@/features/comments'
@@ -252,19 +252,16 @@ export function ShowDetail({ showId }: ShowDetailProps) {
         </section>
       </EntityDetailLayout>
 
-      {/* Revision History (PSY-563). Mirrors the artist/venue/release/
-          label/festival detail pages. The suggest-edit pipeline is still
-          intentionally excluded for shows (PSY-461 / PSY-489) — the
-          History accordion shows direct-save revisions only. */}
-      <div className="mt-0">
+      {/* History + Discussion — rendered as siblings below the layout. The
+          shared EntityDetailContainer gives them the SAME gutter + max-width
+          as EntityDetailLayout so they don't render flush against the nav /
+          full-bleed on desktop (PSY-1026). The suggest-edit pipeline is still
+          intentionally excluded for shows (PSY-461 / PSY-489) — the History
+          accordion shows direct-save revisions only. */}
+      <EntityDetailContainer>
         <RevisionHistory entityType="show" entityId={show.id} isAdmin={isAdmin} />
-      </div>
-
-      {/* Discussion — rendered as a sibling below the layout to match the
-          wrapper shape used by the 4 layout-based detail pages. */}
-      <div className="mt-0 px-4 md:px-0">
         <CommentThread entityType="show" entityId={show.id} />
-      </div>
+      </EntityDetailContainer>
 
       {/* Edit Drawer (PSY-563). Admin/owner gated via canEditShow.
           Dispatches to /shows/{id} PUT through useShowEdit — NOT the

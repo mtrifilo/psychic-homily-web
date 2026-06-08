@@ -368,19 +368,16 @@ export function VenueDetail({ venueId }: VenueDetailProps) {
         </div>
       </div>
 
-      {/* Revision History */}
-      <div className="mt-0">
-        <RevisionHistory
-          entityType="venue"
-          entityId={venue.id}
-          isAdmin={!!user?.is_admin}
-        />
-      </div>
-
-      {/* Discussion */}
-      <div className="mt-0 px-4 md:px-0">
-        <CommentThread entityType="venue" entityId={venue.id} />
-      </div>
+      {/* History + Discussion — already inside this page's root
+          `container max-w-6xl mx-auto px-4`, so they share the same gutter +
+          max-width as the rest of the page. Each section carries its own top
+          margin, so no per-section wrapper is needed (PSY-1026). */}
+      <RevisionHistory
+        entityType="venue"
+        entityId={venue.id}
+        isAdmin={!!user?.is_admin}
+      />
+      <CommentThread entityType="venue" entityId={venue.id} />
 
       {/* Edit Drawer (all authenticated users) */}
       {venue && isAuthenticated && (

@@ -66,6 +66,9 @@ vi.mock('@/components/shared', () => ({
   RevisionHistory: ({ entityType, entityId }: { entityType: string; entityId: number }) => (
     <div data-testid="revision-history">History for {entityType} {entityId}</div>
   ),
+  EntityDetailContainer: ({ children }: { children: React.ReactNode }) => (
+    <div data-testid="entity-detail-container">{children}</div>
+  ),
   EntityDetailLayout: ({
     header,
     children,
