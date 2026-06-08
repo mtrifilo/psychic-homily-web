@@ -1,5 +1,6 @@
 'use client'
 
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { ChevronDown } from 'lucide-react'
@@ -9,44 +10,97 @@ import {
   DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { browseGroups, browseHrefs, isNavActive, navItemClassName } from './navData'
 
-// Browse ▾ — the full faceted catalog. PSY-1013 ships it as a grouped dropdown
-// so every catalog/curation/scene destination the retired sidebar exposed stays
-// reachable on desktop; PSY-1014 replaces this with the wide three-column
-// mega-menu (+ optional Fresh rail). Radix gives the trigger aria-haspopup /
-// aria-expanded and full keyboard operation.
+// NN/G hover-intent timing (cited in the redesign brief): open after a short
+// dwell so a pointer merely passing over the trigger doesn't pop the panel;
+// linger briefly before closing so the diagonal travel into the panel doesn't
+// dismiss it; full close-delay after leaving.
+const OPEN_DELAY_MS = 500
+const CLOSE_DELAY_MS = 500
+
+// Browse ▾ — the wide three-column mega-menu (Catalog / Curation / Scenes) per
+// Figma `455:5`. Built on Radix DropdownMenu so it keeps the W3C APG menu
+// pattern for free: arrow-key roving focus across `menuitem`s, type-ahead, and
+// Escape closing + returning focus to the trigger. The Fresh / Trending rail in
+// the mock is intentionally DEFERRED for v1 — there is no recently-added /
+// trending data source yet.
+//
+// DropdownMenu alone is click-only, so this layers NN/G hover-intent on top via
+// a controlled `open` state with open/close timers (Radix still owns click +
+// keyboard). Pointer parity: hovering EITHER the trigger or the panel keeps it
+// open; leaving both closes it after the delay.
 export function BrowseMenu() {
   const pathname = usePathname()
   const active = browseHrefs.some(href => isNavActive(pathname, href))
 
+  const [open, setOpen] = useState(false)
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const clearTimer = useCallback(() => {
+    if (timerRef.current) {
+      clearTimeout(timerRef.current)
+      timerRef.current = null
+    }
+  }, [])
+
+  // Avoid leaking a pending open/close timer if the component unmounts mid-dwell.
+  useEffect(() => clearTimer, [clearTimer])
+
+  const scheduleOpen = useCallback(() => {
+    clearTimer()
+    timerRef.current = setTimeout(() => setOpen(true), OPEN_DELAY_MS)
+  }, [clearTimer])
+
+  const scheduleClose = useCallback(() => {
+    clearTimer()
+    timerRef.current = setTimeout(() => setOpen(false), CLOSE_DELAY_MS)
+  }, [clearTimer])
+
+  // Click / keyboard go through Radix's own open state; cancel any pending hover
+  // timer so a click doesn't get clobbered by a late open/close fire.
+  const handleOpenChange = useCallback(
+    (next: boolean) => {
+      clearTimer()
+      setOpen(next)
+    },
+    [clearTimer]
+  )
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger className={navItemClassName(active)} aria-label="Browse the catalog">
+    <DropdownMenu open={open} onOpenChange={handleOpenChange}>
+      <DropdownMenuTrigger
+        className={navItemClassName(active)}
+        aria-label="Browse the catalog"
+        onPointerEnter={scheduleOpen}
+        onPointerLeave={scheduleClose}
+      >
         Browse
         <ChevronDown className="size-3.5 opacity-70" aria-hidden />
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-56">
-        {browseGroups.map((group, i) => (
-          <DropdownMenuGroup key={group.label}>
-            {i > 0 && <DropdownMenuSeparator />}
-            <DropdownMenuLabel className="text-xs font-semibold uppercase tracking-wider text-muted-foreground/60">
+      <DropdownMenuContent
+        align="start"
+        sideOffset={10}
+        className="flex w-auto gap-12 rounded-[10px] border-border p-0 px-7 py-6 shadow-[0px_2px_8px_0px_rgba(0,0,0,0.08)]"
+        onPointerEnter={clearTimer}
+        onPointerLeave={scheduleClose}
+      >
+        {browseGroups.map(group => (
+          <DropdownMenuGroup key={group.label} className="flex flex-col gap-3">
+            <DropdownMenuLabel className="px-0 py-0 font-mono text-[11px] font-bold uppercase tracking-[1.2px] text-muted-foreground">
               {group.label}
             </DropdownMenuLabel>
-            {group.items.map(item => {
-              const Icon = item.icon
-              return (
-                <DropdownMenuItem key={item.href} asChild>
-                  <Link href={item.href}>
-                    {Icon && <Icon aria-hidden />}
-                    {item.label}
-                  </Link>
-                </DropdownMenuItem>
-              )
-            })}
+            {group.items.map(item => (
+              <DropdownMenuItem
+                key={item.href}
+                asChild
+                className="px-0 py-0 text-[15px] font-medium text-foreground focus:bg-transparent focus:text-foreground focus:underline data-[highlighted]:bg-transparent data-[highlighted]:underline"
+              >
+                <Link href={item.href}>{item.label}</Link>
+              </DropdownMenuItem>
+            ))}
           </DropdownMenuGroup>
         ))}
       </DropdownMenuContent>

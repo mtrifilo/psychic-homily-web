@@ -55,8 +55,20 @@ export const browseGroups: NavGroup[] = [
     ],
   },
   {
+    // Scene pages are DERIVED from verified-venue location data, not stored
+    // entities; a `<city>` slug is `<city-lowercased,-spaces→dashes>-<state>`
+    // (backend `buildSceneSlug`, e.g. Phoenix/AZ → `phoenix-az`). These three
+    // are the scent-rich shortcuts the redesign curates per Figma `455:5`
+    // (Browse mega-menu); "All scenes" is the index. A curated city that has
+    // not yet crossed the scene threshold renders a real 404 (the page's
+    // server-side existence check) — acceptable for a hand-picked shortcut.
     label: 'Scenes',
-    items: [{ href: '/scenes', label: 'All scenes', icon: Globe }],
+    items: [
+      { href: '/scenes/phoenix-az', label: 'Phoenix', icon: MapPin },
+      { href: '/scenes/tucson-az', label: 'Tucson', icon: MapPin },
+      { href: '/scenes/los-angeles-ca', label: 'Los Angeles', icon: MapPin },
+      { href: '/scenes', label: 'All scenes', icon: Globe },
+    ],
   },
 ]
 
