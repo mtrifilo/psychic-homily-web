@@ -5,17 +5,23 @@ test.describe('Homepage', () => {
   test('loads and displays upcoming shows', { tag: '@smoke' }, async ({ page }) => {
     await page.goto('/')
 
-    // Page title
+    // Page title (PSY-389: global "%s | Psychic Homily" template, no
+    // "Arizona Music Community").
     await expect(page).toHaveTitle(/Psychic Homily/)
 
-    // "Upcoming Shows" section heading
+    // Discovery hero (PSY-389)
+    await expect(
+      page.getByRole('heading', { name: 'This is not a mirage.' })
+    ).toBeVisible()
+
+    // "Upcoming shows" section heading
     await expect(
       page.getByRole('heading', { name: /upcoming shows/i })
     ).toBeVisible()
 
-    // "View all" link to /shows
+    // "View all shows" link to /shows (quiet link above the list)
     await expect(
-      page.getByRole('link', { name: /view all/i }).first()
+      page.getByRole('link', { name: /view all shows/i }).first()
     ).toBeVisible()
 
     // Wait for show cards to load (client-side fetch via TanStack Query)
@@ -53,17 +59,36 @@ test.describe('Homepage', () => {
     await expect(page.getByRole('menuitem', { name: 'DJ Sets' })).toBeVisible()
   })
 
-  test('displays blog and DJ set sections', async ({ page }) => {
+  test('displays discovery sections and footer (PSY-389)', async ({ page }) => {
     await page.goto('/')
 
-    // Blog section (server-rendered from markdown files)
+    // Discover quick-links row in the hero
     await expect(
-      page.getByRole('heading', { name: /latest from the blog/i })
+      page.getByRole('link', { name: 'Shows in any city' })
     ).toBeVisible()
 
-    // DJ Set section (server-rendered from markdown files)
+    // Latest radio shows section + cards that link to /radio
     await expect(
-      page.getByRole('heading', { name: /latest dj set/i })
+      page.getByRole('heading', { name: /latest radio shows/i })
+    ).toBeVisible()
+    await expect(
+      page.getByRole('link', { name: /KEXP.*Variety Mix/i })
+    ).toHaveAttribute('href', '/radio')
+
+    // Across the scene — reserved activity-feed placeholder
+    await expect(
+      page.getByRole('heading', { name: /across the scene/i })
+    ).toBeVisible()
+    await expect(
+      page.getByText('Reserved for the Activity feed')
+    ).toBeVisible()
+
+    // Editorial footer columns (PSY-389)
+    await expect(
+      page.getByRole('navigation', { name: 'Discover' })
+    ).toBeVisible()
+    await expect(
+      page.getByText('Made by the scene, for the scene.')
     ).toBeVisible()
   })
 })

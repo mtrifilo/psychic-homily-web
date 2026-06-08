@@ -27,13 +27,37 @@ describe('Footer', () => {
   it('renders copyright with current year', () => {
     render(<Footer />)
     const currentYear = new Date().getFullYear()
-    expect(screen.getByText(`\u00A9 ${currentYear} Psychic Homily`)).toBeInTheDocument()
+    expect(screen.getByText(`© ${currentYear} Psychic Homily`)).toBeInTheDocument()
   })
 
   it('renders footer element', () => {
     render(<Footer />)
     const footer = document.querySelector('footer')
     expect(footer).toBeInTheDocument()
+  })
+
+  it('renders the brand wordmark and sign-off (PSY-389 editorial footer)', () => {
+    render(<Footer />)
+    expect(screen.getByText('PSYCHIC HOMILY')).toBeInTheDocument()
+    expect(
+      screen.getByText('Made by the scene, for the scene.')
+    ).toBeInTheDocument()
+  })
+
+  it('renders the four labelled link columns (PSY-389)', () => {
+    render(<Footer />)
+    for (const label of ['Discover', 'Browse', 'Community', 'About']) {
+      expect(screen.getByRole('navigation', { name: label })).toBeInTheDocument()
+    }
+  })
+
+  it('renders Discover column links to real entity routes', () => {
+    render(<Footer />)
+    const discover = screen.getByRole('navigation', { name: 'Discover' })
+    expect(discover.querySelector('a[href="/shows"]')).toBeInTheDocument()
+    expect(discover.querySelector('a[href="/artists"]')).toBeInTheDocument()
+    expect(discover.querySelector('a[href="/venues"]')).toBeInTheDocument()
+    expect(discover.querySelector('a[href="/labels"]')).toBeInTheDocument()
   })
 
   it('renders Privacy Policy link', () => {
@@ -57,6 +81,14 @@ describe('Footer', () => {
     expect(link.closest('a')).toHaveAttribute('href', 'mailto:hello@psychichomily.com')
   })
 
+  it('renders Substack as an external link (new tab, noopener)', () => {
+    render(<Footer />)
+    const link = screen.getByText('Substack ↗').closest('a')!
+    expect(link).toHaveAttribute('href', 'https://psychichomily.substack.com/')
+    expect(link).toHaveAttribute('target', '_blank')
+    expect(link.getAttribute('rel')).toContain('noopener')
+  })
+
   it('renders Cookie Preferences button', () => {
     render(<Footer />)
     expect(screen.getByText('Cookie Preferences')).toBeInTheDocument()
@@ -77,22 +109,6 @@ describe('Footer', () => {
     expect(mockOpenPreferences).toHaveBeenCalledOnce()
   })
 
-  it('has nav element for navigation links', () => {
-    render(<Footer />)
-    const nav = document.querySelector('nav')
-    expect(nav).toBeInTheDocument()
-  })
-
-  it('renders all four nav items', () => {
-    render(<Footer />)
-    const nav = document.querySelector('nav')
-    // 3 links + 1 button
-    const links = nav?.querySelectorAll('a')
-    const buttons = nav?.querySelectorAll('button')
-    expect(links?.length).toBe(3)
-    expect(buttons?.length).toBe(1)
-  })
-
   it('Cookie Preferences button click fires openPreferences exactly once and does not navigate', async () => {
     const user = userEvent.setup()
     render(<Footer />)
@@ -106,29 +122,19 @@ describe('Footer', () => {
     expect(mockOpenPreferences).toHaveBeenCalledTimes(2)
   })
 
-  it('uses the same href for Privacy and Cookie Preferences contexts (privacy page)', () => {
+  it('keeps Privacy and Cookie Preferences as independent UX paths', () => {
     render(<Footer />)
     // Privacy link is the long-form policy page; the cookie preferences
-    // dialog is a separate trigger. Pin that they're independent UX paths.
+    // dialog is a separate trigger. Pin that they're independent.
     const privacy = screen.getByText('Privacy Policy').closest('a')!
     const cookie = screen.getByText('Cookie Preferences')
     expect(privacy.getAttribute('href')).toBe('/privacy')
     expect(cookie.tagName).toBe('BUTTON') // NOT a link to /privacy
   })
 
-  it('keeps Privacy Policy and Terms of Service links in tab order before Contact', () => {
-    render(<Footer />)
-    const nav = document.querySelector('nav')!
-    const linkTexts = Array.from(nav.querySelectorAll('a')).map(a => a.textContent)
-    // The legal pair must come first so screen-reader / keyboard users hit
-    // them before the mailto. If a future refactor reorders these silently,
-    // this catches it.
-    expect(linkTexts).toEqual(['Privacy Policy', 'Terms of Service', 'Contact'])
-  })
-
   it('renders the year as a 4-digit number, not NaN or 0', () => {
     render(<Footer />)
-    const text = screen.getByText(/Psychic Homily/).textContent ?? ''
+    const text = screen.getByText(/© .* Psychic Homily/).textContent ?? ''
     // Pin the format: 4-digit year, NOT "NaN" or "0" (defensive against
     // a regression that pre-computes the year at module load with a
     // broken Date constructor).
