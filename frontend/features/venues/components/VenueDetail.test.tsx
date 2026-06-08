@@ -331,6 +331,22 @@ describe('VenueDetail', () => {
       expect(screen.getByTestId('location-card')).toBeInTheDocument()
     })
 
+    // PSY-1034 regression guard: the two-column grid track must stay
+    // min-width-capped so the ResizeObserver-measured VenueBillNetwork graph
+    // can't balloon the layout rightward. A plain `1fr` track has an implicit
+    // `min-width: auto` and reintroduces the bug; `minmax(0,1fr)` + `min-w-0`
+    // on the main column are the two independent caps. Assert both are present.
+    it('keeps the two-column grid track min-width-capped (no RO balloon)', () => {
+      const { container } = render(<VenueDetail venueId="1" />)
+      const grid = container.querySelector(
+        '.lg\\:grid-cols-\\[minmax\\(0\\,1fr\\)_400px\\]',
+      )
+      expect(grid).not.toBeNull()
+      // The main (graph-bearing) column carries the belt-and-suspenders cap.
+      const mainColumn = grid?.querySelector('.min-w-0')
+      expect(mainColumn).not.toBeNull()
+    })
+
     it('does not render a favorite venue button', () => {
       render(<VenueDetail venueId="1" />)
       expect(screen.queryByTestId('favorite-button')).not.toBeInTheDocument()
