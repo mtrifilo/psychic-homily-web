@@ -401,41 +401,59 @@ describe('AICollectionFiller', () => {
     items: [{ artist_name: 'Some Made Up Band', release_title: 'Nowhere Album' }],
   }
 
-  /** Stub global.fetch with a single JSON response for the entity-request POST. */
-  function stubFetch(decisionState: 'approved' | 'pending', ok = true) {
+  /**
+   * Stub global.fetch with a single JSON response for the entity-request POST.
+   * createdEntityId (PSY-1008) is included when provided — that's the
+   * auto-approve-fulfilled path that triggers inline create-and-add.
+   */
+  function stubFetch(
+    decisionState: 'approved' | 'pending',
+    ok = true,
+    createdEntityId?: number
+  ) {
     const fetchMock = vi.fn().mockResolvedValue({
       ok,
-      json: async () => ({ id: 7, decision_state: decisionState }),
+      json: async () => ({
+        id: 7,
+        decision_state: decisionState,
+        ...(createdEntityId !== undefined
+          ? { created_entity_id: createdEntityId }
+          : {}),
+      }),
     })
     vi.stubGlobal('fetch', fetchMock)
     return fetchMock
   }
 
-  async function extractOneUnmatchedRow(user: ReturnType<typeof userEvent.setup>) {
+  async function extractOneUnmatchedRow(
+    user: ReturnType<typeof userEvent.setup>,
+    onStage: AICollectionFillerProps['onStageItems'] = vi.fn()
+  ) {
     mockExtractResult = { data: ONE_UNMATCHED_ROW }
-    renderFiller({ onStageItems: vi.fn(), alreadyStaged: () => false })
+    renderFiller({ onStageItems: onStage, alreadyStaged: () => false })
     await user.type(screen.getByTestId('ai-collection-filler-textarea'), 'list')
     await user.click(screen.getByTestId('ai-collection-filler-extract'))
+    return onStage
   }
 
-  it('admin sees [Submit for creation] on an unmatched row (no Queue button)', async () => {
+  it('admin sees [Create + Add] on an unmatched row (no Queue button)', async () => {
     mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
     const user = userEvent.setup()
     await extractOneUnmatchedRow(user)
 
     const btn = screen.getByTestId('ai-collection-filler-row-request')
-    expect(btn).toHaveTextContent('Submit for creation')
+    expect(btn).toHaveTextContent('Create + Add')
     expect(btn).not.toHaveTextContent('Queue for review')
   })
 
-  it('local_ambassador sees [Submit for creation] (auto-approve tier, not admin)', async () => {
+  it('local_ambassador sees [Create + Add] (auto-approve tier, not admin)', async () => {
     mockUser = { is_admin: false, user_tier: 'local_ambassador' }
     const user = userEvent.setup()
     await extractOneUnmatchedRow(user)
 
     expect(
       screen.getByTestId('ai-collection-filler-row-request')
-    ).toHaveTextContent('Submit for creation')
+    ).toHaveTextContent('Create + Add')
   })
 
   it('contributor sees [Queue for review] (never an inline create)', async () => {
@@ -445,7 +463,7 @@ describe('AICollectionFiller', () => {
 
     const btn = screen.getByTestId('ai-collection-filler-row-request')
     expect(btn).toHaveTextContent('Queue for review')
-    expect(btn).not.toHaveTextContent('Submit for creation')
+    expect(btn).not.toHaveTextContent('Create + Add')
   })
 
   it('new_user sees [Queue for review]', async () => {
@@ -536,11 +554,37 @@ describe('AICollectionFiller', () => {
     ).not.toBeInTheDocument()
   })
 
-  it('auto-approved (admin) request shows a "Requested" chip', async () => {
+  it('auto-approved create-and-add stages the created entity and shows "Added"', async () => {
     mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
-    stubFetch('approved')
+    // PSY-1008: auto-approve fulfills the entity and returns created_entity_id.
+    stubFetch('approved', true, 99)
     const user = userEvent.setup()
-    await extractOneUnmatchedRow(user)
+    const onStage = await extractOneUnmatchedRow(user)
+
+    await user.click(screen.getByTestId('ai-collection-filler-row-request'))
+
+    // The newly created entity is staged into the collection (true create-and-add).
+    await waitFor(() =>
+      expect(onStage).toHaveBeenCalledWith([
+        {
+          entityType: 'artist',
+          entityId: 99,
+          name: 'Some Made Up Band',
+          subtitle: null,
+        },
+      ])
+    )
+    const chip = await screen.findByTestId(
+      'ai-collection-filler-row-request-chip'
+    )
+    expect(chip).toHaveTextContent('Added')
+  })
+
+  it('auto-approved WITHOUT created_entity_id (deferred fulfillment) shows "Requested" and does not stage', async () => {
+    mockUser = { is_admin: true, user_tier: 'trusted_contributor' }
+    stubFetch('approved') // approved but not fulfilled — no created_entity_id
+    const user = userEvent.setup()
+    const onStage = await extractOneUnmatchedRow(user)
 
     await user.click(screen.getByTestId('ai-collection-filler-row-request'))
 
@@ -548,6 +592,7 @@ describe('AICollectionFiller', () => {
       'ai-collection-filler-row-request-chip'
     )
     expect(chip).toHaveTextContent('Requested')
+    expect(onStage).not.toHaveBeenCalled()
   })
 
   it('a failed entity-request shows an inline error and keeps the button', async () => {

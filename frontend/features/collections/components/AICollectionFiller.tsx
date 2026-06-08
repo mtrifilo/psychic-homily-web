@@ -117,13 +117,12 @@ function compressImage(dataUrl: string): Promise<string> {
 // every catalog create endpoint (POST /admin/artists, /releases, …) is
 // rc.Admin-gated, so non-admin trusted tiers CANNOT create entities through
 // them — a 403 path. The ONLY cross-tier create mechanism is
-// POST /entity-requests (PSY-997). On auto-approve that endpoint marks the
-// request approved but does NOT fulfill it into a catalog row, so there is no
-// new entity_id to stage into the bulk-add pipeline yet. The "Submit for creation"
-// label therefore files an (auto-approved) request rather than staging the
-// new entity into the collection in the same step. Closing that gap — fulfill
-// on auto-approve + return created_entity_id so the row can stage — is a
-// backend follow-up; it is out of this frontend-only ticket's scope.
+// POST /entity-requests (PSY-997). On auto-approve (admin / local_ambassador /
+// confirmed trusted) that endpoint now FULFILLS the entity inline and returns
+// created_entity_id (PSY-1008), so the "Create + Add" affordance both creates
+// the entity AND stages it into the collection in one step (true inline
+// create-and-add). contributor / new_user still file a pending request for
+// admin review ("Queue for review").
 type CreateAffordance = 'create' | 'confirm' | 'queue' | 'none'
 
 /**
@@ -152,9 +151,11 @@ function createAffordanceFor(
 }
 
 // Outcome of a successful entity-request POST, used to pick the per-row chip.
-// 'requested' = auto-approved (admin / local_ambassador / confirmed trusted) —
-// the request skipped the queue; 'queued' = pending admin review.
-type RequestOutcome = 'requested' | 'queued'
+// 'created' = auto-approved AND fulfilled (PSY-1008) — the entity now exists and
+// is staged into the collection (true inline create-and-add); 'requested' =
+// approved but not staged (fulfillment deferred, e.g. show/festival); 'queued' =
+// pending admin review.
+type RequestOutcome = 'created' | 'requested' | 'queued'
 
 interface QueueEntityRequestVars {
   /** The unmatched row this request was filed from (used for per-row state). */
@@ -204,11 +205,21 @@ function useQueueEntityRequest() {
         )
       }
 
-      // decision_state distinguishes auto-approved (skips the queue) from
-      // pending (awaiting admin review) so the row chip reads correctly.
+      // PSY-1008: an auto-approved request now fulfills the entity inline and
+      // returns created_entity_id. When present, the caller stages the new
+      // entity into the collection (true create-and-add). decision_state still
+      // distinguishes approved from pending for the non-fulfilled fallback.
+      const createdEntityId =
+        typeof data?.created_entity_id === 'number'
+          ? data.created_entity_id
+          : undefined
       const outcome: RequestOutcome =
-        data?.decision_state === 'approved' ? 'requested' : 'queued'
-      return { outcome, rowKey: vars.rowKey }
+        createdEntityId !== undefined
+          ? 'created'
+          : data?.decision_state === 'approved'
+            ? 'requested'
+            : 'queued'
+      return { outcome, rowKey: vars.rowKey, createdEntityId }
     },
   })
 }
@@ -501,7 +512,17 @@ export function AICollectionFiller({
     queueRequest.mutate(
       { rowKey, entityType: 'artist', name, confirmed },
       {
-        onSuccess: ({ outcome }) => {
+        onSuccess: ({ outcome, createdEntityId }) => {
+          // PSY-853 inline create-and-add: when the auto-approve path fulfilled
+          // the entity (PSY-1008 returns created_entity_id), stage the new
+          // entity into the collection immediately — same bulk-add pipeline a
+          // matched row uses. The chip flips to "Added" via the 'created'
+          // outcome below.
+          if (createdEntityId !== undefined) {
+            onStageItems([
+              { entityType: 'artist', entityId: createdEntityId, name, subtitle: null },
+            ])
+          }
           setRequestedRows(prev => ({ ...prev, [rowKey]: outcome }))
           clearInFlight()
         },
@@ -835,7 +856,11 @@ function ExtractedRow({
               className="text-xs shrink-0 motion-safe:animate-in motion-safe:fade-in"
               data-testid="ai-collection-filler-row-request-chip"
             >
-              {requestOutcome === 'queued' ? 'Queued' : 'Requested'}
+              {requestOutcome === 'created'
+                ? 'Added'
+                : requestOutcome === 'queued'
+                  ? 'Queued'
+                  : 'Requested'}
             </Badge>
           ) : affordance === 'none' ? null : confirming ? (
             // trusted_contributor inline confirm — irreversible creation.
@@ -891,7 +916,7 @@ function ExtractedRow({
               ) : (
                 <Plus className="h-3.5 w-3.5 mr-1" />
               )}
-              {affordance === 'queue' ? 'Queue for review' : 'Submit for creation'}
+              {affordance === 'queue' ? 'Queue for review' : 'Create + Add'}
             </Button>
           ))}
       </div>
