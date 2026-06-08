@@ -123,7 +123,12 @@ export function PublicProfile({ username }: PublicProfileProps) {
     return null
   }
 
-  // Private profile
+  // Private profile. The backend returns this page to the owner even when
+  // private (with full owner data), so without the isOwner branch an owner
+  // who clicks "Profile" (which now routes here) would hit a dead-end wall
+  // with no way to reach settings. Give the owner their own copy + the Edit
+  // affordance so they can change visibility; visitors keep the plain wall.
+  // PSY-1025.
   if (profile.profile_visibility === 'private') {
     return (
       <div className="container max-w-4xl mx-auto px-4 py-12">
@@ -131,10 +136,22 @@ export function PublicProfile({ username }: PublicProfileProps) {
           <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
             <Lock className="h-8 w-8 text-muted-foreground" />
           </div>
-          <h1 className="text-2xl font-bold mb-2">Private Profile</h1>
+          <h1 className="text-2xl font-bold mb-2">
+            {isOwner ? 'Your Profile Is Private' : 'Private Profile'}
+          </h1>
           <p className="text-muted-foreground">
-            This user&apos;s profile is set to private.
+            {isOwner
+              ? 'Only you can see this page. Edit your profile to make it public.'
+              : "This user's profile is set to private."}
           </p>
+          {isOwner && (
+            <Button asChild variant="outline" size="sm" className="mt-6">
+              <Link href="/profile">
+                <Pencil className="mr-1.5 size-3.5" />
+                Edit profile
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
     )

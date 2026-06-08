@@ -175,6 +175,37 @@ describe('PublicProfile', () => {
     ).toBeInTheDocument()
   })
 
+  it('does NOT show "Edit profile" on a visitor view of a private profile', () => {
+    mockUser = { username: 'bob' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice', profile_visibility: 'private' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByText('Private Profile')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: /edit profile/i })
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows owner copy + Edit affordance on the owner view of a private profile', () => {
+    // The backend returns the private profile to its owner; the owner must be
+    // able to reach settings to change visibility (PSY-1025).
+    mockUser = { username: 'alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice', profile_visibility: 'private' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByText('Your Profile Is Private')).toBeInTheDocument()
+    const editLink = screen.getByRole('link', { name: /edit profile/i })
+    expect(editLink).toHaveAttribute('href', '/profile')
+  })
+
   it('renders null when profile data is missing', () => {
     mockUsePublicProfile.mockReturnValue({
       data: null,
