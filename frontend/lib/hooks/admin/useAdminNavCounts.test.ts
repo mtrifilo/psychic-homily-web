@@ -12,6 +12,7 @@ const h = vi.hoisted(() => ({
   useAdminPendingEdits: vi.fn(),
   useAdminEntityReports: vi.fn(),
   useAdminPendingComments: vi.fn(),
+  useAdminEntityRequests: vi.fn(),
 }))
 vi.mock('./useAdminShows', () => ({ usePendingShows: h.usePendingShows }))
 vi.mock('./useAdminVenues', () => ({ useUnverifiedVenues: h.useUnverifiedVenues }))
@@ -20,6 +21,7 @@ vi.mock('./useAdminArtistReports', () => ({ usePendingArtistReports: h.usePendin
 vi.mock('./useAdminPendingEdits', () => ({ useAdminPendingEdits: h.useAdminPendingEdits }))
 vi.mock('./useAdminEntityReports', () => ({ useAdminEntityReports: h.useAdminEntityReports }))
 vi.mock('./useAdminComments', () => ({ useAdminPendingComments: h.useAdminPendingComments }))
+vi.mock('./useAdminEntityRequests', () => ({ useAdminEntityRequests: h.useAdminEntityRequests }))
 
 import { useAdminNavCounts } from './useAdminNavCounts'
 
@@ -31,7 +33,7 @@ describe('useAdminNavCounts', () => {
     for (const fn of Object.values(h)) fn.mockReturnValue({ data: undefined })
   })
 
-  it('aggregates the four nav counts (moderation = edits + entity reports + comments; reports = show + artist)', () => {
+  it('aggregates the four nav counts (moderation = edits + entity reports + comments + requests; reports = show + artist)', () => {
     h.usePendingShows.mockReturnValue(total(2))
     h.useUnverifiedVenues.mockReturnValue(total(1))
     h.usePendingReports.mockReturnValue(total(3))
@@ -39,11 +41,12 @@ describe('useAdminNavCounts', () => {
     h.useAdminPendingEdits.mockReturnValue(total(5))
     h.useAdminEntityReports.mockReturnValue(total(6))
     h.useAdminPendingComments.mockReturnValue(total(7))
+    h.useAdminEntityRequests.mockReturnValue(total(8))
 
     const { result } = renderHook(() => useAdminNavCounts({ enabled: true }))
 
     expect(result.current).toEqual({
-      moderation: 18, // 5 + 6 + 7
+      moderation: 26, // 5 + 6 + 7 + 8
       pendingShows: 2,
       unverifiedVenues: 1,
       reports: 7, // 3 + 4
@@ -70,6 +73,7 @@ describe('useAdminNavCounts', () => {
     expect(h.usePendingArtistReports).toHaveBeenCalledWith({ enabled: false })
     expect(h.useAdminPendingEdits).toHaveBeenCalledWith({ status: 'pending', enabled: false })
     expect(h.useAdminEntityReports).toHaveBeenCalledWith({ status: 'pending', enabled: false })
+    expect(h.useAdminEntityRequests).toHaveBeenCalledWith({ state: 'pending', enabled: false })
     // positional signature: (limit, offset, options)
     expect(h.useAdminPendingComments).toHaveBeenCalledWith(25, 0, { enabled: false })
   })
