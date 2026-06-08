@@ -13,6 +13,10 @@ interface GoogleOAuthButtonProps {
   termsVersion?: string
   privacyVersion?: string
   onMissingTermsAcceptance?: () => void
+  // PSY-1023: required minimum-age confirmation, mirroring terms acceptance.
+  ageConfirmed?: boolean
+  minAge?: number
+  onMissingAgeConfirmation?: () => void
 }
 
 export function GoogleOAuthButton({
@@ -22,10 +26,17 @@ export function GoogleOAuthButton({
   termsVersion,
   privacyVersion,
   onMissingTermsAcceptance,
+  ageConfirmed = false,
+  minAge,
+  onMissingAgeConfirmation,
 }: GoogleOAuthButtonProps) {
   const handleGoogleLogin = () => {
     if (variant === 'signup' && !termsAccepted) {
       onMissingTermsAcceptance?.()
+      return
+    }
+    if (variant === 'signup' && !ageConfirmed) {
+      onMissingAgeConfirmation?.()
       return
     }
 
@@ -40,6 +51,10 @@ export function GoogleOAuthButton({
       }
       if (privacyVersion) {
         loginUrl.searchParams.set('privacy_version', privacyVersion)
+      }
+      loginUrl.searchParams.set('age_confirmed', 'true')
+      if (minAge) {
+        loginUrl.searchParams.set('min_age_attested', String(minAge))
       }
     }
     window.location.href = loginUrl.toString()

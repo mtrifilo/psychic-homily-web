@@ -290,6 +290,7 @@ func (s *UserService) createUserWithPassword(
 		user.TermsAcceptedAt = &acceptedAt
 		user.TermsVersion = &termsVersion
 		user.PrivacyVersion = &privacyVersion
+		applyAgeConfirmation(user, acceptance.AgeConfirmedAt, acceptance.MinAgeAttested)
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -317,6 +318,23 @@ func (s *UserService) createUserWithPassword(
 	}
 
 	return user, nil
+}
+
+// applyAgeConfirmation records the "I am at least N years old" confirmation on a
+// user being created (PSY-1023). It mirrors the terms-acceptance fields: only
+// applied when a minimum age was attested (minAge > 0), defaulting the timestamp
+// to now if the caller left it zero.
+func applyAgeConfirmation(user *authm.User, confirmedAt time.Time, minAge int) {
+	if minAge <= 0 {
+		return
+	}
+	at := confirmedAt
+	if at.IsZero() {
+		at = time.Now().UTC()
+	}
+	minAgeCopy := minAge
+	user.AgeConfirmedAt = &at
+	user.MinAgeAttested = &minAgeCopy
 }
 
 func (s *UserService) AuthenticateUserWithPassword(email, password string) (*authm.User, error) {
@@ -441,6 +459,9 @@ func (s *UserService) createNewUserOauthWithConsent(
 		user.TermsAcceptedAt = &acceptedAt
 		user.TermsVersion = &termsVersion
 		user.PrivacyVersion = &privacyVersion
+		if consent.AgeConfirmed {
+			applyAgeConfirmation(user, acceptedAt, consent.MinAgeAttested)
+		}
 	}
 
 	if err := tx.Create(user).Error; err != nil {
@@ -493,6 +514,11 @@ func (s *UserService) createNewUserOauthWithConsent(
 	return user, nil
 }
 
+// minOAuthSignupAge is the minimum age a new OAuth user must have attested to.
+// Kept in sync with the handler-level MinSignupAge constant; duplicated here to
+// avoid a service→handler import cycle. Both enforce 16 (PSY-1023).
+const minOAuthSignupAge = 16
+
 func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
 	if consent == nil {
 		return apperrors.ErrTermsAcceptanceRequired("terms acceptance required for OAuth signup")
@@ -502,6 +528,13 @@ func validateOAuthSignupConsent(consent *contracts.OAuthSignupConsent) error {
 	}
 	if consent.TermsVersion == "" {
 		return apperrors.ErrTermsAcceptanceRequired("terms version is required for OAuth signup")
+	}
+	// Age confirmation is required for OAuth signup (PSY-1023), mirroring terms.
+	if !consent.AgeConfirmed {
+		return apperrors.ErrAgeConfirmationRequired("age confirmation required for OAuth signup")
+	}
+	if consent.MinAgeAttested < minOAuthSignupAge {
+		return apperrors.ErrAgeConfirmationRequired("attested age below minimum for OAuth signup")
 	}
 	return nil
 }

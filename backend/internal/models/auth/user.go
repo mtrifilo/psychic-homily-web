@@ -30,6 +30,8 @@ type User struct {
 	TermsAcceptedAt     *time.Time       `json:"-" gorm:"column:terms_accepted_at"` // Legal acceptance evidence
 	TermsVersion        *string          `json:"-" gorm:"column:terms_version"`
 	PrivacyVersion      *string          `json:"-" gorm:"column:privacy_version"`
+	AgeConfirmedAt      *time.Time       `json:"-" gorm:"column:age_confirmed_at"` // Age-confirmation evidence (mirrors TermsAcceptedAt)
+	MinAgeAttested      *int             `json:"-" gorm:"column:min_age_attested"` // Minimum age the user attested to at signup (e.g. 16)
 	FailedLoginAttempts int              `json:"-" gorm:"default:0"`
 	LockedUntil         *time.Time       `json:"-" gorm:"column:locked_until"`
 	CreatedAt           time.Time        `json:"created_at"`
