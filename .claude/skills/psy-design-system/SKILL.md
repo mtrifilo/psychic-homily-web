@@ -453,6 +453,30 @@ Figma **Code Connect requires a Developer seat on an Organization or Enterprise 
 
 **Implication:** do NOT spend a tool call attempting Code Connect on this file — it cannot succeed on the current plan, and **no DS component uses it.** The project's actual component→code linking convention is the **`maps to components/ui/<name>.tsx`** text node in each component's documentation frame (`Mono/S` style) — every component (Button, Input, Select, DateInput, …) carries one. Replicate that doc-node when adding a component; treat any "Code Connect mapping" AC item as N/A unless/until the team upgrades to an Org/Enterprise plan with Developer seats. (Variable *code syntax* — `var(--token)` on variables — is a different feature that DOES work on Pro; don't confuse the two.)
 
+### G15. Default white container fills are invisible in light mode but break dark mode (caught nav redesign 2026-06-06)
+
+`figma.createAutoLayout()` and `figma.createFrame()` return a frame with a **default solid-white fill `[1,1,1]` (UNBOUND)**. On the light/newsprint surface (`background` ≈ `#f4f1ea`) white-on-cream is nearly invisible, so accidental container fills sail through review. **In dark mode (or on any dark surface) those same containers render as WHITE BOXES behind their children**, washing text out to a dim/low-contrast look that reads as "the background looks wrong" or "the text is barely visible."
+
+**Diagnostic signature:** select the suspect node → inspector shows `Fill  FFFFFF  100%`. Meanwhile the bound text color values read correct (e.g. `foreground` Dark = `rgb(238,231,217)`). If the *values* are right but it still looks dim, suspect a white container fill, not the text — and NOT a G1 cache miss (the G1 reconstruction walker only touches **bound** paints, so it skips these unbound white fills entirely; chasing G1 here is a dead end).
+
+**Prevention:** set `frame.fills = []` on every **pure-layout container** (groups, rows, columns, nav clusters) immediately after `createAutoLayout()`. Only keep a fill on frames that are an actual *surface* — the bar background, a card/popover, an input field, a page board. A container that only holds other nodes should be transparent.
+
+**Page-wide remediation** (clears strays without touching intentional bound/colored fills or instance internals):
+
+```js
+const inInstance = (n) => { let p = n.parent; while (p) { if (p.type === "INSTANCE") return true; p = p.parent; } return false; };
+const isWhiteUnbound = (p) => p && p.type === "SOLID" && !(p.boundVariables && p.boundVariables.color)
+  && p.color && p.color.r > 0.97 && p.color.g > 0.97 && p.color.b > 0.97;
+let cleared = 0;
+for (const n of figma.currentPage.findAllWithCriteria({ types: ["FRAME"] })) {
+  if (inInstance(n)) continue;
+  if (Array.isArray(n.fills) && n.fills.length && n.fills.every(isWhiteUnbound)) { try { n.fills = []; cleared++; } catch (e) {} }
+}
+return { cleared };
+```
+
+**Screenshot caveat that compounds this:** the `get_screenshot` MCP service caches renders keyed on (node, params) and re-scales the SAME cached bitmap for a different `maxDimension` — so a stale render can survive several re-captures and look identical even after you fixed the canvas. To force a genuinely fresh render, make a real geometry change to the node (resize) OR read the node's actual fill values via `use_figma` and trust the data over the image.
+
 ## Resume protocol (for new agents picking this up cold)
 
 ### Track A: DS build (extending the design system)
