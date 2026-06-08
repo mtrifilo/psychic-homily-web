@@ -2,8 +2,15 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import AuthPage from './page'
+
+// Accessible names for the two required signup checkboxes (PSY-1023 added age).
+const TERMS_CHECKBOX = /Terms of Service/
+const AGE_CHECKBOX = /at least 16 years old/
+// Distinct error-message text (the checkbox LABEL also contains "at least 16
+// years old", so the error matcher must key off the error-only phrasing).
+const AGE_ERROR = /You must confirm that you are at least 16 years old/
 
 // --- Mocks ---
 
@@ -77,7 +84,8 @@ describe('SignupForm deferred validation', () => {
     expect(screen.queryAllByRole('alert')).toHaveLength(0)
     expect(screen.getByLabelText('Email')).toBeInTheDocument()
     expect(screen.getByLabelText('Password')).toBeInTheDocument()
-    expect(screen.getByRole('checkbox')).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: TERMS_CHECKBOX })).toBeInTheDocument()
+    expect(screen.getByRole('checkbox', { name: AGE_CHECKBOX })).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Create account' })).toBeEnabled()
   })
 
@@ -96,27 +104,30 @@ describe('SignupForm deferred validation', () => {
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     await waitFor(() => {
-      // Email + password + terms = 3 error alerts
-      expect(screen.getAllByRole('alert')).toHaveLength(3)
+      // Email + password + terms + age = 4 error alerts (PSY-1023 added age)
+      expect(screen.getAllByRole('alert')).toHaveLength(4)
     })
     expect(screen.getByText(/Please enter a valid email address/)).toBeInTheDocument()
     expect(screen.getByText(/Password must be at least 12 characters/)).toBeInTheDocument()
     expect(screen.getByText(/You must agree to the Terms of Service/)).toBeInTheDocument()
+    expect(screen.getByText(AGE_ERROR)).toBeInTheDocument()
   })
 
   it('shows only email error when other fields are valid', async () => {
     const { user } = await renderSignupForm()
 
-    // Leave email empty, fill password and accept terms
+    // Leave email empty, fill password and accept terms + age
     await user.type(screen.getByLabelText('Password'), 'validPassword123!')
-    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     await waitFor(() => {
       expect(screen.getByText(/Please enter a valid email address/)).toBeInTheDocument()
     })
-    // Only email error — no terms or password errors
+    // Only email error — no terms, age, or password errors
     expect(screen.queryByText(/You must agree to the Terms of Service/)).not.toBeInTheDocument()
+    expect(screen.queryByText(AGE_ERROR)).not.toBeInTheDocument()
     expect(mockRegisterMutate).not.toHaveBeenCalled()
   })
 
@@ -125,7 +136,8 @@ describe('SignupForm deferred validation', () => {
 
     await user.type(screen.getByLabelText('Email'), 'test@example.com')
     await user.type(screen.getByLabelText('Password'), 'short') // 5 chars
-    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
 
     const submitButton = screen.getByRole('button', { name: 'Create account' })
     expect(submitButton).toBeDisabled()
@@ -136,7 +148,8 @@ describe('SignupForm deferred validation', () => {
     const { user } = await renderSignupForm()
 
     await user.type(screen.getByLabelText('Email'), 'test@example.com')
-    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
 
     // 11 chars => still disabled
     await user.type(screen.getByLabelText('Password'), '12345678901')
@@ -159,13 +172,30 @@ describe('SignupForm deferred validation', () => {
     })
   })
 
+  // PSY-1023: submit is blocked (and the mutation never fires) when age is not
+  // confirmed, even with email, password, and terms all valid.
+  it('shows age error and blocks submit without confirming age', async () => {
+    const { user } = await renderSignupForm()
+
+    await user.type(screen.getByLabelText('Email'), 'test@example.com')
+    await user.type(screen.getByLabelText('Password'), 'validPassword123!')
+    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+    // Intentionally leave the age checkbox unchecked.
+    await user.click(screen.getByRole('button', { name: 'Create account' }))
+
+    await waitFor(() => {
+      expect(screen.getByText(AGE_ERROR)).toBeInTheDocument()
+    })
+    expect(mockRegisterMutate).not.toHaveBeenCalled()
+  })
+
   it('clears errors in real-time after failed submit', async () => {
     const { user } = await renderSignupForm()
 
-    // Submit empty form to trigger errors
+    // Submit empty form to trigger errors (email + password + terms + age)
     await user.click(screen.getByRole('button', { name: 'Create account' }))
     await waitFor(() => {
-      expect(screen.getAllByRole('alert')).toHaveLength(3)
+      expect(screen.getAllByRole('alert')).toHaveLength(4)
     })
 
     // Type valid email → email error clears
@@ -181,9 +211,15 @@ describe('SignupForm deferred validation', () => {
     })
 
     // Check terms → terms error clears
-    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
     await waitFor(() => {
       expect(screen.queryByText(/You must agree to the Terms of Service/)).not.toBeInTheDocument()
+    })
+
+    // Check age → age error clears
+    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
+    await waitFor(() => {
+      expect(screen.queryByText(AGE_ERROR)).not.toBeInTheDocument()
     })
   })
 
@@ -192,7 +228,8 @@ describe('SignupForm deferred validation', () => {
 
     await user.type(screen.getByLabelText('Email'), 'test@example.com')
     await user.type(screen.getByLabelText('Password'), 'validPassword123!')
-    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     await waitFor(() => {
@@ -203,6 +240,8 @@ describe('SignupForm deferred validation', () => {
           terms_accepted: true,
           terms_version: CURRENT_TERMS_VERSION,
           privacy_version: CURRENT_PRIVACY_VERSION,
+          age_confirmed: true,
+          min_age_attested: MIN_SIGNUP_AGE,
         },
         expect.any(Object),
       )
@@ -214,7 +253,8 @@ describe('SignupForm deferred validation', () => {
 
     await user.type(screen.getByLabelText('Email'), 'not-an-email')
     await user.type(screen.getByLabelText('Password'), 'validPassword123!')
-    await user.click(screen.getByRole('checkbox'))
+    await user.click(screen.getByRole('checkbox', { name: TERMS_CHECKBOX }))
+    await user.click(screen.getByRole('checkbox', { name: AGE_CHECKBOX }))
     await user.click(screen.getByRole('button', { name: 'Create account' }))
 
     await waitFor(() => {

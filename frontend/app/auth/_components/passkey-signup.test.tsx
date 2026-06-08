@@ -80,7 +80,9 @@ describe('PasskeySignupButton', () => {
 
     await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
     await user.type(screen.getByLabelText('Email'), 'signup@example.com')
-    await user.click(screen.getByRole('checkbox'))
+    // Two required checkboxes: terms + age confirmation (PSY-1023).
+    await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
+    await user.click(screen.getByRole('checkbox', { name: /at least 16 years old/ }))
     await user.click(
       screen.getByRole('button', { name: /continue with passkey/i })
     )
@@ -97,6 +99,16 @@ describe('PasskeySignupButton', () => {
       terms_accepted: true,
       terms_version: '2026-01-31',
       privacy_version: '2026-02-15',
+      age_confirmed: true,
+      min_age_attested: 16,
+    })
+
+    const finishSignupPayload = JSON.parse(
+      (fetchMock.mock.calls[1]?.[1] as { body: string }).body
+    )
+    expect(finishSignupPayload).toMatchObject({
+      age_confirmed: true,
+      min_age_attested: 16,
     })
 
     await waitFor(() => {
@@ -112,5 +124,23 @@ describe('PasskeySignupButton', () => {
     await waitFor(() => {
       expect(mockPush).toHaveBeenCalledWith('/library')
     })
+  })
+
+  // PSY-1023: the Continue button is disabled and no signup request fires until
+  // the age confirmation is checked, even with email + terms provided.
+  it('blocks passkey signup until age is confirmed', async () => {
+    const user = userEvent.setup()
+
+    renderWithProviders(<PasskeySignupButton returnTo="/library" />)
+
+    await user.click(screen.getByRole('button', { name: /sign up with passkey/i }))
+    await user.type(screen.getByLabelText('Email'), 'signup@example.com')
+    await user.click(screen.getByRole('checkbox', { name: /Terms of Service/ }))
+
+    // Age unchecked → Continue button stays disabled and no fetch fires.
+    expect(
+      screen.getByRole('button', { name: /continue with passkey/i })
+    ).toBeDisabled()
+    expect(fetchMock).not.toHaveBeenCalled()
   })
 })

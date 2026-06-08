@@ -97,6 +97,8 @@ func (s *OAuthHandlerIntegrationSuite) addSignupConsentCookie(req *http.Request)
 		TermsVersion:   "2026-01-31",
 		PrivacyVersion: "2026-02-15",
 		AcceptedAt:     time.Now().UTC(),
+		AgeConfirmed:   true,
+		MinAgeAttested: MinSignupAge,
 	})
 	s.Require().NoError(err)
 	req.AddCookie(&http.Cookie{

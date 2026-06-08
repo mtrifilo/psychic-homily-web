@@ -592,6 +592,8 @@ type BeginSignupRequest struct {
 		TermsAccepted  bool   `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
 		TermsVersion   string `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
 		PrivacyVersion string `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
+		AgeConfirmed   bool   `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
+		MinAgeAttested int    `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
 	}
 }
 
@@ -630,6 +632,12 @@ func (h *PasskeyHandler) BeginSignupHandler(ctx context.Context, input *BeginSig
 		resp.Body.Success = false
 		resp.Body.Message = "Terms version is required"
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
+		return resp, nil
+	}
+	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
+		resp.Body.Success = false
+		resp.Body.Message = errMsg
+		resp.Body.ErrorCode = errCode
 		return resp, nil
 	}
 
@@ -704,6 +712,8 @@ type FinishSignupRequest struct {
 		TermsAccepted  bool                       `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
 		TermsVersion   string                     `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
 		PrivacyVersion string                     `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
+		AgeConfirmed   bool                       `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
+		MinAgeAttested int                        `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
 	}
 }
 
@@ -786,6 +796,12 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
+	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
+		resp.Body.Success = false
+		resp.Body.Message = errMsg
+		resp.Body.ErrorCode = errCode
+		return resp, nil
+	}
 
 	// Complete registration and create user
 	user, err := h.webauthnService.FinishSignupRegistrationWithLegal(
@@ -797,6 +813,8 @@ func (h *PasskeyHandler) FinishSignupHandler(ctx context.Context, input *FinishS
 			TermsAcceptedAt: time.Now().UTC(),
 			TermsVersion:    input.Body.TermsVersion,
 			PrivacyVersion:  input.Body.PrivacyVersion,
+			AgeConfirmedAt:  time.Now().UTC(),
+			MinAgeAttested:  input.Body.MinAgeAttested,
 		},
 	)
 	if err != nil {

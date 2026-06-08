@@ -462,6 +462,17 @@ func (s *WebAuthnService) FinishSignupRegistrationWithLegal(
 		user.TermsVersion = &termsVersion
 		user.PrivacyVersion = &privacyVersion
 	}
+	// Record the minimum-age confirmation alongside terms (PSY-1023). Mirrors the
+	// terms block: only applied when an age was attested.
+	if acceptance.MinAgeAttested > 0 {
+		ageConfirmedAt := acceptance.AgeConfirmedAt
+		if ageConfirmedAt.IsZero() {
+			ageConfirmedAt = time.Now().UTC()
+		}
+		minAge := acceptance.MinAgeAttested
+		user.AgeConfirmedAt = &ageConfirmedAt
+		user.MinAgeAttested = &minAge
+	}
 
 	if err := tx.Create(user).Error; err != nil {
 		tx.Rollback()

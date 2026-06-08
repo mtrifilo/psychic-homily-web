@@ -209,6 +209,8 @@ describe('useAuth hooks', () => {
           terms_accepted: true,
           terms_version: '2026-01-31',
           privacy_version: '2026-02-15',
+          age_confirmed: true,
+          min_age_attested: 16,
         })
       })
 
@@ -226,6 +228,8 @@ describe('useAuth hooks', () => {
             terms_accepted: true,
             terms_version: '2026-01-31',
             privacy_version: '2026-02-15',
+            age_confirmed: true,
+            min_age_attested: 16,
           }),
         })
       )
@@ -249,6 +253,8 @@ describe('useAuth hooks', () => {
           terms_accepted: true,
           terms_version: '2026-01-31',
           privacy_version: '2026-02-15',
+          age_confirmed: true,
+          min_age_attested: 16,
         })
       })
 

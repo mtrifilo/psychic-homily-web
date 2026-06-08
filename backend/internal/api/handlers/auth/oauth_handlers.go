@@ -9,6 +9,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"strconv"
 	"sync"
 	"time"
 
@@ -122,11 +123,23 @@ func (h *OAuthHTTPHandler) OAuthLoginHTTPHandler(w http.ResponseWriter, r *http.
 			return
 		}
 
+		// Require the minimum-age confirmation (PSY-1023), mirroring the terms
+		// gate. min_age_attested is re-checked server-side against MinSignupAge so
+		// a tampered/absent query param can never bypass the gate.
+		ageConfirmed := r.URL.Query().Get("age_confirmed") == "true"
+		minAgeAttested, _ := strconv.Atoi(r.URL.Query().Get("min_age_attested"))
+		if !ageConfirmed || minAgeAttested < MinSignupAge {
+			http.Error(w, "Age confirmation is required for account creation", http.StatusBadRequest)
+			return
+		}
+
 		encodedConsent, err := encodeOAuthSignupConsent(contracts.OAuthSignupConsent{
 			TermsAccepted:  true,
 			TermsVersion:   termsVersion,
 			PrivacyVersion: privacyVersion,
 			AcceptedAt:     time.Now().UTC(),
+			AgeConfirmed:   true,
+			MinAgeAttested: minAgeAttested,
 		})
 		if err != nil {
 			http.Error(w, "Failed to process signup consent", http.StatusInternalServerError)
