@@ -181,11 +181,21 @@ type UpcomingShowsFilter struct {
 	TagMatchAny bool
 }
 
-// ShowCityResponse represents a city with the count of upcoming shows
+// ShowCityResponse represents a city with the count of upcoming shows.
+//
+// Latitude/Longitude are the city's geocoded centroid (the same offline
+// GeoNames source PSY-985 uses for venue coordinates), resolved from the
+// (city, state) pair. They let the frontend pick the geographically NEAREST
+// has-shows city for a new visitor whose exact city has no shows (PSY-981).
+// Both are nil together when the geocoder can't resolve the city (an obscure
+// place, or a non-US/CA city the GeoNames slice doesn't cover) — callers
+// fall back to exact city-name matching, so a miss degrades gracefully.
 type ShowCityResponse struct {
-	City      string `json:"city"`
-	State     string `json:"state"`
-	ShowCount int    `json:"show_count"`
+	City      string   `json:"city"`
+	State     string   `json:"state"`
+	ShowCount int      `json:"show_count"`
+	Latitude  *float64 `json:"latitude,omitempty"`  // Geocoded city centroid (PSY-985 source, PSY-981)
+	Longitude *float64 `json:"longitude,omitempty"` // Geocoded city centroid (PSY-985 source, PSY-981)
 }
 
 // ShowSearchResult is the row shape returned by GET /shows/search.

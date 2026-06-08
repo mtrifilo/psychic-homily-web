@@ -131,4 +131,105 @@ describe('getGeoDefaultCity', () => {
       state: 'AZ',
     })
   })
+
+  // --- PSY-981: visitor lat/long for the nearest-has-shows-city fallback ---
+
+  it('attaches the visitor lat/long when both coordinate headers are present', async () => {
+    setHeaders({
+      'x-vercel-ip-city': 'Paradise Valley',
+      'x-vercel-ip-country-region': 'AZ',
+      'x-vercel-ip-country': 'US',
+      'x-vercel-ip-latitude': '33.5312',
+      'x-vercel-ip-longitude': '-111.9426',
+    })
+    await expect(getGeoDefaultCity()).resolves.toEqual({
+      city: 'Paradise Valley',
+      state: 'AZ',
+      latitude: 33.5312,
+      longitude: -111.9426,
+    })
+  })
+
+  it('omits coords (city/state still resolves) when the lat/long headers are absent', async () => {
+    // The pre-PSY-981 shape — degrades to exact city-name matching downstream.
+    setHeaders({
+      'x-vercel-ip-city': 'Phoenix',
+      'x-vercel-ip-country-region': 'AZ',
+      'x-vercel-ip-country': 'US',
+    })
+    const result = await getGeoDefaultCity()
+    expect(result).toEqual({ city: 'Phoenix', state: 'AZ' })
+    expect(result).not.toHaveProperty('latitude')
+    expect(result).not.toHaveProperty('longitude')
+  })
+
+  it('drops coords when only ONE of lat/long is present (no half-coordinate)', async () => {
+    setHeaders({
+      'x-vercel-ip-city': 'Phoenix',
+      'x-vercel-ip-country-region': 'AZ',
+      'x-vercel-ip-country': 'US',
+      'x-vercel-ip-latitude': '33.4484',
+      // longitude omitted
+    })
+    await expect(getGeoDefaultCity()).resolves.toEqual({
+      city: 'Phoenix',
+      state: 'AZ',
+    })
+  })
+
+  it('drops coords when a value is non-numeric garbage', async () => {
+    setHeaders({
+      'x-vercel-ip-city': 'Phoenix',
+      'x-vercel-ip-country-region': 'AZ',
+      'x-vercel-ip-country': 'US',
+      'x-vercel-ip-latitude': 'not-a-number',
+      'x-vercel-ip-longitude': '-111.9426',
+    })
+    await expect(getGeoDefaultCity()).resolves.toEqual({
+      city: 'Phoenix',
+      state: 'AZ',
+    })
+  })
+
+  it('drops coords when out of range (latitude > 90 / longitude > 180)', async () => {
+    setHeaders({
+      'x-vercel-ip-city': 'Phoenix',
+      'x-vercel-ip-country-region': 'AZ',
+      'x-vercel-ip-country': 'US',
+      'x-vercel-ip-latitude': '200',
+      'x-vercel-ip-longitude': '-111.9426',
+    })
+    await expect(getGeoDefaultCity()).resolves.toEqual({
+      city: 'Phoenix',
+      state: 'AZ',
+    })
+  })
+
+  it('accepts coordinates at the valid bounds and zero', async () => {
+    setHeaders({
+      'x-vercel-ip-city': 'Null Island',
+      'x-vercel-ip-country-region': 'TX',
+      'x-vercel-ip-country': 'US',
+      'x-vercel-ip-latitude': '0',
+      'x-vercel-ip-longitude': '180',
+    })
+    await expect(getGeoDefaultCity()).resolves.toEqual({
+      city: 'Null Island',
+      state: 'TX',
+      latitude: 0,
+      longitude: 180,
+    })
+  })
+
+  it('still returns null for a non-US/CA country even with coords present', async () => {
+    // The country gate is UNCHANGED by PSY-981 — coords don't override it.
+    setHeaders({
+      'x-vercel-ip-city': 'Paris',
+      'x-vercel-ip-country-region': 'IDF',
+      'x-vercel-ip-country': 'FR',
+      'x-vercel-ip-latitude': '48.8566',
+      'x-vercel-ip-longitude': '2.3522',
+    })
+    await expect(getGeoDefaultCity()).resolves.toBeNull()
+  })
 })

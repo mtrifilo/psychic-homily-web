@@ -53,6 +53,10 @@ export function HomeShowList() {
         city: c.city,
         state: c.state,
         count: c.show_count,
+        // Geocoded centroid (PSY-981) — drives the nearest-has-shows-city geo
+        // default when the visitor's exact city has no shows.
+        latitude: c.latitude,
+        longitude: c.longitude,
       })) ?? [],
     [citiesData?.cities]
   )

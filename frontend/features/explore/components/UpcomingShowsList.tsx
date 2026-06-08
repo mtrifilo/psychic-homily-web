@@ -49,6 +49,7 @@ import {
 } from '@/components/filters/useGeoDefaultCity'
 import { GeoDefaultAffordance } from '@/components/filters/GeoDefaultAffordance'
 import type { CityState, CityWithCount } from '@/components/filters/CityFilters'
+import type { GeoLocation } from '@/lib/geo-default'
 
 // CityFilters pulls in cmdk (Command) + Radix Popover. Those bytes are
 // already in the global bundle (CommandPalette in SidebarLayout), but
@@ -79,12 +80,14 @@ interface UpcomingShowsListProps {
   limit?: number
   /**
    * IP-geo soft default (PSY-926), resolved server-side from the Vercel edge
-   * geo headers in `app/explore/page.tsx`. A suggestion only — applied as the
-   * default selection only for anon visitors with no `?cities=` and no
-   * favorites, AND only when the city has upcoming shows. `null` → no geo
-   * default (→ "All cities").
+   * geo headers in `app/explore/page.tsx`. Carries `{city,state}` plus optional
+   * visitor lat/long (PSY-981). A suggestion only — applied as the default
+   * selection only for anon visitors with no `?cities=` and no favorites, AND
+   * only when the city has upcoming shows (exact match, else the nearest
+   * has-shows city by the visitor's coords). `null` → no geo default
+   * (→ "All cities").
    */
-  geoDefaultCity?: CityState | null
+  geoDefaultCity?: GeoLocation | null
 }
 
 export function UpcomingShowsList({
@@ -120,6 +123,10 @@ export function UpcomingShowsList({
         city: c.city,
         state: c.state,
         count: c.show_count,
+        // Geocoded centroid (PSY-981) — drives the nearest-has-shows-city geo
+        // default when the visitor's exact city has no shows.
+        latitude: c.latitude,
+        longitude: c.longitude,
       })) ?? [],
     [citiesData],
   )

@@ -22,7 +22,7 @@
  */
 
 import Link from 'next/link'
-import type { CityState } from '@/components/filters/CityFilters'
+import type { GeoLocation } from '@/lib/geo-default'
 import { useExploreFeatured } from '../hooks'
 import { UpcomingShowsList } from './UpcomingShowsList'
 import { FeaturedBillCard } from './FeaturedBillCard'
@@ -33,11 +33,13 @@ import { ShuffleCta } from './ShuffleCta'
 interface ExplorePageProps {
   /**
    * IP-geo soft default for anon visitors (PSY-926), resolved server-side
-   * from the Vercel edge geo headers. A suggestion only — UpcomingShowsList
-   * pre-selects it only when the city has upcoming shows AND the visitor is
-   * anon with no `?cities=` and no favorites. `null` → "All cities".
+   * from the Vercel edge geo headers. Carries the visitor's `{city,state}`
+   * plus optional lat/long (PSY-981). A suggestion only — UpcomingShowsList
+   * pre-selects the city that has upcoming shows (exact match, else the
+   * nearest has-shows city by the visitor's coords) when the visitor is anon
+   * with no `?cities=` and no favorites. `null` → "All cities".
    */
-  geoDefaultCity?: CityState | null
+  geoDefaultCity?: GeoLocation | null
 }
 
 export function ExplorePage({ geoDefaultCity = null }: ExplorePageProps) {

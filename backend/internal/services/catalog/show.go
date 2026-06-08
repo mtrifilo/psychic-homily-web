@@ -21,6 +21,7 @@ import (
 	apperrors "psychic-homily-backend/internal/errors"
 	catalogm "psychic-homily-backend/internal/models/catalog"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/geo"
 	"psychic-homily-backend/internal/services/shared"
 	"psychic-homily-backend/internal/utils"
 )
@@ -35,6 +36,12 @@ func fnvHash(s string) int64 {
 // ShowService handles show-related business logic
 type ShowService struct {
 	db *gorm.DB
+	// geocoder resolves a (city, state) to its centroid coordinates using the
+	// same offline GeoNames dataset PSY-985 uses for venues. GetShowCities
+	// surfaces the centroid per show-city so the frontend can pick the nearest
+	// has-shows city for a new visitor (PSY-981). It's process-wide and
+	// stateless, so sharing geo.Default() is safe.
+	geocoder geo.Geocoder
 }
 
 // NewShowService creates a new show service
@@ -43,7 +50,8 @@ func NewShowService(database *gorm.DB) *ShowService {
 		database = db.GetDB()
 	}
 	return &ShowService{
-		db: database,
+		db:       database,
+		geocoder: geo.Default(),
 	}
 }
 
@@ -1011,6 +1019,21 @@ func (s *ShowService) GetShowCities(timezone string) ([]contracts.ShowCityRespon
 
 	if err != nil {
 		return nil, fmt.Errorf("failed to get show cities: %w", err)
+	}
+
+	// Attach each city's geocoded centroid (PSY-981). We resolve from the
+	// (city, state) pair via the SAME offline geocoder PSY-985 uses for venue
+	// coordinates, rather than joining show_venues -> venues: it's exact to the
+	// (city, state) key we already group by (no venue-vs-show city-spelling
+	// mismatch), it has no dependency on every venue row being backfilled, and
+	// it's an in-memory lookup (no extra query, no N+1). A miss leaves both
+	// coords nil — the frontend then falls back to exact city-name matching.
+	if s.geocoder != nil {
+		for i := range results {
+			lat, lng, _ := geo.LookupPointers(s.geocoder, results[i].City, results[i].State, "")
+			results[i].Latitude = lat
+			results[i].Longitude = lng
+		}
 	}
 
 	return results, nil

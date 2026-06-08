@@ -176,6 +176,11 @@ export interface ShowCity {
   city: string
   state: string
   show_count: number
+  // Geocoded city centroid (PSY-981, same offline GeoNames source as PSY-985
+  // venue coords). Omitted by the backend when the geocoder can't resolve the
+  // city; the client then falls back to exact city-name matching for geo.
+  latitude?: number
+  longitude?: number
 }
 
 // Response for the show cities endpoint
