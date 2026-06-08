@@ -342,9 +342,12 @@ describe('VenueDetail', () => {
         '.lg\\:grid-cols-\\[minmax\\(0\\,1fr\\)_400px\\]',
       )
       expect(grid).not.toBeNull()
-      // The main (graph-bearing) column carries the belt-and-suspenders cap.
-      const mainColumn = grid?.querySelector('.min-w-0')
-      expect(mainColumn).not.toBeNull()
+      // The main (graph-bearing) column is the grid's FIRST child and must
+      // itself carry the belt-and-suspenders `min-w-0` cap. Asserting on the
+      // direct child (not any descendant) keeps the guard precise — it can't be
+      // satisfied by some unrelated nested `min-w-0` element.
+      const mainColumn = grid?.firstElementChild
+      expect(mainColumn?.className).toContain('min-w-0')
     })
 
     it('does not render a favorite venue button', () => {
