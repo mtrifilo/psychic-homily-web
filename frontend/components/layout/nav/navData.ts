@@ -18,6 +18,12 @@ export interface NavLink {
   icon?: LucideIcon
   external?: boolean
   authOnly?: boolean
+  /**
+   * Marks the Contribute menu's call-to-action ("+ Submit a show"), which the
+   * Figma design (frame 460:3) renders in the primary color. Submit lives in
+   * this menu rather than as a standalone top-bar CTA (OQ-2, resolved).
+   */
+  submitPrimary?: boolean
 }
 
 export interface NavGroup {
@@ -55,12 +61,16 @@ export const browseGroups: NavGroup[] = [
 ]
 
 // Contribute ▾ — the What.cd "request system as call-to-action". PSY-1015
-// refines presentation; Editorial (consume-not-contribute) is a labelled
-// sub-group here pending its final home (Contribute vs. Browse → Curation).
+// lays this out as the two-column Participate / Editorial panel from Figma
+// (frame 460:3). Leaderboard appears in Participate as a contributor-standing
+// destination; it is ALSO reachable from Browse → Curation (it's a plain link,
+// so two entry points is fine). The Editorial sub-group is consume-not-
+// contribute (resolved to live here per OQ-6).
 export const contributeItems: NavLink[] = [
-  { href: '/shows/submit', label: 'Submit a Show', icon: Music },
+  { href: '/shows/submit', label: 'Submit a Show', icon: Music, submitPrimary: true },
   { href: '/requests', label: 'Requests', icon: MessageSquarePlus },
   { href: '/submissions', label: 'My Submissions', icon: Send, authOnly: true },
+  { href: '/community/leaderboard', label: 'Leaderboard', icon: Trophy },
   { href: '/contribute', label: 'Contribute hub', icon: HeartHandshake },
 ]
 

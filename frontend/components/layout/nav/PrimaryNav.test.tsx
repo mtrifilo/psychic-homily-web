@@ -64,7 +64,7 @@ describe('PrimaryNav', () => {
     const user = userEvent.setup()
     render(<PrimaryNav />)
     await user.click(screen.getByRole('button', { name: 'Contribute' }))
-    expect(await screen.findByRole('menuitem', { name: 'Submit a Show' })).toBeInTheDocument()
+    expect(await screen.findByRole('menuitem', { name: '+ Submit a show' })).toBeInTheDocument()
     expect(screen.queryByRole('menuitem', { name: 'My Submissions' })).not.toBeInTheDocument()
   })
 
@@ -74,5 +74,33 @@ describe('PrimaryNav', () => {
     render(<PrimaryNav />)
     await user.click(screen.getByRole('button', { name: 'Contribute' }))
     expect(await screen.findByRole('menuitem', { name: 'My Submissions' })).toHaveAttribute('href', '/submissions')
+  })
+
+  it('renders the Contribute panel: primary Submit CTA, Participate + Editorial links', async () => {
+    const user = userEvent.setup()
+    render(<PrimaryNav />)
+    await user.click(screen.getByRole('button', { name: 'Contribute' }))
+    // Primary call-to-action (lives in the menu, not a standalone bar CTA).
+    expect(await screen.findByRole('menuitem', { name: '+ Submit a show' })).toHaveAttribute(
+      'href',
+      '/shows/submit'
+    )
+    // Participate group destinations.
+    expect(screen.getByRole('menuitem', { name: 'Requests' })).toHaveAttribute('href', '/requests')
+    expect(screen.getByRole('menuitem', { name: 'Leaderboard' })).toHaveAttribute(
+      'href',
+      '/community/leaderboard'
+    )
+    expect(screen.getByRole('menuitem', { name: 'Contribute hub →' })).toHaveAttribute(
+      'href',
+      '/contribute'
+    )
+    // Editorial group destinations.
+    expect(screen.getByRole('menuitem', { name: 'Blog' })).toHaveAttribute('href', '/blog')
+    expect(screen.getByRole('menuitem', { name: 'DJ Sets' })).toHaveAttribute('href', '/dj-sets')
+    const substack = screen.getByRole('menuitem', { name: 'Substack ↗' })
+    expect(substack).toHaveAttribute('href', 'https://psychichomily.substack.com/')
+    expect(substack).toHaveAttribute('target', '_blank')
+    expect(substack).toHaveAttribute('rel', 'noopener noreferrer')
   })
 })
