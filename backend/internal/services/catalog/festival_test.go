@@ -204,6 +204,37 @@ func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_UniqueSlug(
 	suite.Equal("lollapalooza-2", resp2.Slug)
 }
 
+// A second festival for the same (series_slug, edition_year) is a duplicate
+// edition: the unique constraint must surface as a typed FESTIVAL_EXISTS error
+// (→ 409) instead of a raw DB constraint violation (→ 500). Matters for the
+// entity_request fulfill path (PSY-998), where two approved festival requests
+// for the same name + year derive the same series_slug.
+func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_DuplicateEditionConflict() {
+	req := &contracts.CreateFestivalRequest{
+		Name:        "Repeat Fest",
+		SeriesSlug:  "repeat-fest",
+		EditionYear: 2026,
+		StartDate:   "2026-09-01",
+		EndDate:     "2026-09-03",
+	}
+	_, err := suite.festivalService.CreateFestival(req)
+	suite.Require().NoError(err)
+
+	// Same series_slug + same edition_year → typed conflict, not a 500.
+	dup := &contracts.CreateFestivalRequest{
+		Name:        "Repeat Fest",
+		SeriesSlug:  "repeat-fest",
+		EditionYear: 2026,
+		StartDate:   "2026-09-01",
+		EndDate:     "2026-09-03",
+	}
+	_, err = suite.festivalService.CreateFestival(dup)
+	suite.Require().Error(err)
+	var festErr *apperrors.FestivalError
+	suite.ErrorAs(err, &festErr)
+	suite.Equal(apperrors.CodeFestivalExists, festErr.Code)
+}
+
 // =============================================================================
 // Group 2: GetFestival / GetFestivalBySlug
 // =============================================================================

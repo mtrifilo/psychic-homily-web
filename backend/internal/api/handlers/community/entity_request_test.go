@@ -660,6 +660,143 @@ func TestAdminDecide_ApproveShow_Unsupported(t *testing.T) {
 	testhelpers.AssertHumaError(t, err, 422)
 }
 
+// Approving a festival creates a real festival: the fulfiller derives the two
+// fields the payload doesn't carry — series_slug (slugified name) and
+// edition_year — then calls CreateFestival. PSY-998.
+func TestAdminDecide_ApproveFestival_CreatesEntity(t *testing.T) {
+	festPayload, err := communitym.MarshalPayload(communitym.FestivalRequestPayload{
+		Name:        "Best Coast Fest",
+		EditionYear: 2027,
+		StartDate:   "2027-05-01",
+		EndDate:     "2027-05-03",
+	})
+	if err != nil {
+		t.Fatalf("marshal festival payload: %v", err)
+	}
+	decided := pendingRequest(20, "festival")
+	decided.Payload = &festPayload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+	createCalled := false
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateFestivalFn: func(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
+				createCalled = true
+				if req.Name != "Best Coast Fest" {
+					t.Errorf("expected name from payload, got %q", req.Name)
+				}
+				if req.SeriesSlug != "best-coast-fest" {
+					t.Errorf("expected series_slug derived from name, got %q", req.SeriesSlug)
+				}
+				if req.EditionYear != 2027 {
+					t.Errorf("expected edition_year 2027 from payload, got %d", req.EditionYear)
+				}
+				return &contracts.FestivalDetailResponse{ID: 77}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "20"}
+	req.Body.Decision = "approved"
+
+	resp, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !createCalled {
+		t.Error("expected fulfiller CreateFestival to be called on approve")
+	}
+	if resp.Body.CreatedEntityID == nil || *resp.Body.CreatedEntityID != 77 {
+		t.Errorf("expected created entity id 77, got %v", resp.Body.CreatedEntityID)
+	}
+	if resp.Body.CreatedEntityType == nil || *resp.Body.CreatedEntityType != "festival" {
+		t.Errorf("expected created entity type festival, got %v", resp.Body.CreatedEntityType)
+	}
+}
+
+// When the payload omits edition_year, the fulfiller falls back to the
+// start_date's calendar year so the festival edition stays meaningful. PSY-998.
+func TestAdminDecide_ApproveFestival_EditionYearFromStartDate(t *testing.T) {
+	festPayload, err := communitym.MarshalPayload(communitym.FestivalRequestPayload{
+		Name:      "Yearless Fest",
+		StartDate: "2028-04-10",
+		EndDate:   "2028-04-12",
+	})
+	if err != nil {
+		t.Fatalf("marshal festival payload: %v", err)
+	}
+	decided := pendingRequest(21, "festival")
+	decided.Payload = &festPayload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	gotYear := -1
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateFestivalFn: func(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
+				gotYear = req.EditionYear
+				return &contracts.FestivalDetailResponse{ID: 78}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "21"}
+	req.Body.Decision = "approved"
+	if _, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotYear != 2028 {
+		t.Errorf("expected edition_year derived from start_date (2028), got %d", gotYear)
+	}
+}
+
+// A duplicate-edition conflict on festival approve maps to 409, not 500
+// (FESTIVAL_EXISTS → 409; mirrors the artist regression guard). PSY-998.
+func TestAdminDecide_ApproveFestival_ExistsConflictIs409(t *testing.T) {
+	festPayload, err := communitym.MarshalPayload(communitym.FestivalRequestPayload{
+		Name:        "Dup Fest",
+		EditionYear: 2026,
+		StartDate:   "2026-05-01",
+		EndDate:     "2026-05-03",
+	})
+	if err != nil {
+		t.Fatalf("marshal festival payload: %v", err)
+	}
+	decided := pendingRequest(22, "festival")
+	decided.Payload = &festPayload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateFestivalFn: func(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
+				return nil, apperrors.ErrFestivalExists("Dup Fest")
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "22"}
+	req.Body.Decision = "approved"
+	_, err = h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 409)
+}
+
 // Fulfillment failure after claim surfaces a 500 (entity NOT created).
 func TestAdminDecide_ApproveFulfillFails(t *testing.T) {
 	decided := pendingRequest(8, "artist")

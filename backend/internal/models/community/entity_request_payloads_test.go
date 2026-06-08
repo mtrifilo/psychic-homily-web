@@ -253,4 +253,19 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 	t.Run("festival requires dates", func(t *testing.T) {
 		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","edition_year":2026,"start_date":"2026-01-01","end_date":""}`)))
 	})
+	t.Run("valid festival", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","edition_year":2026,"start_date":"2026-01-01","end_date":"2026-01-03"}`)))
+	})
+	t.Run("festival rejects malformed start_date", func(t *testing.T) {
+		// Slash-formatted date passes a non-empty check but isn't YYYY-MM-DD;
+		// fulfillment derives edition_year from it and feeds a DATE column.
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","start_date":"2026/01/01","end_date":"2026-01-03"}`)))
+	})
+	t.Run("festival rejects impossible date", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","start_date":"2026-13-99","end_date":"2026-01-03"}`)))
+	})
+	t.Run("festival rejects unsluggable name", func(t *testing.T) {
+		// Name slugifies to "" → empty series_slug; must be rejected.
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"!!!","start_date":"2026-01-01","end_date":"2026-01-03"}`)))
+	})
 }

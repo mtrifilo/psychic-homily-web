@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
+
+	"psychic-homily-backend/internal/utils"
 )
 
 // PSY-869: typed payload schemas for the polymorphic entity_requests table.
@@ -214,10 +217,20 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := requireField("festival", "name", p.Name); err != nil {
 			return err
 		}
-		if err := requireField("festival", "start_date", p.StartDate); err != nil {
+		// Fulfillment derives series_slug from the name (PSY-998); a name with
+		// no slug-able characters (e.g. all punctuation) would persist an empty
+		// series_slug, breaking the (series_slug, edition_year) uniqueness and
+		// series grouping. Reject it at the boundary instead.
+		if utils.GenerateSlug(p.Name) == "" {
+			return fmt.Errorf("festival payload: name must contain letters or numbers (it becomes the series_slug)")
+		}
+		// start_date/end_date feed a DATE column, and start_date drives the
+		// derived edition_year — reject a malformed date here (422) rather than
+		// letting it fail at INSERT or silently yield edition_year 0 (500).
+		if err := requireDate("festival", "start_date", p.StartDate); err != nil {
 			return err
 		}
-		return requireField("festival", "end_date", p.EndDate)
+		return requireDate("festival", "end_date", p.EndDate)
 	default:
 		return fmt.Errorf("unsupported entity request type: %q", entityType)
 	}
@@ -228,6 +241,22 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 func requireField(entityType, field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s payload: %s is required", entityType, field)
+	}
+	return nil
+}
+
+// requireDate validates a required date field is present AND well-formed
+// (YYYY-MM-DD). Used where the value reaches a DATE column or drives a derived
+// year, so a malformed date must be rejected at the trust boundary (422)
+// instead of failing later at INSERT (500). time.Parse also rejects
+// impossible calendar dates (e.g. month 13).
+func requireDate(entityType, field, value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fmt.Errorf("%s payload: %s is required", entityType, field)
+	}
+	if _, err := time.Parse("2006-01-02", trimmed); err != nil {
+		return fmt.Errorf("%s payload: %s must be a valid YYYY-MM-DD date", entityType, field)
 	}
 	return nil
 }

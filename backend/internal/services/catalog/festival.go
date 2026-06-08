@@ -35,6 +35,20 @@ func (s *FestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (
 		return nil, fmt.Errorf("database not initialized")
 	}
 
+	// Reject a duplicate edition up front so callers get a typed
+	// already-exists error (→ 409) instead of a raw DB unique-constraint
+	// violation on (series_slug, edition_year) bubbling up as a 500. Mirrors
+	// the pre-check in CreateArtist. Matters for the entity_request fulfill
+	// path (PSY-998), where two approved festival requests for the same name +
+	// year derive the same series_slug.
+	var existing catalogm.Festival
+	err := s.db.Where("series_slug = ? AND edition_year = ?", req.SeriesSlug, req.EditionYear).First(&existing).Error
+	if err == nil {
+		return nil, apperrors.ErrFestivalExists(req.Name)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to check existing festival: %w", err)
+	}
+
 	// Generate unique slug from name
 	baseSlug := utils.GenerateArtistSlug(req.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
