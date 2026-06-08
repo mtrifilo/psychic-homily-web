@@ -214,7 +214,7 @@ func (h *ArtistHandler) GetArtistHandler(ctx context.Context, req *GetArtistRequ
 type GetArtistShowsRequest struct {
 	ArtistID   string `path:"artist_id" doc:"Artist ID or slug" example:"the-national"`
 	Timezone   string `query:"timezone" doc:"Timezone for date filtering" example:"America/Phoenix"`
-	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"50" doc:"Maximum number of shows to return"`
+	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"200" doc:"Maximum number of shows to return (max 200)"`
 	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
 }
 

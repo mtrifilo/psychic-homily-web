@@ -167,7 +167,7 @@ func (h *VenueHandler) GetVenueHandler(ctx context.Context, req *GetVenueRequest
 type GetVenueShowsRequest struct {
 	VenueID    string `path:"venue_id" doc:"Venue ID or slug" example:"valley-bar-phoenix-az"`
 	Timezone   string `query:"timezone" doc:"Timezone for date filtering" example:"America/Phoenix"`
-	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"50" doc:"Maximum number of shows to return"`
+	Limit      int    `query:"limit" default:"20" minimum:"1" maximum:"200" doc:"Maximum number of shows to return (max 200)"`
 	TimeFilter string `query:"time_filter" doc:"Filter shows by time: upcoming, past, or all" example:"upcoming" enum:"upcoming,past,all"`
 }
 
