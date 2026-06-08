@@ -515,6 +515,142 @@ WHERE email LIKE 'e2e-user%@test.local'
 ON CONFLICT (user_id) DO NOTHING;
 SQL
 
+echo "==> Seeding representative tags + entity_tags so facet panels render non-empty (PSY-1010)..."
+# The dev Go seed (cmd/seed -> exemplars.go) tags its *-exemplar entities, but
+# this E2E/dispatch-stack seed shipped with ZERO tags — so every tag-facet
+# browse page (/shows /artists /releases /venues /labels /festivals) rendered an
+# EMPTY facet panel by default and tag-work agents had to hand-seed to repro.
+#
+# Seed a SMALL, representative vocabulary and apply the SAME few tags across
+# MULTIPLE entity types so cross-entity facets are visible. The facet panel
+# (frontend/features/tags/components/TagFacetPanel.tsx) HIDES zero-count chips
+# per entity type and renders nothing when every chip in a category is zero, so
+# each browse page needs at least one tag with a NON-ZERO count for its type.
+#
+# Transitive types (PSY-499): /shows and /festivals match a tag TRANSITIVELY via
+# their billed artists — there are no direct show/festival tags. So we tag the
+# ARTISTS that are billed on the seeded future shows (the 55-show loop above
+# bills the first 10 artists) and add a lineup to the seeded festival, rather
+# than tagging shows/festivals directly (a direct tag would never surface in the
+# transitive facet count).
+#
+# Tags are authored by the admin user (entity_tags.added_by_user_id is NOT NULL),
+# which is seeded in the users block above. Idempotent via ON CONFLICT so a
+# dispatch stack that re-runs setup-db.sh neither duplicates nor errors.
+psql -v ON_ERROR_STOP=1 "$E2E_DB_URL" <<'SQL'
+-- Small representative tag vocabulary. Genre tags drive cross-entity discovery;
+-- one locale tag ('phoenix') populates a second facet-category group so the
+-- panel shows more than the single 'genre' column. is_official=true mirrors
+-- how the dev exemplar seed creates its tags.
+INSERT INTO tags (name, slug, category, is_official, created_at, updated_at)
+VALUES
+  ('Post-Punk', 'post-punk', 'genre',  true, NOW(), NOW()),
+  ('Shoegaze',  'shoegaze',  'genre',  true, NOW(), NOW()),
+  ('Noise',     'noise',     'genre',  true, NOW(), NOW()),
+  ('Ambient',   'ambient',   'genre',  true, NOW(), NOW()),
+  ('Emo',       'emo',       'genre',  true, NOW(), NOW()),
+  ('Phoenix',   'phoenix',   'locale', true, NOW(), NOW())
+ON CONFLICT (slug) DO NOTHING;
+
+DO $$
+DECLARE
+  tagger_id INTEGER;
+  fest_id INTEGER;
+  -- (entity_type, slug, tag_slug) triples: which tag to apply to which entity.
+  -- Artists here are billed on the 55-show loop's bill (first 10 artists) so
+  -- tagging them makes the transitive /shows facet non-empty AND the direct
+  -- /artists facet non-empty. The same few tags repeat across releases /
+  -- venues / labels so a single tag (e.g. 'emo') spans several browse pages.
+  app RECORD;
+  ent_id INTEGER;
+  -- Artists added to the festival lineup so the transitive /festivals facet is
+  -- non-empty (the seeded festival had no lineup). Reuse already-tagged artists.
+  lineup RECORD;
+  pos INTEGER := 0;
+BEGIN
+  SELECT id INTO tagger_id FROM users WHERE email = 'e2e-admin@test.local';
+  IF tagger_id IS NULL THEN
+    RAISE NOTICE 'PSY-1010: admin user not found; skipping tag seed';
+    RETURN;
+  END IF;
+
+  -- Direct entity_tags applications across artist / release / venue / label.
+  FOR app IN
+    SELECT * FROM (VALUES
+      -- Artists (also drive transitive /shows via the bill).
+      ('artist',  'jimmy-eat-world', 'emo'),
+      ('artist',  'jimmy-eat-world', 'shoegaze'),
+      ('artist',  'the-format',      'emo'),
+      ('artist',  'calexico',        'ambient'),
+      ('artist',  'ajj',             'post-punk'),
+      ('artist',  'sundressed',      'emo'),
+      ('artist',  'the-maine',       'shoegaze'),
+      -- Releases (direct /releases facet).
+      ('release', 'futures',              'emo'),
+      ('release', 'clarity',              'emo'),
+      ('release', 'knife-man',            'post-punk'),
+      ('release', 'feast-of-the-mau-mau', 'ambient'),
+      ('release', 'sundressed-ep',        'shoegaze'),
+      -- Venues (direct /venues facet; 'phoenix' locale tag populates a 2nd
+      -- facet category on the venues page).
+      ('venue',   'the-rebel-lounge-phoenix-az', 'phoenix'),
+      ('venue',   'crescent-ballroom-phoenix-az', 'phoenix'),
+      ('venue',   'valley-bar-phoenix-az',        'noise'),
+      ('venue',   'club-congress-tucson-az',      'post-punk'),
+      -- Labels (direct /labels facet).
+      ('label',   'run-for-cover-records', 'emo'),
+      ('label',   'topshelf-records',      'post-punk'),
+      ('label',   'loma-vista-recordings', 'noise')
+    ) AS t(entity_type, entity_slug, tag_slug)
+  LOOP
+    -- Resolve the entity ID from its slug per table.
+    ent_id := NULL;
+    IF app.entity_type = 'artist' THEN
+      SELECT id INTO ent_id FROM artists WHERE slug = app.entity_slug;
+    ELSIF app.entity_type = 'release' THEN
+      SELECT id INTO ent_id FROM releases WHERE slug = app.entity_slug;
+    ELSIF app.entity_type = 'venue' THEN
+      SELECT id INTO ent_id FROM venues WHERE slug = app.entity_slug;
+    ELSIF app.entity_type = 'label' THEN
+      SELECT id INTO ent_id FROM labels WHERE slug = app.entity_slug;
+    END IF;
+
+    IF ent_id IS NOT NULL THEN
+      INSERT INTO entity_tags (tag_id, entity_type, entity_id, added_by_user_id, created_at)
+      SELECT t.id, app.entity_type, ent_id, tagger_id, NOW()
+      FROM tags t WHERE t.slug = app.tag_slug
+      ON CONFLICT (tag_id, entity_type, entity_id) DO NOTHING;
+    END IF;
+  END LOOP;
+
+  -- Festival lineup so the transitive /festivals facet is non-empty. The seeded
+  -- 'e2e-test-fest-2026' festival had no festival_artists rows; bill a few of
+  -- the tagged artists above so their tags surface transitively.
+  SELECT id INTO fest_id FROM festivals WHERE slug = 'e2e-test-fest-2026';
+  IF fest_id IS NOT NULL THEN
+    FOR lineup IN
+      SELECT id, slug FROM artists
+      WHERE slug IN ('jimmy-eat-world', 'the-format', 'calexico', 'ajj')
+      ORDER BY slug
+    LOOP
+      INSERT INTO festival_artists (festival_id, artist_id, billing_tier, position, created_at)
+      VALUES (fest_id, lineup.id, CASE WHEN pos = 0 THEN 'headliner' ELSE 'mid_card' END, pos, NOW())
+      ON CONFLICT (festival_id, artist_id) DO NOTHING;
+      pos := pos + 1;
+    END LOOP;
+  END IF;
+
+  -- Sync each tag's usage_count to its direct entity_tags fan-out (the global
+  -- /tags-browse count; per-entity-type facet counts are recomputed live by the
+  -- backend regardless). Keeps the seed self-consistent.
+  UPDATE tags SET usage_count = sub.cnt
+  FROM (
+    SELECT tag_id, COUNT(*) AS cnt FROM entity_tags GROUP BY tag_id
+  ) sub
+  WHERE tags.id = sub.tag_id;
+END $$;
+SQL
+
 echo "==> Seeding radio stations and shows (generated from backend/internal/seeddata/radio.go)..."
 # PSY-414: single source of truth in backend/internal/seeddata/radio.go,
 # rendered to SQL by cmd/gen-e2e-seed. cmd/seed (for local dev / stage)
