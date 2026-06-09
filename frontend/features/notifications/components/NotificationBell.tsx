@@ -55,7 +55,10 @@ export function NotificationBell() {
         <Button
           variant="ghost"
           size="icon"
-          className="relative hidden cursor-pointer sm:flex"
+          // Visibility is parent-controlled (the TopBar account cluster is
+          // hidden below sm); this trigger no longer self-hides so all three
+          // cluster siblings (+ Submit, bell, avatar) share one strategy.
+          className="relative cursor-pointer"
           aria-label={
             hasUnread
               ? `Notifications (${unreadCount} unread)`

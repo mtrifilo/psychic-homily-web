@@ -22,8 +22,9 @@ import { NotificationBell } from '@/features/notifications'
 // bar deliberately promotes Submit to a standalone CTA — unlike the anonymous
 // bar, where Submit stays inside the Contribute menu (OQ-2), since logged-in
 // users can be asked to contribute. Visibility is controlled by the parent
-// (hidden below the search/auth breakpoint); the mobile sheet carries Submit
-// via its Contribute group (a dedicated mobile CTA is PSY-1020's scope).
+// (hidden below the search/auth breakpoint); on small screens Submit stays
+// reachable through the mobile sheet's Community group (sidebarGroups in
+// Sidebar.tsx), and a dedicated mobile CTA is PSY-1020's scope.
 export function UserMenu() {
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
 
