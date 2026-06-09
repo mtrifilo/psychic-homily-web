@@ -82,34 +82,42 @@ describe('NotificationBell', () => {
     expect(container.firstChild).toBeNull()
   })
 
-  it('renders the bell button when authenticated with no unread', () => {
+  it('renders the bell button with no unread dot when there are no unread', () => {
     mockUseUserNotifications.mockReturnValue({
       data: { notifications: [], unread_count: 0 },
       isLoading: false,
     })
     renderBell()
     expect(screen.getByRole('button', { name: /notifications/i })).toBeInTheDocument()
+    expect(screen.queryByTestId('notification-unread-dot')).not.toBeInTheDocument()
   })
 
-  it('renders the unread count badge when there are unread notifications', () => {
+  it('shows the unread dot when there are unread notifications', () => {
     mockUseUserNotifications.mockReturnValue({
       data: { notifications: [commentEntry()], unread_count: 3 },
       isLoading: false,
     })
     renderBell()
-    expect(screen.getByText('3')).toBeInTheDocument()
+    expect(screen.getByTestId('notification-unread-dot')).toBeInTheDocument()
+    // PSY-1018: the visual affordance is a plain dot, not a number — but the
+    // exact count is still announced via the trigger's aria-label.
+    expect(screen.queryByText('3')).not.toBeInTheDocument()
     expect(
       screen.getByRole('button', { name: /3 unread/i })
     ).toBeInTheDocument()
   })
 
-  it('caps the badge at "9+" when unread > 9', () => {
+  it('shows the dot and announces the exact count above 9 (no "9+" cap)', () => {
     mockUseUserNotifications.mockReturnValue({
       data: { notifications: [], unread_count: 47 },
       isLoading: false,
     })
     renderBell()
-    expect(screen.getByText('9+')).toBeInTheDocument()
+    expect(screen.getByTestId('notification-unread-dot')).toBeInTheDocument()
+    expect(screen.queryByText('9+')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /47 unread/i })
+    ).toBeInTheDocument()
   })
 
   it('opens a popover with notification rows when clicked, and fires mark-read', async () => {

@@ -2,9 +2,13 @@
 
 /**
  * Header bell + popover for the in-app notification surface (PSY-595).
- * Mark-read policy matches /notifications: view-clears-count. Opening the
+ * Mark-read policy matches /notifications: view-clears-unread. Opening the
  * popover fires mark-all-read after a 500ms delay so the user has time to
- * register the badge before it clears.
+ * register the unread state before it clears.
+ *
+ * PSY-1018: the unread affordance is a plain dot (not a numeric count) to match
+ * the editorial top-bar design (Figma 537:91); the exact count is preserved in
+ * the trigger's aria-label so screen readers still hear it.
  */
 
 import { useEffect, useState } from 'react'
@@ -43,8 +47,7 @@ export function NotificationBell() {
 
   if (!isAuthenticated) return null
 
-  const badge =
-    unreadCount > 9 ? '9+' : unreadCount > 0 ? String(unreadCount) : null
+  const hasUnread = unreadCount > 0
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -54,19 +57,20 @@ export function NotificationBell() {
           size="icon"
           className="relative hidden cursor-pointer sm:flex"
           aria-label={
-            unreadCount > 0
+            hasUnread
               ? `Notifications (${unreadCount} unread)`
               : 'Notifications'
           }
         >
           <Bell className="h-[1.2rem] w-[1.2rem]" />
-          {badge != null && (
+          {hasUnread && (
             <span
-              className="absolute right-1 top-1 flex h-4 min-w-[1rem] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-semibold leading-none text-primary-foreground"
+              data-testid="notification-unread-dot"
+              // ring-2 ring-background carves a crisp gap so the dot reads
+              // cleanly over the bell's top-right curve.
+              className="absolute right-1.5 top-1.5 size-2 rounded-full bg-primary ring-2 ring-background"
               aria-hidden
-            >
-              {badge}
-            </span>
+            />
           )}
         </Button>
       </PopoverTrigger>

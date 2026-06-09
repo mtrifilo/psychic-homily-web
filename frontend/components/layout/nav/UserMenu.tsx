@@ -16,12 +16,14 @@ import { useAuthContext } from '@/lib/context/AuthContext'
 import { getUserInitials, getUserDisplayName } from '@/app/nav-utils'
 import { NotificationBell } from '@/features/notifications'
 
-// The right-hand account cluster: notification bell + avatar dropdown when
-// signed in, otherwise the "login / sign-up" text link (matching the deployed
-// app). Behaviour is preserved verbatim from the previous TopBar; PSY-1018
-// redesigns the authenticated bar (+ Submit · 🔔 · avatar) once it is designed.
-// Visibility is controlled by the parent (hidden below the search/auth
-// breakpoint); the mobile sheet carries the same actions on small screens.
+// The right-hand actions cluster. Signed in (PSY-1018, Figma 537:91): the
+// "+ Submit" primary CTA → notification bell → avatar dropdown. Signed out: the
+// "login / sign-up" text link (matching the deployed app). The authenticated
+// bar deliberately promotes Submit to a standalone CTA — unlike the anonymous
+// bar, where Submit stays inside the Contribute menu (OQ-2), since logged-in
+// users can be asked to contribute. Visibility is controlled by the parent
+// (hidden below the search/auth breakpoint); the mobile sheet carries Submit
+// via its Contribute group (a dedicated mobile CTA is PSY-1020's scope).
 export function UserMenu() {
   const { user, isAuthenticated, isLoading, logout } = useAuthContext()
 
@@ -40,7 +42,10 @@ export function UserMenu() {
     const profileHref = user.username ? `/users/${user.username}` : '/profile'
 
     return (
-      <div className="flex items-center gap-1">
+      <div className="flex items-center gap-2">
+        <Button asChild>
+          <Link href="/shows/submit">+ Submit</Link>
+        </Button>
         <NotificationBell />
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
