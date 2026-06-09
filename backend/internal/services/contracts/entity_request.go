@@ -70,14 +70,19 @@ type EntityRequestFilters struct {
 // catalog service interfaces. The concrete implementation lives in the service
 // container, composing the per-entity catalog services.
 //
-// Show and festival are deliberately absent: their catalog create contracts
-// require associations (show ⇒ venues + artists; festival ⇒ series_slug) that
-// the entity_request payloads do not carry. Fulfilling those types needs an
-// association-resolution step that is out of scope for PSY-997; the decide
-// handler returns a typed "fulfillment unsupported" error for them.
+// Show is deliberately absent: its catalog create contract requires
+// associations (≥1 venue + ≥1 artist with positions) that the entity_request
+// payload does not carry, so fulfilling a show needs an admin-supplied
+// association-resolution step (tracked as a follow-up to PSY-998); the decide
+// handler returns a typed "fulfillment unsupported" error for it.
+//
+// Festival IS fulfillable (PSY-998): the only field its create contract needs
+// beyond the payload is series_slug, which the fulfiller derives from the
+// festival name.
 type EntityRequestFulfillerInterface interface {
 	CreateArtist(req *CreateArtistRequest) (*ArtistDetailResponse, error)
 	CreateVenue(req *CreateVenueRequest, isAdmin bool) (*VenueDetailResponse, error)
 	CreateLabel(req *CreateLabelRequest) (*LabelDetailResponse, error)
 	CreateRelease(req *CreateReleaseRequest) (*ReleaseDetailResponse, error)
+	CreateFestival(req *CreateFestivalRequest) (*FestivalDetailResponse, error)
 }

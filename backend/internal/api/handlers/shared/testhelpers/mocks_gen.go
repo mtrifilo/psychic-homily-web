@@ -1556,10 +1556,11 @@ func (m *MockEntityReportService) DismissEntityReport(reportID uint, reviewerID 
 // ============================================================================
 
 type MockEntityRequestFulfiller struct {
-	CreateArtistFn  func(*contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error)
-	CreateVenueFn   func(*contracts.CreateVenueRequest, bool) (*contracts.VenueDetailResponse, error)
-	CreateLabelFn   func(*contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error)
-	CreateReleaseFn func(*contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
+	CreateArtistFn   func(*contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error)
+	CreateVenueFn    func(*contracts.CreateVenueRequest, bool) (*contracts.VenueDetailResponse, error)
+	CreateLabelFn    func(*contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error)
+	CreateReleaseFn  func(*contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error)
+	CreateFestivalFn func(*contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error)
 }
 
 func (m *MockEntityRequestFulfiller) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
@@ -1583,6 +1584,12 @@ func (m *MockEntityRequestFulfiller) CreateLabel(req *contracts.CreateLabelReque
 func (m *MockEntityRequestFulfiller) CreateRelease(req *contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
 	if m.CreateReleaseFn != nil {
 		return m.CreateReleaseFn(req)
+	}
+	return nil, nil
+}
+func (m *MockEntityRequestFulfiller) CreateFestival(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
+	if m.CreateFestivalFn != nil {
+		return m.CreateFestivalFn(req)
 	}
 	return nil, nil
 }

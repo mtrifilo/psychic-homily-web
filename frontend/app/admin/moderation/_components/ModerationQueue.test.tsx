@@ -351,7 +351,7 @@ describe('ModerationQueue', () => {
     expect(screen.getByText(/a great new band announced a tour/i)).toBeInTheDocument()
   })
 
-  it('disables Create for show/festival requests (fulfillment deferred) but allows Reject', () => {
+  it('disables Create for show requests (fulfillment deferred) but allows Reject', () => {
     const showRequest: AdminEntityRequest = {
       ...mockEntityRequest,
       id: 11,
@@ -371,6 +371,25 @@ describe('ModerationQueue', () => {
     expect(screen.getByRole('button', { name: /create/i })).toBeDisabled()
     expect(screen.getByRole('button', { name: /^reject$/i })).not.toBeDisabled()
     expect(screen.getByText(/must be created\s+manually for now/i)).toBeInTheDocument()
+  })
+
+  // PSY-998: festival requests are now fulfillable on approve (series_slug is
+  // derived backend-side), so the queue enables Create for them.
+  it('enables Create for festival requests', () => {
+    const festivalRequest: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 12,
+      entity_type: 'festival',
+      payload: { name: 'Desert Daze', start_date: '2026-09-01', end_date: '2026-09-03' },
+      source_detail: null,
+    }
+    setDefaultMocks({ requests: [festivalRequest] })
+
+    render(<ModerationQueue />)
+
+    expect(screen.getByText('Desert Daze')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: /create/i })).not.toBeDisabled()
+    expect(screen.queryByText(/must be created\s+manually for now/i)).not.toBeInTheDocument()
   })
 
   it('renders comment report card for comment-type reports', () => {

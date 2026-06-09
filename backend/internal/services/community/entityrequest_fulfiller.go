@@ -11,10 +11,11 @@ import (
 // instead of four fat catalog service interfaces, and fulfillment can be
 // mocked in handler tests via the generated MockEntityRequestFulfiller.
 type EntityRequestFulfiller struct {
-	artist  contracts.ArtistServiceInterface
-	venue   contracts.VenueServiceInterface
-	label   contracts.LabelServiceInterface
-	release contracts.ReleaseServiceInterface
+	artist   contracts.ArtistServiceInterface
+	venue    contracts.VenueServiceInterface
+	label    contracts.LabelServiceInterface
+	release  contracts.ReleaseServiceInterface
+	festival contracts.FestivalServiceInterface
 }
 
 // NewEntityRequestFulfiller wires the catalog create services into the adapter.
@@ -23,8 +24,9 @@ func NewEntityRequestFulfiller(
 	venue contracts.VenueServiceInterface,
 	label contracts.LabelServiceInterface,
 	release contracts.ReleaseServiceInterface,
+	festival contracts.FestivalServiceInterface,
 ) *EntityRequestFulfiller {
-	return &EntityRequestFulfiller{artist: artist, venue: venue, label: label, release: release}
+	return &EntityRequestFulfiller{artist: artist, venue: venue, label: label, release: release, festival: festival}
 }
 
 func (f *EntityRequestFulfiller) CreateArtist(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
@@ -41,6 +43,10 @@ func (f *EntityRequestFulfiller) CreateLabel(req *contracts.CreateLabelRequest) 
 
 func (f *EntityRequestFulfiller) CreateRelease(req *contracts.CreateReleaseRequest) (*contracts.ReleaseDetailResponse, error) {
 	return f.release.CreateRelease(req)
+}
+
+func (f *EntityRequestFulfiller) CreateFestival(req *contracts.CreateFestivalRequest) (*contracts.FestivalDetailResponse, error) {
+	return f.festival.CreateFestival(req)
 }
 
 // Compile-time assertion the adapter satisfies the fulfiller interface.

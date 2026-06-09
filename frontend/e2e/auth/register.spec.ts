@@ -20,6 +20,8 @@ test.describe('Registration', () => {
     await page.locator('#signup-email').fill(REGISTER_USER.email)
     await page.locator('#signup-password').fill(REGISTER_USER.password)
     await page.locator('#terms').check()
+    // PSY-1023: signup now requires a 16+ age confirmation alongside terms.
+    await page.locator('#age-confirmation').check()
 
     // Submit
     await page.getByRole('button', { name: 'Create account' }).click()
@@ -68,6 +70,8 @@ test.describe('Registration', () => {
     await page.locator('#signup-email').fill('breach-test@test.local')
     await page.locator('#signup-password').fill('TestPassword123!')
     await page.locator('#terms').check()
+    // PSY-1023: signup now requires a 16+ age confirmation alongside terms.
+    await page.locator('#age-confirmation').check()
 
     // Submit — server will reject the breached password
     await page.getByRole('button', { name: 'Create account' }).click()

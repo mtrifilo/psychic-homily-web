@@ -238,6 +238,12 @@ func (h *FestivalHandler) CreateFestivalHandler(ctx context.Context, req *Create
 
 	festival, err := h.festivalService.CreateFestival(serviceReq)
 	if err != nil {
+		// A duplicate (series_slug, edition_year) surfaces as a typed
+		// FESTIVAL_EXISTS error → 409; anything else is a 500 (mirrors the
+		// artist create handler).
+		if mapped := shared.MapFestivalError(err); mapped != nil {
+			return nil, mapped
+		}
 		logger.FromContext(ctx).Error("create_festival_failed",
 			"error", err.Error(),
 			"request_id", requestID,
