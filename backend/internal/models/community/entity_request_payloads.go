@@ -178,7 +178,10 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := requireField("artist", "name", p.Name); err != nil {
 			return err
 		}
-		if err := optionalHTTPURL("artist", "image_url", p.ImageURL); err != nil {
+		if err := optionalHTTPURL("artist", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
+			return err
+		}
+		if err := optionalMaxLen("artist", "description", p.Description, maxRequestDescriptionLen); err != nil {
 			return err
 		}
 		// Scheme-validate the embed URL (the security floor — keeps a hostile
@@ -187,13 +190,19 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		// (isValidBandcampURL): that check is unexported in the catalog handler
 		// and is a content-quality gate, not a safety one, so requiring it here
 		// would risk rejecting otherwise-valid extracted embeds.
-		return optionalHTTPURL("artist", "bandcamp_embed_url", p.BandcampEmbedURL)
+		return optionalHTTPURL("artist", "bandcamp_embed_url", p.BandcampEmbedURL, maxRequestURLLen)
 	case EntityRequestRelease:
 		p, err := UnmarshalPayload[ReleaseRequestPayload](raw)
 		if err != nil {
 			return err
 		}
-		return requireField("release", "title", p.Title)
+		if err := requireField("release", "title", p.Title); err != nil {
+			return err
+		}
+		if err := optionalHTTPURL("release", "cover_art_url", p.CoverArtURL, maxRequestURLLen); err != nil {
+			return err
+		}
+		return optionalMaxLen("release", "description", p.Description, maxRequestDescriptionLen)
 	case EntityRequestLabel:
 		p, err := UnmarshalPayload[LabelRequestPayload](raw)
 		if err != nil {
@@ -202,7 +211,10 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := requireField("label", "name", p.Name); err != nil {
 			return err
 		}
-		return optionalHTTPURL("label", "image_url", p.ImageURL)
+		if err := optionalHTTPURL("label", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
+			return err
+		}
+		return optionalMaxLen("label", "description", p.Description, maxRequestDescriptionLen)
 	case EntityRequestVenue:
 		p, err := UnmarshalPayload[VenueRequestPayload](raw)
 		if err != nil {
@@ -217,12 +229,19 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := requireField("venue", "state", p.State); err != nil {
 			return err
 		}
-		return optionalHTTPURL("venue", "image_url", p.ImageURL)
+		if err := optionalHTTPURL("venue", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
+			return err
+		}
+		return optionalMaxLen("venue", "description", p.Description, maxRequestDescriptionLen)
 	case EntityRequestShow:
 		p, err := UnmarshalPayload[ShowRequestPayload](raw)
 		if err != nil {
 			return err
 		}
+		// show's image_url / ticket_url are intentionally NOT URL-validated here:
+		// show is never fulfilled (the dispatcher returns FulfillUnsupported), so
+		// those fields never ride onto a created entity. If show fulfillment is
+		// ever wired up, add optionalHTTPURL for them like the other types.
 		if err := requireField("show", "title", p.Title); err != nil {
 			return err
 		}
@@ -247,7 +266,19 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := requireDate("festival", "start_date", p.StartDate); err != nil {
 			return err
 		}
-		return requireDate("festival", "end_date", p.EndDate)
+		if err := requireDate("festival", "end_date", p.EndDate); err != nil {
+			return err
+		}
+		if err := optionalHTTPURL("festival", "website", p.Website, maxRequestShortURLLen); err != nil {
+			return err
+		}
+		if err := optionalHTTPURL("festival", "ticket_url", p.TicketURL, maxRequestShortURLLen); err != nil {
+			return err
+		}
+		if err := optionalHTTPURL("festival", "flyer_url", p.FlyerURL, maxRequestShortURLLen); err != nil {
+			return err
+		}
+		return optionalMaxLen("festival", "description", p.Description, maxRequestDescriptionLen)
 	default:
 		return fmt.Errorf("unsupported entity request type: %q", entityType)
 	}
@@ -263,19 +294,51 @@ func requireField(entityType, field, value string) error {
 }
 
 // optionalHTTPURL validates an optional URL field: nil/empty is allowed, but a
-// present value must be a well-formed http/https URL. Scheme validation here at
-// the request trust boundary keeps a hostile scheme (javascript:, data:) from
-// riding the payload onto the created entity when the request is fulfilled
-// (PSY-1038); the fulfiller then maps the value through without re-validating.
-func optionalHTTPURL(entityType, field string, value *string) error {
+// present value must be a well-formed http/https URL no longer than maxLen.
+// Scheme validation here at the request trust boundary keeps a hostile scheme
+// (javascript:, data:) from riding the payload onto the created entity when the
+// request is fulfilled (PSY-1038). maxLen is the strictest limit for the
+// destination field — a VARCHAR column's bound where one exists (image_url
+// VARCHAR(2048); festival website/ticket_url/flyer_url VARCHAR(500)), else a
+// policy cap for a TEXT column — so an over-long value is rejected here (422)
+// rather than failing at INSERT (500). fulfillEntity re-validates the stored
+// payload, so this also guards rows queued before these checks existed.
+func optionalHTTPURL(entityType, field string, value *string, maxLen int) error {
 	if value == nil {
 		return nil
+	}
+	if len(*value) > maxLen {
+		return fmt.Errorf("%s payload: %s must be %d characters or fewer", entityType, field, maxLen)
 	}
 	if err := utils.ValidateHTTPURL(*value, field); err != nil {
 		return fmt.Errorf("%s payload: %w", entityType, err)
 	}
 	return nil
 }
+
+// optionalMaxLen rejects an optional text field that exceeds max characters
+// (nil is allowed). Mirrors the length caps the direct catalog create/update
+// handlers enforce, so a fulfilled entity can't hold text the direct API would
+// reject.
+func optionalMaxLen(entityType, field string, value *string, max int) error {
+	if value != nil && len(*value) > max {
+		return fmt.Errorf("%s payload: %s must be %d characters or fewer", entityType, field, max)
+	}
+	return nil
+}
+
+// Field-length caps for entity_request payloads, sized to the destination
+// catalog column / direct-handler limit the fulfilled entity lands in:
+//   - 2048: image_url (VARCHAR(2048)); cover_art_url + bandcamp_embed_url are
+//     TEXT columns, so 2048 there is a policy cap (these URLs are short in
+//     practice).
+//   - 500: festival website / ticket_url / flyer_url (VARCHAR(500)).
+//   - 5000: description (the limit the direct create/update handlers enforce).
+const (
+	maxRequestURLLen         = 2048
+	maxRequestShortURLLen    = 500
+	maxRequestDescriptionLen = 5000
+)
 
 // requireDate validates a required date field is present AND well-formed
 // (YYYY-MM-DD). Used where the value reaches a DATE column or drives a derived
