@@ -638,6 +638,53 @@ func TestAdminDecide_ApproveArtist_CreatesEntity(t *testing.T) {
 	}
 }
 
+// PSY-1038: the fulfiller forwards the previously-dropped nullable payload
+// fields (image_url + bandcamp_embed_url) onto the CreateArtist contract.
+func TestAdminDecide_ApproveArtist_CarriesNullableFields(t *testing.T) {
+	img := "https://example.com/boris.jpg"
+	embed := "https://boris.bandcamp.com/album/pink"
+	payload, err := communitym.MarshalPayload(communitym.ArtistRequestPayload{
+		Name:             "Boris",
+		ImageURL:         &img,
+		BandcampEmbedURL: &embed,
+	})
+	if err != nil {
+		t.Fatalf("marshal artist payload: %v", err)
+	}
+	decided := pendingRequest(30, "artist")
+	decided.Payload = &payload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	var gotImage, gotEmbed *string
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				gotImage = req.ImageURL
+				gotEmbed = req.BandcampEmbedURL
+				return &contracts.ArtistDetailResponse{ID: 88}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "30"}
+	req.Body.Decision = "approved"
+	if _, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotImage == nil || *gotImage != "https://example.com/boris.jpg" {
+		t.Errorf("expected image_url forwarded, got %v", gotImage)
+	}
+	if gotEmbed == nil || *gotEmbed != "https://boris.bandcamp.com/album/pink" {
+		t.Errorf("expected bandcamp_embed_url forwarded, got %v", gotEmbed)
+	}
+}
+
 // Approving a show is unsupported (payload lacks venues + artists) → 422.
 func TestAdminDecide_ApproveShow_Unsupported(t *testing.T) {
 	decided := pendingRequest(6, "show")

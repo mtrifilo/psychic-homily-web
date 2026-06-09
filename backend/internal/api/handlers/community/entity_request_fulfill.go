@@ -69,13 +69,12 @@ func mapFulfillmentError(err error) error {
 // the payload with the typed UnmarshalPayload[T] guard (fails loud on schema
 // drift) and maps the user-supplied fields onto the catalog Create*Request.
 //
-// Field-mapping note: a few payload fields have no slot on the catalog Create
-// contracts today (artist image_url + bandcamp_embed_url, venue
-// description/image_url, label image_url). They are NOT silently dropped from
-// the system — they remain on the persisted request row — but the created
-// entity does not carry them until a follow-up adds those fields to the Create
-// contracts or a post-create update. This is a known fidelity gap, not data
-// loss of the request itself.
+// Field-mapping note: every payload field now maps onto its catalog Create
+// contract (PSY-1038 closed the prior fidelity gap — artist image_url +
+// bandcamp_embed_url, venue description/image_url, label image_url all carry
+// through to the created entity). The image_url / bandcamp_embed_url URL fields
+// are scheme-validated at the request trust boundary (ValidateEntityRequestPayload),
+// so the fulfiller maps them through without re-validating.
 //
 // festival is fulfilled by deriving the two fields its create contract needs
 // beyond the payload: series_slug (from the name) and edition_year (from the
@@ -99,11 +98,13 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, err)
 		}
 		created, err := h.fulfiller.CreateArtist(&contracts.CreateArtistRequest{
-			Name:        p.Name,
-			City:        p.City,
-			State:       p.State,
-			Country:     p.Country,
-			Description: p.Description,
+			Name:             p.Name,
+			City:             p.City,
+			State:            p.State,
+			Country:          p.Country,
+			Description:      p.Description,
+			ImageURL:         p.ImageURL,
+			BandcampEmbedURL: p.BandcampEmbedURL,
 		})
 		if err != nil {
 			return 0, err
@@ -117,12 +118,14 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 		}
 		// Admin is approving, so create as an admin-verified venue.
 		created, err := h.fulfiller.CreateVenue(&contracts.CreateVenueRequest{
-			Name:    p.Name,
-			City:    p.City,
-			State:   p.State,
-			Address: p.Address,
-			Country: p.Country,
-			Zipcode: p.Zipcode,
+			Name:        p.Name,
+			City:        p.City,
+			State:       p.State,
+			Address:     p.Address,
+			Country:     p.Country,
+			Zipcode:     p.Zipcode,
+			Description: p.Description,
+			ImageURL:    p.ImageURL,
 		}, true)
 		if err != nil {
 			return 0, err
@@ -141,6 +144,7 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 			Country:     p.Country,
 			FoundedYear: p.FoundedYear,
 			Description: p.Description,
+			ImageURL:    p.ImageURL,
 		})
 		if err != nil {
 			return 0, err

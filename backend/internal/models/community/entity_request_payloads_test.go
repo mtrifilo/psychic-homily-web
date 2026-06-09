@@ -273,4 +273,25 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 		// slug), consistent with how artist/venue/label requests behave.
 		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"東京フェス","start_date":"2026-01-01","end_date":"2026-01-03"}`)))
 	})
+	// PSY-1038: the nullable URL fields now carry onto the created entity, so
+	// they are scheme-validated at the boundary (a hostile scheme must not ride
+	// the payload onto a real artist/venue/label).
+	t.Run("artist accepts valid image_url + bandcamp_embed_url", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","image_url":"https://example.com/b.jpg","bandcamp_embed_url":"https://boris.bandcamp.com/album/x"}`)))
+	})
+	t.Run("artist rejects javascript: image_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","image_url":"javascript:alert(1)"}`)))
+	})
+	t.Run("artist rejects non-http bandcamp_embed_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","bandcamp_embed_url":"data:text/html,evil"}`)))
+	})
+	t.Run("venue rejects non-http image_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestVenue, json.RawMessage(`{"name":"Trunk Space","city":"Phoenix","state":"AZ","image_url":"ftp://example.com/x.jpg"}`)))
+	})
+	t.Run("label rejects non-http image_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestLabel, json.RawMessage(`{"name":"Hydra Head","image_url":"javascript:void(0)"}`)))
+	})
+	t.Run("empty image_url is allowed", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestLabel, json.RawMessage(`{"name":"Hydra Head","image_url":""}`)))
+	})
 }

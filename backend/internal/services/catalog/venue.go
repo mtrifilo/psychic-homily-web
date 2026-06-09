@@ -80,6 +80,8 @@ func (s *VenueService) CreateVenue(req *contracts.CreateVenueRequest, isAdmin bo
 		State:       req.State,
 		Country:     req.Country,
 		Zipcode:     req.Zipcode,
+		Description: req.Description,
+		ImageURL:    req.ImageURL,
 		Verified:    isAdmin, // Admins create verified venues, non-admins require approval
 		SubmittedBy: req.SubmittedBy,
 		Social: catalogm.Social{

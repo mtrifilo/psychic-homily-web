@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"psychic-homily-backend/internal/utils"
 )
 
 // PSY-869: typed payload schemas for the polymorphic entity_requests table.
@@ -173,7 +175,19 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		return requireField("artist", "name", p.Name)
+		if err := requireField("artist", "name", p.Name); err != nil {
+			return err
+		}
+		if err := optionalHTTPURL("artist", "image_url", p.ImageURL); err != nil {
+			return err
+		}
+		// Scheme-validate the embed URL (the security floor — keeps a hostile
+		// scheme off the created artist). This is intentionally looser than the
+		// direct artist endpoint's bandcamp.com/album|track domain check
+		// (isValidBandcampURL): that check is unexported in the catalog handler
+		// and is a content-quality gate, not a safety one, so requiring it here
+		// would risk rejecting otherwise-valid extracted embeds.
+		return optionalHTTPURL("artist", "bandcamp_embed_url", p.BandcampEmbedURL)
 	case EntityRequestRelease:
 		p, err := UnmarshalPayload[ReleaseRequestPayload](raw)
 		if err != nil {
@@ -185,7 +199,10 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		return requireField("label", "name", p.Name)
+		if err := requireField("label", "name", p.Name); err != nil {
+			return err
+		}
+		return optionalHTTPURL("label", "image_url", p.ImageURL)
 	case EntityRequestVenue:
 		p, err := UnmarshalPayload[VenueRequestPayload](raw)
 		if err != nil {
@@ -197,7 +214,10 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err := requireField("venue", "city", p.City); err != nil {
 			return err
 		}
-		return requireField("venue", "state", p.State)
+		if err := requireField("venue", "state", p.State); err != nil {
+			return err
+		}
+		return optionalHTTPURL("venue", "image_url", p.ImageURL)
 	case EntityRequestShow:
 		p, err := UnmarshalPayload[ShowRequestPayload](raw)
 		if err != nil {
@@ -238,6 +258,21 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 func requireField(entityType, field, value string) error {
 	if strings.TrimSpace(value) == "" {
 		return fmt.Errorf("%s payload: %s is required", entityType, field)
+	}
+	return nil
+}
+
+// optionalHTTPURL validates an optional URL field: nil/empty is allowed, but a
+// present value must be a well-formed http/https URL. Scheme validation here at
+// the request trust boundary keeps a hostile scheme (javascript:, data:) from
+// riding the payload onto the created entity when the request is fulfilled
+// (PSY-1038); the fulfiller then maps the value through without re-validating.
+func optionalHTTPURL(entityType, field string, value *string) error {
+	if value == nil {
+		return nil
+	}
+	if err := utils.ValidateHTTPURL(*value, field); err != nil {
+		return fmt.Errorf("%s payload: %w", entityType, err)
 	}
 	return nil
 }

@@ -57,12 +57,14 @@ func (s *ArtistService) CreateArtist(req *contracts.CreateArtistRequest) (*contr
 
 	// Create the artist
 	artist := &catalogm.Artist{
-		Name:        req.Name,
-		Slug:        &slug,
-		State:       req.State,
-		City:        req.City,
-		Country:     req.Country,
-		Description: req.Description,
+		Name:             req.Name,
+		Slug:             &slug,
+		State:            req.State,
+		City:             req.City,
+		Country:          req.Country,
+		Description:      req.Description,
+		ImageURL:         req.ImageURL,
+		BandcampEmbedURL: req.BandcampEmbedURL,
 		Social: catalogm.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,
