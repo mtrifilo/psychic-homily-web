@@ -204,6 +204,65 @@ func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_UniqueSlug(
 	suite.Equal("lollapalooza-2", resp2.Slug)
 }
 
+// A second festival for the same (series_slug, edition_year) is a duplicate
+// edition: the unique constraint must surface as a typed FESTIVAL_EXISTS error
+// (→ 409) instead of a raw DB constraint violation (→ 500). Matters for the
+// entity_request fulfill path (PSY-998), where two approved festival requests
+// for the same name + year derive the same series_slug.
+func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_DuplicateEditionConflict() {
+	req := &contracts.CreateFestivalRequest{
+		Name:        "Repeat Fest",
+		SeriesSlug:  "repeat-fest",
+		EditionYear: 2026,
+		StartDate:   "2026-09-01",
+		EndDate:     "2026-09-03",
+	}
+	_, err := suite.festivalService.CreateFestival(req)
+	suite.Require().NoError(err)
+
+	// Same series_slug + same edition_year → typed conflict, not a 500.
+	dup := &contracts.CreateFestivalRequest{
+		Name:        "Repeat Fest",
+		SeriesSlug:  "repeat-fest",
+		EditionYear: 2026,
+		StartDate:   "2026-09-01",
+		EndDate:     "2026-09-03",
+	}
+	_, err = suite.festivalService.CreateFestival(dup)
+	suite.Require().Error(err)
+	var festErr *apperrors.FestivalError
+	suite.ErrorAs(err, &festErr)
+	suite.Equal(apperrors.CodeFestivalExists, festErr.Code)
+}
+
+// Two distinct festivals whose names slugify to "" (e.g. non-Latin) in the same
+// year must NOT collide: an empty series_slug falls back to the unique display
+// slug, so each gets a distinct series_slug instead of both becoming "" and
+// tripping the (series_slug, edition_year) unique constraint. PSY-998.
+func (suite *FestivalServiceIntegrationTestSuite) TestCreateFestival_EmptySeriesSlugNoCollision() {
+	first, err := suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
+		Name:        "東京フェス",
+		SeriesSlug:  "", // unsluggable name → empty derived series_slug
+		EditionYear: 2026,
+		StartDate:   "2026-07-01",
+		EndDate:     "2026-07-03",
+	})
+	suite.Require().NoError(err)
+
+	second, err := suite.festivalService.CreateFestival(&contracts.CreateFestivalRequest{
+		Name:        "中文フェス",
+		SeriesSlug:  "",
+		EditionYear: 2026,
+		StartDate:   "2026-08-01",
+		EndDate:     "2026-08-03",
+	})
+	suite.Require().NoError(err)
+
+	// Distinct series_slugs (fell back to distinct unique display slugs), so no
+	// spurious FESTIVAL_EXISTS collision.
+	suite.NotEqual(first.SeriesSlug, second.SeriesSlug)
+}
+
 // =============================================================================
 // Group 2: GetFestival / GetFestivalBySlug
 // =============================================================================

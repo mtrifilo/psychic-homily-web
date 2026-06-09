@@ -149,8 +149,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	// handler can create the entity from an approved request's payload.
 	labelSvc := catalog.NewLabelService(database)
 	releaseSvc := catalog.NewReleaseService(database)
+	festivalSvc := catalog.NewFestivalService(database)
 	entityRequestSvc := community.NewEntityRequestService(database)
-	entityRequestFulfiller := community.NewEntityRequestFulfiller(artist, venue, labelSvc, releaseSvc)
+	entityRequestFulfiller := community.NewEntityRequestFulfiller(artist, venue, labelSvc, releaseSvc, festivalSvc)
 
 	// PSY-289: wire the comment notifier into the comment service so new
 	// comments fan out notification emails fire-and-forget.
@@ -203,7 +204,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		CommentSubscription:    engagement.NewCommentSubscriptionService(database),
 		CommentNotification:    commentNotificationSvc,
 		Follow:                 engagement.NewFollowService(database),
-		Festival:               catalog.NewFestivalService(database),
+		Festival:               festivalSvc,
 		FestivalIntelligence:   catalog.NewFestivalIntelligenceService(database),
 		Label:                  labelSvc,
 		Release:                releaseSvc,

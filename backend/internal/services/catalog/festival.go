@@ -35,13 +35,39 @@ func (s *FestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (
 		return nil, fmt.Errorf("database not initialized")
 	}
 
-	// Generate unique slug from name
+	// Generate a unique display slug from the name first — it doubles as the
+	// series_slug fallback below.
 	baseSlug := utils.GenerateArtistSlug(req.Name)
 	slug := utils.GenerateUniqueSlug(baseSlug, func(candidate string) bool {
 		var count int64
 		s.db.Model(&catalogm.Festival{}).Where("slug = ?", candidate).Count(&count)
 		return count > 0
 	})
+
+	// series_slug groups editions across years. Callers normally supply it (the
+	// admin handler requires it; the entity_request fulfiller derives it from
+	// the name). When it's empty — an unsluggable name (e.g. non-Latin) whose
+	// GenerateSlug yields "" — fall back to the unique display slug so distinct
+	// such festivals don't all collapse to series_slug="" and collide on the
+	// (series_slug, edition_year) unique key.
+	seriesSlug := req.SeriesSlug
+	if seriesSlug == "" {
+		seriesSlug = slug
+	}
+
+	// Reject a duplicate edition up front so callers get a typed
+	// already-exists error (→ 409) instead of a raw DB unique-constraint
+	// violation on (series_slug, edition_year) bubbling up as a 500. Mirrors
+	// the pre-check in CreateArtist. Matters for the entity_request fulfill
+	// path (PSY-998), where two approved festival requests for the same name +
+	// year derive the same series_slug.
+	var existing catalogm.Festival
+	err := s.db.Where("series_slug = ? AND edition_year = ?", seriesSlug, req.EditionYear).First(&existing).Error
+	if err == nil {
+		return nil, apperrors.ErrFestivalExists(req.Name)
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("failed to check existing festival: %w", err)
+	}
 
 	// Determine status, default to "announced"
 	status := catalogm.FestivalStatus(req.Status)
@@ -52,7 +78,7 @@ func (s *FestivalService) CreateFestival(req *contracts.CreateFestivalRequest) (
 	festival := &catalogm.Festival{
 		Name:         req.Name,
 		Slug:         slug,
-		SeriesSlug:   req.SeriesSlug,
+		SeriesSlug:   seriesSlug,
 		EditionYear:  req.EditionYear,
 		Description:  req.Description,
 		LocationName: req.LocationName,

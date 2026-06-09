@@ -17,6 +17,30 @@ import (
 	"psychic-homily-backend/internal/services/contracts"
 )
 
+// MinSignupAge is the minimum age (in years) a user must confirm at signup.
+// Locked at 16 (PSY-1023) to match the /terms and /privacy minimum-age clauses.
+// The backend is the authoritative gate: every account-creation path requires an
+// age confirmation of at least this value, independent of the frontend checkbox.
+const MinSignupAge = 16
+
+// validateSignupAgeConfirmation enforces the required minimum-age confirmation
+// shared by every account-creation handler (PSY-1023). It mirrors the terms
+// guard: the confirmation flag must be set, and the attested minimum age must be
+// at least MinSignupAge. The frontend always sends MinSignupAge, but the server
+// re-checks so a tampered/absent value can never bypass the gate. Returns the
+// error code + user-facing message and ok=false on failure.
+func validateSignupAgeConfirmation(ageConfirmed bool, minAgeAttested int) (code, message string, ok bool) {
+	if !ageConfirmed {
+		err := autherrors.ErrAgeConfirmationRequired("age confirmation not provided")
+		return autherrors.CodeAgeConfirmationRequired, err.Message, false
+	}
+	if minAgeAttested < MinSignupAge {
+		err := autherrors.ErrAgeConfirmationRequired("attested age below minimum")
+		return autherrors.CodeAgeConfirmationRequired, err.Message, false
+	}
+	return "", "", true
+}
+
 // AuthHandler handles authentication requests
 type AuthHandler struct {
 	authService       contracts.AuthServiceInterface
@@ -505,6 +529,8 @@ type RegisterRequest struct {
 		TermsAccepted  bool    `json:"terms_accepted" doc:"Whether user accepted Terms of Service"`
 		TermsVersion   string  `json:"terms_version,omitempty" doc:"Accepted terms version identifier"`
 		PrivacyVersion string  `json:"privacy_version,omitempty" doc:"Accepted privacy policy version identifier"`
+		AgeConfirmed   bool    `json:"age_confirmed" doc:"Whether user confirmed they meet the minimum age"`
+		MinAgeAttested int     `json:"min_age_attested,omitempty" doc:"Minimum age the user attested to"`
 	}
 }
 
@@ -561,6 +587,15 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 		resp.Body.ErrorCode = autherrors.CodeValidationFailed
 		return resp, nil
 	}
+	if errCode, errMsg, ok := validateSignupAgeConfirmation(input.Body.AgeConfirmed, input.Body.MinAgeAttested); !ok {
+		logger.AuthWarn(ctx, "register_validation_failed",
+			"error", errMsg,
+		)
+		resp.Body.Success = false
+		resp.Body.Message = errMsg
+		resp.Body.ErrorCode = errCode
+		return resp, nil
+	}
 
 	// Validate password using the password validator (min 12, max 128, breach check, common password check)
 	if h.passwordValidator != nil {
@@ -614,6 +649,8 @@ func (h *AuthHandler) RegisterHandler(ctx context.Context, input *RegisterReques
 			TermsAcceptedAt: time.Now().UTC(),
 			TermsVersion:    input.Body.TermsVersion,
 			PrivacyVersion:  input.Body.PrivacyVersion,
+			AgeConfirmedAt:  time.Now().UTC(),
+			MinAgeAttested:  input.Body.MinAgeAttested,
 		},
 	)
 	if err != nil {

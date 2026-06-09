@@ -150,11 +150,12 @@ func (h *EntityRequestHandler) CreateEntityRequestHandler(ctx context.Context, r
 	if created.DecisionState == communitym.EntityRequestStateApproved && created.CreatedEntityID == nil {
 		if _, ferr := h.fulfillAndRecord(ctx, created); ferr != nil {
 			if isFulfillUnsupported(ferr) {
-				// show/festival auto-approve: the request is filed-and-approved,
-				// but its catalog Create needs associations the payload lacks
-				// (PSY-998). Leave it approved-but-unfulfilled (created_entity_id
-				// NULL → surfaced by the admin queue) instead of failing the
-				// whole request.
+				// show auto-approve: the request is filed-and-approved, but a
+				// show's catalog Create needs venue + artist associations the
+				// payload lacks (deferred to a PSY-998 follow-up). Leave it
+				// approved-but-unfulfilled (created_entity_id NULL → surfaced by
+				// the admin queue) instead of failing the whole request.
+				// (Festival now fulfills inline, so it never reaches here.)
 				logger.FromContext(ctx).Warn("entity_request_autoapprove_fulfill_deferred",
 					"request_id", created.ID,
 					"entity_type", created.EntityType,
@@ -392,9 +393,9 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 		if err != nil {
 			// The row is already approved (claimed). Surface the fulfillment
 			// failure so the admin knows the entity was NOT created and can act,
-			// rather than silently returning success. FulfillUnsupported
-			// (show/festival) maps to 422 and a duplicate catalog entity to 409
-			// via mapFulfillmentError; only an unrecognized fault falls to 500.
+			// rather than silently returning success. FulfillUnsupported (show)
+			// maps to 422 and a duplicate catalog entity to 409 via
+			// mapFulfillmentError; only an unrecognized fault falls to 500.
 			logger.FromContext(ctx).Error("entity_request_fulfill_failed",
 				"request_id", requestID,
 				"admin_id", admin.ID,
@@ -444,7 +445,7 @@ func (h *EntityRequestHandler) AdminDecideEntityRequestHandler(ctx context.Conte
 // entity even if the persistence write fails — best-effort: the entity WAS
 // created, so surfacing a 500 there would wrongly imply it wasn't. The
 // fulfillEntity error is returned verbatim (including the typed
-// FulfillUnsupported for show/festival) so callers classify it via
+// FulfillUnsupported for show) so callers classify it via
 // isFulfillUnsupported. Used by both the auto-approve create path and the admin
 // approve path so they record fulfillment identically.
 func (h *EntityRequestHandler) fulfillAndRecord(ctx context.Context, req *communitym.EntityRequest) (uint, error) {

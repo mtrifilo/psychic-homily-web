@@ -52,7 +52,7 @@ type EntityRequest struct {
 	// CreatedEntityID (PSY-1008) is the catalog entity created when this request
 	// was fulfilled (auto-approve create or admin approve). Cross-type id keyed
 	// by EntityType (no FK). NULL while pending/rejected, or when an approval is
-	// orphaned (approved but fulfillment failed/deferred — e.g. show/festival).
+	// orphaned (approved but fulfillment failed/deferred — e.g. show).
 	CreatedEntityID *uint     `json:"created_entity_id,omitempty" gorm:"column:created_entity_id"`
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`

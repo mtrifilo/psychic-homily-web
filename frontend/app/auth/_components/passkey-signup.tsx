@@ -19,7 +19,7 @@ import {
   DialogTrigger,
 } from '@/components/ui/dialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION } from '@/lib/legal'
+import { CURRENT_PRIVACY_VERSION, CURRENT_TERMS_VERSION, MIN_SIGNUP_AGE } from '@/lib/legal'
 import { BackupAuthPrompt } from './backup-auth-prompt'
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'
@@ -30,6 +30,7 @@ interface PasskeySignupButtonProps {
   returnTo?: string
   termsVersion?: string
   privacyVersion?: string
+  minAge?: number
 }
 
 export function PasskeySignupButton({
@@ -38,6 +39,7 @@ export function PasskeySignupButton({
   returnTo = '/',
   termsVersion = CURRENT_TERMS_VERSION,
   privacyVersion = CURRENT_PRIVACY_VERSION,
+  minAge = MIN_SIGNUP_AGE,
 }: PasskeySignupButtonProps) {
   const router = useRouter()
   const { setUser } = useAuthContext()
@@ -48,6 +50,8 @@ export function PasskeySignupButton({
   const [emailError, setEmailError] = useState<string | null>(null)
   const [termsAccepted, setTermsAccepted] = useState(false)
   const [termsError, setTermsError] = useState<string | null>(null)
+  const [ageConfirmed, setAgeConfirmed] = useState(false)
+  const [ageError, setAgeError] = useState<string | null>(null)
 
   // Check if browser supports WebAuthn
   const supportsWebAuthn = browserSupportsWebAuthn()
@@ -69,6 +73,13 @@ export function PasskeySignupButton({
     }
     setTermsError(null)
 
+    // Validate age confirmation (PSY-1023)
+    if (!ageConfirmed) {
+      setAgeError(`You must confirm that you are at least ${minAge} years old`)
+      return
+    }
+    setAgeError(null)
+
     if (!supportsWebAuthn) {
       onError?.('Your browser does not support passkeys')
       return
@@ -87,6 +98,8 @@ export function PasskeySignupButton({
           terms_accepted: true,
           terms_version: termsVersion,
           privacy_version: privacyVersion,
+          age_confirmed: true,
+          min_age_attested: minAge,
         }),
       })
 
@@ -112,6 +125,8 @@ export function PasskeySignupButton({
           terms_accepted: true,
           terms_version: termsVersion,
           privacy_version: privacyVersion,
+          age_confirmed: true,
+          min_age_attested: minAge,
         }),
       })
 
@@ -245,10 +260,32 @@ export function PasskeySignupButton({
               <p role="alert" className="text-sm text-destructive">{termsError}</p>
             )}
           </div>
+          <div className="space-y-2">
+            <div className="flex items-start space-x-3">
+              <Checkbox
+                id="passkey-age-confirmation"
+                checked={ageConfirmed}
+                onCheckedChange={(checked) => {
+                  setAgeConfirmed(checked === true)
+                  setAgeError(null)
+                }}
+                className="mt-0.5"
+              />
+              <Label
+                htmlFor="passkey-age-confirmation"
+                className="text-sm font-normal leading-relaxed cursor-pointer"
+              >
+                I confirm that I am at least {minAge} years old
+              </Label>
+            </div>
+            {ageError && (
+              <p role="alert" className="text-sm text-destructive">{ageError}</p>
+            )}
+          </div>
           <Button
             type="button"
             onClick={handlePasskeySignup}
-            disabled={isLoading || !email || !termsAccepted}
+            disabled={isLoading || !email || !termsAccepted || !ageConfirmed}
             className="w-full"
           >
             {isLoading ? (

@@ -2,17 +2,22 @@ package community
 
 import (
 	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"psychic-homily-backend/internal/api/handlers/shared"
 	apperrors "psychic-homily-backend/internal/errors"
 	communitym "psychic-homily-backend/internal/models/community"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/utils"
 )
 
 // isFulfillUnsupported reports whether err is the typed "fulfillment
 // unsupported" error fulfillEntity returns for entity types whose catalog
 // Create contracts need associations the request payload doesn't carry
-// (show / festival; association-resolution tracked in PSY-998). Callers use it
+// (show — its Create needs venue + artist associations the payload lacks,
+// tracked as a PSY-998 follow-up; festival IS fulfilled). Callers use it
 // to decide whether the error is fatal: the admin decide path surfaces it (422
 // → admin creates the entity manually), while the auto-approve create path
 // swallows it (the request is filed-and-approved; immediate creation is just
@@ -29,10 +34,11 @@ func isFulfillUnsupported(err error) bool {
 // catalog entity to the right HTTP status. fulfillEntity surfaces two error
 // families: request-level errors (FulfillUnsupported → 422, payload corruption
 // → 500, via MapEntityRequestError) and catalog-service errors bubbled up from
-// the create (e.g. ArtistExists / LabelExists / ReleaseExists → 409). Without
-// the catalog mappers, a benign "already exists" conflict on the inline
-// create-and-add path would surface as a 500 leaking the internal error code.
-// Returns nil when err is none of these so the caller falls back to a 500.
+// the create (e.g. ArtistExists / LabelExists / ReleaseExists / FestivalExists
+// → 409). Without the catalog mappers, a benign "already exists" conflict on
+// the inline create-and-add path would surface as a 500 leaking the internal
+// error code. Returns nil when err is none of these so the caller falls back
+// to a 500.
 func mapFulfillmentError(err error) error {
 	if mapped := shared.MapEntityRequestError(err); mapped != nil {
 		return mapped
@@ -47,6 +53,9 @@ func mapFulfillmentError(err error) error {
 		return mapped
 	}
 	if mapped := shared.MapReleaseError(err); mapped != nil {
+		return mapped
+	}
+	if mapped := shared.MapFestivalError(err); mapped != nil {
 		return mapped
 	}
 	return nil
@@ -68,10 +77,15 @@ func mapFulfillmentError(err error) error {
 // contracts or a post-create update. This is a known fidelity gap, not data
 // loss of the request itself.
 //
-// show + festival are deliberately unsupported: CreateShowRequest requires
-// venues + artists and CreateFestivalRequest requires series_slug, neither of
-// which the payloads carry. Approving those returns a typed
-// FulfillUnsupported error (422) so the admin creates them manually.
+// festival is fulfilled by deriving the two fields its create contract needs
+// beyond the payload: series_slug (from the name) and edition_year (from the
+// start_date when the payload omits it). See the festival branch (PSY-998).
+//
+// show remains deliberately unsupported: CreateShowRequest requires ≥1 venue +
+// ≥1 artist (with positions) that the payload doesn't carry and that an admin
+// must supply at approve time. Approving a show returns a typed
+// FulfillUnsupported error (422) so the admin creates it manually; wiring the
+// admin association-resolution step is a PSY-998 follow-up.
 func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uint, error) {
 	if req.Payload == nil {
 		return 0, apperrors.ErrEntityRequestEmptyPayload(req.EntityType)
@@ -155,7 +169,63 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 		}
 		return created.ID, nil
 
-	case communitym.EntityRequestShow, communitym.EntityRequestFestival:
+	case communitym.EntityRequestFestival:
+		// Re-validate the stored payload before fulfilling. Festival became
+		// fulfillable (PSY-998) after rows could already have been queued under
+		// the looser PSY-997 rules, so fulfill is a second trust boundary: a
+		// malformed start/end date must surface as a 422 here, not a 500 when it
+		// hits the DATE column at INSERT. The sibling branches intentionally skip
+		// this — only festival parses a stored string (start_date) into a derived
+		// value, so only festival's second trust boundary is load-bearing.
+		if verr := communitym.ValidateEntityRequestPayload(req.EntityType, raw); verr != nil {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, verr)
+		}
+		p, err := communitym.UnmarshalPayload[communitym.FestivalRequestPayload](raw)
+		if err != nil {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, err)
+		}
+		// edition_year: use the payload value, else fall back to the start_date's
+		// calendar year (start_date is required and validated YYYY-MM-DD above,
+		// so the parse succeeds; TrimSpace mirrors requireDate's own trimming).
+		editionYear := p.EditionYear
+		if editionYear == 0 {
+			if t, perr := time.Parse("2006-01-02", strings.TrimSpace(p.StartDate)); perr == nil {
+				editionYear = t.Year()
+			}
+		}
+		if editionYear <= 0 {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, fmt.Errorf("festival edition_year must be positive"))
+		}
+		// series_slug is derived from the name (the payload carries no series). A
+		// name with no ASCII-alphanumeric characters slugifies to "" — the same
+		// result the festival's own display-slug derivation produces — which is
+		// acceptable on this rarely-hit path; an admin can re-link the series via
+		// the festival edit endpoint.
+		created, err := h.fulfiller.CreateFestival(&contracts.CreateFestivalRequest{
+			Name:         p.Name,
+			SeriesSlug:   utils.GenerateSlug(p.Name),
+			EditionYear:  editionYear,
+			Description:  p.Description,
+			LocationName: p.LocationName,
+			City:         p.City,
+			State:        p.State,
+			Country:      p.Country,
+			StartDate:    p.StartDate,
+			EndDate:      p.EndDate,
+			Website:      p.Website,
+			TicketURL:    p.TicketURL,
+			FlyerURL:     p.FlyerURL,
+		})
+		if err != nil {
+			return 0, err
+		}
+		return created.ID, nil
+
+	case communitym.EntityRequestShow:
+		// Show fulfillment needs ≥1 venue + ≥1 artist (with positions) that the
+		// request payload doesn't carry — an admin must supply them at approve
+		// time. Deferred to a PSY-998 follow-up; returns a typed 422 so the
+		// admin creates the show manually meanwhile.
 		return 0, apperrors.ErrEntityRequestFulfillUnsupported(req.EntityType)
 
 	default:
