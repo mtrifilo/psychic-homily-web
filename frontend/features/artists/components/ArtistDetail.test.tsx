@@ -600,6 +600,42 @@ describe('ArtistDetail', () => {
       expect(screen.queryByTestId('music-embed')).not.toBeInTheDocument()
     })
 
+    it('renders Top tracks FIRST in the sidebar, before Statistics (PSY-1065)', () => {
+      // Listening is the fastest way to judge an unfamiliar band — the
+      // embed leads the column.
+      mockUseArtist.mockReturnValue({
+        data: makeArtist({
+          social: {
+            instagram: null,
+            facebook: null,
+            twitter: null,
+            youtube: null,
+            spotify: 'https://open.spotify.com/artist/123',
+            soundcloud: null,
+            bandcamp: null,
+            website: null,
+          },
+          stats: {
+            releases: 2,
+            labels: 1,
+            shows_tracked: 3,
+            similar_artists: 0,
+            festival_appearances: 0,
+          },
+        }),
+        isLoading: false,
+        error: null,
+      })
+
+      renderWithProviders(<ArtistDetail artistId="test-artist" />)
+      const embed = screen.getByTestId('music-embed')
+      const statsHeader = screen.getByText('Statistics')
+      expect(
+        embed.compareDocumentPosition(statsHeader) &
+          Node.DOCUMENT_POSITION_FOLLOWING
+      ).toBeTruthy()
+    })
+
     it('shows label links in sidebar when labels exist', () => {
       mockUseArtistLabels.mockReturnValue({
         data: {
