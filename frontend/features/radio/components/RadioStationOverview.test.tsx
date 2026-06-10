@@ -140,6 +140,7 @@ function baseOverview(overrides: Partial<StationOverview> = {}): StationOverview
         { name: 'Unwound', slug: null },
       ],
     },
+    latestEpisode: undefined,
     recentShows: [makeShowListItem({ id: 2, name: 'Audioasis', slug: 'audioasis' })],
     isLoading: false,
     isEmpty: false,

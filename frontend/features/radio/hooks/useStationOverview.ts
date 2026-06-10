@@ -15,6 +15,7 @@ import type {
   RadioStationDetail,
   RadioShowListItem,
   RadioShowDetail,
+  RadioEpisodeDetail,
 } from '../types'
 
 export interface StationOverview {
@@ -25,6 +26,12 @@ export interface StationOverview {
   nowPlayingShowDetail: RadioShowDetail | undefined
   /** Derived now-playing surface (current track + recent artists). */
   nowPlaying: NowPlaying
+  /**
+   * nowPlayingShow's most-recent episode (the playlist behind `nowPlaying`).
+   * Exposed so surfaces can deep-link to the live playlist page
+   * (/radio/{station}/{show}/{air_date}) — PSY-1049's [ live playlist ].
+   */
+  latestEpisode: RadioEpisodeDetail | undefined
   /** Shows to list under "Recent shows" (excludes nowPlayingShow). */
   recentShows: RadioShowListItem[]
   isLoading: boolean
@@ -81,6 +88,7 @@ export function useStationOverview(stationSlug: string): StationOverview {
     nowPlayingShow,
     nowPlayingShowDetail: nowPlayingShowDetailQuery.data,
     nowPlaying,
+    latestEpisode: latest.episode,
     recentShows,
     isLoading,
     isEmpty,
