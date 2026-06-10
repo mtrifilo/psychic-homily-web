@@ -442,6 +442,7 @@ type MockAttendanceService struct {
 	GetBatchAttendanceCountsFn func([]uint) (map[uint]*contracts.AttendanceCountsResponse, error)
 	GetBatchUserAttendanceFn   func(uint, []uint) (map[uint]string, error)
 	GetUserAttendingShowsFn    func(uint, string, int, int) ([]*contracts.AttendingShowResponse, int64, error)
+	GetUserAttendedShowsFn     func(uint, int, int) ([]*contracts.AttendingShowResponse, int64, error)
 }
 
 func (m *MockAttendanceService) SetAttendance(userID uint, showID uint, status string) error {
@@ -487,6 +488,12 @@ func (m *MockAttendanceService) GetBatchUserAttendance(userID uint, showIDs []ui
 func (m *MockAttendanceService) GetUserAttendingShows(userID uint, status string, limit int, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
 	if m.GetUserAttendingShowsFn != nil {
 		return m.GetUserAttendingShowsFn(userID, status, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockAttendanceService) GetUserAttendedShows(userID uint, limit int, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
+	if m.GetUserAttendedShowsFn != nil {
+		return m.GetUserAttendedShowsFn(userID, limit, offset)
 	}
 	return nil, 0, nil
 }
@@ -1899,8 +1906,9 @@ func (m *MockFestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts
 // ============================================================================
 
 type MockFieldNoteService struct {
-	CreateFieldNoteFn       func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
-	ListFieldNotesForShowFn func(uint, int, int) (*contracts.CommentListResponse, error)
+	CreateFieldNoteFn        func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
+	ListFieldNotesForShowFn  func(uint, int, int) (*contracts.CommentListResponse, error)
+	ListFieldNotesByAuthorFn func(uint, int, int) ([]*contracts.AuthoredFieldNote, int64, error)
 }
 
 func (m *MockFieldNoteService) CreateFieldNote(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
@@ -1914,6 +1922,12 @@ func (m *MockFieldNoteService) ListFieldNotesForShow(showID uint, limit int, off
 		return m.ListFieldNotesForShowFn(showID, limit, offset)
 	}
 	return nil, nil
+}
+func (m *MockFieldNoteService) ListFieldNotesByAuthor(userID uint, limit int, offset int) ([]*contracts.AuthoredFieldNote, int64, error) {
+	if m.ListFieldNotesByAuthorFn != nil {
+		return m.ListFieldNotesByAuthorFn(userID, limit, offset)
+	}
+	return nil, 0, nil
 }
 
 // ============================================================================

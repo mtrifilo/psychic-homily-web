@@ -119,6 +119,15 @@ type CommentListResponse struct {
 	HasMore  bool               `json:"has_more"`
 }
 
+// AuthoredFieldNote is a field note listed on its author's public profile
+// (PSY-1046). Show title/slug are enriched so the frontend can render a
+// linked "note on <show>" line without re-fetching each show.
+type AuthoredFieldNote struct {
+	CommentResponse
+	ShowTitle string `json:"show_title"`
+	ShowSlug  string `json:"show_slug,omitempty"`
+}
+
 // ──────────────────────────────────────────────
 // Comment service interface
 // ──────────────────────────────────────────────
@@ -138,6 +147,7 @@ type CommentServiceInterface interface {
 type FieldNoteServiceInterface interface {
 	CreateFieldNote(userID uint, req *CreateFieldNoteRequest) (*CommentResponse, error)
 	ListFieldNotesForShow(showID uint, limit, offset int) (*CommentListResponse, error)
+	ListFieldNotesByAuthor(userID uint, limit, offset int) ([]*AuthoredFieldNote, int64, error)
 }
 
 // ──────────────────────────────────────────────

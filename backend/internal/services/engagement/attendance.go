@@ -267,10 +267,6 @@ func (s *AttendanceService) GetBatchUserAttendance(userID uint, showIDs []uint) 
 // status filter: "going", "interested", or "all" (default).
 // Only returns upcoming approved shows, ordered by event_date ASC.
 func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
-	if s.db == nil {
-		return nil, 0, fmt.Errorf("database not initialized")
-	}
-
 	// Build the bookmark filter
 	actions := []engagementm.BookmarkAction{engagementm.BookmarkActionGoing, engagementm.BookmarkActionInterested}
 	if status == string(engagementm.BookmarkActionGoing) {
@@ -279,7 +275,33 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 		actions = []engagementm.BookmarkAction{engagementm.BookmarkActionInterested}
 	}
 
+	return s.listUserShowsByAttendance(userID, actions, false, limit, offset)
+}
+
+// GetUserAttendedShows returns the user's concert diary: approved shows with
+// a past event_date that the user marked "going", most recent first
+// (PSY-1046). GetUserAttendingShows is the upcoming-RSVP surface; this is its
+// past-direction sibling.
+func (s *AttendanceService) GetUserAttendedShows(userID uint, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
+	return s.listUserShowsByAttendance(userID, []engagementm.BookmarkAction{engagementm.BookmarkActionGoing}, true, limit, offset)
+}
+
+// listUserShowsByAttendance is the shared core behind the attending/attended
+// surfaces. past=false keeps upcoming shows (event_date >= now) soonest-first;
+// past=true keeps past shows (event_date < now) most-recent-first. Only
+// approved shows are returned either way.
+func (s *AttendanceService) listUserShowsByAttendance(userID uint, actions []engagementm.BookmarkAction, past bool, limit, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+
 	now := time.Now().UTC()
+	dateCond := "shows.event_date >= ?"
+	order := "shows.event_date ASC, shows.id ASC"
+	if past {
+		dateCond = "shows.event_date < ?"
+		order = "shows.event_date DESC, shows.id DESC"
+	}
 
 	// Count total matching shows
 	var total int64
@@ -287,7 +309,8 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 		Joins("JOIN shows ON shows.id = user_bookmarks.entity_id").
 		Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action IN ?",
 			userID, engagementm.BookmarkEntityShow, actions).
-		Where("shows.status = ? AND shows.event_date >= ?", catalogm.ShowStatusApproved, now).
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Where(dateCond, now).
 		Count(&total).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to count attending shows: %w", err)
@@ -310,8 +333,9 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 		Joins("JOIN shows ON shows.id = user_bookmarks.entity_id").
 		Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action IN ?",
 			userID, engagementm.BookmarkEntityShow, actions).
-		Where("shows.status = ? AND shows.event_date >= ?", catalogm.ShowStatusApproved, now).
-		Order("shows.event_date ASC, shows.id ASC").
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Where(dateCond, now).
+		Order(order).
 		Limit(limit).
 		Offset(offset).
 		Pluck("shows.id", &showIDs).Error
@@ -356,9 +380,10 @@ func (s *AttendanceService) GetUserAttendingShows(userID uint, status string, li
 		Joins("LEFT JOIN venues ON venues.id = show_venues.venue_id").
 		Where("user_bookmarks.user_id = ? AND user_bookmarks.entity_type = ? AND user_bookmarks.action IN ?",
 			userID, engagementm.BookmarkEntityShow, actions).
-		Where("shows.status = ? AND shows.event_date >= ?", catalogm.ShowStatusApproved, now).
+		Where("shows.status = ?", catalogm.ShowStatusApproved).
+		Where(dateCond, now).
 		Where("shows.id IN ?", showIDs).
-		Order("shows.event_date ASC, shows.id ASC").
+		Order(order).
 		Find(&rows).Error
 
 	if err != nil {

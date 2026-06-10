@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/suite"
 
 	"psychic-homily-backend/internal/api/handlers/shared/testhelpers"
 	authm "psychic-homily-backend/internal/models/auth"
+	catalogm "psychic-homily-backend/internal/models/catalog"
+	engagementm "psychic-homily-backend/internal/models/engagement"
 	"psychic-homily-backend/internal/services/contracts"
+	"psychic-homily-backend/internal/services/engagement"
 	usersvc "psychic-homily-backend/internal/services/user"
+	"psychic-homily-backend/internal/utils"
 )
 
 type ContributorProfileHandlerIntegrationSuite struct {
@@ -24,12 +29,20 @@ type ContributorProfileHandlerIntegrationSuite struct {
 func (s *ContributorProfileHandlerIntegrationSuite) SetupSuite() {
 	s.deps = testhelpers.SetupIntegrationDeps(s.T())
 	s.profileService = usersvc.NewContributorProfileService(s.deps.DB)
-	s.handler = NewContributorProfileHandler(s.profileService, s.deps.UserService)
+	s.handler = NewContributorProfileHandler(
+		s.profileService, s.deps.UserService,
+		engagement.NewFollowService(s.deps.DB),
+		engagement.NewAttendanceService(s.deps.DB),
+		engagement.NewCommentService(s.deps.DB, utils.NewMarkdownRenderer()),
+	)
 }
 
 func (s *ContributorProfileHandlerIntegrationSuite) TearDownTest() {
 	sqlDB, _ := s.deps.DB.DB()
 	_, _ = sqlDB.Exec("DELETE FROM user_profile_sections")
+	// comments is not covered by CleanupTables; the PSY-1046 field-note
+	// tests seed it directly.
+	_, _ = sqlDB.Exec("DELETE FROM comments")
 	testhelpers.CleanupTables(s.deps.DB)
 }
 
@@ -948,4 +961,325 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetActivityHeatmap_NoAct
 	s.NoError(err)
 	s.NotNil(resp)
 	s.Empty(resp.Body.Days)
+}
+
+// =============================================================================
+// PSY-1046: public profile list endpoints
+// (following / attended-shows / field-notes)
+// =============================================================================
+
+// --- Seed helpers ---
+
+func (s *ContributorProfileHandlerIntegrationSuite) createArtistEntity(name, slug string) *catalogm.Artist {
+	artist := &catalogm.Artist{Name: name, Slug: testhelpers.StringPtr(slug)}
+	s.deps.DB.Create(artist)
+	return artist
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) createVenueEntity(name, slug string) *catalogm.Venue {
+	venue := &catalogm.Venue{Name: name, Slug: testhelpers.StringPtr(slug), City: "Phoenix", State: "AZ"}
+	s.deps.DB.Create(venue)
+	return venue
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) createShowAt(title string, eventDate time.Time, venue *catalogm.Venue) *catalogm.Show {
+	show := &catalogm.Show{
+		Title:     title,
+		EventDate: eventDate,
+		City:      testhelpers.StringPtr("Phoenix"),
+		State:     testhelpers.StringPtr("AZ"),
+		Status:    catalogm.ShowStatusApproved,
+	}
+	s.deps.DB.Create(show)
+	// Slug is auto-set in CreateShow but raw inserts skip that.
+	s.deps.DB.Model(show).Update("slug", fmt.Sprintf("show-%d", show.ID))
+	if venue != nil {
+		s.Require().NoError(s.deps.DB.Model(show).Association("Venues").Append(venue))
+	}
+	return show
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) bookmark(userID uint, entityType engagementm.BookmarkEntityType, entityID uint, action engagementm.BookmarkAction) {
+	s.deps.DB.Create(&engagementm.UserBookmark{
+		UserID:     userID,
+		EntityType: entityType,
+		EntityID:   entityID,
+		Action:     action,
+	})
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) createFieldNote(userID, showID uint, body string, visibility engagementm.CommentVisibility, createdAt time.Time) *engagementm.Comment {
+	note := &engagementm.Comment{
+		EntityType: engagementm.CommentEntityShow,
+		EntityID:   showID,
+		Kind:       engagementm.CommentKindFieldNote,
+		UserID:     userID,
+		Body:       body,
+		BodyHTML:   "<p>" + body + "</p>",
+		Visibility: visibility,
+		CreatedAt:  createdAt,
+		UpdatedAt:  createdAt,
+	}
+	s.deps.DB.Create(note)
+	return note
+}
+
+// =============================================================================
+// GetUserFollowingHandler
+// =============================================================================
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_VisibleList() {
+	target := s.createUserWithUsername("followpublic")
+	settings := contracts.DefaultPrivacySettings()
+	settings.Following = contracts.PrivacyVisible
+	s.setPrivacySettings(target, settings)
+
+	a1 := s.createArtistEntity("Just Mustard", "just-mustard")
+	a2 := s.createArtistEntity("Wisp", "wisp")
+	v1 := s.createVenueEntity("Valley Bar", "valley-bar")
+	s.bookmark(target.ID, engagementm.BookmarkEntityArtist, a1.ID, engagementm.BookmarkActionFollow)
+	s.bookmark(target.ID, engagementm.BookmarkEntityArtist, a2.ID, engagementm.BookmarkActionFollow)
+	s.bookmark(target.ID, engagementm.BookmarkEntityVenue, v1.ID, engagementm.BookmarkActionFollow)
+
+	// Anonymous viewer, type=all: full enriched list.
+	resp, err := s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
+		Username: "followpublic", Type: "all", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(3), resp.Body.Total)
+	s.Require().Len(resp.Body.Following, 3)
+
+	slugsByName := map[string]string{}
+	for _, f := range resp.Body.Following {
+		slugsByName[f.Name] = f.Slug
+	}
+	s.Equal("just-mustard", slugsByName["Just Mustard"])
+	s.Equal("valley-bar", slugsByName["Valley Bar"])
+
+	// Type filter narrows to artists only.
+	resp, err = s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
+		Username: "followpublic", Type: "artist", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(2), resp.Body.Total)
+	s.Require().Len(resp.Body.Following, 2)
+	for _, f := range resp.Body.Following {
+		s.Equal("artist", f.EntityType)
+	}
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_DefaultCountOnly() {
+	// No stored privacy settings: the default for `following` is count_only,
+	// so anonymous viewers get a total but no items. Guarding the default
+	// matters — flipping it is an explicit open question on PSY-1045.
+	target := s.createUserWithUsername("followdefault")
+	a1 := s.createArtistEntity("Crows", "crows")
+	s.bookmark(target.ID, engagementm.BookmarkEntityArtist, a1.ID, engagementm.BookmarkActionFollow)
+
+	resp, err := s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
+		Username: "followdefault", Type: "all", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Empty(resp.Body.Following)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_Hidden() {
+	target := s.createUserWithUsername("followhidden")
+	settings := contracts.DefaultPrivacySettings()
+	settings.Following = contracts.PrivacyHidden
+	s.setPrivacySettings(target, settings)
+
+	_, err := s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
+		Username: "followhidden", Type: "all", Limit: 20, Offset: 0,
+	})
+	testhelpers.AssertHumaError(s.T(), err, 404)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_OwnerSeesFullDespiteHidden() {
+	target := s.createUserWithUsername("followowner")
+	settings := contracts.DefaultPrivacySettings()
+	settings.Following = contracts.PrivacyHidden
+	s.setPrivacySettings(target, settings)
+	a1 := s.createArtistEntity("Squid", "squid")
+	s.bookmark(target.ID, engagementm.BookmarkEntityArtist, a1.ID, engagementm.BookmarkActionFollow)
+
+	resp, err := s.handler.GetUserFollowingHandler(testhelpers.CtxWithUser(target), &GetUserFollowingRequest{
+		Username: "followowner", Type: "all", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Require().Len(resp.Body.Following, 1)
+	s.Equal("Squid", resp.Body.Following[0].Name)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_PrivateProfile() {
+	target := s.createPrivateUser("followprivate")
+
+	// Anonymous viewer: master gate hides the profile entirely.
+	_, err := s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
+		Username: "followprivate", Type: "all", Limit: 20, Offset: 0,
+	})
+	testhelpers.AssertHumaError(s.T(), err, 404)
+
+	// Owner still passes the master gate.
+	_, err = s.handler.GetUserFollowingHandler(testhelpers.CtxWithUser(target), &GetUserFollowingRequest{
+		Username: "followprivate", Type: "all", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_InvalidType() {
+	s.createUserWithUsername("followbadtype")
+	_, err := s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
+		Username: "followbadtype", Type: "banana", Limit: 20, Offset: 0,
+	})
+	testhelpers.AssertHumaError(s.T(), err, 400)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_UserNotFound() {
+	_, err := s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
+		Username: "ghost-user", Type: "all", Limit: 20, Offset: 0,
+	})
+	testhelpers.AssertHumaError(s.T(), err, 404)
+}
+
+// =============================================================================
+// GetUserAttendedShowsHandler
+// =============================================================================
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_VisiblePastOnlyDesc() {
+	target := s.createUserWithUsername("diaryuser")
+	settings := contracts.DefaultPrivacySettings()
+	settings.Attendance = contracts.PrivacyVisible
+	s.setPrivacySettings(target, settings)
+
+	venue := s.createVenueEntity("Rebel Lounge", "rebel-lounge")
+	now := time.Now().UTC()
+	older := s.createShowAt("Older Past Show", now.AddDate(0, -2, 0), venue)
+	recent := s.createShowAt("Recent Past Show", now.AddDate(0, -1, 0), venue)
+	future := s.createShowAt("Future Show", now.AddDate(0, 1, 0), venue)
+	pastInterested := s.createShowAt("Interested Past Show", now.AddDate(0, -3, 0), venue)
+
+	s.bookmark(target.ID, engagementm.BookmarkEntityShow, older.ID, engagementm.BookmarkActionGoing)
+	s.bookmark(target.ID, engagementm.BookmarkEntityShow, recent.ID, engagementm.BookmarkActionGoing)
+	s.bookmark(target.ID, engagementm.BookmarkEntityShow, future.ID, engagementm.BookmarkActionGoing)
+	s.bookmark(target.ID, engagementm.BookmarkEntityShow, pastInterested.ID, engagementm.BookmarkActionInterested)
+
+	resp, err := s.handler.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
+		Username: "diaryuser", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	// Future "going" and past "interested" are both excluded from the diary.
+	s.Equal(int64(2), resp.Body.Total)
+	s.Require().Len(resp.Body.Shows, 2)
+	// Most recent first.
+	s.Equal("Recent Past Show", resp.Body.Shows[0].Title)
+	s.Equal("Older Past Show", resp.Body.Shows[1].Title)
+	s.Equal("going", resp.Body.Shows[0].Status)
+	// Venue enrichment survives the join.
+	s.Require().NotNil(resp.Body.Shows[0].VenueName)
+	s.Equal("Rebel Lounge", *resp.Body.Shows[0].VenueName)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_DefaultHidden() {
+	// No stored privacy settings: the default for `attendance` is hidden —
+	// anonymous viewers must get a 404, while the owner still sees the diary.
+	target := s.createUserWithUsername("diaryhidden")
+	show := s.createShowAt("Past Hidden Show", time.Now().UTC().AddDate(0, -1, 0), nil)
+	s.bookmark(target.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
+
+	_, err := s.handler.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
+		Username: "diaryhidden", Limit: 20, Offset: 0,
+	})
+	testhelpers.AssertHumaError(s.T(), err, 404)
+
+	resp, err := s.handler.GetUserAttendedShowsHandler(testhelpers.CtxWithUser(target), &GetUserAttendedShowsRequest{
+		Username: "diaryhidden", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Require().Len(resp.Body.Shows, 1)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_CountOnly() {
+	target := s.createUserWithUsername("diarycount")
+	settings := contracts.DefaultPrivacySettings()
+	settings.Attendance = contracts.PrivacyCountOnly
+	s.setPrivacySettings(target, settings)
+	show := s.createShowAt("Past Counted Show", time.Now().UTC().AddDate(0, -1, 0), nil)
+	s.bookmark(target.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
+
+	resp, err := s.handler.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
+		Username: "diarycount", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Empty(resp.Body.Shows)
+}
+
+// =============================================================================
+// GetUserFieldNotesHandler
+// =============================================================================
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFieldNotes_List() {
+	author := s.createUserWithUsername("noteauthor")
+	now := time.Now().UTC()
+	show1 := s.createShowAt("Wall of Sound Night", now.AddDate(0, -1, 0), nil)
+	show2 := s.createShowAt("Reverent Room", now.AddDate(0, -2, 0), nil)
+
+	s.createFieldNote(author.ID, show1.ID, "older note", engagementm.CommentVisibilityVisible, now.Add(-48*time.Hour))
+	s.createFieldNote(author.ID, show2.ID, "newer note", engagementm.CommentVisibilityVisible, now.Add(-24*time.Hour))
+	// Hidden notes and plain comments must never appear on the profile.
+	s.createFieldNote(author.ID, show1.ID, "hidden note", engagementm.CommentVisibilityHiddenByMod, now.Add(-12*time.Hour))
+	plain := &engagementm.Comment{
+		EntityType: engagementm.CommentEntityShow,
+		EntityID:   show1.ID,
+		Kind:       engagementm.CommentKindComment,
+		UserID:     author.ID,
+		Body:       "plain comment",
+		BodyHTML:   "<p>plain comment</p>",
+		Visibility: engagementm.CommentVisibilityVisible,
+	}
+	s.deps.DB.Create(plain)
+
+	resp, err := s.handler.GetUserFieldNotesHandler(context.Background(), &GetUserFieldNotesRequest{
+		Username: "noteauthor", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(2), resp.Body.Total)
+	s.Require().Len(resp.Body.FieldNotes, 2)
+	// Newest first, with show title/slug enrichment.
+	s.Equal("newer note", resp.Body.FieldNotes[0].Body)
+	s.Equal("Reverent Room", resp.Body.FieldNotes[0].ShowTitle)
+	s.Equal(fmt.Sprintf("show-%d", show2.ID), resp.Body.FieldNotes[0].ShowSlug)
+	s.Equal("older note", resp.Body.FieldNotes[1].Body)
+	s.Equal("Wall of Sound Night", resp.Body.FieldNotes[1].ShowTitle)
+	// Author attribution resolves (PSY-353 chain).
+	s.Equal("noteauthor", resp.Body.FieldNotes[0].AuthorName)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFieldNotes_PrivateProfile() {
+	target := s.createPrivateUser("noteprivate")
+
+	_, err := s.handler.GetUserFieldNotesHandler(context.Background(), &GetUserFieldNotesRequest{
+		Username: "noteprivate", Limit: 20, Offset: 0,
+	})
+	testhelpers.AssertHumaError(s.T(), err, 404)
+
+	// Owner still passes the master gate.
+	_, err = s.handler.GetUserFieldNotesHandler(testhelpers.CtxWithUser(target), &GetUserFieldNotesRequest{
+		Username: "noteprivate", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFieldNotes_Empty() {
+	s.createUserWithUsername("notenone")
+	resp, err := s.handler.GetUserFieldNotesHandler(context.Background(), &GetUserFieldNotesRequest{
+		Username: "notenone", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(0), resp.Body.Total)
+	s.Empty(resp.Body.FieldNotes)
 }
