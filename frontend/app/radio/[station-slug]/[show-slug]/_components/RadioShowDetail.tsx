@@ -111,11 +111,15 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
   })
   // Separate limit-1 query (cheap, cached) so the ON AIR strip always derives
   // from the LATEST episode regardless of which archive page is in view.
-  const { data: latestData } = useRadioEpisodes({
+  const latestQuery = useRadioEpisodes({
     showSlug,
     limit: 1,
     enabled: !!show,
   })
+  // useRadioEpisodes keeps previous data across slug changes; ignore the
+  // placeholder so the strip never links the PREVIOUS show's air_date under
+  // the new show's URL (same guard as useShowLatestEpisode).
+  const latestData = latestQuery.isPlaceholderData ? undefined : latestQuery.data
 
   if (isLoading) {
     return (
