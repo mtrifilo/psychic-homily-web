@@ -15,6 +15,13 @@ export const radioEndpoints = {
   // Stations
   STATIONS: `${API_BASE_URL}/radio-stations`,
   STATION: (slug: string) => `${API_BASE_URL}/radio-stations/${slug}`,
+  // Station-scoped aggregations (PSY-1048; consumed by the PSY-1050 station page)
+  STATION_EPISODES: (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${slug}/episodes`,
+  STATION_TOP_ARTISTS: (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${slug}/top-artists`,
+  STATION_TOP_LABELS: (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${slug}/top-labels`,
 
   // Shows
   SHOWS: `${API_BASE_URL}/radio-shows`,
@@ -43,7 +50,20 @@ export const radioEndpoints = {
 export const radioQueryKeys = {
   stations: () => ['radio-stations'] as const,
   station: (slug: string) => ['radio-stations', slug] as const,
-  shows: (stationId?: number) => ['radio-shows', { stationId }] as const,
+  stationEpisodes: (slug: string, params?: object) =>
+    ['radio-stations', slug, 'episodes', params] as const,
+  stationTopArtists: (slug: string, params?: object) =>
+    ['radio-stations', slug, 'top-artists', params] as const,
+  stationTopLabels: (slug: string, params?: object) =>
+    ['radio-stations', slug, 'top-labels', params] as const,
+  // `sort` is omitted from the key object when absent: an explicit
+  // `sort: undefined` property would break React Query's partial matching,
+  // so invalidateQueries(shows(stationId)) — e.g. the admin radio mutations —
+  // would silently stop matching the station page's sort=latest queries.
+  shows: (stationId?: number, sort?: string) =>
+    sort
+      ? (['radio-shows', { stationId, sort }] as const)
+      : (['radio-shows', { stationId }] as const),
   show: (slug: string) => ['radio-shows', slug] as const,
   episodes: (showSlug: string, params?: object) =>
     ['radio-shows', showSlug, 'episodes', params] as const,

@@ -124,10 +124,14 @@ export interface RadioShowListItem {
   name: string
   slug: string
   host_name: string | null
+  /** Human-readable air slot ("Mon 9pm-12am"); PSY-1050 shows directory. */
+  schedule_display: string | null
   genre_tags: string[] | null
   image_url: string | null
   is_active: boolean
   episode_count: number
+  /** Air date (YYYY-MM-DD) of the show's most recent episode (PSY-1048). */
+  latest_air_date: string | null
 }
 
 export interface RadioShowDetail {
@@ -351,10 +355,9 @@ export function getRotationStatusColor(status: string): string {
 }
 
 // ============================================================================
-// PSY-1048 aggregation shapes (PSY-1049 + PSY-1051)
+// PSY-1048 aggregation shapes (PSY-1049 + PSY-1050 + PSY-1051)
 //
-// Mirrors backend/internal/services/contracts/radio.go. PSY-1050 may add
-// further definitions here — dedupe identical ones at rebase time.
+// Mirrors backend/internal/services/contracts/radio.go.
 // ============================================================================
 
 /**
@@ -370,7 +373,8 @@ export interface RadioEpisodePreviewArtist {
 
 /**
  * An episode row in the station-scoped and dial-wide latest-playlists feeds:
- * episode fields plus show and channel (station) attribution.
+ * episode fields plus show and channel (station) attribution. A network
+ * flagship's feed already includes its channels server-side.
  */
 export interface RadioStationEpisodeRow {
   id: number
@@ -384,11 +388,18 @@ export interface RadioStationEpisodeRow {
   station_id: number
   station_name: string
   station_slug: string
+  /** Always an array (may be empty); matched artists carry id + slug. */
   artist_preview: RadioEpisodePreviewArtist[]
 }
 
 /** Response shape for GET /radio/episodes/recent (and station episode feeds). */
 export interface RadioRecentEpisodesResponse {
+  episodes: RadioStationEpisodeRow[]
+  total: number
+}
+
+/** Response shape for GET /radio-stations/{slug}/episodes. */
+export interface RadioStationEpisodesResponse {
   episodes: RadioStationEpisodeRow[]
   total: number
 }

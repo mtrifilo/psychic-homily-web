@@ -1191,6 +1191,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 	retired := suite.createShow(station.ID, "Beta Retired")
 	suite.createEpisode(retired.ID, "2026-06-08")
 	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", retired.ID).Update("is_active", false).Error)
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", older.ID).Update("schedule_display", "Mon 9pm-12am").Error)
 
 	// Default sort stays alphabetical (existing behavior).
 	byName, err := suite.radioService.ListShows(station.ID, "")
@@ -1199,6 +1200,10 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSor
 	suite.Equal("Alpha Show", byName[0].Name)
 	suite.Require().NotNil(byName[0].LatestAirDate)
 	suite.Equal("2026-06-05", *byName[0].LatestAirDate)
+	// schedule_display rides along on list rows (PSY-1050 shows directory).
+	suite.Require().NotNil(byName[0].ScheduleDisplay)
+	suite.Equal("Mon 9pm-12am", *byName[0].ScheduleDisplay)
+	suite.Nil(byName[1].ScheduleDisplay)
 
 	// sort=latest: active shows first, newest playlist first, episode-less
 	// actives after dated actives, inactive shows last.
