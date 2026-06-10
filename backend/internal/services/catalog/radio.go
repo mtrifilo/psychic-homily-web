@@ -469,17 +469,18 @@ func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.Ra
 			latest = &d
 		}
 		responses[i] = &contracts.RadioShowListResponse{
-			ID:            sh.ID,
-			StationID:     sh.StationID,
-			StationName:   sh.Station.Name,
-			Name:          sh.Name,
-			Slug:          sh.Slug,
-			HostName:      sh.HostName,
-			GenreTags:     sh.GenreTags,
-			ImageURL:      sh.ImageURL,
-			IsActive:      sh.IsActive,
-			EpisodeCount:  episodeCounts[sh.ID],
-			LatestAirDate: latest,
+			ID:              sh.ID,
+			StationID:       sh.StationID,
+			StationName:     sh.Station.Name,
+			Name:            sh.Name,
+			Slug:            sh.Slug,
+			HostName:        sh.HostName,
+			ScheduleDisplay: sh.ScheduleDisplay,
+			GenreTags:       sh.GenreTags,
+			ImageURL:        sh.ImageURL,
+			IsActive:        sh.IsActive,
+			EpisodeCount:    episodeCounts[sh.ID],
+			LatestAirDate:   latest,
 		}
 	}
 

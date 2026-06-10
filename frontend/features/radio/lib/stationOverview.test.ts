@@ -21,6 +21,9 @@ function makeShow(overrides: Partial<RadioShowListItem> = {}): RadioShowListItem
     image_url: null,
     is_active: true,
     episode_count: 5,
+    
+    schedule_display: null,
+    latest_air_date: null,
     ...overrides,
   }
 }

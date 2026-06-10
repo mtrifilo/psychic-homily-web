@@ -189,10 +189,13 @@ type RadioShowListResponse struct {
 	Name         string           `json:"name"`
 	Slug         string           `json:"slug"`
 	HostName     *string          `json:"host_name"`
-	GenreTags    *json.RawMessage `json:"genre_tags"`
-	ImageURL     *string          `json:"image_url"`
-	IsActive     bool             `json:"is_active"`
-	EpisodeCount int64            `json:"episode_count"`
+	// ScheduleDisplay is the human-readable air slot ("Mon 9pm-12am"),
+	// surfaced in list rows for the station-page shows directory (PSY-1050).
+	ScheduleDisplay *string          `json:"schedule_display"`
+	GenreTags       *json.RawMessage `json:"genre_tags"`
+	ImageURL        *string          `json:"image_url"`
+	IsActive        bool             `json:"is_active"`
+	EpisodeCount    int64            `json:"episode_count"`
 	// LatestAirDate is the air date (YYYY-MM-DD) of the show's most recent
 	// episode, nil when the show has no episodes (PSY-1048).
 	LatestAirDate *string `json:"latest_air_date"`

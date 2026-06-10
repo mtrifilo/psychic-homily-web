@@ -26,10 +26,11 @@ export type {
   RadioTopLabelsResponse,
   RadioAsHeardOnResponse,
   RadioNewReleasesResponse,
-  // PSY-1048 aggregation shapes (PSY-1049)
+  // PSY-1048 aggregation shapes (PSY-1049/1050/1051)
   RadioEpisodePreviewArtist,
   RadioStationEpisodeRow,
   RadioRecentEpisodesResponse,
+  RadioStationEpisodesResponse,
 } from './types'
 
 export {
@@ -62,12 +63,15 @@ export {
   useStationOverview,
   // PSY-1049
   useRecentRadioEpisodes,
+  // PSY-1050: station-page aggregations (PSY-1048 endpoints)
+  useStationEpisodes,
+  useStationTopArtists,
+  useStationTopLabels,
 } from './hooks'
 
 // Components
 export {
   RadioStationCard,
-  RadioShowCard,
   RadioEpisodeRow,
   RadioPlayRow,
   AsHeardOn,
@@ -78,6 +82,11 @@ export {
   RadioStationOverview,
   RecentShowRow,
   ArtistHops,
+  // PSY-1050: station-page rebuild (The Dial, Option A)
+  StationOnAirBox,
+  StationPlaylistsFeed,
+  StationShowsDirectory,
+  StationSidebar,
 } from './components'
 
 // PSY-1016: station-overview derivation helpers

@@ -1,113 +1,42 @@
 'use client'
 
-import { use } from 'react'
 import Link from 'next/link'
 import {
   ArrowLeft,
+  ExternalLink,
+  Globe,
+  Heart,
   Loader2,
   Radio,
-  MapPin,
-  ExternalLink,
-  Heart,
-  Globe,
-  Music,
-  Disc3,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
 import {
   useRadioStation,
-  useRadioShows,
-  useNewReleaseRadar,
-  RadioShowCard,
   NetworkTabBar,
+  StationOnAirBox,
+  StationPlaylistsFeed,
+  StationShowsDirectory,
+  StationSidebar,
   getBroadcastTypeLabel,
 } from '@/features/radio'
-import type { RadioNewReleaseRadarEntry } from '@/features/radio'
 
 interface StationDetailProps {
   stationSlug: string
 }
 
-function NewReleaseRadarSection({ stationId }: { stationId: number }) {
-  const { data, isLoading } = useNewReleaseRadar({ stationId, limit: 10 })
-
-  if (isLoading || !data?.releases || data.releases.length === 0) return null
-
-  return (
-    <section className="mt-10">
-      <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-        <Disc3 className="h-5 w-5" />
-        New Release Radar
-      </h2>
-      <div className="space-y-1">
-        {data.releases.map((entry: RadioNewReleaseRadarEntry, i: number) => (
-          <div
-            key={`${entry.artist_name}-${entry.album_title}-${i}`}
-            className="flex items-center gap-3 px-3 py-2 rounded-md hover:bg-muted/50 transition-colors"
-          >
-            <span className="text-xs text-muted-foreground tabular-nums w-5 text-right">
-              {i + 1}
-            </span>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                {entry.artist_slug ? (
-                  <Link
-                    href={`/artists/${entry.artist_slug}`}
-                    className="text-sm font-medium hover:text-primary transition-colors"
-                  >
-                    {entry.artist_name}
-                  </Link>
-                ) : (
-                  <span className="text-sm font-medium">{entry.artist_name}</span>
-                )}
-                {entry.album_title && (
-                  <>
-                    <span className="text-muted-foreground">-</span>
-                    {entry.release_slug ? (
-                      <Link
-                        href={`/releases/${entry.release_slug}`}
-                        className="text-sm text-muted-foreground hover:text-foreground transition-colors truncate"
-                      >
-                        {entry.album_title}
-                      </Link>
-                    ) : (
-                      <span className="text-sm text-muted-foreground truncate">
-                        {entry.album_title}
-                      </span>
-                    )}
-                  </>
-                )}
-              </div>
-              {entry.label_name && (
-                <span className="text-xs text-muted-foreground">
-                  {entry.label_slug ? (
-                    <Link
-                      href={`/labels/${entry.label_slug}`}
-                      className="hover:text-foreground transition-colors"
-                    >
-                      {entry.label_name}
-                    </Link>
-                  ) : (
-                    entry.label_name
-                  )}
-                </span>
-              )}
-            </div>
-            <div className="shrink-0 text-xs text-muted-foreground tabular-nums">
-              {entry.play_count} {entry.play_count === 1 ? 'play' : 'plays'}
-              {entry.station_count > 1 && ` / ${entry.station_count} stations`}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
-  )
-}
-
+/**
+ * Station page (PSY-1050, Option A "The Dial"): dense editorial layout.
+ * Main column leads with the ON AIR box (v1 heuristic — see StationOnAirBox)
+ * then the latest-playlists feed and the shows directory table. Sidebar
+ * carries station info, 90d top artists/labels, and the station-filtered
+ * New Release Radar.
+ *
+ * Serves INACTIVE stations' archives too — no active-only filtering here.
+ * Shared by the flagship/standalone route and the network sub-channel route
+ * (PSY-674 routing unchanged).
+ */
 export default function StationDetail({ stationSlug }: StationDetailProps) {
   const { data: station, isLoading, error } = useRadioStation(stationSlug)
-  const { data: showsData, isLoading: showsLoading } = useRadioShows(station?.id)
 
   if (isLoading) {
     return (
@@ -137,7 +66,14 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
   }
 
   const location = [station.city, station.state].filter(Boolean).join(', ')
-  const broadcastLabel = getBroadcastTypeLabel(station.broadcast_type)
+  // Mono identity sub-line: "91.1 FM · Jersey City, NJ · FM/AM + Internet"
+  const subline = [
+    station.frequency_mhz ? `${station.frequency_mhz} FM` : null,
+    location || null,
+    getBroadcastTypeLabel(station.broadcast_type),
+  ]
+    .filter(Boolean)
+    .join(' · ')
 
   return (
     <div className="flex min-h-screen items-start justify-center">
@@ -153,68 +89,30 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
           </Link>
         </div>
 
-        {/* PSY-674: network-name H1 + tab bar when the station belongs to a
-            network. Hidden for network-less stations (KEXP, NTS today). */}
-        {station.network && (
-          <>
-            <h1 className="text-3xl font-bold mb-2">{station.network.name}</h1>
-            <NetworkTabBar currentStation={station} />
-          </>
-        )}
-
         {/* Station header */}
-        <div className="flex items-start gap-5 mb-8">
-          {/* Logo */}
-          <div className="shrink-0 rounded-xl bg-muted/50 flex items-center justify-center overflow-hidden h-20 w-20">
-            {station.logo_url ? (
-              <img
-                src={station.logo_url}
-                alt={`${station.name} logo`}
-                className="h-full w-full object-cover"
-              />
-            ) : (
-              <Radio className="h-10 w-10 text-muted-foreground/40" />
-            )}
-          </div>
-
-          <div className="flex-1 min-w-0">
-            {/* Station-name heading: H1 for network-less stations (page-level
-                identity); h2 when the network H1 already renders above. */}
-            {station.network ? (
-              <h2 className="text-2xl font-semibold">{station.name}</h2>
-            ) : (
-              <h1 className="text-3xl font-bold">{station.name}</h1>
-            )}
-
-            <div className="flex items-center gap-3 flex-wrap mt-2">
-              <Badge variant="secondary">{broadcastLabel}</Badge>
-              {station.frequency_mhz && (
-                <span className="text-sm text-muted-foreground tabular-nums">
-                  {station.frequency_mhz} MHz
-                </span>
-              )}
-              {location && (
-                <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                  <MapPin className="h-3.5 w-3.5" />
-                  {location}
-                </span>
-              )}
-              {station.show_count > 0 && (
-                <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                  <Music className="h-3.5 w-3.5" />
-                  {station.show_count} {station.show_count === 1 ? 'show' : 'shows'}
-                </span>
+        <header className="mb-5">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="min-w-0">
+              <div className="flex items-baseline gap-3 flex-wrap">
+                {/* Page-level identity: the station name is the H1 for both
+                    standalone stations and network members — the network name
+                    surfaces through the tab bar below (PSY-674 semantics). */}
+                <h1 className="text-3xl font-bold">{station.name}</h1>
+                {subline && (
+                  <span className="font-mono text-sm text-muted-foreground">
+                    {subline}
+                  </span>
+                )}
+              </div>
+              {station.description && (
+                <p className="text-muted-foreground mt-2 text-sm leading-relaxed max-w-3xl">
+                  {station.description}
+                </p>
               )}
             </div>
 
-            {station.description && (
-              <p className="text-muted-foreground mt-3 text-sm leading-relaxed max-w-3xl">
-                {station.description}
-              </p>
-            )}
-
-            {/* Action buttons */}
-            <div className="flex items-center gap-2 mt-4">
+            {/* Actions */}
+            <div className="flex items-center gap-2 shrink-0">
               {station.slug === 'wfmu' ? (
                 <Button
                   size="sm"
@@ -268,40 +166,23 @@ export default function StationDetail({ stationSlug }: StationDetailProps) {
               )}
             </div>
           </div>
+        </header>
+
+        {/* PSY-674: channel tabs for network stations (underline idiom). */}
+        <NetworkTabBar currentStation={station} />
+
+        {/* Two-column body: main feed + sidebar */}
+        <div className="grid gap-8 lg:grid-cols-[minmax(0,1fr)_300px]">
+          <div className="flex flex-col gap-8 min-w-0">
+            <StationOnAirBox station={station} />
+            <StationPlaylistsFeed station={station} />
+            <StationShowsDirectory
+              stationId={station.id}
+              stationSlug={station.slug}
+            />
+          </div>
+          <StationSidebar station={station} />
         </div>
-
-        {/* Shows */}
-        <section>
-          <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
-            <Music className="h-5 w-5" />
-            Shows
-          </h2>
-
-          {showsLoading && (
-            <div className="flex justify-center py-8">
-              <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-            </div>
-          )}
-
-          {!showsLoading && showsData?.shows && showsData.shows.length > 0 ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              {showsData.shows.map(show => (
-                <RadioShowCard
-                  key={show.id}
-                  show={show}
-                  stationSlug={stationSlug}
-                />
-              ))}
-            </div>
-          ) : !showsLoading ? (
-            <div className="py-8 text-center text-sm text-muted-foreground">
-              No shows yet
-            </div>
-          ) : null}
-        </section>
-
-        {/* New Release Radar */}
-        <NewReleaseRadarSection stationId={station.id} />
       </main>
     </div>
   )
