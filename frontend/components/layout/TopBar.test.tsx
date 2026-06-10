@@ -136,12 +136,15 @@ describe('TopBar', () => {
   })
 
   describe('account cluster', () => {
-    it('shows the login link when unauthenticated', () => {
+    it('shows the login link and no Submit CTA when unauthenticated', () => {
       render(<TopBar />)
       expect(screen.getAllByText('login / sign-up').length).toBeGreaterThanOrEqual(1)
+      // + Submit is an authenticated-only CTA; anon keeps Submit in the
+      // Contribute menu (OQ-2).
+      expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
     })
 
-    it('shows the avatar + notification bell when authenticated', () => {
+    it('shows the + Submit CTA, avatar, and notification bell when authenticated', () => {
       mockAuthContext.mockReturnValue({
         user: { email: 'test@test.com', first_name: 'John', last_name: 'Doe', is_admin: false },
         isAuthenticated: true,
@@ -152,9 +155,10 @@ describe('TopBar', () => {
       expect(screen.getByRole('button', { name: 'User menu' })).toBeInTheDocument()
       expect(screen.getByText('JD')).toBeInTheDocument()
       expect(screen.getByTestId('notification-bell')).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: '+ Submit' })).toHaveAttribute('href', '/shows/submit')
     })
 
-    it('hides the bell + avatar while auth is loading', () => {
+    it('hides the Submit CTA, bell + avatar while auth is loading', () => {
       mockAuthContext.mockReturnValue({
         user: null,
         isAuthenticated: false,
@@ -164,6 +168,7 @@ describe('TopBar', () => {
       render(<TopBar />)
       expect(screen.queryByRole('button', { name: 'User menu' })).not.toBeInTheDocument()
       expect(screen.queryByTestId('notification-bell')).not.toBeInTheDocument()
+      expect(screen.queryByRole('link', { name: '+ Submit' })).not.toBeInTheDocument()
       expect(screen.queryByText('login / sign-up')).not.toBeInTheDocument()
     })
 
