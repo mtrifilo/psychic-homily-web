@@ -253,6 +253,13 @@ export const API_ENDPOINTS = {
       `${API_BASE_URL}/users/${username}/activity-heatmap`,
     RANKINGS: (username: string) =>
       `${API_BASE_URL}/users/${username}/rankings`,
+    // PSY-1046 public profile list surfaces (privacy-gated per field)
+    FOLLOWING: (username: string) =>
+      `${API_BASE_URL}/users/${username}/following`,
+    ATTENDED_SHOWS: (username: string) =>
+      `${API_BASE_URL}/users/${username}/attended-shows`,
+    FIELD_NOTES: (username: string) =>
+      `${API_BASE_URL}/users/${username}/field-notes`,
   },
 
   // Contributor profile endpoints (authenticated)

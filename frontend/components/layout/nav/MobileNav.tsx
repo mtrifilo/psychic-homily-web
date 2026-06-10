@@ -7,6 +7,7 @@ import dynamic from 'next/dynamic'
 import { useTheme } from 'next-themes'
 import {
   Menu, LogOut, Loader2, Shield, Settings, Moon, Sun, Library, ExternalLink, Bell,
+  UserCircle,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -121,6 +122,22 @@ export function MobileNav() {
               >
                 <Library className="size-4" />
                 Library
+              </Link>
+              {/* /users/me redirects to the user's public profile when a
+                  username is set, and renders the claim-username self view
+                  otherwise (PSY-1045). */}
+              <Link
+                href="/users/me"
+                onClick={() => setOpen(false)}
+                className={cn(
+                  'flex items-center gap-3 rounded-md px-3 py-2.5 text-sm font-medium transition-colors',
+                  isActive('/users/me')
+                    ? 'bg-accent text-accent-foreground'
+                    : 'text-foreground/70 hover:bg-accent/50 hover:text-accent-foreground'
+                )}
+              >
+                <UserCircle className="size-4" />
+                Profile
               </Link>
               <Link
                 href="/profile"

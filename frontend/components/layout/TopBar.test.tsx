@@ -220,7 +220,10 @@ describe('TopBar', () => {
       expect(profileItem).toHaveAttribute('href', '/users/reggie')
     })
 
-    it('falls back "Profile" to /profile (settings) when the user has no username', async () => {
+    it('falls back "Profile" to /users/me (claim-username self view) when the user has no username', async () => {
+      // PSY-1045: previously fell back to /profile (settings); now lands on
+      // the claim-username self view so the user still gets the profile
+      // experience before picking a handle.
       mockAuthContext.mockReturnValue({
         user: { email: 'user@test.com', is_admin: false },
         isAuthenticated: true,
@@ -231,7 +234,7 @@ describe('TopBar', () => {
       render(<TopBar />)
       await user.click(screen.getByRole('button', { name: 'User menu' }))
       const profileItem = await screen.findByRole('menuitem', { name: 'Profile' })
-      expect(profileItem).toHaveAttribute('href', '/profile')
+      expect(profileItem).toHaveAttribute('href', '/users/me')
     })
   })
 

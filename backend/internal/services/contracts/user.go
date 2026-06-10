@@ -148,12 +148,20 @@ type PrivacySettings struct {
 }
 
 // DefaultPrivacySettings returns the default privacy configuration.
+//
+// Following and Attendance default to visible (PSY-1045, 2026-06-09 product
+// decision): the content-first profile leads with what a user follows and
+// the shows they've attended, so the defaults expose them. This is a
+// deliberate posture change — users whose stored privacy_settings are NULL
+// (never customized) newly expose these lists; users who explicitly chose a
+// level are untouched. SavedShows stays hidden (a private watchlist, not an
+// identity surface).
 func DefaultPrivacySettings() PrivacySettings {
 	return PrivacySettings{
 		Contributions:   PrivacyVisible,
 		SavedShows:      PrivacyHidden,
-		Attendance:      PrivacyHidden,
-		Following:       PrivacyCountOnly,
+		Attendance:      PrivacyVisible,
+		Following:       PrivacyVisible,
 		Collections:     PrivacyVisible,
 		LastActive:      PrivacyVisible,
 		ProfileSections: PrivacyVisible,
