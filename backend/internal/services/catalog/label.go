@@ -60,6 +60,7 @@ func (s *LabelService) CreateLabel(req *contracts.CreateLabelRequest) (*contract
 		FoundedYear: req.FoundedYear,
 		Status:      status,
 		Description: req.Description,
+		ImageURL:    req.ImageURL,
 		Social: catalogm.Social{
 			Instagram:  req.Instagram,
 			Facebook:   req.Facebook,

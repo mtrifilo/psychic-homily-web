@@ -348,6 +348,8 @@ type CreateVenueRequest struct {
 	SoundCloud  *string `json:"soundcloud"`
 	Bandcamp    *string `json:"bandcamp"`
 	Website     *string `json:"website"`
+	Description *string `json:"description"`
+	ImageURL    *string `json:"image_url"`
 	SubmittedBy *uint   `json:"-"` // Set by handler, not from request body
 }
 
@@ -472,6 +474,11 @@ type CreateArtistRequest struct {
 	Bandcamp    *string `json:"bandcamp"`
 	Website     *string `json:"website"`
 	Description *string `json:"description"`
+	// ImageURL + BandcampEmbedURL are populated by the entity_request fulfiller
+	// (PSY-1038). The direct admin create handler does not expose them yet (set
+	// post-create via the update endpoints), so it leaves them nil here.
+	ImageURL         *string `json:"image_url"`
+	BandcampEmbedURL *string `json:"bandcamp_embed_url"`
 }
 
 // UpdateArtistRequest represents the data that can be updated on an artist.

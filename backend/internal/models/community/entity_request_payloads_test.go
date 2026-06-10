@@ -2,6 +2,7 @@ package community
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -272,5 +273,52 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 		// fulfiller tolerates an empty derived series_slug (same as the display
 		// slug), consistent with how artist/venue/label requests behave.
 		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"東京フェス","start_date":"2026-01-01","end_date":"2026-01-03"}`)))
+	})
+	// PSY-1038: the nullable URL fields now carry onto the created entity, so
+	// they are scheme-validated at the boundary (a hostile scheme must not ride
+	// the payload onto a real artist/venue/label).
+	t.Run("artist accepts valid image_url + bandcamp_embed_url", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","image_url":"https://example.com/b.jpg","bandcamp_embed_url":"https://boris.bandcamp.com/album/x"}`)))
+	})
+	t.Run("artist rejects javascript: image_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","image_url":"javascript:alert(1)"}`)))
+	})
+	t.Run("artist rejects non-http bandcamp_embed_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","bandcamp_embed_url":"data:text/html,evil"}`)))
+	})
+	t.Run("venue rejects non-http image_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestVenue, json.RawMessage(`{"name":"Trunk Space","city":"Phoenix","state":"AZ","image_url":"ftp://example.com/x.jpg"}`)))
+	})
+	t.Run("label rejects non-http image_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestLabel, json.RawMessage(`{"name":"Hydra Head","image_url":"javascript:void(0)"}`)))
+	})
+	t.Run("empty image_url is allowed", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestLabel, json.RawMessage(`{"name":"Hydra Head","image_url":""}`)))
+	})
+	// PSY-1038 (adversarial): length caps mirror the catalog columns so an
+	// over-long value is rejected here (422) not at INSERT (500), and URL
+	// validation covers every fulfillable type (festival/release too).
+	t.Run("artist rejects over-long image_url", func(t *testing.T) {
+		long := "https://example.com/" + strings.Repeat("a", 2100)
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","image_url":"`+long+`"}`)))
+	})
+	t.Run("artist rejects over-long description", func(t *testing.T) {
+		long := strings.Repeat("x", 5001)
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestArtist, json.RawMessage(`{"name":"Boris","description":"`+long+`"}`)))
+	})
+	t.Run("festival rejects javascript: website", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","start_date":"2026-01-01","end_date":"2026-01-03","website":"javascript:alert(1)"}`)))
+	})
+	t.Run("release rejects data: cover_art_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestRelease, json.RawMessage(`{"title":"Pink","cover_art_url":"data:image/png,evil"}`)))
+	})
+	t.Run("festival accepts valid website", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","start_date":"2026-01-01","end_date":"2026-01-03","website":"https://desertdaze.org"}`)))
+	})
+	t.Run("festival rejects over-long website (VARCHAR(500))", func(t *testing.T) {
+		// 501–2048 chars: a valid https URL that would 500 at INSERT into the
+		// festival website VARCHAR(500) column if the cap weren't column-accurate.
+		long := "https://example.com/?" + strings.Repeat("a", 600)
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","start_date":"2026-01-01","end_date":"2026-01-03","website":"`+long+`"}`)))
 	})
 }

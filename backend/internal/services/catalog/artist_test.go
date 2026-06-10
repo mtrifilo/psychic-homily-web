@@ -161,6 +161,35 @@ func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_Success() {
 	suite.Equal("https://radiohead.com", *resp.Social.Website)
 }
 
+// PSY-1038: image_url + bandcamp_embed_url now round-trip from the create
+// request onto the persisted artist (previously dropped at the contract).
+func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_CarriesImageAndBandcampEmbed() {
+	req := &contracts.CreateArtistRequest{
+		Name:             "Boris",
+		ImageURL:         stringPtr("https://example.com/boris.jpg"),
+		BandcampEmbedURL: stringPtr("https://boris.bandcamp.com/album/pink"),
+	}
+
+	resp, err := suite.artistService.CreateArtist(req)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.ImageURL)
+	suite.Equal("https://example.com/boris.jpg", *resp.ImageURL)
+	suite.Require().NotNil(resp.BandcampEmbedURL)
+	suite.Equal("https://boris.bandcamp.com/album/pink", *resp.BandcampEmbedURL)
+
+	// Reload from the DB to prove the values land in the right columns — in
+	// particular bandcamp_embed_url is a distinct column from the Social.Bandcamp
+	// profile URL, so an accidental column swap would only surface here.
+	var reloaded catalogm.Artist
+	suite.Require().NoError(suite.db.First(&reloaded, resp.ID).Error)
+	suite.Require().NotNil(reloaded.ImageURL)
+	suite.Equal("https://example.com/boris.jpg", *reloaded.ImageURL)
+	suite.Require().NotNil(reloaded.BandcampEmbedURL)
+	suite.Equal("https://boris.bandcamp.com/album/pink", *reloaded.BandcampEmbedURL)
+	suite.Nil(reloaded.Social.Bandcamp) // embed URL must NOT bleed into the profile column
+}
+
 func (suite *ArtistServiceIntegrationTestSuite) TestCreateArtist_DuplicateName_Fails() {
 	req := &contracts.CreateArtistRequest{Name: "The National"}
 	_, err := suite.artistService.CreateArtist(req)

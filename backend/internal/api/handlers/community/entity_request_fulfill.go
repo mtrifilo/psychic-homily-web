@@ -65,17 +65,19 @@ func mapFulfillmentError(err error) error {
 // payload into a real catalog entity via the narrow fulfiller interface.
 //
 // Per-type mapping is isolated here (the volatile part: catalog create
-// contracts evolve independently of the request payloads). Each branch decodes
-// the payload with the typed UnmarshalPayload[T] guard (fails loud on schema
-// drift) and maps the user-supplied fields onto the catalog Create*Request.
+// contracts evolve independently of the request payloads). The stored payload
+// is re-validated up front (fulfill is a second trust boundary — a row may have
+// been queued before a validation rule existed), then each branch decodes it
+// with the typed UnmarshalPayload[T] guard and maps the fields onto the catalog
+// Create*Request.
 //
-// Field-mapping note: a few payload fields have no slot on the catalog Create
-// contracts today (artist image_url + bandcamp_embed_url, venue
-// description/image_url, label image_url). They are NOT silently dropped from
-// the system — they remain on the persisted request row — but the created
-// entity does not carry them until a follow-up adds those fields to the Create
-// contracts or a post-create update. This is a known fidelity gap, not data
-// loss of the request itself.
+// Field-mapping note: every payload field now maps onto its catalog Create
+// contract (PSY-1038 closed the prior fidelity gap — artist image_url +
+// bandcamp_embed_url, venue description/image_url, label image_url all carry
+// through to the created entity). URL fields (image_url, bandcamp_embed_url,
+// cover_art_url, festival website/ticket_url/flyer_url) are scheme- and
+// length-validated by ValidateEntityRequestPayload, which the re-validation
+// above re-runs — so the per-branch mapping can trust the stored values.
 //
 // festival is fulfilled by deriving the two fields its create contract needs
 // beyond the payload: series_slug (from the name) and edition_year (from the
@@ -92,6 +94,22 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 	}
 	raw := *req.Payload
 
+	// Re-validate the stored payload before fulfilling. The request queue is a
+	// store-now/fulfill-later boundary, so a row may have been queued before a
+	// given rule existed (e.g. URL scheme/length checks added in PSY-1038, or a
+	// crafted request that predates them). Re-running the boundary validation
+	// here rejects malformed stored data instead of letting a hostile URL ride
+	// onto the created entity or an over-long value 500 at INSERT.
+	//
+	// show is excluded: it is never fulfilled (the unsupported stub below defers
+	// it gracefully — the auto-approve path swallows that), so a malformed show
+	// payload must not hard-error here ahead of the deferral.
+	if req.EntityType != communitym.EntityRequestShow {
+		if verr := communitym.ValidateEntityRequestPayload(req.EntityType, raw); verr != nil {
+			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, verr)
+		}
+	}
+
 	switch req.EntityType {
 	case communitym.EntityRequestArtist:
 		p, err := communitym.UnmarshalPayload[communitym.ArtistRequestPayload](raw)
@@ -99,11 +117,13 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, err)
 		}
 		created, err := h.fulfiller.CreateArtist(&contracts.CreateArtistRequest{
-			Name:        p.Name,
-			City:        p.City,
-			State:       p.State,
-			Country:     p.Country,
-			Description: p.Description,
+			Name:             p.Name,
+			City:             p.City,
+			State:            p.State,
+			Country:          p.Country,
+			Description:      p.Description,
+			ImageURL:         p.ImageURL,
+			BandcampEmbedURL: p.BandcampEmbedURL,
 		})
 		if err != nil {
 			return 0, err
@@ -117,12 +137,14 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 		}
 		// Admin is approving, so create as an admin-verified venue.
 		created, err := h.fulfiller.CreateVenue(&contracts.CreateVenueRequest{
-			Name:    p.Name,
-			City:    p.City,
-			State:   p.State,
-			Address: p.Address,
-			Country: p.Country,
-			Zipcode: p.Zipcode,
+			Name:        p.Name,
+			City:        p.City,
+			State:       p.State,
+			Address:     p.Address,
+			Country:     p.Country,
+			Zipcode:     p.Zipcode,
+			Description: p.Description,
+			ImageURL:    p.ImageURL,
 		}, true)
 		if err != nil {
 			return 0, err
@@ -141,6 +163,7 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 			Country:     p.Country,
 			FoundedYear: p.FoundedYear,
 			Description: p.Description,
+			ImageURL:    p.ImageURL,
 		})
 		if err != nil {
 			return 0, err
@@ -170,16 +193,6 @@ func (h *EntityRequestHandler) fulfillEntity(req *communitym.EntityRequest) (uin
 		return created.ID, nil
 
 	case communitym.EntityRequestFestival:
-		// Re-validate the stored payload before fulfilling. Festival became
-		// fulfillable (PSY-998) after rows could already have been queued under
-		// the looser PSY-997 rules, so fulfill is a second trust boundary: a
-		// malformed start/end date must surface as a 422 here, not a 500 when it
-		// hits the DATE column at INSERT. The sibling branches intentionally skip
-		// this — only festival parses a stored string (start_date) into a derived
-		// value, so only festival's second trust boundary is load-bearing.
-		if verr := communitym.ValidateEntityRequestPayload(req.EntityType, raw); verr != nil {
-			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, verr)
-		}
 		p, err := communitym.UnmarshalPayload[communitym.FestivalRequestPayload](raw)
 		if err != nil {
 			return 0, apperrors.ErrEntityRequestPayloadInvalid(req.EntityType, err)
