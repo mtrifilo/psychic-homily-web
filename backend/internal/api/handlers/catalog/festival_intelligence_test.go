@@ -153,32 +153,6 @@ func (s *FestivalIntelligenceHandlerSuite) TestGetFestivalOverlap_NotFound() {
 }
 
 // ============================================================================
-// GetFestivalBreakouts
-// ============================================================================
-
-func (s *FestivalIntelligenceHandlerSuite) TestGetFestivalBreakouts_Success() {
-	f1 := s.createFestival("Breakout Early", "be", 2024)
-	f2 := s.createFestival("Breakout Late", "bl", 2026)
-
-	a := testhelpers.CreateArtist(s.deps.DB, "Rising Handler Star")
-	_, _ = s.deps.FestivalService.AddFestivalArtist(f1.ID, &contracts.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "undercard"})
-	_, _ = s.deps.FestivalService.AddFestivalArtist(f2.ID, &contracts.AddFestivalArtistRequest{ArtistID: a.ID, BillingTier: "headliner"})
-
-	req := &GetFestivalBreakoutsRequest{FestivalID: fmt.Sprintf("%d", f2.ID)}
-	resp, err := s.handler.GetFestivalBreakoutsHandler(s.deps.Ctx, req)
-
-	s.Require().NoError(err)
-	s.Require().NotNil(resp.Body)
-	s.NotEmpty(resp.Body.Breakouts)
-}
-
-func (s *FestivalIntelligenceHandlerSuite) TestGetFestivalBreakouts_NotFound() {
-	req := &GetFestivalBreakoutsRequest{FestivalID: "99999"}
-	_, err := s.handler.GetFestivalBreakoutsHandler(s.deps.Ctx, req)
-	s.Require().Error(err)
-}
-
-// ============================================================================
 // GetArtistFestivalTrajectory
 // ============================================================================
 

@@ -51,9 +51,6 @@ describe('festivalEndpoints', () => {
     expect(festivalEndpoints.OVERLAP(1, 2)).toBe(
       `${API_BASE_URL}/festivals/1/overlap/2`
     )
-    expect(festivalEndpoints.BREAKOUTS(1)).toBe(
-      `${API_BASE_URL}/festivals/1/breakouts`
-    )
     expect(festivalEndpoints.SERIES_COMPARE('coachella')).toBe(
       `${API_BASE_URL}/festivals/series/coachella/compare`
     )
@@ -119,11 +116,6 @@ describe('festivalQueryKeys', () => {
       'overlap',
       '1',
       '2',
-    ])
-    expect(festivalQueryKeys.breakouts(1)).toEqual([
-      'festivals',
-      'breakouts',
-      '1',
     ])
     expect(festivalQueryKeys.artistTrajectory(7)).toEqual([
       'festivals',

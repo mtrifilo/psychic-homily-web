@@ -17,7 +17,6 @@ import type {
   FestivalVenuesResponse,
   ArtistFestivalsResponse,
   SimilarFestivalsResponse,
-  FestivalBreakouts,
   ArtistTrajectory,
   SeriesComparison,
 } from '../types'
@@ -167,15 +166,6 @@ export function useSimilarFestivals(options: { festivalIdOrSlug: string | number
     staleTime: 5 * 60 * 1000,
   })
 }
-
-/**
- * Hook to fetch breakout artists at a festival
- */
-export const useFestivalBreakouts = createNamedDetailHook<FestivalBreakouts, 'festivalIdOrSlug'>(
-  'festivalIdOrSlug',
-  festivalEndpoints.BREAKOUTS,
-  festivalQueryKeys.breakouts,
-)
 
 /**
  * Hook to fetch an artist's festival billing trajectory

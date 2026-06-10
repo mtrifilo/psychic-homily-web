@@ -106,31 +106,6 @@ func (h *FestivalIntelligenceHandler) GetFestivalOverlapHandler(ctx context.Cont
 }
 
 // ============================================================================
-// Festival Breakouts
-// ============================================================================
-
-type GetFestivalBreakoutsRequest struct {
-	FestivalID string `path:"festival_id" doc:"Festival ID or slug" example:"m3f-2026"`
-}
-
-func (h *FestivalIntelligenceHandler) GetFestivalBreakoutsHandler(ctx context.Context, req *GetFestivalBreakoutsRequest) (*shared.BodyResponse[*contracts.FestivalBreakouts], error) {
-	festivalID, err := h.resolveFestivalID(req.FestivalID)
-	if err != nil {
-		return nil, err
-	}
-
-	breakouts, err := h.intelligenceService.GetFestivalBreakouts(festivalID)
-	if err != nil {
-		if mapped := shared.MapFestivalIntelligenceError(err); mapped != nil {
-			return nil, mapped
-		}
-		return nil, huma.Error500InternalServerError("Failed to compute breakouts", err)
-	}
-
-	return &shared.BodyResponse[*contracts.FestivalBreakouts]{Body: breakouts}, nil
-}
-
-// ============================================================================
 // Artist Festival Trajectory
 // ============================================================================
 

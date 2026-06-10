@@ -42,8 +42,6 @@ export const festivalEndpoints = {
     `${API_BASE_URL}/festivals/${festivalId}/similar`,
   OVERLAP: (festivalAId: string | number, festivalBId: string | number) =>
     `${API_BASE_URL}/festivals/${festivalAId}/overlap/${festivalBId}`,
-  BREAKOUTS: (festivalId: string | number) =>
-    `${API_BASE_URL}/festivals/${festivalId}/breakouts`,
   ARTIST_TRAJECTORY: (artistIdOrSlug: string | number) =>
     `${API_BASE_URL}/artists/${artistIdOrSlug}/festival-trajectory`,
   SERIES_COMPARE: (seriesSlug: string) =>
@@ -71,8 +69,6 @@ export const festivalQueryKeys = {
     ['festivals', 'similar', String(idOrSlug)] as const,
   overlap: (aId: string | number, bId: string | number) =>
     ['festivals', 'overlap', String(aId), String(bId)] as const,
-  breakouts: (idOrSlug: string | number) =>
-    ['festivals', 'breakouts', String(idOrSlug)] as const,
   artistTrajectory: (artistIdOrSlug: string | number) =>
     ['festivals', 'trajectory', String(artistIdOrSlug)] as const,
   seriesCompare: (seriesSlug: string, years: number[]) =>

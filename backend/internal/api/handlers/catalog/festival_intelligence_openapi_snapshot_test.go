@@ -41,7 +41,6 @@ func TestFestivalIntelligenceOpenAPISnapshot(t *testing.T) {
 	)
 	huma.Get(api, "/festivals/{festival_id}/similar", h.GetSimilarFestivalsHandler)
 	huma.Get(api, "/festivals/{festival_a_id}/overlap/{festival_b_id}", h.GetFestivalOverlapHandler)
-	huma.Get(api, "/festivals/{festival_id}/breakouts", h.GetFestivalBreakoutsHandler)
 	huma.Get(api, "/artists/{artist_id}/festival-trajectory", h.GetArtistFestivalTrajectoryHandler)
 	huma.Get(api, "/festivals/series/{series_slug}/compare", h.GetSeriesComparisonHandler)
 
