@@ -56,8 +56,14 @@ export const radioQueryKeys = {
     ['radio-stations', slug, 'top-artists', params] as const,
   stationTopLabels: (slug: string, params?: object) =>
     ['radio-stations', slug, 'top-labels', params] as const,
+  // `sort` is omitted from the key object when absent: an explicit
+  // `sort: undefined` property would break React Query's partial matching,
+  // so invalidateQueries(shows(stationId)) — e.g. the admin radio mutations —
+  // would silently stop matching the station page's sort=latest queries.
   shows: (stationId?: number, sort?: string) =>
-    ['radio-shows', { stationId, sort }] as const,
+    sort
+      ? (['radio-shows', { stationId, sort }] as const)
+      : (['radio-shows', { stationId }] as const),
   show: (slug: string) => ['radio-shows', slug] as const,
   episodes: (showSlug: string, params?: object) =>
     ['radio-shows', showSlug, 'episodes', params] as const,
