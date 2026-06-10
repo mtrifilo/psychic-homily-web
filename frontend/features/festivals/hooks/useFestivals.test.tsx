@@ -17,7 +17,6 @@ vi.mock('@/features/festivals/api', () => ({
     VENUES: (id: string | number) => `/festivals/${id}/venues`,
     ARTIST_FESTIVALS: (id: string | number) => `/artists/${id}/festivals`,
     SIMILAR: (id: string | number) => `/festivals/${id}/similar`,
-    BREAKOUTS: (id: string | number) => `/festivals/${id}/breakouts`,
     ARTIST_TRAJECTORY: (id: string | number) => `/artists/${id}/festival-trajectory`,
     SERIES_COMPARE: (slug: string) => `/festivals/series/${slug}/compare`,
   },
@@ -28,7 +27,6 @@ vi.mock('@/features/festivals/api', () => ({
     venues: (id: string | number) => ['festivals', 'venues', String(id)],
     artistFestivals: (id: string | number) => ['festivals', 'artist', String(id)],
     similar: (id: string | number) => ['festivals', 'similar', String(id)],
-    breakouts: (id: string | number) => ['festivals', 'breakouts', String(id)],
     artistTrajectory: (id: string | number) => ['festivals', 'trajectory', String(id)],
     seriesCompare: (slug: string, years: number[]) => ['festivals', 'series', slug, years.join(',')],
   },
@@ -42,7 +40,6 @@ import {
   useFestivalVenues,
   useArtistFestivals,
   useSimilarFestivals,
-  useFestivalBreakouts,
   useArtistFestivalTrajectory,
   useSeriesComparison,
 } from './useFestivals'
@@ -225,25 +222,6 @@ describe('useSimilarFestivals', () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true))
     expect(mockApiRequest.mock.calls[0][0]).toContain('limit=10')
-  })
-})
-
-describe('useFestivalBreakouts', () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    mockApiRequest.mockReset()
-  })
-
-  it('fetches breakout artists', async () => {
-    mockApiRequest.mockResolvedValueOnce({ artists: [] })
-
-    const { result } = renderHook(
-      () => useFestivalBreakouts({ festivalIdOrSlug: 'form' }),
-      { wrapper: createWrapper() }
-    )
-
-    await waitFor(() => expect(result.current.isSuccess).toBe(true))
-    expect(mockApiRequest).toHaveBeenCalledWith('/festivals/form/breakouts', { method: 'GET' })
   })
 })
 

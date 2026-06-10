@@ -33,7 +33,6 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { FestivalLineup } from './FestivalLineup'
 import { SimilarFestivals } from './SimilarFestivals'
-import { RisingArtists } from './RisingArtists'
 import { SeriesHistory } from './SeriesHistory'
 import {
   getFestivalStatusLabel,
@@ -299,7 +298,6 @@ export function FestivalDetail({ idOrSlug }: FestivalDetailProps) {
           editions={seriesEditions}
         />
 
-        <RisingArtists festivalIdOrSlug={idOrSlug} />
 
         <SimilarFestivals festivalIdOrSlug={idOrSlug} />
 

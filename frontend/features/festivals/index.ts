@@ -25,9 +25,6 @@ export type {
   SimilarFestival,
   SimilarFestivalsResponse,
   TrajectoryEntry,
-  ArtistBreakout,
-  ArtistMilestone,
-  FestivalBreakouts,
   ArtistTrajectory,
   SeriesEdition,
   ReturningArtist,
@@ -48,7 +45,6 @@ export {
   formatFestivalDateRange,
   formatFestivalDates,
   getTierBarWidth,
-  getMilestoneLabel,
 } from './types'
 
 // Hooks
@@ -60,7 +56,6 @@ export {
   useFestivalVenues,
   useArtistFestivals,
   useSimilarFestivals,
-  useFestivalBreakouts,
   useArtistFestivalTrajectory,
   useSeriesComparison,
 } from './hooks'

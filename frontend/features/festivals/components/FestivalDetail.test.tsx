@@ -45,9 +45,6 @@ vi.mock('./FestivalLineup', () => ({
 vi.mock('./SimilarFestivals', () => ({
   SimilarFestivals: () => <div data-testid="similar-festivals" />,
 }))
-vi.mock('./RisingArtists', () => ({
-  RisingArtists: () => <div data-testid="rising-artists" />,
-}))
 vi.mock('./SeriesHistory', () => ({
   SeriesHistory: () => <div data-testid="series-history" />,
 }))

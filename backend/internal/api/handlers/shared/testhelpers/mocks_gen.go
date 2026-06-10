@@ -1752,7 +1752,6 @@ func (m *MockFeaturedSlotService) RenderCuratorNote(note *string) string {
 type MockFestivalIntelligenceService struct {
 	GetSimilarFestivalsFn         func(uint, int) ([]contracts.SimilarFestival, error)
 	GetFestivalOverlapFn          func(uint, uint) (*contracts.FestivalOverlap, error)
-	GetFestivalBreakoutsFn        func(uint) (*contracts.FestivalBreakouts, error)
 	GetArtistFestivalTrajectoryFn func(uint) (*contracts.ArtistTrajectory, error)
 	GetSeriesComparisonFn         func(string, []int) (*contracts.SeriesComparison, error)
 }
@@ -1766,12 +1765,6 @@ func (m *MockFestivalIntelligenceService) GetSimilarFestivals(festivalID uint, l
 func (m *MockFestivalIntelligenceService) GetFestivalOverlap(festivalAID uint, festivalBID uint) (*contracts.FestivalOverlap, error) {
 	if m.GetFestivalOverlapFn != nil {
 		return m.GetFestivalOverlapFn(festivalAID, festivalBID)
-	}
-	return nil, nil
-}
-func (m *MockFestivalIntelligenceService) GetFestivalBreakouts(festivalID uint) (*contracts.FestivalBreakouts, error) {
-	if m.GetFestivalBreakoutsFn != nil {
-		return m.GetFestivalBreakoutsFn(festivalID)
 	}
 	return nil, nil
 }

@@ -12,7 +12,6 @@ describe('festivals hooks barrel', () => {
     expect(typeof hooks.useFestivalVenues).toBe('function')
     expect(typeof hooks.useArtistFestivals).toBe('function')
     expect(typeof hooks.useSimilarFestivals).toBe('function')
-    expect(typeof hooks.useFestivalBreakouts).toBe('function')
     expect(typeof hooks.useArtistFestivalTrajectory).toBe('function')
     expect(typeof hooks.useSeriesComparison).toBe('function')
   })
