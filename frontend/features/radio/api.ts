@@ -49,6 +49,9 @@ export const radioQueryKeys = {
     ['radio-shows', showSlug, 'episodes', params] as const,
   episode: (showSlug: string, date: string) =>
     ['radio-shows', showSlug, 'episodes', date] as const,
+  // PSY-1051: prev/next neighbors derived from the episodes list
+  episodeNeighbors: (showSlug: string, date: string) =>
+    ['radio-shows', showSlug, 'episode-neighbors', date] as const,
   topArtists: (showSlug: string, params?: object) =>
     ['radio-shows', showSlug, 'top-artists', params] as const,
   topLabels: (showSlug: string, params?: object) =>

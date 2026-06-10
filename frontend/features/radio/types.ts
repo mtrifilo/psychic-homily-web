@@ -351,11 +351,10 @@ export function getRotationStatusColor(status: string): string {
 }
 
 // ============================================================================
-// PSY-1048 aggregation shapes (PSY-1049)
+// PSY-1048 aggregation shapes (PSY-1049 + PSY-1051)
 //
-// Mirrors backend/internal/services/contracts/radio.go. Parallel radio
-// redesign PRs (PSY-1050/1051) may add identical definitions — dedupe by
-// keeping one copy at rebase time.
+// Mirrors backend/internal/services/contracts/radio.go. PSY-1050 may add
+// further definitions here — dedupe identical ones at rebase time.
 // ============================================================================
 
 /**
@@ -392,4 +391,10 @@ export interface RadioStationEpisodeRow {
 export interface RadioRecentEpisodesResponse {
   episodes: RadioStationEpisodeRow[]
   total: number
+}
+
+// Declaration-merges into RadioEpisodeListItem above: episode list rows now
+// carry the first few distinct playlist artists (PSY-1048).
+export interface RadioEpisodeListItem {
+  artist_preview: RadioEpisodePreviewArtist[]
 }
