@@ -178,6 +178,7 @@ type AttendanceServiceInterface interface {
 	GetBatchAttendanceCounts(showIDs []uint) (map[uint]*AttendanceCountsResponse, error)
 	GetBatchUserAttendance(userID uint, showIDs []uint) (map[uint]string, error)
 	GetUserAttendingShows(userID uint, status string, limit, offset int) ([]*AttendingShowResponse, int64, error)
+	GetUserAttendedShows(userID uint, limit, offset int) ([]*AttendingShowResponse, int64, error)
 }
 
 // ──────────────────────────────────────────────
