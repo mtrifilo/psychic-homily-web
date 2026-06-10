@@ -22,6 +22,9 @@ import type {
   UpdatePrivacyInput,
   ActivityHeatmapResponse,
   PercentileRankings,
+  UserFollowingResponse,
+  AttendedShowsResponse,
+  UserFieldNotesResponse,
 } from '../types'
 
 // ============================================================================
@@ -109,6 +112,110 @@ export function usePercentileRankings(username: string) {
     enabled: Boolean(username),
     staleTime: 5 * 60 * 1000,
     retry: false, // Don't retry on 404 (rankings not available)
+  })
+}
+
+// ============================================================================
+// Public Profile List Queries (PSY-1046 endpoints, consumed by PSY-1045)
+//
+// All three are privacy-gated server-side: `hidden` → 404 (retry disabled so
+// the section can render its gated state immediately), `count_only` → total
+// with an empty list, owner always gets the full list.
+// ============================================================================
+
+interface UseUserFollowingOptions {
+  type?: 'all' | 'artist' | 'venue' | 'label' | 'festival'
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Hook to fetch the entities a user follows (artists / venues / labels /
+ * festivals), name+slug enriched.
+ */
+export function useUserFollowing(
+  username: string,
+  options: UseUserFollowingOptions = {}
+) {
+  const { type = 'all', limit = 20, offset = 0 } = options
+
+  const params = new URLSearchParams()
+  params.set('type', type)
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+
+  return useQuery({
+    queryKey: queryKeys.contributor.following(username, type),
+    queryFn: async (): Promise<UserFollowingResponse> => {
+      return apiRequest<UserFollowingResponse>(
+        `${API_ENDPOINTS.USERS.FOLLOWING(username)}?${params.toString()}`,
+        { method: 'GET' }
+      )
+    },
+    enabled: Boolean(username),
+    staleTime: 5 * 60 * 1000,
+    retry: false, // 404 = hidden by privacy settings — don't hammer it
+  })
+}
+
+interface UsePaginationOptions {
+  limit?: number
+  offset?: number
+}
+
+/**
+ * Hook to fetch a user's concert diary: past approved shows they marked
+ * "going", most recent first.
+ */
+export function useUserAttendedShows(
+  username: string,
+  options: UsePaginationOptions = {}
+) {
+  const { limit = 20, offset = 0 } = options
+
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+
+  return useQuery({
+    queryKey: queryKeys.contributor.attendedShows(username),
+    queryFn: async (): Promise<AttendedShowsResponse> => {
+      return apiRequest<AttendedShowsResponse>(
+        `${API_ENDPOINTS.USERS.ATTENDED_SHOWS(username)}?${params.toString()}`,
+        { method: 'GET' }
+      )
+    },
+    enabled: Boolean(username),
+    staleTime: 5 * 60 * 1000,
+    retry: false, // 404 = hidden by privacy settings — don't hammer it
+  })
+}
+
+/**
+ * Hook to fetch the visible field notes a user has written (show
+ * title/slug enriched), newest first.
+ */
+export function useUserFieldNotes(
+  username: string,
+  options: UsePaginationOptions = {}
+) {
+  const { limit = 20, offset = 0 } = options
+
+  const params = new URLSearchParams()
+  params.set('limit', String(limit))
+  params.set('offset', String(offset))
+
+  return useQuery({
+    queryKey: queryKeys.contributor.fieldNotes(username),
+    queryFn: async (): Promise<UserFieldNotesResponse> => {
+      return apiRequest<UserFieldNotesResponse>(
+        `${API_ENDPOINTS.USERS.FIELD_NOTES(username)}?${params.toString()}`,
+        { method: 'GET' }
+      )
+    },
+    enabled: Boolean(username),
+    staleTime: 5 * 60 * 1000,
+    retry: false,
   })
 }
 

@@ -276,6 +276,11 @@ export const queryKeys = {
     ownSections: ['contributor', 'ownSections'] as const,
     activityHeatmap: (username: string) => ['contributor', 'activityHeatmap', username] as const,
     rankings: (username: string) => ['contributor', 'rankings', username] as const,
+    following: (username: string, type?: string) =>
+      ['contributor', 'following', username, type ?? 'all'] as const,
+    attendedShows: (username: string) =>
+      ['contributor', 'attendedShows', username] as const,
+    fieldNotes: (username: string) => ['contributor', 'fieldNotes', username] as const,
   },
 
   // Collection queries

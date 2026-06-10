@@ -37,10 +37,10 @@ export function UserMenu() {
     // (`/users/[username]`) — the same dense page visitors see — not the
     // settings form. The route is keyed on username, which is nullable
     // (OAuth-only accounts; see users.username migration). When the user has
-    // no username yet, fall back to /profile (the settings form, where they
-    // can set one) so the link is never broken. Mirrors the UserAttribution
-    // linkability rule (only link when username is non-empty). PSY-1025.
-    const profileHref = user.username ? `/users/${user.username}` : '/profile'
+    // no username yet, route to /users/me — the claim-username self view that
+    // renders the profile experience with a "set username" banner (PSY-1045;
+    // previously fell back to the /profile settings form). PSY-1025.
+    const profileHref = user.username ? `/users/${user.username}` : '/users/me'
 
     return (
       <div className="flex items-center gap-2">

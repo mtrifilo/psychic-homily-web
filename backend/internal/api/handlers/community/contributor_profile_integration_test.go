@@ -1068,16 +1068,34 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_Visible
 	}
 }
 
-func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_DefaultCountOnly() {
-	// No stored privacy settings: the default for `following` is count_only,
-	// so anonymous viewers get a total but no items. Guarding the default
-	// matters — flipping it is an explicit open question on PSY-1045.
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_DefaultVisible() {
+	// No stored privacy settings: the default for `following` is VISIBLE
+	// (PSY-1045 flipped it from count_only, 2026-06-09) — anonymous viewers
+	// get the full enriched list. This guards the new default contract.
 	target := s.createUserWithUsername("followdefault")
 	a1 := s.createArtistEntity("Crows", "crows")
 	s.bookmark(target.ID, engagementm.BookmarkEntityArtist, a1.ID, engagementm.BookmarkActionFollow)
 
 	resp, err := s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
 		Username: "followdefault", Type: "all", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Require().Len(resp.Body.Following, 1)
+	s.Equal("Crows", resp.Body.Following[0].Name)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserFollowing_ExplicitCountOnly() {
+	// Users who explicitly choose count_only get a total but no items.
+	target := s.createUserWithUsername("followcountonly")
+	settings := contracts.DefaultPrivacySettings()
+	settings.Following = contracts.PrivacyCountOnly
+	s.setPrivacySettings(target, settings)
+	a1 := s.createArtistEntity("Lankum", "lankum")
+	s.bookmark(target.ID, engagementm.BookmarkEntityArtist, a1.ID, engagementm.BookmarkActionFollow)
+
+	resp, err := s.handler.GetUserFollowingHandler(context.Background(), &GetUserFollowingRequest{
+		Username: "followcountonly", Type: "all", Limit: 20, Offset: 0,
 	})
 	s.Require().NoError(err)
 	s.Equal(int64(1), resp.Body.Total)
@@ -1182,10 +1200,29 @@ func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_Vis
 	s.Equal("Rebel Lounge", *resp.Body.Shows[0].VenueName)
 }
 
-func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_DefaultHidden() {
-	// No stored privacy settings: the default for `attendance` is hidden —
-	// anonymous viewers must get a 404, while the owner still sees the diary.
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_DefaultVisible() {
+	// No stored privacy settings: the default for `attendance` is VISIBLE
+	// (PSY-1045 flipped it from hidden, 2026-06-09) — anonymous viewers see
+	// the diary. This guards the new default contract.
+	target := s.createUserWithUsername("diarydefault")
+	show := s.createShowAt("Past Default Show", time.Now().UTC().AddDate(0, -1, 0), nil)
+	s.bookmark(target.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
+
+	resp, err := s.handler.GetUserAttendedShowsHandler(context.Background(), &GetUserAttendedShowsRequest{
+		Username: "diarydefault", Limit: 20, Offset: 0,
+	})
+	s.Require().NoError(err)
+	s.Equal(int64(1), resp.Body.Total)
+	s.Require().Len(resp.Body.Shows, 1)
+}
+
+func (s *ContributorProfileHandlerIntegrationSuite) TestGetUserAttendedShows_ExplicitHidden() {
+	// Users who explicitly hide attendance: anonymous viewers get a 404,
+	// while the owner still sees the diary.
 	target := s.createUserWithUsername("diaryhidden")
+	settings := contracts.DefaultPrivacySettings()
+	settings.Attendance = contracts.PrivacyHidden
+	s.setPrivacySettings(target, settings)
 	show := s.createShowAt("Past Hidden Show", time.Now().UTC().AddDate(0, -1, 0), nil)
 	s.bookmark(target.ID, engagementm.BookmarkEntityShow, show.ID, engagementm.BookmarkActionGoing)
 

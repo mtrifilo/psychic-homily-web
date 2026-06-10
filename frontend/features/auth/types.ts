@@ -181,3 +181,67 @@ export interface APIToken {
   last_used_at: string | null
   is_expired: boolean
 }
+
+// ============================================================================
+// Public Profile List Types (PSY-1046 endpoints, consumed by PSY-1045)
+// ============================================================================
+
+export interface FollowingEntity {
+  entity_type: 'artist' | 'venue' | 'label' | 'festival' | string
+  entity_id: number
+  name: string
+  slug?: string
+  followed_at: string
+}
+
+export interface UserFollowingResponse {
+  following: FollowingEntity[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface AttendedShow {
+  show_id: number
+  title: string
+  slug: string
+  event_date: string
+  status: string
+  venue_name: string | null
+  venue_slug: string | null
+  city: string | null
+  state: string | null
+}
+
+export interface AttendedShowsResponse {
+  shows: AttendedShow[]
+  total: number
+  limit: number
+  offset: number
+}
+
+// A field note on the author's profile: the comment fields are flattened
+// (Go struct embedding) with show_title/show_slug enriched server-side.
+export interface AuthoredFieldNote {
+  id: number
+  entity_type: string
+  entity_id: number
+  kind: string
+  user_id: number
+  author_name: string
+  author_username: string | null
+  body: string
+  body_html: string
+  structured_data?: Record<string, unknown>
+  created_at: string
+  updated_at: string
+  show_title: string
+  show_slug?: string
+}
+
+export interface UserFieldNotesResponse {
+  field_notes: AuthoredFieldNote[]
+  total: number
+  limit: number
+  offset: number
+}

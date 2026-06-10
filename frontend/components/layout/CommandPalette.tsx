@@ -15,7 +15,7 @@ import {
   Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
   Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
   TrendingUp, Music, Bell, HeartHandshake, Loader2, Trophy, Radio,
-  Hash, Network,
+  Hash, Network, UserCircle,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { adminNavGroups, adminTabHref } from '@/components/layout/adminNav'
@@ -184,6 +184,16 @@ const routes: RouteItem[] = [
     href: '/profile',
     icon: Settings,
     keywords: ['settings', 'profile', 'account', 'preferences', 'email'],
+    requireAuth: true,
+  },
+  {
+    // /users/me redirects to /users/<username> when one is set, and renders
+    // the claim-username self view otherwise — so this static entry works for
+    // every authed user without needing the username here (PSY-1045).
+    label: 'My Profile',
+    href: '/users/me',
+    icon: UserCircle,
+    keywords: ['my profile', 'profile', 'public profile', 'identity', 'me'],
     requireAuth: true,
   },
 ]

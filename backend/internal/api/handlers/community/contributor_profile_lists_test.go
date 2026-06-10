@@ -27,7 +27,8 @@ import (
 // listsMockUserService returns a MockUserService whose lookup resolves to a
 // public-profile user with the given (optional) stored privacy settings.
 // settings == nil leaves PrivacySettings NULL, so granularPrivacy falls back
-// to the defaults (following=count_only, attendance=hidden).
+// to the defaults (all list fields visible since PSY-1045 flipped
+// following/attendance to visible, 2026-06-09).
 func listsMockUserService(t *testing.T, id uint, settings *contracts.PrivacySettings) *testhelpers.MockUserService {
 	t.Helper()
 	return &testhelpers.MockUserService{
@@ -47,11 +48,21 @@ func listsMockUserService(t *testing.T, id uint, settings *contracts.PrivacySett
 }
 
 // listsVisibleSettings returns stored settings with the two list-relevant
-// fields opened up so the handlers fall through to the full-list path.
+// fields explicitly visible (redundant with the post-PSY-1045 defaults, but
+// explicit so these tests don't silently change meaning if defaults move).
 func listsVisibleSettings() *contracts.PrivacySettings {
 	s := contracts.DefaultPrivacySettings()
 	s.Following = contracts.PrivacyVisible
 	s.Attendance = contracts.PrivacyVisible
+	return &s
+}
+
+// listsCountOnlySettings returns stored settings with the two list-relevant
+// fields explicitly count_only (no longer the default after PSY-1045).
+func listsCountOnlySettings() *contracts.PrivacySettings {
+	s := contracts.DefaultPrivacySettings()
+	s.Following = contracts.PrivacyCountOnly
+	s.Attendance = contracts.PrivacyCountOnly
 	return &s
 }
 
@@ -87,8 +98,8 @@ func TestGetUserFollowing_ServiceError(t *testing.T) {
 }
 
 func TestGetUserFollowing_CountOnlyArgsAndShape(t *testing.T) {
-	// NULL stored settings → default following=count_only for non-owners.
-	mockUsers := listsMockUserService(t, 7, nil)
+	// Explicit count_only stored settings (the default is visible post-PSY-1045).
+	mockUsers := listsMockUserService(t, 7, listsCountOnlySettings())
 	var gotType string
 	var gotLimit, gotOffset int
 	mockFollow := &testhelpers.MockFollowService{
@@ -123,7 +134,7 @@ func TestGetUserFollowing_CountOnlyArgsAndShape(t *testing.T) {
 }
 
 func TestGetUserFollowing_CountOnlyServiceError(t *testing.T) {
-	mockUsers := listsMockUserService(t, 7, nil) // defaults → count_only
+	mockUsers := listsMockUserService(t, 7, listsCountOnlySettings())
 	mockFollow := &testhelpers.MockFollowService{
 		GetUserFollowingFn: func(uint, string, int, int) ([]*contracts.FollowingEntityResponse, int64, error) {
 			return nil, 0, errors.New("count failed")
