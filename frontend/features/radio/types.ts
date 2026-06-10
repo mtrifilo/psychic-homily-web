@@ -349,3 +349,47 @@ export function getRotationStatusLabel(status: string): string {
 export function getRotationStatusColor(status: string): string {
   return ROTATION_STATUS_COLORS[status] ?? 'bg-muted text-muted-foreground border-border'
 }
+
+// ============================================================================
+// PSY-1048 aggregation shapes (PSY-1049)
+//
+// Mirrors backend/internal/services/contracts/radio.go. Parallel radio
+// redesign PRs (PSY-1050/1051) may add identical definitions — dedupe by
+// keeping one copy at rebase time.
+// ============================================================================
+
+/**
+ * One artist in an episode row's short "played" preview: the raw playlist
+ * name plus a knowledge-graph link when the matching engine resolved it.
+ * Unmatched artists (null id/slug) render as plain text — never a dead link.
+ */
+export interface RadioEpisodePreviewArtist {
+  artist_name: string
+  artist_id: number | null
+  artist_slug: string | null
+}
+
+/**
+ * An episode row in the station-scoped and dial-wide latest-playlists feeds:
+ * episode fields plus show and channel (station) attribution.
+ */
+export interface RadioStationEpisodeRow {
+  id: number
+  title: string | null
+  air_date: string
+  play_count: number
+  archive_url: string | null
+  show_id: number
+  show_name: string
+  show_slug: string
+  station_id: number
+  station_name: string
+  station_slug: string
+  artist_preview: RadioEpisodePreviewArtist[]
+}
+
+/** Response shape for GET /radio/episodes/recent (and station episode feeds). */
+export interface RadioRecentEpisodesResponse {
+  episodes: RadioStationEpisodeRow[]
+  total: number
+}

@@ -1,173 +1,124 @@
 'use client'
 
-import Link from 'next/link'
-import { Radio, Loader2, Disc3 } from 'lucide-react'
-import { useRadioStats, useNewReleaseRadar, RadioPanel } from '@/features/radio'
-import type { RadioNewReleaseRadarEntry } from '@/features/radio'
+import { Loader2, Radio } from 'lucide-react'
+import {
+  useRadioStats,
+  useRadioStations,
+  useNewReleaseRadar,
+  useRecentRadioEpisodes,
+  isStationVisibleOnIndex,
+} from '@/features/radio'
+import { DialStationStrip } from './DialStationStrip'
+import { LatestPlaylistsTable } from './LatestPlaylistsTable'
+import { NewReleaseRadarBox, DialStatsBox } from './DialSidebarBoxes'
 
-// PSY-1016: the /radio page now leads with the same Option-D2 station-overview
-// layout as the Radio nav panel (RadioPanel), rendered full-width/expanded
-// instead of inside a popover. The page keeps the stats header and New Release
-// Radar below it as the existing radio-feature context.
+/**
+ * The Dial — /radio hub (PSY-1049, Option A, locked 2026-06-09).
+ *
+ * Every station and channel is visible as a full-width strip with on-air info
+ * inline (zero clicks to see the whole dial), followed by the dial-wide
+ * latest-playlists feed (PSY-1048) with New Release Radar + lifetime stats in
+ * the sidebar. The nav Radio popover keeps the D2 panel (PSY-1016) — this
+ * page no longer uses RadioPanel.
+ */
 export default function RadioHub() {
   const { data: stats } = useRadioStats()
-  const { data: radarData, isLoading: radarLoading } = useNewReleaseRadar({ limit: 10 })
+  const stationsQuery = useRadioStations()
+  const { data: recentData, isLoading: recentLoading, error: recentError } =
+    useRecentRadioEpisodes({ limit: 12 })
+  const { data: radarData, isLoading: radarLoading } = useNewReleaseRadar({
+    limit: 5,
+  })
+
+  const stations = (stationsQuery.data?.stations ?? []).filter(
+    isStationVisibleOnIndex
+  )
 
   return (
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
-        <div className="text-center mb-8">
-          <h1 className="text-3xl font-bold flex items-center justify-center gap-3">
-            <Radio className="h-8 w-8" />
-            Radio
-          </h1>
-          <p className="text-muted-foreground mt-2">
-            Explore radio stations, shows, and playlists
+        {/* Page head */}
+        <header className="mb-8">
+          <h1 className="text-3xl font-bold">Radio</h1>
+          <p className="mt-1.5 text-muted-foreground">
+            Independent radio, wired into the knowledge graph — every playlist
+            links into artists, releases, and labels.
           </p>
-
           {stats && (
-            <div className="flex items-center justify-center gap-6 mt-4 text-sm text-muted-foreground">
-              <span>{stats.total_stations} {stats.total_stations === 1 ? 'station' : 'stations'}</span>
-              <span>{stats.total_shows} {stats.total_shows === 1 ? 'show' : 'shows'}</span>
-              <span>{stats.total_episodes.toLocaleString()} {stats.total_episodes === 1 ? 'episode' : 'episodes'}</span>
-              <span>{stats.total_plays.toLocaleString()} {stats.total_plays === 1 ? 'play' : 'plays'} tracked</span>
+            <p className="mt-2 font-mono text-xs text-muted-foreground">
+              {stats.total_stations.toLocaleString()}{' '}
+              {stats.total_stations === 1 ? 'station' : 'stations'}
+              {' · '}
+              {stats.total_shows.toLocaleString()}{' '}
+              {stats.total_shows === 1 ? 'show' : 'shows'}
+              {' · '}
+              {stats.total_episodes.toLocaleString()}{' '}
+              {stats.total_episodes === 1 ? 'playlist' : 'playlists'}
+              {' · '}
+              {stats.total_plays.toLocaleString()}{' '}
+              {stats.total_plays === 1 ? 'play' : 'plays'} tracked
+            </p>
+          )}
+        </header>
+
+        {/* THE DIAL */}
+        <section className="mb-10" aria-label="The dial">
+          <DialSectionHeading title="The dial — live now" />
+          {stationsQuery.isLoading && (
+            <div className="flex justify-center py-12">
+              <Loader2 className="size-5 animate-spin text-muted-foreground" />
+              <span className="sr-only">Loading stations</span>
             </div>
           )}
-        </div>
+          {!stationsQuery.isLoading &&
+            (stationsQuery.error || stations.length === 0) && (
+              <div className="flex flex-col items-center gap-1 py-12 text-center">
+                <Radio className="size-7 text-muted-foreground/30" />
+                <p className="text-sm text-muted-foreground">
+                  {stationsQuery.error
+                    ? "Couldn't load radio stations."
+                    : 'No radio stations yet.'}
+                </p>
+              </div>
+            )}
+          {stations.map(station => (
+            <DialStationStrip key={station.id} station={station} />
+          ))}
+        </section>
 
-        {/* Option-D2 station overview (expanded). Reuses the same layout as the
-            Radio nav panel. RadioPanel owns its own loading / empty / error
-            states. */}
-        <div className="mb-10 overflow-hidden rounded-xl border border-border bg-popover">
-          <RadioPanel className="min-h-[360px]" />
-        </div>
+        {/* Latest playlists + sidebar */}
+        <div className="grid gap-10 lg:grid-cols-[minmax(0,1fr)_280px]">
+          <section aria-label="Latest playlists">
+            <DialSectionHeading title="Latest playlists — across the dial" />
+            <LatestPlaylistsTable
+              rows={recentData?.episodes}
+              isLoading={recentLoading}
+              error={recentError}
+            />
+          </section>
 
-        {/* New Release Radar */}
-        <NewReleaseRadarSection releases={radarData?.releases} isLoading={radarLoading} />
+          <aside className="flex flex-col gap-5">
+            <NewReleaseRadarBox
+              releases={radarData?.releases}
+              isLoading={radarLoading}
+            />
+            <DialStatsBox stats={stats} />
+          </aside>
+        </div>
       </main>
     </div>
   )
 }
 
-// ---------------------------------------------------------------------------
-// New Release Radar sub-component
-// ---------------------------------------------------------------------------
-
-function NewReleaseRadarSection({
-  releases,
-  isLoading,
-}: {
-  releases: RadioNewReleaseRadarEntry[] | undefined
-  isLoading: boolean
-}) {
-  // Don't render the section at all while loading or if there's no data
-  if (isLoading) {
-    return (
-      <section className="mb-10">
-        <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-          <Disc3 className="h-5 w-5" />
-          New Release Radar
-        </h2>
-        <div className="rounded-lg border border-border/50 bg-card p-6">
-          <div className="flex justify-center py-4">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-          </div>
-        </div>
-      </section>
-    )
-  }
-
-  if (!releases || releases.length === 0) {
-    return null
-  }
-
+/**
+ * Mono section heading in the radio register (matches PSY-1016's panel
+ * headers; the shared SectionHeader primitive uses the sans entity-page
+ * register, which isn't this surface's idiom).
+ */
+function DialSectionHeading({ title }: { title: string }) {
   return (
-    <section className="mb-10">
-      <h2 className="text-lg font-semibold flex items-center gap-2 mb-4">
-        <Disc3 className="h-5 w-5" />
-        New Release Radar
-      </h2>
-
-      <div className="rounded-lg border border-border/50 bg-card overflow-hidden">
-        {/* Header row */}
-        <div className="hidden sm:grid sm:grid-cols-[1fr_1fr_1fr_4.5rem_4.5rem] gap-3 px-4 py-2 border-b border-border/30 text-xs font-medium text-muted-foreground uppercase tracking-wider">
-          <span>Artist</span>
-          <span>Album</span>
-          <span>Label</span>
-          <span className="text-right">Plays</span>
-          <span className="text-right">Stations</span>
-        </div>
-
-        {/* Rows */}
-        {releases.map((entry, idx) => (
-          <div
-            key={`${entry.artist_name}-${entry.album_title}-${idx}`}
-            className="sm:grid sm:grid-cols-[1fr_1fr_1fr_4.5rem_4.5rem] gap-3 px-4 py-2.5 hover:bg-muted/30 transition-colors border-b border-border/10 last:border-b-0"
-          >
-            {/* Artist */}
-            <div className="truncate">
-              {entry.artist_slug ? (
-                <Link
-                  href={`/artists/${entry.artist_slug}`}
-                  className="text-sm font-medium hover:text-primary transition-colors"
-                >
-                  {entry.artist_name}
-                </Link>
-              ) : (
-                <span className="text-sm font-medium">{entry.artist_name}</span>
-              )}
-            </div>
-
-            {/* Album */}
-            <div className="truncate">
-              {entry.album_title ? (
-                entry.release_slug ? (
-                  <Link
-                    href={`/releases/${entry.release_slug}`}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {entry.album_title}
-                  </Link>
-                ) : (
-                  <span className="text-sm text-muted-foreground">{entry.album_title}</span>
-                )
-              ) : (
-                <span className="text-sm text-muted-foreground/40">--</span>
-              )}
-            </div>
-
-            {/* Label */}
-            <div className="truncate">
-              {entry.label_name ? (
-                entry.label_slug ? (
-                  <Link
-                    href={`/labels/${entry.label_slug}`}
-                    className="text-sm text-muted-foreground hover:text-foreground transition-colors"
-                  >
-                    {entry.label_name}
-                  </Link>
-                ) : (
-                  <span className="text-sm text-muted-foreground">{entry.label_name}</span>
-                )
-              ) : (
-                <span className="text-sm text-muted-foreground/40">--</span>
-              )}
-            </div>
-
-            {/* Play count */}
-            <div className="text-sm text-muted-foreground tabular-nums text-right sm:block inline">
-              <span className="sm:hidden text-xs text-muted-foreground/50 mr-1">plays:</span>
-              {entry.play_count}
-            </div>
-
-            {/* Station count */}
-            <div className="text-sm text-muted-foreground tabular-nums text-right sm:block inline ml-3 sm:ml-0">
-              <span className="sm:hidden text-xs text-muted-foreground/50 mr-1">stations:</span>
-              {entry.station_count}
-            </div>
-          </div>
-        ))}
-      </div>
-    </section>
+    <h2 className="mb-1 border-b border-border pb-1.5 font-mono text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
+      {title}
+    </h2>
   )
 }

@@ -26,6 +26,10 @@ export type {
   RadioTopLabelsResponse,
   RadioAsHeardOnResponse,
   RadioNewReleasesResponse,
+  // PSY-1048 aggregation shapes (PSY-1049)
+  RadioEpisodePreviewArtist,
+  RadioStationEpisodeRow,
+  RadioRecentEpisodesResponse,
 } from './types'
 
 export {
@@ -56,6 +60,8 @@ export {
   // PSY-1016
   useShowLatestEpisode,
   useStationOverview,
+  // PSY-1049
+  useRecentRadioEpisodes,
 } from './hooks'
 
 // Components

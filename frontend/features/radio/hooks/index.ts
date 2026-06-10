@@ -13,3 +13,5 @@ export { useRadioStats } from './useRadioStats'
 // PSY-1016: Radio D2 station-overview panel
 export { useShowLatestEpisode } from './useShowLatestEpisode'
 export { useStationOverview } from './useStationOverview'
+// PSY-1049: The Dial hub
+export { useRecentRadioEpisodes } from './useRecentRadioEpisodes'

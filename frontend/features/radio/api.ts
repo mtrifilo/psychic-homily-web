@@ -32,6 +32,8 @@ export const radioEndpoints = {
   // Aggregation
   NEW_RELEASES: `${API_BASE_URL}/radio/new-releases`,
   STATS: `${API_BASE_URL}/radio/stats`,
+  // PSY-1048: dial-wide latest-playlists feed
+  RECENT_EPISODES: `${API_BASE_URL}/radio/episodes/recent`,
 } as const
 
 // ============================================================================
@@ -55,4 +57,5 @@ export const radioQueryKeys = {
   releasePlays: (releaseSlug: string) => ['releases', releaseSlug, 'radio-plays'] as const,
   newReleases: (params?: object) => ['radio', 'new-releases', params] as const,
   stats: () => ['radio', 'stats'] as const,
+  recentEpisodes: (params?: object) => ['radio', 'episodes', 'recent', params] as const,
 } as const
