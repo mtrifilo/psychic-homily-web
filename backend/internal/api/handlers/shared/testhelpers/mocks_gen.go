@@ -2406,20 +2406,25 @@ type MockRadioService struct {
 	CreateStationFn               func(*contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
 	GetStationFn                  func(uint) (*contracts.RadioStationDetailResponse, error)
 	GetStationBySlugFn            func(string) (*contracts.RadioStationDetailResponse, error)
+	ResolveStationIDBySlugFn      func(string) (uint, error)
 	ListStationsFn                func(map[string]interface{}) ([]*contracts.RadioStationListResponse, error)
 	UpdateStationFn               func(uint, *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
 	DeleteStationFn               func(uint) error
 	CreateShowFn                  func(uint, *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
 	GetShowFn                     func(uint) (*contracts.RadioShowDetailResponse, error)
 	GetShowBySlugFn               func(string) (*contracts.RadioShowDetailResponse, error)
-	ListShowsFn                   func(uint) ([]*contracts.RadioShowListResponse, error)
+	ListShowsFn                   func(uint, string) ([]*contracts.RadioShowListResponse, error)
 	UpdateShowFn                  func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
 	DeleteShowFn                  func(uint) error
 	GetEpisodesFn                 func(uint, int, int) ([]*contracts.RadioEpisodeResponse, int64, error)
 	GetEpisodeByShowAndDateFn     func(uint, string) (*contracts.RadioEpisodeDetailResponse, error)
 	GetEpisodeDetailFn            func(uint) (*contracts.RadioEpisodeDetailResponse, error)
+	GetStationEpisodesFn          func(uint, int, int) ([]*contracts.RadioStationEpisodeRow, int64, error)
+	GetRecentEpisodesFn           func(int, int) ([]*contracts.RadioStationEpisodeRow, int64, error)
 	GetTopArtistsForShowFn        func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
 	GetTopLabelsForShowFn         func(uint, int, int) ([]*contracts.RadioTopLabelResponse, error)
+	GetTopArtistsForStationFn     func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
+	GetTopLabelsForStationFn      func(uint, int, int) ([]*contracts.RadioTopLabelResponse, error)
 	GetAsHeardOnForArtistFn       func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	GetAsHeardOnForReleaseFn      func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	GetNewReleaseRadarFn          func(uint, int) ([]*contracts.RadioNewReleaseRadarEntry, error)
@@ -2461,6 +2466,12 @@ func (m *MockRadioService) GetStationBySlug(slug string) (*contracts.RadioStatio
 	}
 	return nil, nil
 }
+func (m *MockRadioService) ResolveStationIDBySlug(slug string) (uint, error) {
+	if m.ResolveStationIDBySlugFn != nil {
+		return m.ResolveStationIDBySlugFn(slug)
+	}
+	return 0, nil
+}
 func (m *MockRadioService) ListStations(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
 	if m.ListStationsFn != nil {
 		return m.ListStationsFn(filters)
@@ -2497,9 +2508,9 @@ func (m *MockRadioService) GetShowBySlug(slug string) (*contracts.RadioShowDetai
 	}
 	return nil, nil
 }
-func (m *MockRadioService) ListShows(stationID uint) ([]*contracts.RadioShowListResponse, error) {
+func (m *MockRadioService) ListShows(stationID uint, sortBy string) ([]*contracts.RadioShowListResponse, error) {
 	if m.ListShowsFn != nil {
-		return m.ListShowsFn(stationID)
+		return m.ListShowsFn(stationID, sortBy)
 	}
 	return nil, nil
 }
@@ -2533,6 +2544,18 @@ func (m *MockRadioService) GetEpisodeDetail(episodeID uint) (*contracts.RadioEpi
 	}
 	return nil, nil
 }
+func (m *MockRadioService) GetStationEpisodes(stationID uint, limit int, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
+	if m.GetStationEpisodesFn != nil {
+		return m.GetStationEpisodesFn(stationID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockRadioService) GetRecentEpisodes(limit int, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
+	if m.GetRecentEpisodesFn != nil {
+		return m.GetRecentEpisodesFn(limit, offset)
+	}
+	return nil, 0, nil
+}
 func (m *MockRadioService) GetTopArtistsForShow(showID uint, periodDays int, limit int) ([]*contracts.RadioTopArtistResponse, error) {
 	if m.GetTopArtistsForShowFn != nil {
 		return m.GetTopArtistsForShowFn(showID, periodDays, limit)
@@ -2542,6 +2565,18 @@ func (m *MockRadioService) GetTopArtistsForShow(showID uint, periodDays int, lim
 func (m *MockRadioService) GetTopLabelsForShow(showID uint, periodDays int, limit int) ([]*contracts.RadioTopLabelResponse, error) {
 	if m.GetTopLabelsForShowFn != nil {
 		return m.GetTopLabelsForShowFn(showID, periodDays, limit)
+	}
+	return nil, nil
+}
+func (m *MockRadioService) GetTopArtistsForStation(stationID uint, periodDays int, limit int) ([]*contracts.RadioTopArtistResponse, error) {
+	if m.GetTopArtistsForStationFn != nil {
+		return m.GetTopArtistsForStationFn(stationID, periodDays, limit)
+	}
+	return nil, nil
+}
+func (m *MockRadioService) GetTopLabelsForStation(stationID uint, periodDays int, limit int) ([]*contracts.RadioTopLabelResponse, error) {
+	if m.GetTopLabelsForStationFn != nil {
+		return m.GetTopLabelsForStationFn(stationID, periodDays, limit)
 	}
 	return nil, nil
 }

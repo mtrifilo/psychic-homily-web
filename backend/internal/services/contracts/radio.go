@@ -193,11 +193,22 @@ type RadioShowListResponse struct {
 	ImageURL     *string          `json:"image_url"`
 	IsActive     bool             `json:"is_active"`
 	EpisodeCount int64            `json:"episode_count"`
+	// LatestAirDate is the air date (YYYY-MM-DD) of the show's most recent
+	// episode, nil when the show has no episodes (PSY-1048).
+	LatestAirDate *string `json:"latest_air_date"`
 }
 
 // ──────────────────────────────────────────────
 // Radio Episode types
 // ──────────────────────────────────────────────
+
+// RadioEpisodePreviewArtist is one artist in an episode row's short
+// "played" preview — raw name plus knowledge-graph link when matched (PSY-1048).
+type RadioEpisodePreviewArtist struct {
+	ArtistName string  `json:"artist_name"`
+	ArtistID   *uint   `json:"artist_id"`
+	ArtistSlug *string `json:"artist_slug"`
+}
 
 // RadioEpisodeResponse represents a radio episode in list views
 type RadioEpisodeResponse struct {
@@ -210,6 +221,27 @@ type RadioEpisodeResponse struct {
 	ArchiveURL      *string   `json:"archive_url"`
 	PlayCount       int       `json:"play_count"`
 	CreatedAt       time.Time `json:"created_at"`
+	// ArtistPreview holds the first few distinct artists from the episode's
+	// playlist, in play order (PSY-1048).
+	ArtistPreview []RadioEpisodePreviewArtist `json:"artist_preview"`
+}
+
+// RadioStationEpisodeRow is an episode row in the station-scoped and
+// dial-wide latest-playlists feeds: episode fields plus show and channel
+// (station) attribution (PSY-1048).
+type RadioStationEpisodeRow struct {
+	ID            uint                        `json:"id"`
+	Title         *string                     `json:"title"`
+	AirDate       string                      `json:"air_date"`
+	PlayCount     int                         `json:"play_count"`
+	ArchiveURL    *string                     `json:"archive_url"`
+	ShowID        uint                        `json:"show_id"`
+	ShowName      string                      `json:"show_name"`
+	ShowSlug      string                      `json:"show_slug"`
+	StationID     uint                        `json:"station_id"`
+	StationName   string                      `json:"station_name"`
+	StationSlug   string                      `json:"station_slug"`
+	ArtistPreview []RadioEpisodePreviewArtist `json:"artist_preview"`
 }
 
 // RadioEpisodeDetailResponse represents the full radio episode data
@@ -457,6 +489,7 @@ type RadioServiceInterface interface {
 	CreateStation(req *CreateRadioStationRequest) (*RadioStationDetailResponse, error)
 	GetStation(stationID uint) (*RadioStationDetailResponse, error)
 	GetStationBySlug(slug string) (*RadioStationDetailResponse, error)
+	ResolveStationIDBySlug(slug string) (uint, error)
 	ListStations(filters map[string]interface{}) ([]*RadioStationListResponse, error)
 	UpdateStation(stationID uint, req *UpdateRadioStationRequest) (*RadioStationDetailResponse, error)
 	DeleteStation(stationID uint) error
@@ -465,7 +498,7 @@ type RadioServiceInterface interface {
 	CreateShow(stationID uint, req *CreateRadioShowRequest) (*RadioShowDetailResponse, error)
 	GetShow(showID uint) (*RadioShowDetailResponse, error)
 	GetShowBySlug(slug string) (*RadioShowDetailResponse, error)
-	ListShows(stationID uint) ([]*RadioShowListResponse, error)
+	ListShows(stationID uint, sortBy string) ([]*RadioShowListResponse, error)
 	UpdateShow(showID uint, req *UpdateRadioShowRequest) (*RadioShowDetailResponse, error)
 	DeleteShow(showID uint) error
 
@@ -473,10 +506,14 @@ type RadioServiceInterface interface {
 	GetEpisodes(showID uint, limit, offset int) ([]*RadioEpisodeResponse, int64, error)
 	GetEpisodeByShowAndDate(showID uint, airDate string) (*RadioEpisodeDetailResponse, error)
 	GetEpisodeDetail(episodeID uint) (*RadioEpisodeDetailResponse, error)
+	GetStationEpisodes(stationID uint, limit, offset int) ([]*RadioStationEpisodeRow, int64, error)
+	GetRecentEpisodes(limit, offset int) ([]*RadioStationEpisodeRow, int64, error)
 
 	// Aggregation queries
 	GetTopArtistsForShow(showID uint, periodDays, limit int) ([]*RadioTopArtistResponse, error)
 	GetTopLabelsForShow(showID uint, periodDays, limit int) ([]*RadioTopLabelResponse, error)
+	GetTopArtistsForStation(stationID uint, periodDays, limit int) ([]*RadioTopArtistResponse, error)
+	GetTopLabelsForStation(stationID uint, periodDays, limit int) ([]*RadioTopLabelResponse, error)
 	GetAsHeardOnForArtist(artistID uint) ([]*RadioAsHeardOnResponse, error)
 	GetAsHeardOnForRelease(releaseID uint) ([]*RadioAsHeardOnResponse, error)
 	GetNewReleaseRadar(stationID uint, limit int) ([]*RadioNewReleaseRadarEntry, error)

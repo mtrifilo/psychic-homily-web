@@ -157,7 +157,7 @@ func TestGetRadioStation_NotFound(t *testing.T) {
 
 func TestListRadioShows_Success(t *testing.T) {
 	mock := &testhelpers.MockRadioService{
-		ListShowsFn: func(stationID uint) ([]*contracts.RadioShowListResponse, error) {
+		ListShowsFn: func(stationID uint, sortBy string) ([]*contracts.RadioShowListResponse, error) {
 			return []*contracts.RadioShowListResponse{
 				{ID: 1, StationID: stationID, Name: "Morning Show", Slug: "morning-show"},
 			}, nil

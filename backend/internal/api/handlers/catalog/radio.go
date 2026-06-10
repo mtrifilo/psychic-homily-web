@@ -25,6 +25,7 @@ import (
 type RadioStationReader interface {
 	GetStation(stationID uint) (*contracts.RadioStationDetailResponse, error)
 	GetStationBySlug(slug string) (*contracts.RadioStationDetailResponse, error)
+	ResolveStationIDBySlug(slug string) (uint, error)
 	ListStations(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error)
 }
 
@@ -32,19 +33,23 @@ type RadioStationReader interface {
 type RadioShowReader interface {
 	GetShow(showID uint) (*contracts.RadioShowDetailResponse, error)
 	GetShowBySlug(slug string) (*contracts.RadioShowDetailResponse, error)
-	ListShows(stationID uint) ([]*contracts.RadioShowListResponse, error)
+	ListShows(stationID uint, sortBy string) ([]*contracts.RadioShowListResponse, error)
 }
 
 // RadioEpisodeReader reads radio episodes (public endpoints).
 type RadioEpisodeReader interface {
 	GetEpisodes(showID uint, limit, offset int) ([]*contracts.RadioEpisodeResponse, int64, error)
 	GetEpisodeByShowAndDate(showID uint, airDate string) (*contracts.RadioEpisodeDetailResponse, error)
+	GetStationEpisodes(stationID uint, limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error)
+	GetRecentEpisodes(limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error)
 }
 
 // RadioAggregationReader reads radio aggregation/stats data (public endpoints).
 type RadioAggregationReader interface {
 	GetTopArtistsForShow(showID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error)
 	GetTopLabelsForShow(showID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error)
+	GetTopArtistsForStation(stationID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error)
+	GetTopLabelsForStation(stationID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error)
 	GetAsHeardOnForArtist(artistID uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	GetAsHeardOnForRelease(releaseID uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	GetNewReleaseRadar(stationID uint, limit int) ([]*contracts.RadioNewReleaseRadarEntry, error)
@@ -210,12 +215,189 @@ func (h *RadioHandler) GetRadioStationHandler(ctx context.Context, req *GetRadio
 }
 
 // ============================================================================
+// Public: Station Latest Playlists (PSY-1048)
+// ============================================================================
+
+// GetRadioStationEpisodesRequest lists a station's latest playlists across
+// all of its shows (and network channels, for a flagship).
+type GetRadioStationEpisodesRequest struct {
+	Slug   string `path:"slug" doc:"Radio station slug or numeric ID" example:"wfmu"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"20" doc:"Max results (default 20)" example:"20"`
+	Offset int    `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
+}
+
+// GetRadioStationEpisodesResponse is the station latest-playlists feed.
+type GetRadioStationEpisodesResponse struct {
+	Body struct {
+		Episodes []*contracts.RadioStationEpisodeRow `json:"episodes" doc:"Latest episodes across the station's shows, newest first, with channel attribution"`
+		Total    int64                               `json:"total" doc:"Total number of episodes"`
+	}
+}
+
+// GetRadioStationEpisodesHandler handles GET /radio-stations/{slug}/episodes
+func (h *RadioHandler) GetRadioStationEpisodesHandler(ctx context.Context, req *GetRadioStationEpisodesRequest) (*GetRadioStationEpisodesResponse, error) {
+	stationID, err := h.resolveStationID(req.Slug)
+	if err != nil {
+		return nil, err
+	}
+
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	episodes, total, err := h.episodeReader.GetStationEpisodes(stationID, limit, offset)
+	if err != nil {
+		return nil, mapRadioStationErrorMsg(err, "Failed to fetch station episodes")
+	}
+
+	resp := &GetRadioStationEpisodesResponse{}
+	resp.Body.Episodes = episodes
+	resp.Body.Total = total
+	return resp, nil
+}
+
+// ============================================================================
+// Public: Dial-wide Recent Playlists (PSY-1048)
+// ============================================================================
+
+// GetRecentRadioEpisodesRequest lists the newest playlists across every
+// active station.
+type GetRecentRadioEpisodesRequest struct {
+	Limit  int `query:"limit" required:"false" minimum:"1" maximum:"100" default:"20" doc:"Max results (default 20)" example:"20"`
+	Offset int `query:"offset" required:"false" minimum:"0" doc:"Offset for pagination" example:"0"`
+}
+
+// GetRecentRadioEpisodesResponse is the dial-wide latest-playlists feed.
+type GetRecentRadioEpisodesResponse struct {
+	Body struct {
+		Episodes []*contracts.RadioStationEpisodeRow `json:"episodes" doc:"Latest episodes across all active stations, newest first"`
+		Total    int64                               `json:"total" doc:"Total number of episodes"`
+	}
+}
+
+// GetRecentRadioEpisodesHandler handles GET /radio/episodes/recent
+func (h *RadioHandler) GetRecentRadioEpisodesHandler(ctx context.Context, req *GetRecentRadioEpisodesRequest) (*GetRecentRadioEpisodesResponse, error) {
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+	offset := req.Offset
+	if offset < 0 {
+		offset = 0
+	}
+
+	episodes, total, err := h.episodeReader.GetRecentEpisodes(limit, offset)
+	if err != nil {
+		return nil, huma.Error500InternalServerError("Failed to fetch recent episodes", err)
+	}
+
+	resp := &GetRecentRadioEpisodesResponse{}
+	resp.Body.Episodes = episodes
+	resp.Body.Total = total
+	return resp, nil
+}
+
+// ============================================================================
+// Public: Station Top Artists / Top Labels (PSY-1048)
+// ============================================================================
+
+// GetRadioStationTopArtistsRequest asks for a station's most-played artists.
+type GetRadioStationTopArtistsRequest struct {
+	Slug   string `path:"slug" doc:"Radio station slug or numeric ID" example:"wfmu"`
+	Period int    `query:"period" required:"false" default:"90" doc:"Period in days (default 90)" example:"90"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"20" doc:"Max results (default 20)" example:"20"`
+}
+
+// GetRadioStationTopArtistsResponse carries a station's top artists.
+type GetRadioStationTopArtistsResponse struct {
+	Body struct {
+		Artists []*contracts.RadioTopArtistResponse `json:"artists" doc:"Top artists across the station's shows"`
+		Count   int                                 `json:"count" doc:"Number of results"`
+	}
+}
+
+// GetRadioStationTopArtistsHandler handles GET /radio-stations/{slug}/top-artists
+func (h *RadioHandler) GetRadioStationTopArtistsHandler(ctx context.Context, req *GetRadioStationTopArtistsRequest) (*GetRadioStationTopArtistsResponse, error) {
+	stationID, err := h.resolveStationID(req.Slug)
+	if err != nil {
+		return nil, err
+	}
+
+	period := req.Period
+	if period <= 0 {
+		period = 90
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	artists, err := h.aggregationReader.GetTopArtistsForStation(stationID, period, limit)
+	if err != nil {
+		return nil, mapRadioStationErrorMsg(err, "Failed to fetch top artists")
+	}
+
+	resp := &GetRadioStationTopArtistsResponse{}
+	resp.Body.Artists = artists
+	resp.Body.Count = len(artists)
+	return resp, nil
+}
+
+// GetRadioStationTopLabelsRequest asks for a station's most-featured labels.
+type GetRadioStationTopLabelsRequest struct {
+	Slug   string `path:"slug" doc:"Radio station slug or numeric ID" example:"wfmu"`
+	Period int    `query:"period" required:"false" default:"90" doc:"Period in days (default 90)" example:"90"`
+	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"20" doc:"Max results (default 20)" example:"20"`
+}
+
+// GetRadioStationTopLabelsResponse carries a station's top labels.
+type GetRadioStationTopLabelsResponse struct {
+	Body struct {
+		Labels []*contracts.RadioTopLabelResponse `json:"labels" doc:"Top labels across the station's shows"`
+		Count  int                                `json:"count" doc:"Number of results"`
+	}
+}
+
+// GetRadioStationTopLabelsHandler handles GET /radio-stations/{slug}/top-labels
+func (h *RadioHandler) GetRadioStationTopLabelsHandler(ctx context.Context, req *GetRadioStationTopLabelsRequest) (*GetRadioStationTopLabelsResponse, error) {
+	stationID, err := h.resolveStationID(req.Slug)
+	if err != nil {
+		return nil, err
+	}
+
+	period := req.Period
+	if period <= 0 {
+		period = 90
+	}
+	limit := req.Limit
+	if limit <= 0 {
+		limit = 20
+	}
+
+	labels, err := h.aggregationReader.GetTopLabelsForStation(stationID, period, limit)
+	if err != nil {
+		return nil, mapRadioStationErrorMsg(err, "Failed to fetch top labels")
+	}
+
+	resp := &GetRadioStationTopLabelsResponse{}
+	resp.Body.Labels = labels
+	resp.Body.Count = len(labels)
+	return resp, nil
+}
+
+// ============================================================================
 // Public: List Radio Shows
 // ============================================================================
 
 // ListRadioShowsRequest represents the request for listing radio shows.
 type ListRadioShowsRequest struct {
-	StationID uint `query:"station_id" doc:"Station ID (required)" example:"1"`
+	StationID uint   `query:"station_id" doc:"Station ID (required)" example:"1"`
+	Sort      string `query:"sort" required:"false" enum:"name,latest" doc:"Sort order: name (alphabetical, default) or latest (active shows first, most recent playlist first)" example:"latest"`
 }
 
 // ListRadioShowsResponse represents the response for listing radio shows.
@@ -232,7 +414,7 @@ func (h *RadioHandler) ListRadioShowsHandler(ctx context.Context, req *ListRadio
 		return nil, huma.Error422UnprocessableEntity("station_id query parameter is required")
 	}
 
-	shows, err := h.showReader.ListShows(req.StationID)
+	shows, err := h.showReader.ListShows(req.StationID, req.Sort)
 	if err != nil {
 		return nil, huma.Error500InternalServerError("Failed to fetch radio shows", err)
 	}
@@ -1467,6 +1649,22 @@ func (h *RadioHandler) resolveStation(slugOrID string) (*contracts.RadioStationD
 	return station, nil
 }
 
+// resolveStationID resolves a station slug or numeric ID to just the ID,
+// skipping the full detail build (network preload, show count, siblings)
+// that resolveStation pays for — for station-scoped reads that only need
+// the ID (PSY-1048). Numeric IDs pass through unverified; the service 404s
+// on a missing station and mapRadioStationError surfaces it.
+func (h *RadioHandler) resolveStationID(slugOrID string) (uint, error) {
+	if id, parseErr := strconv.ParseUint(slugOrID, 10, 32); parseErr == nil {
+		return uint(id), nil
+	}
+	id, err := h.stationReader.ResolveStationIDBySlug(slugOrID)
+	if err != nil {
+		return 0, mapRadioStationError(err)
+	}
+	return id, nil
+}
+
 // resolveShow resolves a radio show by slug or numeric ID.
 func (h *RadioHandler) resolveShow(slugOrID string) (*contracts.RadioShowDetailResponse, error) {
 	if id, parseErr := strconv.ParseUint(slugOrID, 10, 32); parseErr == nil {
@@ -1512,11 +1710,18 @@ func (h *RadioHandler) resolveReleaseID(slugOrID string) (uint, error) {
 
 // mapRadioStationError maps a radio service error to a Huma HTTP error.
 func mapRadioStationError(err error) error {
+	return mapRadioStationErrorMsg(err, "Failed to fetch radio station")
+}
+
+// mapRadioStationErrorMsg is mapRadioStationError with an operation-specific
+// 500 message, for station-scoped endpoints whose failures are not station
+// fetches (episode feeds, aggregations).
+func mapRadioStationErrorMsg(err error, msg500 string) error {
 	var radioErr *apperrors.RadioError
 	if errors.As(err, &radioErr) && radioErr.Code == apperrors.CodeRadioStationNotFound {
 		return huma.Error404NotFound("Radio station not found")
 	}
-	return huma.Error500InternalServerError("Failed to fetch radio station", err)
+	return huma.Error500InternalServerError(msg500, err)
 }
 
 // mapRadioShowError maps a radio service error to a Huma HTTP error.
