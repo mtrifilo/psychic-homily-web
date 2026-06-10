@@ -92,7 +92,7 @@ export {
 export type { ArtistHop, NowPlaying } from './lib/stationOverview'
 
 // PSY-1051: episode-archive derivation helpers + neighbors hook
-export type { RadioEpisodePreviewArtist } from './types'
+// (RadioEpisodePreviewArtist is re-exported in the types block above)
 export { useEpisodeNeighbors } from './hooks'
 export {
   isAirDateToday,
