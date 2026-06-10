@@ -186,7 +186,7 @@ describe('DialStationStrip', () => {
     ).toHaveAttribute('href', '/radio/wfmu-drummer/honky-tonk')
     expect(screen.getByText(/w\/ Becky/)).toBeInTheDocument()
 
-    expect(screen.getByRole('link', { name: '[ listen ]' })).toHaveAttribute(
+    expect(screen.getByRole('link', { name: '[listen]' })).toHaveAttribute(
       'href',
       'https://wfmu.org/drummer'
     )

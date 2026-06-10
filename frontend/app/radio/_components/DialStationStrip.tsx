@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { Loader2, Play } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
   useStationOverview,
@@ -120,15 +121,12 @@ export function DialStationStrip({ station }: DialStationStripProps) {
       {/* Actions column */}
       <div className="flex items-center gap-4 md:flex-col md:items-end md:gap-2">
         {detail?.website && (
-          <a
-            href={detail.website}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90"
-          >
-            <Play className="size-3.5 fill-current" aria-hidden />
-            Listen
-          </a>
+          <Button asChild size="sm">
+            <a href={detail.website} target="_blank" rel="noopener noreferrer">
+              <Play className="size-3.5 fill-current" aria-hidden />
+              Listen
+            </a>
+          </Button>
         )}
         {livePlaylistUrl && (
           <BracketLink
@@ -309,13 +307,16 @@ function DialChannelRow({
         </span>
       )}
       {channelDetail?.website && (
+        // Hand-rolled bracket link (not BracketLink) because the target is an
+        // external stream URL needing target="_blank"; text matches
+        // BracketLink's tight [label] idiom.
         <a
           href={channelDetail.website}
           target="_blank"
           rel="noopener noreferrer"
           className="font-mono text-xs text-primary transition-colors hover:text-primary/80"
         >
-          [ listen ]
+          [listen]
         </a>
       )}
     </li>
