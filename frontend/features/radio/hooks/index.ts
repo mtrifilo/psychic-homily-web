@@ -15,3 +15,5 @@ export { useShowLatestEpisode } from './useShowLatestEpisode'
 export { useStationOverview } from './useStationOverview'
 // PSY-1049: The Dial hub
 export { useRecentRadioEpisodes } from './useRecentRadioEpisodes'
+// PSY-1051: show + playlist page rebuild
+export { useEpisodeNeighbors } from './useEpisodeNeighbors' 

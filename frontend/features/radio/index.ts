@@ -90,3 +90,19 @@ export {
   formatStationLocation,
 } from './lib/stationOverview'
 export type { ArtistHop, NowPlaying } from './lib/stationOverview'
+
+// PSY-1051: episode-archive derivation helpers + neighbors hook
+export type { RadioEpisodePreviewArtist } from './types'
+export { useEpisodeNeighbors } from './hooks'
+export {
+  isAirDateToday,
+  previewToHops,
+  computeArtistMatchStats,
+  formatPlayTime,
+  formatTimeOfDay,
+  formatDurationMinutes,
+  formatArchiveDate,
+  formatShortNavDate,
+  walkEpisodeNeighbors,
+} from './lib/episodeArchive'
+export type { ArtistMatchStats, EpisodeNeighbors } from './lib/episodeArchive'
