@@ -523,7 +523,6 @@ func (s *FestivalIntelligenceService) GetArtistFestivalTrajectory(artistID uint)
 			Appearances:      []contracts.TrajectoryEntry{},
 			BestTier:         "",
 			TotalAppearances: 0,
-			BreakoutScore:    0,
 		}, nil
 	}
 
@@ -542,32 +541,11 @@ func (s *FestivalIntelligenceService) GetArtistFestivalTrajectory(artistID uint)
 		}
 	}
 
-	// Compute breakout score
-	var totalImprovement int
-	for i := 1; i < len(history); i++ {
-		prevRank := tierRank(history[i-1].BillingTier)
-		currRank := tierRank(history[i].BillingTier)
-		if currRank < prevRank {
-			totalImprovement += prevRank - currRank
-		}
-	}
-
-	yearsSpan := history[len(history)-1].EditionYear - history[0].EditionYear
-	if yearsSpan < 1 {
-		yearsSpan = 1
-	}
-
-	breakoutScore := 0.0
-	if totalImprovement > 0 {
-		breakoutScore = math.Round(float64(totalImprovement)/float64(yearsSpan)*100) / 100
-	}
-
 	return &contracts.ArtistTrajectory{
 		Artist:           contracts.ArtistSummary{ID: artist.ID, Name: artist.Name, Slug: artistSlug},
 		Appearances:      appearances,
 		BestTier:         rankToTier(bestRank),
 		TotalAppearances: len(history),
-		BreakoutScore:    breakoutScore,
 	}, nil
 }
 

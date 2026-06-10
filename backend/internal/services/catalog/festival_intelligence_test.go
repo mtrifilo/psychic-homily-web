@@ -323,7 +323,6 @@ func (suite *FestivalIntelligenceTestSuite) TestGetArtistFestivalTrajectory_Mult
 	suite.Len(traj.Appearances, 3)
 	suite.Equal("sub_headliner", traj.BestTier)
 	suite.Equal(3, traj.TotalAppearances)
-	suite.Greater(traj.BreakoutScore, 0.0)
 
 	// Verify chronological order
 	suite.Equal(2024, traj.Appearances[0].Year)
@@ -339,7 +338,6 @@ func (suite *FestivalIntelligenceTestSuite) TestGetArtistFestivalTrajectory_NoAp
 	suite.Require().NoError(err)
 	suite.Empty(traj.Appearances)
 	suite.Equal(0, traj.TotalAppearances)
-	suite.Equal(0.0, traj.BreakoutScore)
 }
 
 func (suite *FestivalIntelligenceTestSuite) TestGetArtistFestivalTrajectory_NotFound() {
