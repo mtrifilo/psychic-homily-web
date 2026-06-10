@@ -21,7 +21,7 @@ export interface EntityCardTitleProps {
    *  - `expanded`: `font-bold text-xl` + `line-clamp-2`
    *
    * Omitted defaults to comfortable-equivalent. Cards without their own
-   * density toggle (RadioShowCard, RadioStationCard) leave it omitted.
+   * density toggle (e.g. RadioStationCard) leave it omitted.
    */
   density?: EntityCardTitleDensity
 

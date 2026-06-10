@@ -82,8 +82,14 @@ function StationInfoBox({ station }: { station: RadioStationDetail }) {
   if (station.website) {
     links.push({ label: `${hostLabel(station.website)} ↗`, href: station.website })
   }
+  // social is free-form JSONB; elsewhere in the codebase social values are
+  // sometimes bare handles (SocialLinks builds hrefs from baseUrl + handle).
+  // Only absolute http(s) URLs are safe to render directly — skip the rest
+  // rather than emit broken relative links (or non-http schemes).
   for (const [key, url] of Object.entries(station.social ?? {})) {
-    if (url) links.push({ label: `${key} ↗`, href: url })
+    if (url && /^https?:\/\//i.test(url)) {
+      links.push({ label: `${key} ↗`, href: url })
+    }
   }
 
   return (
