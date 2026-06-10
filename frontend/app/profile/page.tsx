@@ -1,11 +1,12 @@
 'use client'
 
 import { Suspense, useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { useUpdateProfile } from '@/features/auth'
 import { redirect } from 'next/navigation'
-import { Loader2, User, Settings, Shield, LayoutList, Check } from 'lucide-react'
+import { Loader2, Check } from 'lucide-react'
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -155,10 +156,21 @@ function ProfileTab() {
             <p className="text-sm text-red-600 dark:text-red-400">{error}</p>
           )}
 
-          <div className="flex items-center gap-3">
+          <div className="flex items-center justify-between gap-3 border-t border-border/60 pt-4">
+            <p className="text-xs text-muted-foreground">
+              {saved ? (
+                <span className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
+                  <Check className="h-4 w-4" />
+                  Profile updated
+                </span>
+              ) : (
+                'Saved changes appear on your public profile.'
+              )}
+            </p>
             <Button
               onClick={handleSave}
               disabled={updateProfile.isPending || !hasChanges}
+              className="shrink-0"
             >
               {updateProfile.isPending ? (
                 <>
@@ -169,12 +181,6 @@ function ProfileTab() {
                 'Save Changes'
               )}
             </Button>
-            {saved && (
-              <span className="flex items-center gap-1 text-sm text-green-600 dark:text-green-400">
-                <Check className="h-4 w-4" />
-                Profile updated
-              </span>
-            )}
           </div>
         </CardContent>
       </Card>
@@ -201,7 +207,7 @@ function ProfileTab() {
 function ProfilePageContent() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const { isAuthenticated, isLoading: authLoading } = useAuthContext()
+  const { user, isAuthenticated, isLoading: authLoading } = useAuthContext()
 
   // Get current tab from URL or default to "profile"
   const currentTab = searchParams.get('tab') || 'profile'
@@ -233,42 +239,61 @@ function ProfilePageContent() {
     )
   }
 
-  return (
-    <div className="container max-w-4xl mx-auto px-4 py-12">
-      {/* Header */}
-      <div className="mb-8">
-        <div className="flex items-center gap-3 mb-2">
-          <User className="h-8 w-8 text-primary" />
-          <h1 className="text-3xl font-bold tracking-tight">My Profile</h1>
-        </div>
-        <p className="text-muted-foreground">
-          Manage your profile, privacy, and settings
-        </p>
-      </div>
+  // The Edit target of the public profile (PSY-1054, Figma board H): the
+  // page names itself as the EDITOR — the profile lives at /users/[username].
+  const publicProfileHref = user?.username
+    ? `/users/${user.username}`
+    : '/users/me'
 
-      {/* Tabs */}
+  return (
+    <div className="container max-w-3xl mx-auto px-4 py-10">
+      {/* Header */}
+      <header className="mb-8">
+        <h1 className="text-3xl font-bold tracking-tight">
+          Edit profile &amp; settings
+        </h1>
+        <p className="mt-1.5 text-sm text-muted-foreground">
+          {user?.username ? (
+            <>
+              Your public profile is at{' '}
+              <span className="font-mono text-xs">/users/{user.username}</span>
+            </>
+          ) : (
+            <>Claim a username to make your public profile shareable</>
+          )}
+          <span aria-hidden> · </span>
+          <Link
+            href={publicProfileHref}
+            className="text-primary hover:underline"
+          >
+            View public profile →
+          </Link>
+        </p>
+      </header>
+
+      {/* Tabs — underline style per the editorial design direction (board H) */}
       <Tabs
         value={currentTab}
         onValueChange={handleTabChange}
         className="w-full"
       >
-        <TabsList className="mb-6">
-          <TabsTrigger value="profile" className="gap-1.5">
-            <User className="h-4 w-4" />
-            Profile
-          </TabsTrigger>
-          <TabsTrigger value="privacy" className="gap-1.5">
-            <Shield className="h-4 w-4" />
-            Privacy
-          </TabsTrigger>
-          <TabsTrigger value="sections" className="gap-1.5">
-            <LayoutList className="h-4 w-4" />
-            Sections
-          </TabsTrigger>
-          <TabsTrigger value="settings" className="gap-1.5">
-            <Settings className="h-4 w-4" />
-            Settings
-          </TabsTrigger>
+        <TabsList className="mb-6 h-auto w-full justify-start gap-1 rounded-none border-b border-border bg-transparent p-0">
+          {(
+            [
+              ['profile', 'Profile'],
+              ['privacy', 'Privacy'],
+              ['sections', 'Sections'],
+              ['settings', 'Settings'],
+            ] as const
+          ).map(([value, label]) => (
+            <TabsTrigger
+              key={value}
+              value={value}
+              className="flex-none rounded-none border-0 border-b-2 border-b-transparent bg-transparent px-3 py-2 text-muted-foreground shadow-none data-[state=active]:border-b-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {label}
+            </TabsTrigger>
+          ))}
         </TabsList>
 
         <TabsContent value="profile">
