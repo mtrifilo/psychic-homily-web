@@ -77,4 +77,13 @@ describe('useEpisodeNeighbors', () => {
     expect(noSlug.current.fetchStatus).toBe('idle')
     expect(noDate.current.fetchStatus).toBe('idle')
   })
+
+  it('does not walk the archive for a garbage date route param', () => {
+    const { result } = renderHook(
+      () => useEpisodeNeighbors('drummer', 'not-a-date'),
+      { wrapper: createWrapper() }
+    )
+    expect(mockApiRequest).not.toHaveBeenCalled()
+    expect(result.current.fetchStatus).toBe('idle')
+  })
 })

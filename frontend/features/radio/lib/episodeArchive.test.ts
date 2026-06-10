@@ -271,6 +271,36 @@ describe('walkEpisodeNeighbors', () => {
     expect(fetchPage).toHaveBeenCalledTimes(1)
   })
 
+  it('stops after one page when the date sorts newer than the page tail (DESC early exit)', async () => {
+    const fullPage = Array.from({ length: 100 }, (_, i) =>
+      makeEpisode(500 - i, `2020-01-${String((i % 28) + 1).padStart(2, '0')}`)
+    )
+    const fetchPage = vi.fn().mockResolvedValue(page(fullPage, 5000))
+
+    // 2026 sorts newer than everything in the 2020 page — it can't be on an
+    // older page, so the walk must stop without paging the whole archive.
+    const result = await walkEpisodeNeighbors('2026-06-02', fetchPage)
+
+    expect(result).toEqual({ newer: null, older: null })
+    expect(fetchPage).toHaveBeenCalledTimes(1)
+  })
+
+  it('never returns a same-date sibling as a neighbor', async () => {
+    // Two episodes share an air_date (distinct external_ids upstream).
+    const episodes = [
+      makeEpisode(4, '2026-06-09'),
+      makeEpisode(3, '2026-06-02'),
+      makeEpisode(2, '2026-06-02'),
+      makeEpisode(1, '2026-05-26'),
+    ]
+    const fetchPage = vi.fn().mockResolvedValue(page(episodes, 4))
+
+    const result = await walkEpisodeNeighbors('2026-06-02', fetchPage)
+
+    expect(result.newer?.air_date).toBe('2026-06-09')
+    expect(result.older?.air_date).toBe('2026-05-26')
+  })
+
   it('caps the walk instead of paging forever', async () => {
     const fullPage = Array.from({ length: 100 }, (_, i) => makeEpisode(i + 1, '2026-01-01'))
     const fetchPage = vi.fn().mockResolvedValue(page(fullPage, 1_000_000))

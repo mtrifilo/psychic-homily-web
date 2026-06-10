@@ -162,6 +162,15 @@ const NEIGHBOR_MAX_PAGES = 20
  * page's tail, and a hit at the bottom fetches one more row for the older
  * neighbor. Returns nulls at the newest/oldest ends and when the date isn't
  * found within the walk cap.
+ *
+ * Two hardenings (adversarial review):
+ * - DESC-order early exit: if the page didn't contain the date but the date
+ *   sorts AFTER the page tail, it can't be on a later (older) page — stop
+ *   instead of walking the whole archive for a bogus URL date.
+ * - Same-date siblings (the unique index allows two episodes on one date via
+ *   distinct external_ids) are never returned as neighbors — the by-date
+ *   route can only show one episode per date, so such a link would point at
+ *   the current page itself.
  */
 export async function walkEpisodeNeighbors(
   date: string,
@@ -172,21 +181,30 @@ export async function walkEpisodeNeighbors(
   for (let page = 0; page < NEIGHBOR_MAX_PAGES; page++) {
     const offset = page * NEIGHBOR_PAGE_SIZE
     const response = await fetchPage(offset, NEIGHBOR_PAGE_SIZE)
-    const episodes = response.episodes ?? []
+    const all = response.episodes ?? []
+    // Collapse same-date siblings so a neighbor never self-links.
+    const episodes = all.filter(
+      (e, i) => i === 0 || e.air_date !== all[i - 1].air_date
+    )
     const index = episodes.findIndex(e => e.air_date === date)
 
     if (index >= 0) {
-      const newer = index > 0 ? episodes[index - 1] : prevPageTail
+      const tailIsSameDate = prevPageTail?.air_date === date
+      const newer = index > 0 ? episodes[index - 1] : tailIsSameDate ? null : prevPageTail
       let older = index < episodes.length - 1 ? episodes[index + 1] : null
-      const moreBeyondPage = offset + episodes.length < response.total
+      const moreBeyondPage = offset + all.length < response.total
       if (older === null && moreBeyondPage) {
-        const next = await fetchPage(offset + episodes.length, 1)
-        older = next.episodes?.[0] ?? null
+        const next = await fetchPage(offset + all.length, 1)
+        const candidate = next.episodes?.[0] ?? null
+        older = candidate && candidate.air_date !== date ? candidate : null
       }
       return { newer, older }
     }
 
-    if (episodes.length < NEIGHBOR_PAGE_SIZE) break
+    if (all.length < NEIGHBOR_PAGE_SIZE) break
+    // ISO dates compare lexicographically: list is DESC, so a date newer
+    // than this page's tail can't appear on any later page.
+    if (date > all[all.length - 1].air_date) break
     prevPageTail = episodes[episodes.length - 1]
   }
 
