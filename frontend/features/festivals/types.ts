@@ -294,7 +294,6 @@ export interface ArtistTrajectory {
   appearances: TrajectoryEntry[]
   best_tier: string
   total_appearances: number
-  breakout_score: number
 }
 
 export interface SeriesEdition {

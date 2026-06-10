@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { Loader2, TrendingUp, Minus } from 'lucide-react'
+import { Loader2 } from 'lucide-react'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useArtistFestivalTrajectory } from '../hooks/useFestivals'
 import { getBillingTierLabel, getTierBarWidth } from '../types'
@@ -22,7 +22,6 @@ interface ArtistTrajectoryChartProps {
 }
 
 function ChartBody({ data }: { data: ArtistTrajectory }) {
-  const isRising = data.breakout_score > 0
   return (
     <>
       <div className="space-y-2">
@@ -54,20 +53,11 @@ function ChartBody({ data }: { data: ArtistTrajectory }) {
         ))}
       </div>
       {data.total_appearances > 1 && (
-        <div className="mt-3 flex items-center gap-1.5 text-xs text-muted-foreground">
-          {isRising ? (
-            <>
-              <TrendingUp className="h-3.5 w-3.5 text-green-500" />
-              <span>
-                Rising — {data.breakout_score.toFixed(1)} tier improvements/year
-              </span>
-            </>
-          ) : (
-            <>
-              <Minus className="h-3.5 w-3.5" />
-              <span>Steady — {data.total_appearances} festival appearances</span>
-            </>
-          )}
+        <div className="mt-3 text-xs text-muted-foreground">
+          {/* Factual count only — Rising/Steady trend judgments were removed
+              (PSY-1056): our lineup history is incomplete, so any trend read
+              off it is a guess. */}
+          <span>{data.total_appearances} festival appearances</span>
         </div>
       )}
     </>

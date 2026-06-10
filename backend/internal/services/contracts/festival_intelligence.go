@@ -65,7 +65,6 @@ type ArtistTrajectory struct {
 	Appearances      []TrajectoryEntry `json:"appearances"`
 	BestTier         string            `json:"best_tier"`
 	TotalAppearances int               `json:"total_appearances"`
-	BreakoutScore    float64           `json:"breakout_score"`
 }
 
 // SeriesComparison shows year-over-year analysis for a recurring festival series.

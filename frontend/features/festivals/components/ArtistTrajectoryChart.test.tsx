@@ -20,7 +20,6 @@ function makeTrajectory(overrides: Partial<ArtistTrajectory> = {}): ArtistTrajec
     ],
     best_tier: 'mid_card',
     total_appearances: 2,
-    breakout_score: 0.5,
     ...overrides,
   }
 }
