@@ -13,6 +13,9 @@ func setupRadioRoutes(rc RouteContext) {
 	// Public radio station endpoints
 	huma.Get(rc.API, "/radio-stations", radioHandler.ListRadioStationsHandler)
 	huma.Get(rc.API, "/radio-stations/{slug}", radioHandler.GetRadioStationHandler)
+	huma.Get(rc.API, "/radio-stations/{slug}/episodes", radioHandler.GetRadioStationEpisodesHandler)
+	huma.Get(rc.API, "/radio-stations/{slug}/top-artists", radioHandler.GetRadioStationTopArtistsHandler)
+	huma.Get(rc.API, "/radio-stations/{slug}/top-labels", radioHandler.GetRadioStationTopLabelsHandler)
 
 	// Public radio show endpoints
 	huma.Get(rc.API, "/radio-shows", radioHandler.ListRadioShowsHandler)
@@ -27,6 +30,7 @@ func setupRadioRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/releases/{slug}/radio-plays", radioHandler.GetReleaseRadioPlaysHandler)
 
 	// Public radio aggregation endpoints
+	huma.Get(rc.API, "/radio/episodes/recent", radioHandler.GetRecentRadioEpisodesHandler)
 	huma.Get(rc.API, "/radio/new-releases", radioHandler.GetRadioNewReleaseRadarHandler)
 	huma.Get(rc.API, "/radio/stats", radioHandler.GetRadioStatsHandler)
 

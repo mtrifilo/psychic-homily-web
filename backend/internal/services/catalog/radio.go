@@ -3,6 +3,7 @@ package catalog
 import (
 	"errors"
 	"fmt"
+	"sort"
 	"time"
 
 	"gorm.io/gorm"
@@ -409,8 +410,14 @@ func (s *RadioService) GetShowBySlug(slug string) (*contracts.RadioShowDetailRes
 	return s.buildShowDetailResponse(&show)
 }
 
+// RadioShowSortLatest orders shows active-first, most-recent playlist first
+// (PSY-1048, for the station-page shows directory). Any other sortBy value
+// (the handler's enum allows "name" or empty) keeps the original
+// alphabetical order.
+const RadioShowSortLatest = "latest"
+
 // ListShows retrieves all shows for a station
-func (s *RadioService) ListShows(stationID uint) ([]*contracts.RadioShowListResponse, error) {
+func (s *RadioService) ListShows(stationID uint, sortBy string) ([]*contracts.RadioShowListResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -424,44 +431,80 @@ func (s *RadioService) ListShows(stationID uint) ([]*contracts.RadioShowListResp
 		return nil, fmt.Errorf("failed to list radio shows: %w", err)
 	}
 
-	// Batch-load episode counts
+	// Batch-load episode counts + latest air dates (one query each)
 	showIDs := make([]uint, len(shows))
 	for i, sh := range shows {
 		showIDs[i] = sh.ID
 	}
 
 	episodeCounts := make(map[uint]int64)
+	latestAirDates := make(map[uint]string)
 	if len(showIDs) > 0 {
 		type countResult struct {
 			ShowID uint
 			Count  int64
+			Latest *string
 		}
 		var counts []countResult
-		s.db.Model(&catalogm.RadioEpisode{}).
-			Select("show_id, COUNT(*) as count").
+		if err := s.db.Model(&catalogm.RadioEpisode{}).
+			Select("show_id, COUNT(*) as count, MAX(air_date) as latest").
 			Where("show_id IN ?", showIDs).
 			Group("show_id").
-			Find(&counts)
+			Find(&counts).Error; err != nil {
+			return nil, fmt.Errorf("failed to load episode counts: %w", err)
+		}
 
 		for _, c := range counts {
 			episodeCounts[c.ShowID] = c.Count
+			if c.Latest != nil {
+				latestAirDates[c.ShowID] = normalizeDate(*c.Latest)
+			}
 		}
 	}
 
 	responses := make([]*contracts.RadioShowListResponse, len(shows))
 	for i, sh := range shows {
-		responses[i] = &contracts.RadioShowListResponse{
-			ID:           sh.ID,
-			StationID:    sh.StationID,
-			StationName:  sh.Station.Name,
-			Name:         sh.Name,
-			Slug:         sh.Slug,
-			HostName:     sh.HostName,
-			GenreTags:    sh.GenreTags,
-			ImageURL:     sh.ImageURL,
-			IsActive:     sh.IsActive,
-			EpisodeCount: episodeCounts[sh.ID],
+		var latest *string
+		if d, ok := latestAirDates[sh.ID]; ok {
+			latest = &d
 		}
+		responses[i] = &contracts.RadioShowListResponse{
+			ID:            sh.ID,
+			StationID:     sh.StationID,
+			StationName:   sh.Station.Name,
+			Name:          sh.Name,
+			Slug:          sh.Slug,
+			HostName:      sh.HostName,
+			GenreTags:     sh.GenreTags,
+			ImageURL:      sh.ImageURL,
+			IsActive:      sh.IsActive,
+			EpisodeCount:  episodeCounts[sh.ID],
+			LatestAirDate: latest,
+		}
+	}
+
+	// In-memory sort is safe because this endpoint always returns every show
+	// for the station (no pagination) and LatestAirDate is already computed.
+	if sortBy == RadioShowSortLatest {
+		sort.SliceStable(responses, func(i, j int) bool {
+			a, b := responses[i], responses[j]
+			if a.IsActive != b.IsActive {
+				return a.IsActive
+			}
+			// Shows with episodes before shows without; later dates first.
+			// YYYY-MM-DD strings compare correctly lexicographically.
+			ad, bd := "", ""
+			if a.LatestAirDate != nil {
+				ad = *a.LatestAirDate
+			}
+			if b.LatestAirDate != nil {
+				bd = *b.LatestAirDate
+			}
+			if ad != bd {
+				return ad > bd
+			}
+			return a.Name < b.Name
+		})
 	}
 
 	return responses, nil
@@ -546,7 +589,9 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 	}
 
 	var total int64
-	s.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", showID).Count(&total)
+	if err := s.db.Model(&catalogm.RadioEpisode{}).Where("show_id = ?", showID).Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count episodes: %w", err)
+	}
 
 	var episodes []catalogm.RadioEpisode
 	err := s.db.Where("show_id = ?", showID).
@@ -556,6 +601,15 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 		Find(&episodes).Error
 	if err != nil {
 		return nil, 0, fmt.Errorf("failed to get episodes: %w", err)
+	}
+
+	episodeIDs := make([]uint, len(episodes))
+	for i, ep := range episodes {
+		episodeIDs[i] = ep.ID
+	}
+	previews, err := s.episodeArtistPreviews(episodeIDs)
+	if err != nil {
+		return nil, 0, err
 	}
 
 	responses := make([]*contracts.RadioEpisodeResponse, len(episodes))
@@ -570,6 +624,7 @@ func (s *RadioService) GetEpisodes(showID uint, limit, offset int) ([]*contracts
 			ArchiveURL:      ep.ArchiveURL,
 			PlayCount:       ep.PlayCount,
 			CreatedAt:       ep.CreatedAt,
+			ArtistPreview:   previewOrEmpty(previews, ep.ID),
 		}
 	}
 
@@ -618,8 +673,41 @@ func (s *RadioService) GetEpisodeDetail(episodeID uint) (*contracts.RadioEpisode
 // Aggregation queries
 // =============================================================================
 
+// playsScope narrows a top-artists/labels aggregation query (radio_plays rp
+// joined to radio_episodes re) to a show or a station family, applied with
+// .Scopes(). The episode feeds use the separate episodeFeedScope type — see
+// its comment for why the two are not interchangeable.
+type playsScope func(*gorm.DB) *gorm.DB
+
+func showScope(showID uint) playsScope {
+	return func(q *gorm.DB) *gorm.DB {
+		return q.Where("re.show_id = ?", showID)
+	}
+}
+
+func stationFamilyScope(stationIDs []uint) playsScope {
+	return func(q *gorm.DB) *gorm.DB {
+		return q.Joins("JOIN radio_shows rsh ON rsh.id = re.show_id").
+			Where("rsh.station_id IN ?", stationIDs)
+	}
+}
+
 // GetTopArtistsForShow returns the most-played artists for a show over a time period
 func (s *RadioService) GetTopArtistsForShow(showID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
+	return s.topArtists(showScope(showID), periodDays, limit)
+}
+
+// GetTopArtistsForStation returns the most-played artists across a station's
+// shows — for a network flagship, across the whole network (PSY-1048).
+func (s *RadioService) GetTopArtistsForStation(stationID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
+	ids, err := s.stationFamilyIDs(stationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.topArtists(stationFamilyScope(ids), periodDays, limit)
+}
+
+func (s *RadioService) topArtists(scope playsScope, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -634,7 +722,7 @@ func (s *RadioService) GetTopArtistsForShow(showID uint, periodDays, limit int) 
 		`).
 		Joins("JOIN radio_episodes re ON re.id = rp.episode_id").
 		Joins("LEFT JOIN artists a ON a.id = rp.artist_id").
-		Where("re.show_id = ?", showID).
+		Scopes(scope).
 		Group("rp.artist_name, rp.artist_id, a.slug").
 		Order("play_count DESC").
 		Limit(limit)
@@ -673,6 +761,20 @@ func (s *RadioService) GetTopArtistsForShow(showID uint, periodDays, limit int) 
 
 // GetTopLabelsForShow returns the most-featured labels for a show over a time period
 func (s *RadioService) GetTopLabelsForShow(showID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
+	return s.topLabels(showScope(showID), periodDays, limit)
+}
+
+// GetTopLabelsForStation returns the most-featured labels across a station's
+// shows — for a network flagship, across the whole network (PSY-1048).
+func (s *RadioService) GetTopLabelsForStation(stationID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
+	ids, err := s.stationFamilyIDs(stationID)
+	if err != nil {
+		return nil, err
+	}
+	return s.topLabels(stationFamilyScope(ids), periodDays, limit)
+}
+
+func (s *RadioService) topLabels(scope playsScope, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
 	if s.db == nil {
 		return nil, fmt.Errorf("database not initialized")
 	}
@@ -686,7 +788,8 @@ func (s *RadioService) GetTopLabelsForShow(showID uint, periodDays, limit int) (
 		`).
 		Joins("JOIN radio_episodes re ON re.id = rp.episode_id").
 		Joins("LEFT JOIN labels l ON l.id = rp.label_id").
-		Where("re.show_id = ? AND rp.label_name IS NOT NULL AND rp.label_name != ''", showID).
+		Scopes(scope).
+		Where("rp.label_name IS NOT NULL AND rp.label_name != ''").
 		Group("rp.label_name, rp.label_id, l.slug").
 		Order("play_count DESC").
 		Limit(limit)
@@ -719,6 +822,228 @@ func (s *RadioService) GetTopLabelsForShow(showID uint, periodDays, limit int) (
 	}
 
 	return responses, nil
+}
+
+// =============================================================================
+// Latest-playlists feeds (PSY-1048)
+// =============================================================================
+
+// episodePreviewArtistCount is how many distinct artists an episode row's
+// preview carries, in play order.
+const episodePreviewArtistCount = 3
+
+// previewOrEmpty guarantees a JSON [] (never null) for episodes whose
+// playlist has no usable artists yet.
+func previewOrEmpty(previews map[uint][]contracts.RadioEpisodePreviewArtist, episodeID uint) []contracts.RadioEpisodePreviewArtist {
+	if p, ok := previews[episodeID]; ok {
+		return p
+	}
+	return []contracts.RadioEpisodePreviewArtist{}
+}
+
+// ResolveStationIDBySlug returns just the station ID for a slug — a cheap
+// resolver for station-scoped reads that don't need the full detail build
+// (network preload, show count, siblings) that GetStationBySlug performs.
+func (s *RadioService) ResolveStationIDBySlug(slug string) (uint, error) {
+	if s.db == nil {
+		return 0, fmt.Errorf("database not initialized")
+	}
+	var station catalogm.RadioStation
+	if err := s.db.Select("id").Where("slug = ?", slug).First(&station).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return 0, apperrors.ErrRadioStationNotFound(0)
+		}
+		return 0, fmt.Errorf("failed to resolve radio station: %w", err)
+	}
+	return station.ID, nil
+}
+
+// stationFamilyIDs returns the station IDs a station page aggregates over:
+// the station itself, plus — when the station is a network flagship — every
+// station in its network. Non-flagship channels and standalone stations
+// aggregate only themselves.
+//
+// Two deliberate policy notes (PSY-1048):
+//   - The family includes INACTIVE sibling channels: a flagship page is the
+//     network's archive, so retired channels' playlists stay reachable. The
+//     dial-wide feed (GetRecentEpisodes) separately filters to active
+//     stations — hub policy, not archive policy.
+//   - GetNewReleaseRadar keeps its pre-existing single-station semantics
+//     (rs.id = ?) and does NOT expand to the family; reconciling that is a
+//     product call deferred to PSY-1050.
+func (s *RadioService) stationFamilyIDs(stationID uint) ([]uint, error) {
+	if s.db == nil {
+		return nil, fmt.Errorf("database not initialized")
+	}
+	var station catalogm.RadioStation
+	if err := s.db.Select("id", "is_flagship", "network_id").
+		First(&station, stationID).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, apperrors.ErrRadioStationNotFound(stationID)
+		}
+		return nil, fmt.Errorf("failed to get radio station: %w", err)
+	}
+	if !station.IsFlagship || station.NetworkID == nil {
+		return []uint{station.ID}, nil
+	}
+	var ids []uint
+	if err := s.db.Model(&catalogm.RadioStation{}).
+		Where("network_id = ?", *station.NetworkID).
+		Pluck("id", &ids).Error; err != nil {
+		return nil, fmt.Errorf("failed to list network stations: %w", err)
+	}
+	return ids, nil
+}
+
+// episodeArtistPreviews returns up to episodePreviewArtistCount distinct
+// artists per episode, in play order, with knowledge-graph links where
+// matched — one query for the whole page of episodes, never per-row.
+//
+// The inner query groups by name (so a name that is matched on some plays
+// and unmatched on others appears once, and MAX(artist_id) keeps its
+// knowledge-graph link) and caps each episode's rows in SQL via
+// ROW_NUMBER, so the transfer scales with the preview size rather than
+// with playlist length.
+func (s *RadioService) episodeArtistPreviews(episodeIDs []uint) (map[uint][]contracts.RadioEpisodePreviewArtist, error) {
+	previews := make(map[uint][]contracts.RadioEpisodePreviewArtist, len(episodeIDs))
+	if len(episodeIDs) == 0 {
+		return previews, nil
+	}
+
+	type row struct {
+		EpisodeID  uint    `gorm:"column:episode_id"`
+		ArtistName string  `gorm:"column:artist_name"`
+		ArtistID   *uint   `gorm:"column:artist_id"`
+		ArtistSlug *string `gorm:"column:artist_slug"`
+	}
+	var rows []row
+	err := s.db.Raw(`
+		SELECT g.episode_id, g.artist_name, g.artist_id, a.slug AS artist_slug
+		FROM (
+			SELECT rp.episode_id, rp.artist_name, MAX(rp.artist_id) AS artist_id,
+			       MIN(rp.position) AS first_pos,
+			       ROW_NUMBER() OVER (PARTITION BY rp.episode_id ORDER BY MIN(rp.position)) AS rn
+			FROM radio_plays rp
+			WHERE rp.episode_id IN ? AND rp.artist_name != ''
+			GROUP BY rp.episode_id, rp.artist_name
+		) g
+		LEFT JOIN artists a ON a.id = g.artist_id
+		WHERE g.rn <= ?
+		ORDER BY g.episode_id, g.first_pos`,
+		episodeIDs, episodePreviewArtistCount).
+		Scan(&rows).Error
+	if err != nil {
+		return nil, fmt.Errorf("failed to load episode artist previews: %w", err)
+	}
+
+	for _, r := range rows {
+		previews[r.EpisodeID] = append(previews[r.EpisodeID], contracts.RadioEpisodePreviewArtist{
+			ArtistName: r.ArtistName,
+			ArtistID:   r.ArtistID,
+			ArtistSlug: r.ArtistSlug,
+		})
+	}
+	return previews, nil
+}
+
+// GetStationEpisodes returns the station's latest playlists across all of
+// its shows — for a network flagship, across all network channels — newest
+// first, with channel attribution per row.
+func (s *RadioService) GetStationEpisodes(stationID uint, limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
+	ids, err := s.stationFamilyIDs(stationID)
+	if err != nil {
+		return nil, 0, err
+	}
+	return s.episodeRows(func(q *gorm.DB) *gorm.DB {
+		return q.Where("rsh.station_id IN ?", ids)
+	}, limit, offset)
+}
+
+// GetRecentEpisodes returns the newest playlists across every active
+// station — the dial-wide "latest playlists" feed. (Active-filtering is hub
+// policy; station pages serve inactive stations' archives directly.)
+func (s *RadioService) GetRecentEpisodes(limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
+	return s.episodeRows(func(q *gorm.DB) *gorm.DB {
+		return q.Where("rst.is_active = ?", true)
+	}, limit, offset)
+}
+
+// episodeFeedScope narrows the episode-feed base query (radio_episodes re
+// joined to radio_shows rsh and radio_stations rst). Distinct from
+// playsScope: stationFamilyScope embeds its own rsh join and would produce
+// a duplicate alias here.
+type episodeFeedScope func(*gorm.DB) *gorm.DB
+
+// episodeRows is the shared core of the station-scoped and dial-wide feeds.
+func (s *RadioService) episodeRows(scope episodeFeedScope, limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
+	if s.db == nil {
+		return nil, 0, fmt.Errorf("database not initialized")
+	}
+	base := func() *gorm.DB {
+		return s.db.Table("radio_episodes re").
+			Joins("JOIN radio_shows rsh ON rsh.id = re.show_id").
+			Joins("JOIN radio_stations rst ON rst.id = rsh.station_id").
+			Scopes(scope)
+	}
+
+	var total int64
+	if err := base().Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count episodes: %w", err)
+	}
+
+	type row struct {
+		ID          uint    `gorm:"column:id"`
+		Title       *string `gorm:"column:title"`
+		AirDate     string  `gorm:"column:air_date"`
+		PlayCount   int     `gorm:"column:play_count"`
+		ArchiveURL  *string `gorm:"column:archive_url"`
+		ShowID      uint    `gorm:"column:show_id"`
+		ShowName    string  `gorm:"column:show_name"`
+		ShowSlug    string  `gorm:"column:show_slug"`
+		StationID   uint    `gorm:"column:station_id"`
+		StationName string  `gorm:"column:station_name"`
+		StationSlug string  `gorm:"column:station_slug"`
+	}
+	var rows []row
+	err := base().
+		Select(`re.id, re.title, re.air_date, re.play_count, re.archive_url,
+			rsh.id as show_id, rsh.name as show_name, rsh.slug as show_slug,
+			rst.id as station_id, rst.name as station_name, rst.slug as station_slug`).
+		Order("re.air_date DESC, re.id DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&rows).Error
+	if err != nil {
+		return nil, 0, fmt.Errorf("failed to list episodes: %w", err)
+	}
+
+	episodeIDs := make([]uint, len(rows))
+	for i, r := range rows {
+		episodeIDs[i] = r.ID
+	}
+	previews, err := s.episodeArtistPreviews(episodeIDs)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	out := make([]*contracts.RadioStationEpisodeRow, len(rows))
+	for i, r := range rows {
+		out[i] = &contracts.RadioStationEpisodeRow{
+			ID:            r.ID,
+			Title:         r.Title,
+			AirDate:       normalizeDate(r.AirDate),
+			PlayCount:     r.PlayCount,
+			ArchiveURL:    r.ArchiveURL,
+			ShowID:        r.ShowID,
+			ShowName:      r.ShowName,
+			ShowSlug:      r.ShowSlug,
+			StationID:     r.StationID,
+			StationName:   r.StationName,
+			StationSlug:   r.StationSlug,
+			ArtistPreview: previewOrEmpty(previews, r.ID),
+		}
+	}
+	return out, total, nil
 }
 
 // GetAsHeardOnForArtist returns stations/shows where an artist has been played
