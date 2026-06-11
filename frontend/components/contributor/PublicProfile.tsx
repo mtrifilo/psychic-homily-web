@@ -331,7 +331,9 @@ export function PublicProfile({ username }: PublicProfileProps) {
             )}
         </div>
 
-        <aside className="w-full lg:w-80 shrink-0">
+        {/* order-first: on mobile the stats render as a compact strip ABOVE
+            the main content (design board D); on lg the rail sits right. */}
+        <aside className="order-first w-full shrink-0 lg:order-none lg:w-80">
           <ProfileStatsSidebar
             username={username}
             stats={profile.stats}

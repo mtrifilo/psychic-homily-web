@@ -130,14 +130,14 @@ export default function SelfProfilePage() {
           <GetStartedChecklist />
         </div>
 
-        <aside className="w-full shrink-0 lg:w-80">
+        <aside className="order-first w-full shrink-0 lg:order-none lg:w-80">
           {/* No username yet, so the expanded panel's per-username endpoints
               can't resolve — render the card non-expandable (board B shows the
               zero state with the onboarding hint instead of the expander). */}
           <ProfileStatsSidebar
             username=""
             stats={profile?.stats}
-            collectionsTotal={myCollections?.total ?? 0}
+            collectionsTotal={myCollections?.total}
             isOwner
             expandable={false}
           />

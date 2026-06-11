@@ -169,6 +169,25 @@ describe('ProfileStatsSidebar', () => {
       ).not.toBeInTheDocument()
     })
 
+    it('keeps the expander (and drops the hint) when only breakdown rows are non-zero', () => {
+      // Follows / subscriptions / followers are NOT counted in
+      // total_contributions; the expander is their only surface.
+      render(
+        <ProfileStatsSidebar
+          username="alice"
+          stats={makeStats({ following_count: 5 })}
+          collectionsTotal={0}
+          isOwner
+        />
+      )
+      expect(
+        screen.getByRole('button', { name: /show all statistics/i })
+      ).toBeInTheDocument()
+      expect(
+        screen.queryByText(/Log a show or follow an artist/)
+      ).not.toBeInTheDocument()
+    })
+
     it('omits the owner-directed hint for visitors', () => {
       render(
         <ProfileStatsSidebar
