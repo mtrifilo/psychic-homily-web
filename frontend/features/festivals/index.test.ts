@@ -16,7 +16,6 @@ describe('festivals public API barrel', () => {
     expect(typeof festivals.formatFestivalLocation).toBe('function')
     expect(typeof festivals.formatFestivalDateRange).toBe('function')
     expect(typeof festivals.formatFestivalDates).toBe('function')
-    expect(typeof festivals.getTierBarWidth).toBe('function')
     expect(Array.isArray(festivals.FESTIVAL_STATUSES)).toBe(true)
     expect(Array.isArray(festivals.BILLING_TIERS)).toBe(true)
     expect(festivals.BILLING_TIER_ORDER).toBe(festivals.BILLING_TIERS)
