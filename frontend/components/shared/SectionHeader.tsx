@@ -11,6 +11,12 @@ export interface SectionHeaderProps {
   as?: 'h2' | 'h3' | 'h4'
   /** Visual size: 'sm' for sidebar (11–12px), 'md' for main column (13–14px). Defaults to 'sm'. */
   size?: 'sm' | 'md'
+  /**
+   * Title treatment. 'caps' (default) is the dense uppercase-tracking style
+   * used across entity pages; 'title' is the title-case foreground style the
+   * profile redesign boards use for main-column sections (PSY-1062).
+   */
+  variant?: 'caps' | 'title'
   /** Render a thin underline divider beneath the header. Defaults to true. */
   underline?: boolean
   /** Additional CSS classes on the wrapping div. */
@@ -40,6 +46,7 @@ export function SectionHeader({
   as: Tag = 'h3',
   size = 'sm',
   underline = true,
+  variant = 'caps',
   className,
 }: SectionHeaderProps) {
   return (
@@ -52,9 +59,13 @@ export function SectionHeader({
     >
       <Tag
         className={cn(
-          'font-semibold text-muted-foreground uppercase tracking-wider',
-          size === 'sm' && 'text-xs',
-          size === 'md' && 'text-sm'
+          'font-semibold',
+          variant === 'caps' && 'text-muted-foreground uppercase tracking-wider',
+          variant === 'caps' && size === 'sm' && 'text-xs',
+          variant === 'caps' && size === 'md' && 'text-sm',
+          variant === 'title' && 'text-foreground',
+          variant === 'title' && size === 'sm' && 'text-sm',
+          variant === 'title' && size === 'md' && 'text-base'
         )}
       >
         {title}

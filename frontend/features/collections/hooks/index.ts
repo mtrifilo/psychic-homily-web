@@ -750,8 +750,11 @@ export function useUserPublicCollections(
   return useQuery({
     queryKey: queryKeys.collections.userPublic(username),
     queryFn: () =>
+      // limit=100 (API max; backend default is 20): the profile's Collections
+      // section expands client-side, so fetch the full first page up front —
+      // otherwise "View all" silently caps at 20 (PSY-1062).
       apiRequest<{ collections: Collection[]; total: number }>(
-        API_ENDPOINTS.COLLECTIONS.USER_PUBLIC(username)
+        `${API_ENDPOINTS.COLLECTIONS.USER_PUBLIC(username)}?limit=100`
       ).then((data) => ({
         collections: data.collections ?? [],
         total: data.total,

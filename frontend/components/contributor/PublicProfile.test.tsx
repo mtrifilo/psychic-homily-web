@@ -23,12 +23,9 @@ vi.mock('next/link', () => ({
 
 // Mock hooks
 const mockUsePublicProfile = vi.fn()
-const mockUsePublicContributions = vi.fn()
 
 vi.mock('@/features/auth', () => ({
   usePublicProfile: (username: string) => mockUsePublicProfile(username),
-  usePublicContributions: (username: string, opts: unknown) =>
-    mockUsePublicContributions(username, opts),
 }))
 
 // The new profile-list sections (PSY-1045) own their hooks and have their own
@@ -43,6 +40,12 @@ vi.mock('./ProfileFollowing', () => ({
 vi.mock('./ProfileAttendedShows', () => ({
   ProfileAttendedShows: ({ username }: { username: string }) => (
     <div data-testid="profile-attended-shows">Attended for {username}</div>
+  ),
+}))
+
+vi.mock('./ProfileCollections', () => ({
+  ProfileCollections: ({ username }: { username: string }) => (
+    <div data-testid="profile-collections">Collections for {username}</div>
   ),
 }))
 
@@ -65,12 +68,6 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('./UserTierBadge', () => ({
   UserTierBadge: ({ tier }: { tier: string }) => (
     <span data-testid="tier-badge">{tier}</span>
-  ),
-}))
-
-vi.mock('./ContributionTimeline', () => ({
-  ContributionTimeline: () => (
-    <div data-testid="contribution-timeline">Timeline</div>
   ),
 }))
 
@@ -124,7 +121,6 @@ describe('PublicProfile', () => {
     vi.clearAllMocks()
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-19T12:00:00Z'))
-    mockUsePublicContributions.mockReturnValue({ data: null })
     mockUseUserPublicCollections.mockReturnValue({ data: undefined })
     mockUser = null
   })
@@ -327,10 +323,10 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.getByText(/Joined June 2025/)).toBeInTheDocument()
+    expect(screen.getByText(/joined June 2025/)).toBeInTheDocument()
   })
 
-  it('shows last active "Today"', () => {
+  it('shows last active "today"', () => {
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile({ last_active: '2026-03-19T10:00:00Z' }),
       isLoading: false,
@@ -338,10 +334,10 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.getByText(/Active Today/)).toBeInTheDocument()
+    expect(screen.getByText(/active today/)).toBeInTheDocument()
   })
 
-  it('shows last active "Yesterday"', () => {
+  it('shows last active "yesterday"', () => {
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile({ last_active: '2026-03-18T10:00:00Z' }),
       isLoading: false,
@@ -349,7 +345,7 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.getByText(/Active Yesterday/)).toBeInTheDocument()
+    expect(screen.getByText(/active yesterday/)).toBeInTheDocument()
   })
 
   it('shows last active in days', () => {
@@ -360,7 +356,7 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.getByText(/Active 4 days ago/)).toBeInTheDocument()
+    expect(screen.getByText(/active 4 days ago/)).toBeInTheDocument()
   })
 
   it('shows last active in weeks', () => {
@@ -371,7 +367,7 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.getByText(/Active 2 weeks ago/)).toBeInTheDocument()
+    expect(screen.getByText(/active 2 weeks ago/)).toBeInTheDocument()
   })
 
   it('does not show last active when not provided', () => {
@@ -382,7 +378,7 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.queryByText(/Active/)).not.toBeInTheDocument()
+    expect(screen.queryByText(/active/)).not.toBeInTheDocument()
   })
 
   it('shows the count-only contributions line in the stats sidebar', () => {
@@ -477,44 +473,60 @@ describe('PublicProfile', () => {
     expect(screen.queryByText('All contributions')).not.toBeInTheDocument()
   })
 
-  it('shows recent activity when contributions exist', () => {
+  it('does not render a Recent activity section (removed per design boards, PSY-1062)', () => {
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile(),
       isLoading: false,
       error: null,
     })
-    mockUsePublicContributions.mockReturnValue({
-      data: {
-        contributions: [
-          {
-            id: 1,
-            action: 'created',
-            entity_type: 'show',
-            entity_id: 1,
-            created_at: '2025-01-01T00:00:00Z',
-            source: 'web',
-          },
-        ],
-      },
-    })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.getByText('Recent activity')).toBeInTheDocument()
-    expect(screen.getByTestId('contribution-timeline')).toBeInTheDocument()
+    expect(screen.queryByText('Recent activity')).not.toBeInTheDocument()
   })
 
-  it('hides recent activity when no contributions', () => {
+  // --- Header Share affordance (PSY-1062, boards A/C) ---
+
+  it('shows Share to visitors and copies the profile URL with inline confirmation', async () => {
+    // Real timers: the copied-state reset uses setTimeout and the clipboard
+    // call is async; fake timers would deadlock the await.
+    vi.useRealTimers()
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.assign(navigator, { clipboard: { writeText } })
+
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile(),
       isLoading: false,
       error: null,
     })
-    mockUsePublicContributions.mockReturnValue({
-      data: { contributions: [] },
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    const share = screen.getByRole('button', {
+      name: /copy a link to this profile/i,
+    })
+    expect(share).toHaveTextContent('Share')
+    fireEvent.click(share)
+
+    expect(writeText).toHaveBeenCalledWith(
+      `${window.location.origin}/users/alice`
+    )
+    expect(await screen.findByText('Copied ✓')).toBeInTheDocument()
+  })
+
+  it('shows both Edit profile and Share to the owner', () => {
+    mockUser = { username: 'alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.queryByText('Recent Activity')).not.toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: /edit profile/i })
+    ).toBeInTheDocument()
+    expect(
+      screen.getByRole('button', { name: /copy a link to this profile/i })
+    ).toBeInTheDocument()
   })
 
   it('shows custom sections when available', () => {
@@ -574,10 +586,6 @@ describe('PublicProfile', () => {
       isLoading: false,
       error: null,
     })
-    mockUsePublicContributions.mockReturnValue({
-      data: { contributions: [] },
-    })
-
     renderWithProviders(<PublicProfile username="alice" />)
     expect(
       screen.getByText(
@@ -730,7 +738,7 @@ describe('PublicProfile', () => {
     // All content sections render via their (mocked) children.
     expect(screen.getByText('Bio')).toBeInTheDocument()
     expect(screen.getByTestId('profile-following')).toBeInTheDocument()
-    expect(screen.getByTestId('user-collections')).toBeInTheDocument()
+    expect(screen.getByTestId('profile-collections')).toBeInTheDocument()
     expect(screen.getByTestId('profile-attended-shows')).toBeInTheDocument()
     expect(screen.getByTestId('profile-field-notes')).toBeInTheDocument()
 

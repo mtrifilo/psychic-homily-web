@@ -1,25 +1,24 @@
 'use client'
 
+import { useRef, useState } from 'react'
 import Link from 'next/link'
 import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
-import { Lock, CalendarDays, Clock, Pencil } from 'lucide-react'
+import { Lock, Pencil } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { SectionHeader } from '@/components/shared/SectionHeader'
 import { UserTierBadge } from './UserTierBadge'
-import { ContributionTimeline } from './ContributionTimeline'
 import { GetStartedChecklist } from './GetStartedChecklist'
 import { ProfileSections } from './ProfileSections'
+import { ProfileEmptyPrompt } from './ProfileEmptyPrompt'
+import { ProfileSectionAction } from './ProfileSectionAction'
 import { ProfileFollowing } from './ProfileFollowing'
+import { ProfileCollections } from './ProfileCollections'
 import { ProfileAttendedShows } from './ProfileAttendedShows'
 import { ProfileFieldNotes } from './ProfileFieldNotes'
 import { ProfileStatsSidebar } from './ProfileStatsSidebar'
-import {
-  usePublicProfile,
-  usePublicContributions,
-} from '@/features/auth'
-import { UserCollections } from '@/features/collections'
+import { usePublicProfile } from '@/features/auth'
 import { useUserPublicCollections } from '@/features/collections'
 
 function formatDate(dateString: string): string {
@@ -35,15 +34,53 @@ function formatLastActive(dateString: string): string {
   const diffMs = now.getTime() - date.getTime()
   const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24))
 
-  if (diffDays === 0) return 'Today'
-  if (diffDays === 1) return 'Yesterday'
+  if (diffDays === 0) return 'today'
+  if (diffDays === 1) return 'yesterday'
   if (diffDays < 7) return `${diffDays} days ago`
+  if (diffDays < 14) return '1 week ago'
   if (diffDays < 30) return `${Math.floor(diffDays / 7)} weeks ago`
 
   return date.toLocaleDateString('en-US', {
     month: 'short',
     year: 'numeric',
   })
+}
+
+/**
+ * Header Share affordance (design boards A/C): copies the profile URL with an
+ * inline confirmation — no toast library, per the mutation-feedback
+ * convention.
+ */
+function ShareButton({ username }: { username: string }) {
+  const [copied, setCopied] = useState(false)
+  // Track the reset timer so a rapid re-click extends the confirmation
+  // instead of an earlier timer clipping it short.
+  const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  const handleShare = async () => {
+    try {
+      await navigator.clipboard.writeText(
+        `${window.location.origin}/users/${username}`
+      )
+      setCopied(true)
+      clearTimeout(resetTimer.current)
+      resetTimer.current = setTimeout(() => setCopied(false), 2000)
+    } catch {
+      // Clipboard unavailable (permissions / insecure context) — do nothing;
+      // the URL is already in the address bar.
+    }
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={handleShare}
+      className="text-sm font-semibold hover:text-primary"
+      aria-label="Copy a link to this profile"
+    >
+      {copied ? <span className="text-primary">Copied ✓</span> : 'Share'}
+    </button>
+  )
 }
 
 function ProfileSkeleton() {
@@ -86,10 +123,6 @@ export function PublicProfile({ username }: PublicProfileProps) {
     isLoading,
     error,
   } = usePublicProfile(username)
-
-  const {
-    data: contributionsData,
-  } = usePublicContributions(username, { limit: 10 })
 
   // Fetched here for the sidebar's headline count; <UserCollections> below
   // shares the same query key, so this costs no extra request.
@@ -176,7 +209,6 @@ export function PublicProfile({ username }: PublicProfileProps) {
   }
 
   const displayName = profile.first_name || profile.username
-  const contributions = contributionsData?.contributions || []
   const hasBio = Boolean(profile.bio)
   const visibleSections = (profile.sections ?? []).filter(s => s.is_visible)
   const hasSections = visibleSections.length > 0
@@ -194,57 +226,51 @@ export function PublicProfile({ username }: PublicProfileProps) {
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-10">
-      {/* Identity header */}
+      {/* Identity header (board A: large avatar, display-scale name, mono
+          meta line; owner gets Edit profile + Share, visitors Share only —
+          the visitor Follow button is a deferred feature, PSY-1059). */}
       <header className="mb-8 border-b border-border/60 pb-6">
-        <div className="flex items-start gap-4">
-          {isOwner && (
-            <Button
-              asChild
-              variant="outline"
-              size="sm"
-              className="order-last ml-auto shrink-0"
-            >
-              <Link href="/profile">
-                <Pencil className="mr-1.5 size-3.5" />
-                Edit profile
-              </Link>
-            </Button>
-          )}
+        <div className="flex items-start gap-5">
+          <div className="order-last ml-auto flex shrink-0 items-center gap-4">
+            {isOwner && (
+              <Button asChild variant="outline" size="sm">
+                <Link href="/profile">
+                  <Pencil className="mr-1.5 size-3.5" />
+                  Edit profile
+                </Link>
+              </Button>
+            )}
+            <ShareButton username={profile.username} />
+          </div>
           {/* Avatar */}
           {profile.avatar_url ? (
             <img
               src={profile.avatar_url}
               alt={`${displayName}'s avatar`}
-              className="h-16 w-16 rounded-full object-cover border-2 border-border"
+              className="h-24 w-24 rounded-full object-cover border-2 border-border"
             />
           ) : (
-            <div className="h-16 w-16 rounded-full bg-muted flex items-center justify-center text-2xl font-bold text-muted-foreground border-2 border-border">
+            <div className="h-24 w-24 rounded-full bg-muted flex items-center justify-center text-3xl font-bold text-muted-foreground border-2 border-border">
               {(displayName || '?')[0].toUpperCase()}
             </div>
           )}
 
           <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <h1 className="text-2xl font-bold">{displayName}</h1>
+            <h1 className="text-3xl font-bold tracking-tight">{displayName}</h1>
+            <div className="mt-1.5 flex items-center gap-2 flex-wrap">
+              <span className="text-sm text-muted-foreground">
+                @{profile.username}
+              </span>
               <UserTierBadge tier={profile.user_tier} />
             </div>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              @{profile.username}
-            </p>
 
-            {/* Meta info */}
-            <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-              <span className="flex items-center gap-1">
-                <CalendarDays className="h-3.5 w-3.5" />
-                Joined {formatDate(profile.joined_at)}
-              </span>
+            {/* Meta line (mono, board A) — location pending a backend field */}
+            <p className="mt-2 font-mono text-xs text-muted-foreground">
+              joined {formatDate(profile.joined_at)}
               {profile.last_active && (
-                <span className="flex items-center gap-1">
-                  <Clock className="h-3.5 w-3.5" />
-                  Active {formatLastActive(profile.last_active)}
-                </span>
+                <> · active {formatLastActive(profile.last_active)}</>
               )}
-            </div>
+            </p>
           </div>
         </div>
       </header>
@@ -255,21 +281,31 @@ export function PublicProfile({ username }: PublicProfileProps) {
           {/* Bio — the primary content slot */}
           {(hasBio || hasSections || isOwner) && (
             <section aria-label="Bio">
-              <SectionHeader title="Bio" as="h2" size="md" />
+              <SectionHeader
+                title="Bio"
+                as="h2"
+                size="md"
+                variant="title"
+                action={
+                  isOwner ? (
+                    <ProfileSectionAction
+                      label="Edit"
+                      href="/profile"
+                      ariaLabel="Edit your bio"
+                    />
+                  ) : undefined
+                }
+              />
               {hasBio ? (
                 <p className="mt-2 text-sm leading-relaxed whitespace-pre-line">
                   {profile.bio}
                 </p>
               ) : isOwner ? (
-                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/20 px-4 py-3">
-                  <p className="text-sm text-muted-foreground">
-                    Add a short bio so people know who you are — the scenes
-                    you haunt, what you&apos;re into.
-                  </p>
-                  <Button asChild variant="outline" size="sm" className="shrink-0">
-                    <Link href="/profile">Add bio</Link>
-                  </Button>
-                </div>
+                <ProfileEmptyPrompt
+                  message="Add a short bio so people know who you are — the scenes you haunt, what you're into."
+                  ctaLabel="Add bio"
+                  ctaHref="/profile"
+                />
               ) : null}
               {hasSections && (
                 <div className="mt-4">
@@ -283,32 +319,17 @@ export function PublicProfile({ username }: PublicProfileProps) {
             <GetStartedChecklist />
           ) : (
             <>
-              <ProfileFollowing username={username} />
+              <ProfileFollowing username={username} isOwner={isOwner} />
 
-              {(hasCollections || isOwner) && (
-                <section aria-label="Collections">
-                  <SectionHeader title="Collections" as="h2" size="md" />
-                  <div className="mt-3">
-                    <UserCollections username={username} />
-                  </div>
-                </section>
-              )}
+              <ProfileCollections username={username} isOwner={isOwner} />
 
               <ProfileAttendedShows username={username} />
               <ProfileFieldNotes username={username} />
 
-              {/* Recent contributions — kept as the trailing section so the
-                  knowledge-graph work stays visible without leading the page. */}
-              {contributions.length > 0 && (
-                <section aria-label="Recent activity">
-                  <SectionHeader title="Recent activity" as="h2" size="md" />
-                  <Card className="mt-3 bg-muted/30 border-border/50">
-                    <CardContent className="p-2">
-                      <ContributionTimeline contributions={contributions} />
-                    </CardContent>
-                  </Card>
-                </section>
-              )}
+              {/* Recent activity (contribution timeline) was removed per the
+                  2026-06-10 source-of-truth decision — it appears on no
+                  design board; the timeline stays reachable from the
+                  contribution surfaces. */}
             </>
           )}
 
@@ -318,8 +339,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
               content, so we don't claim emptiness. */}
           {!isOwner &&
             isNewProfile &&
-            profile.stats?.total_contributions === 0 &&
-            contributions.length === 0 && (
+            profile.stats?.total_contributions === 0 && (
               <Card className="bg-muted/30 border-border/50">
                 <CardContent className="p-8 text-center">
                   <p className="text-sm text-muted-foreground">
