@@ -50,9 +50,9 @@ export interface StationOverview {
  * PSY-1022 for the live-data successor; this hook is the single seam that
  * would change when that lands.
  *
- * Recent-show artist hops are fetched per-row by the RecentShowRow component
- * (a bounded N — `recentShows` is capped) so this hook stays a fixed,
- * Rules-of-Hooks-safe set of queries.
+ * Recent-show artist hops are fetched per-row by the consuming row component
+ * (the Dial strips, PSY-1049 — a bounded N since `recentShows` is capped) so
+ * this hook stays a fixed, Rules-of-Hooks-safe set of queries.
  */
 export function useStationOverview(stationSlug: string): StationOverview {
   const stationQuery = useRadioStation(stationSlug)

@@ -2,7 +2,6 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { RadioMenu } from './RadioMenu'
 import { BrowseMenu } from './BrowseMenu'
 import { ContributeMenu } from './ContributeMenu'
 import { isNavActive, navItemClassName } from './navData'
@@ -10,12 +9,15 @@ import { isNavActive, navItemClassName } from './navData'
 // The explicit, labelled primary destinations (NN/G: a labelled "Home" link in
 // addition to the clickable logo — left-aligned logo alone is not discoverable).
 // Explore sits next to Home as the deep graph-traversal entry; Shows is our
-// unique advantage. Radio / Browse / Contribute carry menus (own components).
+// unique advantage. Radio links straight to the Dial hub (PSY-1057 retired the
+// D2 popover once /radio itself became the dial, PSY-1049). Browse / Contribute
+// carry menus (own components).
 const primaryLinks = [
   { href: '/', label: 'Home' },
   { href: '/explore', label: 'Explore' },
   { href: '/shows', label: 'Shows' },
   { href: '/artists', label: 'Artists' },
+  { href: '/radio', label: 'Radio' },
 ]
 
 // Desktop primary navigation. Condenses into the mobile hamburger sheet below
@@ -39,7 +41,6 @@ export function PrimaryNav() {
           </Link>
         )
       })}
-      <RadioMenu />
       <BrowseMenu />
       <ContributeMenu />
     </nav>

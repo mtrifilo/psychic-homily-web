@@ -1,13 +1,8 @@
 export { RadioStationCard } from './RadioStationCard'
-export { RadioEpisodeRow } from './RadioEpisodeRow'
-export { RadioPlayRow } from './RadioPlayRow'
 export { AsHeardOn } from './AsHeardOn'
 export { NetworkTabBar } from './NetworkTabBar'
-// PSY-1016: Radio D2 station-overview panel
-export { RadioPanel } from './RadioPanel'
-export { RadioStationList } from './RadioStationList'
-export { RadioStationOverview } from './RadioStationOverview'
-export { RecentShowRow } from './RecentShowRow'
+// PSY-1016 D2-panel survivor (the panel itself retired with the Radio
+// popover in PSY-1057; the Dial surfaces still hop artists via this list)
 export { ArtistHops } from './ArtistHops'
 // PSY-1050: station-page rebuild (The Dial, Option A)
 export { StationOnAirBox } from './StationOnAirBox'
