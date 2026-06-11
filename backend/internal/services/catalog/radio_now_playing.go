@@ -133,6 +133,18 @@ func (c *nowPlayingCache) getOrFetch(key uint, fetch func() (*contracts.RadioNow
 
 	value, err := fetch()
 	if err != nil {
+		if entry.value == nil {
+			// A never-filled entry must not survive a failed fetch: numeric
+			// station IDs reach here unvalidated (resolveStationID parses
+			// them without a DB check), so probing nonexistent IDs would
+			// otherwise grow the map unbounded. Lock order is safe — no
+			// caller acquires entry.mu while holding c.mu.
+			c.mu.Lock()
+			if c.entries[key] == entry {
+				delete(c.entries, key)
+			}
+			c.mu.Unlock()
+		}
 		return nil, err
 	}
 	entry.value = value

@@ -110,6 +110,39 @@ func TestNowPlayingCache_ErrorsNotCached(t *testing.T) {
 	assert.Equal(t, 2, fetches, "error must not be cached; next request retries")
 }
 
+func TestNowPlayingCache_FailedFetchDoesNotGrowMap(t *testing.T) {
+	// Numeric station IDs reach the cache unvalidated, so probing
+	// nonexistent IDs must not accumulate entries (memory DoS).
+	cache := newNowPlayingCache(90 * time.Second)
+	failing := func() (*contracts.RadioNowPlayingResponse, error) {
+		return nil, errors.New("station not found")
+	}
+	for key := uint(1); key <= 100; key++ {
+		_, err := cache.getOrFetch(key, failing)
+		require.Error(t, err)
+	}
+	cache.mu.Lock()
+	size := len(cache.entries)
+	cache.mu.Unlock()
+	assert.Equal(t, 0, size, "failed fetches must not leave entries behind")
+
+	// A filled entry survives a later failed refresh (stale beats empty
+	// for the map-size rule; the error itself still propagates).
+	now := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	cache.now = func() time.Time { return now }
+	_, err := cache.getOrFetch(1, func() (*contracts.RadioNowPlayingResponse, error) {
+		return &contracts.RadioNowPlayingResponse{}, nil
+	})
+	require.NoError(t, err)
+	now = now.Add(91 * time.Second)
+	_, err = cache.getOrFetch(1, failing)
+	require.Error(t, err)
+	cache.mu.Lock()
+	size = len(cache.entries)
+	cache.mu.Unlock()
+	assert.Equal(t, 1, size, "a previously-filled entry is retained")
+}
+
 func TestRecentArtistsFromPlayRows(t *testing.T) {
 	row := func(name string, pos int) nowPlayingPlayRow {
 		return nowPlayingPlayRow{RadioPlay: catalogm.RadioPlay{ArtistName: name, Position: pos}}
