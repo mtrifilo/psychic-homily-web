@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { OrphanedArtistsDialog } from './OrphanedArtistsDialog'
-import type { OrphanedArtist } from '@/features/shows'
+import type { OrphanedArtist } from '../types'
 
 // --- Mocks ---
 

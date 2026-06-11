@@ -53,7 +53,7 @@ import {
   useSetShowSoldOut,
   useSetShowCancelled,
 } from '@/lib/hooks/admin/useAdminShows'
-import { ShowForm } from '@/components/forms'
+import { ShowForm } from '@/features/shows'
 import {
   DropdownMenu,
   DropdownMenuContent,

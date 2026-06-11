@@ -4,9 +4,10 @@ import { useRef, useState } from 'react'
 import { type AnyFieldApi } from '@tanstack/react-form'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { useVenueSearch, getVenueLocation } from '@/features/venues'
-import type { Venue } from '@/features/venues'
-import { FieldInfo } from './FormField'
+import { useVenueSearch } from '../hooks/useVenueSearch'
+import { getVenueLocation } from '../types'
+import type { Venue } from '../types'
+import { FieldInfo } from '@/components/forms'
 
 interface VenueInputProps {
   field: AnyFieldApi

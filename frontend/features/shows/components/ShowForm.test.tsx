@@ -3,7 +3,7 @@ import { screen, waitFor, fireEvent } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import type { ExtractedShowData } from '@/lib/types/extraction'
-import type { ShowResponse } from '@/features/shows'
+import type { ShowResponse } from '../types'
 
 // ─────────────────────────────────────────────────────────────
 // Shared mock state
@@ -65,8 +65,11 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuth,
 }))
 
-vi.mock('@/features/shows', () => ({
+vi.mock('../hooks/useShowSubmit', () => ({
   useShowSubmit: () => mockShowSubmit,
+}))
+
+vi.mock('../hooks/useShowUpdate', () => ({
   useShowUpdate: () => mockShowUpdate,
 }))
 
@@ -74,16 +77,24 @@ vi.mock('@/features/shows', () => ({
 // to aria-expanded="true". The component gates aria-expanded on
 // `showDropdown && filteredArtists.length > 0`, so an empty result would
 // suppress the canary state the PSY-724 test relies on.
-vi.mock('@/features/artists', () => ({
+vi.mock('@/features/artists/hooks/useArtistSearch', () => ({
   useArtistSearch: () => ({
     data: { artists: [{ id: 999, name: 'Match', city: 'Phoenix', state: 'AZ' }] },
     isLoading: false,
   }),
+}))
+
+vi.mock('@/features/artists/types', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/artists/types')>()),
   getArtistLocation: () => '',
 }))
 
-vi.mock('@/features/venues', () => ({
+vi.mock('@/features/venues/hooks/useVenueSearch', () => ({
   useVenueSearch: () => ({ data: { venues: mockVenueSearch.venues }, isLoading: false }),
+}))
+
+vi.mock('@/features/venues/types', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/features/venues/types')>()),
   getVenueLocation: () => '',
 }))
 

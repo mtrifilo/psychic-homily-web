@@ -10,7 +10,7 @@ import {
   extractedVenueToSelected,
   type FormArtist,
 } from './show-form-utils'
-import type { ShowResponse, VenueResponse } from '@/features/shows'
+import type { ShowResponse, VenueResponse } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 
 // --- Helpers ---

@@ -3,16 +3,9 @@
 import { useState } from 'react'
 import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
-import {
-  Edit2,
-  AlertCircle,
-  CheckCircle2,
-  Loader2,
-} from 'lucide-react'
-import { useVenueUpdate } from '@/features/venues'
-import { useAuthContext } from '@/lib/context/AuthContext'
-import type { VenueWithShowCount, Venue } from '@/features/venues'
-import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
+import { Loader2, Edit2, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { useArtistUpdate } from '@/lib/hooks/admin/useAdminArtists'
+import type { Artist, ArtistEditRequest } from '../types'
 import {
   Dialog,
   DialogContent,
@@ -25,15 +18,12 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { FieldInfo } from './FormField'
+import { FieldInfo } from '@/components/forms'
 
-// Form validation schema
-const venueEditSchema = z.object({
-  name: z.string().min(1, 'Venue name is required'),
-  address: z.string(),
-  city: z.string().min(1, 'City is required'),
-  state: z.string().min(2, 'State is required'),
-  zipcode: z.string(),
+const artistEditSchema = z.object({
+  name: z.string().min(1, 'Artist name is required'),
+  city: z.string(),
+  state: z.string(),
   instagram: z.string(),
   facebook: z.string(),
   twitter: z.string(),
@@ -44,30 +34,38 @@ const venueEditSchema = z.object({
   website: z.string(),
 })
 
-type FormValues = VenueEditFormValues
+interface FormValues {
+  name: string
+  city: string
+  state: string
+  instagram: string
+  facebook: string
+  twitter: string
+  youtube: string
+  spotify: string
+  soundcloud: string
+  bandcamp: string
+  website: string
+}
 
-interface VenueEditFormProps {
-  venue: VenueWithShowCount | Venue
+interface ArtistEditFormProps {
+  artist: Artist
   open: boolean
   onOpenChange: (open: boolean) => void
   onSuccess?: () => void
 }
 
-// Admin-only direct-edit form. Non-admin edits go through the unified
-// suggest-edit flow (EntityEditDrawer / useSuggestEdit).
-//
-// Callers MUST pass `key={venue.id}` so React unmounts + remounts with
-// fresh state when the venue switches. The form deliberately does NOT
+// Callers MUST pass `key={artist.id}` so React unmounts + remounts with
+// fresh state when the artist switches. The form deliberately does NOT
 // useEffect to reset prop-derived state — see React's "You Might Not
 // Need an Effect" guide for the rationale.
-export function VenueEditForm({
-  venue,
+export function ArtistEditForm({
+  artist,
   open,
   onOpenChange,
   onSuccess,
-}: VenueEditFormProps) {
-  const { user } = useAuthContext()
-  const updateMutation = useVenueUpdate()
+}: ArtistEditFormProps) {
+  const updateMutation = useArtistUpdate()
   const [showSuccess, setShowSuccess] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -76,23 +74,18 @@ export function VenueEditForm({
     setShowSuccess(false)
   }
 
-  const isAdmin = user?.is_admin ?? false
-
-  // Initialize form with venue data
   const initialValues: FormValues = {
-    name: venue.name,
-    address: venue.address || '',
-    city: venue.city,
-    state: venue.state,
-    zipcode: venue.zipcode || '',
-    instagram: venue.social?.instagram || '',
-    facebook: venue.social?.facebook || '',
-    twitter: venue.social?.twitter || '',
-    youtube: venue.social?.youtube || '',
-    spotify: venue.social?.spotify || '',
-    soundcloud: venue.social?.soundcloud || '',
-    bandcamp: venue.social?.bandcamp || '',
-    website: venue.social?.website || '',
+    name: artist.name,
+    city: artist.city || '',
+    state: artist.state || '',
+    instagram: artist.social?.instagram || '',
+    facebook: artist.social?.facebook || '',
+    twitter: artist.social?.twitter || '',
+    youtube: artist.social?.youtube || '',
+    spotify: artist.social?.spotify || '',
+    soundcloud: artist.social?.soundcloud || '',
+    bandcamp: artist.social?.bandcamp || '',
+    website: artist.social?.website || '',
   }
 
   const form = useForm({
@@ -100,15 +93,38 @@ export function VenueEditForm({
     onSubmit: async ({ value }) => {
       setError(null)
 
-      const changes = detectVenueChanges(value, venue)
+      // Build request with only changed fields
+      const changes: ArtistEditRequest = {}
 
-      if (!changes) {
+      if (value.name !== artist.name) changes.name = value.name
+      if (value.city !== (artist.city || ''))
+        changes.city = value.city || undefined
+      if (value.state !== (artist.state || ''))
+        changes.state = value.state || undefined
+      if (value.instagram !== (artist.social?.instagram || ''))
+        changes.instagram = value.instagram || undefined
+      if (value.facebook !== (artist.social?.facebook || ''))
+        changes.facebook = value.facebook || undefined
+      if (value.twitter !== (artist.social?.twitter || ''))
+        changes.twitter = value.twitter || undefined
+      if (value.youtube !== (artist.social?.youtube || ''))
+        changes.youtube = value.youtube || undefined
+      if (value.spotify !== (artist.social?.spotify || ''))
+        changes.spotify = value.spotify || undefined
+      if (value.soundcloud !== (artist.social?.soundcloud || ''))
+        changes.soundcloud = value.soundcloud || undefined
+      if (value.bandcamp !== (artist.social?.bandcamp || ''))
+        changes.bandcamp = value.bandcamp || undefined
+      if (value.website !== (artist.social?.website || ''))
+        changes.website = value.website || undefined
+
+      if (Object.keys(changes).length === 0) {
         setError('No changes detected')
         return
       }
 
       updateMutation.mutate(
-        { venueId: venue.id, data: changes },
+        { artistId: artist.id, data: changes },
         {
           onSuccess: () => {
             setShowSuccess(true)
@@ -120,14 +136,14 @@ export function VenueEditForm({
           },
           onError: err => {
             setError(
-              err instanceof Error ? err.message : 'Failed to update venue'
+              err instanceof Error ? err.message : 'Failed to update artist'
             )
           },
         }
       )
     },
     validators: {
-      onSubmit: venueEditSchema,
+      onSubmit: artistEditSchema,
     },
   })
 
@@ -138,22 +154,16 @@ export function VenueEditForm({
     onOpenChange(nextOpen)
   }
 
-  // Non-admins should not see this form. Guard here as a safety net;
-  // VenueCard.canEdit should already hide the trigger for non-admins.
-  if (!isAdmin) {
-    return null
-  }
-
   return (
     <Dialog open={open} onOpenChange={handleDialogOpenChange}>
       <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <Edit2 className="h-5 w-5" />
-            Edit Venue
+            Edit Artist
           </DialogTitle>
           <DialogDescription>
-            Make changes to this venue. Changes will be applied immediately.
+            Make changes to this artist. Changes will be applied immediately.
           </DialogDescription>
         </DialogHeader>
 
@@ -161,7 +171,7 @@ export function VenueEditForm({
           <Alert className="mb-4 border-success-foreground bg-success">
             <CheckCircle2 className="h-4 w-4 text-success-foreground" />
             <AlertDescription className="text-success-foreground">
-              Venue updated successfully!
+              Artist updated successfully!
             </AlertDescription>
           </Alert>
         )}
@@ -188,31 +198,16 @@ export function VenueEditForm({
             <form.Field name="name">
               {field => (
                 <div className="space-y-2">
-                  <Label htmlFor="name">Venue Name *</Label>
+                  <Label htmlFor="artist-name">Name *</Label>
                   <Input
-                    id="name"
+                    id="artist-name"
                     value={field.state.value}
                     onChange={e => field.handleChange(e.target.value)}
                     onBlur={field.handleBlur}
-                    placeholder="e.g. The Empty Bottle"
+                    placeholder="e.g. The National"
                     aria-invalid={field.state.meta.errors.length > 0}
                   />
                   <FieldInfo field={field} />
-                </div>
-              )}
-            </form.Field>
-
-            <form.Field name="address">
-              {field => (
-                <div className="space-y-2">
-                  <Label htmlFor="address">Address</Label>
-                  <Input
-                    id="address"
-                    value={field.state.value}
-                    onChange={e => field.handleChange(e.target.value)}
-                    onBlur={field.handleBlur}
-                    placeholder="e.g. 1035 N Western Ave"
-                  />
                 </div>
               )}
             </form.Field>
@@ -221,16 +216,14 @@ export function VenueEditForm({
               <form.Field name="city">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="city">City *</Label>
+                    <Label htmlFor="artist-city">City</Label>
                     <Input
-                      id="city"
+                      id="artist-city"
                       value={field.state.value}
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
-                      placeholder="e.g. Chicago"
-                      aria-invalid={field.state.meta.errors.length > 0}
+                      placeholder="e.g. Phoenix"
                     />
-                    <FieldInfo field={field} />
                   </div>
                 )}
               </form.Field>
@@ -238,35 +231,18 @@ export function VenueEditForm({
               <form.Field name="state">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="state">State *</Label>
+                    <Label htmlFor="artist-state">State</Label>
                     <Input
-                      id="state"
+                      id="artist-state"
                       value={field.state.value}
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
-                      placeholder="e.g. IL"
-                      aria-invalid={field.state.meta.errors.length > 0}
+                      placeholder="e.g. AZ"
                     />
-                    <FieldInfo field={field} />
                   </div>
                 )}
               </form.Field>
             </div>
-
-            <form.Field name="zipcode">
-              {field => (
-                <div className="space-y-2">
-                  <Label htmlFor="zipcode">Zipcode</Label>
-                  <Input
-                    id="zipcode"
-                    value={field.state.value}
-                    onChange={e => field.handleChange(e.target.value)}
-                    onBlur={field.handleBlur}
-                    placeholder="e.g. 60622"
-                  />
-                </div>
-              )}
-            </form.Field>
           </div>
 
           {/* Social Links */}
@@ -277,9 +253,9 @@ export function VenueEditForm({
               <form.Field name="website">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="website">Website</Label>
+                    <Label htmlFor="artist-website">Website</Label>
                     <Input
-                      id="website"
+                      id="artist-website"
                       value={field.state.value}
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
@@ -292,9 +268,9 @@ export function VenueEditForm({
               <form.Field name="instagram">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="instagram">Instagram</Label>
+                    <Label htmlFor="artist-instagram">Instagram</Label>
                     <Input
-                      id="instagram"
+                      id="artist-instagram"
                       value={field.state.value}
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
@@ -307,9 +283,9 @@ export function VenueEditForm({
               <form.Field name="facebook">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="facebook">Facebook</Label>
+                    <Label htmlFor="artist-facebook">Facebook</Label>
                     <Input
-                      id="facebook"
+                      id="artist-facebook"
                       value={field.state.value}
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
@@ -322,9 +298,9 @@ export function VenueEditForm({
               <form.Field name="twitter">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="twitter">Twitter/X</Label>
+                    <Label htmlFor="artist-twitter">Twitter/X</Label>
                     <Input
-                      id="twitter"
+                      id="artist-twitter"
                       value={field.state.value}
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
@@ -334,12 +310,27 @@ export function VenueEditForm({
                 )}
               </form.Field>
 
+              <form.Field name="youtube">
+                {field => (
+                  <div className="space-y-2">
+                    <Label htmlFor="artist-youtube">YouTube</Label>
+                    <Input
+                      id="artist-youtube"
+                      value={field.state.value}
+                      onChange={e => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      placeholder="https://youtube.com/..."
+                    />
+                  </div>
+                )}
+              </form.Field>
+
               <form.Field name="spotify">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="spotify">Spotify</Label>
+                    <Label htmlFor="artist-spotify">Spotify</Label>
                     <Input
-                      id="spotify"
+                      id="artist-spotify"
                       value={field.state.value}
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}
@@ -349,12 +340,27 @@ export function VenueEditForm({
                 )}
               </form.Field>
 
+              <form.Field name="soundcloud">
+                {field => (
+                  <div className="space-y-2">
+                    <Label htmlFor="artist-soundcloud">SoundCloud</Label>
+                    <Input
+                      id="artist-soundcloud"
+                      value={field.state.value}
+                      onChange={e => field.handleChange(e.target.value)}
+                      onBlur={field.handleBlur}
+                      placeholder="https://soundcloud.com/..."
+                    />
+                  </div>
+                )}
+              </form.Field>
+
               <form.Field name="bandcamp">
                 {field => (
                   <div className="space-y-2">
-                    <Label htmlFor="bandcamp">Bandcamp</Label>
+                    <Label htmlFor="artist-bandcamp">Bandcamp</Label>
                     <Input
-                      id="bandcamp"
+                      id="artist-bandcamp"
                       value={field.state.value}
                       onChange={e => field.handleChange(e.target.value)}
                       onBlur={field.handleBlur}

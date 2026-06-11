@@ -18,7 +18,7 @@ import {
 } from '@/lib/utils/formatters'
 import { formatShowDateBadge } from '@/lib/utils/showDateBadge'
 import { Button } from '@/components/ui/button'
-import { ShowForm } from '@/components/forms'
+import { ShowForm } from './ShowForm'
 import { SaveButton, SocialLinks, MusicEmbed } from '@/components/shared'
 import { AttendanceButton } from './AttendanceButton'
 import { DeleteShowDialog } from './DeleteShowDialog'

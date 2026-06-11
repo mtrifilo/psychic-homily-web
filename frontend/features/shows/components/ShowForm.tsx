@@ -17,25 +17,27 @@ import {
   Info,
   EyeOff,
 } from 'lucide-react'
-import { useShowSubmit, type ShowSubmission } from '@/features/shows'
+import { useShowSubmit, type ShowSubmission } from '../hooks/useShowSubmit'
 import {
   useShowUpdate,
   type ShowUpdate,
   type ShowUpdateResponse,
-} from '@/features/shows'
+} from '../hooks/useShowUpdate'
 import {
   combineDateTimeToUTC,
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/features/venues'
-import type { ShowResponse, VenueResponse, OrphanedArtist } from '@/features/shows'
+import type { ShowResponse, VenueResponse, OrphanedArtist } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { FormField, ArtistInput, VenueInput } from '@/components/forms'
-import { OrphanedArtistsDialog } from '@/components/forms/OrphanedArtistsDialog'
+import { FormField } from '@/components/forms'
+import { ArtistInput } from '@/features/artists'
+import { VenueInput } from '@/features/venues'
+import { OrphanedArtistsDialog } from './OrphanedArtistsDialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   type FormArtist,

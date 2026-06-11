@@ -78,20 +78,17 @@ vi.mock('./DeleteVenueDialog', () => ({
     open ? <div data-testid="delete-dialog">Delete Dialog</div> : null,
 }))
 
-vi.mock('@/components/forms/VenueEditForm', () => ({
+vi.mock('./VenueEditForm', () => ({
   VenueEditForm: ({ open }: { open: boolean }) =>
     open ? <div data-testid="edit-form">Edit Form</div> : null,
 }))
 
-vi.mock('@/components/forms/ShowForm', () => ({
+vi.mock('@/features/shows', () => ({
   ShowForm: ({ onCancel }: { onCancel: () => void }) => (
     <div data-testid="show-form">
       <button onClick={onCancel}>Cancel Show Form</button>
     </div>
   ),
-}))
-
-vi.mock('@/features/shows', () => ({
   CompactShowRow: ({ show }: { show: { id: number; title?: string } }) => (
     <div data-testid={`show-row-${show.id}`}>Show {show.id}</div>
   ),

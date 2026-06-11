@@ -23,8 +23,25 @@ vi.mock('../hooks/useVenues', () => ({
     timeFilter === 'past' ? pastResult : upcomingResult,
 }))
 
+// ShowForm pulls in a lot of form/mutation plumbing the suite doesn't need.
+// Render a thin stub so we can assert open/close + submit/cancel handlers.
 vi.mock('@/features/shows', () => ({
   dedupVenueShows: <T,>(shows: T[]) => shows,
+  ShowForm: ({
+    onCancel,
+    onSuccess,
+    prefilledVenue,
+  }: {
+    onCancel: () => void
+    onSuccess: () => void
+    prefilledVenue: { name: string }
+  }) => (
+    <div data-testid="show-form">
+      Form for {prefilledVenue.name}
+      <button onClick={onCancel}>cancel</button>
+      <button onClick={onSuccess}>save</button>
+    </div>
+  ),
 }))
 
 const mockAuthIsAuthenticated = { value: false }
@@ -79,25 +96,6 @@ vi.mock('@/features/notifications', () => ({
   ),
 }))
 
-// ShowForm pulls in a lot of form/mutation plumbing the suite doesn't need.
-// Render a thin stub so we can assert open/close + submit/cancel handlers.
-vi.mock('@/components/forms/ShowForm', () => ({
-  ShowForm: ({
-    onCancel,
-    onSuccess,
-    prefilledVenue,
-  }: {
-    onCancel: () => void
-    onSuccess: () => void
-    prefilledVenue: { name: string }
-  }) => (
-    <div data-testid="show-form">
-      Form for {prefilledVenue.name}
-      <button onClick={onCancel}>cancel</button>
-      <button onClick={onSuccess}>save</button>
-    </div>
-  ),
-}))
 
 import { VenueShowsList } from './VenueShowsList'
 

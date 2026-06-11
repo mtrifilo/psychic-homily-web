@@ -8,11 +8,15 @@ import { ArtistInput } from './ArtistInput'
 // Mock search results
 let mockSearchData: { artists: Array<{ id: number; name: string; city?: string; state?: string }> } | undefined
 
-vi.mock('@/features/artists', () => ({
+vi.mock('../hooks/useArtistSearch', () => ({
   useArtistSearch: () => ({
     data: mockSearchData,
     isLoading: false,
   }),
+}))
+
+vi.mock('../types', async importOriginal => ({
+  ...(await importOriginal<typeof import('../types')>()),
   getArtistLocation: (artist: { city?: string; state?: string }) =>
     [artist.city, artist.state].filter(Boolean).join(', '),
 }))

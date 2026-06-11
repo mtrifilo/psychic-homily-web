@@ -8,11 +8,15 @@ import { VenueInput } from './VenueInput'
 // Mock search results
 let mockSearchData: { venues: Array<{ id: number; name: string; slug: string; city?: string; state?: string }> } | undefined
 
-vi.mock('@/features/venues', () => ({
+vi.mock('../hooks/useVenueSearch', () => ({
   useVenueSearch: () => ({
     data: mockSearchData,
     isLoading: false,
   }),
+}))
+
+vi.mock('../types', async importOriginal => ({
+  ...(await importOriginal<typeof import('../types')>()),
   getVenueLocation: (venue: { city?: string; state?: string }) =>
     [venue.city, venue.state].filter(Boolean).join(', '),
 }))

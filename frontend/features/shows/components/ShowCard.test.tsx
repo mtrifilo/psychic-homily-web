@@ -39,7 +39,7 @@ vi.mock('@/components/shared', () => ({
   MusicEmbed: () => <div data-testid="music-embed" />,
 }))
 
-vi.mock('@/components/forms', () => ({
+vi.mock('./ShowForm', () => ({
   ShowForm: ({ onCancel }: { onCancel: () => void }) => (
     <div data-testid="show-form">
       <button onClick={onCancel}>Cancel Form</button>

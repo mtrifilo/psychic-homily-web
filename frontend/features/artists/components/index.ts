@@ -1,4 +1,6 @@
 export { ArtistCard } from './ArtistCard'
+export { ArtistEditForm } from './ArtistEditForm'
+export { ArtistInput } from './ArtistInput'
 export { ArtistSearch } from './ArtistSearch'
 // ArtistDetail is intentionally NOT re-exported here (PSY-950). The route page
 // `app/artists/[slug]/page.tsx` imports it directly via `dynamic()` from the
