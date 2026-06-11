@@ -337,6 +337,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
             stats={profile.stats}
             statsCount={profile.stats_count}
             collectionsTotal={collectionsTotal}
+            isOwner={isOwner}
           />
         </aside>
       </div>

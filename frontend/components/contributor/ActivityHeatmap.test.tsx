@@ -142,13 +142,13 @@ describe('ActivityHeatmap', () => {
 
     render(<ActivityHeatmap username="alice" />)
 
-    // Max cell should have emerald-700 (level 4 dark)
+    // Max cell should have the full primary token (level 4)
     const maxCell = screen.getByTestId('heatmap-cell-2026-03-31')
-    expect(maxCell.className).toContain('emerald-700')
+    expect(maxCell.className).toMatch(/(?:^|\s)bg-primary(?:\s|$)/)
 
-    // Low cell should have emerald-200 (level 1)
+    // Low cell should have primary/25 (level 1)
     const lowCell = screen.getByTestId('heatmap-cell-2026-03-30')
-    expect(lowCell.className).toContain('emerald-200')
+    expect(lowCell.className).toContain('bg-primary/25')
   })
 
   it('renders legend with Less/More labels', () => {
@@ -256,7 +256,7 @@ describe('ActivityHeatmap', () => {
       expect(cell.className).toContain('bg-muted/40')
     })
 
-    it('ratio === 0.25 boundary stays on level 1 (emerald-200)', () => {
+    it('ratio === 0.25 boundary stays on level 1 (primary/25)', () => {
       mockUseActivityHeatmap.mockReturnValue({
         data: {
           days: [
@@ -268,10 +268,10 @@ describe('ActivityHeatmap', () => {
       })
       render(<ActivityHeatmap username="alice" />)
       const cell = screen.getByTestId('heatmap-cell-2026-03-31')
-      expect(cell.className).toContain('emerald-200')
+      expect(cell.className).toContain('bg-primary/25')
     })
 
-    it('ratio === 0.50 boundary stays on level 2 (emerald-300)', () => {
+    it('ratio === 0.50 boundary stays on level 2 (primary/50)', () => {
       mockUseActivityHeatmap.mockReturnValue({
         data: {
           days: [
@@ -283,10 +283,10 @@ describe('ActivityHeatmap', () => {
       })
       render(<ActivityHeatmap username="alice" />)
       const cell = screen.getByTestId('heatmap-cell-2026-03-31')
-      expect(cell.className).toContain('emerald-300')
+      expect(cell.className).toContain('bg-primary/50')
     })
 
-    it('ratio === 0.75 boundary stays on level 3 (emerald-500)', () => {
+    it('ratio === 0.75 boundary stays on level 3 (primary/75)', () => {
       mockUseActivityHeatmap.mockReturnValue({
         data: {
           days: [
@@ -298,11 +298,10 @@ describe('ActivityHeatmap', () => {
       })
       render(<ActivityHeatmap username="alice" />)
       const cell = screen.getByTestId('heatmap-cell-2026-03-31')
-      // emerald-500 — be explicit to disambiguate from level-2 (-300) and level-4 (-700)
-      expect(cell.className).toMatch(/(?:^|\s)bg-emerald-500(?:\s|$)/)
+      expect(cell.className).toContain('bg-primary/75')
     })
 
-    it('ratio > 0.75 maps to level 4 (emerald-700)', () => {
+    it('ratio > 0.75 maps to level 4 (bare primary)', () => {
       mockUseActivityHeatmap.mockReturnValue({
         data: {
           days: [
@@ -313,7 +312,7 @@ describe('ActivityHeatmap', () => {
       })
       render(<ActivityHeatmap username="alice" />)
       const cell = screen.getByTestId('heatmap-cell-2026-03-31')
-      expect(cell.className).toContain('emerald-700')
+      expect(cell.className).toMatch(/(?:^|\s)bg-primary(?:\s|$)/)
     })
   })
 
