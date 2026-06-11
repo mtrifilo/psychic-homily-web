@@ -41,9 +41,10 @@ export interface StationOverview {
 }
 
 /**
- * Assemble everything the D2 station-overview panel renders for one station
- * (PSY-1016). Orchestrates the station detail, its shows, and the now-playing
- * show's most-recent episode into the panel's render shape.
+ * Assemble everything a station-overview surface renders for one station
+ * (PSY-1016, now consumed by the Dial strips — PSY-1049). Orchestrates the
+ * station detail, its shows, and the now-playing show's most-recent episode
+ * into one render shape.
  *
  * "Now Playing" is the v1 fallback (the most-recent playlist of the station's
  * most-active show) — not live on-air data. See lib/stationOverview and

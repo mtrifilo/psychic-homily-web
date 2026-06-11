@@ -263,7 +263,7 @@ function OnAirBlock({
  * One channel sub-row under a network flagship: underlined channel name +
  * its current show (v1 heuristic: most-active show) + [ listen ]. Fetches its
  * own shows + detail (bounded N — networks have a handful of channels), the
- * same per-row pattern as PSY-1016's RecentShowRow.
+ * same per-row pattern the D2 panel used before PSY-1057 retired it.
  */
 function DialChannelRow({
   networkSlug,

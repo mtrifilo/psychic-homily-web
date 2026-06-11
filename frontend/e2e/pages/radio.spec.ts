@@ -152,7 +152,7 @@ test.describe('Radio browse flow', () => {
 
     // "Recent Episodes" section renders. PSY-899 seeds one KEXP episode for
     // this show (air date 2025-01-15), so this asserts the populated path:
-    // the section heading shows + the `RadioEpisodeRow` link into the dated
+    // the section heading shows + the episode-archive row link into the dated
     // episode route resolves. The episode list is CLIENT-fetched
     // (RadioShowDetail.tsx useRadioEpisodes), so the row appears
     // asynchronously — allow up to 10s. Target the row by its href to the

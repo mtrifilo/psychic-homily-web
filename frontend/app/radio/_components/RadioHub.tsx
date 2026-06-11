@@ -18,8 +18,8 @@ import { NewReleaseRadarBox, DialStatsBox } from './DialSidebarBoxes'
  * Every station and channel is visible as a full-width strip with on-air info
  * inline (zero clicks to see the whole dial), followed by the dial-wide
  * latest-playlists feed (PSY-1048) with New Release Radar + lifetime stats in
- * the sidebar. The nav Radio popover keeps the D2 panel (PSY-1016) — this
- * page no longer uses RadioPanel.
+ * the sidebar. The top-bar Radio item links straight here (PSY-1057 retired
+ * the D2 popover once this page became the dial).
  */
 export default function RadioHub() {
   const { data: stats } = useRadioStats()

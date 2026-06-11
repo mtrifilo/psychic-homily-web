@@ -1,11 +1,12 @@
 /**
- * Station-overview derivation helpers (PSY-1016, Radio D2 panel).
+ * Station-overview derivation helpers (PSY-1016; consumed by the Dial
+ * surfaces since PSY-1049/1050).
  *
  * Pure, hook-free transforms that turn the radio API responses into the
- * shapes the D2 station-overview panel renders. Keeping the derivation here
- * (rather than inline in components) makes the "Now Playing" v1-fallback
- * contract testable and gives a future real now-playing endpoint a single
- * seam to slot into without changing the panel's render shape (PSY-1022).
+ * shapes the on-air surfaces render. Keeping the derivation here (rather
+ * than inline in components) makes the "Now Playing" v1-fallback contract
+ * testable and gives a future real now-playing endpoint a single seam to
+ * slot into without changing the consumers' render shape (PSY-1022).
  */
 
 import type {
@@ -126,8 +127,8 @@ export function deriveNowPlaying(
 }
 
 /**
- * Format a YYYY-MM-DD air-date as a short "Jun 4" (no year), matching the D2
- * design. Parses at local midnight so a date-only string doesn't shift a day
+ * Format a YYYY-MM-DD air-date as a short "Jun 4" (no year), the dense
+ * editorial register the radio surfaces share. Parses at local midnight so a date-only string doesn't shift a day
  * in negative-offset timezones.
  */
 export function formatShortAirDate(dateStr: string | null | undefined): string {

@@ -10,7 +10,7 @@ export { useArtistRadioPlays } from './useArtistRadioPlays'
 export { useReleaseRadioPlays } from './useReleaseRadioPlays'
 export { useNewReleaseRadar } from './useNewReleaseRadar'
 export { useRadioStats } from './useRadioStats'
-// PSY-1016: Radio D2 station-overview panel
+// PSY-1016 heuristics, consumed by the Dial surfaces (PSY-1049/1050)
 export { useShowLatestEpisode } from './useShowLatestEpisode'
 export { useStationOverview } from './useStationOverview'
 // PSY-1049: The Dial hub
