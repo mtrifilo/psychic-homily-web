@@ -220,10 +220,10 @@ const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
 }
 
 // PSY-1019 editorial group headings (Figma 539:5): Space Mono, uppercase,
-// letter-spaced — mirrors ContributeMenu's group labels. The values
-// intentionally duplicate CommandDialog's wrapper styles (command.tsx) so the
-// two equal-specificity [cmdk-group-heading] rules agree no matter which wins
-// the stylesheet-order tiebreak.
+// letter-spaced — mirrors ContributeMenu's group labels. Applied per-group so
+// tailwind-merge resolves it against CommandGroup's default heading styles on
+// the same element (deterministic; padding + muted color come from those
+// defaults). The shared CommandGroup primitive stays untouched for CityFilters.
 const groupClassName =
   '[&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[1.2px]'
 
