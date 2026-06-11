@@ -65,7 +65,6 @@ export { useReducedMotion } from './hooks'
 // Re-adding it here re-hoists ArtistDetail.tsx (~40 KB) into the shared chunk.
 export {
   ArtistCard,
-  ArtistEditForm,
   ArtistInput,
   ArtistSearch,
   ArtistList,
