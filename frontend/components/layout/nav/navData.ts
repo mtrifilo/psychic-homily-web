@@ -10,7 +10,8 @@ import { cn } from '@/lib/utils'
 // reachable from the new top bar's Browse / Contribute menus so retiring the
 // sidebar doesn't regress desktop discoverability. The menu *presentation* is
 // refined by follow-up tickets (Browse mega-menu → PSY-1014, Contribute →
-// PSY-1015, Radio D2 panel → PSY-1016); the destinations themselves live here.
+// PSY-1015); Radio became a plain /radio link in PSY-1057. The destinations
+// themselves live here.
 
 export interface NavLink {
   href: string

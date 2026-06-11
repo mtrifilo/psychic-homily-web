@@ -103,11 +103,11 @@ describe('TopBar', () => {
   })
 
   describe('primary nav', () => {
-    it('renders the explicit Home and Explore links + the three menus', () => {
+    it('renders the explicit links (incl. Radio, PSY-1057) + the two menus', () => {
       render(<TopBar />)
       expect(screen.getByRole('link', { name: 'Home' })).toHaveAttribute('href', '/')
       expect(screen.getByRole('link', { name: 'Explore' })).toHaveAttribute('href', '/explore')
-      expect(screen.getByRole('button', { name: 'Radio' })).toBeInTheDocument()
+      expect(screen.getByRole('link', { name: 'Radio' })).toHaveAttribute('href', '/radio')
       expect(screen.getByRole('button', { name: 'Browse the catalog' })).toBeInTheDocument()
       expect(screen.getByRole('button', { name: 'Contribute' })).toBeInTheDocument()
     })

@@ -58,8 +58,7 @@ export {
   useReleaseRadioPlays,
   useNewReleaseRadar,
   useRadioStats,
-  // PSY-1016
-  useShowLatestEpisode,
+  // PSY-1016 (consumed by the Dial strips since PSY-1049)
   useStationOverview,
   // PSY-1049
   useRecentRadioEpisodes,
@@ -72,15 +71,8 @@ export {
 // Components
 export {
   RadioStationCard,
-  RadioEpisodeRow,
-  RadioPlayRow,
   AsHeardOn,
   NetworkTabBar,
-  // PSY-1016
-  RadioPanel,
-  RadioStationList,
-  RadioStationOverview,
-  RecentShowRow,
   ArtistHops,
   // PSY-1050: station-page rebuild (The Dial, Option A)
   StationOnAirBox,
@@ -92,9 +84,6 @@ export {
 // PSY-1016: station-overview derivation helpers
 export {
   pickNowPlayingShow,
-  orderRecentShows,
-  recentArtistsFromEpisode,
-  deriveNowPlaying,
   formatShortAirDate,
   formatStationLocation,
 } from './lib/stationOverview'

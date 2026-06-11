@@ -15,12 +15,11 @@ import { expect } from '@playwright/test'
  * `EntityCardTitle`, so `getByRole('link', { name })` resolves cleanly under
  * Playwright strict mode.
  *
- * SCOPING NOTE: the persistent left Sidebar (components/layout/Sidebar.tsx)
- * renders a `<Link href="/radio">Radio</Link>` that is visible at the
- * Playwright desktop viewport (the `<aside>` is `hidden md:flex`). To keep
- * the page-content assertions unambiguous under strict mode, link/heading
- * queries are scoped to the page's `<main>` (`page.getByRole('main')`),
- * which excludes the sidebar `<aside>` and the TopBar.
+ * SCOPING NOTE: chrome outside `<main>` renders its own `Radio` links — the
+ * top-bar primary nav links straight to /radio (PSY-1057) and the Footer
+ * carries one too. To keep the page-content assertions unambiguous under
+ * strict mode, link/heading queries are scoped to the page's `<main>`
+ * (`page.getByRole('main')`), which excludes the TopBar and Footer.
  *
  * SEED SCOPE (verified against backend/internal/seeddata/radio.go, rendered
  * by cmd/gen-e2e-seed into frontend/e2e/setup-db.sh):
@@ -152,7 +151,7 @@ test.describe('Radio browse flow', () => {
 
     // "Recent Episodes" section renders. PSY-899 seeds one KEXP episode for
     // this show (air date 2025-01-15), so this asserts the populated path:
-    // the section heading shows + the `RadioEpisodeRow` link into the dated
+    // the section heading shows + the episode-archive row link into the dated
     // episode route resolves. The episode list is CLIENT-fetched
     // (RadioShowDetail.tsx useRadioEpisodes), so the row appears
     // asynchronously — allow up to 10s. Target the row by its href to the

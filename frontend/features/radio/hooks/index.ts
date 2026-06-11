@@ -10,8 +10,9 @@ export { useArtistRadioPlays } from './useArtistRadioPlays'
 export { useReleaseRadioPlays } from './useReleaseRadioPlays'
 export { useNewReleaseRadar } from './useNewReleaseRadar'
 export { useRadioStats } from './useRadioStats'
-// PSY-1016: Radio D2 station-overview panel
-export { useShowLatestEpisode } from './useShowLatestEpisode'
+// PSY-1016 heuristic, consumed by the Dial surfaces (PSY-1049/1050).
+// (useShowLatestEpisode stays un-exported here — its consumers import the
+// file directly; PSY-1057 narrowed the public surface.)
 export { useStationOverview } from './useStationOverview'
 // PSY-1049: The Dial hub
 export { useRecentRadioEpisodes } from './useRecentRadioEpisodes'
