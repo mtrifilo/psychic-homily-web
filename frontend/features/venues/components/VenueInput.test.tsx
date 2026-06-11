@@ -8,11 +8,17 @@ import { VenueInput } from './VenueInput'
 // Mock search results
 let mockSearchData: { venues: Array<{ id: number; name: string; slug: string; city?: string; state?: string }> } | undefined
 
-vi.mock('@/features/venues', () => ({
+vi.mock('../hooks/useVenueSearch', () => ({
   useVenueSearch: () => ({
     data: mockSearchData,
     isLoading: false,
   }),
+}))
+
+// getVenueLocation stubbed (simplified join, not the real formatting rule) —
+// these tests assert dropdown mechanics, not location formatting.
+vi.mock('../types', async importOriginal => ({
+  ...(await importOriginal<typeof import('../types')>()),
   getVenueLocation: (venue: { city?: string; state?: string }) =>
     [venue.city, venue.state].filter(Boolean).join(', '),
 }))

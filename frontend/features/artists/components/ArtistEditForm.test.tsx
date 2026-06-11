@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { ArtistEditForm } from './ArtistEditForm'
-import type { Artist } from '@/features/artists'
+import type { Artist } from '../types'
 
 // --- Mocks ---
 

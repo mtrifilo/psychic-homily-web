@@ -9,9 +9,9 @@ import {
   CheckCircle2,
   Loader2,
 } from 'lucide-react'
-import { useVenueUpdate } from '@/features/venues'
+import { useVenueUpdate } from '../hooks/useVenueEdit'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import type { VenueWithShowCount, Venue } from '@/features/venues'
+import type { VenueWithShowCount, Venue } from '../types'
 import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
 import {
   Dialog,
@@ -25,7 +25,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { FieldInfo } from './FormField'
+import { FieldInfo } from '@/components/forms/FormField'
 
 // Form validation schema
 const venueEditSchema = z.object({

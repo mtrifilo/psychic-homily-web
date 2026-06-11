@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { detectVenueChanges, type VenueEditFormValues } from './venue-edit-utils'
-import type { Venue, VenueWithShowCount } from '@/features/venues'
+import type { Venue, VenueWithShowCount } from '../types'
 
 // --- Helpers ---
 

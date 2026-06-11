@@ -5,6 +5,11 @@ export { ShowHeader } from './ShowHeader'
 export { ShowActions } from './ShowActions'
 export { ShowCard } from './ShowCard'
 export type { ShowCardDensity, ShowCardProps } from './ShowCard'
+// ShowForm IS barrel-exported deliberately (unlike the artists/venues form
+// components): its external consumers (VenueCard, VenueShowsList, app pages)
+// import it via '@/features/shows', and it was already statically reachable
+// from this barrel on main via ShowCard, so reachability is unchanged.
+export { ShowForm } from './ShowForm'
 export { ShowList } from './ShowList'
 export { ShowListSkeleton } from './ShowListSkeleton'
 export { HomeShowList } from './HomeShowList'

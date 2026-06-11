@@ -9,10 +9,9 @@ import {
   DenseTable,
 } from '@/components/shared'
 import { Button } from '@/components/ui/button'
-import { ShowForm } from '@/components/forms/ShowForm'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import { NotifyMeButton } from '@/features/notifications'
-import { dedupVenueShows } from '@/features/shows'
+import { dedupVenueShows, ShowForm } from '@/features/shows'
 import { formatShowDate, formatShowTime } from '@/lib/utils/formatters'
 import { useVenueShows } from '../hooks/useVenues'
 import type { VenueShow } from '../types'

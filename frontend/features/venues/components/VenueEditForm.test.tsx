@@ -3,7 +3,7 @@ import { screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { renderWithProviders } from '@/test/utils'
 import { VenueEditForm } from './VenueEditForm'
-import type { VenueWithShowCount } from '@/features/venues'
+import type { VenueWithShowCount } from '../types'
 
 // --- Mocks ---
 
@@ -17,12 +17,12 @@ vi.mock('@/lib/context/AuthContext', () => ({
   useAuthContext: () => mockAuthContext(),
 }))
 
-// `useVenueUpdate` is re-exported from `@/features/venues`. Mock that
+// `useVenueUpdate` lives in `../hooks/useVenueEdit`. Mock that
 // surface (matches how VenueEditForm imports it).
 const mockMutate = vi.fn()
-vi.mock('@/features/venues', async () => {
-  const actual = await vi.importActual<typeof import('@/features/venues')>(
-    '@/features/venues'
+vi.mock('../hooks/useVenueEdit', async () => {
+  const actual = await vi.importActual<typeof import('../hooks/useVenueEdit')>(
+    '../hooks/useVenueEdit'
   )
   return {
     ...actual,

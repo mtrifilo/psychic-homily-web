@@ -17,25 +17,33 @@ import {
   Info,
   EyeOff,
 } from 'lucide-react'
-import { useShowSubmit, type ShowSubmission } from '@/features/shows'
+import { useShowSubmit, type ShowSubmission } from '../hooks/useShowSubmit'
 import {
   useShowUpdate,
   type ShowUpdate,
   type ShowUpdateResponse,
-} from '@/features/shows'
+} from '../hooks/useShowUpdate'
 import {
   combineDateTimeToUTC,
   getTimezoneForState,
 } from '@/lib/utils/timeUtils'
 import type { Venue } from '@/features/venues'
-import type { ShowResponse, VenueResponse, OrphanedArtist } from '@/features/shows'
+import type { ShowResponse, VenueResponse, OrphanedArtist } from '../types'
 import type { ExtractedShowData } from '@/lib/types/extraction'
 import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { FormField, ArtistInput, VenueInput } from '@/components/forms'
-import { OrphanedArtistsDialog } from '@/components/forms/OrphanedArtistsDialog'
+// Deep imports (not feature/forms barrels) on purpose: the root barrels are
+// multi-route reachable, so barrel edges here would (a) create shows<->artists
+// and shows<->venues value-import cycles and (b) hoist the artists/venues
+// feature graphs into this form's client chunk (PSY-944/PSY-950).
+// Type-only barrel imports (e.g. `import type { Venue }` above) are fine —
+// they're erased at build and create no runtime edge.
+import { FormField } from '@/components/forms/FormField'
+import { ArtistInput } from '@/features/artists/components/ArtistInput'
+import { VenueInput } from '@/features/venues/components/VenueInput'
+import { OrphanedArtistsDialog } from './OrphanedArtistsDialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {
   type FormArtist,

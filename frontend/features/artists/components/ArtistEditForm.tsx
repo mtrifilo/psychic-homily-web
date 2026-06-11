@@ -5,7 +5,7 @@ import { useForm } from '@tanstack/react-form'
 import { z } from 'zod'
 import { Loader2, Edit2, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { useArtistUpdate } from '@/lib/hooks/admin/useAdminArtists'
-import type { Artist, ArtistEditRequest } from '@/features/artists'
+import type { Artist, ArtistEditRequest } from '../types'
 import {
   Dialog,
   DialogContent,
@@ -18,7 +18,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Alert, AlertDescription } from '@/components/ui/alert'
-import { FieldInfo } from './FormField'
+import { FieldInfo } from '@/components/forms/FormField'
 
 const artistEditSchema = z.object({
   name: z.string().min(1, 'Artist name is required'),
