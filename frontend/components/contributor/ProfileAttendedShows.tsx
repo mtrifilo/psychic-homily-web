@@ -31,6 +31,7 @@ function formatDiaryDate(dateString: string): string {
  * - hidden → 404 → a lock notice (per the privacy-applied design board): the
  *   section names itself so the page doesn't silently look incomplete.
  */
+// Collapsed row budget per the design board's diary density.
 const COLLAPSED_COUNT = 10
 
 export function ProfileAttendedShows({ username }: ProfileAttendedShowsProps) {
@@ -60,7 +61,11 @@ export function ProfileAttendedShows({ username }: ProfileAttendedShowsProps) {
             <ProfileSectionAction
               label="View all →"
               onClick={() => setExpanded(true)}
-              ariaLabel={`View all ${data.total} attended shows`}
+              ariaLabel={
+                data.total > data.shows.length
+                  ? `View the first ${data.shows.length} of ${data.total} attended shows`
+                  : `View all ${data.total} attended shows`
+              }
             />
           ) : undefined
         }

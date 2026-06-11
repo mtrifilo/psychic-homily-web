@@ -104,8 +104,11 @@ describe('ProfileCollections', () => {
 
     renderWithProviders(<ProfileCollections username="alice" isOwner={false} />)
     expect(screen.queryByText(/more/)).not.toBeInTheDocument()
+    // Honest label: the action can only reveal the fetched page.
     fireEvent.click(
-      screen.getByRole('button', { name: /view all 25 collections/i })
+      screen.getByRole('button', {
+        name: /view the first 20 of 25 collections/i,
+      })
     )
     expect(screen.getByText(/\+ 5 more/)).toBeInTheDocument()
   })

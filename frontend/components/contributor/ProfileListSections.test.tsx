@@ -261,8 +261,11 @@ describe('ProfileAttendedShows', () => {
 
     renderWithProviders(<ProfileAttendedShows username="alice" />)
     expect(screen.queryByText(/more/)).not.toBeInTheDocument()
+    // Honest label: the action can only reveal the fetched page.
     fireEvent.click(
-      screen.getByRole('button', { name: /view all 120 attended shows/i })
+      screen.getByRole('button', {
+        name: /view the first 11 of 120 attended shows/i,
+      })
     )
     expect(screen.getByText(/\+ 109 more/)).toBeInTheDocument()
   })

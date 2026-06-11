@@ -17,6 +17,7 @@ interface ProfileFieldNotesProps {
  * profile-visibility gate applies server-side. No star rating by design
  * (2026-06-09 decision).
  */
+// Collapsed row budget per the design board's notes density.
 const COLLAPSED_COUNT = 5
 
 export function ProfileFieldNotes({ username }: ProfileFieldNotesProps) {
@@ -41,7 +42,11 @@ export function ProfileFieldNotes({ username }: ProfileFieldNotesProps) {
             <ProfileSectionAction
               label="View all →"
               onClick={() => setExpanded(true)}
-              ariaLabel={`View all ${data.total} field notes`}
+              ariaLabel={
+                data.total > data.field_notes.length
+                  ? `View the first ${data.field_notes.length} of ${data.total} field notes`
+                  : `View all ${data.total} field notes`
+              }
             />
           ) : undefined
         }

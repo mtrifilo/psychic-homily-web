@@ -52,7 +52,7 @@ function formatLastActive(dateString: string): string {
  * convention.
  */
 function ShareButton({ username }: { username: string }) {
-  const [copied, setCopied] = useState(false)
+  const [state, setState] = useState<'idle' | 'copied' | 'failed'>('idle')
   // Track the reset timer so a rapid re-click extends the confirmation
   // instead of an earlier timer clipping it short.
   const resetTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
@@ -62,13 +62,14 @@ function ShareButton({ username }: { username: string }) {
       await navigator.clipboard.writeText(
         `${window.location.origin}/users/${username}`
       )
-      setCopied(true)
-      clearTimeout(resetTimer.current)
-      resetTimer.current = setTimeout(() => setCopied(false), 2000)
+      setState('copied')
     } catch {
-      // Clipboard unavailable (permissions / insecure context) — do nothing;
-      // the URL is already in the address bar.
+      // Clipboard unavailable (permissions / insecure context): say so
+      // inline rather than silently doing nothing.
+      setState('failed')
     }
+    clearTimeout(resetTimer.current)
+    resetTimer.current = setTimeout(() => setState('idle'), 2000)
   }
 
   return (
@@ -78,7 +79,13 @@ function ShareButton({ username }: { username: string }) {
       className="text-sm font-semibold hover:text-primary"
       aria-label="Copy a link to this profile"
     >
-      {copied ? <span className="text-primary">Copied ✓</span> : 'Share'}
+      {state === 'copied' ? (
+        <span className="text-primary">Copied ✓</span>
+      ) : state === 'failed' ? (
+        <span className="text-destructive">Copy failed</span>
+      ) : (
+        'Share'
+      )}
     </button>
   )
 }
@@ -124,8 +131,8 @@ export function PublicProfile({ username }: PublicProfileProps) {
     error,
   } = usePublicProfile(username)
 
-  // Fetched here for the sidebar's headline count; <UserCollections> below
-  // shares the same query key, so this costs no extra request.
+  // Fetched here for the sidebar's headline count; <ProfileCollections>
+  // below shares the same query key, so this costs no extra request.
   const { data: collectionsData } = useUserPublicCollections(username)
 
   // The viewer is the profile owner when their logged-in username matches the

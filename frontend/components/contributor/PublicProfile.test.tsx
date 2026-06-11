@@ -89,17 +89,12 @@ vi.mock('./PercentileRankings', () => ({
   ),
 }))
 
-// PSY-945: PublicProfile mounts <UserCollections username=...>, which fires
-// a real GET /users/:username/collections. This suite never awaits it; left
-// un-stubbed it leaked to the real network under the old
-// onUnhandledRequest:'bypass' policy and could still be pending at worker
-// teardown ("Closing rpc while fetch was pending"). Stub it to stay hermetic.
+// PublicProfile fetches useUserPublicCollections for the sidebar headline
+// count (PSY-945 hermeticity: left un-stubbed it leaked to the real
+// network). ProfileCollections — the rendering consumer — is mocked above.
 const mockUseUserPublicCollections = vi.fn()
 
 vi.mock('@/features/collections', () => ({
-  UserCollections: ({ username }: { username: string }) => (
-    <div data-testid="user-collections">Collections for {username}</div>
-  ),
   useUserPublicCollections: (username: string) =>
     mockUseUserPublicCollections(username),
 }))
@@ -357,6 +352,17 @@ describe('PublicProfile', () => {
 
     renderWithProviders(<PublicProfile username="alice" />)
     expect(screen.getByText(/active 4 days ago/)).toBeInTheDocument()
+  })
+
+  it('shows last active "1 week ago" for the 7-13 day range', () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ last_active: '2026-03-10T10:00:00Z' }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByText(/active 1 week ago/)).toBeInTheDocument()
   })
 
   it('shows last active in weeks', () => {

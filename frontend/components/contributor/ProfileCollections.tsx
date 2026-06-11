@@ -13,6 +13,7 @@ interface ProfileCollectionsProps {
   isOwner: boolean
 }
 
+// Collapsed row budget per the design board's collections density.
 const COLLAPSED_COUNT = 5
 
 /**
@@ -52,7 +53,11 @@ export function ProfileCollections({
             <ProfileSectionAction
               label="View all →"
               onClick={() => setExpanded(true)}
-              ariaLabel={`View all ${total} collections`}
+              ariaLabel={
+                total > collections.length
+                  ? `View the first ${collections.length} of ${total} collections`
+                  : `View all ${total} collections`
+              }
             />
           ) : undefined
         }
