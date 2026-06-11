@@ -408,6 +408,10 @@ describe('CommandPalette', () => {
     const input = screen.getByPlaceholderText('Search entities or go to page...')
     await user.type(input, 'sun')
 
+    // PSY-1019: the subtitle is the row's right-aligned metadata (the href
+    // column is gone) — assert it actually renders alongside the name.
+    expect(screen.getByText('Seattle, WA')).toBeInTheDocument()
+
     const row = screen.getByText('Sunn O)))')
     await user.click(row)
 

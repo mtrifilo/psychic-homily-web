@@ -434,7 +434,10 @@ export function CommandPalette() {
                 <span>Recent</span>
                 <button
                   onClick={handleClearRecent}
-                  className="text-[10px] font-normal text-muted-foreground hover:text-foreground"
+                  // font-sans + normal-case break the inheritance from the
+                  // mono/uppercase group-heading styles — this is an action,
+                  // not a heading.
+                  className="font-sans text-[10px] font-normal normal-case tracking-normal text-muted-foreground hover:text-foreground"
                 >
                   Clear
                 </button>
