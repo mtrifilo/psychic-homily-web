@@ -3,9 +3,9 @@ import { render, screen } from '@testing-library/react'
 import { StationOnAirBox } from './StationOnAirBox'
 import type {
   RadioStationDetail,
-  RadioShowListItem,
   RadioEpisodeDetail,
-  RadioPlay,
+  RadioNowPlaying,
+  RadioNowPlayingTrack,
 } from '../types'
 
 vi.mock('next/link', () => ({
@@ -24,9 +24,10 @@ vi.mock('next/link', () => ({
   ),
 }))
 
-const mockUseRadioShows = vi.fn()
-vi.mock('../hooks/useRadioShows', () => ({
-  useRadioShows: (...args: unknown[]) => mockUseRadioShows(...args),
+const mockUseStationNowPlaying = vi.fn()
+vi.mock('../hooks/useStationNowPlaying', () => ({
+  useStationNowPlaying: (...args: unknown[]) =>
+    mockUseStationNowPlaying(...args),
 }))
 
 const mockUseShowLatestEpisode = vi.fn()
@@ -66,81 +67,64 @@ function makeStation(overrides: Partial<RadioStationDetail> = {}): RadioStationD
   }
 }
 
-function makeShow(overrides: Partial<RadioShowListItem> = {}): RadioShowListItem {
+function makeTrack(
+  overrides: Partial<RadioNowPlayingTrack> = {}
+): RadioNowPlayingTrack {
   return {
-    id: 1,
-    station_id: 1,
-    station_name: 'WFMU',
-    name: 'The Night Owl Show',
-    slug: 'night-owl',
-    host_name: 'Pedro Santos',
-    schedule_display: 'Mon 9pm-12am',
-    genre_tags: null,
-    image_url: null,
-    is_active: true,
-    episode_count: 142,
-    latest_air_date: '2026-06-09',
-    ...overrides,
-  }
-}
-
-function makePlay(overrides: Partial<RadioPlay> = {}): RadioPlay {
-  return {
-    id: 1,
-    episode_id: 1,
-    position: 1,
     artist_name: 'CAN',
     track_title: 'Vitamin C',
     album_title: 'Ege Bamyasi',
     label_name: 'United Artists',
     release_year: 1972,
-    is_new: false,
     rotation_status: null,
     dj_comment: null,
-    is_live_performance: false,
-    is_request: false,
     artist_id: 7,
     artist_slug: 'can',
     release_id: null,
     release_slug: null,
     label_id: null,
     label_slug: null,
-    musicbrainz_artist_id: null,
-    musicbrainz_recording_id: null,
-    musicbrainz_release_id: null,
-    air_timestamp: null,
     ...overrides,
   }
 }
 
-function makeEpisode(overrides: Partial<RadioEpisodeDetail> = {}): RadioEpisodeDetail {
+function makeLiveNowPlaying(
+  overrides: Partial<RadioNowPlaying> = {}
+): RadioNowPlaying {
   return {
-    id: 1,
-    show_id: 1,
+    source: 'live',
+    on_air: true,
+    show: {
+      id: 1,
+      name: 'The Night Owl Show',
+      slug: 'night-owl',
+      host_name: 'Pedro Santos',
+    },
     show_name: 'The Night Owl Show',
-    show_slug: 'night-owl',
-    station_name: 'WFMU',
-    station_slug: 'wfmu',
-    title: null,
-    air_date: '2026-06-09',
-    air_time: null,
-    duration_minutes: null,
-    description: null,
-    archive_url: null,
-    mixcloud_url: null,
-    genre_tags: null,
-    mood_tags: null,
-    play_count: 1,
-    plays: [makePlay()],
-    created_at: '2026-06-09T00:00:00Z',
+    host_name: null,
+    current_track: makeTrack(),
+    recent_artists: [],
+    episode_air_date: null,
     ...overrides,
   }
 }
 
-function setShows(shows: RadioShowListItem[]) {
-  mockUseRadioShows.mockReturnValue({
-    data: { shows, count: shows.length },
+function makeArchiveNowPlaying(
+  overrides: Partial<RadioNowPlaying> = {}
+): RadioNowPlaying {
+  return makeLiveNowPlaying({
+    source: 'latest_archive',
+    on_air: false,
+    episode_air_date: '2026-06-08',
+    ...overrides,
+  })
+}
+
+function setNowPlaying(data: RadioNowPlaying | undefined) {
+  mockUseStationNowPlaying.mockReturnValue({
+    data,
     isLoading: false,
+    error: null,
   })
 }
 
@@ -153,44 +137,36 @@ function setEpisode(episode: RadioEpisodeDetail | undefined, isLoading = false) 
   })
 }
 
+const latestEpisode = { air_date: '2026-06-08' } as RadioEpisodeDetail
+
 describe('StationOnAirBox', () => {
   beforeEach(() => {
     vi.clearAllMocks()
+    setEpisode(latestEpisode)
   })
 
-  it('renders nothing when the station has no shows', () => {
-    setShows([])
+  it('renders nothing while the payload is loading', () => {
+    setNowPlaying(undefined)
+    const { container } = render(<StationOnAirBox station={makeStation()} />)
+    expect(container).toBeEmptyDOMElement()
+  })
+
+  it('renders nothing for a station with no shows at all', () => {
+    setNowPlaying(makeArchiveNowPlaying({ show: null, show_name: null, current_track: null }))
     setEpisode(undefined)
     const { container } = render(<StationOnAirBox station={makeStation()} />)
     expect(container).toBeEmptyDOMElement()
   })
 
-  it('surfaces the most-active show (v1 heuristic) with host and schedule', () => {
-    const signature = makeShow({ id: 2, episode_count: 142 })
-    const quieter = makeShow({
-      id: 3,
-      name: 'Techtonic',
-      slug: 'techtonic',
-      episode_count: 30,
-    })
-    setShows([quieter, signature])
-    setEpisode(makeEpisode())
+  it('renders a live broadcast with the ON AIR dot, show link, and track', () => {
+    setNowPlaying(makeLiveNowPlaying())
 
     render(<StationOnAirBox station={makeStation()} />)
 
-    expect(mockUseShowLatestEpisode).toHaveBeenCalledWith('night-owl')
+    expect(screen.getByText(/On air — WFMU/)).toBeInTheDocument()
     const showLink = screen.getByRole('link', { name: 'The Night Owl Show' })
     expect(showLink).toHaveAttribute('href', '/radio/wfmu/night-owl')
     expect(screen.getByText('w/ Pedro Santos')).toBeInTheDocument()
-    expect(screen.getByText('Mon 9pm-12am')).toBeInTheDocument()
-    expect(screen.queryByText('Techtonic')).not.toBeInTheDocument()
-  })
-
-  it('renders the current track with an artist graph link and a playlist link', () => {
-    setShows([makeShow()])
-    setEpisode(makeEpisode())
-
-    render(<StationOnAirBox station={makeStation()} />)
 
     const artistLink = screen.getByRole('link', { name: 'CAN' })
     expect(artistLink).toHaveAttribute('href', '/artists/can')
@@ -199,15 +175,58 @@ describe('StationOnAirBox', () => {
       screen.getByText('Ege Bamyasi · United Artists · 1972')
     ).toBeInTheDocument()
 
+    // Matched show → its latest archived playlist deep-link.
+    expect(mockUseShowLatestEpisode).toHaveBeenCalledWith('night-owl')
     const playlistLink = screen.getByRole('link', { name: 'Open latest playlist →' })
-    expect(playlistLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-09')
+    expect(playlistLink).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-08')
+  })
+
+  it('labels the latest-archive fallback honestly (no on-air claim)', () => {
+    setNowPlaying(makeArchiveNowPlaying())
+
+    render(<StationOnAirBox station={makeStation()} />)
+
+    expect(screen.getByText(/Latest playlist — WFMU/)).toBeInTheDocument()
+    expect(screen.queryByText(/On air/)).not.toBeInTheDocument()
+    expect(screen.getByText('Latest: Jun 8')).toBeInTheDocument()
+    expect(
+      screen.getByRole('link', { name: 'The Night Owl Show' })
+    ).toBeInTheDocument()
+  })
+
+  it('renders an unmatched live show name as plain text with no playlist link', () => {
+    setNowPlaying(
+      makeLiveNowPlaying({
+        show: null,
+        show_name: 'Secret Canine Agents',
+        host_name: 'DJ Perro Caliente',
+        current_track: null,
+      })
+    )
+    setEpisode(undefined)
+
+    render(<StationOnAirBox station={makeStation()} />)
+
+    expect(screen.getByText('Secret Canine Agents')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Secret Canine Agents' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('w/ DJ Perro Caliente')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Open latest playlist →' })
+    ).not.toBeInTheDocument()
+    // Unmatched show → no archive lookup target.
+    expect(mockUseShowLatestEpisode).toHaveBeenCalledWith(undefined)
   })
 
   it('renders the unmatched current artist as plain text (no dead link)', () => {
-    setShows([makeShow()])
-    setEpisode(
-      makeEpisode({
-        plays: [makePlay({ artist_name: 'Obscure Tape Act', artist_id: null, artist_slug: null })],
+    setNowPlaying(
+      makeLiveNowPlaying({
+        current_track: makeTrack({
+          artist_name: 'Obscure Tape Act',
+          artist_id: null,
+          artist_slug: null,
+        }),
       })
     )
 
@@ -220,7 +239,7 @@ describe('StationOnAirBox', () => {
   })
 
   it('still renders show identity when no episode has loaded', () => {
-    setShows([makeShow()])
+    setNowPlaying(makeLiveNowPlaying())
     setEpisode(undefined)
 
     render(<StationOnAirBox station={makeStation()} />)

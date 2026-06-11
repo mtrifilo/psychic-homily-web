@@ -1120,3 +1120,240 @@ func parseWFMUReleaseYear(s string) int {
 	}
 	return year
 }
+
+// =============================================================================
+// Live now-playing (PSY-1022)
+// =============================================================================
+
+// WFMU live channel keys (RadioLiveProvider channel argument). The station →
+// channel routing table in radio_now_playing.go maps our station slugs onto
+// these.
+const (
+	wfmuLiveChannelMain     = "wfmu"
+	wfmuLiveChannelDrummer  = "drummer"
+	wfmuLiveChannelRockSoul = "rocknsoul"
+	wfmuLiveChannelSheena   = "sheena"
+)
+
+// wfmuLiveNowPlayingPath is the per-stream current-shows fragment WFMU's own
+// homepage widget polls (/now-playing-widget.html fetches it every 3.5s and
+// DOM-parses it — verified 2026-06-11, the PSY-1022 spike). There is no JSON
+// source; this KenzoDB-generated HTML is the machine-readable one, with
+// stable class hooks (.item-even/.item-odd, .streamtitle, .bigline,
+// .smallline) that WFMU's own JS depends on. ch ids: 1=WFMU 91.1,
+// 4=Give the Drummer Radio, 6=Rock'n'Soul Radio, 8=Sheena's Jungle Room.
+const wfmuLiveNowPlayingPath = "/currentliveshows_aggregator.php?ch=1,4,6,8"
+
+// FetchLiveNowPlaying returns the current broadcast on one WFMU stream
+// (PSY-1022). channel is one of the wfmuLiveChannel* keys.
+//
+// On-air semantics mirror WFMU's own widget: the main 91.1 stream is always
+// broadcasting; side streams count as live only when their block carries a
+// playlist link (= a live DJ is logging tracks — without it the stream is
+// looping unattended and we prefer the honest latest-archive fallback).
+func (p *WFMUProvider) FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying, error) {
+	body, err := radioLiveGet(p.httpClient, p.baseURL+wfmuLiveNowPlayingPath, wfmuUserAgent, "WFMU")
+	if err != nil {
+		return nil, fmt.Errorf("fetching current live shows: %w", err)
+	}
+
+	streams, err := parseWFMUCurrentLiveShows(body)
+	if err != nil {
+		return nil, fmt.Errorf("parsing current live shows: %w", err)
+	}
+	return streams[channel], nil // nil when the channel is absent or not live
+}
+
+// wfmuStreamChannelKey maps a .streamtitle text ("Give the Drummer Radio
+// stream") to its wfmuLiveChannel* key, "" when unrecognized. Keyword
+// matching mirrors WFMU's widget JS (Drummer/Soul/Sheena, else WFMU).
+func wfmuStreamChannelKey(streamTitle string) string {
+	switch {
+	case strings.Contains(streamTitle, "Drummer"):
+		return wfmuLiveChannelDrummer
+	case strings.Contains(streamTitle, "Soul"):
+		return wfmuLiveChannelRockSoul
+	case strings.Contains(streamTitle, "Sheena"):
+		return wfmuLiveChannelSheena
+	case strings.Contains(streamTitle, "WFMU"):
+		return wfmuLiveChannelMain
+	default:
+		return ""
+	}
+}
+
+// wfmuBiglineTrackRegex parses a .bigline current-song text after whitespace
+// collapse: `"TITLE" by ARTIST`, optionally prefixed with "Your DJ speaks
+// over" while the DJ talks over the music. The title group is greedy so
+// embedded quotes stay inside the title; entities are already decoded by the
+// HTML parser.
+var wfmuBiglineTrackRegex = regexp.MustCompile(`^(?:Your DJ speaks over\s+)?[“"](.*)[”"]\s+by\s+(.+)$`)
+
+// wfmuKDBProgramIDRegex extracts the WFMU program code (our
+// radio_shows.external_id for WFMU shows) from a KDBprogram-XX span id.
+var wfmuKDBProgramIDRegex = regexp.MustCompile(`^KDBprogram-([A-Za-z0-9]+)$`)
+
+// parseWFMUCurrentLiveShows parses the currentliveshows_aggregator fragment
+// into per-channel live payloads. Channels that are present but not live
+// (no playlist link, side streams only) are omitted.
+func parseWFMUCurrentLiveShows(body []byte) (map[string]*RadioLiveNowPlaying, error) {
+	doc, err := html.Parse(strings.NewReader(string(body)))
+	if err != nil {
+		return nil, err
+	}
+
+	streams := make(map[string]*RadioLiveNowPlaying)
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "div" {
+			class := getAttr(n, "class")
+			if class == "item-even" || class == "item-odd" {
+				if key, live := parseWFMULiveStreamBlock(n); key != "" && live != nil {
+					streams[key] = live
+				}
+				return // stream blocks don't nest
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return streams, nil
+}
+
+// parseWFMULiveStreamBlock parses one .item-even/.item-odd stream block.
+// Returns ("", nil) when the block is unrecognizable, (key, nil) when the
+// stream is recognized but not live.
+func parseWFMULiveStreamBlock(block *html.Node) (string, *RadioLiveNowPlaying) {
+	var streamTitle, bigline, smallline, programCode string
+	hasPlaylistLink := false
+
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode {
+			switch {
+			case n.Data == "div" && getAttr(n, "class") == "streamtitle":
+				// Only the leading text ("WFMU stream") — skip the nested
+				// "(Schedule)" link by reading direct text children only.
+				for c := n.FirstChild; c != nil; c = c.NextSibling {
+					if c.Type == html.TextNode {
+						streamTitle += c.Data
+					}
+				}
+			case n.Data == "div" && getAttr(n, "class") == "bigline":
+				bigline = collapseWhitespace(collectTextSkippingFavIcons(n))
+			case n.Data == "div" && getAttr(n, "class") == "smallline":
+				smallline = collapseWhitespace(collectTextSkippingFavIcons(n))
+				if span := findFirstChildSpan(n); span != nil {
+					if m := wfmuKDBProgramIDRegex.FindStringSubmatch(getAttr(span, "id")); m != nil {
+						programCode = m[1]
+					}
+				}
+			case n.Data == "a" && episodeIDRegex.MatchString(getAttr(n, "href")):
+				hasPlaylistLink = true
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(block)
+
+	key := wfmuStreamChannelKey(collapseWhitespace(streamTitle))
+	if key == "" {
+		return "", nil
+	}
+	// Live-DJ rule (see FetchLiveNowPlaying doc): main stream always counts;
+	// side streams need a playlist link.
+	if key != wfmuLiveChannelMain && !hasPlaylistLink {
+		return key, nil
+	}
+
+	showName, hostName := parseWFMUSmallline(smallline)
+	if showName == "" {
+		return key, nil // can't even name the show — fall back to archive
+	}
+
+	live := &RadioLiveNowPlaying{ShowName: showName, HostName: hostName}
+	if programCode != "" {
+		code := programCode
+		live.ShowExternalID = &code
+	}
+	if m := wfmuBiglineTrackRegex.FindStringSubmatch(bigline); m != nil && m[2] != "" {
+		title := m[1]
+		live.CurrentTrack = &RadioPlayImport{ArtistName: m[2], TrackTitle: &title}
+	}
+	return key, live
+}
+
+// parseWFMUSmallline splits "on Push Button Heaven with Jody Peyote" into
+// show name + host. The last " with " is the separator so show names that
+// themselves contain "with" survive; a smallline without one is all show.
+func parseWFMUSmallline(s string) (showName string, hostName *string) {
+	s = strings.TrimSpace(strings.TrimPrefix(strings.TrimSpace(s), "on "))
+	if s == "" {
+		return "", nil
+	}
+	if idx := strings.LastIndex(s, " with "); idx > 0 {
+		host := strings.TrimSpace(s[idx+len(" with "):])
+		show := strings.TrimSpace(s[:idx])
+		if host != "" && show != "" {
+			return show, &host
+		}
+	}
+	return s, nil
+}
+
+// collectTextSkippingFavIcons collects text like collectText but skips
+// KDBFavIcon spans — they hold the favoriting star widget (an <img> today,
+// but any future inner text would corrupt the song/show text).
+func collectTextSkippingFavIcons(n *html.Node) string {
+	if n == nil {
+		return ""
+	}
+	var sb strings.Builder
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if node.Type == html.ElementNode && node.Data == "span" &&
+			strings.Contains(getAttr(node, "class"), "KDBFavIcon") {
+			return
+		}
+		if node.Type == html.TextNode {
+			sb.WriteString(node.Data)
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(n)
+	return strings.TrimSpace(sb.String())
+}
+
+// findFirstChildSpan returns the first <span> descendant of n, nil if none.
+func findFirstChildSpan(n *html.Node) *html.Node {
+	var found *html.Node
+	var walk func(*html.Node)
+	walk = func(node *html.Node) {
+		if found != nil {
+			return
+		}
+		if node.Type == html.ElementNode && node.Data == "span" {
+			found = node
+			return
+		}
+		for c := node.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		walk(c)
+	}
+	return found
+}
+
+// collapseWhitespace folds all whitespace runs (incl. newlines from HTML
+// source formatting) into single spaces and trims.
+func collapseWhitespace(s string) string {
+	return strings.Join(strings.Fields(s), " ")
+}

@@ -217,6 +217,48 @@ func (p *NTSProvider) FetchPlaylist(episodeExternalID string) ([]RadioPlayImport
 	return plays, nil
 }
 
+// FetchLiveNowPlaying returns the current broadcast on one NTS channel
+// (PSY-1022). channel is the NTS channel_name ("1" or "2"), from the in-code
+// station routing table. NTS's live endpoint is show-level only — no track
+// data — so CurrentTrack/RecentTracks stay nil and the now-playing service
+// fills recent artists from the archive fallback.
+func (p *NTSProvider) FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying, error) {
+	body, err := radioLiveGet(p.httpClient, p.baseURL+"/v2/live", ntsUserAgent, "NTS API")
+	if err != nil {
+		return nil, fmt.Errorf("fetching live broadcasts: %w", err)
+	}
+
+	var live ntsLiveResponse
+	if err := json.Unmarshal(body, &live); err != nil {
+		return nil, fmt.Errorf("parsing live response: %w", err)
+	}
+
+	for _, ch := range live.Results {
+		if ch.ChannelName != channel {
+			continue
+		}
+		if ch.Now == nil {
+			return nil, nil // channel exists but reports nothing on air
+		}
+		// Prefer the embedded show details (proper-case name + show alias)
+		// over the often ALL-CAPS broadcast_title.
+		name := ch.Now.Embeds.Details.Name
+		if name == "" {
+			name = ch.Now.BroadcastTitle
+		}
+		if name == "" {
+			return nil, nil
+		}
+		result := &RadioLiveNowPlaying{ShowName: name}
+		if alias := ch.Now.Embeds.Details.ShowAlias; alias != "" {
+			result.ShowExternalID = &alias
+		}
+		return result, nil
+	}
+
+	return nil, nil // requested channel not present in the live feed
+}
+
 // =============================================================================
 // Internal helpers
 // =============================================================================
@@ -394,6 +436,24 @@ type ntsEpisode struct {
 	EpisodeAlias string `json:"episode_alias"`
 	Broadcast    string `json:"broadcast"`
 	Mixcloud     string `json:"mixcloud"`
+}
+
+// ntsLiveResponse matches GET /v2/live: one entry per channel, each with the
+// current (`now`) broadcast and embedded show details. Only the fields the
+// live now-playing fetch needs are mapped.
+type ntsLiveResponse struct {
+	Results []struct {
+		ChannelName string `json:"channel_name"`
+		Now         *struct {
+			BroadcastTitle string `json:"broadcast_title"`
+			Embeds         struct {
+				Details struct {
+					Name      string `json:"name"`
+					ShowAlias string `json:"show_alias"`
+				} `json:"details"`
+			} `json:"embeds"`
+		} `json:"now"`
+	} `json:"results"`
 }
 
 // ntsTracklistResponse matches the JSON returned by

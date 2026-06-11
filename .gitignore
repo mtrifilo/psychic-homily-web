@@ -76,6 +76,10 @@ postgres-data/
 !cli/eval/batch-schema.json
 !cli/eval/fixtures/**/*.json
 
+# Radio provider canned test fixtures (PSY-1022): snapshots of real provider
+# responses; adapter tests parse these instead of hitting live APIs.
+!backend/internal/services/catalog/testdata/*.json
+
 # Backup files
 *.backup
 *.bak

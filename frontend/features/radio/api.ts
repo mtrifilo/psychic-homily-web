@@ -18,6 +18,9 @@ export const radioEndpoints = {
   // Station-scoped aggregations (PSY-1048; consumed by the PSY-1050 station page)
   STATION_EPISODES: (slug: string) =>
     `${API_BASE_URL}/radio-stations/${slug}/episodes`,
+  // PSY-1022: live now-playing (with latest-archive fallback)
+  STATION_NOW_PLAYING: (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${slug}/now-playing`,
   STATION_TOP_ARTISTS: (slug: string) =>
     `${API_BASE_URL}/radio-stations/${slug}/top-artists`,
   STATION_TOP_LABELS: (slug: string) =>
@@ -52,6 +55,8 @@ export const radioQueryKeys = {
   station: (slug: string) => ['radio-stations', slug] as const,
   stationEpisodes: (slug: string, params?: object) =>
     ['radio-stations', slug, 'episodes', params] as const,
+  stationNowPlaying: (slug: string) =>
+    ['radio-stations', slug, 'now-playing'] as const,
   stationTopArtists: (slug: string, params?: object) =>
     ['radio-stations', slug, 'top-artists', params] as const,
   stationTopLabels: (slug: string, params?: object) =>

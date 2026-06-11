@@ -1,0 +1,240 @@
+{
+ "next": "https://api.kexp.org/v2/plays/?limit=1&offset=1",
+ "previous": null,
+ "results": [
+  {
+   "id": 3666543,
+   "uri": "https://api.kexp.org/v2/plays/3666543/",
+   "airdate": "2026-06-11T09:15:02-07:00",
+   "show": 66959,
+   "show_uri": "https://api.kexp.org/v2/shows/66959/",
+   "image_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb500.jpg",
+   "thumbnail_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb250.jpg",
+   "song": "I\u2019m Coming Out",
+   "track_id": "2256bee2-7c5f-3282-b935-15d4106ef0ad",
+   "recording_id": "528538aa-d576-4b84-b4ad-20560f89ad37",
+   "artist": "Diana Ross",
+   "artist_ids": [
+    "60d41417-feda-4734-bbbf-7dcc30e08a83"
+   ],
+   "album": "I'm Coming Out / Give Up",
+   "release_id": "285fb13e-4da0-4748-b079-2071978fb5c1",
+   "release_group_id": "aa790610-b542-348d-972c-4e467ceaa012",
+   "labels": [
+    "Motown"
+   ],
+   "label_ids": [
+    "8e479e57-ef44-490c-b75d-cd28df89bf1b"
+   ],
+   "release_date": "1980-08-01",
+   "rotation_status": "Library",
+   "is_local": false,
+   "is_request": false,
+   "is_live": false,
+   "comment": "This anthem was co-written by Nile Rodgers and Bernard Edwards of Chic. The song was born in the bathroom of a transgender night club called the Gilded Grape. After observing a group of drag queens dressed as Ross, Rodgers ran to a pay phone and instructed Edwards to write down the lyrics \u201cI\u2019m coming out.\u201d \u201cBecause to the gay community, \u2018I\u2019m coming out\u2019 is a battle cry,\u2019\u201d Rodgers recalled saying to Edwards. \u201cIt means the same thing as James Brown\u2019s \u2018Say it loud \u2014 I\u2019m black and I\u2019m proud.\u2019\u201d: https://www.udiscovermusic.com/stories/diana-ross-im-coming-out-feature/",
+   "location": 1,
+   "location_name": "Default",
+   "play_type": "trackplay"
+  },
+  {
+   "id": 3666544,
+   "uri": "https://api.kexp.org/v2/plays/3666543/",
+   "airdate": "2026-06-11T09:15:02-07:00",
+   "show": 66959,
+   "show_uri": "https://api.kexp.org/v2/shows/66959/",
+   "image_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb500.jpg",
+   "thumbnail_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb250.jpg",
+   "song": "",
+   "track_id": "2256bee2-7c5f-3282-b935-15d4106ef0ad",
+   "recording_id": "528538aa-d576-4b84-b4ad-20560f89ad37",
+   "artist": "",
+   "artist_ids": [],
+   "album": "",
+   "release_id": "285fb13e-4da0-4748-b079-2071978fb5c1",
+   "release_group_id": "aa790610-b542-348d-972c-4e467ceaa012",
+   "labels": [],
+   "label_ids": [
+    "8e479e57-ef44-490c-b75d-cd28df89bf1b"
+   ],
+   "release_date": "1980-08-01",
+   "rotation_status": "Library",
+   "is_local": false,
+   "is_request": false,
+   "is_live": false,
+   "comment": "This anthem was co-written by Nile Rodgers and Bernard Edwards of Chic. The song was born in the bathroom of a transgender night club called the Gilded Grape. After observing a group of drag queens dressed as Ross, Rodgers ran to a pay phone and instructed Edwards to write down the lyrics \u201cI\u2019m coming out.\u201d \u201cBecause to the gay community, \u2018I\u2019m coming out\u2019 is a battle cry,\u2019\u201d Rodgers recalled saying to Edwards. \u201cIt means the same thing as James Brown\u2019s \u2018Say it loud \u2014 I\u2019m black and I\u2019m proud.\u2019\u201d: https://www.udiscovermusic.com/stories/diana-ross-im-coming-out-feature/",
+   "location": 1,
+   "location_name": "Default",
+   "play_type": "airbreak"
+  },
+  {
+   "id": 3666542,
+   "uri": "https://api.kexp.org/v2/plays/3666543/",
+   "airdate": "2026-06-11T09:15:02-07:00",
+   "show": 66959,
+   "show_uri": "https://api.kexp.org/v2/shows/66959/",
+   "image_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb500.jpg",
+   "thumbnail_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb250.jpg",
+   "song": "Good Times",
+   "track_id": "2256bee2-7c5f-3282-b935-15d4106ef0ad",
+   "recording_id": "528538aa-d576-4b84-b4ad-20560f89ad37",
+   "artist": "Chic",
+   "artist_ids": [
+    "60d41417-feda-4734-bbbf-7dcc30e08a83"
+   ],
+   "album": "I'm Coming Out / Give Up",
+   "release_id": "285fb13e-4da0-4748-b079-2071978fb5c1",
+   "release_group_id": "aa790610-b542-348d-972c-4e467ceaa012",
+   "labels": [
+    "Motown"
+   ],
+   "label_ids": [
+    "8e479e57-ef44-490c-b75d-cd28df89bf1b"
+   ],
+   "release_date": "1980-08-01",
+   "rotation_status": "Library",
+   "is_local": false,
+   "is_request": false,
+   "is_live": false,
+   "comment": "This anthem was co-written by Nile Rodgers and Bernard Edwards of Chic. The song was born in the bathroom of a transgender night club called the Gilded Grape. After observing a group of drag queens dressed as Ross, Rodgers ran to a pay phone and instructed Edwards to write down the lyrics \u201cI\u2019m coming out.\u201d \u201cBecause to the gay community, \u2018I\u2019m coming out\u2019 is a battle cry,\u2019\u201d Rodgers recalled saying to Edwards. \u201cIt means the same thing as James Brown\u2019s \u2018Say it loud \u2014 I\u2019m black and I\u2019m proud.\u2019\u201d: https://www.udiscovermusic.com/stories/diana-ross-im-coming-out-feature/",
+   "location": 1,
+   "location_name": "Default",
+   "play_type": "trackplay"
+  },
+  {
+   "id": 3666541,
+   "uri": "https://api.kexp.org/v2/plays/3666543/",
+   "airdate": "2026-06-11T09:15:02-07:00",
+   "show": 66959,
+   "show_uri": "https://api.kexp.org/v2/shows/66959/",
+   "image_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb500.jpg",
+   "thumbnail_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb250.jpg",
+   "song": "Upside Down",
+   "track_id": "2256bee2-7c5f-3282-b935-15d4106ef0ad",
+   "recording_id": "528538aa-d576-4b84-b4ad-20560f89ad37",
+   "artist": "Diana Ross",
+   "artist_ids": [
+    "60d41417-feda-4734-bbbf-7dcc30e08a83"
+   ],
+   "album": "I'm Coming Out / Give Up",
+   "release_id": "285fb13e-4da0-4748-b079-2071978fb5c1",
+   "release_group_id": "aa790610-b542-348d-972c-4e467ceaa012",
+   "labels": [
+    "Motown"
+   ],
+   "label_ids": [
+    "8e479e57-ef44-490c-b75d-cd28df89bf1b"
+   ],
+   "release_date": "1980-08-01",
+   "rotation_status": "Library",
+   "is_local": false,
+   "is_request": false,
+   "is_live": false,
+   "comment": "This anthem was co-written by Nile Rodgers and Bernard Edwards of Chic. The song was born in the bathroom of a transgender night club called the Gilded Grape. After observing a group of drag queens dressed as Ross, Rodgers ran to a pay phone and instructed Edwards to write down the lyrics \u201cI\u2019m coming out.\u201d \u201cBecause to the gay community, \u2018I\u2019m coming out\u2019 is a battle cry,\u2019\u201d Rodgers recalled saying to Edwards. \u201cIt means the same thing as James Brown\u2019s \u2018Say it loud \u2014 I\u2019m black and I\u2019m proud.\u2019\u201d: https://www.udiscovermusic.com/stories/diana-ross-im-coming-out-feature/",
+   "location": 1,
+   "location_name": "Default",
+   "play_type": "trackplay"
+  },
+  {
+   "id": 3666540,
+   "uri": "https://api.kexp.org/v2/plays/3666543/",
+   "airdate": "2026-06-11T09:15:02-07:00",
+   "show": 66959,
+   "show_uri": "https://api.kexp.org/v2/shows/66959/",
+   "image_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb500.jpg",
+   "thumbnail_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb250.jpg",
+   "song": "We Are Family",
+   "track_id": "2256bee2-7c5f-3282-b935-15d4106ef0ad",
+   "recording_id": "528538aa-d576-4b84-b4ad-20560f89ad37",
+   "artist": "Sister Sledge",
+   "artist_ids": [
+    "60d41417-feda-4734-bbbf-7dcc30e08a83"
+   ],
+   "album": "I'm Coming Out / Give Up",
+   "release_id": "285fb13e-4da0-4748-b079-2071978fb5c1",
+   "release_group_id": "aa790610-b542-348d-972c-4e467ceaa012",
+   "labels": [
+    "Motown"
+   ],
+   "label_ids": [
+    "8e479e57-ef44-490c-b75d-cd28df89bf1b"
+   ],
+   "release_date": "1980-08-01",
+   "rotation_status": "Library",
+   "is_local": false,
+   "is_request": false,
+   "is_live": false,
+   "comment": "This anthem was co-written by Nile Rodgers and Bernard Edwards of Chic. The song was born in the bathroom of a transgender night club called the Gilded Grape. After observing a group of drag queens dressed as Ross, Rodgers ran to a pay phone and instructed Edwards to write down the lyrics \u201cI\u2019m coming out.\u201d \u201cBecause to the gay community, \u2018I\u2019m coming out\u2019 is a battle cry,\u2019\u201d Rodgers recalled saying to Edwards. \u201cIt means the same thing as James Brown\u2019s \u2018Say it loud \u2014 I\u2019m black and I\u2019m proud.\u2019\u201d: https://www.udiscovermusic.com/stories/diana-ross-im-coming-out-feature/",
+   "location": 1,
+   "location_name": "Default",
+   "play_type": "trackplay"
+  },
+  {
+   "id": 3666539,
+   "uri": "https://api.kexp.org/v2/plays/3666543/",
+   "airdate": "2026-06-11T09:15:02-07:00",
+   "show": 66959,
+   "show_uri": "https://api.kexp.org/v2/shows/66959/",
+   "image_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb500.jpg",
+   "thumbnail_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb250.jpg",
+   "song": "Le Freak",
+   "track_id": "2256bee2-7c5f-3282-b935-15d4106ef0ad",
+   "recording_id": "528538aa-d576-4b84-b4ad-20560f89ad37",
+   "artist": "Chic",
+   "artist_ids": [
+    "60d41417-feda-4734-bbbf-7dcc30e08a83"
+   ],
+   "album": "I'm Coming Out / Give Up",
+   "release_id": "285fb13e-4da0-4748-b079-2071978fb5c1",
+   "release_group_id": "aa790610-b542-348d-972c-4e467ceaa012",
+   "labels": [
+    "Motown"
+   ],
+   "label_ids": [
+    "8e479e57-ef44-490c-b75d-cd28df89bf1b"
+   ],
+   "release_date": "1980-08-01",
+   "rotation_status": "Library",
+   "is_local": false,
+   "is_request": false,
+   "is_live": false,
+   "comment": "This anthem was co-written by Nile Rodgers and Bernard Edwards of Chic. The song was born in the bathroom of a transgender night club called the Gilded Grape. After observing a group of drag queens dressed as Ross, Rodgers ran to a pay phone and instructed Edwards to write down the lyrics \u201cI\u2019m coming out.\u201d \u201cBecause to the gay community, \u2018I\u2019m coming out\u2019 is a battle cry,\u2019\u201d Rodgers recalled saying to Edwards. \u201cIt means the same thing as James Brown\u2019s \u2018Say it loud \u2014 I\u2019m black and I\u2019m proud.\u2019\u201d: https://www.udiscovermusic.com/stories/diana-ross-im-coming-out-feature/",
+   "location": 1,
+   "location_name": "Default",
+   "play_type": "trackplay"
+  },
+  {
+   "id": 3666538,
+   "uri": "https://api.kexp.org/v2/plays/3666543/",
+   "airdate": "2026-06-11T09:15:02-07:00",
+   "show": 66959,
+   "show_uri": "https://api.kexp.org/v2/shows/66959/",
+   "image_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb500.jpg",
+   "thumbnail_uri": "https://dn711107.ca.archive.org/0/items/mbid-285fb13e-4da0-4748-b079-2071978fb5c1/mbid-285fb13e-4da0-4748-b079-2071978fb5c1-4641930487_thumb250.jpg",
+   "song": "Do What You Wanna Do",
+   "track_id": "2256bee2-7c5f-3282-b935-15d4106ef0ad",
+   "recording_id": "528538aa-d576-4b84-b4ad-20560f89ad37",
+   "artist": "Nile Rodgers",
+   "artist_ids": [
+    "60d41417-feda-4734-bbbf-7dcc30e08a83"
+   ],
+   "album": "I'm Coming Out / Give Up",
+   "release_id": "285fb13e-4da0-4748-b079-2071978fb5c1",
+   "release_group_id": "aa790610-b542-348d-972c-4e467ceaa012",
+   "labels": [
+    "Motown"
+   ],
+   "label_ids": [
+    "8e479e57-ef44-490c-b75d-cd28df89bf1b"
+   ],
+   "release_date": "1980-08-01",
+   "rotation_status": "Library",
+   "is_local": false,
+   "is_request": false,
+   "is_live": false,
+   "comment": "This anthem was co-written by Nile Rodgers and Bernard Edwards of Chic. The song was born in the bathroom of a transgender night club called the Gilded Grape. After observing a group of drag queens dressed as Ross, Rodgers ran to a pay phone and instructed Edwards to write down the lyrics \u201cI\u2019m coming out.\u201d \u201cBecause to the gay community, \u2018I\u2019m coming out\u2019 is a battle cry,\u2019\u201d Rodgers recalled saying to Edwards. \u201cIt means the same thing as James Brown\u2019s \u2018Say it loud \u2014 I\u2019m black and I\u2019m proud.\u2019\u201d: https://www.udiscovermusic.com/stories/diana-ross-im-coming-out-feature/",
+   "location": 1,
+   "location_name": "Default",
+   "play_type": "trackplay"
+  }
+ ]
+}

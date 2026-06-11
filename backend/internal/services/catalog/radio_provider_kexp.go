@@ -462,6 +462,78 @@ func parseKEXPEpisode(show kexpShow, programExternalID string) RadioEpisodeImpor
 	return ep
 }
 
+// kexpLivePlaysLimit is how many recent plays the live now-playing fetch
+// pulls: 1 current + headroom for 4 distinct recent artists even with
+// back-to-back same-artist spins and interleaved airbreaks.
+const kexpLivePlaysLimit = 10
+
+// FetchLiveNowPlaying returns KEXP's current broadcast (PSY-1022).
+// KEXP is single-stream, so channel is ignored.
+//
+// Two time-boxed calls: /v2/shows/?limit=1 (current program + hosts — the
+// play record carries only a broadcast-instance id, not the program) and
+// /v2/plays/?limit=N (current track + recent plays). KEXP broadcasts 24/7,
+// so a successful shows lookup means on-air.
+func (p *KEXPProvider) FetchLiveNowPlaying(_ string) (*RadioLiveNowPlaying, error) {
+	showBody, err := radioLiveGet(p.httpClient, fmt.Sprintf("%s/v2/shows/?limit=1", p.baseURL), kexpUserAgent, "KEXP API")
+	if err != nil {
+		return nil, fmt.Errorf("fetching current show: %w", err)
+	}
+	var shows kexpLiveShowsResponse
+	if err := json.Unmarshal(showBody, &shows); err != nil {
+		return nil, fmt.Errorf("parsing current show response: %w", err)
+	}
+	if len(shows.Results) == 0 || shows.Results[0].ProgramName == "" {
+		return nil, nil // no current broadcast reported
+	}
+	current := shows.Results[0]
+
+	live := &RadioLiveNowPlaying{ShowName: current.ProgramName}
+	if current.Program > 0 {
+		ext := strconv.Itoa(current.Program)
+		live.ShowExternalID = &ext
+	}
+	if host := strings.Join(nonEmptyStrings(current.HostNames), ", "); host != "" {
+		live.HostName = &host
+	}
+
+	playsBody, err := radioLiveGet(p.httpClient, fmt.Sprintf("%s/v2/plays/?limit=%d", p.baseURL, kexpLivePlaysLimit), kexpUserAgent, "KEXP API")
+	if err != nil {
+		return nil, fmt.Errorf("fetching current plays: %w", err)
+	}
+	var plays kexpPlaysResponse
+	if err := json.Unmarshal(playsBody, &plays); err != nil {
+		return nil, fmt.Errorf("parsing current plays response: %w", err)
+	}
+
+	for i, kPlay := range plays.Results {
+		if kPlay.PlayType != "trackplay" || kPlay.Artist == "" {
+			continue // airbreaks carry no track
+		}
+		play := parseKEXPPlay(kPlay, 0)
+		if i == 0 {
+			// The newest play is only "now playing" if it's the head of the
+			// feed; a leading airbreak means we're between tracks.
+			live.CurrentTrack = &play
+		} else {
+			live.RecentTracks = append(live.RecentTracks, play)
+		}
+	}
+
+	return live, nil
+}
+
+// nonEmptyStrings filters empty entries (defensive against sparse host_names).
+func nonEmptyStrings(in []string) []string {
+	out := make([]string, 0, len(in))
+	for _, s := range in {
+		if s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
 // parseKEXPPlay converts a KEXP play into our play import DTO.
 func parseKEXPPlay(kPlay kexpPlay, position int) RadioPlayImport {
 	play := RadioPlayImport{
@@ -574,6 +646,18 @@ type kexpShowListing struct {
 type kexpShowsResponse struct {
 	kexpPaginatedResponse
 	Results []kexpShow `json:"results"`
+}
+
+// kexpLiveShowsResponse is the /v2/shows/?limit=1 shape the live now-playing
+// fetch needs: the current broadcast's program reference, display name, and
+// resolved host names (kexpShow drops host_names; kexpShowListing drops
+// program_name — this carries both).
+type kexpLiveShowsResponse struct {
+	Results []struct {
+		Program     int      `json:"program"`
+		ProgramName string   `json:"program_name"`
+		HostNames   []string `json:"host_names"`
+	} `json:"results"`
 }
 
 type kexpShow struct {
