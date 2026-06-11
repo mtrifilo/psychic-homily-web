@@ -38,6 +38,8 @@ import { Checkbox } from '@/components/ui/checkbox'
 // multi-route reachable, so barrel edges here would (a) create shows<->artists
 // and shows<->venues value-import cycles and (b) hoist the artists/venues
 // feature graphs into this form's client chunk (PSY-944/PSY-950).
+// Type-only barrel imports (e.g. `import type { Venue }` above) are fine —
+// they're erased at build and create no runtime edge.
 import { FormField } from '@/components/forms/FormField'
 import { ArtistInput } from '@/features/artists/components/ArtistInput'
 import { VenueInput } from '@/features/venues/components/VenueInput'
