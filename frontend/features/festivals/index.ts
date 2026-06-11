@@ -44,7 +44,6 @@ export {
   formatFestivalLocation,
   formatFestivalDateRange,
   formatFestivalDates,
-  getTierBarWidth,
 } from './types'
 
 // Hooks

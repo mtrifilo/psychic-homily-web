@@ -324,16 +324,3 @@ export interface SeriesComparison {
   lineup_growth: number
 }
 
-/** Width percentage for trajectory bar chart based on billing tier */
-export function getTierBarWidth(tier: string): number {
-  switch (tier) {
-    case 'headliner': return 100
-    case 'sub_headliner': return 80
-    case 'mid_card': return 60
-    case 'undercard': return 40
-    case 'local': return 25
-    case 'dj': return 25
-    case 'host': return 15
-    default: return 30
-  }
-}

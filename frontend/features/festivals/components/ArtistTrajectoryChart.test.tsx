@@ -43,7 +43,7 @@ describe('ArtistTrajectoryChart', () => {
       isLoading: false,
     })
     renderWithProviders(<ArtistTrajectoryChart artistIdOrSlug={1} />)
-    expect(screen.getByText('Festival History')).toBeInTheDocument()
+    expect(screen.getByText('Festival appearances')).toBeInTheDocument()
     expect(screen.getByText('SXSW 2024')).toBeInTheDocument()
     expect(screen.getByText('Pitchfork 2023')).toBeInTheDocument()
   })
@@ -56,7 +56,7 @@ describe('ArtistTrajectoryChart', () => {
     renderWithProviders(
       <ArtistTrajectoryChart artistIdOrSlug={1} defaultCollapsed />
     )
-    expect(screen.getByText('Festival History')).toBeInTheDocument()
+    expect(screen.getByText('Festival appearances')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Show' })).toBeInTheDocument()
     expect(screen.queryByText('SXSW 2024')).not.toBeInTheDocument()
   })

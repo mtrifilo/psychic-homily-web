@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
 import { BracketLink } from '@/components/shared/BracketLink'
 import { useArtistFestivalTrajectory } from '../hooks/useFestivals'
-import { getBillingTierLabel, getTierBarWidth } from '../types'
+import { getBillingTierLabel } from '../types'
 import type { ArtistTrajectory } from '../types'
 
 interface ArtistTrajectoryChartProps {
@@ -21,39 +21,43 @@ interface ArtistTrajectoryChartProps {
   defaultCollapsed?: boolean
 }
 
-function ChartBody({ data }: { data: ArtistTrajectory }) {
+function AppearanceRows({ data }: { data: ArtistTrajectory }) {
   return (
     <>
-      <div className="space-y-2">
+      {/* Dense rows per the Figma Artists board (PSY-1070): year · full
+          linked festival name · billed-as. The previous tier-width bars
+          encoded billing tier as decoration while truncating the festival
+          name — the actual content — to 140px. */}
+      <div className="flex items-baseline gap-4 pb-1.5 border-b border-border/60 text-[11px] uppercase tracking-wider text-muted-foreground">
+        <span className="w-12 shrink-0">Year</span>
+        <span className="min-w-0 flex-1">Festival</span>
+        <span className="w-28 shrink-0">Billed as</span>
+      </div>
+      <div className="divide-y divide-border/60">
         {data.appearances.map(entry => (
           <div
             key={`${entry.festival_slug}-${entry.year}`}
-            className="flex items-center gap-3"
+            className="flex items-baseline gap-4 py-2 text-sm"
           >
-            <span className="text-xs text-muted-foreground w-10 text-right tabular-nums">
+            <span className="w-12 shrink-0 font-mono text-xs text-muted-foreground tabular-nums">
               {entry.year}
             </span>
-            <div className="flex-1">
-              <div
-                className="h-5 rounded bg-primary/20 flex items-center px-2"
-                style={{ width: `${getTierBarWidth(entry.tier)}%` }}
+            <span className="min-w-0 flex-1 font-medium">
+              <Link
+                href={`/festivals/${entry.festival_slug}`}
+                className="hover:text-primary hover:underline"
               >
-                <span className="text-[10px] text-foreground/80 truncate">
-                  {getBillingTierLabel(entry.tier)}
-                </span>
-              </div>
-            </div>
-            <Link
-              href={`/festivals/${entry.festival_slug}`}
-              className="text-xs text-muted-foreground hover:text-primary transition-colors truncate max-w-[140px]"
-            >
-              {entry.festival_name}
-            </Link>
+                {entry.festival_name}
+              </Link>
+            </span>
+            <span className="w-28 shrink-0 text-muted-foreground">
+              {getBillingTierLabel(entry.tier)}
+            </span>
           </div>
         ))}
       </div>
       {data.total_appearances > 1 && (
-        <div className="mt-3 text-xs text-muted-foreground">
+        <div className="mt-2 font-mono text-[11px] text-muted-foreground">
           {/* Factual count only — Rising/Steady trend judgments were removed
               (PSY-1056): our lineup history is incomplete, so any trend read
               off it is a guess. */}
@@ -92,14 +96,14 @@ export function ArtistTrajectoryChart({
       <div>
         <div className="flex items-baseline justify-between gap-2 mb-2">
           <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">
-            Festival History
+            Festival appearances
           </h2>
           <BracketLink
             label={open ? 'Hide' : 'Show'}
             onClick={() => setOpen(!open)}
           />
         </div>
-        {open && <ChartBody data={data} />}
+        {open && <AppearanceRows data={data} />}
       </div>
     )
   }
@@ -107,9 +111,9 @@ export function ArtistTrajectoryChart({
   return (
     <div>
       <h2 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-3">
-        Festival History
+        Festival appearances
       </h2>
-      <ChartBody data={data} />
+      <AppearanceRows data={data} />
     </div>
   )
 }

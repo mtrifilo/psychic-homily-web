@@ -11,7 +11,6 @@ import {
   formatFestivalLocation,
   formatFestivalDateRange,
   formatFestivalDates,
-  getTierBarWidth,
 } from './types'
 
 describe('status constants', () => {
@@ -128,18 +127,3 @@ describe('formatFestivalDateRange', () => {
   })
 })
 
-describe('getTierBarWidth', () => {
-  it('returns a descending width per known tier', () => {
-    expect(getTierBarWidth('headliner')).toBe(100)
-    expect(getTierBarWidth('sub_headliner')).toBe(80)
-    expect(getTierBarWidth('mid_card')).toBe(60)
-    expect(getTierBarWidth('undercard')).toBe(40)
-    expect(getTierBarWidth('local')).toBe(25)
-    expect(getTierBarWidth('dj')).toBe(25)
-    expect(getTierBarWidth('host')).toBe(15)
-  })
-
-  it('falls back to 30 for unknown tiers', () => {
-    expect(getTierBarWidth('mystery')).toBe(30)
-  })
-})
