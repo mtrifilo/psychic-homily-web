@@ -57,14 +57,15 @@ function formatTooltipDate(date: Date): string {
 
 /**
  * Map intensity level (0-4) to a Tailwind class for the cell background.
- * Uses emerald shades with dark mode variants.
+ * Opacity ramp on the primary token (design board G) so the scale tracks
+ * both themes without per-mode overrides.
  */
 const INTENSITY_CLASSES = [
-  'bg-muted/40',                                          // 0: no activity
-  'bg-emerald-200 dark:bg-emerald-900/70',                // level 1
-  'bg-emerald-300 dark:bg-emerald-700',                   // level 2
-  'bg-emerald-500 dark:bg-emerald-500',                   // level 3
-  'bg-emerald-700 dark:bg-emerald-300',                   // level 4: max
+  'bg-muted/40',      // 0: no activity
+  'bg-primary/25',    // level 1
+  'bg-primary/50',    // level 2
+  'bg-primary/75',    // level 3
+  'bg-primary',       // level 4: max
 ]
 
 function getIntensityLevel(count: number, maxCount: number): number {

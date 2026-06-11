@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen, fireEvent } from '@testing-library/react'
+import { screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { PublicProfile } from './PublicProfile'
 import type { PublicProfileResponse } from '@/features/auth'
@@ -65,12 +65,6 @@ vi.mock('@/lib/context/AuthContext', () => ({
 vi.mock('./UserTierBadge', () => ({
   UserTierBadge: ({ tier }: { tier: string }) => (
     <span data-testid="tier-badge">{tier}</span>
-  ),
-}))
-
-vi.mock('./ContributionStatsGrid', () => ({
-  ContributionStatsGrid: () => (
-    <div data-testid="stats-grid">Stats Grid</div>
   ),
 }))
 
@@ -406,9 +400,11 @@ describe('PublicProfile', () => {
     // (PSY-1045) — no expander, no grid.
     expect(screen.getByText('Statistics')).toBeInTheDocument()
     expect(screen.getByText('42')).toBeInTheDocument()
-    expect(screen.getByText('Contributions')).toBeInTheDocument()
-    expect(screen.queryByText('[All stats]')).not.toBeInTheDocument()
-    expect(screen.queryByTestId('stats-grid')).not.toBeInTheDocument()
+    expect(screen.getByText('contributions')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('button', { name: /show all statistics/i })
+    ).not.toBeInTheDocument()
+    expect(screen.queryByText('All contributions')).not.toBeInTheDocument()
   })
 
   it('does not show stats count when it is 0', () => {
@@ -461,20 +457,24 @@ describe('PublicProfile', () => {
     // headline numbers visible, grid/heatmap/rankings only after expanding.
     expect(screen.getByText('Statistics')).toBeInTheDocument()
     expect(screen.getByText('18')).toBeInTheDocument() // total contributions headline
-    expect(screen.queryByTestId('stats-grid')).not.toBeInTheDocument()
+    expect(screen.queryByText('All contributions')).not.toBeInTheDocument()
     expect(screen.queryByTestId('activity-heatmap')).not.toBeInTheDocument()
     expect(screen.queryByTestId('percentile-rankings')).not.toBeInTheDocument()
 
     fireEvent.click(screen.getByRole('button', { name: /show all statistics/i }))
 
-    expect(screen.getByTestId('stats-grid')).toBeInTheDocument()
+    // The dense breakdown list (board G) renders non-zero rows only.
+    expect(screen.getByText('All contributions')).toBeInTheDocument()
+    expect(screen.getByText('Shows submitted')).toBeInTheDocument()
+    expect(screen.getByText('10')).toBeInTheDocument()
+    expect(screen.queryByText('Releases created')).not.toBeInTheDocument()
     expect(screen.getByTestId('activity-heatmap')).toBeInTheDocument()
     expect(screen.getByTestId('percentile-rankings')).toBeInTheDocument()
 
     fireEvent.click(
       screen.getByRole('button', { name: /hide the full statistics/i })
     )
-    expect(screen.queryByTestId('stats-grid')).not.toBeInTheDocument()
+    expect(screen.queryByText('All contributions')).not.toBeInTheDocument()
   })
 
   it('shows recent activity when contributions exist', () => {
@@ -633,12 +633,13 @@ describe('PublicProfile', () => {
 
     renderWithProviders(<PublicProfile username="alice" />)
     // Full stats win over the count-only fallback: the expander affordance
-    // renders (count-only mode has no expander) and opening it shows the grid.
+    // renders (count-only mode has no expander) and opening it shows the
+    // breakdown panel.
     expect(
       screen.getByRole('button', { name: /show all statistics/i })
     ).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /show all statistics/i }))
-    expect(screen.getByTestId('stats-grid')).toBeInTheDocument()
+    expect(screen.getByText('All contributions')).toBeInTheDocument()
   })
 
   // --- Owner-only Edit affordance (PSY-1025) ---

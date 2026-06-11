@@ -1,61 +1,31 @@
 'use client'
 
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
-import { Trophy } from 'lucide-react'
+import { SectionHeader } from '@/components/shared/SectionHeader'
 import { usePercentileRankings } from '@/features/auth'
 import type { PercentileRanking } from '@/features/auth'
 
-function getPercentileColor(percentile: number): string {
-  if (percentile >= 75) return 'bg-green-500'
-  if (percentile >= 50) return 'bg-yellow-500'
-  if (percentile >= 25) return 'bg-orange-500'
-  return 'bg-red-500'
-}
-
-function getPercentileTextColor(percentile: number): string {
-  if (percentile >= 75) return 'text-green-500'
-  if (percentile >= 50) return 'text-yellow-500'
-  if (percentile >= 25) return 'text-orange-500'
-  return 'text-red-500'
-}
-
-function formatDimensionValue(value: number): string {
-  if (value >= 1000) return `${(value / 1000).toFixed(1)}k`
-  return String(value)
-}
-
+/**
+ * Percentile-ranking bars for the profile stats expander (design board G):
+ * editorial single-hue treatment — primary-colored fill on a muted track,
+ * "top N%" in mono — replacing the old traffic-light Card (PSY-1058). Bar
+ * width is the user's percentile standing, so "top 4%" renders nearly full.
+ */
 function RankingBar({ ranking }: { ranking: PercentileRanking }) {
   return (
-    <div className="space-y-1.5">
-      <div className="flex items-center justify-between text-sm">
-        <span className="text-muted-foreground">{ranking.label}</span>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">
-            {formatDimensionValue(ranking.value)}
-          </span>
-          <span className={`text-xs font-medium ${getPercentileTextColor(ranking.percentile)}`}>
-            Top {100 - ranking.percentile}%
-          </span>
-        </div>
+    <div className="space-y-1">
+      <div className="flex items-baseline justify-between gap-2">
+        <span className="text-sm">{ranking.label}</span>
+        <span className="shrink-0 font-mono text-xs tabular-nums">
+          top {100 - ranking.percentile}%
+        </span>
       </div>
-      <div className="h-2 w-full rounded-full bg-muted">
+      <div className="h-1.5 w-full bg-muted">
         <div
-          className={`h-full rounded-full transition-all ${getPercentileColor(ranking.percentile)}`}
+          className="h-full bg-primary transition-all"
           style={{ width: `${Math.max(ranking.percentile, 2)}%` }}
         />
       </div>
-    </div>
-  )
-}
-
-function OverallBadge({ score }: { score: number }) {
-  return (
-    <div className="flex items-center gap-2 rounded-lg border border-border/50 bg-muted/30 px-3 py-2">
-      <Trophy className={`h-4 w-4 ${getPercentileTextColor(score)}`} />
-      <span className="text-sm font-medium">
-        Top {100 - score}% overall
-      </span>
     </div>
   )
 }
@@ -69,19 +39,15 @@ export function PercentileRankings({ username }: PercentileRankingsProps) {
 
   if (isLoading) {
     return (
-      <Card className="bg-muted/30 border-border/50">
-        <CardHeader className="pb-3">
-          <Skeleton className="h-5 w-40" />
-        </CardHeader>
-        <CardContent className="space-y-4">
-          {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="space-y-2">
-              <Skeleton className="h-4 w-full" />
-              <Skeleton className="h-2 w-full" />
-            </div>
-          ))}
-        </CardContent>
-      </Card>
+      <div className="space-y-3">
+        <Skeleton className="h-4 w-40" />
+        {Array.from({ length: 5 }).map((_, i) => (
+          <div key={i} className="space-y-1.5">
+            <Skeleton className="h-4 w-full" />
+            <Skeleton className="h-1.5 w-full" />
+          </div>
+        ))}
+      </div>
     )
   }
 
@@ -93,20 +59,22 @@ export function PercentileRankings({ username }: PercentileRankingsProps) {
   const hasDetailedRankings = rankings.rankings.length > 0
 
   return (
-    <Card className="bg-muted/30 border-border/50">
-      <CardHeader className="pb-3">
-        <div className="flex items-center justify-between">
-          <CardTitle className="text-base font-semibold">Rankings</CardTitle>
-          <OverallBadge score={rankings.overall_score} />
-        </div>
-      </CardHeader>
+    <div>
+      <SectionHeader
+        title="Percentile rankings"
+        action={
+          <span className="font-mono text-xs text-primary">
+            overall · top {100 - rankings.overall_score}%
+          </span>
+        }
+      />
       {hasDetailedRankings && (
-        <CardContent className="space-y-3">
-          {rankings.rankings.map((ranking) => (
+        <div className="mt-1 space-y-2.5">
+          {rankings.rankings.map(ranking => (
             <RankingBar key={ranking.dimension} ranking={ranking} />
           ))}
-        </CardContent>
+        </div>
       )}
-    </Card>
+    </div>
   )
 }
