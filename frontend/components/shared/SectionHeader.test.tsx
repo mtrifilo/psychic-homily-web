@@ -62,4 +62,28 @@ describe('SectionHeader', () => {
     const wrapper = container.firstChild as HTMLElement
     expect(wrapper.className).toContain('mt-8')
   })
+
+  describe('variant (PSY-1062)', () => {
+    it('defaults to the caps treatment', () => {
+      render(<SectionHeader title="Statistics" />)
+      const heading = screen.getByRole('heading', { name: 'Statistics' })
+      expect(heading.className).toContain('uppercase')
+      expect(heading.className).toContain('text-muted-foreground')
+    })
+
+    it('renders the title treatment without caps styling', () => {
+      render(<SectionHeader title="Field notes" variant="title" size="md" />)
+      const heading = screen.getByRole('heading', { name: 'Field notes' })
+      expect(heading.className).not.toContain('uppercase')
+      expect(heading.className).toContain('text-foreground')
+      expect(heading.className).toContain('text-base')
+    })
+
+    it('renders the small title treatment at text-sm', () => {
+      render(<SectionHeader title="Field notes" variant="title" />)
+      const heading = screen.getByRole('heading', { name: 'Field notes' })
+      expect(heading.className).toContain('text-sm')
+      expect(heading.className).not.toContain('tracking-wider')
+    })
+  })
 })

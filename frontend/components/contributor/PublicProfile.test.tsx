@@ -518,6 +518,24 @@ describe('PublicProfile', () => {
     expect(await screen.findByText('Copied ✓')).toBeInTheDocument()
   })
 
+  it('shows the inline failure state when the clipboard write rejects', async () => {
+    vi.useRealTimers()
+    const writeText = vi.fn().mockRejectedValue(new Error('denied'))
+    Object.assign(navigator, { clipboard: { writeText } })
+
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile(),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    fireEvent.click(
+      screen.getByRole('button', { name: /copy a link to this profile/i })
+    )
+    expect(await screen.findByText('Copy failed')).toBeInTheDocument()
+  })
+
   it('shows both Edit profile and Share to the owner', () => {
     mockUser = { username: 'alice' }
     mockUsePublicProfile.mockReturnValue({
