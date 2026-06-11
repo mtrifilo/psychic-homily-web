@@ -9,15 +9,12 @@ import {
   CommandGroup,
   CommandItem,
   CommandList,
-  CommandSeparator,
 } from '@/components/ui/command'
-import {
-  Calendar, Mic2, MapPin, Disc3, Tag, Tags, Tent, BookOpen, Headphones, Send,
-  Library, LayoutList, MessageSquarePlus, Settings, Search, Clock, X, Globe,
-  TrendingUp, Music, Bell, HeartHandshake, Loader2, Trophy, Radio,
-  Hash, Network,
-} from 'lucide-react'
-import type { LucideIcon } from 'lucide-react'
+// PSY-1019: rows are icon-less in the editorial re-skin (Figma 539:5) — the
+// uppercase mono group headings carry the wayfinding, so names sit flush-left.
+// The Recent clock is the one deliberate exception: in the no-query state it
+// distinguishes "something you searched before" from a live result.
+import { Search, Clock, X, Loader2 } from 'lucide-react'
 import { adminNavGroups, adminTabHref } from '@/components/layout/adminNav'
 import type { AdminTab } from '@/components/layout/adminNav'
 import { useAuthContext } from '@/lib/context/AuthContext'
@@ -34,7 +31,6 @@ import { InlineErrorBanner } from '@/components/shared'
 interface RouteItem {
   label: string
   href: string
-  icon: LucideIcon
   keywords: string[]
   requireAuth?: boolean
   requireAdmin?: boolean
@@ -44,55 +40,46 @@ const routes: RouteItem[] = [
   {
     label: 'Shows',
     href: '/shows',
-    icon: Calendar,
     keywords: ['shows', 'concerts', 'events', 'live', 'music', 'gigs'],
   },
   {
     label: 'Festivals',
     href: '/festivals',
-    icon: Tent,
     keywords: ['festivals', 'fests', 'lineup', 'multi-day', 'outdoor', 'music festival'],
   },
   {
     label: 'Artists',
     href: '/artists',
-    icon: Mic2,
     keywords: ['artists', 'bands', 'musicians', 'performers', 'graph', 'explore', 'network', 'visualize', 'related', 'similar'],
   },
   {
     label: 'Venues',
     href: '/venues',
-    icon: MapPin,
     keywords: ['venues', 'locations', 'places', 'bars', 'clubs', 'graph', 'explore', 'network', 'visualize', 'co-bill'],
   },
   {
     label: 'Releases',
     href: '/releases',
-    icon: Disc3,
     keywords: ['releases', 'albums', 'records', 'eps', 'singles', 'discography', 'music'],
   },
   {
     label: 'Labels',
     href: '/labels',
-    icon: Tag,
     keywords: ['labels', 'record labels', 'imprints', 'roster', 'catalog'],
   },
   {
     label: 'Tags',
     href: '/tags',
-    icon: Tags,
     keywords: ['tags', 'genres', 'moods', 'styles', 'categories', 'tagging'],
   },
   {
     label: 'Scenes',
     href: '/scenes',
-    icon: Globe,
     keywords: ['scenes', 'cities', 'city', 'local', 'geographic', 'phoenix', 'music scene', 'graph', 'explore', 'network', 'visualize'],
   },
   {
     label: 'Collections',
     href: '/collections',
-    icon: LayoutList,
     keywords: ['collections', 'curated', 'lists', 'playlists', 'graph', 'explore', 'network', 'visualize'],
   },
   {
@@ -101,88 +88,74 @@ const routes: RouteItem[] = [
     // other scene). Re-evaluate when a second city hits scene-scale density.
     label: 'Phoenix scene graph',
     href: `/scenes/phoenix-az${GRAPH_HASH}`,
-    icon: Network,
     keywords: ['graph', 'explore', 'network', 'visualize', 'phoenix', 'scene', 'arizona', 'az'],
   },
   {
     label: 'Charts',
     href: '/charts',
-    icon: TrendingUp,
     keywords: ['charts', 'trending', 'popular', 'top', 'hot', 'rankings', 'leaderboard'],
   },
   {
     label: 'Radio',
     href: '/radio',
-    icon: Radio,
     keywords: ['radio', 'stations', 'shows', 'playlists', 'kexp', 'broadcast', 'fm', 'stream'],
   },
   {
     label: 'Contribute',
     href: '/contribute',
-    icon: HeartHandshake,
     keywords: ['contribute', 'help', 'data quality', 'missing', 'opportunities', 'improve'],
   },
   {
     label: 'Leaderboard',
     href: '/community/leaderboard',
-    icon: Trophy,
     keywords: ['leaderboard', 'top', 'contributors', 'rankings', 'community', 'competition'],
   },
   {
     label: 'Requests',
     href: '/requests',
-    icon: MessageSquarePlus,
     keywords: ['requests', 'request', 'wanted', 'missing', 'suggest', 'ask'],
   },
   {
     label: 'Blog',
     href: '/blog',
-    icon: BookOpen,
     keywords: ['blog', 'posts', 'articles', 'writing', 'news'],
   },
   {
     label: 'DJ Sets',
     href: '/dj-sets',
-    icon: Headphones,
     keywords: ['dj', 'sets', 'mixes', 'electronic'],
   },
   {
     label: 'Submit a Show',
     href: '/shows/submit',
-    icon: Music,
     keywords: ['submit', 'add', 'new show', 'submission', 'submit a show'],
   },
   {
     label: 'My Submissions',
     href: '/submissions',
-    icon: Send,
     keywords: ['submissions', 'pending', 'edits', 'my submissions', 'my edits', 'my pending edits'],
   },
   {
     label: 'Library',
     href: '/library',
-    icon: Library,
     keywords: ['library', 'saved', 'bookmarks', 'favorites', 'following', 'my stuff', 'personal', 'my shows', 'going', 'interested', 'attending', 'my collection', 'submissions', 'my submissions'],
     requireAuth: true,
   },
   {
     label: 'Notifications',
     href: '/notifications',
-    icon: Bell,
     keywords: ['notifications', 'inbox', 'bell', 'replies', 'mentions', 'unread'],
     requireAuth: true,
   },
   {
     label: 'Notification Filters',
     href: '/settings/notification-filters',
-    icon: Bell,
     keywords: ['notification filters', 'notify', 'filters', 'alerts', 'subscribe', 'show alerts'],
     requireAuth: true,
   },
   {
     label: 'Settings',
     href: '/profile',
-    icon: Settings,
     keywords: ['settings', 'profile', 'account', 'preferences', 'email'],
     requireAuth: true,
   },
@@ -220,7 +193,7 @@ const ADMIN_ROUTE_KEYWORDS: Record<AdminTab, string[]> = {
 // the admin route list. The prior copy carried a dead `?tab=pending-venue-edits`
 // link (not a valid section — pending edits live under Moderation) and was
 // MISSING the Radio section. Deriving from the SSOT makes a stale/missing tab a
-// compile error and keeps icons + coverage in lockstep with the sidebar.
+// compile error and keeps coverage in lockstep with the sidebar.
 // adminNav.test.ts asserts the derived hrefs ⊆ VALID_TABS.
 // Exported for the parity test (adminNav hrefs ⊆ VALID_TABS) in
 // CommandPalette.test.tsx — not consumed elsewhere.
@@ -228,29 +201,12 @@ export const adminRoutes: RouteItem[] = adminNavGroups.flatMap(group =>
   group.items.map(item => ({
     label: `Admin: ${item.label}`,
     href: adminTabHref(item.tab),
-    icon: item.icon,
     keywords: ['admin', ...ADMIN_ROUTE_KEYWORDS[item.tab]],
     requireAdmin: true,
   }))
 )
 
 const allRoutes = [...routes, ...adminRoutes]
-
-/** Map entity type to an icon */
-const entityTypeIcons: Record<EntitySearchResult['entityType'], LucideIcon> = {
-  artist: Mic2,
-  venue: MapPin,
-  // PSY-372: shows are surfaced in the entity search hook for the collection
-  // Add Items panel, but the Cmd+K palette intentionally keeps its existing
-  // behavior of not surfacing shows beyond the static `/shows` route entry.
-  // The icon/label entries exist solely to satisfy the exhaustive `Record`
-  // type — `show` is excluded from the visible-types iteration below.
-  show: Calendar,
-  release: Disc3,
-  label: Tag,
-  festival: Tent,
-  tag: Hash,
-}
 
 /** Map entity type to display label for grouping */
 const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
@@ -262,6 +218,14 @@ const entityTypeLabels: Record<EntitySearchResult['entityType'], string> = {
   festival: 'Festivals',
   tag: 'Tags',
 }
+
+// PSY-1019 editorial group headings (Figma 539:5): Space Mono, uppercase,
+// letter-spaced — mirrors ContributeMenu's group labels. The values
+// intentionally duplicate CommandDialog's wrapper styles (command.tsx) so the
+// two equal-specificity [cmdk-group-heading] rules agree no matter which wins
+// the stylesheet-order tiebreak.
+const groupClassName =
+  '[&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[1.2px]'
 
 export function CommandPalette() {
   const router = useRouter()
@@ -324,7 +288,6 @@ export function CommandPalette() {
       items.push({
         label: 'Explore graph for this artist',
         href: `/artists/${artistMatch[1]}${GRAPH_HASH}`,
-        icon: Network,
         keywords: ['graph', 'explore', 'network', 'visualize', 'related', 'similar'],
       })
     }
@@ -333,7 +296,6 @@ export function CommandPalette() {
       items.push({
         label: 'Explore graph for this collection',
         href: `/collections/${collectionMatch[1]}${GRAPH_HASH}`,
-        icon: Network,
         keywords: ['graph', 'explore', 'network', 'visualize'],
       })
     }
@@ -342,7 +304,6 @@ export function CommandPalette() {
       items.push({
         label: 'Explore graph for this scene',
         href: `/scenes/${sceneMatch[1]}${GRAPH_HASH}`,
-        icon: Network,
         keywords: ['graph', 'explore', 'network', 'visualize'],
       })
     }
@@ -351,7 +312,6 @@ export function CommandPalette() {
       items.push({
         label: 'Explore graph for this venue',
         href: `/venues/${venueMatch[1]}${GRAPH_HASH}`,
-        icon: Network,
         keywords: ['graph', 'explore', 'network', 'visualize', 'co-bill'],
       })
     }
@@ -429,7 +389,7 @@ export function CommandPalette() {
         <Search className="mr-2 h-4 w-4 shrink-0 opacity-50" />
         <CommandPrimitive.Input
           placeholder="Search entities or go to page..."
-          className="flex h-11 w-full bg-transparent py-3 text-sm outline-none placeholder:text-muted-foreground"
+          className="flex h-11 w-full bg-transparent py-3 text-[15px] outline-none placeholder:text-muted-foreground"
           value={search}
           onValueChange={setSearch}
         />
@@ -468,6 +428,7 @@ export function CommandPalette() {
 
         {showRecent && (
           <CommandGroup
+            className={groupClassName}
             heading={
               <div className="flex items-center justify-between">
                 <span>Recent</span>
@@ -489,13 +450,13 @@ export function CommandPalette() {
                   key={`recent-${label}`}
                   value={`recent-${label}`}
                   onSelect={() => handleRecentSelect(label)}
-                  className="cursor-pointer gap-3 rounded-md px-2 py-2.5"
+                  className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
                   keywords={[label]}
                 >
                   <Clock className="h-4 w-4 text-muted-foreground" />
                   <span>{label}</span>
                   {route && (
-                    <span className="ml-auto text-xs text-muted-foreground">
+                    <span className="ml-auto font-mono text-xs text-muted-foreground">
                       {route.href}
                     </span>
                   )}
@@ -505,149 +466,111 @@ export function CommandPalette() {
           </CommandGroup>
         )}
 
-        {showRecent && <CommandSeparator className="mx-2 my-1" />}
-
-        {/* Entity search results — shown when user types 2+ characters */}
+        {/* Entity search results — shown when user types 2+ characters.
+            PSY-1019: name flush-left, subtitle right-aligned per Figma 539:5
+            (the href is gone — the subtitle is the scent, the row navigates). */}
         {showEntityResults && entityGroups.map(({ type, results }) => {
-          const Icon = entityTypeIcons[type]
           const groupLabel = entityTypeLabels[type]
           return (
-            <CommandGroup key={type} heading={groupLabel}>
+            <CommandGroup key={type} className={groupClassName} heading={groupLabel}>
               {results.map(result => (
                 <CommandItem
                   key={`entity-${type}-${result.id}`}
                   value={`entity-${type}-${result.id}-${result.name}`}
                   onSelect={() => handleEntitySelect(result)}
-                  className="cursor-pointer gap-3 rounded-md px-2 py-2.5"
+                  className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
                   keywords={[result.name]}
                 >
-                  <Icon className="h-4 w-4 text-muted-foreground" />
-                  <div className="flex min-w-0 flex-col gap-0.5">
-                    <span className="inline-flex items-center gap-1.5 truncate">
-                      <span className="truncate">{result.name}</span>
-                      {result.entityType === 'tag' && result.isOfficial && (
-                        <TagOfficialIndicator size="sm" tagName={result.name} />
-                      )}
-                    </span>
-                    {result.subtitle && (
-                      <span className="text-xs text-muted-foreground truncate">
-                        {result.subtitle}
-                      </span>
+                  <span className="inline-flex min-w-0 items-center gap-1.5">
+                    <span className="truncate">{result.name}</span>
+                    {result.entityType === 'tag' && result.isOfficial && (
+                      <TagOfficialIndicator size="sm" tagName={result.name} />
                     )}
-                  </div>
-                  <span className="ml-auto shrink-0 text-xs text-muted-foreground">
-                    {result.href}
                   </span>
+                  {result.subtitle && (
+                    <span className="ml-auto shrink-0 text-[13px] text-muted-foreground">
+                      {result.subtitle}
+                    </span>
+                  )}
                 </CommandItem>
               ))}
             </CommandGroup>
           )
         })}
 
-        {showEntityResults && hasEntityResults && (
-          <CommandSeparator className="mx-2 my-1" />
-        )}
-
         {/* PSY-366: context-aware graph entry points. Only rendered when the
             palette opens on an entity page that has a graph view. */}
         {contextualRoutes.length > 0 && (
-          <>
-            <CommandGroup heading="Explore">
-              {contextualRoutes.map(route => {
-                const Icon = route.icon
-                return (
-                  <CommandItem
-                    key={route.href}
-                    value={route.label}
-                    onSelect={() => handleSelect(route.href, route.label)}
-                    keywords={route.keywords}
-                    className="cursor-pointer gap-3 rounded-md px-2 py-2.5"
-                  >
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                    <span>{route.label}</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      {route.href}
-                    </span>
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-            <CommandSeparator className="mx-2 my-1" />
-          </>
-        )}
-
-        <CommandGroup heading="Pages">
-          {availableRoutes.map(route => {
-            const Icon = route.icon
-            return (
+          <CommandGroup className={groupClassName} heading="Explore">
+            {contextualRoutes.map(route => (
               <CommandItem
                 key={route.href}
                 value={route.label}
                 onSelect={() => handleSelect(route.href, route.label)}
                 keywords={route.keywords}
-                className="cursor-pointer gap-3 rounded-md px-2 py-2.5"
+                className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
               >
-                <Icon className="h-4 w-4 text-muted-foreground" />
                 <span>{route.label}</span>
-                <span className="ml-auto text-xs text-muted-foreground">
+                <span className="ml-auto font-mono text-xs text-muted-foreground">
                   {route.href}
                 </span>
               </CommandItem>
-            )
-          })}
+            ))}
+          </CommandGroup>
+        )}
+
+        <CommandGroup className={groupClassName} heading="Pages">
+          {availableRoutes.map(route => (
+            <CommandItem
+              key={route.href}
+              value={route.label}
+              onSelect={() => handleSelect(route.href, route.label)}
+              keywords={route.keywords}
+              className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
+            >
+              <span>{route.label}</span>
+              <span className="ml-auto font-mono text-xs text-muted-foreground">
+                {route.href}
+              </span>
+            </CommandItem>
+          ))}
         </CommandGroup>
 
         {availableAdminRoutes.length > 0 && (
-          <>
-            <CommandSeparator className="mx-2 my-1" />
-            <CommandGroup heading="Admin">
-              {availableAdminRoutes.map(route => {
-                const Icon = route.icon
-                return (
-                  <CommandItem
-                    key={route.href}
-                    value={route.label}
-                    onSelect={() => handleSelect(route.href, route.label)}
-                    keywords={route.keywords}
-                    className="cursor-pointer gap-3 rounded-md px-2 py-2.5"
-                  >
-                    <Icon className="h-4 w-4 text-muted-foreground" />
-                    <span>{route.label}</span>
-                    <span className="ml-auto text-xs text-muted-foreground">
-                      /admin
-                    </span>
-                  </CommandItem>
-                )
-              })}
-            </CommandGroup>
-          </>
+          <CommandGroup className={groupClassName} heading="Admin">
+            {availableAdminRoutes.map(route => (
+              <CommandItem
+                key={route.href}
+                value={route.label}
+                onSelect={() => handleSelect(route.href, route.label)}
+                keywords={route.keywords}
+                className="cursor-pointer gap-3 rounded-sm px-2 py-2.5 text-[15px]"
+              >
+                <span>{route.label}</span>
+                <span className="ml-auto font-mono text-xs text-muted-foreground">
+                  /admin
+                </span>
+              </CommandItem>
+            ))}
+          </CommandGroup>
         )}
       </CommandList>
 
-      <div className="flex items-center justify-between border-t border-border/50 px-3 py-2">
-        <div className="flex items-center gap-3 text-[11px] text-muted-foreground">
-          <span className="flex items-center gap-1">
-            <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-              &uarr;
-            </kbd>
-            <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-              &darr;
-            </kbd>
-            navigate
-          </span>
-          <span className="flex items-center gap-1">
-            <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-              &crarr;
-            </kbd>
-            select
-          </span>
-          <span className="flex items-center gap-1">
-            <kbd className="rounded border border-border bg-muted px-1 py-0.5 font-mono text-[10px]">
-              esc
-            </kbd>
-            close
-          </span>
-        </div>
+      {/* PSY-1019: keyboard hints as plain Space Mono text — the boxed-kbd
+          chrome is gone per Figma 539:5. <kbd> elements stay for semantics. */}
+      <div className="flex items-center gap-4 border-t border-border/50 px-4 py-2.5 font-mono text-[11px] text-muted-foreground">
+        <span className="flex items-center gap-1.5">
+          <kbd>&uarr;&darr;</kbd>
+          navigate
+        </span>
+        <span className="flex items-center gap-1.5">
+          <kbd>&crarr;</kbd>
+          select
+        </span>
+        <span className="flex items-center gap-1.5">
+          <kbd>esc</kbd>
+          close
+        </span>
       </div>
     </CommandDialog>
   )

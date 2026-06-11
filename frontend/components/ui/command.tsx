@@ -23,12 +23,18 @@ const Command = React.forwardRef<
 ))
 Command.displayName = CommandPrimitive.displayName
 
+// PSY-1019: CommandDialog is consumed ONLY by the Cmd+K CommandPalette
+// (CityFilters uses the bare Command primitives), so the editorial re-skin —
+// 656px frame + Space Mono uppercase group headings per Figma 539:5 — lives
+// here. The same heading values are repeated on each palette CommandGroup
+// (groupClassName in CommandPalette.tsx) so the two equal-specificity
+// `[cmdk-group-heading]` rules agree regardless of stylesheet order.
 function CommandDialog({ children, ...props }: DialogProps) {
   return (
     <Dialog {...props}>
-      <DialogContent className="overflow-hidden p-0 sm:max-w-[520px] [&>button:last-child]:hidden">
+      <DialogContent className="overflow-hidden p-0 sm:max-w-[656px] [&>button:last-child]:hidden">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
-        <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
+        <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:font-mono [&_[cmdk-group-heading]]:text-[11px] [&_[cmdk-group-heading]]:font-bold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-[1.2px] [&_[cmdk-group-heading]]:text-muted-foreground">
           {children}
         </Command>
       </DialogContent>
