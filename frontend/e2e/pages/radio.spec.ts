@@ -15,12 +15,11 @@ import { expect } from '@playwright/test'
  * `EntityCardTitle`, so `getByRole('link', { name })` resolves cleanly under
  * Playwright strict mode.
  *
- * SCOPING NOTE: the persistent left Sidebar (components/layout/Sidebar.tsx)
- * renders a `<Link href="/radio">Radio</Link>` that is visible at the
- * Playwright desktop viewport (the `<aside>` is `hidden md:flex`). To keep
- * the page-content assertions unambiguous under strict mode, link/heading
- * queries are scoped to the page's `<main>` (`page.getByRole('main')`),
- * which excludes the sidebar `<aside>` and the TopBar.
+ * SCOPING NOTE: chrome outside `<main>` renders its own `Radio` links — the
+ * top-bar primary nav links straight to /radio (PSY-1057) and the Footer
+ * carries one too. To keep the page-content assertions unambiguous under
+ * strict mode, link/heading queries are scoped to the page's `<main>`
+ * (`page.getByRole('main')`), which excludes the TopBar and Footer.
  *
  * SEED SCOPE (verified against backend/internal/seeddata/radio.go, rendered
  * by cmd/gen-e2e-seed into frontend/e2e/setup-db.sh):

@@ -1,7 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
   pickNowPlayingShow,
-  orderRecentShows,
   recentArtistsFromEpisode,
   deriveNowPlaying,
   formatShortAirDate,
@@ -101,33 +100,6 @@ describe('pickNowPlayingShow', () => {
       makeShow({ id: 2, episode_count: 9 }),
     ]
     expect(pickNowPlayingShow(shows)?.id).toBe(2)
-  })
-})
-
-describe('orderRecentShows', () => {
-  it('sorts by episode_count desc, excludes the now-playing show, and caps at the limit', () => {
-    const shows = [
-      makeShow({ id: 1, episode_count: 12 }), // now-playing, excluded
-      makeShow({ id: 2, episode_count: 8 }),
-      makeShow({ id: 3, episode_count: 10 }),
-      makeShow({ id: 4, episode_count: 4 }),
-      makeShow({ id: 5, episode_count: 2 }),
-    ]
-    const result = orderRecentShows(shows, { excludeShowId: 1, limit: 3 })
-    expect(result.map(s => s.id)).toEqual([3, 2, 4])
-  })
-
-  it('drops shows with zero episodes (no recent activity to show)', () => {
-    const shows = [
-      makeShow({ id: 2, episode_count: 5 }),
-      makeShow({ id: 3, episode_count: 0 }),
-    ]
-    const result = orderRecentShows(shows, { excludeShowId: 1 })
-    expect(result.map(s => s.id)).toEqual([2])
-  })
-
-  it('returns an empty array for undefined shows', () => {
-    expect(orderRecentShows(undefined)).toEqual([])
   })
 })
 

@@ -36,9 +36,9 @@ const glitchFilter = (
 //   • the dominant search field (→ CommandPalette)
 //   • a bare sun/moon theme toggle + the account cluster / login link
 //   • the mobile hamburger sheet (below `lg`)
-// The Radio / Browse / Contribute menus, the authenticated bar, the palette
-// re-skin, and mobile are each elaborated by their own follow-up tickets; this
-// file just assembles the seams.
+// The Browse / Contribute menus, the authenticated bar, the palette re-skin,
+// and mobile are each elaborated by their own follow-up tickets (Radio became
+// a plain /radio link in PSY-1057); this file just assembles the seams.
 export function TopBar() {
   // resolvedTheme (not theme) so the first click always flips the *visible*
   // theme — with theme==='system' a `theme === 'dark'` check would set explicit

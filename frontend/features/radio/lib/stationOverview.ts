@@ -60,23 +60,6 @@ export function pickNowPlayingShow(
 }
 
 /**
- * Order shows for the "Recent shows" list: most episodes first (most active),
- * id-ASC tiebreak. Optionally excludes the now-playing show so it isn't
- * repeated under the Now Playing card. Returns at most `limit` shows.
- */
-export function orderRecentShows(
-  shows: RadioShowListItem[] | undefined,
-  options: { excludeShowId?: number; limit?: number } = {}
-): RadioShowListItem[] {
-  const { excludeShowId, limit = 3 } = options
-  if (!shows) return []
-  return shows
-    .filter(s => s.id !== excludeShowId && s.episode_count > 0)
-    .sort((a, b) => b.episode_count - a.episode_count || a.id - b.id)
-    .slice(0, limit)
-}
-
-/**
  * Distinct artist hops from an episode's plays, most-recent first.
  *
  * Plays are stored position-ASC (position 1 = first track of the set, highest
