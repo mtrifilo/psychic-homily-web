@@ -48,7 +48,7 @@ import {
   PublishShowDialog,
 } from '@/features/shows'
 import { VenueDeniedDialog } from '@/features/venues'
-import { CalendarFeedSection } from '@/components/collection'
+import { CalendarFeedSection } from '@/features/collections'
 import {
   useSetShowSoldOut,
   useSetShowCancelled,

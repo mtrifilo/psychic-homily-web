@@ -1,3 +1,4 @@
+export { CalendarFeedSection } from './CalendarFeedSection'
 export { CollectionCard } from './CollectionCard'
 // CollectionDetail is intentionally NOT re-exported here (PSY-951 / PSY-944).
 // A `'use client'` barrel is not reliably tree-shaken per-export under
