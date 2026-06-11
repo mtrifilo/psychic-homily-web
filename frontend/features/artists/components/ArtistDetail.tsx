@@ -290,6 +290,22 @@ function ArtistSidebar({
 
   return (
     <div className="space-y-6">
+      {/* Top tracks — FIRST in the column (PSY-1065): listening is the
+          fastest way to decide whether you like an unfamiliar band, so the
+          embed leads. Rendered only when a music link exists. */}
+      {hasMusicLink && (
+        <section>
+          <SectionHeader title="Top tracks" />
+          <MusicEmbed
+            bandcampAlbumUrl={artist.bandcamp_embed_url}
+            bandcampProfileUrl={artist.social?.bandcamp}
+            spotifyUrl={artist.social?.spotify}
+            artistName={artist.name}
+            compact
+          />
+        </section>
+      )}
+
       {/* Photo */}
       {artist.image_url && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -363,20 +379,6 @@ function ArtistSidebar({
         <section>
           <SectionHeader title="Links" />
           <SocialLinks social={artist.social} />
-        </section>
-      )}
-
-      {/* Top tracks — compact embed, rendered only when a music link exists */}
-      {hasMusicLink && (
-        <section>
-          <SectionHeader title="Top tracks" />
-          <MusicEmbed
-            bandcampAlbumUrl={artist.bandcamp_embed_url}
-            bandcampProfileUrl={artist.social?.bandcamp}
-            spotifyUrl={artist.social?.spotify}
-            artistName={artist.name}
-            compact
-          />
         </section>
       )}
 

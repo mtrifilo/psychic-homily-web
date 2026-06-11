@@ -442,6 +442,7 @@ type MockAttendanceService struct {
 	GetBatchAttendanceCountsFn func([]uint) (map[uint]*contracts.AttendanceCountsResponse, error)
 	GetBatchUserAttendanceFn   func(uint, []uint) (map[uint]string, error)
 	GetUserAttendingShowsFn    func(uint, string, int, int) ([]*contracts.AttendingShowResponse, int64, error)
+	GetUserAttendedShowsFn     func(uint, int, int) ([]*contracts.AttendingShowResponse, int64, error)
 }
 
 func (m *MockAttendanceService) SetAttendance(userID uint, showID uint, status string) error {
@@ -487,6 +488,12 @@ func (m *MockAttendanceService) GetBatchUserAttendance(userID uint, showIDs []ui
 func (m *MockAttendanceService) GetUserAttendingShows(userID uint, status string, limit int, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
 	if m.GetUserAttendingShowsFn != nil {
 		return m.GetUserAttendingShowsFn(userID, status, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockAttendanceService) GetUserAttendedShows(userID uint, limit int, offset int) ([]*contracts.AttendingShowResponse, int64, error) {
+	if m.GetUserAttendedShowsFn != nil {
+		return m.GetUserAttendedShowsFn(userID, limit, offset)
 	}
 	return nil, 0, nil
 }
@@ -1745,7 +1752,6 @@ func (m *MockFeaturedSlotService) RenderCuratorNote(note *string) string {
 type MockFestivalIntelligenceService struct {
 	GetSimilarFestivalsFn         func(uint, int) ([]contracts.SimilarFestival, error)
 	GetFestivalOverlapFn          func(uint, uint) (*contracts.FestivalOverlap, error)
-	GetFestivalBreakoutsFn        func(uint) (*contracts.FestivalBreakouts, error)
 	GetArtistFestivalTrajectoryFn func(uint) (*contracts.ArtistTrajectory, error)
 	GetSeriesComparisonFn         func(string, []int) (*contracts.SeriesComparison, error)
 }
@@ -1759,12 +1765,6 @@ func (m *MockFestivalIntelligenceService) GetSimilarFestivals(festivalID uint, l
 func (m *MockFestivalIntelligenceService) GetFestivalOverlap(festivalAID uint, festivalBID uint) (*contracts.FestivalOverlap, error) {
 	if m.GetFestivalOverlapFn != nil {
 		return m.GetFestivalOverlapFn(festivalAID, festivalBID)
-	}
-	return nil, nil
-}
-func (m *MockFestivalIntelligenceService) GetFestivalBreakouts(festivalID uint) (*contracts.FestivalBreakouts, error) {
-	if m.GetFestivalBreakoutsFn != nil {
-		return m.GetFestivalBreakoutsFn(festivalID)
 	}
 	return nil, nil
 }
@@ -1899,8 +1899,9 @@ func (m *MockFestivalService) GetFestivalsForArtist(artistID uint) ([]*contracts
 // ============================================================================
 
 type MockFieldNoteService struct {
-	CreateFieldNoteFn       func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
-	ListFieldNotesForShowFn func(uint, int, int) (*contracts.CommentListResponse, error)
+	CreateFieldNoteFn        func(uint, *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error)
+	ListFieldNotesForShowFn  func(uint, int, int) (*contracts.CommentListResponse, error)
+	ListFieldNotesByAuthorFn func(uint, int, int) ([]*contracts.AuthoredFieldNote, int64, error)
 }
 
 func (m *MockFieldNoteService) CreateFieldNote(userID uint, req *contracts.CreateFieldNoteRequest) (*contracts.CommentResponse, error) {
@@ -1914,6 +1915,12 @@ func (m *MockFieldNoteService) ListFieldNotesForShow(showID uint, limit int, off
 		return m.ListFieldNotesForShowFn(showID, limit, offset)
 	}
 	return nil, nil
+}
+func (m *MockFieldNoteService) ListFieldNotesByAuthor(userID uint, limit int, offset int) ([]*contracts.AuthoredFieldNote, int64, error) {
+	if m.ListFieldNotesByAuthorFn != nil {
+		return m.ListFieldNotesByAuthorFn(userID, limit, offset)
+	}
+	return nil, 0, nil
 }
 
 // ============================================================================
@@ -2392,20 +2399,25 @@ type MockRadioService struct {
 	CreateStationFn               func(*contracts.CreateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
 	GetStationFn                  func(uint) (*contracts.RadioStationDetailResponse, error)
 	GetStationBySlugFn            func(string) (*contracts.RadioStationDetailResponse, error)
+	ResolveStationIDBySlugFn      func(string) (uint, error)
 	ListStationsFn                func(map[string]interface{}) ([]*contracts.RadioStationListResponse, error)
 	UpdateStationFn               func(uint, *contracts.UpdateRadioStationRequest) (*contracts.RadioStationDetailResponse, error)
 	DeleteStationFn               func(uint) error
 	CreateShowFn                  func(uint, *contracts.CreateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
 	GetShowFn                     func(uint) (*contracts.RadioShowDetailResponse, error)
 	GetShowBySlugFn               func(string) (*contracts.RadioShowDetailResponse, error)
-	ListShowsFn                   func(uint) ([]*contracts.RadioShowListResponse, error)
+	ListShowsFn                   func(uint, string) ([]*contracts.RadioShowListResponse, error)
 	UpdateShowFn                  func(uint, *contracts.UpdateRadioShowRequest) (*contracts.RadioShowDetailResponse, error)
 	DeleteShowFn                  func(uint) error
 	GetEpisodesFn                 func(uint, int, int) ([]*contracts.RadioEpisodeResponse, int64, error)
 	GetEpisodeByShowAndDateFn     func(uint, string) (*contracts.RadioEpisodeDetailResponse, error)
 	GetEpisodeDetailFn            func(uint) (*contracts.RadioEpisodeDetailResponse, error)
+	GetStationEpisodesFn          func(uint, int, int) ([]*contracts.RadioStationEpisodeRow, int64, error)
+	GetRecentEpisodesFn           func(int, int) ([]*contracts.RadioStationEpisodeRow, int64, error)
 	GetTopArtistsForShowFn        func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
 	GetTopLabelsForShowFn         func(uint, int, int) ([]*contracts.RadioTopLabelResponse, error)
+	GetTopArtistsForStationFn     func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
+	GetTopLabelsForStationFn      func(uint, int, int) ([]*contracts.RadioTopLabelResponse, error)
 	GetAsHeardOnForArtistFn       func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	GetAsHeardOnForReleaseFn      func(uint) ([]*contracts.RadioAsHeardOnResponse, error)
 	GetNewReleaseRadarFn          func(uint, int) ([]*contracts.RadioNewReleaseRadarEntry, error)
@@ -2447,6 +2459,12 @@ func (m *MockRadioService) GetStationBySlug(slug string) (*contracts.RadioStatio
 	}
 	return nil, nil
 }
+func (m *MockRadioService) ResolveStationIDBySlug(slug string) (uint, error) {
+	if m.ResolveStationIDBySlugFn != nil {
+		return m.ResolveStationIDBySlugFn(slug)
+	}
+	return 0, nil
+}
 func (m *MockRadioService) ListStations(filters map[string]interface{}) ([]*contracts.RadioStationListResponse, error) {
 	if m.ListStationsFn != nil {
 		return m.ListStationsFn(filters)
@@ -2483,9 +2501,9 @@ func (m *MockRadioService) GetShowBySlug(slug string) (*contracts.RadioShowDetai
 	}
 	return nil, nil
 }
-func (m *MockRadioService) ListShows(stationID uint) ([]*contracts.RadioShowListResponse, error) {
+func (m *MockRadioService) ListShows(stationID uint, sortBy string) ([]*contracts.RadioShowListResponse, error) {
 	if m.ListShowsFn != nil {
-		return m.ListShowsFn(stationID)
+		return m.ListShowsFn(stationID, sortBy)
 	}
 	return nil, nil
 }
@@ -2519,6 +2537,18 @@ func (m *MockRadioService) GetEpisodeDetail(episodeID uint) (*contracts.RadioEpi
 	}
 	return nil, nil
 }
+func (m *MockRadioService) GetStationEpisodes(stationID uint, limit int, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
+	if m.GetStationEpisodesFn != nil {
+		return m.GetStationEpisodesFn(stationID, limit, offset)
+	}
+	return nil, 0, nil
+}
+func (m *MockRadioService) GetRecentEpisodes(limit int, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
+	if m.GetRecentEpisodesFn != nil {
+		return m.GetRecentEpisodesFn(limit, offset)
+	}
+	return nil, 0, nil
+}
 func (m *MockRadioService) GetTopArtistsForShow(showID uint, periodDays int, limit int) ([]*contracts.RadioTopArtistResponse, error) {
 	if m.GetTopArtistsForShowFn != nil {
 		return m.GetTopArtistsForShowFn(showID, periodDays, limit)
@@ -2528,6 +2558,18 @@ func (m *MockRadioService) GetTopArtistsForShow(showID uint, periodDays int, lim
 func (m *MockRadioService) GetTopLabelsForShow(showID uint, periodDays int, limit int) ([]*contracts.RadioTopLabelResponse, error) {
 	if m.GetTopLabelsForShowFn != nil {
 		return m.GetTopLabelsForShowFn(showID, periodDays, limit)
+	}
+	return nil, nil
+}
+func (m *MockRadioService) GetTopArtistsForStation(stationID uint, periodDays int, limit int) ([]*contracts.RadioTopArtistResponse, error) {
+	if m.GetTopArtistsForStationFn != nil {
+		return m.GetTopArtistsForStationFn(stationID, periodDays, limit)
+	}
+	return nil, nil
+}
+func (m *MockRadioService) GetTopLabelsForStation(stationID uint, periodDays int, limit int) ([]*contracts.RadioTopLabelResponse, error) {
+	if m.GetTopLabelsForStationFn != nil {
+		return m.GetTopLabelsForStationFn(stationID, periodDays, limit)
 	}
 	return nil, nil
 }

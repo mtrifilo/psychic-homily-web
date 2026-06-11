@@ -139,6 +139,26 @@ func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_Success() {
 	suite.Equal("85004", *resp.Zipcode)
 }
 
+// PSY-1038: description + image_url now round-trip from the create request onto
+// the persisted venue (previously dropped at the contract).
+func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_CarriesDescriptionAndImage() {
+	req := &contracts.CreateVenueRequest{
+		Name:        "The Rebel Lounge",
+		City:        "Phoenix",
+		State:       "AZ",
+		Description: stringPtr("All-ages rock club on Indian School."),
+		ImageURL:    stringPtr("https://example.com/rebel.jpg"),
+	}
+
+	resp, err := suite.venueService.CreateVenue(req, true)
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.Description)
+	suite.Equal("All-ages rock club on Indian School.", *resp.Description)
+	suite.Require().NotNil(resp.ImageURL)
+	suite.Equal("https://example.com/rebel.jpg", *resp.ImageURL)
+}
+
 func (suite *VenueServiceIntegrationTestSuite) TestCreateVenue_AdminAutoVerified() {
 	req := &contracts.CreateVenueRequest{
 		Name:  "Admin Venue",

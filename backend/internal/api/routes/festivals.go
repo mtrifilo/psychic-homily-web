@@ -22,7 +22,6 @@ func setupFestivalRoutes(rc RouteContext) {
 	intelHandler := catalogh.NewFestivalIntelligenceHandler(rc.SC.FestivalIntelligence, rc.SC.Festival, rc.SC.Artist)
 	huma.Get(rc.API, "/festivals/{festival_id}/similar", intelHandler.GetSimilarFestivalsHandler)
 	huma.Get(rc.API, "/festivals/{festival_a_id}/overlap/{festival_b_id}", intelHandler.GetFestivalOverlapHandler)
-	huma.Get(rc.API, "/festivals/{festival_id}/breakouts", intelHandler.GetFestivalBreakoutsHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/festival-trajectory", intelHandler.GetArtistFestivalTrajectoryHandler)
 	huma.Get(rc.API, "/festivals/series/{series_slug}/compare", intelHandler.GetSeriesComparisonHandler)
 

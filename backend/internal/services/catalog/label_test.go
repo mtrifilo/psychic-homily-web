@@ -119,6 +119,20 @@ func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_Success() {
 	suite.Equal(0, resp.ReleaseCount)
 }
 
+// PSY-1038: image_url now round-trips from the create request onto the
+// persisted label (previously dropped at the contract).
+func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_CarriesImage() {
+	logo := "https://example.com/hydrahead.png"
+	resp, err := suite.labelService.CreateLabel(&contracts.CreateLabelRequest{
+		Name:     "Hydra Head",
+		ImageURL: &logo,
+	})
+
+	suite.Require().NoError(err)
+	suite.Require().NotNil(resp.ImageURL)
+	suite.Equal(logo, *resp.ImageURL)
+}
+
 func (suite *LabelServiceIntegrationTestSuite) TestCreateLabel_DefaultStatus() {
 	req := &contracts.CreateLabelRequest{
 		Name: "Mystery Label",

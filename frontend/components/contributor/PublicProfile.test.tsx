@@ -1,6 +1,6 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { render, screen, fireEvent } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { PublicProfile } from './PublicProfile'
 import type { PublicProfileResponse } from '@/features/auth'
@@ -29,6 +29,27 @@ vi.mock('@/features/auth', () => ({
   usePublicProfile: (username: string) => mockUsePublicProfile(username),
   usePublicContributions: (username: string, opts: unknown) =>
     mockUsePublicContributions(username, opts),
+}))
+
+// The new profile-list sections (PSY-1045) own their hooks and have their own
+// suites — mock them here so this suite stays focused on PublicProfile's
+// composition and gating.
+vi.mock('./ProfileFollowing', () => ({
+  ProfileFollowing: ({ username }: { username: string }) => (
+    <div data-testid="profile-following">Following for {username}</div>
+  ),
+}))
+
+vi.mock('./ProfileAttendedShows', () => ({
+  ProfileAttendedShows: ({ username }: { username: string }) => (
+    <div data-testid="profile-attended-shows">Attended for {username}</div>
+  ),
+}))
+
+vi.mock('./ProfileFieldNotes', () => ({
+  ProfileFieldNotes: ({ username }: { username: string }) => (
+    <div data-testid="profile-field-notes">Field notes for {username}</div>
+  ),
 }))
 
 // Owner-detection compares the logged-in user (from AuthContext) against the
@@ -82,10 +103,14 @@ vi.mock('./PercentileRankings', () => ({
 // un-stubbed it leaked to the real network under the old
 // onUnhandledRequest:'bypass' policy and could still be pending at worker
 // teardown ("Closing rpc while fetch was pending"). Stub it to stay hermetic.
+const mockUseUserPublicCollections = vi.fn()
+
 vi.mock('@/features/collections', () => ({
   UserCollections: ({ username }: { username: string }) => (
     <div data-testid="user-collections">Collections for {username}</div>
   ),
+  useUserPublicCollections: (username: string) =>
+    mockUseUserPublicCollections(username),
 }))
 
 function makeProfile(
@@ -106,6 +131,7 @@ describe('PublicProfile', () => {
     vi.useFakeTimers()
     vi.setSystemTime(new Date('2026-03-19T12:00:00Z'))
     mockUsePublicContributions.mockReturnValue({ data: null })
+    mockUseUserPublicCollections.mockReturnValue({ data: undefined })
     mockUser = null
   })
 
@@ -365,7 +391,7 @@ describe('PublicProfile', () => {
     expect(screen.queryByText(/Active/)).not.toBeInTheDocument()
   })
 
-  it('shows stats count only section', () => {
+  it('shows the count-only contributions line in the stats sidebar', () => {
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile({
         stats: undefined,
@@ -376,8 +402,13 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
+    // count_only stats render as a single headline line in the sidebar card
+    // (PSY-1045) — no expander, no grid.
+    expect(screen.getByText('Statistics')).toBeInTheDocument()
     expect(screen.getByText('42')).toBeInTheDocument()
-    expect(screen.getByText(/total contributions/)).toBeInTheDocument()
+    expect(screen.getByText('Contributions')).toBeInTheDocument()
+    expect(screen.queryByText('[All stats]')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('stats-grid')).not.toBeInTheDocument()
   })
 
   it('does not show stats count when it is 0', () => {
@@ -426,8 +457,24 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.getByText('Contributions')).toBeInTheDocument()
+    // The full dashboard is DEMOTED behind the sidebar expander (PSY-1045):
+    // headline numbers visible, grid/heatmap/rankings only after expanding.
+    expect(screen.getByText('Statistics')).toBeInTheDocument()
+    expect(screen.getByText('18')).toBeInTheDocument() // total contributions headline
+    expect(screen.queryByTestId('stats-grid')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('activity-heatmap')).not.toBeInTheDocument()
+    expect(screen.queryByTestId('percentile-rankings')).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole('button', { name: /show all statistics/i }))
+
     expect(screen.getByTestId('stats-grid')).toBeInTheDocument()
+    expect(screen.getByTestId('activity-heatmap')).toBeInTheDocument()
+    expect(screen.getByTestId('percentile-rankings')).toBeInTheDocument()
+
+    fireEvent.click(
+      screen.getByRole('button', { name: /hide the full statistics/i })
+    )
+    expect(screen.queryByTestId('stats-grid')).not.toBeInTheDocument()
   })
 
   it('shows recent activity when contributions exist', () => {
@@ -452,7 +499,7 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    expect(screen.getByText('Recent Activity')).toBeInTheDocument()
+    expect(screen.getByText('Recent activity')).toBeInTheDocument()
     expect(screen.getByTestId('contribution-timeline')).toBeInTheDocument()
   })
 
@@ -494,9 +541,33 @@ describe('PublicProfile', () => {
   })
 
   it('shows empty state when profile has no content', () => {
+    // Empty-state requires KNOWN-zero contributions (visible stats at 0) —
+    // with stats hidden we can't claim emptiness (see the visitor tests).
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile({
-        stats: undefined,
+        stats: {
+          shows_submitted: 0,
+          venues_submitted: 0,
+          venue_edits_submitted: 0,
+          releases_created: 0,
+          labels_created: 0,
+          festivals_created: 0,
+          artists_edited: 0,
+          revisions_made: 0,
+          pending_edits_submitted: 0,
+          tag_votes_cast: 0,
+          relationship_votes_cast: 0,
+          request_votes_cast: 0,
+          collection_items_added: 0,
+          collection_subscriptions: 0,
+          shows_attended: 0,
+          reports_filed: 0,
+          reports_resolved: 0,
+          followers_count: 0,
+          following_count: 0,
+          moderation_actions: 0,
+          total_contributions: 0,
+        },
         stats_count: undefined,
         sections: undefined,
       }),
@@ -561,9 +632,13 @@ describe('PublicProfile', () => {
     })
 
     renderWithProviders(<PublicProfile username="alice" />)
-    // Should show full stats, not just count
+    // Full stats win over the count-only fallback: the expander affordance
+    // renders (count-only mode has no expander) and opening it shows the grid.
+    expect(
+      screen.getByRole('button', { name: /show all statistics/i })
+    ).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /show all statistics/i }))
     expect(screen.getByTestId('stats-grid')).toBeInTheDocument()
-    expect(screen.queryByText(/total contributions/)).not.toBeInTheDocument()
   })
 
   // --- Owner-only Edit affordance (PSY-1025) ---
@@ -637,4 +712,174 @@ describe('PublicProfile', () => {
       screen.queryByRole('link', { name: /edit profile/i })
     ).not.toBeInTheDocument()
   })
+  // --- PSY-1045 content-first layout ---
+
+  it('composes the content sections in content-first order', () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ bio: 'Desert-scene lifer.' }),
+      isLoading: false,
+      error: null,
+    })
+    mockUseUserPublicCollections.mockReturnValue({
+      data: { collections: [], total: 2 },
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+
+    // All content sections render via their (mocked) children.
+    expect(screen.getByText('Bio')).toBeInTheDocument()
+    expect(screen.getByTestId('profile-following')).toBeInTheDocument()
+    expect(screen.getByTestId('user-collections')).toBeInTheDocument()
+    expect(screen.getByTestId('profile-attended-shows')).toBeInTheDocument()
+    expect(screen.getByTestId('profile-field-notes')).toBeInTheDocument()
+
+    // Bio (content) precedes the following section in the DOM, and the
+    // attended-shows diary precedes field notes — the content-first order.
+    const bio = screen.getByText('Desert-scene lifer.')
+    const following = screen.getByTestId('profile-following')
+    const attended = screen.getByTestId('profile-attended-shows')
+    const notes = screen.getByTestId('profile-field-notes')
+    expect(
+      bio.compareDocumentPosition(following) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+    expect(
+      attended.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy()
+  })
+
+  it('shows the Get started checklist to the owner of an empty profile', () => {
+    mockUser = { username: 'alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({
+        username: 'alice',
+        stats: {
+          shows_submitted: 0,
+          venues_submitted: 0,
+          venue_edits_submitted: 0,
+          releases_created: 0,
+          labels_created: 0,
+          festivals_created: 0,
+          artists_edited: 0,
+          revisions_made: 0,
+          pending_edits_submitted: 0,
+          tag_votes_cast: 0,
+          relationship_votes_cast: 0,
+          request_votes_cast: 0,
+          collection_items_added: 0,
+          collection_subscriptions: 0,
+          shows_attended: 0,
+          reports_filed: 0,
+          reports_resolved: 0,
+          followers_count: 0,
+          following_count: 0,
+          moderation_actions: 0,
+          total_contributions: 0,
+        },
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+
+    expect(screen.getByText('Get started')).toBeInTheDocument()
+    expect(screen.getByText('Log a show you attended')).toBeInTheDocument()
+    expect(screen.getByText('Follow artists you love')).toBeInTheDocument()
+    expect(
+      screen.getByText('Start your first collection')
+    ).toBeInTheDocument()
+    // The checklist REPLACES the content sections for a brand-new profile.
+    expect(screen.queryByTestId('profile-following')).not.toBeInTheDocument()
+    // And the visitor-facing empty card never shows to the owner.
+    expect(
+      screen.queryByText(/hasn't added any content/)
+    ).not.toBeInTheDocument()
+  })
+
+  it('does NOT show the Get started checklist to visitors of an empty profile', () => {
+    mockUsePublicProfile.mockReturnValue({
+      // Visible-and-zero stats (the post-PSY-1045 default for anonymous
+      // viewers): the empty-state card requires KNOWN-zero contributions.
+      data: makeProfile({
+        stats: {
+          shows_submitted: 0,
+          venues_submitted: 0,
+          venue_edits_submitted: 0,
+          releases_created: 0,
+          labels_created: 0,
+          festivals_created: 0,
+          artists_edited: 0,
+          revisions_made: 0,
+          pending_edits_submitted: 0,
+          tag_votes_cast: 0,
+          relationship_votes_cast: 0,
+          request_votes_cast: 0,
+          collection_items_added: 0,
+          collection_subscriptions: 0,
+          shows_attended: 0,
+          reports_filed: 0,
+          reports_resolved: 0,
+          followers_count: 0,
+          following_count: 0,
+          moderation_actions: 0,
+          total_contributions: 0,
+        },
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.queryByText('Get started')).not.toBeInTheDocument()
+    expect(screen.getByText(/hasn't added any content/)).toBeInTheDocument()
+  })
+
+  it('does NOT claim emptiness to visitors when stats are hidden', () => {
+    // With stats hidden we can't know whether the self-fetching sections
+    // rendered content — so no "hasn't added any content" card.
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ stats: undefined, stats_count: undefined }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(
+      screen.queryByText(/hasn't added any content/)
+    ).not.toBeInTheDocument()
+  })
+
+  it('shows the add-bio prompt to an owner without a bio (non-empty profile)', () => {
+    mockUser = { username: 'alice' }
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({ username: 'alice' }),
+      isLoading: false,
+      error: null,
+    })
+    // Collections exist, so this is NOT a brand-new profile (no checklist).
+    mockUseUserPublicCollections.mockReturnValue({
+      data: { collections: [], total: 3 },
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.getByText(/Add a short bio/)).toBeInTheDocument()
+    expect(screen.getByRole('link', { name: 'Add bio' })).toBeInTheDocument()
+    expect(screen.queryByText('Get started')).not.toBeInTheDocument()
+  })
+
+  it('never shows the add-bio prompt to visitors', () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile(),
+      isLoading: false,
+      error: null,
+    })
+    mockUseUserPublicCollections.mockReturnValue({
+      data: { collections: [], total: 3 },
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(screen.queryByText(/Add a short bio/)).not.toBeInTheDocument()
+  })
 })
+

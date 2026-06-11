@@ -6,7 +6,6 @@ export {
   useFestivalVenues,
   useArtistFestivals,
   useSimilarFestivals,
-  useFestivalBreakouts,
   useArtistFestivalTrajectory,
   useSeriesComparison,
 } from './useFestivals'

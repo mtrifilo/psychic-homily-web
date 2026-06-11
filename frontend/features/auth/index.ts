@@ -21,6 +21,12 @@ export type {
   APIToken,
   ActivityDay,
   ActivityHeatmapResponse,
+  FollowingEntity,
+  UserFollowingResponse,
+  AttendedShow,
+  AttendedShowsResponse,
+  AuthoredFieldNote,
+  UserFieldNotesResponse,
 } from './types'
 
 // Hooks — Auth
@@ -71,6 +77,9 @@ export {
   usePublicContributions,
   useActivityHeatmap,
   usePercentileRankings,
+  useUserFollowing,
+  useUserAttendedShows,
+  useUserFieldNotes,
   useOwnContributorProfile,
   useOwnContributions,
   useOwnSections,

@@ -289,32 +289,11 @@ export interface TrajectoryEntry {
   tier: string
 }
 
-export interface ArtistBreakout {
-  artist: ArtistSummary
-  current_tier: string
-  trajectory: TrajectoryEntry[]
-  tier_improvement: number
-  breakout_score: number
-}
-
-export interface ArtistMilestone {
-  artist: ArtistSummary
-  milestone: string
-  tier: string
-  festival: string
-}
-
-export interface FestivalBreakouts {
-  breakouts: ArtistBreakout[]
-  milestones: ArtistMilestone[]
-}
-
 export interface ArtistTrajectory {
   artist: ArtistSummary
   appearances: TrajectoryEntry[]
   best_tier: string
   total_appearances: number
-  breakout_score: number
 }
 
 export interface SeriesEdition {
@@ -345,26 +324,3 @@ export interface SeriesComparison {
   lineup_growth: number
 }
 
-/** Width percentage for trajectory bar chart based on billing tier */
-export function getTierBarWidth(tier: string): number {
-  switch (tier) {
-    case 'headliner': return 100
-    case 'sub_headliner': return 80
-    case 'mid_card': return 60
-    case 'undercard': return 40
-    case 'local': return 25
-    case 'dj': return 25
-    case 'host': return 15
-    default: return 30
-  }
-}
-
-/** Display label for milestone types */
-export function getMilestoneLabel(milestone: string): string {
-  switch (milestone) {
-    case 'first_festival_appearance': return 'Festival Debut'
-    case 'first_headliner': return 'First Headliner'
-    case 'local_graduation': return 'Graduated from Local'
-    default: return milestone.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
-  }
-}

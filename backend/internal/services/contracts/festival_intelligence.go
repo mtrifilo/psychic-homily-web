@@ -51,21 +51,6 @@ type FestivalOverlap struct {
 	BOnlyCount    int             `json:"b_only_count"`
 }
 
-// FestivalBreakouts contains breakout artists and milestone events for a festival.
-type FestivalBreakouts struct {
-	Breakouts  []ArtistBreakout  `json:"breakouts"`
-	Milestones []ArtistMilestone `json:"milestones"`
-}
-
-// ArtistBreakout represents an artist whose billing tier improved across festivals.
-type ArtistBreakout struct {
-	Artist          ArtistSummary     `json:"artist"`
-	CurrentTier     string            `json:"current_tier"`
-	Trajectory      []TrajectoryEntry `json:"trajectory"`
-	TierImprovement int               `json:"tier_improvement"`
-	BreakoutScore   float64           `json:"breakout_score"`
-}
-
 // TrajectoryEntry is one stop in an artist's festival billing history.
 type TrajectoryEntry struct {
 	FestivalName string `json:"festival_name"`
@@ -74,21 +59,12 @@ type TrajectoryEntry struct {
 	Tier         string `json:"tier"`
 }
 
-// ArtistMilestone marks a notable moment in an artist's festival career.
-type ArtistMilestone struct {
-	Artist    ArtistSummary `json:"artist"`
-	Milestone string        `json:"milestone"`
-	Tier      string        `json:"tier"`
-	Festival  string        `json:"festival"`
-}
-
 // ArtistTrajectory is the full festival billing history for a single artist.
 type ArtistTrajectory struct {
 	Artist           ArtistSummary     `json:"artist"`
 	Appearances      []TrajectoryEntry `json:"appearances"`
 	BestTier         string            `json:"best_tier"`
 	TotalAppearances int               `json:"total_appearances"`
-	BreakoutScore    float64           `json:"breakout_score"`
 }
 
 // SeriesComparison shows year-over-year analysis for a recurring festival series.
@@ -127,7 +103,6 @@ type SeriesNewcomer struct {
 type FestivalIntelligenceServiceInterface interface {
 	GetSimilarFestivals(festivalID uint, limit int) ([]SimilarFestival, error)
 	GetFestivalOverlap(festivalAID, festivalBID uint) (*FestivalOverlap, error)
-	GetFestivalBreakouts(festivalID uint) (*FestivalBreakouts, error)
 	GetArtistFestivalTrajectory(artistID uint) (*ArtistTrajectory, error)
 	GetSeriesComparison(seriesSlug string, years []int) (*SeriesComparison, error)
 }

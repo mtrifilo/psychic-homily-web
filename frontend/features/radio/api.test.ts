@@ -81,6 +81,20 @@ describe('radioQueryKeys', () => {
     expect(radioQueryKeys.shows()).toEqual(['radio-shows', { stationId: undefined }])
   })
 
+  it('shows(stationId, sort) carries the sort param (PSY-1050)', () => {
+    expect(radioQueryKeys.shows(7, 'latest')).toEqual([
+      'radio-shows',
+      { stationId: 7, sort: 'latest' },
+    ])
+  })
+
+  it('shows(stationId) omits the sort property entirely so partial-match invalidation still hits sorted queries', () => {
+    // An explicit `sort: undefined` property would break React Query's
+    // partialMatchKey: invalidateQueries(shows(stationId)) — used by the
+    // admin radio mutations — would stop matching sort=latest queries.
+    expect(Object.keys(radioQueryKeys.shows(7)[1])).toEqual(['stationId'])
+  })
+
   it('show(slug) scopes by slug', () => {
     expect(radioQueryKeys.show('drummer')).toEqual(['radio-shows', 'drummer'])
   })

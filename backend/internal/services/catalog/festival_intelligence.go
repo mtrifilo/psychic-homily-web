@@ -479,195 +479,6 @@ func (s *FestivalIntelligenceService) GetFestivalOverlap(festivalAID, festivalBI
 }
 
 // ──────────────────────────────────────────────
-// GetFestivalBreakouts
-// ──────────────────────────────────────────────
-
-// GetFestivalBreakouts identifies artists at this festival whose billing tier
-// improved compared to their previous festival appearances.
-func (s *FestivalIntelligenceService) GetFestivalBreakouts(festivalID uint) (*contracts.FestivalBreakouts, error) {
-	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
-	}
-
-	// Verify festival exists and get its info
-	var festival catalogm.Festival
-	if err := s.db.First(&festival, festivalID).Error; err != nil {
-		return nil, apperrors.ErrFestivalIntelNotFound("festival not found")
-	}
-
-	// Get artists at this festival
-	var currentArtists []festivalArtistRow
-	s.db.Table("festival_artists").
-		Select("festival_id, artist_id, billing_tier").
-		Where("festival_id = ?", festivalID).
-		Scan(&currentArtists)
-
-	if len(currentArtists) == 0 {
-		return &contracts.FestivalBreakouts{
-			Breakouts:  []contracts.ArtistBreakout{},
-			Milestones: []contracts.ArtistMilestone{},
-		}, nil
-	}
-
-	artistIDs := make([]uint, len(currentArtists))
-	currentTiers := make(map[uint]string)
-	for i, ca := range currentArtists {
-		artistIDs[i] = ca.ArtistID
-		currentTiers[ca.ArtistID] = ca.BillingTier
-	}
-
-	// Get all festival appearances for these artists (across all festivals)
-	type historyRow struct {
-		ArtistID    uint
-		FestivalID  uint
-		BillingTier string
-		StartDate   string
-		EditionYear int
-		Name        string
-		Slug        string
-	}
-
-	var history []historyRow
-	s.db.Table("festival_artists fa").
-		Select("fa.artist_id, fa.festival_id, fa.billing_tier, f.start_date, f.edition_year, f.name, f.slug").
-		Joins("JOIN festivals f ON f.id = fa.festival_id").
-		Where("fa.artist_id IN ? AND f.status IN ('confirmed', 'completed', 'announced')", artistIDs).
-		Order("fa.artist_id, f.start_date ASC").
-		Scan(&history)
-
-	// Group history by artist
-	artistHistory := make(map[uint][]historyRow)
-	for _, h := range history {
-		artistHistory[h.ArtistID] = append(artistHistory[h.ArtistID], h)
-	}
-
-	// Load artist info
-	artistMap := s.loadArtistInfoMap(artistIDs)
-
-	var breakouts []contracts.ArtistBreakout
-	var milestones []contracts.ArtistMilestone
-
-	for _, aid := range artistIDs {
-		hist := artistHistory[aid]
-		ai := artistMap[aid]
-		currentTier := currentTiers[aid]
-
-		if len(hist) == 1 {
-			// First festival appearance - milestone
-			milestones = append(milestones, contracts.ArtistMilestone{
-				Artist:    contracts.ArtistSummary{ID: ai.ID, Name: ai.Name, Slug: ai.Slug},
-				Milestone: "first_festival_appearance",
-				Tier:      currentTier,
-				Festival:  festival.Name,
-			})
-			continue
-		}
-
-		// Build trajectory
-		trajectory := make([]contracts.TrajectoryEntry, len(hist))
-		var bestRank = 99
-		for i, h := range hist {
-			trajectory[i] = contracts.TrajectoryEntry{
-				FestivalName: h.Name,
-				FestivalSlug: h.Slug,
-				Year:         h.EditionYear,
-				Tier:         h.BillingTier,
-			}
-			r := tierRank(h.BillingTier)
-			if r < bestRank {
-				bestRank = r
-			}
-		}
-
-		// Check for tier improvement vs previous appearances
-		currentRank := tierRank(currentTier)
-		var totalImprovement int
-		firstYear := hist[0].EditionYear
-		lastYear := hist[len(hist)-1].EditionYear
-		yearsSpan := lastYear - firstYear
-		if yearsSpan < 1 {
-			yearsSpan = 1
-		}
-
-		// Calculate improvement: sum of rank decreases between consecutive appearances
-		for i := 1; i < len(hist); i++ {
-			prevRank := tierRank(hist[i-1].BillingTier)
-			currRank := tierRank(hist[i].BillingTier)
-			if currRank < prevRank {
-				totalImprovement += prevRank - currRank
-			}
-		}
-
-		if totalImprovement > 0 {
-			breakoutScore := float64(totalImprovement) / float64(yearsSpan)
-			breakouts = append(breakouts, contracts.ArtistBreakout{
-				Artist:          contracts.ArtistSummary{ID: ai.ID, Name: ai.Name, Slug: ai.Slug},
-				CurrentTier:     currentTier,
-				Trajectory:      trajectory,
-				TierImprovement: totalImprovement,
-				BreakoutScore:   math.Round(breakoutScore*100) / 100,
-			})
-		}
-
-		// Check milestones
-		// First headliner
-		if currentTier == "headliner" {
-			isFirstHeadliner := true
-			for _, h := range hist[:len(hist)-1] {
-				if h.BillingTier == "headliner" {
-					isFirstHeadliner = false
-					break
-				}
-			}
-			if isFirstHeadliner {
-				milestones = append(milestones, contracts.ArtistMilestone{
-					Artist:    contracts.ArtistSummary{ID: ai.ID, Name: ai.Name, Slug: ai.Slug},
-					Milestone: "first_headliner",
-					Tier:      currentTier,
-					Festival:  festival.Name,
-				})
-			}
-		}
-
-		// Local graduation
-		if currentTier != "local" && currentRank < 5 {
-			hadLocal := false
-			for _, h := range hist[:len(hist)-1] {
-				if h.BillingTier == "local" {
-					hadLocal = true
-					break
-				}
-			}
-			if hadLocal {
-				milestones = append(milestones, contracts.ArtistMilestone{
-					Artist:    contracts.ArtistSummary{ID: ai.ID, Name: ai.Name, Slug: ai.Slug},
-					Milestone: "local_graduation",
-					Tier:      currentTier,
-					Festival:  festival.Name,
-				})
-			}
-		}
-	}
-
-	// Sort breakouts by breakout score DESC
-	sort.Slice(breakouts, func(i, j int) bool {
-		return breakouts[i].BreakoutScore > breakouts[j].BreakoutScore
-	})
-
-	if breakouts == nil {
-		breakouts = []contracts.ArtistBreakout{}
-	}
-	if milestones == nil {
-		milestones = []contracts.ArtistMilestone{}
-	}
-
-	return &contracts.FestivalBreakouts{
-		Breakouts:  breakouts,
-		Milestones: milestones,
-	}, nil
-}
-
-// ──────────────────────────────────────────────
 // GetArtistFestivalTrajectory
 // ──────────────────────────────────────────────
 
@@ -712,7 +523,6 @@ func (s *FestivalIntelligenceService) GetArtistFestivalTrajectory(artistID uint)
 			Appearances:      []contracts.TrajectoryEntry{},
 			BestTier:         "",
 			TotalAppearances: 0,
-			BreakoutScore:    0,
 		}, nil
 	}
 
@@ -731,32 +541,11 @@ func (s *FestivalIntelligenceService) GetArtistFestivalTrajectory(artistID uint)
 		}
 	}
 
-	// Compute breakout score
-	var totalImprovement int
-	for i := 1; i < len(history); i++ {
-		prevRank := tierRank(history[i-1].BillingTier)
-		currRank := tierRank(history[i].BillingTier)
-		if currRank < prevRank {
-			totalImprovement += prevRank - currRank
-		}
-	}
-
-	yearsSpan := history[len(history)-1].EditionYear - history[0].EditionYear
-	if yearsSpan < 1 {
-		yearsSpan = 1
-	}
-
-	breakoutScore := 0.0
-	if totalImprovement > 0 {
-		breakoutScore = math.Round(float64(totalImprovement)/float64(yearsSpan)*100) / 100
-	}
-
 	return &contracts.ArtistTrajectory{
 		Artist:           contracts.ArtistSummary{ID: artist.ID, Name: artist.Name, Slug: artistSlug},
 		Appearances:      appearances,
 		BestTier:         rankToTier(bestRank),
 		TotalAppearances: len(history),
-		BreakoutScore:    breakoutScore,
 	}, nil
 }
 

@@ -638,6 +638,168 @@ func TestAdminDecide_ApproveArtist_CreatesEntity(t *testing.T) {
 	}
 }
 
+// PSY-1038: the fulfiller forwards the previously-dropped nullable payload
+// fields (image_url + bandcamp_embed_url) onto the CreateArtist contract.
+func TestAdminDecide_ApproveArtist_CarriesNullableFields(t *testing.T) {
+	img := "https://example.com/boris.jpg"
+	embed := "https://boris.bandcamp.com/album/pink"
+	payload, err := communitym.MarshalPayload(communitym.ArtistRequestPayload{
+		Name:             "Boris",
+		ImageURL:         &img,
+		BandcampEmbedURL: &embed,
+	})
+	if err != nil {
+		t.Fatalf("marshal artist payload: %v", err)
+	}
+	decided := pendingRequest(30, "artist")
+	decided.Payload = &payload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	var gotImage, gotEmbed *string
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				gotImage = req.ImageURL
+				gotEmbed = req.BandcampEmbedURL
+				return &contracts.ArtistDetailResponse{ID: 88}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+
+	req := &AdminDecideEntityRequestRequest{ID: "30"}
+	req.Body.Decision = "approved"
+	if _, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotImage == nil || *gotImage != "https://example.com/boris.jpg" {
+		t.Errorf("expected image_url forwarded, got %v", gotImage)
+	}
+	if gotEmbed == nil || *gotEmbed != "https://boris.bandcamp.com/album/pink" {
+		t.Errorf("expected bandcamp_embed_url forwarded, got %v", gotEmbed)
+	}
+}
+
+// PSY-1038: the venue fulfiller branch forwards description + image_url.
+func TestAdminDecide_ApproveVenue_CarriesNullableFields(t *testing.T) {
+	desc := "All-ages club."
+	img := "https://example.com/v.jpg"
+	payload, err := communitym.MarshalPayload(communitym.VenueRequestPayload{
+		Name: "Rebel Lounge", City: "Phoenix", State: "AZ",
+		Description: &desc, ImageURL: &img,
+	})
+	if err != nil {
+		t.Fatalf("marshal venue payload: %v", err)
+	}
+	decided := pendingRequest(31, "venue")
+	decided.Payload = &payload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	var gotDesc, gotImage *string
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateVenueFn: func(req *contracts.CreateVenueRequest, isAdmin bool) (*contracts.VenueDetailResponse, error) {
+				gotDesc = req.Description
+				gotImage = req.ImageURL
+				return &contracts.VenueDetailResponse{ID: 71}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminDecideEntityRequestRequest{ID: "31"}
+	req.Body.Decision = "approved"
+	if _, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotDesc == nil || *gotDesc != "All-ages club." {
+		t.Errorf("expected description forwarded, got %v", gotDesc)
+	}
+	if gotImage == nil || *gotImage != "https://example.com/v.jpg" {
+		t.Errorf("expected image_url forwarded, got %v", gotImage)
+	}
+}
+
+// PSY-1038: the label fulfiller branch forwards image_url.
+func TestAdminDecide_ApproveLabel_CarriesNullableFields(t *testing.T) {
+	img := "https://example.com/l.png"
+	payload, err := communitym.MarshalPayload(communitym.LabelRequestPayload{Name: "Hydra Head", ImageURL: &img})
+	if err != nil {
+		t.Fatalf("marshal label payload: %v", err)
+	}
+	decided := pendingRequest(32, "label")
+	decided.Payload = &payload
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	var gotImage *string
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateLabelFn: func(req *contracts.CreateLabelRequest) (*contracts.LabelDetailResponse, error) {
+				gotImage = req.ImageURL
+				return &contracts.LabelDetailResponse{ID: 72}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminDecideEntityRequestRequest{ID: "32"}
+	req.Body.Decision = "approved"
+	if _, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if gotImage == nil || *gotImage != "https://example.com/l.png" {
+		t.Errorf("expected image_url forwarded, got %v", gotImage)
+	}
+}
+
+// PSY-1038 (adversarial): a stored artist request carrying a hostile-scheme
+// image_url that predates the URL validation must be rejected at the fulfill
+// boundary (re-validation), NOT mapped onto the created artist. CreateArtist
+// must never be called.
+func TestAdminDecide_ApproveArtist_RejectsHostileStoredURL(t *testing.T) {
+	// Built directly (bypassing create-time validation) as a pre-PSY-1038 row.
+	raw := json.RawMessage(`{"name":"Evil","image_url":"javascript:alert(document.cookie)"}`)
+	decided := pendingRequest(33, "artist")
+	decided.Payload = &raw
+	decided.DecisionState = communitym.EntityRequestStateApproved
+
+	createCalled := false
+	h := NewEntityRequestHandler(
+		&testhelpers.MockEntityRequestService{
+			DecideFn: func(requestID, adminID uint, newState communitym.EntityRequestDecisionState, note *string) (*communitym.EntityRequest, error) {
+				return decided, nil
+			},
+		},
+		&testhelpers.MockEntityRequestFulfiller{
+			CreateArtistFn: func(req *contracts.CreateArtistRequest) (*contracts.ArtistDetailResponse, error) {
+				createCalled = true
+				return &contracts.ArtistDetailResponse{ID: 99}, nil
+			},
+		},
+		&testhelpers.MockAuditLogService{},
+	)
+	req := &AdminDecideEntityRequestRequest{ID: "33"}
+	req.Body.Decision = "approved"
+	_, err := h.AdminDecideEntityRequestHandler(erAdminCtx(), req)
+	testhelpers.AssertHumaError(t, err, 500) // stored-payload-invalid → typed 500
+	if createCalled {
+		t.Error("CreateArtist must NOT be called for a hostile stored image_url")
+	}
+}
+
 // Approving a show is unsupported (payload lacks venues + artists) → 422.
 func TestAdminDecide_ApproveShow_Unsupported(t *testing.T) {
 	decided := pendingRequest(6, "show")

@@ -1,22 +1,26 @@
 'use client'
 
 import Link from 'next/link'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
 import { Button } from '@/components/ui/button'
 import { Lock, CalendarDays, Clock, Pencil } from 'lucide-react'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { ActivityHeatmap } from './ActivityHeatmap'
+import { SectionHeader } from '@/components/shared/SectionHeader'
 import { UserTierBadge } from './UserTierBadge'
-import { ContributionStatsGrid } from './ContributionStatsGrid'
 import { ContributionTimeline } from './ContributionTimeline'
-import { PercentileRankings } from './PercentileRankings'
+import { GetStartedChecklist } from './GetStartedChecklist'
 import { ProfileSections } from './ProfileSections'
+import { ProfileFollowing } from './ProfileFollowing'
+import { ProfileAttendedShows } from './ProfileAttendedShows'
+import { ProfileFieldNotes } from './ProfileFieldNotes'
+import { ProfileStatsSidebar } from './ProfileStatsSidebar'
 import {
   usePublicProfile,
   usePublicContributions,
 } from '@/features/auth'
 import { UserCollections } from '@/features/collections'
+import { useUserPublicCollections } from '@/features/collections'
 
 function formatDate(dateString: string): string {
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -44,7 +48,7 @@ function formatLastActive(dateString: string): string {
 
 function ProfileSkeleton() {
   return (
-    <div className="container max-w-4xl mx-auto px-4 py-12">
+    <div className="container max-w-6xl mx-auto px-4 py-12">
       <div className="space-y-6">
         <div className="flex items-center gap-4">
           <Skeleton className="h-16 w-16 rounded-full" />
@@ -64,6 +68,16 @@ interface PublicProfileProps {
   username: string
 }
 
+/**
+ * The public profile as a content-first identity hub (PSY-1045).
+ *
+ * Layout: identity header, then a two-column body — the user's CONTENT
+ * (bio + custom sections, following, collections, concert diary, field
+ * notes) leads in the main column, while the contribution dashboard is
+ * demoted to a compact, expandable sidebar card. This inverts the previous
+ * stats-first layout per the Gazelle "identity hub, not a stats dump"
+ * direction (docs/features/profile-redesign.md).
+ */
 export function PublicProfile({ username }: PublicProfileProps) {
   const { user } = useAuthContext()
 
@@ -76,6 +90,10 @@ export function PublicProfile({ username }: PublicProfileProps) {
   const {
     data: contributionsData,
   } = usePublicContributions(username, { limit: 10 })
+
+  // Fetched here for the sidebar's headline count; <UserCollections> below
+  // shares the same query key, so this costs no extra request.
+  const { data: collectionsData } = useUserPublicCollections(username)
 
   // The viewer is the profile owner when their logged-in username matches the
   // profile being viewed. Compared case-insensitively only to stay robust to
@@ -96,7 +114,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
     const apiError = error as { status?: number }
     if (apiError.status === 404) {
       return (
-        <div className="container max-w-4xl mx-auto px-4 py-12">
+        <div className="container max-w-6xl mx-auto px-4 py-12">
           <div className="text-center py-16">
             <h1 className="text-2xl font-bold mb-2">User Not Found</h1>
             <p className="text-muted-foreground">
@@ -108,7 +126,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
     }
 
     return (
-      <div className="container max-w-4xl mx-auto px-4 py-12">
+      <div className="container max-w-6xl mx-auto px-4 py-12">
         <div className="text-center py-16">
           <h1 className="text-2xl font-bold mb-2">Error</h1>
           <p className="text-muted-foreground">
@@ -131,7 +149,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
   // PSY-1025.
   if (profile.profile_visibility === 'private') {
     return (
-      <div className="container max-w-4xl mx-auto px-4 py-12">
+      <div className="container max-w-6xl mx-auto px-4 py-12">
         <div className="text-center py-16">
           <div className="inline-flex h-16 w-16 items-center justify-center rounded-full bg-muted mb-4">
             <Lock className="h-8 w-8 text-muted-foreground" />
@@ -159,18 +177,26 @@ export function PublicProfile({ username }: PublicProfileProps) {
 
   const displayName = profile.first_name || profile.username
   const contributions = contributionsData?.contributions || []
-  const showStats = profile.stats !== undefined
-  const showContributions = contributions.length > 0
-  const showSections = profile.sections && profile.sections.length > 0
+  const hasBio = Boolean(profile.bio)
+  const visibleSections = (profile.sections ?? []).filter(s => s.is_visible)
+  const hasSections = visibleSections.length > 0
+  const collectionsTotal = collectionsData?.total
+  const hasCollections = (collectionsTotal ?? 0) > 0
+
+  // A brand-new owner profile: no prose, no contributions yet. Replace the
+  // empty sections with the onboarding checklist (design board B).
+  const isNewProfile =
+    !hasBio &&
+    !hasSections &&
+    !hasCollections &&
+    (profile.stats?.total_contributions ?? 0) === 0
+  const showGetStarted = isOwner && isNewProfile
 
   return (
-    <div className="container max-w-4xl mx-auto px-4 py-12">
-      {/* Profile Header */}
-      <div className="mb-8">
+    <div className="container max-w-6xl mx-auto px-4 py-10">
+      {/* Identity header */}
+      <header className="mb-8 border-b border-border/60 pb-6">
         <div className="flex items-start gap-4">
-          {/* Owner-only Edit affordance: links to the settings/edit form.
-              Rendered only for the logged-in profile owner; visitors never
-              see it. PSY-1025. */}
           {isOwner && (
             <Button
               asChild
@@ -197,7 +223,7 @@ export function PublicProfile({ username }: PublicProfileProps) {
             </div>
           )}
 
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               <h1 className="text-2xl font-bold">{displayName}</h1>
               <UserTierBadge tier={profile.user_tier} />
@@ -205,12 +231,9 @@ export function PublicProfile({ username }: PublicProfileProps) {
             <p className="text-sm text-muted-foreground mt-0.5">
               @{profile.username}
             </p>
-            {profile.bio && (
-              <p className="text-sm mt-2">{profile.bio}</p>
-            )}
 
             {/* Meta info */}
-            <div className="flex items-center gap-4 mt-3 text-xs text-muted-foreground">
+            <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
               <span className="flex items-center gap-1">
                 <CalendarDays className="h-3.5 w-3.5" />
                 Joined {formatDate(profile.joined_at)}
@@ -224,76 +247,99 @@ export function PublicProfile({ username }: PublicProfileProps) {
             </div>
           </div>
         </div>
+      </header>
+
+      {/* Two-column body: content leads, stats demoted to the sidebar */}
+      <div className="flex flex-col gap-10 lg:flex-row">
+        <div className="flex-1 min-w-0 space-y-8">
+          {/* Bio — the primary content slot */}
+          {(hasBio || hasSections || isOwner) && (
+            <section aria-label="Bio">
+              <SectionHeader title="Bio" as="h2" size="md" />
+              {hasBio ? (
+                <p className="mt-2 text-sm leading-relaxed whitespace-pre-line">
+                  {profile.bio}
+                </p>
+              ) : isOwner ? (
+                <div className="mt-2 flex items-center justify-between gap-3 rounded-md border border-dashed border-border bg-muted/20 px-4 py-3">
+                  <p className="text-sm text-muted-foreground">
+                    Add a short bio so people know who you are — the scenes
+                    you haunt, what you&apos;re into.
+                  </p>
+                  <Button asChild variant="outline" size="sm" className="shrink-0">
+                    <Link href="/profile">Add bio</Link>
+                  </Button>
+                </div>
+              ) : null}
+              {hasSections && (
+                <div className="mt-4">
+                  <ProfileSections sections={visibleSections} />
+                </div>
+              )}
+            </section>
+          )}
+
+          {showGetStarted ? (
+            <GetStartedChecklist />
+          ) : (
+            <>
+              <ProfileFollowing username={username} />
+
+              {(hasCollections || isOwner) && (
+                <section aria-label="Collections">
+                  <SectionHeader title="Collections" as="h2" size="md" />
+                  <div className="mt-3">
+                    <UserCollections username={username} />
+                  </div>
+                </section>
+              )}
+
+              <ProfileAttendedShows username={username} />
+              <ProfileFieldNotes username={username} />
+
+              {/* Recent contributions — kept as the trailing section so the
+                  knowledge-graph work stays visible without leading the page. */}
+              {contributions.length > 0 && (
+                <section aria-label="Recent activity">
+                  <SectionHeader title="Recent activity" as="h2" size="md" />
+                  <Card className="mt-3 bg-muted/30 border-border/50">
+                    <CardContent className="p-2">
+                      <ContributionTimeline contributions={contributions} />
+                    </CardContent>
+                  </Card>
+                </section>
+              )}
+            </>
+          )}
+
+          {/* Visitor-facing empty state: public profile with nothing on it.
+              Requires stats to be VISIBLE and zero — when stats are hidden we
+              can't know whether the (self-fetching) list sections rendered
+              content, so we don't claim emptiness. */}
+          {!isOwner &&
+            isNewProfile &&
+            profile.stats?.total_contributions === 0 &&
+            contributions.length === 0 && (
+              <Card className="bg-muted/30 border-border/50">
+                <CardContent className="p-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    This user hasn&apos;t added any content to their profile
+                    yet.
+                  </p>
+                </CardContent>
+              </Card>
+            )}
+        </div>
+
+        <aside className="w-full lg:w-80 shrink-0">
+          <ProfileStatsSidebar
+            username={username}
+            stats={profile.stats}
+            statsCount={profile.stats_count}
+            collectionsTotal={collectionsTotal}
+          />
+        </aside>
       </div>
-
-      {/* Stats Count Only */}
-      {!showStats && profile.stats_count !== undefined && profile.stats_count > 0 && (
-        <Card className="mb-6 bg-muted/30 border-border/50">
-          <CardContent className="p-4">
-            <p className="text-sm text-muted-foreground">
-              <span className="font-bold text-foreground text-lg">{profile.stats_count}</span>{' '}
-              total contributions
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Contribution Stats */}
-      {showStats && profile.stats && (
-        <section className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">Contributions</h2>
-          <ContributionStatsGrid stats={profile.stats} />
-        </section>
-      )}
-
-      {/* Activity Heatmap */}
-      {(showStats || (profile.stats_count !== undefined && profile.stats_count > 0)) && (
-        <section className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">Activity</h2>
-          <ActivityHeatmap username={username} />
-        </section>
-      )}
-
-      {/* Percentile Rankings */}
-      <section className="mb-8">
-        <PercentileRankings username={username} />
-      </section>
-
-      {/* Recent Activity */}
-      {showContributions && (
-        <section className="mb-8">
-          <h2 className="text-lg font-semibold mb-4">Recent Activity</h2>
-          <Card className="bg-muted/30 border-border/50">
-            <CardContent className="p-2">
-              <ContributionTimeline contributions={contributions} />
-            </CardContent>
-          </Card>
-        </section>
-      )}
-
-      {/* Custom Sections */}
-      {showSections && profile.sections && (
-        <section className="mb-8">
-          <ProfileSections sections={profile.sections} />
-        </section>
-      )}
-
-      {/* Collections */}
-      <section className="mb-8">
-        <h2 className="text-lg font-semibold mb-4">Collections</h2>
-        <UserCollections username={username} />
-      </section>
-
-      {/* Empty state when profile is public but has no content */}
-      {!showStats && !showContributions && !showSections && profile.stats_count === undefined && (
-        <Card className="bg-muted/30 border-border/50">
-          <CardContent className="p-8 text-center">
-            <p className="text-sm text-muted-foreground">
-              This user hasn&apos;t added any content to their profile yet.
-            </p>
-          </CardContent>
-        </Card>
-      )}
     </div>
   )
 }

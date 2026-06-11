@@ -23,6 +23,7 @@ type CreateLabelRequest struct {
 	SoundCloud  *string `json:"soundcloud"`
 	Bandcamp    *string `json:"bandcamp"`
 	Website     *string `json:"website"`
+	ImageURL    *string `json:"image_url"`
 }
 
 // UpdateLabelRequest represents the data that can be updated on a label

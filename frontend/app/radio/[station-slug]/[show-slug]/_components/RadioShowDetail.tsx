@@ -2,30 +2,27 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import {
-  ArrowLeft,
-  Loader2,
-  Mic2,
-  Calendar,
-  Tag,
-  Music,
-  ChevronLeft,
-  ChevronRight,
-} from 'lucide-react'
+import { ArrowLeft, ArrowUpRight, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { Badge } from '@/components/ui/badge'
+import { BracketLink } from '@/components/shared/BracketLink'
+import { SectionHeader } from '@/components/shared/SectionHeader'
 import {
   useRadioShow,
   useRadioEpisodes,
   useRadioTopArtists,
   useRadioTopLabels,
-  RadioEpisodeRow,
+  isAirDateToday,
 } from '@/features/radio'
 import type { RadioTopArtist, RadioTopLabel } from '@/features/radio'
+import { EpisodeArchiveTable } from './EpisodeArchiveTable'
 
 interface RadioShowDetailProps {
   stationSlug: string
   showSlug: string
+}
+
+function pluralize(count: number, noun: string): string {
+  return `${count} ${noun}${count === 1 ? '' : 's'}`
 }
 
 function TopArtistsSidebar({ showSlug }: { showSlug: string }) {
@@ -34,35 +31,34 @@ function TopArtistsSidebar({ showSlug }: { showSlug: string }) {
   if (isLoading || !data?.artists || data.artists.length === 0) return null
 
   return (
-    <div>
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-        Top Artists (90d)
-      </h3>
+    <section className="rounded-md border border-border/60 px-3 py-2.5">
+      <SectionHeader title="Top artists — last 90 days" />
       <div className="space-y-1">
         {data.artists.map((artist: RadioTopArtist) => (
           <div
             key={artist.artist_name}
-            className="flex items-center justify-between py-0.5"
+            className="flex items-baseline justify-between gap-2 py-0.5"
           >
             {artist.artist_slug ? (
               <Link
                 href={`/artists/${artist.artist_slug}`}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors truncate mr-2"
+                className="text-sm text-primary hover:text-primary/80 transition-colors truncate"
               >
                 {artist.artist_name}
               </Link>
             ) : (
-              <span className="text-sm text-muted-foreground truncate mr-2">
+              <span className="text-sm text-foreground truncate">
                 {artist.artist_name}
               </span>
             )}
-            <span className="text-xs text-muted-foreground/60 tabular-nums shrink-0">
-              {artist.play_count}
+            <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap shrink-0">
+              {pluralize(artist.play_count, 'play')} ·{' '}
+              {pluralize(artist.episode_count, 'episode')}
             </span>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
@@ -72,39 +68,37 @@ function TopLabelsSidebar({ showSlug }: { showSlug: string }) {
   if (isLoading || !data?.labels || data.labels.length === 0) return null
 
   return (
-    <div>
-      <h3 className="text-xs font-semibold text-muted-foreground uppercase tracking-wider mb-2">
-        Top Labels (90d)
-      </h3>
+    <section className="rounded-md border border-border/60 px-3 py-2.5">
+      <SectionHeader title="Top labels — last 90 days" />
       <div className="space-y-1">
         {data.labels.map((label: RadioTopLabel) => (
           <div
             key={label.label_name}
-            className="flex items-center justify-between py-0.5"
+            className="flex items-baseline justify-between gap-2 py-0.5"
           >
             {label.label_slug ? (
               <Link
                 href={`/labels/${label.label_slug}`}
-                className="text-sm text-muted-foreground hover:text-foreground transition-colors truncate mr-2"
+                className="text-sm text-primary hover:text-primary/80 transition-colors truncate"
               >
                 {label.label_name}
               </Link>
             ) : (
-              <span className="text-sm text-muted-foreground truncate mr-2">
+              <span className="text-sm text-foreground truncate">
                 {label.label_name}
               </span>
             )}
-            <span className="text-xs text-muted-foreground/60 tabular-nums shrink-0">
-              {label.play_count}
+            <span className="text-xs text-muted-foreground tabular-nums whitespace-nowrap shrink-0">
+              {pluralize(label.play_count, 'play')}
             </span>
           </div>
         ))}
       </div>
-    </div>
+    </section>
   )
 }
 
-const PAGE_SIZE = 20
+const PAGE_SIZE = 25
 
 export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDetailProps) {
   const { data: show, isLoading, error } = useRadioShow(showSlug)
@@ -115,6 +109,17 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
     offset,
     enabled: !!show,
   })
+  // Separate limit-1 query (cheap, cached) so the ON AIR strip always derives
+  // from the LATEST episode regardless of which archive page is in view.
+  const latestQuery = useRadioEpisodes({
+    showSlug,
+    limit: 1,
+    enabled: !!show,
+  })
+  // useRadioEpisodes keeps previous data across slug changes; ignore the
+  // placeholder so the strip never links the PREVIOUS show's air_date under
+  // the new show's URL (same guard as useShowLatestEpisode).
+  const latestData = latestQuery.isPlaceholderData ? undefined : latestQuery.data
 
   if (isLoading) {
     return (
@@ -147,161 +152,146 @@ export default function RadioShowDetail({ stationSlug, showSlug }: RadioShowDeta
   const total = episodesData?.total ?? 0
   const hasNextPage = offset + PAGE_SIZE < total
   const hasPrevPage = offset > 0
+  const currentPage = Math.floor(offset / PAGE_SIZE) + 1
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+
+  // v1 "on air" heuristic (PSY-1051): live when the latest episode aired
+  // today. Swaps to PSY-1022's live now-playing endpoint without layout change.
+  const latestEpisode = latestData?.episodes?.[0]
+  const isOnAir = isAirDateToday(latestEpisode?.air_date)
+  const livePlaylistUrl = latestEpisode
+    ? `/radio/${stationSlug}/${showSlug}/${latestEpisode.air_date}`
+    : null
+
+  const metaParts = [
+    show.schedule_display,
+    show.station_name,
+    ...genreTags,
+  ].filter(Boolean) as string[]
 
   return (
     <div className="flex min-h-screen items-start justify-center">
       <main className="w-full max-w-6xl px-4 py-8 md:px-8">
         {/* Breadcrumb */}
-        <div className="mb-6 flex items-center gap-1.5 text-sm text-muted-foreground">
-          <Link
-            href="/radio"
-            className="hover:text-foreground transition-colors"
-          >
-            Radio
-          </Link>
-          <span>/</span>
+        <div className="mb-6 font-mono text-xs text-muted-foreground">
           <Link
             href={`/radio/${stationSlug}`}
             className="hover:text-foreground transition-colors"
           >
-            {show.station_name}
+            ← {show.station_name}
           </Link>
         </div>
 
+        {/* Show header */}
+        <header className="mb-4">
+          <div className="flex items-start justify-between gap-4">
+            <h1 className="text-2xl font-bold min-w-0">
+              {show.name}
+              {show.host_name && (
+                <span className="ml-2 text-base font-normal text-muted-foreground">
+                  w/ {show.host_name}
+                </span>
+              )}
+            </h1>
+            {show.archive_url && (
+              <Button asChild variant="outline" size="sm" className="shrink-0">
+                <a
+                  href={show.archive_url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Archive
+                  <ArrowUpRight className="h-3.5 w-3.5 ml-1" />
+                </a>
+              </Button>
+            )}
+          </div>
+
+          {metaParts.length > 0 && (
+            <p className="mt-1 font-mono text-xs text-muted-foreground">
+              {metaParts.join(' · ')}
+            </p>
+          )}
+
+          {show.description && (
+            <p className="mt-2 text-sm text-muted-foreground leading-relaxed max-w-3xl">
+              {show.description}
+            </p>
+          )}
+        </header>
+
+        {/* ON AIR strip (v1 heuristic until PSY-1022) */}
+        {isOnAir && livePlaylistUrl && (
+          <div className="mb-6 flex items-center justify-between gap-3 rounded-md border border-primary/40 bg-primary/5 px-4 py-2.5">
+            <span className="font-mono text-xs text-foreground">
+              <span className="text-primary" aria-hidden="true">
+                ●
+              </span>{' '}
+              ON AIR NOW — tonight&apos;s playlist is updating live
+            </span>
+            <BracketLink
+              label="open live playlist →"
+              href={livePlaylistUrl}
+              className="font-mono text-xs text-primary hover:text-primary/80"
+            />
+          </div>
+        )}
+
         <div className="flex flex-col lg:flex-row gap-8">
-          {/* Main content */}
+          {/* Playlist archive */}
           <div className="flex-1 min-w-0">
-            {/* Show header */}
-            <div className="flex items-start gap-4 mb-6">
-              <div className="shrink-0 rounded-xl bg-muted/50 flex items-center justify-center overflow-hidden h-20 w-20">
-                {show.image_url ? (
-                  <img
-                    src={show.image_url}
-                    alt={show.name}
-                    className="h-full w-full object-cover"
-                  />
-                ) : (
-                  <Mic2 className="h-10 w-10 text-muted-foreground/40" />
-                )}
+            <SectionHeader
+              as="h2"
+              size="md"
+              title={`Playlists — ${pluralize(total, 'episode')}`}
+            />
+
+            {episodesLoading && (
+              <div className="flex justify-center py-8">
+                <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
               </div>
-
-              <div className="flex-1 min-w-0">
-                <h1 className="text-2xl font-bold">{show.name}</h1>
-                <p className="text-sm text-muted-foreground mt-0.5">
-                  on{' '}
-                  <Link
-                    href={`/radio/${stationSlug}`}
-                    className="hover:text-foreground transition-colors"
-                  >
-                    {show.station_name}
-                  </Link>
-                </p>
-
-                {show.host_name && (
-                  <p className="text-sm text-muted-foreground mt-1">
-                    Hosted by {show.host_name}
-                  </p>
-                )}
-
-                <div className="flex items-center gap-2 flex-wrap mt-2">
-                  {show.schedule_display && (
-                    <span className="flex items-center gap-1 text-sm text-muted-foreground">
-                      <Calendar className="h-3.5 w-3.5" />
-                      {show.schedule_display}
-                    </span>
-                  )}
-                  {genreTags.length > 0 && (
-                    <div className="flex items-center gap-1">
-                      <Tag className="h-3.5 w-3.5 text-muted-foreground" />
-                      {genreTags.map(tag => (
-                        <Badge
-                          key={tag}
-                          variant="secondary"
-                          className="text-[10px] px-1.5 py-0"
-                        >
-                          {tag}
-                        </Badge>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              </div>
-            </div>
-
-            {show.description && (
-              <p className="text-sm text-muted-foreground leading-relaxed mb-6">
-                {show.description}
-              </p>
             )}
 
-            {/* Episodes */}
-            <section>
-              <h2 className="text-lg font-bold mb-3 flex items-center gap-2">
-                <Music className="h-5 w-5" />
-                Recent Episodes
-                {total > 0 && (
-                  <span className="text-sm font-normal text-muted-foreground">
-                    ({total})
-                  </span>
-                )}
-              </h2>
+            {!episodesLoading && episodesData?.episodes && episodesData.episodes.length > 0 ? (
+              <>
+                <EpisodeArchiveTable
+                  episodes={episodesData.episodes}
+                  stationSlug={stationSlug}
+                  showSlug={showSlug}
+                />
 
-              {episodesLoading && (
-                <div className="flex justify-center py-8">
-                  <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-                </div>
-              )}
-
-              {!episodesLoading && episodesData?.episodes && episodesData.episodes.length > 0 ? (
-                <>
-                  <div className="space-y-0.5">
-                    {episodesData.episodes.map(episode => (
-                      <RadioEpisodeRow
-                        key={episode.id}
-                        episode={episode}
-                        stationSlug={stationSlug}
-                        showSlug={showSlug}
-                      />
-                    ))}
-                  </div>
-
-                  {/* Pagination */}
-                  {(hasNextPage || hasPrevPage) && (
-                    <div className="flex items-center justify-between mt-4 pt-4 border-t border-border/50">
-                      <Button
-                        variant="outline"
-                        size="sm"
+                {/* Pagination */}
+                {(hasNextPage || hasPrevPage) && (
+                  <div className="mt-3 flex items-center gap-3 font-mono text-xs text-muted-foreground">
+                    <span>
+                      page {currentPage} of {totalPages}
+                    </span>
+                    {hasPrevPage && (
+                      <BracketLink
+                        label="← newer"
                         onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}
-                        disabled={!hasPrevPage}
-                      >
-                        <ChevronLeft className="h-4 w-4 mr-1" />
-                        Newer
-                      </Button>
-                      <span className="text-xs text-muted-foreground">
-                        {offset + 1}-{Math.min(offset + PAGE_SIZE, total)} of {total}
-                      </span>
-                      <Button
-                        variant="outline"
-                        size="sm"
+                        className="text-xs"
+                      />
+                    )}
+                    {hasNextPage && (
+                      <BracketLink
+                        label="older →"
                         onClick={() => setOffset(offset + PAGE_SIZE)}
-                        disabled={!hasNextPage}
-                      >
-                        Older
-                        <ChevronRight className="h-4 w-4 ml-1" />
-                      </Button>
-                    </div>
-                  )}
-                </>
-              ) : !episodesLoading ? (
-                <div className="py-8 text-center text-sm text-muted-foreground">
-                  No episodes yet
-                </div>
-              ) : null}
-            </section>
+                        className="text-xs"
+                      />
+                    )}
+                  </div>
+                )}
+              </>
+            ) : !episodesLoading ? (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                No episodes yet
+              </div>
+            ) : null}
           </div>
 
           {/* Sidebar */}
-          <aside className="w-full lg:w-64 shrink-0 space-y-6">
+          <aside className="w-full lg:w-72 shrink-0 space-y-4">
             <TopArtistsSidebar showSlug={showSlug} />
             <TopLabelsSidebar showSlug={showSlug} />
           </aside>

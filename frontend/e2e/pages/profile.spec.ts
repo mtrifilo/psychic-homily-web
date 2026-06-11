@@ -8,7 +8,7 @@ test.describe('Profile page', () => {
 
     // Heading
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my profile/i })
+      authenticatedPage.getByRole('heading', { name: /edit profile & settings/i })
     ).toBeVisible({ timeout: 10_000 })
 
     // Profile tab is visible and active by default
@@ -43,7 +43,7 @@ test.describe('Profile page', () => {
     await authenticatedPage.goto('/profile?tab=settings')
 
     await expect(
-      authenticatedPage.getByRole('heading', { name: /my profile/i })
+      authenticatedPage.getByRole('heading', { name: /edit profile & settings/i })
     ).toBeVisible({ timeout: 10_000 })
 
     // Email Verification section with Verified badge
@@ -75,7 +75,7 @@ test.describe('Profile page', () => {
     await adminPage.goto('/profile?tab=settings')
 
     await expect(
-      adminPage.getByRole('heading', { name: /my profile/i })
+      adminPage.getByRole('heading', { name: /edit profile & settings/i })
     ).toBeVisible({ timeout: 10_000 })
 
     // API Tokens section (admin-only)

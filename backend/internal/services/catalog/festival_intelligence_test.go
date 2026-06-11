@@ -302,89 +302,6 @@ func (suite *FestivalIntelligenceTestSuite) TestGetFestivalOverlap_NotFound() {
 }
 
 // ─────────────────────────────────────────────
-// GetFestivalBreakouts tests
-// ─────────────────────────────────────────────
-
-func (suite *FestivalIntelligenceTestSuite) TestGetFestivalBreakouts_WithBreakout() {
-	// Artist goes from undercard to sub_headliner across two festivals
-	f1 := suite.createFestival("Early Fest", "ef", 2024, "2024-03-01")
-	f2 := suite.createFestival("Later Fest", "lf", 2026, "2026-03-01")
-
-	artist := suite.createArtist("Rising Star")
-	suite.addArtistToFestival(f1.ID, artist.ID, "undercard")
-	suite.addArtistToFestival(f2.ID, artist.ID, "sub_headliner")
-
-	breakouts, err := suite.svc.GetFestivalBreakouts(f2.ID)
-
-	suite.Require().NoError(err)
-	suite.Require().NotNil(breakouts)
-	suite.Require().NotEmpty(breakouts.Breakouts)
-
-	b := breakouts.Breakouts[0]
-	suite.Equal(artist.ID, b.Artist.ID)
-	suite.Equal("sub_headliner", b.CurrentTier)
-	suite.Greater(b.TierImprovement, 0)
-	suite.Greater(b.BreakoutScore, 0.0)
-	suite.Len(b.Trajectory, 2)
-}
-
-func (suite *FestivalIntelligenceTestSuite) TestGetFestivalBreakouts_FirstAppearanceMilestone() {
-	f := suite.createFestival("Debut Fest", "df", 2026, "2026-03-01")
-	artist := suite.createArtist("Newcomer")
-	suite.addArtistToFestival(f.ID, artist.ID, "local")
-
-	breakouts, err := suite.svc.GetFestivalBreakouts(f.ID)
-
-	suite.Require().NoError(err)
-	suite.Require().NotEmpty(breakouts.Milestones)
-
-	m := breakouts.Milestones[0]
-	suite.Equal(artist.ID, m.Artist.ID)
-	suite.Equal("first_festival_appearance", m.Milestone)
-}
-
-func (suite *FestivalIntelligenceTestSuite) TestGetFestivalBreakouts_FirstHeadlinerMilestone() {
-	f1 := suite.createFestival("Before Fest", "bf", 2024, "2024-03-01")
-	f2 := suite.createFestival("Headliner Fest", "hf", 2026, "2026-03-01")
-
-	artist := suite.createArtist("New Headliner")
-	suite.addArtistToFestival(f1.ID, artist.ID, "mid_card")
-	suite.addArtistToFestival(f2.ID, artist.ID, "headliner")
-
-	breakouts, err := suite.svc.GetFestivalBreakouts(f2.ID)
-
-	suite.Require().NoError(err)
-
-	// Should have both a breakout and a milestone
-	suite.NotEmpty(breakouts.Breakouts)
-
-	foundHeadlinerMilestone := false
-	for _, m := range breakouts.Milestones {
-		if m.Milestone == "first_headliner" {
-			foundHeadlinerMilestone = true
-			suite.Equal(artist.ID, m.Artist.ID)
-		}
-	}
-	suite.True(foundHeadlinerMilestone)
-}
-
-func (suite *FestivalIntelligenceTestSuite) TestGetFestivalBreakouts_EmptyFestival() {
-	f := suite.createFestival("Empty Breakout Fest", "ebf", 2026, "2026-03-01")
-
-	breakouts, err := suite.svc.GetFestivalBreakouts(f.ID)
-
-	suite.Require().NoError(err)
-	suite.Empty(breakouts.Breakouts)
-	suite.Empty(breakouts.Milestones)
-}
-
-func (suite *FestivalIntelligenceTestSuite) TestGetFestivalBreakouts_NotFound() {
-	_, err := suite.svc.GetFestivalBreakouts(99999)
-	suite.Require().Error(err)
-	suite.Contains(err.Error(), "not found")
-}
-
-// ─────────────────────────────────────────────
 // GetArtistFestivalTrajectory tests
 // ─────────────────────────────────────────────
 
@@ -406,7 +323,6 @@ func (suite *FestivalIntelligenceTestSuite) TestGetArtistFestivalTrajectory_Mult
 	suite.Len(traj.Appearances, 3)
 	suite.Equal("sub_headliner", traj.BestTier)
 	suite.Equal(3, traj.TotalAppearances)
-	suite.Greater(traj.BreakoutScore, 0.0)
 
 	// Verify chronological order
 	suite.Equal(2024, traj.Appearances[0].Year)
@@ -422,7 +338,6 @@ func (suite *FestivalIntelligenceTestSuite) TestGetArtistFestivalTrajectory_NoAp
 	suite.Require().NoError(err)
 	suite.Empty(traj.Appearances)
 	suite.Equal(0, traj.TotalAppearances)
-	suite.Equal(0.0, traj.BreakoutScore)
 }
 
 func (suite *FestivalIntelligenceTestSuite) TestGetArtistFestivalTrajectory_NotFound() {

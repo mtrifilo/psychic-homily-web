@@ -15,6 +15,13 @@ export const radioEndpoints = {
   // Stations
   STATIONS: `${API_BASE_URL}/radio-stations`,
   STATION: (slug: string) => `${API_BASE_URL}/radio-stations/${slug}`,
+  // Station-scoped aggregations (PSY-1048; consumed by the PSY-1050 station page)
+  STATION_EPISODES: (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${slug}/episodes`,
+  STATION_TOP_ARTISTS: (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${slug}/top-artists`,
+  STATION_TOP_LABELS: (slug: string) =>
+    `${API_BASE_URL}/radio-stations/${slug}/top-labels`,
 
   // Shows
   SHOWS: `${API_BASE_URL}/radio-shows`,
@@ -32,6 +39,8 @@ export const radioEndpoints = {
   // Aggregation
   NEW_RELEASES: `${API_BASE_URL}/radio/new-releases`,
   STATS: `${API_BASE_URL}/radio/stats`,
+  // PSY-1048: dial-wide latest-playlists feed
+  RECENT_EPISODES: `${API_BASE_URL}/radio/episodes/recent`,
 } as const
 
 // ============================================================================
@@ -41,12 +50,28 @@ export const radioEndpoints = {
 export const radioQueryKeys = {
   stations: () => ['radio-stations'] as const,
   station: (slug: string) => ['radio-stations', slug] as const,
-  shows: (stationId?: number) => ['radio-shows', { stationId }] as const,
+  stationEpisodes: (slug: string, params?: object) =>
+    ['radio-stations', slug, 'episodes', params] as const,
+  stationTopArtists: (slug: string, params?: object) =>
+    ['radio-stations', slug, 'top-artists', params] as const,
+  stationTopLabels: (slug: string, params?: object) =>
+    ['radio-stations', slug, 'top-labels', params] as const,
+  // `sort` is omitted from the key object when absent: an explicit
+  // `sort: undefined` property would break React Query's partial matching,
+  // so invalidateQueries(shows(stationId)) — e.g. the admin radio mutations —
+  // would silently stop matching the station page's sort=latest queries.
+  shows: (stationId?: number, sort?: string) =>
+    sort
+      ? (['radio-shows', { stationId, sort }] as const)
+      : (['radio-shows', { stationId }] as const),
   show: (slug: string) => ['radio-shows', slug] as const,
   episodes: (showSlug: string, params?: object) =>
     ['radio-shows', showSlug, 'episodes', params] as const,
   episode: (showSlug: string, date: string) =>
     ['radio-shows', showSlug, 'episodes', date] as const,
+  // PSY-1051: prev/next neighbors derived from the episodes list
+  episodeNeighbors: (showSlug: string, date: string) =>
+    ['radio-shows', showSlug, 'episode-neighbors', date] as const,
   topArtists: (showSlug: string, params?: object) =>
     ['radio-shows', showSlug, 'top-artists', params] as const,
   topLabels: (showSlug: string, params?: object) =>
@@ -55,4 +80,5 @@ export const radioQueryKeys = {
   releasePlays: (releaseSlug: string) => ['releases', releaseSlug, 'radio-plays'] as const,
   newReleases: (params?: object) => ['radio', 'new-releases', params] as const,
   stats: () => ['radio', 'stats'] as const,
+  recentEpisodes: (params?: object) => ['radio', 'episodes', 'recent', params] as const,
 } as const

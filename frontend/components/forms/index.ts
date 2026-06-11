@@ -1,7 +1,2 @@
 export { FormField, FieldInfo } from './FormField'
-export { ArtistInput } from './ArtistInput'
-export { VenueInput } from './VenueInput'
-export { ShowForm } from './ShowForm'
-export { VenueEditForm } from './VenueEditForm'
-export { ArtistEditForm } from './ArtistEditForm'
 export { AIFormFiller } from './AIFormFiller'

@@ -53,7 +53,7 @@ func TestRadioService_NilDB_Show(t *testing.T) {
 	})
 	assertNilDBError(t, func() error { _, err := svc.GetShow(1); return err })
 	assertNilDBError(t, func() error { _, err := svc.GetShowBySlug("x"); return err })
-	assertNilDBError(t, func() error { _, err := svc.ListShows(1); return err })
+	assertNilDBError(t, func() error { _, err := svc.ListShows(1, ""); return err })
 	assertNilDBError(t, func() error {
 		_, err := svc.UpdateShow(1, &contracts.UpdateRadioShowRequest{})
 		return err
@@ -462,7 +462,7 @@ func (suite *RadioServiceIntegrationTestSuite) TestListShows_WithEpisodeCounts()
 	suite.createEpisode(show.ID, "2026-01-02")
 	suite.createShow(station.ID, "Afternoon Show") // no episodes
 
-	resp, err := suite.radioService.ListShows(station.ID)
+	resp, err := suite.radioService.ListShows(station.ID, "")
 
 	suite.Require().NoError(err)
 	suite.Len(resp, 2)
@@ -1149,4 +1149,237 @@ func (suite *RadioServiceIntegrationTestSuite) TestRadioNetwork_ListStations_Pop
 	suite.Nil(k.Network)
 	suite.NotNil(k.SiblingStations)
 	suite.Empty(k.SiblingStations)
+}
+
+// =============================================================================
+// LATEST-PLAYLISTS FEEDS + STATION AGGREGATIONS (PSY-1048)
+// =============================================================================
+
+func TestRadioService_NilDB_Feeds(t *testing.T) {
+	svc := &RadioService{db: nil}
+	assertNilDBError(t, func() error { _, _, err := svc.GetStationEpisodes(1, 10, 0); return err })
+	assertNilDBError(t, func() error { _, _, err := svc.GetRecentEpisodes(10, 0); return err })
+	assertNilDBError(t, func() error { _, err := svc.GetTopArtistsForStation(1, 90, 10); return err })
+	assertNilDBError(t, func() error { _, err := svc.GetTopLabelsForStation(1, 90, 10); return err })
+}
+
+// createNetworkFamily seeds a network with a flagship + one sibling channel,
+// plus one standalone station outside the network. Returns (flagship,
+// sibling, standalone).
+func (suite *RadioServiceIntegrationTestSuite) createNetworkFamily() (*catalogm.RadioStation, *catalogm.RadioStation, *catalogm.RadioStation) {
+	suite.Require().NoError(suite.db.Exec(`INSERT INTO radio_networks (slug, name) VALUES ('fam-net', 'Family Net')`).Error)
+	var network catalogm.RadioNetwork
+	suite.Require().NoError(suite.db.Where("slug = ?", "fam-net").First(&network).Error)
+
+	flagship := &catalogm.RadioStation{Name: "Flagship", Slug: "flagship", BroadcastType: "both", NetworkID: &network.ID, IsFlagship: true}
+	suite.Require().NoError(suite.db.Create(flagship).Error)
+	sibling := &catalogm.RadioStation{Name: "Channel Two", Slug: "channel-two", BroadcastType: "internet", NetworkID: &network.ID}
+	suite.Require().NoError(suite.db.Create(sibling).Error)
+	standalone := &catalogm.RadioStation{Name: "Standalone", Slug: "standalone", BroadcastType: "both"}
+	suite.Require().NoError(suite.db.Create(standalone).Error)
+	return flagship, sibling, standalone
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestListShows_LatestAirDateAndSort() {
+	station := suite.createStation("KSRT")
+	older := suite.createShow(station.ID, "Alpha Show")
+	suite.createEpisode(older.ID, "2026-06-01")
+	suite.createEpisode(older.ID, "2026-06-05")
+	fresh := suite.createShow(station.ID, "Zulu Show")
+	suite.createEpisode(fresh.ID, "2026-06-09")
+	suite.createShow(station.ID, "Mid Show")
+	retired := suite.createShow(station.ID, "Beta Retired")
+	suite.createEpisode(retired.ID, "2026-06-08")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", retired.ID).Update("is_active", false).Error)
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioShow{}).Where("id = ?", older.ID).Update("schedule_display", "Mon 9pm-12am").Error)
+
+	// Default sort stays alphabetical (existing behavior).
+	byName, err := suite.radioService.ListShows(station.ID, "")
+	suite.Require().NoError(err)
+	suite.Require().Len(byName, 4)
+	suite.Equal("Alpha Show", byName[0].Name)
+	suite.Require().NotNil(byName[0].LatestAirDate)
+	suite.Equal("2026-06-05", *byName[0].LatestAirDate)
+	// schedule_display rides along on list rows (PSY-1050 shows directory).
+	suite.Require().NotNil(byName[0].ScheduleDisplay)
+	suite.Equal("Mon 9pm-12am", *byName[0].ScheduleDisplay)
+	suite.Nil(byName[1].ScheduleDisplay)
+
+	// sort=latest: active shows first, newest playlist first, episode-less
+	// actives after dated actives, inactive shows last.
+	byLatest, err := suite.radioService.ListShows(station.ID, RadioShowSortLatest)
+	suite.Require().NoError(err)
+	suite.Require().Len(byLatest, 4)
+	suite.Equal("Zulu Show", byLatest[0].Name)
+	suite.Equal("Alpha Show", byLatest[1].Name)
+	suite.Equal("Mid Show", byLatest[2].Name)
+	suite.Nil(byLatest[2].LatestAirDate)
+	suite.Equal("Beta Retired", byLatest[3].Name)
+	suite.False(byLatest[3].IsActive)
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestGetEpisodes_ArtistPreview() {
+	station := suite.createStation("KPRV")
+	show := suite.createShow(station.ID, "Preview Show")
+	ep := suite.createEpisode(show.ID, "2026-06-09")
+
+	matched := suite.createArtist("Matched Artist")
+	first := suite.createArtist("First Artist")
+	plays := []catalogm.RadioPlay{
+		// "First Artist" plays unmatched at position 1 and matched at 3 —
+		// the preview must keep the knowledge-graph link (MAX(artist_id)).
+		{EpisodeID: ep.ID, Position: 1, ArtistName: "First Artist"},
+		{EpisodeID: ep.ID, Position: 2, ArtistName: "Matched Artist", ArtistID: &matched.ID},
+		{EpisodeID: ep.ID, Position: 3, ArtistName: "First Artist", ArtistID: &first.ID},
+		{EpisodeID: ep.ID, Position: 4, ArtistName: "Third Artist"},
+		{EpisodeID: ep.ID, Position: 5, ArtistName: "Fourth Artist"}, // beyond preview cap
+	}
+	for i := range plays {
+		suite.Require().NoError(suite.db.Create(&plays[i]).Error)
+	}
+
+	episodes, total, err := suite.radioService.GetEpisodes(show.ID, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), total)
+	suite.Require().Len(episodes, 1)
+
+	preview := episodes[0].ArtistPreview
+	suite.Require().Len(preview, episodePreviewArtistCount)
+	suite.Equal("First Artist", preview[0].ArtistName)
+	suite.Require().NotNil(preview[0].ArtistID, "partially-matched artist must keep its graph link")
+	suite.Equal(first.ID, *preview[0].ArtistID)
+	suite.Equal("Matched Artist", preview[1].ArtistName)
+	suite.Require().NotNil(preview[1].ArtistID)
+	suite.Equal(matched.ID, *preview[1].ArtistID)
+	suite.Require().NotNil(preview[1].ArtistSlug)
+	suite.Equal("Third Artist", preview[2].ArtistName)
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestGetStationEpisodes_FlagshipIncludesNetwork() {
+	flagship, sibling, standalone := suite.createNetworkFamily()
+
+	flagShow := suite.createShow(flagship.ID, "Flag Show")
+	sibShow := suite.createShow(sibling.ID, "Sib Show")
+	aloneShow := suite.createShow(standalone.ID, "Alone Show")
+	suite.createEpisode(flagShow.ID, "2026-06-08")
+	suite.createEpisode(sibShow.ID, "2026-06-09")
+	suite.createEpisode(aloneShow.ID, "2026-06-07")
+
+	// Flagship aggregates the whole network, newest first, with channel attribution.
+	rows, total, err := suite.radioService.GetStationEpisodes(flagship.ID, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(rows, 2)
+	suite.Equal("Sib Show", rows[0].ShowName)
+	suite.Equal("Channel Two", rows[0].StationName)
+	suite.Equal("channel-two", rows[0].StationSlug)
+	suite.Equal("2026-06-09", rows[0].AirDate)
+	suite.Equal("Flag Show", rows[1].ShowName)
+	suite.Equal("Flagship", rows[1].StationName)
+	suite.Require().NotNil(rows[1].ArtistPreview, "episodes without plays must serialize artist_preview as [], not null")
+	suite.Empty(rows[1].ArtistPreview)
+
+	// A non-flagship channel aggregates only itself.
+	sibRows, sibTotal, err := suite.radioService.GetStationEpisodes(sibling.ID, 10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(1), sibTotal)
+	suite.Require().Len(sibRows, 1)
+	suite.Equal("Sib Show", sibRows[0].ShowName)
+
+	// Unknown station -> not found error.
+	_, _, err = suite.radioService.GetStationEpisodes(99999, 10, 0)
+	suite.Require().Error(err)
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestGetRecentEpisodes_ActiveStationsOnly() {
+	active := suite.createStation("Active FM")
+	dormant := suite.createStation("Dormant FM")
+	suite.Require().NoError(suite.db.Model(&catalogm.RadioStation{}).Where("id = ?", dormant.ID).Update("is_active", false).Error)
+
+	activeShow := suite.createShow(active.ID, "Active Show")
+	dormantShow := suite.createShow(dormant.ID, "Dormant Show")
+	suite.createEpisode(activeShow.ID, "2026-06-08")
+	suite.createEpisode(activeShow.ID, "2026-06-09")
+	suite.createEpisode(dormantShow.ID, "2026-06-09")
+
+	rows, total, err := suite.radioService.GetRecentEpisodes(10, 0)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total)
+	suite.Require().Len(rows, 2)
+	suite.Equal("2026-06-09", rows[0].AirDate)
+	suite.Equal("2026-06-08", rows[1].AirDate)
+	for _, r := range rows {
+		suite.Equal("Active Show", r.ShowName)
+	}
+
+	// Pagination: second page carries the remaining row.
+	page2, total2, err := suite.radioService.GetRecentEpisodes(1, 1)
+	suite.Require().NoError(err)
+	suite.Equal(int64(2), total2)
+	suite.Require().Len(page2, 1)
+	suite.Equal("2026-06-08", page2[0].AirDate)
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestGetTopArtistsForStation_AggregatesNetwork() {
+	flagship, sibling, standalone := suite.createNetworkFamily()
+	flagShow := suite.createShow(flagship.ID, "Flag Show")
+	sibShow := suite.createShow(sibling.ID, "Sib Show")
+	aloneShow := suite.createShow(standalone.ID, "Alone Show")
+	flagEp := suite.createEpisode(flagShow.ID, "2026-06-08")
+	sibEp := suite.createEpisode(sibShow.ID, "2026-06-09")
+	aloneEp := suite.createEpisode(aloneShow.ID, "2026-06-07")
+
+	suite.createPlay(flagEp.ID, 1, "Shared Artist")
+	suite.createPlay(sibEp.ID, 1, "Shared Artist")
+	suite.createPlay(sibEp.ID, 2, "Channel Artist")
+	suite.createPlay(aloneEp.ID, 1, "Outsider Artist")
+
+	artists, err := suite.radioService.GetTopArtistsForStation(flagship.ID, 90, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(artists, 2)
+	suite.Equal("Shared Artist", artists[0].ArtistName)
+	suite.Equal(2, artists[0].PlayCount)
+	suite.Equal(2, artists[0].EpisodeCount)
+	suite.Equal("Channel Artist", artists[1].ArtistName)
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestGetTopLabelsForStation_AggregatesNetwork() {
+	flagship, sibling, _ := suite.createNetworkFamily()
+	flagShow := suite.createShow(flagship.ID, "Flag Show")
+	sibShow := suite.createShow(sibling.ID, "Sib Show")
+	flagEp := suite.createEpisode(flagShow.ID, "2026-06-08")
+	sibEp := suite.createEpisode(sibShow.ID, "2026-06-09")
+
+	label := "Family Label"
+	other := "Channel Label"
+	plays := []catalogm.RadioPlay{
+		{EpisodeID: flagEp.ID, Position: 1, ArtistName: "A", LabelName: &label},
+		{EpisodeID: sibEp.ID, Position: 1, ArtistName: "B", LabelName: &label},
+		{EpisodeID: sibEp.ID, Position: 2, ArtistName: "C", LabelName: &other},
+	}
+	for i := range plays {
+		suite.Require().NoError(suite.db.Create(&plays[i]).Error)
+	}
+
+	labels, err := suite.radioService.GetTopLabelsForStation(flagship.ID, 90, 10)
+	suite.Require().NoError(err)
+	suite.Require().Len(labels, 2)
+	suite.Equal("Family Label", labels[0].LabelName)
+	suite.Equal(2, labels[0].PlayCount)
+}
+
+func TestRadioService_NilDB_ResolveStationID(t *testing.T) {
+	svc := &RadioService{db: nil}
+	assertNilDBError(t, func() error { _, err := svc.ResolveStationIDBySlug("x"); return err })
+}
+
+func (suite *RadioServiceIntegrationTestSuite) TestResolveStationIDBySlug() {
+	station := suite.createStation("Resolve FM")
+
+	id, err := suite.radioService.ResolveStationIDBySlug(station.Slug)
+	suite.Require().NoError(err)
+	suite.Equal(station.ID, id)
+
+	_, err = suite.radioService.ResolveStationIDBySlug("no-such-station")
+	suite.Require().Error(err)
 }

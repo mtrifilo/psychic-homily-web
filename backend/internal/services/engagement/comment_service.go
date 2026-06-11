@@ -1082,6 +1082,82 @@ func (s *CommentService) ListFieldNotesForShow(showID uint, limit, offset int) (
 	}, nil
 }
 
+// ListFieldNotesByAuthor returns the visible field notes a user has written,
+// newest first, with show title/slug enriched for profile display (PSY-1046).
+// Only visibility=visible notes are listed — hidden/pending notes never leak
+// onto a public profile.
+func (s *CommentService) ListFieldNotesByAuthor(userID uint, limit, offset int) ([]*contracts.AuthoredFieldNote, int64, error) {
+	if s.db == nil {
+		return nil, 0, errors.New("database not initialized")
+	}
+
+	if limit <= 0 {
+		limit = 20
+	}
+	if offset < 0 {
+		offset = 0
+	}
+
+	query := s.db.Model(&engagementm.Comment{}).
+		Where("user_id = ? AND entity_type = ? AND kind = ? AND visibility = ?",
+			userID, engagementm.CommentEntityShow, engagementm.CommentKindFieldNote, engagementm.CommentVisibilityVisible)
+
+	var total int64
+	if err := query.Count(&total).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to count authored field notes: %w", err)
+	}
+	if total == 0 {
+		return []*contracts.AuthoredFieldNote{}, 0, nil
+	}
+
+	var comments []engagementm.Comment
+	if err := query.Preload("User").
+		Order("created_at DESC, id DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&comments).Error; err != nil {
+		return nil, 0, fmt.Errorf("failed to fetch authored field notes: %w", err)
+	}
+
+	// Batch-enrich show titles/slugs for this page of notes.
+	showIDs := make([]uint, 0, len(comments))
+	seenShows := make(map[uint]bool)
+	for i := range comments {
+		id := comments[i].EntityID
+		if !seenShows[id] {
+			seenShows[id] = true
+			showIDs = append(showIDs, id)
+		}
+	}
+	type showRow struct {
+		ID    uint
+		Title string
+		Slug  *string
+	}
+	showsByID := make(map[uint]showRow, len(showIDs))
+	if len(showIDs) > 0 {
+		var rows []showRow
+		s.db.Table("shows").Select("id, title, slug").Where("id IN ?", showIDs).Scan(&rows)
+		for _, r := range rows {
+			showsByID[r.ID] = r
+		}
+	}
+
+	notes := make([]*contracts.AuthoredFieldNote, len(comments))
+	for i := range comments {
+		note := &contracts.AuthoredFieldNote{CommentResponse: *commentToResponse(&comments[i])}
+		if row, ok := showsByID[comments[i].EntityID]; ok {
+			note.ShowTitle = row.Title
+			if row.Slug != nil {
+				note.ShowSlug = *row.Slug
+			}
+		}
+		notes[i] = note
+	}
+
+	return notes, total, nil
+}
+
 // ============================================================================
 // Admin moderation methods
 // ============================================================================

@@ -11,7 +11,6 @@ describe('festivals components barrel', () => {
     expect(typeof components.FestivalLineup).toBe('function')
     expect(typeof components.FestivalList).toBe('function')
     expect(typeof components.SimilarFestivals).toBe('function')
-    expect(typeof components.RisingArtists).toBe('function')
     expect(typeof components.ArtistTrajectoryChart).toBe('function')
     expect(typeof components.SeriesHistory).toBe('function')
   })

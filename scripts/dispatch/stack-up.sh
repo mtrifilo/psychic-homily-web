@@ -48,7 +48,10 @@ esac
 WORKTREE_PATH="$(cd "$WORKTREE_PATH" && pwd)"
 WORKTREE_ID="$(basename "$WORKTREE_PATH")"
 STACK_DIR="$WORKTREE_PATH/dispatch-stack"
-COMPOSE_PROJECT="dispatch-${WORKTREE_ID}"
+# Compose project names must be lowercase [a-z0-9_-]; worktree dirs like
+# "PSY-1045+content-first-profile" contain uppercase and '+', so sanitize.
+COMPOSE_PROJECT="dispatch-$(printf '%s' "$WORKTREE_ID" | tr '[:upper:]' '[:lower:]' | tr -c 'a-z0-9_-' '-')"
+COMPOSE_PROJECT="${COMPOSE_PROJECT%-}"
 
 mkdir -p "$STACK_DIR"
 

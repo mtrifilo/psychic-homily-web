@@ -124,10 +124,14 @@ export interface RadioShowListItem {
   name: string
   slug: string
   host_name: string | null
+  /** Human-readable air slot ("Mon 9pm-12am"); PSY-1050 shows directory. */
+  schedule_display: string | null
   genre_tags: string[] | null
   image_url: string | null
   is_active: boolean
   episode_count: number
+  /** Air date (YYYY-MM-DD) of the show's most recent episode (PSY-1048). */
+  latest_air_date: string | null
 }
 
 export interface RadioShowDetail {
@@ -348,4 +352,60 @@ export function getRotationStatusLabel(status: string): string {
 
 export function getRotationStatusColor(status: string): string {
   return ROTATION_STATUS_COLORS[status] ?? 'bg-muted text-muted-foreground border-border'
+}
+
+// ============================================================================
+// PSY-1048 aggregation shapes (PSY-1049 + PSY-1050 + PSY-1051)
+//
+// Mirrors backend/internal/services/contracts/radio.go.
+// ============================================================================
+
+/**
+ * One artist in an episode row's short "played" preview: the raw playlist
+ * name plus a knowledge-graph link when the matching engine resolved it.
+ * Unmatched artists (null id/slug) render as plain text — never a dead link.
+ */
+export interface RadioEpisodePreviewArtist {
+  artist_name: string
+  artist_id: number | null
+  artist_slug: string | null
+}
+
+/**
+ * An episode row in the station-scoped and dial-wide latest-playlists feeds:
+ * episode fields plus show and channel (station) attribution. A network
+ * flagship's feed already includes its channels server-side.
+ */
+export interface RadioStationEpisodeRow {
+  id: number
+  title: string | null
+  air_date: string
+  play_count: number
+  archive_url: string | null
+  show_id: number
+  show_name: string
+  show_slug: string
+  station_id: number
+  station_name: string
+  station_slug: string
+  /** Always an array (may be empty); matched artists carry id + slug. */
+  artist_preview: RadioEpisodePreviewArtist[]
+}
+
+/** Response shape for GET /radio/episodes/recent (and station episode feeds). */
+export interface RadioRecentEpisodesResponse {
+  episodes: RadioStationEpisodeRow[]
+  total: number
+}
+
+/** Response shape for GET /radio-stations/{slug}/episodes. */
+export interface RadioStationEpisodesResponse {
+  episodes: RadioStationEpisodeRow[]
+  total: number
+}
+
+// Declaration-merges into RadioEpisodeListItem above: episode list rows now
+// carry the first few distinct playlist artists (PSY-1048).
+export interface RadioEpisodeListItem {
+  artist_preview: RadioEpisodePreviewArtist[]
 }

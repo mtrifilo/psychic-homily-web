@@ -95,6 +95,9 @@ function makeShowListItem(overrides: Partial<RadioShowListItem> = {}): RadioShow
     image_url: null,
     is_active: true,
     episode_count: 12,
+    
+    schedule_display: null,
+    latest_air_date: null,
     ...overrides,
   }
 }
@@ -140,6 +143,7 @@ function baseOverview(overrides: Partial<StationOverview> = {}): StationOverview
         { name: 'Unwound', slug: null },
       ],
     },
+    latestEpisode: undefined,
     recentShows: [makeShowListItem({ id: 2, name: 'Audioasis', slug: 'audioasis' })],
     isLoading: false,
     isEmpty: false,

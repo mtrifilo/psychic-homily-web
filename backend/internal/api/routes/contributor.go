@@ -9,7 +9,10 @@ import (
 
 // setupContributorProfileRoutes configures contributor profile endpoints
 func setupContributorProfileRoutes(rc RouteContext) {
-	profileHandler := communityh.NewContributorProfileHandler(rc.SC.ContributorProfile, rc.SC.User)
+	profileHandler := communityh.NewContributorProfileHandler(
+		rc.SC.ContributorProfile, rc.SC.User,
+		rc.SC.Follow, rc.SC.Attendance, rc.SC.Comment,
+	)
 
 	// Public profile endpoints with optional auth (so profile owner can see their own private profile)
 	optionalAuthGroup := huma.NewGroup(rc.API, "")
@@ -19,6 +22,10 @@ func setupContributorProfileRoutes(rc RouteContext) {
 	huma.Get(optionalAuthGroup, "/users/{username}/sections", profileHandler.GetUserSectionsHandler)
 	huma.Get(optionalAuthGroup, "/users/{username}/activity-heatmap", profileHandler.GetActivityHeatmapHandler)
 	huma.Get(optionalAuthGroup, "/users/{username}/rankings", profileHandler.GetPercentileRankingsHandler)
+	// PSY-1046: public profile list surfaces (privacy-gated per field)
+	huma.Get(optionalAuthGroup, "/users/{username}/following", profileHandler.GetUserFollowingHandler)
+	huma.Get(optionalAuthGroup, "/users/{username}/attended-shows", profileHandler.GetUserAttendedShowsHandler)
+	huma.Get(optionalAuthGroup, "/users/{username}/field-notes", profileHandler.GetUserFieldNotesHandler)
 
 	// Protected endpoints for authenticated user's own profile
 	huma.Get(rc.Protected, "/auth/profile/contributor", profileHandler.GetOwnProfileHandler)

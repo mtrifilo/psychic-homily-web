@@ -159,6 +159,15 @@ const routes: RouteItem[] = [
     keywords: ['settings', 'profile', 'account', 'preferences', 'email'],
     requireAuth: true,
   },
+  {
+    // /users/me redirects to /users/<username> when one is set, and renders
+    // the claim-username self view otherwise — so this static entry works for
+    // every authed user without needing the username here (PSY-1045).
+    label: 'My Profile',
+    href: '/users/me',
+    keywords: ['my profile', 'profile', 'public profile', 'identity', 'me'],
+    requireAuth: true,
+  },
 ]
 
 /**

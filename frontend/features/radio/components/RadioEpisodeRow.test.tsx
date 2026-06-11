@@ -20,6 +20,7 @@ function makeEpisode(overrides: Partial<RadioEpisodeListItem> = {}): RadioEpisod
     archive_url: null,
     play_count: 18,
     created_at: '2026-05-01T00:00:00Z',
+    artist_preview: [],
     ...overrides,
   }
 }

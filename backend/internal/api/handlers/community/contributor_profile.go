@@ -11,23 +11,36 @@ import (
 	"psychic-homily-backend/internal/api/handlers/shared"
 	"psychic-homily-backend/internal/api/middleware"
 	"psychic-homily-backend/internal/logger"
+	authm "psychic-homily-backend/internal/models/auth"
 	"psychic-homily-backend/internal/services/contracts"
 )
 
 // ContributorProfileHandler handles contributor profile HTTP requests.
 type ContributorProfileHandler struct {
-	profileService contracts.ContributorProfileServiceInterface
-	userService    contracts.UserServiceInterface
+	profileService    contracts.ContributorProfileServiceInterface
+	userService       contracts.UserServiceInterface
+	followService     contracts.FollowServiceInterface
+	attendanceService contracts.AttendanceServiceInterface
+	fieldNoteService  contracts.FieldNoteServiceInterface
 }
 
 // NewContributorProfileHandler creates a new contributor profile handler.
+// followService / attendanceService / fieldNoteService back the public
+// profile list endpoints (PSY-1046); tests that don't exercise those
+// handlers may pass nil for them.
 func NewContributorProfileHandler(
 	profileService contracts.ContributorProfileServiceInterface,
 	userService contracts.UserServiceInterface,
+	followService contracts.FollowServiceInterface,
+	attendanceService contracts.AttendanceServiceInterface,
+	fieldNoteService contracts.FieldNoteServiceInterface,
 ) *ContributorProfileHandler {
 	return &ContributorProfileHandler{
-		profileService: profileService,
-		userService:    userService,
+		profileService:    profileService,
+		userService:       userService,
+		followService:     followService,
+		attendanceService: attendanceService,
+		fieldNoteService:  fieldNoteService,
 	}
 }
 
@@ -169,7 +182,98 @@ type GetPercentileRankingsResponse struct {
 	Body *contracts.PercentileRankings
 }
 
+type GetUserFollowingRequest struct {
+	Username string `path:"username" doc:"Username of the contributor"`
+	Type     string `query:"type" default:"all" doc:"Entity type filter: artist, venue, label, festival, or all"`
+	Limit    int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of items per page (max 100)"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+}
+
+type GetUserFollowingResponse struct {
+	Body struct {
+		Following []*contracts.FollowingEntityResponse `json:"following"`
+		Total     int64                                `json:"total"`
+		Limit     int                                  `json:"limit"`
+		Offset    int                                  `json:"offset"`
+	}
+}
+
+type GetUserAttendedShowsRequest struct {
+	Username string `path:"username" doc:"Username of the contributor"`
+	Limit    int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of shows per page (max 100)"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+}
+
+type GetUserAttendedShowsResponse struct {
+	Body struct {
+		Shows  []*contracts.AttendingShowResponse `json:"shows"`
+		Total  int64                              `json:"total"`
+		Limit  int                                `json:"limit"`
+		Offset int                                `json:"offset"`
+	}
+}
+
+type GetUserFieldNotesRequest struct {
+	Username string `path:"username" doc:"Username of the contributor"`
+	Limit    int    `query:"limit" default:"20" minimum:"1" maximum:"100" doc:"Number of field notes per page (max 100)"`
+	Offset   int    `query:"offset" default:"0" minimum:"0" doc:"Offset for pagination"`
+}
+
+type GetUserFieldNotesResponse struct {
+	Body struct {
+		FieldNotes []*contracts.AuthoredFieldNote `json:"field_notes"`
+		Total      int64                          `json:"total"`
+		Limit      int                            `json:"limit"`
+		Offset     int                            `json:"offset"`
+	}
+}
+
 // --- Handlers ---
+
+// resolveProfileTarget looks up the profile owner by username and applies the
+// master profile-visibility gate shared by every public profile endpoint.
+// Returns the target user and whether the viewer is the owner. A private
+// profile (or missing user) resolves to 404 so hidden profiles are
+// indistinguishable from nonexistent ones.
+func (h *ContributorProfileHandler) resolveProfileTarget(ctx context.Context, username string) (*authm.User, bool, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	targetUser, err := h.userService.GetUserByUsername(username)
+	if err != nil {
+		logger.FromContext(ctx).Error("profile_target_lookup_failed",
+			"username", username,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, false, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to look up user (request_id: %s)", requestID),
+		)
+	}
+	if targetUser == nil {
+		return nil, false, huma.Error404NotFound("User not found")
+	}
+
+	viewer := middleware.GetUserFromContext(ctx)
+	isOwner := viewer != nil && viewer.ID == targetUser.ID
+
+	// Master privacy check
+	if targetUser.ProfileVisibility == "private" && !isOwner {
+		return nil, false, huma.Error404NotFound("User not found")
+	}
+
+	return targetUser, isOwner, nil
+}
+
+// granularPrivacy unmarshals the user's stored privacy settings over the
+// defaults. Unmarshal failures fall back to the defaults (the same lenient
+// posture the profile service takes for this column).
+func granularPrivacy(targetUser *authm.User) contracts.PrivacySettings {
+	privacy := contracts.DefaultPrivacySettings()
+	if targetUser.PrivacySettings != nil {
+		_ = json.Unmarshal(*targetUser.PrivacySettings, &privacy)
+	}
+	return privacy
+}
 
 // GetPublicProfileHandler handles GET /users/{username}.
 func (h *ContributorProfileHandler) GetPublicProfileHandler(ctx context.Context, req *GetPublicProfileRequest) (*GetPublicProfileResponse, error) {
@@ -204,37 +308,14 @@ func (h *ContributorProfileHandler) GetPublicProfileHandler(ctx context.Context,
 func (h *ContributorProfileHandler) GetContributionHistoryHandler(ctx context.Context, req *GetContributionHistoryRequest) (*GetContributionHistoryResponse, error) {
 	requestID := logger.GetRequestID(ctx)
 
-	targetUser, err := h.userService.GetUserByUsername(req.Username)
+	targetUser, isOwner, err := h.resolveProfileTarget(ctx, req.Username)
 	if err != nil {
-		logger.FromContext(ctx).Error("get_contribution_history_user_lookup_failed",
-			"username", req.Username,
-			"error", err.Error(),
-			"request_id", requestID,
-		)
-		return nil, huma.Error500InternalServerError(
-			fmt.Sprintf("Failed to look up user (request_id: %s)", requestID),
-		)
-	}
-	if targetUser == nil {
-		return nil, huma.Error404NotFound("User not found")
-	}
-
-	viewer := middleware.GetUserFromContext(ctx)
-	isOwner := viewer != nil && viewer.ID == targetUser.ID
-
-	// Master privacy check
-	if targetUser.ProfileVisibility == "private" && !isOwner {
-		return nil, huma.Error404NotFound("User not found")
+		return nil, err
 	}
 
 	// Granular privacy check for contributions
 	if !isOwner {
-		privacy := contracts.DefaultPrivacySettings()
-		if targetUser.PrivacySettings != nil {
-			_ = json.Unmarshal(*targetUser.PrivacySettings, &privacy)
-		}
-
-		switch privacy.Contributions {
+		switch granularPrivacy(targetUser).Contributions {
 		case contracts.PrivacyHidden:
 			return nil, huma.Error404NotFound("User not found")
 		case contracts.PrivacyCountOnly:
@@ -791,4 +872,186 @@ func (h *ContributorProfileHandler) GetPercentileRankingsHandler(ctx context.Con
 	}
 
 	return &GetPercentileRankingsResponse{Body: rankings}, nil
+}
+
+// GetUserFollowingHandler handles GET /users/{username}/following (PSY-1046).
+// Lists the artists / venues / labels / festivals a user follows, gated by
+// the profile's `following` privacy setting (default count_only).
+func (h *ContributorProfileHandler) GetUserFollowingHandler(ctx context.Context, req *GetUserFollowingRequest) (*GetUserFollowingResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	targetUser, isOwner, err := h.resolveProfileTarget(ctx, req.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	// Validate type filter (mirrors GetMyFollowingHandler); "all"/"" mean no filter.
+	entityType := req.Type
+	if entityType == "all" {
+		entityType = ""
+	}
+	switch entityType {
+	case "", "artist", "venue", "label", "festival":
+	default:
+		return nil, huma.Error400BadRequest("Type must be 'artist', 'venue', 'label', 'festival', or 'all'")
+	}
+
+	emptyBody := func(total int64) *GetUserFollowingResponse {
+		return &GetUserFollowingResponse{
+			Body: struct {
+				Following []*contracts.FollowingEntityResponse `json:"following"`
+				Total     int64                                `json:"total"`
+				Limit     int                                  `json:"limit"`
+				Offset    int                                  `json:"offset"`
+			}{
+				Following: []*contracts.FollowingEntityResponse{},
+				Total:     total,
+				Limit:     req.Limit,
+				Offset:    req.Offset,
+			},
+		}
+	}
+
+	if !isOwner {
+		switch granularPrivacy(targetUser).Following {
+		case contracts.PrivacyHidden:
+			return nil, huma.Error404NotFound("User not found")
+		case contracts.PrivacyCountOnly:
+			// Total only, no items. limit=1 keeps the page fetch trivial; the
+			// service's count query is what we're after.
+			_, total, err := h.followService.GetUserFollowing(targetUser.ID, entityType, 1, 0)
+			if err != nil {
+				logger.FromContext(ctx).Error("get_user_following_count_failed",
+					"user_id", targetUser.ID,
+					"error", err.Error(),
+					"request_id", requestID,
+				)
+				return nil, huma.Error500InternalServerError(
+					fmt.Sprintf("Failed to get following (request_id: %s)", requestID),
+				)
+			}
+			return emptyBody(total), nil
+		}
+	}
+
+	following, total, err := h.followService.GetUserFollowing(targetUser.ID, entityType, req.Limit, req.Offset)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_user_following_failed",
+			"user_id", targetUser.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get following (request_id: %s)", requestID),
+		)
+	}
+
+	resp := emptyBody(total)
+	resp.Body.Following = following
+	return resp, nil
+}
+
+// GetUserAttendedShowsHandler handles GET /users/{username}/attended-shows
+// (PSY-1046). The concert diary: past approved shows the user marked "going",
+// most recent first, gated by the profile's `attendance` privacy setting
+// (default hidden).
+func (h *ContributorProfileHandler) GetUserAttendedShowsHandler(ctx context.Context, req *GetUserAttendedShowsRequest) (*GetUserAttendedShowsResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	targetUser, isOwner, err := h.resolveProfileTarget(ctx, req.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	emptyBody := func(total int64) *GetUserAttendedShowsResponse {
+		return &GetUserAttendedShowsResponse{
+			Body: struct {
+				Shows  []*contracts.AttendingShowResponse `json:"shows"`
+				Total  int64                              `json:"total"`
+				Limit  int                                `json:"limit"`
+				Offset int                                `json:"offset"`
+			}{
+				Shows:  []*contracts.AttendingShowResponse{},
+				Total:  total,
+				Limit:  req.Limit,
+				Offset: req.Offset,
+			},
+		}
+	}
+
+	if !isOwner {
+		switch granularPrivacy(targetUser).Attendance {
+		case contracts.PrivacyHidden:
+			return nil, huma.Error404NotFound("User not found")
+		case contracts.PrivacyCountOnly:
+			_, total, err := h.attendanceService.GetUserAttendedShows(targetUser.ID, 1, 0)
+			if err != nil {
+				logger.FromContext(ctx).Error("get_user_attended_shows_count_failed",
+					"user_id", targetUser.ID,
+					"error", err.Error(),
+					"request_id", requestID,
+				)
+				return nil, huma.Error500InternalServerError(
+					fmt.Sprintf("Failed to get attended shows (request_id: %s)", requestID),
+				)
+			}
+			return emptyBody(total), nil
+		}
+	}
+
+	shows, total, err := h.attendanceService.GetUserAttendedShows(targetUser.ID, req.Limit, req.Offset)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_user_attended_shows_failed",
+			"user_id", targetUser.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get attended shows (request_id: %s)", requestID),
+		)
+	}
+
+	resp := emptyBody(total)
+	resp.Body.Shows = shows
+	return resp, nil
+}
+
+// GetUserFieldNotesHandler handles GET /users/{username}/field-notes
+// (PSY-1046). Lists the visible field notes a user has written, newest
+// first. No granular privacy field gates field notes: they are already
+// public on each show page, so this listing is just a different index over
+// already-public content — only the master profile-visibility gate applies.
+func (h *ContributorProfileHandler) GetUserFieldNotesHandler(ctx context.Context, req *GetUserFieldNotesRequest) (*GetUserFieldNotesResponse, error) {
+	requestID := logger.GetRequestID(ctx)
+
+	targetUser, _, err := h.resolveProfileTarget(ctx, req.Username)
+	if err != nil {
+		return nil, err
+	}
+
+	notes, total, err := h.fieldNoteService.ListFieldNotesByAuthor(targetUser.ID, req.Limit, req.Offset)
+	if err != nil {
+		logger.FromContext(ctx).Error("get_user_field_notes_failed",
+			"user_id", targetUser.ID,
+			"error", err.Error(),
+			"request_id", requestID,
+		)
+		return nil, huma.Error500InternalServerError(
+			fmt.Sprintf("Failed to get field notes (request_id: %s)", requestID),
+		)
+	}
+
+	return &GetUserFieldNotesResponse{
+		Body: struct {
+			FieldNotes []*contracts.AuthoredFieldNote `json:"field_notes"`
+			Total      int64                          `json:"total"`
+			Limit      int                            `json:"limit"`
+			Offset     int                            `json:"offset"`
+		}{
+			FieldNotes: notes,
+			Total:      total,
+			Limit:      req.Limit,
+			Offset:     req.Offset,
+		},
+	}, nil
 }
