@@ -146,18 +146,19 @@ function nowPlayingShowLabel(data: RadioNowPlaying): string | null {
 }
 
 function OnAirBlock({ stationSlug }: { stationSlug: string }) {
-  const { data, isLoading, error } = useStationNowPlaying(stationSlug)
+  const { data, isLoading } = useStationNowPlaying(stationSlug)
 
-  if (isLoading && !data) {
-    return (
-      <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        <span className="sr-only">Loading on-air info</span>
-      </div>
-    )
-  }
-
-  if (error || !data) {
+  // Render cached data even when a background refetch errors — a transient
+  // network blip shouldn't blank a line that was readable a second ago.
+  if (!data) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          <span className="sr-only">Loading on-air info</span>
+        </div>
+      )
+    }
     return (
       <p className="text-sm text-muted-foreground">
         Couldn&apos;t load on-air info.
