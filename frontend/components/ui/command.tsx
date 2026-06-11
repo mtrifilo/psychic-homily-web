@@ -23,14 +23,19 @@ const Command = React.forwardRef<
 ))
 Command.displayName = CommandPrimitive.displayName
 
+// PSY-1019: CommandDialog is consumed ONLY by the Cmd+K CommandPalette
+// (CityFilters uses the bare Command primitives), so the editorial 656px frame
+// per Figma 539:5 lives here — min() keeps side margins on 640–655px
+// viewports where a flat 656px would run edge-to-edge. Group-heading styling
+// is NOT set here: CommandGroup's own defaults + the palette's per-group
+// groupClassName (CommandPalette.tsx) are the single source, merged on one
+// element so there's no cross-element CSS-order ambiguity.
 function CommandDialog({ children, ...props }: DialogProps) {
   return (
     <Dialog {...props}>
-      <DialogContent className="overflow-hidden p-0 sm:max-w-[520px] [&>button:last-child]:hidden">
+      <DialogContent className="overflow-hidden p-0 sm:max-w-[min(656px,calc(100vw-2rem))] [&>button:last-child]:hidden">
         <DialogTitle className="sr-only">Command palette</DialogTitle>
-        <Command className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1.5 [&_[cmdk-group-heading]]:text-xs [&_[cmdk-group-heading]]:font-medium [&_[cmdk-group-heading]]:text-muted-foreground">
-          {children}
-        </Command>
+        <Command>{children}</Command>
       </DialogContent>
     </Dialog>
   )
