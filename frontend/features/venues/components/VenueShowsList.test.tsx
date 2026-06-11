@@ -96,7 +96,6 @@ vi.mock('@/features/notifications', () => ({
   ),
 }))
 
-
 import { VenueShowsList } from './VenueShowsList'
 
 function makeShow(overrides: Partial<VenueShow> = {}): VenueShow {

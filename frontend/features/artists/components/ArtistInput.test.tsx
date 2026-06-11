@@ -15,6 +15,8 @@ vi.mock('../hooks/useArtistSearch', () => ({
   }),
 }))
 
+// getArtistLocation stubbed (simplified join, not the PSY-558 rule) — these
+// tests assert dropdown mechanics, not location formatting.
 vi.mock('../types', async importOriginal => ({
   ...(await importOriginal<typeof import('../types')>()),
   getArtistLocation: (artist: { city?: string; state?: string }) =>

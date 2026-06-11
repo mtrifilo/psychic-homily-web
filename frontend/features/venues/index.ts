@@ -47,7 +47,6 @@ export {
   VenueList,
   VenueLocationCard,
   VenueShowsList,
-  VenueInput,
   DeleteVenueDialog,
   VenueDeniedDialog,
 } from './components'

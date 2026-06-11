@@ -8,7 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { useArtistSearch } from '../hooks/useArtistSearch'
 import { getArtistLocation } from '../types'
-import { FieldInfo } from '@/components/forms'
+import { FieldInfo } from '@/components/forms/FormField'
 
 interface ArtistInputProps {
   field: AnyFieldApi

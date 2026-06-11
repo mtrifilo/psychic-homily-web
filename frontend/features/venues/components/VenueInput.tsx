@@ -7,7 +7,7 @@ import { Label } from '@/components/ui/label'
 import { useVenueSearch } from '../hooks/useVenueSearch'
 import { getVenueLocation } from '../types'
 import type { Venue } from '../types'
-import { FieldInfo } from '@/components/forms'
+import { FieldInfo } from '@/components/forms/FormField'
 
 interface VenueInputProps {
   field: AnyFieldApi

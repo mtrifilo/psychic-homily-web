@@ -34,9 +34,13 @@ import { Button } from '@/components/ui/button'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Label } from '@/components/ui/label'
 import { Checkbox } from '@/components/ui/checkbox'
-import { FormField } from '@/components/forms'
-import { ArtistInput } from '@/features/artists'
-import { VenueInput } from '@/features/venues'
+// Deep imports (not feature/forms barrels) on purpose: the root barrels are
+// multi-route reachable, so barrel edges here would (a) create shows<->artists
+// and shows<->venues value-import cycles and (b) hoist the artists/venues
+// feature graphs into this form's client chunk (PSY-944/PSY-950).
+import { FormField } from '@/components/forms/FormField'
+import { ArtistInput } from '@/features/artists/components/ArtistInput'
+import { VenueInput } from '@/features/venues/components/VenueInput'
 import { OrphanedArtistsDialog } from './OrphanedArtistsDialog'
 import { useAuthContext } from '@/lib/context/AuthContext'
 import {

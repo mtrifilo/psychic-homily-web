@@ -15,6 +15,8 @@ vi.mock('../hooks/useVenueSearch', () => ({
   }),
 }))
 
+// getVenueLocation stubbed (simplified join, not the real formatting rule) —
+// these tests assert dropdown mechanics, not location formatting.
 vi.mock('../types', async importOriginal => ({
   ...(await importOriginal<typeof import('../types')>()),
   getVenueLocation: (venue: { city?: string; state?: string }) =>
