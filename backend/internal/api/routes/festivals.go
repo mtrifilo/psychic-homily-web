@@ -16,6 +16,8 @@ func setupFestivalRoutes(rc RouteContext) {
 	huma.Get(rc.API, "/festivals/{festival_id}", festivalHandler.GetFestivalHandler)
 	huma.Get(rc.API, "/festivals/{festival_id}/artists", festivalHandler.GetFestivalArtistsHandler)
 	huma.Get(rc.API, "/festivals/{festival_id}/venues", festivalHandler.GetFestivalVenuesHandler)
+	// PSY-1080: co-bill subgraph of the festival's lineup (Observatory festival scope).
+	huma.Get(rc.API, "/festivals/{festival_id}/graph", festivalHandler.GetFestivalGraphHandler)
 	huma.Get(rc.API, "/artists/{artist_id}/festivals", festivalHandler.GetArtistFestivalsHandler)
 
 	// Festival intelligence endpoints (public, computed from existing data)

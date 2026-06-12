@@ -675,12 +675,12 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 	}
 
 	// 4. Batch query upcoming-show-count for every node (mirror GetArtistGraph §4).
-	upcomingByArtist := s.batchUpcomingShowCount(artistIDs)
+	upcomingByArtist := batchUpcomingShowCount(s.db, artistIDs)
 
 	// 5. Query in-scope relationships — both endpoints in the scene's artist set.
 	var links []sceneRelationshipRow
 	if !noEdgesByFilter {
-		fetched, err := s.querySceneRelationships(artistIDs, resolvedTypes)
+		fetched, err := queryRelationshipsAmongArtists(s.db, artistIDs, resolvedTypes)
 		if err != nil {
 			return nil, fmt.Errorf("failed to query scene relationships: %w", err)
 		}
@@ -835,17 +835,19 @@ func (s *SceneService) querySceneArtistsWithPrimaryVenue(city, state string) ([]
 	return rows, nil
 }
 
-// querySceneRelationships fetches all stored relationships where BOTH source
-// and target artist IDs are in the scene's artist set, optionally filtered to
-// the resolved type list. The relationships table already pre-filters
-// shared_bills below the production threshold (see DeriveSharedBills minShows
-// default), so no `min_weight` query parameter is needed at v1.
-func (s *SceneService) querySceneRelationships(artistIDs []uint, types []string) ([]sceneRelationshipRow, error) {
+// queryRelationshipsAmongArtists fetches all stored relationships where BOTH
+// source and target artist IDs are in the given artist set, optionally
+// filtered to the resolved type list. The relationships table already
+// pre-filters shared_bills below the production threshold (see
+// DeriveSharedBills minShows default), so no `min_weight` query parameter is
+// needed at v1. Shared by the scene graph (PSY-367) and the festival graph
+// (PSY-1080).
+func queryRelationshipsAmongArtists(db *gorm.DB, artistIDs []uint, types []string) ([]sceneRelationshipRow, error) {
 	if len(artistIDs) < 2 {
 		return nil, nil
 	}
 	var rows []sceneRelationshipRow
-	q := s.db.Table("artist_relationships").
+	q := db.Table("artist_relationships").
 		Select("source_artist_id, target_artist_id, relationship_type, score, detail").
 		Where("source_artist_id IN ? AND target_artist_id IN ?", artistIDs, artistIDs)
 	if len(types) > 0 {
