@@ -1,6 +1,7 @@
 'use client'
 
 import { Loader2, Radio } from 'lucide-react'
+import { BracketLink } from '@/components/shared/BracketLink'
 import {
   useRadioStats,
   useRadioStations,
@@ -95,6 +96,17 @@ export default function RadioHub() {
               isLoading={recentLoading}
               error={recentError}
             />
+            {/* PSY-1076: the hub table is a capped teaser — link the full,
+                paginated dial-wide feed. */}
+            {!recentError && (recentData?.episodes?.length ?? 0) > 0 && (
+              <div className="mt-2">
+                <BracketLink
+                  label="all playlists →"
+                  href="/radio/playlists"
+                  className="font-mono text-xs"
+                />
+              </div>
+            )}
           </section>
 
           <aside className="flex flex-col gap-5">
