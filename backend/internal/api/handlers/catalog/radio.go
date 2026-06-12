@@ -438,8 +438,9 @@ func (h *RadioHandler) GetRadioStationTopLabelsHandler(ctx context.Context, req 
 // GetRadioStationGraphRequest asks for a station's co-occurrence subgraph.
 //
 // `Window` accepts "12m" (rolling last 12 months, the default) or "all".
-// Unknown values are coerced to the 12m default by the service so a client
-// mistake degrades gracefully rather than 500ing.
+// Huma's enum validation rejects other values with a 422; the service
+// additionally coerces unknown values to the 12m default so non-HTTP callers
+// degrade gracefully rather than 500ing.
 type GetRadioStationGraphRequest struct {
 	Slug   string `path:"slug" doc:"Radio station slug or numeric ID" example:"kexp"`
 	Window string `query:"window" required:"false" default:"12m" enum:"all,12m" doc:"Time window: '12m' (rolling last 12 months, default) or 'all'" example:"12m"`
