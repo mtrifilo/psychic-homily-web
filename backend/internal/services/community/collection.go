@@ -2269,7 +2269,7 @@ func (s *CollectionService) batchResolveUserUsernames(userIDs []uint) map[uint]*
 // Falls back to "Anonymous" when the lookup fails.
 func (s *CollectionService) resolveUserName(userID uint) string {
 	var user authm.User
-	if err := s.db.Select("id, username, first_name, last_name, email").First(&user, userID).Error; err != nil {
+	if err := s.db.Select("id, username, display_name, first_name, last_name, email").First(&user, userID).Error; err != nil {
 		return "Anonymous"
 	}
 	return shared.ResolveUserName(&user)

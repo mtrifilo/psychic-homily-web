@@ -59,8 +59,16 @@ export default function SelfProfilePage() {
     return <CenteredSpinner />
   }
 
+  // display_name leads across both sources (PSY-1063); username is absent
+  // from this chain by construction — this page only renders for accounts
+  // with no username (the claim state).
   const displayName =
-    user?.first_name || profile?.first_name || user?.email || 'You'
+    user?.display_name ||
+    profile?.display_name ||
+    user?.first_name ||
+    profile?.first_name ||
+    user?.email ||
+    'You'
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-10">

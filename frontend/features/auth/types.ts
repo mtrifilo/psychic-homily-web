@@ -66,6 +66,7 @@ export interface PublicProfileResponse {
   username: string
   bio?: string
   avatar_url?: string
+  display_name?: string
   first_name?: string
   profile_visibility: ProfileVisibility
   user_tier: UserTier

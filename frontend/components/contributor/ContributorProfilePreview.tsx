@@ -63,7 +63,11 @@ export function ContributorProfilePreview() {
     )
   }
 
-  const displayName = profile.first_name || profile.username
+  // display_name leads (PSY-1063); tail mirrors PublicProfile's header chain
+  // (first_name over username — the handle renders separately), see the
+  // rationale comment in PublicProfile.tsx.
+  const displayName =
+    profile.display_name || profile.first_name || profile.username
   const contributions = contributionsData?.contributions || []
   const isPublic = profile.profile_visibility === 'public'
 

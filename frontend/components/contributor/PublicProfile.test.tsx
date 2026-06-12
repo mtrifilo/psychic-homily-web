@@ -310,6 +310,23 @@ describe('PublicProfile', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('prefers display_name over first_name for the rendered name (PSY-1063)', () => {
+    mockUsePublicProfile.mockReturnValue({
+      data: makeProfile({
+        display_name: 'Desert Lifer',
+        first_name: 'Alice',
+      }),
+      isLoading: false,
+      error: null,
+    })
+
+    renderWithProviders(<PublicProfile username="alice" />)
+    expect(
+      screen.getByRole('heading', { name: 'Desert Lifer' })
+    ).toBeInTheDocument()
+    expect(screen.queryByRole('heading', { name: 'Alice' })).not.toBeInTheDocument()
+  })
+
   it('shows joined date', () => {
     mockUsePublicProfile.mockReturnValue({
       data: makeProfile({ joined_at: '2025-06-15T12:00:00Z' }),

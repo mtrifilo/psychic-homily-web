@@ -132,6 +132,7 @@ func (s *UserService) ListUsers(limit, offset int, filters contracts.AdminUserFi
 			ID:              u.ID,
 			Email:           u.Email,
 			Username:        u.Username,
+			DisplayName:     u.DisplayName,
 			FirstName:       u.FirstName,
 			LastName:        u.LastName,
 			AvatarURL:       u.AvatarURL,
