@@ -365,14 +365,54 @@ describe('CommandPalette', () => {
     })
     expect(screen.getByText('Recent')).toBeInTheDocument()
 
-    // Click the inline "Clear" button on the Recent header. cmdk renders
-    // the heading itself with role="button" whose accessible name includes
-    // child text ("Recent Clear"); the actual <button> is a child element,
-    // so target it by text instead of role.
-    await user.click(screen.getByText('Clear'))
+    // PSY-1071: Clear is a CommandItem row (role="option") at the end of
+    // the Recent group — no longer a button inside the aria-hidden heading.
+    await user.click(screen.getByRole('option', { name: /clear recent searches/i }))
 
-    // Recent group disappears immediately
+    // Recent group disappears immediately, palette stays open
     expect(screen.queryByText('Recent')).not.toBeInTheDocument()
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+  })
+
+  // PSY-1071: the old Clear button lived inside the cmdk group heading,
+  // which cmdk renders with aria-hidden="true" — invisible to AT (WCAG
+  // 4.1.2). As a CommandItem it must be exposed as an option with an
+  // accessible name and operable via the existing arrow-key model.
+  it('clear-recent is an AT-visible option and keyboard-operable (PSY-1071)', async () => {
+    const user = userEvent.setup()
+    renderWithProviders(<CommandPalette />)
+
+    // Seed a recent entry, then reopen
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+    await user.click(screen.getByText('Shows'))
+    act(() => {
+      document.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'k', metaKey: true, bubbles: true })
+      )
+    })
+    expect(screen.getByText('Recent')).toBeInTheDocument()
+
+    // getByRole excludes aria-hidden subtrees by default, so this both
+    // finds the control by accessible name AND proves AT can reach it.
+    const clearItem = screen.getByRole('option', { name: /clear recent searches/i })
+    expect(clearItem.closest('[aria-hidden="true"]')).toBeNull()
+
+    // Keyboard path: first option (the recent entry) is auto-selected on
+    // open; one ArrowDown lands on the clear row, Enter activates it.
+    await user.keyboard('{ArrowDown}{Enter}')
+
+    expect(screen.queryByText('Recent')).not.toBeInTheDocument()
+    expect(
+      screen.queryByRole('option', { name: /clear recent searches/i })
+    ).not.toBeInTheDocument()
+    // Clearing keeps the palette open and triggers no navigation beyond
+    // the seeding click on Shows.
+    expect(screen.getByRole('dialog')).toBeInTheDocument()
+    expect(mockPush).toHaveBeenCalledTimes(1)
   })
 
   it('navigates to an entity result when an entity row is clicked', async () => {
