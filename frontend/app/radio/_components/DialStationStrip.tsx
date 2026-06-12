@@ -6,20 +6,19 @@ import { Button } from '@/components/ui/button'
 import { BracketLink } from '@/components/shared/BracketLink'
 import {
   useStationOverview,
-  useRadioShows,
+  useStationNowPlaying,
   useRadioStation,
-  pickNowPlayingShow,
   formatStationLocation,
   getBroadcastTypeLabel,
   getRotationStatusLabel,
   getStationDetailUrl,
+  previewToHops,
   ArtistHops,
 } from '@/features/radio'
 import type {
   RadioStationListItem,
   RadioSiblingStation,
-  RadioShowDetail,
-  NowPlaying,
+  RadioNowPlaying,
 } from '@/features/radio'
 
 interface DialStationStripProps {
@@ -37,19 +36,17 @@ interface DialStationStripProps {
  * underlined foreground links — underline means "this identity is a page".
  * Orange links remain for content (shows/playlists).
  *
- * "ON AIR" reflects the v1 heuristic — the most-active show's latest logged
- * playlist, not a live signal. PSY-1022's live endpoint swaps in at the
- * useStationOverview seam without changing this layout.
+ * The ON AIR line consumes the PSY-1022 now-playing endpoint: real live
+ * broadcast data where the station's provider exposes it, with an honestly
+ * labeled latest-archive fallback otherwise. useStationOverview still feeds
+ * the actions column ([▶ Listen] external URL + the [ live playlist ]
+ * archive deep-link).
  */
 export function DialStationStrip({ station }: DialStationStripProps) {
   const {
     station: detail,
     nowPlayingShowDetail,
-    nowPlaying,
     latestEpisode,
-    isLoading,
-    isEmpty,
-    error,
   } = useStationOverview(station.slug)
 
   // Non-flagship siblings = the network's channels (sibling_stations excludes
@@ -97,14 +94,7 @@ export function DialStationStrip({ station }: DialStationStripProps) {
 
       {/* ON AIR column + channel sub-rows */}
       <div className="flex min-w-0 flex-col gap-3">
-        <OnAirBlock
-          stationSlug={station.slug}
-          isLoading={isLoading}
-          isEmpty={isEmpty}
-          error={error}
-          showDetail={nowPlayingShowDetail}
-          nowPlaying={nowPlaying}
-        />
+        <OnAirBlock stationSlug={station.slug} />
         {channels.length > 0 && (
           <ul className="flex flex-col gap-1.5">
             {channels.map(channel => (
@@ -141,34 +131,34 @@ export function DialStationStrip({ station }: DialStationStripProps) {
 }
 
 // ---------------------------------------------------------------------------
-// ON AIR block (v1 heuristic)
+// ON AIR block (PSY-1022 now-playing endpoint)
 // ---------------------------------------------------------------------------
 
-function OnAirBlock({
-  stationSlug,
-  isLoading,
-  isEmpty,
-  error,
-  showDetail,
-  nowPlaying,
-}: {
-  stationSlug: string
-  isLoading: boolean
-  isEmpty: boolean
-  error: unknown
-  showDetail: RadioShowDetail | undefined
-  nowPlaying: NowPlaying
-}) {
-  if (isLoading && !showDetail) {
-    return (
-      <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
-        <Loader2 className="size-4 animate-spin" aria-hidden />
-        <span className="sr-only">Loading on-air info</span>
-      </div>
-    )
-  }
+/**
+ * Header label + show identity shared by the strip's main ON AIR line and
+ * the channel sub-rows: "● ON AIR" only when the backend confirmed a live
+ * broadcast; the latest-archive fallback gets a mono "latest playlist"
+ * prefix instead of the dot — same dense register, honest labeling.
+ * Unmatched shows (PSY-1073) render `show_name` as plain text, not a link.
+ */
+function nowPlayingShowLabel(data: RadioNowPlaying): string | null {
+  return data.show?.name ?? data.show_name
+}
 
-  if (error) {
+function OnAirBlock({ stationSlug }: { stationSlug: string }) {
+  const { data, isLoading } = useStationNowPlaying(stationSlug)
+
+  // Render cached data even when a background refetch errors — a transient
+  // network blip shouldn't blank a line that was readable a second ago.
+  if (!data) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center gap-2 py-1 text-sm text-muted-foreground">
+          <Loader2 className="size-4 animate-spin" aria-hidden />
+          <span className="sr-only">Loading on-air info</span>
+        </div>
+      )
+    }
     return (
       <p className="text-sm text-muted-foreground">
         Couldn&apos;t load on-air info.
@@ -176,34 +166,44 @@ function OnAirBlock({
     )
   }
 
-  if (isEmpty || !showDetail) {
+  const showLabel = nowPlayingShowLabel(data)
+  if (!showLabel) {
     return (
       <p className="text-sm text-muted-foreground">No playlists tracked yet.</p>
     )
   }
 
-  const { current, recentArtists } = nowPlaying
+  const current = data.current_track
+  const hostName = data.show?.host_name ?? data.host_name
 
   return (
     <div className="flex min-w-0 flex-col gap-1">
-      {/* ● ON AIR  Show name  w/ host */}
+      {/* ● ON AIR (or "latest playlist")  Show name  w/ host */}
       <div className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
         <span className="inline-flex items-baseline gap-1.5 font-mono text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
-          <span
-            className="size-2 self-center rounded-full bg-primary"
-            aria-hidden
-          />
-          On air
+          {data.on_air && (
+            <span
+              className="size-2 self-center rounded-full bg-primary"
+              aria-hidden
+            />
+          )}
+          {data.on_air ? 'On air' : 'Latest playlist'}
         </span>
-        <Link
-          href={`/radio/${stationSlug}/${showDetail.slug}`}
-          className="text-[15px] font-semibold text-foreground transition-colors hover:text-primary"
-        >
-          {showDetail.name}
-        </Link>
-        {showDetail.host_name && (
+        {data.show ? (
+          <Link
+            href={`/radio/${stationSlug}/${data.show.slug}`}
+            className="text-[15px] font-semibold text-foreground transition-colors hover:text-primary"
+          >
+            {showLabel}
+          </Link>
+        ) : (
+          <span className="text-[15px] font-semibold text-foreground">
+            {showLabel}
+          </span>
+        )}
+        {hostName && (
           <span className="text-[13px] text-muted-foreground">
-            w/ {showDetail.host_name}
+            w/ {hostName}
           </span>
         )}
       </div>
@@ -240,13 +240,13 @@ function OnAirBlock({
       )}
 
       {/* earlier: artist hops */}
-      {recentArtists.length > 0 && (
+      {data.recent_artists.length > 0 && (
         <div className="flex items-baseline gap-1.5">
           <span className="shrink-0 font-mono text-xs text-muted-foreground">
             earlier:
           </span>
           <ArtistHops
-            hops={recentArtists}
+            hops={previewToHops(data.recent_artists)}
             className="font-mono text-xs text-foreground"
           />
         </div>
@@ -261,9 +261,12 @@ function OnAirBlock({
 
 /**
  * One channel sub-row under a network flagship: underlined channel name +
- * its current show (v1 heuristic: most-active show) + [ listen ]. Fetches its
- * own shows + detail (bounded N — networks have a handful of channels), the
- * same per-row pattern the D2 panel used before PSY-1057 retired it.
+ * its OWN current broadcast (PSY-1022 — each stream has its own now-playing;
+ * the old most-active-show heuristic showed every WFMU channel the same
+ * show) + [ listen ]. Fetches its own now-playing + detail (bounded N —
+ * networks have a handful of channels). A latest-archive payload is prefixed
+ * "latest:" instead of claiming currency; unmatched show names render
+ * unlinked (PSY-1073).
  */
 function DialChannelRow({
   networkSlug,
@@ -272,8 +275,7 @@ function DialChannelRow({
   networkSlug: string
   channel: RadioSiblingStation
 }) {
-  const showsQuery = useRadioShows(channel.id)
-  const currentShow = pickNowPlayingShow(showsQuery.data?.shows)
+  const { data: nowPlaying } = useStationNowPlaying(channel.slug)
   // Channel detail is only needed for the external listen URL.
   const { data: channelDetail } = useRadioStation(channel.slug)
 
@@ -281,6 +283,11 @@ function DialChannelRow({
     slug: networkSlug,
     is_flagship: false,
   })
+
+  const showLabel = nowPlaying ? nowPlayingShowLabel(nowPlaying) : null
+  const hostName = nowPlaying
+    ? (nowPlaying.show?.host_name ?? nowPlaying.host_name)
+    : null
 
   return (
     <li className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
@@ -294,16 +301,33 @@ function DialChannelRow({
       >
         {channel.name}
       </Link>
-      {currentShow && (
+      {nowPlaying && showLabel && (
         <span className="text-[13px] text-muted-foreground">
           —{' '}
-          <Link
-            href={`/radio/${channel.slug}/${currentShow.slug}`}
-            className="transition-colors hover:text-primary"
-          >
-            {currentShow.name}
-          </Link>
-          {currentShow.host_name && ` w/ ${currentShow.host_name}`}
+          {!nowPlaying.on_air && (
+            <span className="font-mono text-[11px]">latest: </span>
+          )}
+          {nowPlaying.show ? (
+            <Link
+              href={`/radio/${channel.slug}/${nowPlaying.show.slug}`}
+              className="transition-colors hover:text-primary"
+            >
+              {showLabel}
+            </Link>
+          ) : (
+            showLabel
+          )}
+          {hostName && ` w/ ${hostName}`}
+        </span>
+      )}
+      {nowPlaying?.current_track && (
+        <span className="text-[13px] text-muted-foreground">
+          <span className="text-primary" aria-hidden>
+            ♪
+          </span>{' '}
+          {nowPlaying.current_track.artist_name}
+          {nowPlaying.current_track.track_title &&
+            ` — ${nowPlaying.current_track.track_title}`}
         </span>
       )}
       {channelDetail?.website && (

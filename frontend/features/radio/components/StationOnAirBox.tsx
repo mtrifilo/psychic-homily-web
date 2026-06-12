@@ -2,13 +2,9 @@
 
 import Link from 'next/link'
 import { BracketLink } from '@/components/shared'
-import { useRadioShows } from '../hooks/useRadioShows'
+import { useStationNowPlaying } from '../hooks/useStationNowPlaying'
 import { useShowLatestEpisode } from '../hooks/useShowLatestEpisode'
-import {
-  pickNowPlayingShow,
-  deriveNowPlaying,
-  formatShortAirDate,
-} from '../lib/stationOverview'
+import { formatShortAirDate } from '../lib/stationOverview'
 import type { RadioStationDetail } from '../types'
 
 interface StationOnAirBoxProps {
@@ -18,60 +14,75 @@ interface StationOnAirBoxProps {
 /**
  * The station page's "ON AIR" lead box (PSY-1050, Option A "The Dial").
  *
- * v1 heuristic (PSY-1016 stationOverview helpers): the box surfaces the
- * most-active show's latest logged playlist — `pickNowPlayingShow` +
- * `deriveNowPlaying` — NOT a live on-air signal. PSY-1022's live now-playing
- * endpoint replaces the data source behind this same layout: everything
- * below the hooks renders from (show, episode, nowPlaying) shapes that the
- * live endpoint would also produce.
+ * Consumes the PSY-1022 now-playing endpoint: the provider's live broadcast
+ * (with current song where the source carries one) when available, the
+ * latest-archive fallback otherwise. Labeling is honest — the ● ON AIR dot
+ * renders only for a confirmed live broadcast; archive payloads lead with
+ * "Latest playlist" instead. Unmatched live show names render as plain text
+ * (PSY-1073 — no dead links).
  *
- * Renders nothing for stations with no shows (graceful for inactive-station
- * archives where playlist data may be sparse).
+ * Renders nothing for stations with no live source AND no archived shows
+ * (graceful for inactive-station archives where playlist data may be sparse).
  */
 export function StationOnAirBox({ station }: StationOnAirBoxProps) {
-  // Same query the shows directory uses (sort=latest) so the page fetches
-  // the show list once.
-  const { data: showsData } = useRadioShows(station.id, { sort: 'latest' })
-  const show = pickNowPlayingShow(showsData?.shows)
+  const { data } = useStationNowPlaying(station.slug)
 
-  const { episode, isLoading: episodeLoading } = useShowLatestEpisode(show?.slug)
-  const nowPlaying = deriveNowPlaying(episode)
-  const current = nowPlaying.current
+  // The matched show's latest archived episode backs the playlist deep-link.
+  const { episode, isLoading: episodeLoading } = useShowLatestEpisode(
+    data?.show?.slug
+  )
 
-  if (!show) return null
+  if (!data) return null
+  const showLabel = data.show?.name ?? data.show_name
+  if (!showLabel) return null
 
-  const showUrl = `/radio/${station.slug}/${show.slug}`
-  const playlistUrl = episode ? `${showUrl}/${episode.air_date}` : null
-  const latestDate = formatShortAirDate(episode?.air_date ?? show.latest_air_date)
+  const current = data.current_track
+  const hostName = data.show?.host_name ?? data.host_name
+  const showUrl = data.show ? `/radio/${station.slug}/${data.show.slug}` : null
+  const playlistUrl =
+    showUrl && episode ? `${showUrl}/${episode.air_date}` : null
+  const latestDate = formatShortAirDate(
+    data.episode_air_date ?? episode?.air_date
+  )
 
   return (
     <section
-      aria-label="On air"
+      aria-label={data.on_air ? 'On air' : 'Latest playlist'}
       className="rounded-md border border-primary/60 px-4 py-3.5 flex flex-col gap-1.5"
     >
       <div className="flex items-baseline justify-between gap-2">
         <h2 className="font-mono text-[11px] uppercase tracking-[1.2px] text-muted-foreground">
-          <span className="text-primary" aria-hidden>
-            ●
-          </span>{' '}
-          On air — {station.name}
+          {data.on_air && (
+            <>
+              <span className="text-primary" aria-hidden>
+                ●
+              </span>{' '}
+            </>
+          )}
+          {data.on_air ? 'On air' : 'Latest playlist'} — {station.name}
         </h2>
-        {(show.schedule_display || latestDate) && (
+        {!data.on_air && latestDate && (
           <span className="font-mono text-[11px] uppercase tracking-wide text-muted-foreground tabular-nums">
-            {show.schedule_display ?? `Latest: ${latestDate}`}
+            Latest: {latestDate}
           </span>
         )}
       </div>
 
       <div className="flex items-baseline gap-2 flex-wrap">
-        <Link
-          href={showUrl}
-          className="text-lg font-semibold text-foreground hover:text-primary transition-colors"
-        >
-          {show.name}
-        </Link>
-        {show.host_name && (
-          <span className="text-sm text-muted-foreground">w/ {show.host_name}</span>
+        {showUrl ? (
+          <Link
+            href={showUrl}
+            className="text-lg font-semibold text-foreground hover:text-primary transition-colors"
+          >
+            {showLabel}
+          </Link>
+        ) : (
+          <span className="text-lg font-semibold text-foreground">
+            {showLabel}
+          </span>
+        )}
+        {hostName && (
+          <span className="text-sm text-muted-foreground">w/ {hostName}</span>
         )}
       </div>
 
@@ -120,7 +131,7 @@ export function StationOnAirBox({ station }: StationOnAirBoxProps) {
         </div>
       )}
 
-      {!playlistUrl && episodeLoading && (
+      {!playlistUrl && data.show && episodeLoading && (
         <span className="font-mono text-xs text-muted-foreground">
           loading latest playlist…
         </span>

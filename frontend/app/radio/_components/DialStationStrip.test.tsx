@@ -5,11 +5,11 @@ import type {
   RadioStationDetail,
   RadioShowDetail,
   RadioEpisodeDetail,
-  RadioPlay,
+  RadioNowPlaying,
 } from '@/features/radio'
 
 const mockUseStationOverview = vi.fn()
-const mockUseRadioShows = vi.fn()
+const mockUseStationNowPlaying = vi.fn()
 const mockUseRadioStation = vi.fn()
 
 vi.mock('@/features/radio', async importOriginal => {
@@ -17,7 +17,8 @@ vi.mock('@/features/radio', async importOriginal => {
   return {
     ...actual,
     useStationOverview: (...args: unknown[]) => mockUseStationOverview(...args),
-    useRadioShows: (...args: unknown[]) => mockUseRadioShows(...args),
+    useStationNowPlaying: (...args: unknown[]) =>
+      mockUseStationNowPlaying(...args),
     useRadioStation: (...args: unknown[]) => mockUseRadioStation(...args),
   }
 })
@@ -67,52 +68,91 @@ const showDetail = {
   host_name: 'Pedro Santos',
 } as RadioShowDetail
 
-const currentPlay = {
-  id: 77,
-  artist_name: 'CAN',
-  artist_slug: 'can',
-  track_title: 'Vitamin C',
-  rotation_status: 'heavy',
-} as RadioPlay
-
 const latestEpisode = { air_date: '2026-06-09' } as RadioEpisodeDetail
+
+/** Live payload for the flagship strip (slug "wfmu"). */
+function liveNowPlaying(overrides: Partial<RadioNowPlaying> = {}): RadioNowPlaying {
+  return {
+    source: 'live',
+    on_air: true,
+    show: {
+      id: 3,
+      name: 'The Night Owl Show',
+      slug: 'night-owl',
+      host_name: 'Pedro Santos',
+    },
+    show_name: 'The Night Owl Show',
+    host_name: null,
+    current_track: {
+      artist_name: 'CAN',
+      track_title: 'Vitamin C',
+      album_title: null,
+      label_name: null,
+      release_year: null,
+      rotation_status: 'heavy',
+      dj_comment: null,
+      artist_id: 7,
+      artist_slug: 'can',
+      release_id: null,
+      release_slug: null,
+      label_id: null,
+      label_slug: null,
+    },
+    recent_artists: [
+      { artist_name: 'Brentford All Stars', artist_id: null, artist_slug: null },
+      { artist_name: 'Mdou Moctar', artist_id: 4, artist_slug: 'mdou-moctar' },
+    ],
+    episode_air_date: null,
+    ...overrides,
+  }
+}
+
+/** Live payload for the channel sub-row (slug "wfmu-drummer"). */
+function channelNowPlaying(
+  overrides: Partial<RadioNowPlaying> = {}
+): RadioNowPlaying {
+  return liveNowPlaying({
+    show: {
+      id: 9,
+      name: 'Honky Tonk Radio Girl',
+      slug: 'honky-tonk',
+      host_name: 'Becky',
+    },
+    show_name: 'Honky Tonk Radio Girl',
+    current_track: null,
+    recent_artists: [],
+    ...overrides,
+  })
+}
 
 function overviewLoaded() {
   return {
     station: stationDetail,
     nowPlayingShow: { id: 3, slug: 'night-owl' },
     nowPlayingShowDetail: showDetail,
-    nowPlaying: {
-      current: currentPlay,
-      recentArtists: [
-        { name: 'Brentford All Stars', slug: null },
-        { name: 'Mdou Moctar', slug: 'mdou-moctar' },
-      ],
-    },
+    nowPlaying: { current: null, recentArtists: [] },
     latestEpisode,
-    recentShows: [],
     isLoading: false,
     isEmpty: false,
     error: null,
   }
 }
 
+function setNowPlayingBySlug(bySlug: Record<string, RadioNowPlaying | undefined>) {
+  mockUseStationNowPlaying.mockImplementation((slug: string) => ({
+    data: bySlug[slug],
+    isLoading: false,
+    error: null,
+  }))
+}
+
 describe('DialStationStrip', () => {
   beforeEach(() => {
     mockUseStationOverview.mockReset().mockReturnValue(overviewLoaded())
-    mockUseRadioShows.mockReset().mockReturnValue({
-      data: {
-        shows: [
-          {
-            id: 9,
-            slug: 'honky-tonk',
-            name: 'Honky Tonk Radio Girl',
-            host_name: 'Becky',
-            episode_count: 40,
-          },
-        ],
-      },
-      isLoading: false,
+    mockUseStationNowPlaying.mockReset()
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying(),
+      'wfmu-drummer': channelNowPlaying(),
     })
     mockUseRadioStation.mockReset().mockReturnValue({
       data: { website: 'https://wfmu.org/drummer' },
@@ -135,9 +175,10 @@ describe('DialStationStrip', () => {
     ).toBeInTheDocument()
   })
 
-  it('renders the on-air show, current track, rotation tag, and earlier hops', () => {
-    render(<DialStationStrip station={makeStation()} />)
+  it('renders the live show, current track, rotation tag, and earlier hops', () => {
+    render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
 
+    expect(screen.getByText('On air')).toBeInTheDocument()
     const showLink = screen.getByRole('link', { name: 'The Night Owl Show' })
     expect(showLink).toHaveAttribute('href', '/radio/wfmu/night-owl')
     expect(screen.getByText('w/ Pedro Santos')).toBeInTheDocument()
@@ -160,6 +201,37 @@ describe('DialStationStrip', () => {
     ).not.toBeInTheDocument()
   })
 
+  it('labels the latest-archive fallback honestly instead of claiming ON AIR', () => {
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying({ source: 'latest_archive', on_air: false }),
+    })
+    render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
+
+    expect(screen.getByText('Latest playlist')).toBeInTheDocument()
+    expect(screen.queryByText('On air')).not.toBeInTheDocument()
+    // The show identity still renders.
+    expect(
+      screen.getByRole('link', { name: 'The Night Owl Show' })
+    ).toBeInTheDocument()
+  })
+
+  it('renders an unmatched live show name as plain text (no dead link)', () => {
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying({
+        show: null,
+        show_name: 'Secret Canine Agents',
+        host_name: 'DJ Perro Caliente',
+      }),
+    })
+    render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
+
+    expect(screen.getByText('Secret Canine Agents')).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Secret Canine Agents' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText('w/ DJ Perro Caliente')).toBeInTheDocument()
+  })
+
   it('renders Listen + live playlist actions', () => {
     render(<DialStationStrip station={makeStation()} />)
 
@@ -172,7 +244,7 @@ describe('DialStationStrip', () => {
     ).toHaveAttribute('href', '/radio/wfmu/night-owl/2026-06-09')
   })
 
-  it('renders channel sub-rows with underlined channel links and current show', () => {
+  it('renders channel sub-rows with the CHANNEL OWN broadcast', () => {
     render(<DialStationStrip station={makeStation()} />)
 
     const channelLink = screen.getByRole('link', {
@@ -181,6 +253,9 @@ describe('DialStationStrip', () => {
     expect(channelLink).toHaveAttribute('href', '/radio/wfmu/channel/drummer')
     expect(channelLink.className).toContain('underline')
 
+    // The channel row consumed ITS OWN now-playing (PSY-1022 — not the
+    // flagship's heuristic show).
+    expect(mockUseStationNowPlaying).toHaveBeenCalledWith('wfmu-drummer')
     expect(
       screen.getByRole('link', { name: 'Honky Tonk Radio Girl' })
     ).toHaveAttribute('href', '/radio/wfmu-drummer/honky-tonk')
@@ -192,12 +267,53 @@ describe('DialStationStrip', () => {
     )
   })
 
+  it('renders an unmatched channel show name as plain text with its track', () => {
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying(),
+      'wfmu-drummer': channelNowPlaying({
+        show: null,
+        show_name: 'Secret Canine Agents',
+        current_track: {
+          artist_name: 'Nirvana',
+          track_title: 'In The Courtyard',
+          album_title: null,
+          label_name: null,
+          release_year: null,
+          rotation_status: null,
+          dj_comment: null,
+          artist_id: null,
+          artist_slug: null,
+          release_id: null,
+          release_slug: null,
+          label_id: null,
+          label_slug: null,
+        },
+      }),
+    })
+    render(<DialStationStrip station={makeStation()} />)
+
+    expect(screen.getByText(/Secret Canine Agents/)).toBeInTheDocument()
+    expect(
+      screen.queryByRole('link', { name: 'Secret Canine Agents' })
+    ).not.toBeInTheDocument()
+    expect(screen.getByText(/Nirvana — In The Courtyard/)).toBeInTheDocument()
+  })
+
   it('renders the empty on-air state for a station with no shows', () => {
+    setNowPlayingBySlug({
+      wfmu: liveNowPlaying({
+        source: 'latest_archive',
+        on_air: false,
+        show: null,
+        show_name: null,
+        current_track: null,
+        recent_artists: [],
+      }),
+    })
     mockUseStationOverview.mockReturnValue({
       ...overviewLoaded(),
       nowPlayingShow: null,
       nowPlayingShowDetail: undefined,
-      nowPlaying: { current: null, recentArtists: [] },
       latestEpisode: undefined,
       isEmpty: true,
     })
@@ -210,16 +326,30 @@ describe('DialStationStrip', () => {
   })
 
   it('renders a loading indicator while on-air info is in flight', () => {
+    mockUseStationNowPlaying.mockImplementation(() => ({
+      data: undefined,
+      isLoading: true,
+      error: null,
+    }))
     mockUseStationOverview.mockReturnValue({
       ...overviewLoaded(),
       station: undefined,
       nowPlayingShowDetail: undefined,
-      nowPlaying: { current: null, recentArtists: [] },
       latestEpisode: undefined,
       isLoading: true,
       isEmpty: false,
     })
     render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
     expect(screen.getByText('Loading on-air info')).toBeInTheDocument()
+  })
+
+  it('renders an error state when the now-playing endpoint fails', () => {
+    mockUseStationNowPlaying.mockImplementation(() => ({
+      data: undefined,
+      isLoading: false,
+      error: new Error('boom'),
+    }))
+    render(<DialStationStrip station={makeStation({ sibling_stations: [] })} />)
+    expect(screen.getByText("Couldn't load on-air info.")).toBeInTheDocument()
   })
 })

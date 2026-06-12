@@ -1,8 +1,10 @@
 package catalog
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -86,6 +88,86 @@ type RadioPlaylistProvider interface {
 
 	// FetchPlaylist returns the track plays for a specific episode.
 	FetchPlaylist(episodeExternalID string) ([]RadioPlayImport, error)
+}
+
+const (
+	// radioLiveFetchTimeout bounds each live now-playing HTTP call. Live
+	// fetches sit (behind the TTL cache) on a page-view path, so they get a
+	// tight per-request budget instead of the 30s import-pipeline timeout.
+	radioLiveFetchTimeout = 3 * time.Second
+
+	// radioLiveBodyLimit caps a live-response body read. The largest real
+	// payload (NTS /v2/live) is ~25KB; 2MB leaves generous headroom while
+	// preventing a misbehaving provider from pinning unbounded memory.
+	radioLiveBodyLimit = 2 << 20
+)
+
+// radioLiveGet performs a time-boxed, size-capped GET for live now-playing
+// fetches. The URL must be built from in-code constants (never DB or user
+// input — SSRF guard); callers pass their provider's httpClient so tests can
+// point at httptest servers via the *WithClient constructors.
+func radioLiveGet(client *http.Client, url, userAgent, providerName string) ([]byte, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), radioLiveFetchTimeout)
+	defer cancel()
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	if err != nil {
+		return nil, fmt.Errorf("creating request: %w", err)
+	}
+	req.Header.Set("User-Agent", userAgent)
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("executing request: %w", err)
+	}
+	defer resp.Body.Close() //nolint:errcheck // deferred Close; nothing actionable on failure
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, radioLiveBodyLimit))
+	if err != nil {
+		return nil, fmt.Errorf("reading response body: %w", err)
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, newRadioHTTPError(providerName, resp.StatusCode, string(body))
+	}
+	return body, nil
+}
+
+// RadioLiveProvider is the optional live now-playing extension of a radio
+// provider (PSY-1022). Providers with a queryable live source (KEXP plays
+// API, NTS live API, WFMU current-live-shows aggregator) implement it; the
+// now-playing service type-asserts from RadioPlaylistProvider and falls back
+// to the latest-archive payload when the assertion fails.
+//
+// channel selects the stream for multi-stream providers (NTS "1"/"2"; WFMU
+// stream keys — see wfmuLiveChannel* constants). Single-stream providers
+// (KEXP) ignore it. Channel values come from the in-code station routing
+// table (liveChannelForStation), never from user input.
+type RadioLiveProvider interface {
+	// FetchLiveNowPlaying returns the channel's current broadcast, or
+	// (nil, nil) when the provider answered but reports no active live
+	// broadcast for the channel. Implementations must time-box their HTTP
+	// calls (seconds, not the 30s import timeout) — this sits on a page-view
+	// path, behind a TTL cache.
+	FetchLiveNowPlaying(channel string) (*RadioLiveNowPlaying, error)
+}
+
+// RadioLiveNowPlaying is what a live adapter reports for one channel.
+type RadioLiveNowPlaying struct {
+	// ShowName is the provider-reported name of the show on air (required).
+	ShowName string
+	// ShowExternalID, when the live source carries it, matches
+	// radio_shows.external_id (KEXP program id, WFMU program code, NTS show
+	// alias) — a stronger match key than the name.
+	ShowExternalID *string
+	// HostName is the provider-reported host, when the source separates it
+	// from the show name.
+	HostName *string
+	// CurrentTrack is the track on air right now; nil when the source is
+	// show-level only (NTS) or the station is between tracks (KEXP airbreak).
+	CurrentTrack *RadioPlayImport
+	// RecentTracks are the tracks played just before CurrentTrack, most
+	// recent first, when the live source carries a play history (KEXP).
+	RecentTracks []RadioPlayImport
 }
 
 // RadioShowImport is the intermediate DTO for importing a radio show from a provider.

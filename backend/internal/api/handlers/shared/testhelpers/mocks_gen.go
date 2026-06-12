@@ -2414,6 +2414,7 @@ type MockRadioService struct {
 	GetEpisodeDetailFn            func(uint) (*contracts.RadioEpisodeDetailResponse, error)
 	GetStationEpisodesFn          func(uint, int, int) ([]*contracts.RadioStationEpisodeRow, int64, error)
 	GetRecentEpisodesFn           func(int, int) ([]*contracts.RadioStationEpisodeRow, int64, error)
+	GetStationNowPlayingFn        func(uint) (*contracts.RadioNowPlayingResponse, error)
 	GetTopArtistsForShowFn        func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
 	GetTopLabelsForShowFn         func(uint, int, int) ([]*contracts.RadioTopLabelResponse, error)
 	GetTopArtistsForStationFn     func(uint, int, int) ([]*contracts.RadioTopArtistResponse, error)
@@ -2548,6 +2549,12 @@ func (m *MockRadioService) GetRecentEpisodes(limit int, offset int) ([]*contract
 		return m.GetRecentEpisodesFn(limit, offset)
 	}
 	return nil, 0, nil
+}
+func (m *MockRadioService) GetStationNowPlaying(stationID uint) (*contracts.RadioNowPlayingResponse, error) {
+	if m.GetStationNowPlayingFn != nil {
+		return m.GetStationNowPlayingFn(stationID)
+	}
+	return nil, nil
 }
 func (m *MockRadioService) GetTopArtistsForShow(showID uint, periodDays int, limit int) ([]*contracts.RadioTopArtistResponse, error) {
 	if m.GetTopArtistsForShowFn != nil {

@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
@@ -18,6 +19,16 @@ import (
 // RadioService handles radio station, show, episode, and play operations
 type RadioService struct {
 	db *gorm.DB
+
+	// Per-station now-playing TTL cache (PSY-1022), lazily initialized via
+	// nowPlayingCacheInstance so tests building &RadioService{db: ...}
+	// directly still work.
+	npCacheOnce sync.Once
+	npCache     *nowPlayingCache
+
+	// liveProviderFactory overrides live-provider resolution in tests;
+	// nil → the real providers (see resolveLiveProvider).
+	liveProviderFactory func(source string) (RadioLiveProvider, func(), bool)
 }
 
 // NewRadioService creates a new radio service

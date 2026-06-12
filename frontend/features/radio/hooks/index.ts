@@ -14,6 +14,8 @@ export { useRadioStats } from './useRadioStats'
 // (useShowLatestEpisode stays un-exported here — its consumers import the
 // file directly; PSY-1057 narrowed the public surface.)
 export { useStationOverview } from './useStationOverview'
+// PSY-1022: live now-playing (with latest-archive fallback)
+export { useStationNowPlaying } from './useStationNowPlaying'
 // PSY-1049: The Dial hub
 export { useRecentRadioEpisodes } from './useRecentRadioEpisodes'
 // PSY-1051: show + playlist page rebuild

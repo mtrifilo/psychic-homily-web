@@ -29,6 +29,10 @@ export type {
   // PSY-1048 aggregation shapes (PSY-1049/1050/1051)
   RadioEpisodePreviewArtist,
   RadioStationEpisodeRow,
+  // PSY-1022 now-playing shapes
+  RadioNowPlaying,
+  RadioNowPlayingShowRef,
+  RadioNowPlayingTrack,
   RadioRecentEpisodesResponse,
   RadioStationEpisodesResponse,
 } from './types'
@@ -60,6 +64,8 @@ export {
   useRadioStats,
   // PSY-1016 (consumed by the Dial strips since PSY-1049)
   useStationOverview,
+  // PSY-1022: live now-playing (with latest-archive fallback)
+  useStationNowPlaying,
   // PSY-1049
   useRecentRadioEpisodes,
   // PSY-1050: station-page aggregations (PSY-1048 endpoints)

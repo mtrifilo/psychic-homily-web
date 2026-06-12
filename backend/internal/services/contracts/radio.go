@@ -301,6 +301,80 @@ type RadioPlayResponse struct {
 }
 
 // ──────────────────────────────────────────────
+// Now-playing types (PSY-1022)
+// ──────────────────────────────────────────────
+
+// Now-playing source discriminators. "live" means the payload came from the
+// station's provider live API (KEXP plays, NTS live, WFMU current-shows);
+// "latest_archive" means the provider has no live source (or it failed) and
+// the payload is the v1 heuristic — the most-active show's latest archived
+// episode.
+const (
+	NowPlayingSourceLive          = "live"
+	NowPlayingSourceLatestArchive = "latest_archive"
+)
+
+// RadioNowPlayingShowRef is the matched our-DB show behind a now-playing
+// payload. Nil on the response when the live show name couldn't be matched
+// to exactly one of the station's shows (PSY-1073: WFMU's catalog is
+// duplicated across channel stations, so matching is scoped to the requested
+// station and ambiguity yields nil rather than a wrong link).
+type RadioNowPlayingShowRef struct {
+	ID       uint    `json:"id"`
+	Name     string  `json:"name"`
+	Slug     string  `json:"slug"`
+	HostName *string `json:"host_name"`
+}
+
+// RadioNowPlayingTrack is the current track of a now-playing payload. Field
+// names mirror RadioPlayResponse (minus the persistence-only id/episode_id/
+// position) so frontend track renderers work on both shapes.
+type RadioNowPlayingTrack struct {
+	ArtistName     string  `json:"artist_name"`
+	TrackTitle     *string `json:"track_title"`
+	AlbumTitle     *string `json:"album_title"`
+	LabelName      *string `json:"label_name"`
+	ReleaseYear    *int    `json:"release_year"`
+	RotationStatus *string `json:"rotation_status"`
+	DJComment      *string `json:"dj_comment"`
+	ArtistID       *uint   `json:"artist_id"`
+	ArtistSlug     *string `json:"artist_slug"`
+	ReleaseID      *uint   `json:"release_id"`
+	ReleaseSlug    *string `json:"release_slug"`
+	LabelID        *uint   `json:"label_id"`
+	LabelSlug      *string `json:"label_slug"`
+}
+
+// RadioNowPlayingResponse is the GET /radio-stations/{slug}/now-playing
+// payload (PSY-1022).
+//
+// Invariant: Source == "live" implies OnAir == true — adapters that find no
+// active broadcast yield the archive fallback instead of a half-live payload,
+// so consumers can key the ON AIR treatment on either field consistently.
+type RadioNowPlayingResponse struct {
+	Source string `json:"source" enum:"live,latest_archive" doc:"Where this payload came from: the provider's live API, or the latest-archive fallback"`
+	OnAir  bool   `json:"on_air" doc:"True only when a live source confirmed an active broadcast"`
+	// Show is the matched our-DB show; nil when the live show name/external-id
+	// couldn't be matched unambiguously. ShowName always carries the raw name
+	// (live: as reported by the provider; archive: the DB show's name) so the
+	// UI can render unmatched shows as plain text instead of a dead link.
+	Show     *RadioNowPlayingShowRef `json:"show"`
+	ShowName *string                 `json:"show_name"`
+	// HostName is the live-reported host (e.g. WFMU's "... with Jody Peyote"),
+	// set even when the show itself didn't match; nil for archive payloads
+	// (use Show.HostName there).
+	HostName     *string               `json:"host_name"`
+	CurrentTrack *RadioNowPlayingTrack `json:"current_track"`
+	// RecentArtists is up to 4 distinct previously-played artists (most recent
+	// first), from the live source when it carries a play history (KEXP), else
+	// from the fallback episode's playlist.
+	RecentArtists []RadioEpisodePreviewArtist `json:"recent_artists"`
+	// EpisodeAirDate (YYYY-MM-DD) is the air date of the archived episode the
+	// payload was derived from; nil for live payloads.
+	EpisodeAirDate *string `json:"episode_air_date"`
+}
+
+// ──────────────────────────────────────────────
 // Aggregation / stats types
 // ──────────────────────────────────────────────
 
@@ -511,6 +585,9 @@ type RadioServiceInterface interface {
 	GetEpisodeDetail(episodeID uint) (*RadioEpisodeDetailResponse, error)
 	GetStationEpisodes(stationID uint, limit, offset int) ([]*RadioStationEpisodeRow, int64, error)
 	GetRecentEpisodes(limit, offset int) ([]*RadioStationEpisodeRow, int64, error)
+
+	// Now-playing (PSY-1022)
+	GetStationNowPlaying(stationID uint) (*RadioNowPlayingResponse, error)
 
 	// Aggregation queries
 	GetTopArtistsForShow(showID uint, periodDays, limit int) ([]*RadioTopArtistResponse, error)
