@@ -13,19 +13,9 @@ import { CookiePreferencesDialog } from './CookiePreferencesDialog'
  * so content at the document end (the footer) stays reachable by scrolling
  * rather than being permanently covered until the visitor consents. */
 
-interface ConsentBarProps {
-  gpcSignalDetected: boolean
-  acceptAll: () => void
-  rejectAll: () => void
-  openPreferences: () => void
-}
-
-function ConsentBar({
-  gpcSignalDetected,
-  acceptAll,
-  rejectAll,
-  openPreferences,
-}: ConsentBarProps) {
+function ConsentBar() {
+  const { gpcSignalDetected, acceptAll, rejectAll, openPreferences } =
+    useCookieConsent()
   const barRef = useRef<HTMLDivElement>(null)
 
   // Reserve scroll space matching the bar's rendered height (it varies with
@@ -95,9 +85,6 @@ export function CookieConsentBanner() {
   const {
     showBanner,
     gpcSignalDetected,
-    acceptAll,
-    rejectAll,
-    openPreferences,
     preferencesOpen,
     closePreferences,
     savePreferences,
@@ -106,14 +93,7 @@ export function CookieConsentBanner() {
 
   return (
     <>
-      {showBanner && (
-        <ConsentBar
-          gpcSignalDetected={gpcSignalDetected}
-          acceptAll={acceptAll}
-          rejectAll={rejectAll}
-          openPreferences={openPreferences}
-        />
-      )}
+      {showBanner && <ConsentBar />}
 
       <CookiePreferencesDialog
         open={preferencesOpen}
