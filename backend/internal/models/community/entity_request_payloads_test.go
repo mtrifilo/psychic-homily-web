@@ -321,4 +321,22 @@ func TestValidateEntityRequestPayload(t *testing.T) {
 		long := "https://example.com/?" + strings.Repeat("a", 600)
 		assert.Error(t, ValidateEntityRequestPayload(EntityRequestFestival, json.RawMessage(`{"name":"Desert Daze","start_date":"2026-01-01","end_date":"2026-01-03","website":"`+long+`"}`)))
 	})
+	// PSY-1037: show is now fulfillable (admin-supplied associations), so its
+	// payload fields are validated like every other fulfillable type.
+	t.Run("show accepts RFC3339 event_date", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04T21:30:00-07:00"}`)))
+	})
+	t.Run("show accepts date-only event_date", func(t *testing.T) {
+		assert.NoError(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04"}`)))
+	})
+	t.Run("show rejects unparseable event_date", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"next summer"}`)))
+	})
+	t.Run("show rejects javascript: image_url", func(t *testing.T) {
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","image_url":"javascript:alert(1)"}`)))
+	})
+	t.Run("show rejects over-long ticket_url (VARCHAR(500))", func(t *testing.T) {
+		long := "https://example.com/?" + strings.Repeat("t", 600)
+		assert.Error(t, ValidateEntityRequestPayload(EntityRequestShow, json.RawMessage(`{"title":"Boris","event_date":"2026-07-04","ticket_url":"`+long+`"}`)))
+	})
 }

@@ -109,16 +109,35 @@ export function useAdminEntityRequests(filters: AdminEntityRequestsFilters = {})
   })
 }
 
+/** Admin-supplied venue for fulfilling a show request (PSY-1037). */
+export interface ShowVenueInput {
+  name: string
+  city: string
+  state: string
+  address?: string
+}
+
+/** One admin-supplied artist for fulfilling a show request (PSY-1037). */
+export interface ShowArtistInput {
+  name: string
+  is_headliner?: boolean
+}
+
 export interface DecideEntityRequestVars {
   id: number
   decision: 'approved' | 'rejected'
   /** Required by the queue UI when rejecting; omitted on approve. */
   note?: string
+  /** PSY-1037: required when approving a show request; ignored otherwise. */
+  show_venue?: ShowVenueInput
+  show_artists?: ShowArtistInput[]
 }
 
 /**
  * Decide a queued entity request. 'approved' creates the catalog entity
  * (PSY-1008) and returns created_entity_id; 'rejected' records the note.
+ * Show approvals additionally carry the admin-collected venue + artists
+ * (PSY-1037) — the payload alone lacks the associations CreateShow needs.
  * Invalidates the request queue + the entity lists an approval may have grown.
  */
 export function useDecideEntityRequest() {
@@ -126,19 +145,27 @@ export function useDecideEntityRequest() {
   const invalidateQueries = createInvalidateQueries(queryClient)
 
   return useMutation({
-    mutationFn: async ({ id, decision, note }: DecideEntityRequestVars) => {
+    mutationFn: async ({ id, decision, note, show_venue, show_artists }: DecideEntityRequestVars) => {
       return apiRequest(API_ENDPOINTS.ADMIN.ENTITY_REQUESTS.DECIDE(id), {
         method: 'POST',
-        body: JSON.stringify(note ? { decision, note } : { decision }),
+        body: JSON.stringify({
+          decision,
+          ...(note ? { note } : {}),
+          ...(show_venue ? { show_venue } : {}),
+          ...(show_artists?.length ? { show_artists } : {}),
+        }),
       })
     },
     onSuccess: () => {
       invalidateQueries.adminEntityRequests()
-      // Approve creates a catalog entity, so refresh the entity lists that may
-      // now include it (matching useApprovePendingEdit's invalidations).
+      // Approve creates a catalog entity, so refresh every entity list a
+      // fulfillment can grow (one invalidation per fulfillable request type).
       invalidateQueries.artists()
       invalidateQueries.venues()
+      invalidateQueries.labels()
+      invalidateQueries.releases()
       invalidateQueries.festivals()
+      invalidateQueries.shows()
     },
   })
 }

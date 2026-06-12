@@ -351,7 +351,83 @@ describe('ModerationQueue', () => {
     expect(screen.getByText(/a great new band announced a tour/i)).toBeInTheDocument()
   })
 
-  it('disables Create for show requests (fulfillment deferred) but allows Reject', () => {
+  // PSY-1037: show requests are fulfillable — Create opens the associations
+  // form (venue + artists) instead of approving immediately.
+  it('opens the show associations form when Create is clicked on a show request', () => {
+    const showRequest: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 11,
+      entity_type: 'show',
+      payload: { title: 'Big Fest', event_date: '2026-07-01', city: 'Phoenix', state: 'AZ' },
+      source_detail: null,
+    }
+    setDefaultMocks({ requests: [showRequest] })
+
+    render(<ModerationQueue />)
+
+    // Header uses the payload title; the preview omits the header'd title.
+    expect(screen.getByText('Big Fest')).toBeInTheDocument()
+    expect(screen.queryByText('title:')).not.toBeInTheDocument()
+    expect(screen.getByText('event_date:')).toBeInTheDocument()
+    // Create enabled, no manual-create hint.
+    const createButton = screen.getByRole('button', { name: /^create$/i })
+    expect(createButton).not.toBeDisabled()
+    expect(screen.queryByText(/must be created\s+manually for now/i)).not.toBeInTheDocument()
+
+    // Clicking Create opens the form (no mutation yet) with city/state
+    // prefilled from the payload.
+    fireEvent.click(createButton)
+    expect(screen.getByLabelText('Venue name')).toBeInTheDocument()
+    expect(screen.getByLabelText('Venue city')).toHaveValue('Phoenix')
+    expect(screen.getByLabelText('Venue state')).toHaveValue('AZ')
+    // Submit disabled until venue name + ≥1 artist are filled.
+    expect(screen.getByRole('button', { name: /create show/i })).toBeDisabled()
+  })
+
+  it('submits the show approval with the collected venue + artists', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
+    const showRequest: AdminEntityRequest = {
+      ...mockEntityRequest,
+      id: 11,
+      entity_type: 'show',
+      payload: { title: 'Big Fest', event_date: '2026-07-01', city: 'Phoenix', state: 'AZ' },
+      source_detail: null,
+    }
+    setDefaultMocks({ requests: [showRequest] })
+
+    render(<ModerationQueue />)
+
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    fireEvent.change(screen.getByLabelText('Venue name'), {
+      target: { value: '  Valley Bar  ' },
+    })
+    fireEvent.change(screen.getByLabelText('Artist 1 name'), {
+      target: { value: 'Boris' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /add artist/i }))
+    fireEvent.change(screen.getByLabelText('Artist 2 name'), {
+      target: { value: 'Earth' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: /create show/i }))
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: 11,
+        decision: 'approved',
+        show_venue: { name: 'Valley Bar', city: 'Phoenix', state: 'AZ' },
+        show_artists: [
+          { name: 'Boris', is_headliner: true },
+          { name: 'Earth', is_headliner: false },
+        ],
+      }),
+      expect.anything()
+    )
+  })
+
+  it('cancel closes the show form without mutating', () => {
+    const mutate = vi.fn()
+    mockUseDecideEntityRequest.mockReturnValue({ ...defaultMutationReturn, mutate })
     const showRequest: AdminEntityRequest = {
       ...mockEntityRequest,
       id: 11,
@@ -363,14 +439,11 @@ describe('ModerationQueue', () => {
 
     render(<ModerationQueue />)
 
-    // Header uses the payload title; the preview omits the header'd title.
-    expect(screen.getByText('Big Fest')).toBeInTheDocument()
-    expect(screen.queryByText('title:')).not.toBeInTheDocument()
-    expect(screen.getByText('event_date:')).toBeInTheDocument()
-    // Create disabled (unsupported fulfillment), Reject still available + hint.
-    expect(screen.getByRole('button', { name: /create/i })).toBeDisabled()
-    expect(screen.getByRole('button', { name: /^reject$/i })).not.toBeDisabled()
-    expect(screen.getByText(/must be created\s+manually for now/i)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /^create$/i }))
+    expect(screen.getByLabelText('Venue name')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /cancel/i }))
+    expect(screen.queryByLabelText('Venue name')).not.toBeInTheDocument()
+    expect(mutate).not.toHaveBeenCalled()
   })
 
   // PSY-998: festival requests are now fulfillable on approve (series_slug is

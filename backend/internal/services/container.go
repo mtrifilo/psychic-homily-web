@@ -150,8 +150,9 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 	labelSvc := catalog.NewLabelService(database)
 	releaseSvc := catalog.NewReleaseService(database)
 	festivalSvc := catalog.NewFestivalService(database)
+	showSvc := catalog.NewShowService(database)
 	entityRequestSvc := community.NewEntityRequestService(database)
-	entityRequestFulfiller := community.NewEntityRequestFulfiller(artist, venue, labelSvc, releaseSvc, festivalSvc)
+	entityRequestFulfiller := community.NewEntityRequestFulfiller(artist, venue, labelSvc, releaseSvc, festivalSvc, showSvc)
 
 	// PSY-289: wire the comment notifier into the comment service so new
 	// comments fan out notification emails fire-and-forget.
@@ -209,7 +210,7 @@ func NewServiceContainer(database *gorm.DB, cfg *config.Config) *ServiceContaine
 		Label:                  labelSvc,
 		Release:                releaseSvc,
 		SavedShow:              savedShow,
-		Show:                   catalog.NewShowService(database),
+		Show:                   showSvc,
 		ShowReport:             adminsvc.NewShowReportService(database),
 		EntityReport:           adminsvc.NewEntityReportService(database),
 		User:                   userService,

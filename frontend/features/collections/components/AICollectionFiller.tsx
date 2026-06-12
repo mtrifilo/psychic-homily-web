@@ -153,7 +153,8 @@ function createAffordanceFor(
 // Outcome of a successful entity-request POST, used to pick the per-row chip.
 // 'created' = auto-approved AND fulfilled (PSY-1008) — the entity now exists and
 // is staged into the collection (true inline create-and-add); 'requested' =
-// approved but not staged (fulfillment deferred, e.g. show); 'queued' =
+// approved but not yet fulfilled (e.g. a show, which is created when an admin
+// supplies its venue + artists in the queue — PSY-1037); 'queued' =
 // pending admin review.
 type RequestOutcome = 'created' | 'requested' | 'queued'
 

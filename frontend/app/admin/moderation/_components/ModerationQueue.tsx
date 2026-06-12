@@ -8,9 +8,12 @@ import {
   ChevronRight,
   ExternalLink,
   History,
+  Plus,
   PlusCircle,
+  X,
 } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
 import { Card, CardContent } from '@/components/ui/card'
 import {
   AdminEmptyState,
@@ -39,6 +42,8 @@ import {
 import {
   useAdminEntityRequests,
   useDecideEntityRequest,
+  type ShowArtistInput,
+  type ShowVenueInput,
 } from '@/lib/hooks/admin/useAdminEntityRequests'
 import { CommentEditHistory } from '@/features/comments'
 import { EntitySaveSuccessBanner } from '@/features/contributions'
@@ -308,10 +313,184 @@ function payloadPreviewEntries(payload: Record<string, unknown>): Array<[string,
 }
 
 // Entity types whose request payloads the backend can fulfill on approve
-// (PSY-1008; festival added in PSY-998 — series_slug is derived from the name).
-// show still needs venue + artist associations the payload lacks, so its
-// fulfillment is deferred (a PSY-998 follow-up) — the card disables "Create".
-const FULFILLABLE_REQUEST_TYPES = new Set(['artist', 'venue', 'label', 'release', 'festival'])
+// (PSY-1008; festival added in PSY-998 — series_slug is derived from the name;
+// show added in PSY-1037 — the card collects the venue + artist associations
+// the payload lacks before approving). All current types are fulfillable; the
+// set + the disabled-Create hint below stay as the guard for any future type
+// that lands without a fulfillment branch.
+const FULFILLABLE_REQUEST_TYPES = new Set([
+  'artist',
+  'venue',
+  'label',
+  'release',
+  'festival',
+  'show',
+])
+
+// One artist row in the show-create form (PSY-1037).
+interface ShowArtistRow {
+  name: string
+  isHeadliner: boolean
+}
+
+/**
+ * Inline associations form for approving a SHOW request (PSY-1037): the
+ * payload carries the show metadata but not the venue + artists CreateShow
+ * requires, so the admin supplies them here. Plain controlled inputs — the
+ * backend find-or-creates venues by name+city+state and artists by name
+ * (admin-created venues are auto-verified), so no autocomplete is needed.
+ * Typo-created duplicates are recoverable via the existing merge tooling.
+ */
+function ShowCreateForm({
+  defaultCity,
+  defaultState,
+  isSubmitting,
+  onSubmit,
+  onCancel,
+}: {
+  defaultCity: string
+  defaultState: string
+  isSubmitting: boolean
+  onSubmit: (venue: ShowVenueInput, artists: ShowArtistInput[]) => void
+  onCancel: () => void
+}) {
+  const [venueName, setVenueName] = useState('')
+  const [venueCity, setVenueCity] = useState(defaultCity)
+  const [venueState, setVenueState] = useState(defaultState)
+  // First artist defaults to headliner (mirrors the backend's first-artist
+  // fallback, but explicit so the admin sees + can change it).
+  const [artists, setArtists] = useState<ShowArtistRow[]>([{ name: '', isHeadliner: true }])
+
+  const updateArtist = (index: number, patch: Partial<ShowArtistRow>) => {
+    setArtists(rows => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)))
+  }
+
+  const filledArtists = artists.filter(a => a.name.trim() !== '')
+  const canSubmit =
+    venueName.trim() !== '' &&
+    venueCity.trim() !== '' &&
+    venueState.trim() !== '' &&
+    filledArtists.length > 0 &&
+    !isSubmitting
+
+  const inputClass =
+    'w-full rounded-md border bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus:outline-none focus:ring-2 focus:ring-ring'
+
+  return (
+    <div className="mt-3 space-y-3 rounded-md border bg-muted/30 p-3">
+      <p className="text-xs font-medium text-foreground">
+        Create show — supply the venue and artist(s) the request doesn&rsquo;t carry
+      </p>
+
+      <div className="space-y-2">
+        <input
+          value={venueName}
+          onChange={e => setVenueName(e.target.value)}
+          placeholder="Venue name"
+          aria-label="Venue name"
+          className={inputClass}
+          disabled={isSubmitting}
+        />
+        <div className="flex gap-2">
+          <input
+            value={venueCity}
+            onChange={e => setVenueCity(e.target.value)}
+            placeholder="City"
+            aria-label="Venue city"
+            className={inputClass}
+            disabled={isSubmitting}
+          />
+          <input
+            value={venueState}
+            onChange={e => setVenueState(e.target.value)}
+            placeholder="State"
+            aria-label="Venue state"
+            className={`${inputClass} max-w-24`}
+            disabled={isSubmitting}
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        {artists.map((artist, index) => (
+          <div key={index} className="flex items-center gap-2">
+            <input
+              value={artist.name}
+              onChange={e => updateArtist(index, { name: e.target.value })}
+              placeholder={`Artist ${index + 1} name`}
+              aria-label={`Artist ${index + 1} name`}
+              className={inputClass}
+              disabled={isSubmitting}
+            />
+            <label className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+              <input
+                type="checkbox"
+                checked={artist.isHeadliner}
+                onChange={e => updateArtist(index, { isHeadliner: e.target.checked })}
+                aria-label={`Artist ${index + 1} is headliner`}
+                disabled={isSubmitting}
+              />
+              headliner
+            </label>
+            {artists.length > 1 && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => setArtists(rows => rows.filter((_, i) => i !== index))}
+                aria-label={`Remove artist ${index + 1}`}
+                disabled={isSubmitting}
+              >
+                <X className="h-3 w-3" />
+              </Button>
+            )}
+          </div>
+        ))}
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          onClick={() => setArtists(rows => [...rows, { name: '', isHeadliner: false }])}
+          disabled={isSubmitting}
+        >
+          <Plus className="h-3 w-3 mr-1" />
+          Add artist
+        </Button>
+      </div>
+
+      <div className="flex items-center gap-2">
+        <Button
+          type="button"
+          size="sm"
+          disabled={!canSubmit}
+          onClick={() =>
+            onSubmit(
+              {
+                name: venueName.trim(),
+                city: venueCity.trim(),
+                state: venueState.trim(),
+              },
+              filledArtists.map(a => ({
+                name: a.name.trim(),
+                is_headliner: a.isHeadliner,
+              }))
+            )
+          }
+        >
+          {isSubmitting ? (
+            <Loader2 className="h-3 w-3 animate-spin mr-1" />
+          ) : (
+            <PlusCircle className="h-3 w-3 mr-1" />
+          )}
+          Create show
+        </Button>
+        <Button type="button" variant="ghost" size="sm" onClick={onCancel} disabled={isSubmitting}>
+          Cancel
+        </Button>
+      </div>
+    </div>
+  )
+}
 
 /** Returns url only when it's a safe http(s) link, else undefined (no link). */
 function safeHttpUrl(url: string | undefined): string | undefined {
@@ -344,13 +523,31 @@ function RequestCard({
   const previewEntries = payloadPreviewEntries(request.payload)
   const sourceUrl = safeHttpUrl(request.source_detail?.url)
   const canCreate = FULFILLABLE_REQUEST_TYPES.has(request.entity_type)
+  // PSY-1037: a show approve needs admin-supplied venue + artists, so Create
+  // opens the associations form instead of approving immediately.
+  const isShow = request.entity_type === 'show'
+  const [showFormOpen, setShowFormOpen] = useState(false)
 
   const handleCreate = useCallback(() => {
+    if (isShow) {
+      setShowFormOpen(open => !open)
+      return
+    }
     decideMutation.mutate(
       { id: request.id, decision: 'approved' },
       { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
     )
-  }, [decideMutation, request.id, onActionSuccess, entityLabel])
+  }, [isShow, decideMutation, request.id, onActionSuccess, entityLabel])
+
+  const handleCreateShow = useCallback(
+    (venue: ShowVenueInput, artists: ShowArtistInput[]) => {
+      decideMutation.mutate(
+        { id: request.id, decision: 'approved', show_venue: venue, show_artists: artists },
+        { onSuccess: () => onActionSuccess({ verb: 'created', entityLabel }) }
+      )
+    },
+    [decideMutation, request.id, onActionSuccess, entityLabel]
+  )
 
   const handleReject = useCallback(
     (reason: string) => {
@@ -427,14 +624,25 @@ function RequestCard({
           </div>
         )}
 
-        {/* show can't be fulfilled from the payload yet (needs venue + artist
-            associations; a PSY-998 follow-up) — Create is disabled for it, but
-            the admin can still reject. */}
+        {/* Unreachable for the current types (all fulfillable as of PSY-1037);
+            kept as the guard for a future entity type that lands without a
+            fulfillment branch. */}
         {!canCreate && (
           <p className="mt-2 text-xs text-muted-foreground">
             {entityTypeLabel(request.entity_type)} requests must be created
             manually for now — Create isn&rsquo;t supported for this type yet.
           </p>
+        )}
+
+        {/* PSY-1037: show approvals collect the venue + artists here first */}
+        {isShow && showFormOpen && (
+          <ShowCreateForm
+            defaultCity={typeof request.payload?.city === 'string' ? request.payload.city : ''}
+            defaultState={typeof request.payload?.state === 'string' ? request.payload.state : ''}
+            isSubmitting={pendingDecision === 'approved'}
+            onSubmit={handleCreateShow}
+            onCancel={() => setShowFormOpen(false)}
+          />
         )}
 
         {/* Create-immediate + reject-with-required-reason (same model as edits) */}

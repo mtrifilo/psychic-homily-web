@@ -238,14 +238,27 @@ func ValidateEntityRequestPayload(entityType string, raw json.RawMessage) error 
 		if err != nil {
 			return err
 		}
-		// show's image_url / ticket_url are intentionally NOT URL-validated here:
-		// show is never fulfilled (the dispatcher returns FulfillUnsupported), so
-		// those fields never ride onto a created entity. If show fulfillment is
-		// ever wired up, add optionalHTTPURL for them like the other types.
 		if err := requireField("show", "title", p.Title); err != nil {
 			return err
 		}
-		return requireField("show", "event_date", p.EventDate)
+		// event_date drives the created show's timestamp (PSY-1037): RFC3339 is
+		// used as-is, a date-only value is anchored at 20:00 venue-local at
+		// fulfillment — so it must parse as one of the two here (422), not fail
+		// at fulfill (500).
+		if err := requireDateTimeOrDate("show", "event_date", p.EventDate); err != nil {
+			return err
+		}
+		// Shows are fulfillable when the admin supplies associations (PSY-1037),
+		// so the payload's URL/text fields ride onto a created show — validate
+		// them like every other fulfillable type (caps match shows.image_url
+		// VARCHAR(2048) / shows.ticket_url VARCHAR(500)).
+		if err := optionalHTTPURL("show", "image_url", p.ImageURL, maxRequestURLLen); err != nil {
+			return err
+		}
+		if err := optionalHTTPURL("show", "ticket_url", p.TicketURL, maxRequestShortURLLen); err != nil {
+			return err
+		}
+		return optionalMaxLen("show", "description", p.Description, maxRequestDescriptionLen)
 	case EntityRequestFestival:
 		p, err := UnmarshalPayload[FestivalRequestPayload](raw)
 		if err != nil {
@@ -354,6 +367,23 @@ func requireDate(entityType, field, value string) error {
 		return fmt.Errorf("%s payload: %s must be a valid YYYY-MM-DD date", entityType, field)
 	}
 	return nil
+}
+
+// requireDateTimeOrDate validates a required timestamp field that accepts
+// either a full RFC3339 timestamp (explicit show time) or a date-only
+// YYYY-MM-DD value (anchored to an evening time at fulfillment — PSY-1037).
+func requireDateTimeOrDate(entityType, field, value string) error {
+	trimmed := strings.TrimSpace(value)
+	if trimmed == "" {
+		return fmt.Errorf("%s payload: %s is required", entityType, field)
+	}
+	if _, err := time.Parse(time.RFC3339, trimmed); err == nil {
+		return nil
+	}
+	if _, err := time.Parse("2006-01-02", trimmed); err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s payload: %s must be an RFC3339 timestamp or a YYYY-MM-DD date", entityType, field)
 }
 
 // ValidEntityRequestTypes returns the registered entity_type discriminators.

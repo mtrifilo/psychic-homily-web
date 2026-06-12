@@ -84,6 +84,7 @@ func (s *ShowService) CreateShow(req *contracts.CreateShowRequest) (*contracts.S
 			Price:          req.Price,
 			AgeRequirement: &req.AgeRequirement,
 			Description:    &req.Description,
+			ImageURL:       req.ImageURL,
 			Status:         status,
 			SubmittedBy:    req.SubmittedByUserID,
 		}
