@@ -1,8 +1,10 @@
 'use client'
 
+import { useState } from 'react'
 import Link from 'next/link'
 import { Lock } from 'lucide-react'
 import { SectionHeader } from '@/components/shared/SectionHeader'
+import { ProfileSectionAction } from './ProfileSectionAction'
 import { useUserAttendedShows } from '@/features/auth'
 
 interface ProfileAttendedShowsProps {
@@ -29,8 +31,16 @@ function formatDiaryDate(dateString: string): string {
  * - hidden → 404 → a lock notice (per the privacy-applied design board): the
  *   section names itself so the page doesn't silently look incomplete.
  */
+// Collapsed row budget per the design board's diary density.
+const COLLAPSED_COUNT = 10
+
 export function ProfileAttendedShows({ username }: ProfileAttendedShowsProps) {
-  const { data, error } = useUserAttendedShows(username, { limit: 10 })
+  // Fetch the API max up front and slice client-side: the hook's query key
+  // doesn't include limit, so a refetch-on-expand would be served from cache
+  // and silently no-op. "View all →" reveals the fetched rows in place
+  // (decision 2026-06-10: no dedicated per-user list routes yet).
+  const [expanded, setExpanded] = useState(false)
+  const { data, error } = useUserAttendedShows(username, { limit: 100 })
 
   const isHidden = (error as { status?: number } | null)?.status === 404
 
@@ -41,7 +51,25 @@ export function ProfileAttendedShows({ username }: ProfileAttendedShowsProps) {
 
   return (
     <section aria-label="Shows attended">
-      <SectionHeader title="Shows attended" as="h2" size="md" />
+      <SectionHeader
+        title="Shows attended"
+        as="h2"
+        size="md"
+        variant="title"
+        action={
+          !expanded && data && data.shows.length > COLLAPSED_COUNT ? (
+            <ProfileSectionAction
+              label="View all →"
+              onClick={() => setExpanded(true)}
+              ariaLabel={
+                data.total > data.shows.length
+                  ? `View the first ${data.shows.length} of ${data.total} attended shows`
+                  : `View all ${data.total} attended shows`
+              }
+            />
+          ) : undefined
+        }
+      />
       {isHidden ? (
         <p className="mt-2 flex items-center gap-1.5 text-sm text-muted-foreground">
           <Lock className="h-3.5 w-3.5" aria-hidden />
@@ -57,7 +85,7 @@ export function ProfileAttendedShows({ username }: ProfileAttendedShowsProps) {
         </p>
       ) : (
         <div className="mt-1 divide-y divide-border/60">
-          {data!.shows.map(show => (
+          {(expanded ? data!.shows : data!.shows.slice(0, COLLAPSED_COUNT)).map(show => (
             <div
               key={show.show_id}
               className="flex items-baseline gap-4 py-2 text-sm"
@@ -98,7 +126,7 @@ export function ProfileAttendedShows({ username }: ProfileAttendedShowsProps) {
               </span>
             </div>
           ))}
-          {data!.total > data!.shows.length && (
+          {expanded && data!.total > data!.shows.length && (
             <p className="py-2 text-xs text-muted-foreground">
               + {data!.total - data!.shows.length} more
             </p>
