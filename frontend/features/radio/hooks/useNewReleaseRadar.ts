@@ -1,6 +1,6 @@
 'use client'
 
-import { useQuery } from '@tanstack/react-query'
+import { keepPreviousData, useQuery } from '@tanstack/react-query'
 import { apiRequest } from '@/lib/api'
 import { radioEndpoints, radioQueryKeys } from '../api'
 import type { RadioNewReleasesResponse } from '../types'
@@ -12,7 +12,11 @@ interface UseNewReleaseRadarOptions {
 }
 
 /**
- * Hook to fetch new releases discovered via radio
+ * Hook to fetch new releases discovered via radio.
+ *
+ * `keepPreviousData` so the /radio/new-releases "more releases" limit bump
+ * (PSY-1076) re-renders the table in place instead of flashing back to a
+ * loading state; harmless for the fixed-limit hub sidebar box.
  */
 export function useNewReleaseRadar({
   stationId,
@@ -35,6 +39,7 @@ export function useNewReleaseRadar({
         method: 'GET',
       }),
     enabled,
+    placeholderData: keepPreviousData,
     staleTime: 5 * 60 * 1000,
   })
 }

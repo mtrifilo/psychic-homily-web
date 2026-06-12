@@ -118,6 +118,44 @@ describe('RadioHub', () => {
     ).toBeInTheDocument()
   })
 
+  it('links the full playlists feed under the latest-playlists table (PSY-1076)', () => {
+    mockUseRecentRadioEpisodes.mockReturnValue({
+      data: {
+        episodes: [
+          {
+            id: 1,
+            title: null,
+            air_date: '2026-06-09',
+            play_count: 24,
+            archive_url: null,
+            show_id: 3,
+            show_name: 'The Night Owl Show',
+            show_slug: 'night-owl',
+            station_id: 2,
+            station_name: 'WFMU',
+            station_slug: 'wfmu',
+            artist_preview: [],
+          },
+        ],
+        total: 574,
+      },
+      isLoading: false,
+      error: null,
+    })
+    render(<RadioHub />)
+
+    expect(
+      screen.getByRole('link', { name: 'all playlists →' })
+    ).toHaveAttribute('href', '/radio/playlists')
+  })
+
+  it('omits the all-playlists link when the feed is empty', () => {
+    render(<RadioHub />)
+    expect(
+      screen.queryByRole('link', { name: 'all playlists →' })
+    ).not.toBeInTheDocument()
+  })
+
   it('renders an error state when stations fail to load', () => {
     mockUseRadioStations.mockReturnValue({
       data: undefined,

@@ -261,6 +261,18 @@ export interface RadioAsHeardOn {
   last_played: string
 }
 
+// New Release Radar link resolution (PSY-1076, extracted from the hub's
+// sidebar box): link the "Artist — Album" line to the release when matched,
+// else to the artist, else nowhere (no dead links). Shared by the hub box
+// and the /radio/new-releases full view — keep them in lockstep.
+export function getNewReleaseHref(
+  entry: Pick<RadioNewReleaseRadarEntry, 'release_slug' | 'artist_slug'>
+): string | null {
+  if (entry.release_slug) return `/releases/${entry.release_slug}`
+  if (entry.artist_slug) return `/artists/${entry.artist_slug}`
+  return null
+}
+
 export interface RadioNewReleaseRadarEntry {
   artist_name: string
   artist_id: number | null

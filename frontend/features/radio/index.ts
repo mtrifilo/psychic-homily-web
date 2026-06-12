@@ -111,3 +111,6 @@ export {
   walkEpisodeNeighbors,
 } from './lib/episodeArchive'
 export type { ArtistMatchStats, EpisodeNeighbors } from './lib/episodeArchive'
+
+// PSY-1076: New Release Radar link resolution (hub box + /radio/new-releases)
+export { getNewReleaseHref } from './types'

@@ -2,7 +2,9 @@
 
 import Link from 'next/link'
 import { Loader2 } from 'lucide-react'
+import { BracketLink } from '@/components/shared/BracketLink'
 import { StatsList } from '@/components/shared/StatsList'
+import { getNewReleaseHref } from '@/features/radio'
 import type { RadioNewReleaseRadarEntry, RadioStats } from '@/features/radio'
 
 /**
@@ -59,12 +61,9 @@ export function NewReleaseRadarBox({
             ? `${entry.artist_name} — ${entry.album_title}`
             : entry.artist_name
           // Link the whole "Artist — Album" line to the release when matched,
-          // else to the artist, else plain text (no dead links).
-          const href = entry.release_slug
-            ? `/releases/${entry.release_slug}`
-            : entry.artist_slug
-              ? `/artists/${entry.artist_slug}`
-              : null
+          // else to the artist, else plain text (no dead links). Shared with
+          // the /radio/new-releases full view (PSY-1076).
+          const href = getNewReleaseHref(entry)
           const subline = [
             entry.label_name,
             `${entry.play_count} ${entry.play_count === 1 ? 'play' : 'plays'}`,
@@ -97,6 +96,14 @@ export function NewReleaseRadarBox({
           )
         })}
       </ul>
+      {/* PSY-1076: the box is a capped teaser — link to the full radar view. */}
+      <div className="mt-3 border-t border-border pt-2.5">
+        <BracketLink
+          label="full radar →"
+          href="/radio/new-releases"
+          className="font-mono text-xs"
+        />
+      </div>
     </SidebarBox>
   )
 }
