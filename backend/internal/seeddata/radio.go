@@ -286,10 +286,14 @@ var RadioShows = []RadioShow{
 
 	// NTS
 	{
-		StationSlug:     "nts-radio",
-		Name:            "Floating Points",
-		Slug:            "floating-points-nts",
-		HostName:        "Floating Points",
+		StationSlug: "nts-radio",
+		Name:        "Floating Points",
+		Slug:        "floating-points-nts",
+		// HostName intentionally empty: NTS residencies are host-named, so
+		// repeating the show name as the host renders "Floating Points w/
+		// Floating Points" on now-playing surfaces (PSY-1077). Leave NULL
+		// when host would equal the show name.
+		HostName:        "",
 		Description:     "Eclectic selections spanning jazz, electronic, ambient, and world music from producer Floating Points.",
 		ScheduleDisplay: "Monthly",
 		ArchiveURL:      "https://www.nts.live/shows/floating-points",
@@ -319,10 +323,12 @@ var RadioShows = []RadioShow{
 		ExternalID:      "breakfast",
 	},
 	{
-		StationSlug:     "nts-radio",
-		Name:            "Anu",
-		Slug:            "anu-nts",
-		HostName:        "Anu",
+		StationSlug: "nts-radio",
+		Name:        "Anu",
+		Slug:        "anu-nts",
+		// HostName intentionally empty: host-named residency (see the
+		// Floating Points entry above; PSY-1077).
+		HostName:        "",
 		Description:     "A mix of left-field club, electronic, and experimental sounds.",
 		ScheduleDisplay: "Monthly",
 		ArchiveURL:      "https://www.nts.live/shows/anu",

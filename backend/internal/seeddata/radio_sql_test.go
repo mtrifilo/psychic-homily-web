@@ -34,6 +34,10 @@ func TestRenderRadioSeedSQL_Shape(t *testing.T) {
 		"'internet', NULL, 'nts_api'",
 		// NULL for empty HostName on "The NTS Breakfast Show" (rotating hosts)
 		"'The NTS Breakfast Show', 'breakfast-show-nts', NULL,",
+		// PSY-1077: NULL HostName on host-named NTS residencies (host would
+		// duplicate the show name, rendering "Floating Points w/ Floating Points")
+		"'Floating Points', 'floating-points-nts', NULL,",
+		"'Anu', 'anu-nts', NULL,",
 		// PSY-508: WFMU sub-stream slugs and apostrophe escapes
 		"'wfmu-drummer'",
 		"'Rock''n''Soul Radio'",
@@ -113,6 +117,20 @@ func TestSqlFloatOrNull(t *testing.T) {
 	}
 	if got := sqlFloatOrNull(91.1); got != "91.1" {
 		t.Errorf("sqlFloatOrNull(91.1) = %q, want 91.1", got)
+	}
+}
+
+// TestRadioShows_NoHostNameDuplicatingShowName guards PSY-1077: host-named
+// residencies (common on NTS) must seed HostName empty (-> NULL) rather than
+// repeating the show name, which renders "Floating Points w/ Floating Points"
+// on now-playing surfaces. Both seed consumers (cmd/seed via GORM and
+// RenderRadioSeedSQL via cmd/gen-e2e-seed) read these structs, so the
+// invariant holds for dev, stage, and E2E databases alike.
+func TestRadioShows_NoHostNameDuplicatingShowName(t *testing.T) {
+	for _, s := range RadioShows {
+		if s.HostName != "" && strings.EqualFold(s.HostName, s.Name) {
+			t.Errorf("show %q (slug %q): HostName duplicates the show name; leave it empty so it seeds as NULL (PSY-1077)", s.Name, s.Slug)
+		}
 	}
 }
 
