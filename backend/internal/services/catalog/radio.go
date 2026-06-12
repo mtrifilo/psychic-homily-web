@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -685,6 +686,27 @@ func (s *RadioService) GetEpisodeDetail(episodeID uint) (*contracts.RadioEpisode
 // Aggregation queries
 // =============================================================================
 
+// WFMU playlists log background/segment music as plays whose artist_name
+// carries the "Music behind DJ:" prefix (casing varies; the colon is always
+// present in observed data). These are not artists — left in, they dominate
+// top-artists boxes and artist previews. Aggregated surfaces exclude them;
+// raw playlist surfaces (episode detail, now-playing current track) keep the
+// rows so the playlist stays an honest record. Import-time flagging plus a
+// backfill is the durable follow-up; this is the query-time filter (PSY-1078).
+const pseudoArtistNamePrefix = "Music behind DJ:"
+
+// pseudoArtistExclusionSQL is the shared predicate for aggregation queries
+// over radio_plays aliased as rp. Compile-time constant (no interpolated
+// input); the prefix contains no LIKE wildcards.
+const pseudoArtistExclusionSQL = "rp.artist_name NOT ILIKE '" + pseudoArtistNamePrefix + "%'"
+
+// isPseudoArtistName is the Go-side mirror of pseudoArtistExclusionSQL, for
+// derivations that aggregate play rows in memory (now-playing recent artists).
+func isPseudoArtistName(name string) bool {
+	return len(name) >= len(pseudoArtistNamePrefix) &&
+		strings.EqualFold(name[:len(pseudoArtistNamePrefix)], pseudoArtistNamePrefix)
+}
+
 // playsScope narrows a top-artists/labels aggregation query (radio_plays rp
 // joined to radio_episodes re) to a show or a station, applied with
 // .Scopes(). The episode feeds use the separate episodeFeedScope type — see
@@ -735,6 +757,7 @@ func (s *RadioService) topArtists(scope playsScope, periodDays, limit int) ([]*c
 		Joins("JOIN radio_episodes re ON re.id = rp.episode_id").
 		Joins("LEFT JOIN artists a ON a.id = rp.artist_id").
 		Scopes(scope).
+		Where(pseudoArtistExclusionSQL).
 		Group("rp.artist_name, rp.artist_id, a.slug").
 		Order("play_count DESC").
 		Limit(limit)
@@ -916,7 +939,7 @@ func (s *RadioService) episodeArtistPreviews(episodeIDs []uint) (map[uint][]cont
 			       MIN(rp.position) AS first_pos,
 			       ROW_NUMBER() OVER (PARTITION BY rp.episode_id ORDER BY MIN(rp.position)) AS rn
 			FROM radio_plays rp
-			WHERE rp.episode_id IN ? AND rp.artist_name != ''
+			WHERE rp.episode_id IN ? AND rp.artist_name != '' AND `+pseudoArtistExclusionSQL+`
 			GROUP BY rp.episode_id, rp.artist_name
 		) g
 		LEFT JOIN artists a ON a.id = g.artist_id

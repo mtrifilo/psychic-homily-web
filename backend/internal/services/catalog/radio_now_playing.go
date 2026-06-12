@@ -551,7 +551,8 @@ func (s *RadioService) episodePlayRows(episodeID uint) ([]nowPlayingPlayRow, err
 // walk plays most-recent-first, de-duplicate by name (case-insensitive),
 // cap at the hop limit. skipLast drops the final row (the archive payload's
 // "current" track); skipArtistName seeds the dedup set (the live payload's
-// current artist).
+// current artist). WFMU "Music behind DJ:" segment rows are skipped — the
+// hops exist to surface artists, not background-music log entries (PSY-1078).
 func recentArtistsFromPlayRows(rows []nowPlayingPlayRow, skipLast bool, skipArtistName string) []contracts.RadioEpisodePreviewArtist {
 	out := []contracts.RadioEpisodePreviewArtist{}
 	seen := make(map[string]bool)
@@ -563,6 +564,9 @@ func recentArtistsFromPlayRows(rows []nowPlayingPlayRow, skipLast bool, skipArti
 			continue
 		}
 		row := rows[i]
+		if isPseudoArtistName(row.ArtistName) {
+			continue
+		}
 		key := recentArtistKey(row.ArtistName)
 		if key == "" || seen[key] {
 			continue
