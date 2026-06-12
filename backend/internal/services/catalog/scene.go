@@ -675,7 +675,7 @@ func (s *SceneService) GetSceneGraph(city, state string, types []string) (*contr
 	}
 
 	// 4. Batch query upcoming-show-count for every node (mirror GetArtistGraph §4).
-	upcomingByArtist := batchUpcomingShowCount(s.db, artistIDs)
+	upcomingByArtist := s.batchUpcomingShowCount(artistIDs)
 
 	// 5. Query in-scope relationships — both endpoints in the scene's artist set.
 	var links []sceneRelationshipRow

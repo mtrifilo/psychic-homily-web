@@ -371,9 +371,12 @@ func festivalTierClusterID(tier catalogm.BillingTier) string {
 // detail JSONB keeps the same shape ({festival_names, count,
 // most_recent_year}) so the frontend edge tooltip renders unchanged.
 //
-// No edge cap: the pair space is bounded by festivalGraphMaxNodes and the
-// requirement of a shared festival outside this one keeps real-world counts
-// sparse.
+// No edge cap: the pair space is hard-bounded by festivalGraphMaxNodes
+// (C(150,2) = 11,175 pairs worst case). Note the densest realistic case is
+// NOT rare: consecutive editions of the same series share large lineup
+// chunks, so every returning pair gets an edge via the prior edition. If
+// payload size becomes a problem there, add a LIMIT on this query (it is
+// already ordered strongest-edge-first).
 func (s *FestivalService) queryFestivalGraphCobillEdges(festivalID uint, lineupIDs []uint) ([]contracts.FestivalGraphLink, error) {
 	if len(lineupIDs) < 2 {
 		return nil, nil
