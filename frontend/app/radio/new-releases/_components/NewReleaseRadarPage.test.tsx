@@ -114,6 +114,28 @@ describe('NewReleaseRadarPage', () => {
     )
   })
 
+  it('keeps a disabled "Loading…" control mounted while a limit bump is in flight', () => {
+    // keepPreviousData serves the OLD full page (20 rows) against the NEW
+    // limit (40) while fetching — the control must not flicker out.
+    const fullPage = {
+      releases: Array.from({ length: 20 }, (_, i) =>
+        makeEntry({ artist_name: `Artist ${i}` })
+      ),
+      count: 20,
+    }
+    mockUseNewReleaseRadar.mockImplementation((opts: { limit?: number }) => ({
+      data: fullPage,
+      isLoading: false,
+      // The bumped-limit query is in flight; the old page is the placeholder.
+      isFetching: (opts?.limit ?? 20) > 20,
+      error: null,
+    }))
+    render(<NewReleaseRadarPage />)
+
+    fireEvent.click(screen.getByRole('button', { name: 'More releases' }))
+    expect(screen.getByRole('button', { name: 'Loading…' })).toBeDisabled()
+  })
+
   it('hides the load-more control when the radar comes back short', () => {
     setReleases([makeEntry()])
     render(<NewReleaseRadarPage />)

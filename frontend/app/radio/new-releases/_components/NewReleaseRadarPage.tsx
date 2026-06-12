@@ -33,7 +33,11 @@ export default function NewReleaseRadarPage() {
   const releases = data?.releases ?? []
 
   // A short page means the radar is exhausted; a full page may have more.
-  const canLoadMore = releases.length >= limit && limit < MAX_LIMIT
+  // While a limit bump is in flight, keepPreviousData serves the OLD (short)
+  // page against the NEW limit — keep the control mounted so it shows its
+  // disabled "Loading…" state instead of flickering out and back.
+  const canLoadMore =
+    (releases.length >= limit || isFetching) && limit < MAX_LIMIT
 
   return (
     <div className="flex min-h-screen items-start justify-center">
@@ -64,7 +68,7 @@ export default function NewReleaseRadarPage() {
           </div>
         )}
 
-        {!isLoading && error != null && (
+        {!isLoading && !!error && (
           <p className="py-6 text-sm text-muted-foreground">
             Couldn&apos;t load the new release radar.
           </p>
