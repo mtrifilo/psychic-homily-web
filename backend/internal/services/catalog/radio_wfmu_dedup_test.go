@@ -302,12 +302,47 @@ func (s *WFMUDedupIntegrationTestSuite) TestConfirm_IsIdempotent() {
 	s.Equal(playsAfterFirst, s.countRows("radio_plays"))
 }
 
+func (s *WFMUDedupIntegrationTestSuite) TestRicherEpisodeCopy_DecidedByActualPlays_NotStaleCounter() {
+	// The merge keeps whichever duplicate episode copy has more REAL
+	// radio_plays rows. A stale/inflated play_count column must not decide
+	// which play history survives.
+	winnerShow := s.createShow("wfmu-drummer", "Counter Test", "ct-drummer", "CT", nil)
+	loserShow := s.createShow("wfmu", "Counter Test", "ct-wfmu", "CT", nil)
+
+	// Winner's copy: 2 real plays, but a lying play_count of 9.
+	winnerEp := s.createEpisodeWithPlays(winnerShow.ID, "2026-04-01", "300", 2)
+	s.Require().NoError(s.db.Model(&catalogm.RadioEpisode{}).Where("id = ?", winnerEp.ID).Update("play_count", 9).Error)
+	// Loser's copy: 5 real plays, but a stale play_count of 0.
+	loserEp := s.createEpisodeWithPlays(loserShow.ID, "2026-04-01", "300", 5)
+	s.Require().NoError(s.db.Model(&catalogm.RadioEpisode{}).Where("id = ?", loserEp.ID).Update("play_count", 0).Error)
+
+	_, err := DedupWFMUFamilyShows(s.db, map[string]string{"CT": "wfmu-drummer"}, false)
+	s.Require().NoError(err)
+
+	// The loser's 5-play copy survived; the winner's 2-play copy is gone.
+	var surviving []catalogm.RadioEpisode
+	s.Require().NoError(s.db.Where("show_id = ?", winnerShow.ID).Find(&surviving).Error)
+	s.Require().Len(surviving, 1)
+	s.Equal(loserEp.ID, surviving[0].ID)
+	var plays int64
+	s.Require().NoError(s.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", surviving[0].ID).Count(&plays).Error)
+	s.Equal(int64(5), plays)
+}
+
 func (s *WFMUDedupIntegrationTestSuite) TestSingleMisplacedShow_IsReassignedNotDeleted() {
 	// A show that exists ONLY on the flagship but is owned by a channel
 	// (e.g. Bodega Pop airing on Give the Drummer Radio) moves station —
 	// keeping its row, episodes, and slug intact.
 	show := s.createShow("wfmu", "Solo Channel Show", "solo-show", "SOLO", nil)
 	ep := s.createEpisodeWithPlays(show.ID, "2026-03-01", "solo-ep", 4)
+	job := catalogm.RadioImportJob{
+		ShowID:    show.ID,
+		StationID: s.stationID("wfmu"),
+		Since:     "2026-03-01",
+		Until:     "2026-03-31",
+		Status:    catalogm.RadioImportJobStatusCompleted,
+	}
+	s.Require().NoError(s.db.Create(&job).Error)
 
 	result, err := DedupWFMUFamilyShows(s.db, map[string]string{"SOLO": "wfmu-sheena"}, false)
 	s.Require().NoError(err)
@@ -318,6 +353,12 @@ func (s *WFMUDedupIntegrationTestSuite) TestSingleMisplacedShow_IsReassignedNotD
 	var reloaded catalogm.RadioShow
 	s.Require().NoError(s.db.First(&reloaded, show.ID).Error)
 	s.Equal(s.stationID("wfmu-sheena"), reloaded.StationID)
+
+	// The reassigned show's own import jobs follow it to the new station.
+	var reloadedJob catalogm.RadioImportJob
+	s.Require().NoError(s.db.First(&reloadedJob, job.ID).Error)
+	s.Equal(s.stationID("wfmu-sheena"), reloadedJob.StationID)
+	s.Equal(show.ID, reloadedJob.ShowID)
 
 	var playCount int64
 	s.Require().NoError(s.db.Model(&catalogm.RadioPlay{}).Where("episode_id = ?", ep.ID).Count(&playCount).Error)

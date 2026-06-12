@@ -43,7 +43,6 @@ var WFMUFamilySlugs = []string{
 
 // WFMUDedupStationCounts aggregates per-station outcomes of a dedup run.
 type WFMUDedupStationCounts struct {
-	StationID         uint
 	ShowsKept         int // canonical rows that ended up on this station
 	ShowsReassignedIn int // rows moved onto this station from a sibling
 	ShowsDeleted      int // duplicate rows deleted from this station
@@ -123,7 +122,7 @@ func runWFMUDedup(tx *gorm.DB, ownership map[string]string, result *WFMUDedupRes
 		stationIDs = append(stationIDs, st.ID)
 	}
 	for _, slug := range WFMUFamilySlugs {
-		result.PerStation[slug] = &WFMUDedupStationCounts{StationID: stationIDBySlug[slug]}
+		result.PerStation[slug] = &WFMUDedupStationCounts{}
 	}
 
 	// Group every family show row by external code.
@@ -181,6 +180,15 @@ func runWFMUDedup(tx *gorm.DB, ownership map[string]string, result *WFMUDedupRes
 				Update("station_id", ownerID).Error; err != nil {
 				return fmt.Errorf("reassigning show id=%d to station %s: %w", winner.ID, ownerSlug, err)
 			}
+			// Keep the denormalized station_id on the winner's own import
+			// jobs consistent with its new home (loser-pointing jobs were
+			// already re-pointed during the merges above).
+			res := tx.Model(&catalogm.RadioImportJob{}).Where("show_id = ?", winner.ID).
+				Update("station_id", ownerID)
+			if res.Error != nil {
+				return fmt.Errorf("updating import jobs for reassigned show id=%d: %w", winner.ID, res.Error)
+			}
+			result.PerStation[ownerSlug].JobsReassigned += int(res.RowsAffected)
 			result.PerStation[ownerSlug].ShowsReassignedIn++
 		}
 		result.PerStation[ownerSlug].ShowsKept++
@@ -236,7 +244,9 @@ func mergeWFMUDuplicateShow(
 	loserStationCounts := result.PerStation[slugByStationID[loser.StationID]]
 	ownerCounts := result.PerStation[ownerSlug]
 
-	// 1a. Winner copies beaten by a richer loser copy.
+	// 1a. Winner copies beaten by a richer loser copy. Richness compares
+	// actual radio_plays rows, not the denormalized play_count column — a
+	// stale counter must never decide which copy's play history survives.
 	res := tx.Exec(`
 		DELETE FROM radio_episodes w
 		WHERE w.show_id = ?
@@ -245,7 +255,8 @@ func mergeWFMUDuplicateShow(
 			WHERE l.show_id = ?
 			  AND l.air_date = w.air_date
 			  AND COALESCE(l.external_id, '') = COALESCE(w.external_id, '')
-			  AND l.play_count > w.play_count
+			  AND (SELECT COUNT(*) FROM radio_plays WHERE episode_id = l.id) >
+			      (SELECT COUNT(*) FROM radio_plays WHERE episode_id = w.id)
 		  )`, winner.ID, loser.ID)
 	if res.Error != nil {
 		return fmt.Errorf("deleting outplayed winner episodes: %w", res.Error)
