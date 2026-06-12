@@ -152,8 +152,9 @@ describe('CookieConsentBanner', () => {
     // the space once consent is given and the bar unmounts.
     it('reserves body bottom padding while visible and clears it on unmount', () => {
       const { unmount } = render(<CookieConsentBanner />)
-      // jsdom reports offsetHeight 0; the contract is that SOME padding is set.
-      expect(document.body.style.paddingBottom).toBe('0px')
+      // jsdom reports offsetHeight 0, so the value is '0px' here; the contract
+      // under test is that SOME padding is set while the bar is mounted.
+      expect(document.body.style.paddingBottom).not.toBe('')
 
       unmount()
       expect(document.body.style.paddingBottom).toBe('')
@@ -161,7 +162,7 @@ describe('CookieConsentBanner', () => {
 
     it('clears reserved body padding when consent is given (banner hides)', () => {
       const { rerender } = render(<CookieConsentBanner />)
-      expect(document.body.style.paddingBottom).toBe('0px')
+      expect(document.body.style.paddingBottom).not.toBe('')
 
       mockUseCookieConsent.mockReturnValue({
         showBanner: false,
