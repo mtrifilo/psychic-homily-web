@@ -1,9 +1,9 @@
 import React from 'react'
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { render, screen } from '@testing-library/react'
+import { screen } from '@testing-library/react'
 import { renderWithProviders } from '@/test/utils'
 import { ContributorProfilePreview } from './ContributorProfilePreview'
-import type { PublicProfileResponse, ContributionsResponse } from '@/features/auth'
+import type { PublicProfileResponse } from '@/features/auth'
 
 // Mock next/link
 vi.mock('next/link', () => ({
@@ -74,9 +74,7 @@ describe('ContributorProfilePreview', () => {
     })
 
     const { container } = renderWithProviders(<ContributorProfilePreview />)
-    // Skeleton has a specific class
-    const skeletons = container.querySelectorAll('[class*="animate-pulse"], [data-slot="skeleton"]')
-    // Alternative: the skeleton renders placeholder divs
+    // The skeleton renders placeholder divs
     expect(container.querySelector('.space-y-6')).toBeInTheDocument()
   })
 
@@ -147,7 +145,7 @@ describe('ContributorProfilePreview', () => {
     expect(screen.getByText('?')).toBeInTheDocument()
   })
 
-  it('shows "View Public Profile" button when profile is public', () => {
+  it('shows the ● Public pill when profile is public (board H)', () => {
     mockUseOwnContributorProfile.mockReturnValue({
       data: makeProfile({
         profile_visibility: 'public',
@@ -157,28 +155,28 @@ describe('ContributorProfilePreview', () => {
     })
 
     renderWithProviders(<ContributorProfilePreview />)
-    const link = screen.getByText('View Public Profile').closest('a')
-    expect(link).toHaveAttribute('href', '/users/testuser')
-  })
-
-  it('hides "View Public Profile" button when profile is private', () => {
-    mockUseOwnContributorProfile.mockReturnValue({
-      data: makeProfile({ profile_visibility: 'private' }),
-      isLoading: false,
-    })
-
-    renderWithProviders(<ContributorProfilePreview />)
+    expect(screen.getByLabelText('Profile is public')).toHaveTextContent(
+      'Public'
+    )
+    // The card heading + View-Public-Profile button were dropped per board H
+    // (the page header carries the public-profile link since PSY-1054).
     expect(screen.queryByText('View Public Profile')).not.toBeInTheDocument()
+    expect(
+      screen.queryByText('Your Contributor Profile')
+    ).not.toBeInTheDocument()
   })
 
-  it('shows "Profile is private" notice when profile is private', () => {
+  it('shows the ● Private pill when profile is private', () => {
     mockUseOwnContributorProfile.mockReturnValue({
       data: makeProfile({ profile_visibility: 'private' }),
       isLoading: false,
     })
 
     renderWithProviders(<ContributorProfilePreview />)
-    expect(screen.getByText('Profile is private')).toBeInTheDocument()
+    expect(screen.getByLabelText('Profile is private')).toHaveTextContent(
+      'Private'
+    )
+    expect(screen.queryByText('View Public Profile')).not.toBeInTheDocument()
   })
 
   it('shows joined date', () => {
@@ -434,7 +432,7 @@ describe('ContributorProfilePreview', () => {
     )
   })
 
-  it('hides "View Public Profile" when username is missing', () => {
+  it('never renders the removed View Public Profile button (dropped per board H)', () => {
     mockUseOwnContributorProfile.mockReturnValue({
       data: makeProfile({
         profile_visibility: 'public',

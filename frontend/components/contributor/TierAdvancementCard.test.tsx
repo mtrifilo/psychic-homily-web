@@ -20,11 +20,13 @@ vi.mock('next/link', () => ({
 }))
 
 describe('TierAdvancementCard', () => {
-  it('renders the card title and the Award icon header', () => {
+  it('renders the board-H header: sentence-case title + tier badge', () => {
     render(<TierAdvancementCard tier="new_user" />)
-    expect(screen.getByText('Contributor Tier')).toBeInTheDocument()
-    // "Your tier:" label appears next to the current badge
-    expect(screen.getByText('Your tier:')).toBeInTheDocument()
+    expect(screen.getByText('Contributor tier')).toBeInTheDocument()
+    // The current-tier badge sits in the header row (the old "Your tier:"
+    // label was dropped per board H).
+    expect(screen.getByText('New User')).toBeInTheDocument()
+    expect(screen.queryByText('Your tier:')).not.toBeInTheDocument()
   })
 
   it('renders the current tier badge for new_user with next-tier requirements', () => {
@@ -92,7 +94,7 @@ describe('TierAdvancementCard', () => {
     ({ tier, currentLabel, nextLabel, requirementCount }) => {
       const { container } = render(<TierAdvancementCard tier={tier} />)
 
-      // Current tier label appears once next to "Your tier:"
+      // Current tier badge renders in the header row (board H)
       expect(screen.getByText(currentLabel)).toBeInTheDocument()
       // Next tier label appears in the "Next:" block
       expect(screen.getByText(nextLabel)).toBeInTheDocument()
