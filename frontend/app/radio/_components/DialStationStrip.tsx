@@ -45,7 +45,7 @@ interface DialStationStripProps {
 export function DialStationStrip({ station }: DialStationStripProps) {
   const {
     station: detail,
-    nowPlayingShowDetail,
+    nowPlayingShow,
     latestEpisode,
   } = useStationOverview(station.slug)
 
@@ -64,8 +64,8 @@ export function DialStationStrip({ station }: DialStationStripProps) {
     .join(' · ')
 
   const livePlaylistUrl =
-    nowPlayingShowDetail && latestEpisode
-      ? `/radio/${station.slug}/${nowPlayingShowDetail.slug}/${latestEpisode.air_date}`
+    nowPlayingShow && latestEpisode
+      ? `/radio/${station.slug}/${nowPlayingShow.slug}/${latestEpisode.air_date}`
       : null
 
   return (
