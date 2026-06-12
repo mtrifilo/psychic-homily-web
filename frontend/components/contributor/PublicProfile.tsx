@@ -215,7 +215,13 @@ export function PublicProfile({ username }: PublicProfileProps) {
     )
   }
 
-  const displayName = profile.first_name || profile.username
+  // Rendered-name chain: display_name → first_name → username. display_name
+  // leads, matching the backend attribution resolver (PSY-1063); the TAIL
+  // deliberately differs from the resolver (which prefers username over
+  // first_name) — on the profile header the handle already renders on the
+  // @username line, so repeating it as the big name would be redundant.
+  const displayName =
+    profile.display_name || profile.first_name || profile.username
   const hasBio = Boolean(profile.bio)
   const visibleSections = (profile.sections ?? []).filter(s => s.is_visible)
   const hasSections = visibleSections.length > 0

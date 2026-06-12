@@ -83,6 +83,7 @@ interface UserProfile {
     email: string
     username?: string
     name?: string
+    display_name?: string
     first_name?: string
     last_name?: string
     bio?: string
@@ -292,9 +293,10 @@ export const useProfile = () => {
   })
 }
 
-// Update profile identity fields (username, name, bio)
+// Update profile identity fields (username, display name, bio; first/last accepted for legacy callers)
 interface UpdateProfileInput {
   username?: string
+  display_name?: string
   first_name?: string
   last_name?: string
   bio?: string

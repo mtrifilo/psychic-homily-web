@@ -3574,6 +3574,21 @@ func TestUpdateProfileHandler_UsernameInvalidChars(t *testing.T) {
 	}
 }
 
+func TestUpdateProfileHandler_DisplayNameTooLong(t *testing.T) {
+	h := testAuthHandler()
+	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})
+	req := &UpdateProfileRequest{}
+	req.Body.DisplayName = strPtr(strings.Repeat("x", 101))
+
+	resp, err := h.UpdateProfileHandler(ctx, req)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Body.Success || resp.Body.ErrorCode != autherrors.CodeValidationFailed {
+		t.Errorf("expected validation failure, got success=%v code=%s", resp.Body.Success, resp.Body.ErrorCode)
+	}
+}
+
 func TestUpdateProfileHandler_BioTooLong(t *testing.T) {
 	h := testAuthHandler()
 	ctx := testhelpers.CtxWithUser(&authm.User{ID: 1})

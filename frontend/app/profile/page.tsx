@@ -31,8 +31,7 @@ function ProfileTab() {
   const updateProfile = useUpdateProfile()
 
   const [username, setUsername] = useState('')
-  const [firstName, setFirstName] = useState('')
-  const [lastName, setLastName] = useState('')
+  const [displayName, setDisplayName] = useState('')
   const [bio, setBio] = useState('')
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -48,8 +47,7 @@ function ProfileTab() {
   if (user && user !== prevUser) {
     setPrevUser(user)
     setUsername(user.username || '')
-    setFirstName(user.first_name || '')
-    setLastName(user.last_name || '')
+    setDisplayName(user.display_name || '')
     setBio(user.bio || '')
   }
 
@@ -60,8 +58,7 @@ function ProfileTab() {
     try {
       await updateProfile.mutateAsync({
         username: username.trim() || undefined,
-        first_name: firstName.trim(),
-        last_name: lastName.trim(),
+        display_name: displayName.trim(),
         bio: bio.trim(),
       })
       setSaved(true)
@@ -78,8 +75,7 @@ function ProfileTab() {
   // Check if form has changes compared to current user data
   const hasChanges =
     (username.trim() !== (user?.username || '')) ||
-    (firstName.trim() !== (user?.first_name || '')) ||
-    (lastName.trim() !== (user?.last_name || '')) ||
+    (displayName.trim() !== (user?.display_name || '')) ||
     (bio.trim() !== (user?.bio || ''))
 
   return (
@@ -115,25 +111,19 @@ function ProfileTab() {
               </p>
             </div>
 
-            <div className="grid grid-cols-2 gap-4">
-              <div className="space-y-2">
-                <Label htmlFor="first_name">First Name</Label>
-                <Input
-                  id="first_name"
-                  placeholder="First name"
-                  value={firstName}
-                  onChange={(e) => setFirstName(e.target.value)}
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="last_name">Last Name</Label>
-                <Input
-                  id="last_name"
-                  placeholder="Last name"
-                  value={lastName}
-                  onChange={(e) => setLastName(e.target.value)}
-                />
-              </div>
+            <div className="space-y-2">
+              <Label htmlFor="display_name">Display name</Label>
+              <Input
+                id="display_name"
+                placeholder="Display name"
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                maxLength={100}
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown on your public profile and attributions. Leave blank to
+                fall back to your username.
+              </p>
             </div>
 
             <div className="space-y-2">

@@ -2,6 +2,22 @@ import { describe, it, expect } from 'vitest'
 import { getUserInitials, getUserDisplayName, isExternal, navLinks } from './nav-utils'
 
 describe('getUserInitials', () => {
+  it('prefers display_name, deriving first+last-word initials (PSY-1063)', () => {
+    expect(
+      getUserInitials({
+        display_name: 'Desert Lifer',
+        first_name: 'John',
+        email: 'j@test.com',
+      })
+    ).toBe('DL')
+  })
+
+  it('derives a single initial from a one-word display_name', () => {
+    expect(
+      getUserInitials({ display_name: 'Mononym', email: 'j@test.com' })
+    ).toBe('M')
+  })
+
   it('returns first + last initials when both names are provided', () => {
     expect(getUserInitials({ first_name: 'John', last_name: 'Doe', email: 'j@test.com' })).toBe('JD')
   })
@@ -36,6 +52,16 @@ describe('getUserInitials', () => {
 })
 
 describe('getUserDisplayName', () => {
+  it('prefers display_name over first/last (PSY-1063)', () => {
+    expect(
+      getUserDisplayName({
+        display_name: 'Desert Lifer',
+        first_name: 'John',
+        last_name: 'Doe',
+      })
+    ).toBe('Desert Lifer')
+  })
+
   it('returns full name when both first and last are provided', () => {
     expect(getUserDisplayName({ first_name: 'John', last_name: 'Doe' })).toBe('John Doe')
   })

@@ -50,8 +50,7 @@ const AUTHED_USER = {
   id: '1',
   email: 'alice@example.com',
   username: 'alice',
-  first_name: 'Alice',
-  last_name: 'Anderson',
+  display_name: 'Alice Anderson',
   bio: 'I like loud guitars.',
   email_verified: true,
   user_tier: 'trusted',
@@ -139,11 +138,8 @@ describe('ProfilePage (PSY-683)', () => {
         'alice'
       )
       expect(
-        (screen.getByLabelText(/first name/i) as HTMLInputElement).value
-      ).toBe('Alice')
-      expect((screen.getByLabelText(/last name/i) as HTMLInputElement).value).toBe(
-        'Anderson'
-      )
+        (screen.getByLabelText(/display name/i) as HTMLInputElement).value
+      ).toBe('Alice Anderson')
       expect((screen.getByLabelText(/^bio$/i) as HTMLTextAreaElement).value).toBe(
         'I like loud guitars.'
       )
@@ -186,8 +182,7 @@ describe('ProfilePage (PSY-683)', () => {
       await waitFor(() => {
         expect(mockMutateAsync).toHaveBeenCalledWith({
           username: 'alice',
-          first_name: 'Alice',
-          last_name: 'Anderson',
+          display_name: 'Alice Anderson',
           bio: 'new bio',
         })
       })

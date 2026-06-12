@@ -31,10 +31,11 @@ const AnonymousUserName = "Anonymous"
 // ResolveUserName returns the display name for a user. Never empty.
 //
 // Resolution chain, in order:
-//  1. user.Username                            (preferred, also the URL slug)
-//  2. user.FirstName [+ " " + user.LastName]   (human full name)
-//  3. local-part of user.Email (before "@")    (last-resort handle)
-//  4. AnonymousUserName                        (terminal fallback)
+//  1. user.DisplayName                         (explicitly user-chosen, PSY-1063)
+//  2. user.Username                            (also the URL slug)
+//  3. user.FirstName [+ " " + user.LastName]   (human full name)
+//  4. local-part of user.Email (before "@")    (last-resort handle)
+//  5. AnonymousUserName                        (terminal fallback)
 //
 // nil-safe: returns AnonymousUserName when the user is nil or has ID 0.
 //
@@ -44,6 +45,9 @@ const AnonymousUserName = "Anonymous"
 func ResolveUserName(user *authm.User) string {
 	if user == nil || user.ID == 0 {
 		return AnonymousUserName
+	}
+	if user.DisplayName != nil && *user.DisplayName != "" {
+		return *user.DisplayName
 	}
 	if user.Username != nil && *user.Username != "" {
 		return *user.Username
@@ -97,7 +101,7 @@ func BatchResolveUserNames(db *gorm.DB, userIDs []uint) (map[uint]string, error)
 	}
 
 	var users []authm.User
-	if err := db.Select("id, username, first_name, last_name, email").
+	if err := db.Select("id, username, display_name, first_name, last_name, email").
 		Where("id IN ?", userIDs).
 		Find(&users).Error; err != nil {
 		return nil, err

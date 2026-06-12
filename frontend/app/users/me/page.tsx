@@ -60,7 +60,12 @@ export default function SelfProfilePage() {
   }
 
   const displayName =
-    user?.first_name || profile?.first_name || user?.email || 'You'
+    user?.display_name ||
+    profile?.display_name ||
+    user?.first_name ||
+    profile?.first_name ||
+    user?.email ||
+    'You'
 
   return (
     <div className="container max-w-6xl mx-auto px-4 py-10">

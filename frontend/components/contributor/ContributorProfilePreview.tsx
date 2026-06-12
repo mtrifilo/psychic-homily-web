@@ -63,7 +63,8 @@ export function ContributorProfilePreview() {
     )
   }
 
-  const displayName = profile.first_name || profile.username
+  const displayName =
+    profile.display_name || profile.first_name || profile.username
   const contributions = contributionsData?.contributions || []
   const isPublic = profile.profile_visibility === 'public'
 
