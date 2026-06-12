@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strings"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/danielgtaylor/huma/v2"
@@ -2151,6 +2152,14 @@ func (h *AuthHandler) UpdateProfileHandler(ctx context.Context, req *UpdateProfi
 
 	if req.Body.DisplayName != nil {
 		displayName := strings.TrimSpace(*req.Body.DisplayName)
+		// Reject control characters (incl. newlines): the name is interpolated
+		// into notification subjects/bodies and attribution surfaces.
+		if strings.ContainsFunc(displayName, unicode.IsControl) {
+			resp.Body.Success = false
+			resp.Body.Message = "Display name contains unsupported characters"
+			resp.Body.ErrorCode = autherrors.CodeValidationFailed
+			return resp, nil
+		}
 		// 100 CHARACTERS (not bytes) — must stay in sync with the users
 		// migration's VARCHAR(100) and the /profile form's maxLength=100.
 		if utf8.RuneCountInString(displayName) > 100 {

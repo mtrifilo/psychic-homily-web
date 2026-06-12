@@ -64,10 +64,13 @@ export function AdminUserCard({ user }: AdminUserCardProps) {
         <div className="mt-0.5 flex items-center gap-2 text-xs text-muted-foreground">
           {user.username && <span>@{user.username}</span>}
           {user.username &&
-            (user.first_name || user.last_name) && <span>&middot;</span>}
-          {(user.first_name || user.last_name) && (
+            (user.display_name || user.first_name || user.last_name) && (
+              <span>&middot;</span>
+            )}
+          {(user.display_name || user.first_name || user.last_name) && (
             <span>
-              {[user.first_name, user.last_name].filter(Boolean).join(' ')}
+              {user.display_name ||
+                [user.first_name, user.last_name].filter(Boolean).join(' ')}
             </span>
           )}
         </div>

@@ -42,6 +42,11 @@ const AnonymousUserName = "Anonymous"
 // Use this whenever a backend response needs a label for a user. Pair with
 // ResolveUserUsername when you also want a profile-link slug — the username
 // form returns *string so consumers can omit the link when no username is set.
+//
+// CALLERS USING A COLUMN-RESTRICTED Select MUST LOAD EVERY CHAIN COLUMN:
+// id, username, display_name, first_name, last_name, email. Omitting one
+// silently disables that branch (the field scans as nil) — this bit two
+// call sites when display_name was added (PSY-1063).
 func ResolveUserName(user *authm.User) string {
 	if user == nil || user.ID == 0 {
 		return AnonymousUserName
