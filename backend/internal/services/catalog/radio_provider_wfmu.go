@@ -55,6 +55,13 @@ func (p *WFMUProvider) Close() {
 }
 
 // DiscoverShows returns all WFMU programs by parsing the DJ index page.
+//
+// NOTE (PSY-1073): the DJ index is one flat list spanning the 91.1 broadcast
+// AND the three stream-only channels (Give the Drummer, Rock'n'Soul,
+// Sheena's Jungle Room). Importing this unfiltered for every WFMU-family
+// station duplicated the full 574-show catalog under each channel. Import
+// flows must use DiscoverShowsForStation (the stationScopedShowDiscoverer
+// path in radio_import.go) so each station only receives its own shows.
 func (p *WFMUProvider) DiscoverShows() ([]RadioShowImport, error) {
 	<-p.rateLimiter.C
 
@@ -69,6 +76,189 @@ func (p *WFMUProvider) DiscoverShows() ([]RadioShowImport, error) {
 	}
 
 	return shows, nil
+}
+
+// =============================================================================
+// Station-scoped discovery (PSY-1073)
+// =============================================================================
+
+// wfmuStationChannels maps our seeded radio_stations.slug values (migration
+// 20260502023012) to WFMU channel keys. A WFMU-family station whose slug is
+// not in this map cannot be scope-discovered — DiscoverShowsForStation returns
+// an error rather than silently importing the whole catalog again.
+var wfmuStationChannels = map[string]string{
+	"wfmu":                wfmuLiveChannelMain,
+	"wfmu-drummer":        wfmuLiveChannelDrummer,
+	"wfmu-rocknsoulradio": wfmuLiveChannelRockSoul,
+	"wfmu-sheena":         wfmuLiveChannelSheena,
+}
+
+// wfmuChannelSchedulePaths are the wfmu.org pages that enumerate which
+// programs air on each stream. /table is the 91.1 weekly schedule; the three
+// channel landing pages each carry the channel's program roster (anchors with
+// relative /playlists/{CODE} hrefs — description cross-references use
+// absolute URLs and are excluded by extractShowCode's anchored regex).
+// Verified live 2026-06-11: rosters are mutually disjoint and all roster
+// codes exist in the DJ index.
+var wfmuChannelSchedulePaths = map[string]string{
+	wfmuLiveChannelMain:     "/table",
+	wfmuLiveChannelDrummer:  "/drummer",
+	wfmuLiveChannelRockSoul: "/rocknsoulradio",
+	wfmuLiveChannelSheena:   "/sheena",
+}
+
+// wfmuChannelArtifactShows pins the channel-stream-as-show rows to their
+// channels. These DJ-index entries are named after the stream itself and
+// their "episodes" are the channel's whole-stream playlists aired between
+// live-DJ slots. They are not all present on their channel's roster page
+// (only RQ is, as of 2026-06-11), so without this override they would
+// default to the flagship — which is exactly the "Rock'n'Soul Radio is the
+// most-active show on every station" artifact PSY-1073 fixes. Their episode
+// and play data stays intact, scoped to the channel station only.
+var wfmuChannelArtifactShows = map[string]string{
+	"GW": wfmuLiveChannelDrummer,  // "Give The Drummer Radio"
+	"RQ": wfmuLiveChannelRockSoul, // "Rock'n'Soul Radio"
+	"JZ": wfmuLiveChannelSheena,   // "Sheena's Jungle Room Stream"
+}
+
+// DiscoverShowsForStation returns only the WFMU programs that air on the
+// given station's stream (PSY-1073). stationSlug must be one of the seeded
+// WFMU-family slugs in wfmuStationChannels.
+//
+// Ownership rule (channels keep only shows provably theirs; everything
+// ambiguous or unknown defaults to the flagship):
+//  1. Channel-stream artifact codes (wfmuChannelArtifactShows) → their channel.
+//  2. Codes on the 91.1 /table schedule → flagship, even when a channel also
+//     rebroadcasts them (e.g. five 91.1 shows rerun on Rock'n'Soul).
+//  3. Codes on exactly one channel roster page → that channel.
+//  4. Everything else (defunct shows, codes on no roster) → flagship.
+func (p *WFMUProvider) DiscoverShowsForStation(stationSlug string) ([]RadioShowImport, error) {
+	channel, ok := wfmuStationChannels[stationSlug]
+	if !ok {
+		return nil, fmt.Errorf("unknown WFMU station slug %q: add it to wfmuStationChannels before discovery", stationSlug)
+	}
+
+	allShows, err := p.DiscoverShows()
+	if err != nil {
+		return nil, err
+	}
+
+	channelByCode, err := p.fetchShowChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	var scoped []RadioShowImport
+	for _, show := range allShows {
+		owner, found := channelByCode[show.ExternalID]
+		if !found {
+			owner = wfmuLiveChannelMain // unknown/defunct → flagship
+		}
+		if owner == channel {
+			scoped = append(scoped, show)
+		}
+	}
+	return scoped, nil
+}
+
+// FetchShowOwnership returns external show code → owning station slug for
+// every code visible on WFMU's schedule pages, plus the channel-stream
+// artifact codes. Codes absent from the map belong to the flagship by
+// default. Used by cmd/dedup-radio-shows to compute the canonical owner for
+// existing duplicated rows with the same rule set as discovery.
+func (p *WFMUProvider) FetchShowOwnership() (map[string]string, error) {
+	channelByCode, err := p.fetchShowChannels()
+	if err != nil {
+		return nil, err
+	}
+
+	slugByChannel := make(map[string]string, len(wfmuStationChannels))
+	for slug, ch := range wfmuStationChannels {
+		slugByChannel[ch] = slug
+	}
+
+	ownership := make(map[string]string, len(channelByCode))
+	for code, ch := range channelByCode {
+		ownership[code] = slugByChannel[ch]
+	}
+	return ownership, nil
+}
+
+// fetchShowChannels fetches the four schedule pages and resolves each show
+// code to its owning channel per the DiscoverShowsForStation rule set.
+func (p *WFMUProvider) fetchShowChannels() (map[string]string, error) {
+	codesByChannel := make(map[string]map[string]bool, len(wfmuChannelSchedulePaths))
+	// Deterministic fetch order (map iteration order is random).
+	for _, channel := range []string{wfmuLiveChannelMain, wfmuLiveChannelDrummer, wfmuLiveChannelRockSoul, wfmuLiveChannelSheena} {
+		path := wfmuChannelSchedulePaths[channel]
+		<-p.rateLimiter.C
+		body, err := p.doGet(p.baseURL + path)
+		if err != nil {
+			return nil, fmt.Errorf("fetching %s schedule page %s: %w", channel, path, err)
+		}
+		codes, err := parseWFMUScheduleCodes(body)
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s schedule page %s: %w", channel, path, err)
+		}
+		if len(codes) == 0 {
+			// An empty roster means the page layout changed (or an error page
+			// slipped through with HTTP 200). Treating it as "this channel
+			// owns nothing" would silently dump the channel's shows on the
+			// flagship — fail loudly instead.
+			return nil, fmt.Errorf("no show codes found on %s schedule page %s: page layout may have changed", channel, path)
+		}
+		codesByChannel[channel] = codes
+	}
+
+	mainCodes := codesByChannel[wfmuLiveChannelMain]
+	channelByCode := make(map[string]string)
+	for code := range mainCodes {
+		channelByCode[code] = wfmuLiveChannelMain
+	}
+	for _, channel := range []string{wfmuLiveChannelDrummer, wfmuLiveChannelRockSoul, wfmuLiveChannelSheena} {
+		for code := range codesByChannel[channel] {
+			if mainCodes[code] {
+				continue // 91.1 broadcast wins over a channel rebroadcast
+			}
+			if existing, dup := channelByCode[code]; dup && existing != channel {
+				// On two channel rosters at once — ambiguous, default flagship.
+				channelByCode[code] = wfmuLiveChannelMain
+				continue
+			}
+			channelByCode[code] = channel
+		}
+	}
+	for code, channel := range wfmuChannelArtifactShows {
+		channelByCode[code] = channel
+	}
+	return channelByCode, nil
+}
+
+// parseWFMUScheduleCodes extracts the set of show codes linked from a WFMU
+// schedule page (/table or a channel landing page). Only anchors whose href
+// is exactly /playlists/{CODE} count — extractShowCode's anchored regex
+// excludes episode links, the index link, and absolute-URL cross-references
+// inside program descriptions.
+func parseWFMUScheduleCodes(body []byte) (map[string]bool, error) {
+	doc, err := html.Parse(strings.NewReader(string(body)))
+	if err != nil {
+		return nil, fmt.Errorf("parsing HTML: %w", err)
+	}
+
+	codes := make(map[string]bool)
+	var walk func(*html.Node)
+	walk = func(n *html.Node) {
+		if n.Type == html.ElementNode && n.Data == "a" {
+			if code := extractShowCode(getAttr(n, "href")); code != "" {
+				codes[code] = true
+			}
+		}
+		for c := n.FirstChild; c != nil; c = c.NextSibling {
+			walk(c)
+		}
+	}
+	walk(doc)
+	return codes, nil
 }
 
 // FetchNewEpisodes returns episodes for a WFMU show within [since, until].
