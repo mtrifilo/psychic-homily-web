@@ -14,9 +14,9 @@ interface UseStationEpisodesOptions {
 }
 
 /**
- * Latest playlists across all of a station's shows (PSY-1048), newest first,
- * with show + channel attribution on each row. A network flagship's feed
- * already includes its channel stations server-side.
+ * Latest playlists across all of a station's shows (PSY-1048), newest first.
+ * Strictly per-station (PSY-1074): a network flagship's feed contains only
+ * its own playlists — channel shows live under their own tabs.
  *
  * `keepPreviousData` so a "more playlists" limit bump re-renders the table in
  * place instead of flashing back to a loading state.

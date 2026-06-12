@@ -686,7 +686,7 @@ func (s *RadioService) GetEpisodeDetail(episodeID uint) (*contracts.RadioEpisode
 // =============================================================================
 
 // playsScope narrows a top-artists/labels aggregation query (radio_plays rp
-// joined to radio_episodes re) to a show or a station family, applied with
+// joined to radio_episodes re) to a show or a station, applied with
 // .Scopes(). The episode feeds use the separate episodeFeedScope type — see
 // its comment for why the two are not interchangeable.
 type playsScope func(*gorm.DB) *gorm.DB
@@ -697,10 +697,10 @@ func showScope(showID uint) playsScope {
 	}
 }
 
-func stationFamilyScope(stationIDs []uint) playsScope {
+func stationScope(stationID uint) playsScope {
 	return func(q *gorm.DB) *gorm.DB {
 		return q.Joins("JOIN radio_shows rsh ON rsh.id = re.show_id").
-			Where("rsh.station_id IN ?", stationIDs)
+			Where("rsh.station_id = ?", stationID)
 	}
 }
 
@@ -709,14 +709,14 @@ func (s *RadioService) GetTopArtistsForShow(showID uint, periodDays, limit int) 
 	return s.topArtists(showScope(showID), periodDays, limit)
 }
 
-// GetTopArtistsForStation returns the most-played artists across a station's
-// shows — for a network flagship, across the whole network (PSY-1048).
+// GetTopArtistsForStation returns the most-played artists across the
+// requested station's shows — strictly that station, never its network
+// siblings (PSY-1074).
 func (s *RadioService) GetTopArtistsForStation(stationID uint, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
-	ids, err := s.stationFamilyIDs(stationID)
-	if err != nil {
+	if err := s.verifyStationExists(stationID); err != nil {
 		return nil, err
 	}
-	return s.topArtists(stationFamilyScope(ids), periodDays, limit)
+	return s.topArtists(stationScope(stationID), periodDays, limit)
 }
 
 func (s *RadioService) topArtists(scope playsScope, periodDays, limit int) ([]*contracts.RadioTopArtistResponse, error) {
@@ -776,14 +776,14 @@ func (s *RadioService) GetTopLabelsForShow(showID uint, periodDays, limit int) (
 	return s.topLabels(showScope(showID), periodDays, limit)
 }
 
-// GetTopLabelsForStation returns the most-featured labels across a station's
-// shows — for a network flagship, across the whole network (PSY-1048).
+// GetTopLabelsForStation returns the most-featured labels across the
+// requested station's shows — strictly that station, never its network
+// siblings (PSY-1074).
 func (s *RadioService) GetTopLabelsForStation(stationID uint, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
-	ids, err := s.stationFamilyIDs(stationID)
-	if err != nil {
+	if err := s.verifyStationExists(stationID); err != nil {
 		return nil, err
 	}
-	return s.topLabels(stationFamilyScope(ids), periodDays, limit)
+	return s.topLabels(stationScope(stationID), periodDays, limit)
 }
 
 func (s *RadioService) topLabels(scope playsScope, periodDays, limit int) ([]*contracts.RadioTopLabelResponse, error) {
@@ -870,41 +870,21 @@ func (s *RadioService) ResolveStationIDBySlug(slug string) (uint, error) {
 	return station.ID, nil
 }
 
-// stationFamilyIDs returns the station IDs a station page aggregates over:
-// the station itself, plus — when the station is a network flagship — every
-// station in its network. Non-flagship channels and standalone stations
-// aggregate only themselves.
-//
-// Two deliberate policy notes (PSY-1048):
-//   - The family includes INACTIVE sibling channels: a flagship page is the
-//     network's archive, so retired channels' playlists stay reachable. The
-//     dial-wide feed (GetRecentEpisodes) separately filters to active
-//     stations — hub policy, not archive policy.
-//   - GetNewReleaseRadar keeps its pre-existing single-station semantics
-//     (rs.id = ?) and does NOT expand to the family; reconciling that is a
-//     product call deferred to PSY-1050.
-func (s *RadioService) stationFamilyIDs(stationID uint) ([]uint, error) {
+// verifyStationExists returns ErrRadioStationNotFound for an unknown station
+// ID — the station-scoped reads (episodes feed, top artists/labels) call it
+// so an unknown numeric ID surfaces as a 404 rather than an empty 200.
+func (s *RadioService) verifyStationExists(stationID uint) error {
 	if s.db == nil {
-		return nil, fmt.Errorf("database not initialized")
+		return fmt.Errorf("database not initialized")
 	}
 	var station catalogm.RadioStation
-	if err := s.db.Select("id", "is_flagship", "network_id").
-		First(&station, stationID).Error; err != nil {
+	if err := s.db.Select("id").First(&station, stationID).Error; err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
-			return nil, apperrors.ErrRadioStationNotFound(stationID)
+			return apperrors.ErrRadioStationNotFound(stationID)
 		}
-		return nil, fmt.Errorf("failed to get radio station: %w", err)
+		return fmt.Errorf("failed to get radio station: %w", err)
 	}
-	if !station.IsFlagship || station.NetworkID == nil {
-		return []uint{station.ID}, nil
-	}
-	var ids []uint
-	if err := s.db.Model(&catalogm.RadioStation{}).
-		Where("network_id = ?", *station.NetworkID).
-		Pluck("id", &ids).Error; err != nil {
-		return nil, fmt.Errorf("failed to list network stations: %w", err)
-	}
-	return ids, nil
+	return nil
 }
 
 // episodeArtistPreviews returns up to episodePreviewArtistCount distinct
@@ -959,15 +939,14 @@ func (s *RadioService) episodeArtistPreviews(episodeIDs []uint) (map[uint][]cont
 }
 
 // GetStationEpisodes returns the station's latest playlists across all of
-// its shows — for a network flagship, across all network channels — newest
-// first, with channel attribution per row.
+// its shows, newest first — strictly the requested station, never its
+// network siblings (PSY-1074); channel shows live under their own tabs.
 func (s *RadioService) GetStationEpisodes(stationID uint, limit, offset int) ([]*contracts.RadioStationEpisodeRow, int64, error) {
-	ids, err := s.stationFamilyIDs(stationID)
-	if err != nil {
+	if err := s.verifyStationExists(stationID); err != nil {
 		return nil, 0, err
 	}
 	return s.episodeRows(func(q *gorm.DB) *gorm.DB {
-		return q.Where("rsh.station_id IN ?", ids)
+		return q.Where("rsh.station_id = ?", stationID)
 	}, limit, offset)
 }
 
@@ -982,8 +961,8 @@ func (s *RadioService) GetRecentEpisodes(limit, offset int) ([]*contracts.RadioS
 
 // episodeFeedScope narrows the episode-feed base query (radio_episodes re
 // joined to radio_shows rsh and radio_stations rst). Distinct from
-// playsScope: stationFamilyScope embeds its own rsh join and would produce
-// a duplicate alias here.
+// playsScope: stationScope embeds its own rsh join and would produce a
+// duplicate alias here.
 type episodeFeedScope func(*gorm.DB) *gorm.DB
 
 // episodeRows is the shared core of the station-scoped and dial-wide feeds.

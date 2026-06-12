@@ -230,8 +230,9 @@ type RadioEpisodeResponse struct {
 }
 
 // RadioStationEpisodeRow is an episode row in the station-scoped and
-// dial-wide latest-playlists feeds: episode fields plus show and channel
-// (station) attribution (PSY-1048).
+// dial-wide latest-playlists feeds: episode fields plus show and station
+// attribution (PSY-1048). Station-scoped feeds are strictly per-station
+// (PSY-1074); the station_* fields exist for the dial-wide hub feed.
 type RadioStationEpisodeRow struct {
 	ID            uint                        `json:"id"`
 	Title         *string                     `json:"title"`

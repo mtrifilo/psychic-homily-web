@@ -373,8 +373,9 @@ export interface RadioEpisodePreviewArtist {
 
 /**
  * An episode row in the station-scoped and dial-wide latest-playlists feeds:
- * episode fields plus show and channel (station) attribution. A network
- * flagship's feed already includes its channels server-side.
+ * episode fields plus show and station attribution. Station-scoped feeds are
+ * strictly per-station (PSY-1074); the station_* fields exist for the
+ * dial-wide hub feed's STATION column.
  */
 export interface RadioStationEpisodeRow {
   id: number

@@ -259,7 +259,7 @@ func (h *RadioHandler) GetRadioStationNowPlayingHandler(ctx context.Context, req
 // ============================================================================
 
 // GetRadioStationEpisodesRequest lists a station's latest playlists across
-// all of its shows (and network channels, for a flagship).
+// all of its shows — strictly the requested station (PSY-1074).
 type GetRadioStationEpisodesRequest struct {
 	Slug   string `path:"slug" doc:"Radio station slug or numeric ID" example:"wfmu"`
 	Limit  int    `query:"limit" required:"false" minimum:"1" maximum:"100" default:"20" doc:"Max results (default 20)" example:"20"`
@@ -269,7 +269,7 @@ type GetRadioStationEpisodesRequest struct {
 // GetRadioStationEpisodesResponse is the station latest-playlists feed.
 type GetRadioStationEpisodesResponse struct {
 	Body struct {
-		Episodes []*contracts.RadioStationEpisodeRow `json:"episodes" doc:"Latest episodes across the station's shows, newest first, with channel attribution"`
+		Episodes []*contracts.RadioStationEpisodeRow `json:"episodes" doc:"Latest episodes across the station's shows, newest first"`
 		Total    int64                               `json:"total" doc:"Total number of episodes"`
 	}
 }

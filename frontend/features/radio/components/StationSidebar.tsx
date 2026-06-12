@@ -221,8 +221,8 @@ function TopLabelsBox({ stationSlug }: { stationSlug: string }) {
 }
 
 // ---------------------------------------------------------------------------
-// New Release Radar (station-filtered; existing endpoint, single-station
-// semantics — network-family expansion is a deferred product call)
+// New Release Radar (station-filtered; single-station semantics, consistent
+// with every other station-scoped read since PSY-1074)
 // ---------------------------------------------------------------------------
 
 function NewReleaseRadarBox({ station }: { station: RadioStationDetail }) {
