@@ -432,7 +432,7 @@ describe('ContributorProfilePreview', () => {
     )
   })
 
-  it('hides "View Public Profile" when username is missing', () => {
+  it('never renders the removed View Public Profile button (dropped per board H)', () => {
     mockUseOwnContributorProfile.mockReturnValue({
       data: makeProfile({
         profile_visibility: 'public',

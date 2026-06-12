@@ -94,7 +94,7 @@ describe('TierAdvancementCard', () => {
     ({ tier, currentLabel, nextLabel, requirementCount }) => {
       const { container } = render(<TierAdvancementCard tier={tier} />)
 
-      // Current tier label appears once next to "Your tier:"
+      // Current tier badge renders in the header row (board H)
       expect(screen.getByText(currentLabel)).toBeInTheDocument()
       // Next tier label appears in the "Next:" block
       expect(screen.getByText(nextLabel)).toBeInTheDocument()
