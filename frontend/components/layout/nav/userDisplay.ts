@@ -1,26 +1,6 @@
-export const navLinks = [
-  { href: '/shows', label: 'Shows' },
-  { href: '/artists', label: 'Artists' },
-  { href: '/venues', label: 'Venues' },
-  { href: '/blog', label: 'Blog' },
-  { href: '/dj-sets', label: 'DJ Sets' },
-  {
-    href: 'https://psychichomily.substack.com/',
-    label: 'Substack',
-    external: true,
-    prefetch: false as const,
-  },
-  // /submissions = contributor pending-edits feedback loop (PSY-600).
-  // Show submission has its own page at /shows/submit and is reachable
-  // from the Sidebar / CommandPalette / Contribute dashboard.
-  { href: '/submissions', label: 'My Submissions', prefetch: false as const },
-]
-
-export type NavLink = (typeof navLinks)[number]
-
-export function isExternal(link: NavLink): boolean {
-  return 'external' in link && link.external === true
-}
+// User-identity display helpers for the top-bar account cluster (UserMenu).
+// Moved verbatim from app/nav-utils.ts when the legacy top nav was removed
+// (PSY-1017) — UserMenu (PSY-1018) was the sole remaining consumer.
 
 export function getUserInitials(user: {
   display_name?: string

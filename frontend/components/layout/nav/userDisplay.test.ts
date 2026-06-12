@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { getUserInitials, getUserDisplayName, isExternal, navLinks } from './nav-utils'
+import { getUserInitials, getUserDisplayName } from './userDisplay'
 
 describe('getUserInitials', () => {
   it('prefers display_name, deriving first+last-word initials (PSY-1063)', () => {
@@ -80,24 +80,5 @@ describe('getUserDisplayName', () => {
 
   it('returns first name when last name is empty string', () => {
     expect(getUserDisplayName({ first_name: 'Alice', last_name: '' })).toBe('Alice')
-  })
-})
-
-describe('isExternal', () => {
-  it('returns true for a link with external: true', () => {
-    const substackLink = navLinks.find(l => l.label === 'Substack')!
-    expect(isExternal(substackLink)).toBe(true)
-  })
-
-  it('returns false for a standard internal link', () => {
-    const showsLink = navLinks.find(l => l.label === 'Shows')!
-    expect(isExternal(showsLink)).toBe(false)
-  })
-
-  it('returns false for all non-substack links', () => {
-    const internalLinks = navLinks.filter(l => l.label !== 'Substack')
-    for (const link of internalLinks) {
-      expect(isExternal(link)).toBe(false)
-    }
   })
 })

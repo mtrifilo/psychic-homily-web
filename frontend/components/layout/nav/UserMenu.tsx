@@ -13,7 +13,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
 import { useAuthContext } from '@/lib/context/AuthContext'
-import { getUserInitials, getUserDisplayName } from '@/app/nav-utils'
+import { getUserInitials, getUserDisplayName } from './userDisplay'
 import { NotificationBell } from '@/features/notifications'
 
 // The right-hand actions cluster. Signed in (PSY-1018, Figma 537:91): the
