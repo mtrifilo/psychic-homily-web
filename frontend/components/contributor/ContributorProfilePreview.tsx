@@ -1,16 +1,8 @@
 'use client'
 
-import Link from 'next/link'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Button } from '@/components/ui/button'
 import { Skeleton } from '@/components/ui/skeleton'
-import {
-  CalendarDays,
-  Clock,
-  ExternalLink,
-  TrendingUp,
-  Award,
-} from 'lucide-react'
+import { Clock, TrendingUp, Award } from 'lucide-react'
 import { UserTierBadge } from './UserTierBadge'
 import { ContributionStatsGrid } from './ContributionStatsGrid'
 import { ContributionTimeline } from './ContributionTimeline'
@@ -73,22 +65,11 @@ export function ContributorProfilePreview() {
 
   return (
     <div className="space-y-6">
-      {/* Profile Card */}
+      {/* Profile card (design board H): identity only — no card heading, no
+          View-Public-Profile button (the page header carries that link since
+          PSY-1054); profile_visibility renders as the corner pill. */}
       <Card>
-        <CardHeader className="pb-3">
-          <div className="flex items-center justify-between">
-            <CardTitle className="text-lg">Your Contributor Profile</CardTitle>
-            {isPublic && profile.username && (
-              <Link href={`/users/${profile.username}`}>
-                <Button variant="outline" size="sm" className="gap-1.5">
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  View Public Profile
-                </Button>
-              </Link>
-            )}
-          </div>
-        </CardHeader>
-        <CardContent>
+        <CardContent className="p-5">
           <div className="flex items-start gap-4">
             {/* Avatar */}
             {profile.avatar_url ? (
@@ -103,28 +84,34 @@ export function ContributorProfilePreview() {
               </div>
             )}
 
-            <div className="flex-1">
-              <div className="flex items-center gap-2 flex-wrap">
-                <h2 className="text-lg font-semibold">{displayName}</h2>
-                <UserTierBadge tier={profile.user_tier} />
-              </div>
-              {profile.username && (
-                <p className="text-sm text-muted-foreground">
-                  @{profile.username}
-                </p>
-              )}
-              <div className="flex items-center gap-4 mt-2 text-xs text-muted-foreground">
-                <span className="flex items-center gap-1">
-                  <CalendarDays className="h-3.5 w-3.5" />
-                  Joined {formatDate(profile.joined_at)}
-                </span>
-                {!isPublic && (
-                  <span className="text-pending-foreground">
-                    Profile is private
+            <div className="min-w-0 flex-1">
+              <h2 className="text-lg font-semibold">{displayName}</h2>
+              <div className="mt-0.5 flex items-center gap-2 flex-wrap">
+                {profile.username && (
+                  <span className="text-sm text-muted-foreground">
+                    @{profile.username}
                   </span>
                 )}
+                <UserTierBadge tier={profile.user_tier} />
               </div>
+              <p className="mt-2 font-mono text-xs text-muted-foreground">
+                Joined {formatDate(profile.joined_at)}
+              </p>
             </div>
+
+            <span
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-sm border border-border px-2 py-0.5 font-mono text-xs ${
+                isPublic ? 'text-foreground' : 'text-pending-foreground'
+              }`}
+              aria-label={
+                isPublic ? 'Profile is public' : 'Profile is private'
+              }
+            >
+              <span aria-hidden className="text-[8px] leading-none">
+                ●
+              </span>
+              {isPublic ? 'Public' : 'Private'}
+            </span>
           </div>
         </CardContent>
       </Card>

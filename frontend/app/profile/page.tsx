@@ -83,9 +83,6 @@ function ProfileTab() {
       {/* Contributor profile preview */}
       <ContributorProfilePreview />
 
-      {/* Tier + advancement requirements */}
-      <TierAdvancementCard tier={(user?.user_tier ?? 'new_user')} />
-
       {/* Identity edit form */}
       <Card>
         <CardHeader>
@@ -174,6 +171,9 @@ function ProfileTab() {
           </div>
         </CardContent>
       </Card>
+
+      {/* Tier + advancement requirements (board-H order: after the form) */}
+      <TierAdvancementCard tier={(user?.user_tier ?? 'new_user')} />
 
       {/* Account details (read-only) */}
       <Card>
